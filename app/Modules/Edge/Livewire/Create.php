@@ -10,7 +10,6 @@ use App\Livewire\Concerns\DispatchesToastNotifications;
 use App\Livewire\Concerns\RefreshesLinkedSourceControlAccounts;
 use App\Modules\Edge\Livewire\Concerns\ManagesEdgeDeploy;
 use App\Modules\Edge\Livewire\Concerns\ManagesEdgeFormPrefills;
-use App\Modules\Edge\Livewire\Concerns\ManagesEdgeHybridOrigin;
 use App\Modules\Edge\Livewire\Concerns\ManagesEdgeRefPicker;
 use App\Modules\Edge\Livewire\Concerns\ManagesEdgeRepoDetection;
 use App\Livewire\Forms\EdgeCreateForm;
@@ -42,7 +41,6 @@ class Create extends Component
     use DispatchesToastNotifications;
     use ManagesEdgeDeploy;
     use ManagesEdgeFormPrefills;
-    use ManagesEdgeHybridOrigin;
     use ManagesEdgeRefPicker;
     use ManagesEdgeRepoDetection;
     use RefreshesLinkedSourceControlAccounts;

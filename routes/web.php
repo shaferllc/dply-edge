@@ -202,7 +202,6 @@ use App\Models\Site;
 use App\Modules\Billing\Livewire\Analytics as BillingAnalytics;
 use App\Modules\Billing\Livewire\Invoices as BillingInvoices;
 use App\Modules\Billing\Livewire\Show as BillingShow;
-use App\Modules\Docs\Http\Controllers\DocsController;
 use App\Modules\Edge\Http\Controllers\EdgeAuditLogExportController;
 use App\Modules\Edge\Http\Controllers\EdgeDeployHookController;
 use App\Modules\Edge\Http\Controllers\EdgeFormIngestController;
@@ -220,31 +219,10 @@ use App\Modules\Edge\Livewire\Import;
 use App\Modules\Edge\Livewire\Index as EdgeIndex;
 use App\Modules\Edge\Livewire\Templates;
 use App\Modules\Edge\Livewire\Usage;
-use App\Modules\Feedback\Http\Controllers\FeedbackScreenshotController;
-use App\Modules\Feedback\Livewire\Admin\Index as AdminFeedbackIndex;
-use App\Modules\Imports\Livewire\Forge\Inventory;
-use App\Modules\Imports\Livewire\Parity as ImportParity;
-use App\Modules\Imports\Livewire\Ploi\Inventory as PloiInventory;
-use App\Modules\Imports\Livewire\Ploi\MigrationProgress;
-use App\Modules\Launch\Livewire\Create as LaunchesCreate;
-use App\Modules\Launch\Livewire\FullStack as LaunchesFullStack;
-use App\Modules\Launch\Livewire\Path as LaunchesPath;
-use App\Modules\Launch\Livewire\StandbyBlueprint as LaunchesStandbyBlueprint;
-use App\Modules\Marketplace\Livewire\Index as MarketplaceIndex;
-use App\Modules\Marketplace\Livewire\Scripts\Create as ScriptsCreate;
-use App\Modules\Marketplace\Livewire\Scripts\Edit as ScriptsEdit;
-use App\Modules\Marketplace\Livewire\Scripts\Index as ScriptsIndex;
-use App\Modules\Marketplace\Livewire\Scripts\Marketplace as ScriptsMarketplace;
-use App\Modules\OpsCopilot\Livewire\OpsCopilot as InfrastructureOpsCopilot;
-use App\Modules\Projects\Livewire\Index as ProjectsIndex;
-use App\Modules\Projects\Livewire\Show as ProjectsShow;
 use App\Modules\Queue\Livewire\QueueNamespaceShow as QueuesShow;
 use App\Modules\Queue\Livewire\Queues as QueuesIndex;
 use App\Modules\Realtime\Livewire\Realtime as OrganizationsRealtime;
 use App\Modules\Realtime\Livewire\RealtimeAppShow as OrganizationsRealtimeShow;
-use App\Modules\Referrals\Livewire\Referrals as ProfileReferrals;
-use App\Modules\Roadmap\Livewire\Admin\Index as AdminRoadmapIndex;
-use App\Modules\Roadmap\Livewire\Index as RoadmapIndex;
 use App\Modules\Secrets\Livewire\Secrets as OrganizationsSecrets;
 use App\Modules\Serverless\Http\Controllers\ServerlessAssetController;
 use App\Modules\Serverless\Http\Controllers\ServerlessFunctionProxyController;
@@ -401,9 +379,6 @@ Route::get('/changelog', function () {
     return view('changelog');
 })->name('changelog');
 
-Route::livewire('/roadmap', RoadmapIndex::class)
-    ->middleware(['throttle:60,1'])
-    ->name('roadmap');
 
 Route::get('/migrate', function () {
     return view('migrate.index', [
@@ -485,9 +460,6 @@ Route::middleware(['auth', 'verified', 'org'])->group(function () {
         Route::livewire('/blast-radius', InfrastructureBlastRadius::class)->name('blast-radius');
         Route::livewire('/previews', InfrastructurePreviews::class)->name('previews');
         Route::livewire('/deploy-contracts', InfrastructureDeployContracts::class)->name('deploy-contracts');
-        Route::livewire('/copilot', InfrastructureOpsCopilot::class)
-            ->middleware('feature:global.ops_copilot')
-            ->name('copilot');
     });
 
     // Legacy /fleet/* URLs (bookmarks, docs, CLI output) -> /infrastructure/*.
@@ -505,9 +477,6 @@ Route::middleware(['auth', 'verified', 'org'])->group(function () {
             Route::livewire('/', AdminOverview::class)->name('overview');
             Route::livewire('/operations', AdminOperations::class)->name('operations');
             Route::livewire('/audit', AdminAuditLog::class)->name('audit');
-            Route::livewire('/roadmap', AdminRoadmapIndex::class)->name('roadmap.index');
-            Route::livewire('/feedback', AdminFeedbackIndex::class)->name('feedback.index');
-            Route::get('/feedback/{report}/screenshot', FeedbackScreenshotController::class)->name('feedback.screenshot');
             Route::livewire('/users', Index::class)->name('users.index');
             Route::post('/impersonate/{user}', [ImpersonationController::class, 'start'])->name('impersonate.start');
             Route::livewire('/flags/all', AdminAllFlags::class)->name('flags.all');
@@ -539,19 +508,10 @@ Route::middleware(['auth', 'verified', 'org'])->group(function () {
         });
     Route::redirect('/admin/dashboard', '/admin')->middleware('can:viewPlatformAdmin')->name('admin.dashboard');
     Route::middleware('feature:surface.marketplace')->group(function (): void {
-        Route::livewire('/marketplace', MarketplaceIndex::class)->name('marketplace.index');
     });
 
-    Route::get('/docs', [DocsController::class, 'index'])->name('docs.index');
-    Route::get('/docs/search-index.json', [DocsController::class, 'searchIndex'])->name('docs.search-index');
-    Route::get('/docs/connect-provider', [DocsController::class, 'connectProvider'])->name('docs.connect-provider');
-    Route::get('/docs/create-first-server', [DocsController::class, 'createFirstServer'])->name('docs.create-first-server');
-    Route::get('/docs/api', [DocsController::class, 'apiDocumentation'])->name('docs.api');
     // Slug is validated by the renderer (manifest + config fallback) — a kebab
     // pattern keeps the route from swallowing unrelated paths; unknown slugs 404.
-    Route::get('/docs/{slug}', [DocsController::class, 'markdown'])
-        ->where('slug', '[a-z0-9-]+')
-        ->name('docs.markdown');
 
     Route::redirect('/settings', '/settings/profile')->name('settings.index');
     Route::livewire('/settings/profile', SettingsHub::class)->name('settings.profile');
@@ -559,7 +519,6 @@ Route::middleware(['auth', 'verified', 'org'])->group(function () {
     Route::livewire('/notifications', NotificationsIndex::class)->name('notifications.index');
     Route::livewire('/deploy-sync', DeploySyncGroups::class)->name('deploy-sync.index');
 
-    Route::livewire('/profile/referrals', ProfileReferrals::class)->name('profile.referrals');
     Route::livewire('/profile/security', SettingsSecurity::class)->name('profile.security');
     Route::livewire('/profile/source-control', SettingsSourceControl::class)->name('profile.source-control');
     Route::livewire('/profile/ssh-keys', SettingsSshKeys::class)->name('profile.ssh-keys');
@@ -643,10 +602,6 @@ Route::middleware(['auth', 'verified', 'org'])->group(function () {
     });
 
     Route::middleware('feature:surface.scripts')->group(function (): void {
-        Route::livewire('scripts', ScriptsIndex::class)->name('scripts.index');
-        Route::livewire('scripts/marketplace', ScriptsMarketplace::class)->name('scripts.marketplace');
-        Route::livewire('scripts/create', ScriptsCreate::class)->name('scripts.create');
-        Route::livewire('scripts/{script}/edit', ScriptsEdit::class)->name('scripts.edit');
     });
 
     Route::livewire('sites', SitesIndex::class)->name('sites.index');
@@ -710,29 +665,15 @@ Route::middleware(['auth', 'verified', 'org'])->group(function () {
             return redirect()->to(ServerlessWorkspaceUrl::journey($site));
         })->name('serverless.journey.legacy');
     });
-    Route::livewire('imports/parity', ImportParity::class)->name('imports.parity');
-    Route::livewire('imports/ploi', PloiInventory::class)->name('imports.ploi.inventory');
-    Route::livewire('imports/ploi/migrations/{migration}', MigrationProgress::class)->name('imports.ploi.migration.progress');
-    Route::livewire('imports/forge', Inventory::class)->name('imports.forge.inventory');
     Route::middleware('feature:surface.projects')->group(function (): void {
-        Route::livewire('projects', ProjectsIndex::class)->name('projects.index');
-        Route::livewire('projects/{workspace}', ProjectsShow::class)->defaults('section', 'overview')->name('projects.show');
-        Route::livewire('projects/{workspace}/overview', ProjectsShow::class)->defaults('section', 'overview')->name('projects.overview');
-        Route::livewire('projects/{workspace}/resources', ProjectsShow::class)->defaults('section', 'resources')->name('projects.resources');
-        Route::livewire('projects/{workspace}/access', ProjectsShow::class)->defaults('section', 'access')->name('projects.access');
-        Route::livewire('projects/{workspace}/operations', ProjectsShow::class)->defaults('section', 'operations')->name('projects.operations');
-        Route::livewire('projects/{workspace}/delivery', ProjectsShow::class)->defaults('section', 'delivery')->name('projects.delivery');
     });
     Route::middleware('feature:surface.status_pages')->group(function (): void {
         Route::livewire('status-pages', StatusPagesIndex::class)->name('status-pages.index');
         Route::livewire('status-pages/{statusPage}', StatusPagesManage::class)->name('status-pages.manage');
     });
-    Route::livewire('launches/create', LaunchesCreate::class)->name('launches.create');
     Route::middleware('feature:launch.full_stack_wizard')->group(function (): void {
-        Route::livewire('launches/full-stack', LaunchesFullStack::class)->name('launches.full-stack');
     });
     Route::middleware('feature:launch.standby_blueprint')->group(function (): void {
-        Route::livewire('launches/standby', LaunchesStandbyBlueprint::class)->name('launches.standby');
     });
     // Container flow inversion (2026-05): the standalone container launcher is gone.
     // Container apps are now created server-first (host via /servers/create wizard,
@@ -740,10 +681,7 @@ Route::middleware(['auth', 'verified', 'org'])->group(function () {
     // one release as a 302 to the wizard so external bookmarks don't 404.
     Route::redirect('launches/containers/create', '/servers/create?host_target=docker', 302)->name('launches.containers.create');
     Route::middleware('feature:surface.serverless')->group(function (): void {
-        Route::livewire('launches/serverless', LaunchesPath::class)->defaults('path', 'serverless')->name('launches.serverless');
     });
-    Route::livewire('launches/kubernetes', LaunchesPath::class)->defaults('path', 'kubernetes')->name('launches.kubernetes');
-    Route::livewire('launches/cloud-network', LaunchesPath::class)->defaults('path', 'cloud-network')->name('launches.cloud-network');
 
     Route::livewire('servers', ServersIndex::class)->name('servers.index');
     Route::livewire('servers/import/digitalocean', ServersImportFromDigitalOcean::class)->name('servers.import.digitalocean');
