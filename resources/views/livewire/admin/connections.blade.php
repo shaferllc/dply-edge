@@ -1,24 +1,37 @@
-<div class="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
-    <div class="min-w-0">
-        <h1 class="text-xl font-semibold text-brand-ink">{{ __('Connections') }}</h1>
-        <p class="mt-1 max-w-2xl text-sm text-brand-moss">{{ __('Platform Slack, Discord, and Telegram apps. Once saved, organization notification pages show Add to Slack, Add to Discord, and Connect Telegram instead of a paste-a-webhook form. Values here overlay .env — this page never writes the env file.') }}</p>
-    </div>
+<div>
+    <x-breadcrumb-trail :items="[
+        ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
+        ['label' => __('Platform admin'), 'href' => route('admin.overview'), 'icon' => 'shield-check'],
+        ['label' => __('Connections'), 'icon' => 'puzzle-piece'],
+    ]" />
+
+    <x-profile-shell
+        class="mt-4"
+        :title="__('Connections')"
+        :description="__('Platform Slack, Discord, and Telegram apps. Once saved, organization notification pages show Add to Slack, Add to Discord, and Connect Telegram instead of a paste-a-webhook form. Values here overlay .env — this page never writes the env file.')"
+        icon="heroicon-o-puzzle-piece"
+    >
 
     {{-- Slack --}}
-    <section class="mt-6 rounded-2xl border border-brand-ink/10 bg-white/80 p-4 shadow-sm sm:p-5">
-        <div class="flex flex-wrap items-start justify-between gap-3">
-            <div>
-                <h2 class="text-sm font-semibold text-brand-ink">{{ __('Slack') }}</h2>
-                <p class="mt-1 text-xs text-brand-moss">{{ __('Register an app at api.slack.com/apps. Bot scopes: chat:write, chat:write.public, channels:read, groups:read, team:read. Turn on Manage Distribution so other workspaces can install.') }}</p>
-            </div>
-            <span @class([
-                'shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold',
-                'bg-emerald-100 text-emerald-800' => $this->status['slack']['ready'],
-                'bg-brand-ink/[0.06] text-brand-moss' => ! $this->status['slack']['ready'],
-            ])>{{ $this->status['slack']['ready'] ? __('Live') : __('Not configured') }}</span>
-        </div>
+    <section class="border-b border-brand-ink/10 last:border-0">
+        <x-workspace-panel-head
+            dense
+            icon="heroicon-o-chat-bubble-left-right"
+            :title="__('Slack')"
+        >
+            <x-slot:actions>
+                <span @class([
+                    'inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide',
+                    'bg-emerald-100 text-emerald-800' => $this->status['slack']['ready'],
+                    'bg-brand-ink/[0.06] text-brand-moss' => ! $this->status['slack']['ready'],
+                ])>{{ $this->status['slack']['ready'] ? __('Live') : __('Not configured') }}</span>
+            </x-slot:actions>
+        </x-workspace-panel-head>
 
-        <div class="mt-4 space-y-3">
+        <div class="px-3 py-3 sm:px-4">
+        <p class="text-xs text-brand-moss">{{ __('Register an app at api.slack.com/apps. Bot scopes: chat:write, chat:write.public, channels:read, groups:read, team:read. Turn on Manage Distribution so other workspaces can install.') }}</p>
+
+        <div class="mt-3 space-y-3">
             <div>
                 <label class="block text-xs font-medium text-brand-moss" for="slack-client-id">{{ __('Client ID') }}</label>
                 <input id="slack-client-id" type="text" wire:model="slack.client_id" autocomplete="off"
@@ -48,23 +61,29 @@
         @if ($this->status['slack']['last_error'])
             <p class="mt-3 text-xs text-brand-rust">{{ $this->status['slack']['last_error'] }}</p>
         @endif
+        </div>
     </section>
 
     {{-- Discord --}}
-    <section class="mt-6 rounded-2xl border border-brand-ink/10 bg-white/80 p-4 shadow-sm sm:p-5">
-        <div class="flex flex-wrap items-start justify-between gap-3">
-            <div>
-                <h2 class="text-sm font-semibold text-brand-ink">{{ __('Discord') }}</h2>
-                <p class="mt-1 text-xs text-brand-moss">{{ __('Create an application at discord.com/developers. Add the redirect under OAuth2, then reset the bot token. All three values are required — Discord does not return a bot token from the OAuth exchange.') }}</p>
-            </div>
-            <span @class([
-                'shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold',
-                'bg-emerald-100 text-emerald-800' => $this->status['discord']['ready'],
-                'bg-brand-ink/[0.06] text-brand-moss' => ! $this->status['discord']['ready'],
-            ])>{{ $this->status['discord']['ready'] ? __('Live') : __('Not configured') }}</span>
-        </div>
+    <section class="border-b border-brand-ink/10 last:border-0">
+        <x-workspace-panel-head
+            dense
+            icon="heroicon-o-hashtag"
+            :title="__('Discord')"
+        >
+            <x-slot:actions>
+                <span @class([
+                    'inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide',
+                    'bg-emerald-100 text-emerald-800' => $this->status['discord']['ready'],
+                    'bg-brand-ink/[0.06] text-brand-moss' => ! $this->status['discord']['ready'],
+                ])>{{ $this->status['discord']['ready'] ? __('Live') : __('Not configured') }}</span>
+            </x-slot:actions>
+        </x-workspace-panel-head>
 
-        <div class="mt-4 space-y-3">
+        <div class="px-3 py-3 sm:px-4">
+        <p class="text-xs text-brand-moss">{{ __('Create an application at discord.com/developers. Add the redirect under OAuth2, then reset the bot token. All three values are required — Discord does not return a bot token from the OAuth exchange.') }}</p>
+
+        <div class="mt-3 space-y-3">
             <div>
                 <label class="block text-xs font-medium text-brand-moss" for="discord-client-id">{{ __('Client ID') }}</label>
                 <input id="discord-client-id" type="text" wire:model="discord.client_id" autocomplete="off"
@@ -97,23 +116,29 @@
         @if ($this->status['discord']['last_error'])
             <p class="mt-3 text-xs text-brand-rust">{{ $this->status['discord']['last_error'] }}</p>
         @endif
+        </div>
     </section>
 
     {{-- Telegram --}}
-    <section class="mt-6 rounded-2xl border border-brand-ink/10 bg-white/80 p-4 shadow-sm sm:p-5">
-        <div class="flex flex-wrap items-start justify-between gap-3">
-            <div>
-                <h2 class="text-sm font-semibold text-brand-ink">{{ __('Telegram') }}</h2>
-                <p class="mt-1 text-xs text-brand-moss">{{ __('Create a bot with @BotFather. Connect Telegram stays silent until a public HTTPS webhook is registered — save, then Register webhook (or php artisan telegram:set-webhook).') }}</p>
-            </div>
-            <span @class([
-                'shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold',
-                'bg-emerald-100 text-emerald-800' => $this->status['telegram']['ready'],
-                'bg-brand-ink/[0.06] text-brand-moss' => ! $this->status['telegram']['ready'],
-            ])>{{ $this->status['telegram']['ready'] ? __('Live') : __('Not configured') }}</span>
-        </div>
+    <section class="border-b border-brand-ink/10 last:border-0">
+        <x-workspace-panel-head
+            dense
+            icon="heroicon-o-paper-airplane"
+            :title="__('Telegram')"
+        >
+            <x-slot:actions>
+                <span @class([
+                    'inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide',
+                    'bg-emerald-100 text-emerald-800' => $this->status['telegram']['ready'],
+                    'bg-brand-ink/[0.06] text-brand-moss' => ! $this->status['telegram']['ready'],
+                ])>{{ $this->status['telegram']['ready'] ? __('Live') : __('Not configured') }}</span>
+            </x-slot:actions>
+        </x-workspace-panel-head>
 
-        <div class="mt-4 space-y-3">
+        <div class="px-3 py-3 sm:px-4">
+        <p class="text-xs text-brand-moss">{{ __('Create a bot with @BotFather. Connect Telegram stays silent until a public HTTPS webhook is registered — save, then Register webhook (or php artisan telegram:set-webhook).') }}</p>
+
+        <div class="mt-3 space-y-3">
             <x-password-field id="telegram-bot-token" label="{{ __('Bot token') }}" wire:model="telegram.bot_token" mono
                 placeholder="{{ $this->status['telegram']['hints']['bot_token'] !== '' ? __('Saved :hint — leave blank to keep', ['hint' => $this->status['telegram']['hints']['bot_token']]) : __('From @BotFather') }}" />
             @error('telegram.bot_token')<p class="mt-1 text-xs text-brand-rust">{{ $message }}</p>@enderror
@@ -142,5 +167,7 @@
         @if ($this->status['telegram']['last_error'])
             <p class="mt-3 text-xs text-brand-rust">{{ $this->status['telegram']['last_error'] }}</p>
         @endif
+        </div>
     </section>
+    </x-profile-shell>
 </div>

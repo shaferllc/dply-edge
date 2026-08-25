@@ -8,7 +8,6 @@ use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
-use App\Modules\Remediations\Jobs\ApplyRemediationJob;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -103,40 +102,6 @@ it('refuses to retry an error whose category is not retryable', function () {
     $this->withToken($token)
         ->postJson("/api/v1/sites/{$site->slug}/errors/{$event->id}/retry")
         ->assertStatus(422);
-});
-
-it('queues the recommended remediation', function () {
-    Queue::fake();
-    [$site, $token] = siteWithToken();
-    // A script-backed catalog entry — the kind ApplyRemediationJob can run.
-    $event = makeError($site, ['remediation_code' => 'php_ext_redis_missing']);
-
-    $this->withToken($token)
-        ->postJson("/api/v1/sites/{$site->slug}/errors/{$event->id}/remediate")
-        ->assertStatus(202)
-        ->assertJsonPath('data.queued', true);
-
-    Queue::assertPushed(ApplyRemediationJob::class);
-});
-
-it('refuses to auto-apply a fix that is only a link to a settings page', function () {
-    [$site, $token] = siteWithToken();
-    // git_auth_failed's only action is a route — nothing to run over SSH.
-    $event = makeError($site, ['remediation_code' => 'git_auth_failed']);
-
-    $this->withToken($token)
-        ->postJson("/api/v1/sites/{$site->slug}/errors/{$event->id}/remediate")
-        ->assertStatus(422);
-});
-
-it('rejects a remediation the error has no fix for', function () {
-    [$site, $token] = siteWithToken();
-    $event = makeError($site);
-
-    $this->withToken($token)
-        ->postJson("/api/v1/sites/{$site->slug}/errors/{$event->id}/remediate")
-        ->assertStatus(422)
-        ->assertJsonPath('message', 'No known fix for this error.');
 });
 
 it('needs sites.write to dismiss and commands.run to retry', function () {

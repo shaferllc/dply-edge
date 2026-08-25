@@ -1,6 +1,5 @@
 @include('livewire.sites.partials.edge.delivery-banner')
 
-<x-ops-copilot-callout :site="$site" compact class="mb-6" />
 
 @include('livewire.sites.partials.edge.hero')
 
@@ -119,7 +118,12 @@
                     @endforeach
                 </ul>
             @else
-                <p class="text-sm text-brand-moss">{{ __('No custom domains attached — your Edge hostname is used by default.') }}</p>
+                <x-empty-state
+                    borderless
+                    compact
+                    icon="heroicon-o-squares-2x2"
+                    :title="__('No custom domains attached — your Edge hostname is used by default')"
+                />
             @endif
         </div>
     </section>

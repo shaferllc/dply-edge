@@ -69,7 +69,25 @@ return [
     | The sidebar partial renders a heading whenever the group changes; only groups
     | that have at least one visible item produce a heading.
     */
+    /*
+     * Sidebar group labels, keyed by the `group` on each nav item.
+     *
+     * The first five are the Edge workspace's own grouping (2026-08-25). An
+     * edge site has 26 sections and the sidebar used to render them as one
+     * flat wall where "Deploys" and "Waiting room" carried equal weight. They
+     * are grouped by WHY you opened a section, not by which subsystem it
+     * configures — which is why Logs sits under Traffic (you open it when
+     * something looks wrong) rather than next to Build.
+     *
+     * The rest are the legacy VM/custom groups, still used by customItems().
+     */
     'nav_groups' => [
+        'ship' => 'Ship',
+        'traffic' => 'Traffic',
+        'protect' => 'Protect',
+        'extend' => 'Extend',
+        'manage' => 'Manage',
+
         'general' => 'General',
         'networking' => 'Networking',
         'site' => 'Site',

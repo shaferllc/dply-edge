@@ -2,13 +2,9 @@
 
 namespace Tests;
 
-use App\Actions\Servers\GetProviderCredentialsForServerType;
 use App\Modules\Billing\Services\EdgeOrganizationUsageReader;
 use App\Modules\Billing\Services\OrganizationBillingStateComputer;
-use App\Modules\Billing\Services\ServerlessOrganizationUsageReader;
 use App\Modules\Notifications\Services\AssignableNotificationChannels;
-use App\Services\Servers\ServerProviderCostEstimator;
-use App\Support\Servers\CacheServiceNetworkExposure;
 use App\Support\Sites\LinkedOrganizationSecrets;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
@@ -98,13 +94,9 @@ abstract class TestCase extends BaseTestCase
             // Best-effort cleanup only.
         }
 
-        GetProviderCredentialsForServerType::flushMemo();
         LinkedOrganizationSecrets::flushMemo();
-        CacheServiceNetworkExposure::flushManagedRuleMemo();
         OrganizationBillingStateComputer::flushMemo();
         EdgeOrganizationUsageReader::flushMemo();
-        ServerlessOrganizationUsageReader::flushMemo();
-        ServerProviderCostEstimator::flushCredentialMemo();
         AssignableNotificationChannels::flushMemo();
 
         parent::tearDown();

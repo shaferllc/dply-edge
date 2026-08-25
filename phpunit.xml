@@ -16,24 +16,13 @@
             <directory>tests/Feature</directory>
         </testsuite>
 
-        <!-- Tests that live beside the code they cover. Neither suite existed
-             here before 2026-08-16, so the ~124 test files under app/ were
-             never collected by `artisan test` — only by an explicit path
-             argument — and they rotted unnoticed.
+        <!-- Tests that live beside the code they cover. The Modules suite went
+             with the VM platform (every module-local test file was TaskRunner's),
+             so only the Actions framework's own tests remain here.
 
-             Modules: each module's own suite (app/Modules/<Domain>/Tests).
-             App:     the Actions framework's tests (app/Actions/**).
-
-             Both are registered so they are runnable and visible
-             (`composer test:modules` / `composer test:app`), but kept OUT of
-             defaultTestSuite above until the rot is paid down. As of
-             2026-08-16: Modules = 463 failed / 1273 passed; App = 16 of 23
-             files under app/Actions/Tests failing, AsHydratableTest segfaults.
-             Move a suite into defaultTestSuite once it is green. -->
-        <!-- @see composer.json scripts: test, test:modules, test:app, test:all -->
-        <testsuite name="Modules">
-            <directory suffix="Test.php">app/Modules</directory>
-        </testsuite>
+             Registered so it is runnable and visible (`composer test:app`), but
+             kept OUT of defaultTestSuite above until the rot is paid down. -->
+        <!-- @see composer.json scripts: test, test:app, test:all -->
         <testsuite name="App">
             <directory suffix="Test.php">app/Actions</directory>
         </testsuite>

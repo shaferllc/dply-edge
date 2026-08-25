@@ -108,7 +108,7 @@
                 <span class="forbidden-led forbidden-led--green h-2 w-2 rounded-full opacity-30"></span>
             </div>
 
-            <div class="absolute inset-x-8 top-14 rounded-2xl border border-brand-ink/10 bg-brand-cream/80 p-4 shadow-sm dark:bg-brand-cream/10">
+            <div class="absolute inset-x-8 top-14 rounded-2xl border border-brand-ink/10 bg-brand-cream/80 p-4 shadow-sm dark:bg-brand-sand/40/10">
                 <div class="flex items-center justify-between gap-3">
                     <div class="flex h-14 w-14 items-center justify-center rounded-2xl border border-brand-rust/25 bg-brand-rust/10 text-brand-rust dark:text-brand-gold">
                         <x-heroicon-o-lock-closed class="h-7 w-7" />
@@ -134,7 +134,7 @@
                 </div>
             </div>
 
-            <div class="absolute inset-x-10 bottom-16 rounded-xl border border-dashed border-brand-ink/15 bg-brand-cream/50 px-4 py-3 dark:bg-brand-cream/5">
+            <div class="absolute inset-x-10 bottom-16 rounded-xl border border-dashed border-brand-ink/15 bg-brand-cream/50 px-4 py-3 dark:bg-brand-sand/40/5">
                 <p class="text-2xs font-semibold uppercase tracking-widest text-brand-moss">{{ __('Badge reader') }}</p>
                 <div class="relative mt-3 h-12 rounded-lg bg-brand-ink/90">
                     <div class="forbidden-reader-beam absolute inset-y-1 left-2 w-8 rounded bg-brand-gold/35"></div>

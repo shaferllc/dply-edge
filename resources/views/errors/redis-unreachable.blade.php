@@ -13,7 +13,7 @@
         * { box-sizing: border-box; }
         body {
             margin: 0;
-            font-family: 'Instrument Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
             background: #f6f2eb;
             color: #1f2421;
             min-height: 100vh;

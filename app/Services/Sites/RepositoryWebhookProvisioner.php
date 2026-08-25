@@ -14,7 +14,6 @@ use Illuminate\Support\Str;
 class RepositoryWebhookProvisioner
 {
     public function __construct(
-        private SiteDeploySyncCoordinator $syncCoordinator,
         private ?GitIdentityResolver $resolver = null,
     ) {
         $this->resolver ??= app(GitIdentityResolver::class);
@@ -22,15 +21,7 @@ class RepositoryWebhookProvisioner
 
     public function canRegisterProviderHook(Site $site): bool
     {
-        $group = $this->syncCoordinator->findGroupForSite($site);
-        if ($group === null) {
-            return true;
-        }
-        if ($group->leader_site_id === null) {
-            return true;
-        }
-
-        return (string) $site->id === (string) $group->leader_site_id;
+        return true;
     }
 
     /**

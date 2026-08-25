@@ -63,7 +63,12 @@ export default {
         </div>
 
         @if ($dashboard_crons === [])
-            <p class="mt-3 text-sm text-brand-moss">{{ __('No dashboard schedules yet.') }}</p>
+            <x-empty-state
+                borderless
+                compact
+                icon="heroicon-o-clock"
+                :title="__('No dashboard schedules yet')"
+            />
         @else
             <ul class="mt-3 divide-y divide-brand-ink/8 rounded-xl border border-brand-ink/10">
                 @foreach ($dashboard_crons as $index => $entry)

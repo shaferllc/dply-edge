@@ -4,12 +4,8 @@ declare(strict_types=1);
 
 namespace App\Support\Errors;
 
-use App\Jobs\Concerns\WritesConsoleAction;
 use App\Models\ConsoleAction;
 use App\Models\ErrorEvent;
-use App\Models\SiteDeployment;
-use App\Modules\Notifications\Services\ServerErrorsNotificationDispatcher;
-use App\Modules\Serverless\Models\FunctionInvocation;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -30,13 +26,11 @@ class ErrorEventSyncer
 {
     public function __construct(
         private readonly ErrorEventRecorder $recorder,
-        private readonly ServerErrorsNotificationDispatcher $notifier,
     ) {}
 
     /**
-     * Record every failed ConsoleAction / SiteDeployment / FunctionInvocation
-     * finalized at or after $since that isn't already captured. Returns the
-     * number of new events.
+     * Record every failed ConsoleAction finalized at or after $since that
+     * isn't already captured. Returns the number of new events.
      */
     /**
      * @param  bool  $refresh  Re-record sources that already have an event too
@@ -49,9 +43,7 @@ class ErrorEventSyncer
      */
     public function sync(CarbonInterface $since, bool $refresh = false, bool $notify = true): int
     {
-        return $this->syncConsoleActions($since, $refresh, $notify)
-            + $this->syncDeployments($since, $refresh, $notify)
-            + $this->syncFunctionInvocations($since, $refresh, $notify);
+        return $this->syncConsoleActions($since, $refresh, $notify);
     }
 
     private function syncConsoleActions(CarbonInterface $since, bool $refresh = false, bool $notify = true): int
@@ -99,121 +91,6 @@ class ErrorEventSyncer
         return $count;
     }
 
-    private function syncDeployments(CarbonInterface $since, bool $refresh = false, bool $notify = true): int
-    {
-        $captured = SiteDeployment::query()->getModel()->getMorphClass();
-        $count = 0;
-
-        SiteDeployment::query()
-            ->where('status', SiteDeployment::STATUS_FAILED)
-            ->where('updated_at', '>=', $since)
-            ->when(! $refresh, fn ($q) => $q->whereNotExists(fn ($sub) => $sub->select(DB::raw(1))
-                ->from('error_events')
-                ->whereColumn('error_events.source_id', 'site_deployments.id')
-                ->where('error_events.source_type', $captured)))
-            ->with('site.server')
-            ->orderBy('id')
-            ->chunkById(200, function ($rows) use (&$count, $notify): void {
-                foreach ($rows as $row) {
-                    $event = $this->recorder->recordDeployment($row);
-                    if ($event) {
-                        $count++;
-                        $this->maybeNotify($event, $notify);
-                    }
-                }
-            });
-
-        return $count;
-    }
-
-    /**
-     * Fold failed serverless invocations into the stream. A function has no
-     * ConsoleAction and no SiteDeployment behind a runtime failure, so without
-     * this arm a function that 500s on every request shows nothing on the
-     * Errors tab it already mounts, nothing in `dply errors`, and fires no
-     * site-error notification — the only record is `dply serverless errors`.
-     *
-     * Folded exactly like uptime checks: while a site has an un-dismissed
-     * function_invocation event, further failures are absorbed. The first
-     * failure of a streak records and notifies; the streak closes when the
-     * function recovers (below) or the user dismisses it. Without the fold a
-     * busy broken function would mint an event per request.
-     *
-     * Windowed on created_at because function_invocations has no updated_at
-     * (it is written once). An async row that settles more than the window
-     * after it was created is missed — acceptable, since the fold means we
-     * only need to catch *one* failure of a streak, and the next one lands.
-     */
-    private function syncFunctionInvocations(CarbonInterface $since, bool $refresh = false, bool $notify = true): int
-    {
-        $captured = FunctionInvocation::query()->getModel()->getMorphClass();
-        $count = 0;
-
-        FunctionInvocation::query()
-            ->settled()
-            ->where('success', false)
-            ->where('created_at', '>=', $since)
-            ->when(! $refresh, fn ($q) => $q
-                ->whereNotExists(fn ($sub) => $sub->select(DB::raw(1))
-                    ->from('error_events')
-                    ->whereColumn('error_events.source_id', 'function_invocations.id')
-                    ->where('error_events.source_type', $captured))
-                ->whereNotExists(fn ($sub) => $sub->select(DB::raw(1))
-                    ->from('error_events')
-                    ->where('error_events.category', 'function_invocation')
-                    ->whereNull('error_events.dismissed_at')
-                    ->whereColumn('error_events.site_id', 'function_invocations.site_id')))
-            ->with('site')
-            ->orderBy('id')
-            ->chunkById(200, function ($rows) use (&$count, $notify): void {
-                foreach ($rows as $row) {
-                    $event = $this->recorder->recordFunctionInvocation($row);
-                    if ($event) {
-                        $count++;
-                        $this->maybeNotify($event, $notify);
-                    }
-                }
-            });
-
-        $this->resolveRecoveredFunctions();
-
-        return $count;
-    }
-
-    /**
-     * Close a site's folded function_invocation event once the function is
-     * healthy again, so the stream reflects current reality and the next
-     * outage opens a fresh event.
-     *
-     * Scoped to sites that actually have an open event (normally none), and
-     * recovery is judged on the newest *settled* invocation — a pending async
-     * row is not yet evidence either way.
-     */
-    private function resolveRecoveredFunctions(): void
-    {
-        $open = ErrorEvent::query()
-            ->where('category', 'function_invocation')
-            ->whereNull('dismissed_at')
-            ->whereNotNull('site_id')
-            ->get(['id', 'site_id']);
-
-        foreach ($open->groupBy('site_id') as $siteId => $events) {
-            $latest = FunctionInvocation::query()
-                ->where('site_id', $siteId)
-                ->settled()
-                ->orderByDesc('id')
-                ->value('success');
-
-            if ($latest !== true && $latest !== 1) {
-                continue;
-            }
-
-            ErrorEvent::query()
-                ->whereIn('id', $events->pluck('id'))
-                ->update(['dismissed_at' => now(), 'dismissed_by' => null]);
-        }
-    }
-
     /**
      * Notify only for genuinely new events (the recorder upserts on
      * source identity, so a re-sweep of the same failure is not "recently
@@ -222,14 +99,7 @@ class ErrorEventSyncer
      */
     private function maybeNotify(ErrorEvent $event, bool $notify): void
     {
-        if (! $notify || ! $event->wasRecentlyCreated) {
-            return;
-        }
-
-        try {
-            $this->notifier->notify($event);
-        } catch (Throwable $e) {
-            report($e);
-        }
+        // The server-errors notification dispatcher left with the VM platform.
+        // Edge site errors notify through the Edge module's own alerts.
     }
 }

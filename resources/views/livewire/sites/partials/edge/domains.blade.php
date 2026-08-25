@@ -138,7 +138,12 @@
                 @endforeach
             </ul>
         @else
-            <p class="text-sm text-brand-moss">{{ __('No custom domains yet.') }}</p>
+            <x-empty-state
+                borderless
+                compact
+                icon="heroicon-o-globe-alt"
+                :title="__('No custom domains yet')"
+            />
         @endif
 
         @can('update', $site)

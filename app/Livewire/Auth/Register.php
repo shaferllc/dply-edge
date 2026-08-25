@@ -8,7 +8,6 @@ use App\Livewire\Forms\RegisterForm;
 use App\Models\BetaInvitation;
 use App\Models\OrganizationInvitation;
 use App\Models\User;
-use App\Modules\Referrals\Services\ReferralAttribution;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Auth;
@@ -173,8 +172,6 @@ class Register extends Component
         // Redeem the invite: flag the new org beta + apply the beta feature
         // bundle (see BetaInvitation::redeem).
         $invitation?->redeem($user, $organization);
-
-        ReferralAttribution::assignFromSession($user);
 
         event(new Registered($user));
         Auth::login($user);

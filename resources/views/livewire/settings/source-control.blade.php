@@ -19,7 +19,6 @@
     @endpush
 
     <x-profile-shell
-        dense
         :title="__('Source control')"
         :description="__('Link GitHub, GitLab, or Bitbucket via OAuth, or paste a personal access token for self-hosted hosts and machine users.')"
         icon="heroicon-o-code-bracket"
@@ -191,7 +190,13 @@
                 {{-- Linked accounts + tokens list. --}}
                 @if (! $hasAny)
                     <div class="px-3 py-3 text-center sm:px-4">
-                        <p class="text-xs text-brand-mist">{{ __('No linked accounts or tokens yet.') }}</p>
+                        <x-empty-state
+                            borderless
+                            compact
+                            icon="heroicon-o-link"
+                            :title="__('No linked accounts or tokens yet')"
+                            :description="__('Connect a Git provider above so dply can read your repositories and deploy on push.')"
+                        />
                     </div>
                 @else
                     <ul class="divide-y divide-brand-ink/10 border-t border-brand-ink/10">
@@ -224,7 +229,7 @@
                                         @endif
                                         @if ($count > 0)
                                             <span class="text-brand-mist">·</span>
-                                            <a href="{{ route('sites.index') }}" wire:navigate class="font-semibold text-brand-sage hover:text-brand-ink">{{ trans_choice(':n site|:n sites', $count, ['n' => $count]) }}</a>
+                                            <a href="{{ route('edge.index') }}" wire:navigate class="font-semibold text-brand-sage hover:text-brand-ink">{{ trans_choice(':n site|:n sites', $count, ['n' => $count]) }}</a>
                                         @endif
                                     </p>
                                 </div>
@@ -240,7 +245,7 @@
                                             <x-heroicon-o-pencil-square class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                                             {{ __('Edit') }}
                                         </button>
-                                        <button type="button" wire:click="openConfirmActionModal('unlinkAccount', ['{{ $account->id }}'], @js(__('Unlink account')), @js(__('Unlink this account? Deploy keys and webhooks for sites using this identity are unchanged.')), @js(__('Unlink')), true)" class="inline-flex h-6 items-center gap-1 rounded-md border border-rose-200 bg-white px-2 text-xs font-semibold text-rose-700 shadow-sm hover:bg-rose-50">
+                                        <button type="button" wire:click="openConfirmActionModal('unlinkAccount', ['{{ $account->id }}'], @js(__('Unlink account')), @js(__('Unlink this account? Deploy keys and webhooks for sites using this identity are unchanged.')), @js(__('Unlink')), true)" class="inline-flex h-6 items-center gap-1 rounded-md border border-brand-ink/15 bg-white px-2.5 text-xs font-semibold text-brand-moss shadow-sm transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700">
                                             <x-heroicon-o-link-slash class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                                             {{ __('Unlink') }}
                                         </button>
@@ -331,7 +336,7 @@
                                             <x-heroicon-o-pencil-square class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                                             {{ __('Edit') }}
                                         </button>
-                                        <button type="button" wire:click="openConfirmActionModal('unlinkPat', ['{{ $pat->id }}'], @js(__('Remove token')), @js(__('Remove this personal access token? Sites using this token will lose access until re-pointed.')), @js(__('Remove')), true)" class="inline-flex h-6 items-center gap-1 rounded-md border border-rose-200 bg-white px-2 text-xs font-semibold text-rose-700 shadow-sm hover:bg-rose-50">
+                                        <button type="button" wire:click="openConfirmActionModal('unlinkPat', ['{{ $pat->id }}'], @js(__('Remove token')), @js(__('Remove this personal access token? Sites using this token will lose access until re-pointed.')), @js(__('Remove')), true)" class="inline-flex h-6 items-center gap-1 rounded-md border border-brand-ink/15 bg-white px-2.5 text-xs font-semibold text-brand-moss shadow-sm transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700">
                                             <x-heroicon-o-trash class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                                             {{ __('Remove') }}
                                         </button>

@@ -25,12 +25,9 @@
                     <ul class="space-y-2.5 text-brand-sand/80">
                         <li><a href="{{ url('/') }}" class="hover:text-brand-cream transition-colors">Overview</a></li>
                         <li><a href="{{ route('features') }}" class="hover:text-brand-cream transition-colors">Features</a></li>
-                        <li><a href="{{ route('roadmap') }}" class="hover:text-brand-cream transition-colors">Roadmap</a></li>
                         <li><a href="{{ route('changelog') }}" class="hover:text-brand-cream transition-colors">Changelog</a></li>
                         <li><a href="{{ route('pricing') }}" class="hover:text-brand-cream transition-colors">Pricing</a></li>
                         <li><a href="{{ route('migrate.index') }}" class="hover:text-brand-cream transition-colors">Migrate</a></li>
-                        <li><a href="{{ route('docs.index') }}" class="hover:text-brand-cream transition-colors">Docs</a></li>
-                        <li><a href="{{ route('blog.index') }}" class="hover:text-brand-cream transition-colors">Blog</a></li>
                         @auth
                             <li><a href="{{ route('dashboard') }}" class="hover:text-brand-cream transition-colors">Dashboard</a></li>
                         @else

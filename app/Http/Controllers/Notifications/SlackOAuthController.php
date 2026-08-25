@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Notifications;
 
 use App\Http\Controllers\Controller;
-use App\Http\Controllers\Credentials\BackupStorageOAuthController;
 use App\Models\Organization;
 use App\Models\SlackInstallation;
 use App\Models\Team;

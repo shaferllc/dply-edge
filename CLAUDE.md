@@ -1,7 +1,9 @@
 # CLAUDE.md — codebase map & navigation
 
-dply is a single Laravel app (one PostgreSQL DB) that manages servers, sites,
-and managed compute (Cloud / Edge / Serverless). This file is the **structural
+dply-edge is a single Laravel app (one PostgreSQL DB) that deploys **Edge
+sites** — first-party Netlify-style static/SSG/SSR hosting on Cloudflare R2 +
+Workers. It is the Edge-only cut of dply: the VM platform and every other
+product line are gone (see the cut note below). This file is the **structural
 map**: how the code is organized and where to find things. For product/UI
 **conventions** (styling, Livewire patterns, feature-flag layers, billing
 model, etc.) see **`AGENTS.md`**. For the *why* of the structure see
@@ -25,11 +27,11 @@ app/
   domain engines. Each owns its `Services/`, `Jobs/`, `Console/`, sometimes its
   own `Livewire/`+`Http/`, and is wired by a `<Domain>ServiceProvider` registered
   in `bootstrap/providers.php`.
-- **Shell** — `app/Livewire/*` (the server/site **workspace** components and their
-  domain `*/Concerns/` traits) and `app/Http/Controllers/*`. The shell deliberately
-  *stays* horizontal: workspace tabs, lifecycle UI, and routing orchestrate the
-  module engines. Capabilities extract *out* of the shell; the shell does not move
-  into modules.
+- **Shell** — `app/Livewire/*` (the edge site **workspace** under
+  `Livewire/Sites/Edge/*` plus auth/org/settings/admin pages) and
+  `app/Http/Controllers/*`. The shell deliberately *stays* horizontal: workspace
+  tabs, lifecycle UI, and routing orchestrate the module engines. Capabilities
+  extract *out* of the shell; the shell does not move into modules.
 - **Kernel** — `app/Models` hub models (`Site`, `Server`, `Organization`, `User`,
   `SiteBinding`) plus shared `Services/`, `Jobs/`, `Support/`, `Enums/`,
   the `app/Actions` framework (Attributes/Decorators/Concerns), and generic
@@ -62,43 +64,49 @@ unrelated WIP commit three days earlier, so the boundary was silently unchecked.
 
 | Module | What it owns |
 |--------|--------------|
-| **TaskRunner** | The SSH/remote-task framework — tasks, callbacks/webhooks, key-pair gen, resolved via `SshConnectionFactory`. Near-vendored (own Models/routes/config/Tests). All remote server control flows through here. |
-| **Deploy** | VM/site deploy engine — pipelines, phases, runtime detection, scheduled deploys. |
-| **Cloud** | Managed-container PaaS (DO App Platform / AWS App Runner) behind `EdgeBackend`. `Actions/`, `Backends/`, `Cloudflare/`, lifecycle `Jobs/`. |
-| **Edge** | First-party Netlify-style static/SSG platform (Cloudflare R2/Workers). Build/publish jobs, edge workspace UI, previews. |
-| **Serverless** | FaaS (DO Functions, web functions). Adapters, `Contracts/`, create/deploy jobs. Also owns published front-end asset delivery + its storage/egress meters, and per-site app buckets (`docs/adr/serverless-asset-delivery.md`). |
-| **Database** | Managed database engine — the `DatabaseBackend` abstraction and its DigitalOcean / Vultr / Neon / PlanetScale / Supabase / Upstash implementations, plus day-two operations on a cluster (users, resize, metrics, backups + restore-to-new, trusted-source grants). The record is still `App\Models\CloudDatabase`; the on-box `ServerDatabase` lifecycle stays in the kernel. |
-| **Billing** | Revenue engine — subscriptions, Stripe sync, metering, usage cost calculators (other modules depend on these). |
-| **Insights** | Site/server health, metrics, URL-health checks, cost observatory. |
-| **Imports** | Server/site import flows (e.g. DO import). |
+| **Edge** | The product. First-party Netlify-style static/SSG/SSR platform (Cloudflare R2/Workers): build + publish jobs, edge workspace UI, previews, custom domains, access rules, RUM/analytics roll-ups, and repo runtime detection (`Services/RuntimeDetection`, `Services/Manifest` — re-homed from the old Deploy module). |
+| **Billing** | Revenue engine — subscriptions, Stripe sync, Edge metering + usage cost calculators, bundled-product entitlements. |
+| **Notifications** | Notification channels + event dispatch. Also owns the **Laravel notification drivers** under `Channels/<Provider>/` (Intercom, PagerDuty, MicrosoftTeams) registered by `NotificationsServiceProvider`. |
 | **Secrets** | Secret vault — residency, escrow, age encryption. |
-| **Logs** | dply Logs server-log add-on — Vector aggregator install/policy, ClickHouse. |
-| **Certificates** | SSL/TLS issuance + renewal. |
-| **Backups** | Site/DB backup engine. |
-| **Snapshots** | Server/site snapshots. |
-| **Realtime** | Managed Pusher-compatible relay (Cloudflare Workers + DO). |
-| **Queue** | Managed job queue — SQS-compatible endpoint over a Postgres store, plus dply-owned worker fleets that autoscale on queue pressure (`docs/adr/dply-queue.md`, `docs/adr/managed-queue-workers.md`). |
-| **Notifications** | Notification channels + event dispatch (server errors, webserver ops). Also owns the **Laravel notification drivers** under `Channels/<Provider>/` (Intercom, PagerDuty, MicrosoftTeams) registered by `NotificationsServiceProvider` — the module's only provider, added when the first driver landed. |
-| **Marketplace** | Script/runbook marketplace + imports. |
-| **Roadmap** | Public roadmap + admin kanban + post-deploy AI auto-update. |
-| **Docs** | `/docs` front-matter docs system (manifest, contextual sidebar). |
-| **Blog** | Public build-in-public devlog at `/blog` — markdown in `content/blog/*.md` on the marketing shell. |
-| **Feedback** | Global feedback/bug slide-over + admin review. |
-| **Referrals** | Referral codes + Stripe-credit rewards. |
-| **Projects** | `Workspace` grouping container UI. |
-| **Scaffold** | Repo scaffolding pipeline. |
 | **SourceControl** | Git provider OAuth/integration (GitHub/GitLab/Bitbucket). |
-| **OpsCopilot** | Org-wide infra deploy-failure triage (`/infrastructure/copilot`). |
-| **Remediations** | Guided remediation jobs/services. |
-| **RemoteCli** | Remote CLI execution. |
-| **ConfigRevisions** | Config-file revision history. |
-| **Ai** | LLM synthesis/abstraction (`dply_ai`). |
-| **Launch** | Full-stack launch wizard. |
+| **Providers** | Cloud-provider API clients (Cloudflare, DigitalOcean, …) shared by every module that talks to a provider. |
+
+> **The Edge-only cut (2026-08-25).** The whole VM/server platform and every
+> non-Edge product line were removed: TaskRunner (SSH), Deploy, Serverless,
+> Database, Cache, Queue, Realtime, Logs, Backups, Certificates, RemoteCli and
+> Insights, along with their models, jobs, config, shell UI, routes, views and
+> tests. `app/` went 2207 → ~1150 files, models 190 → ~70, routes ~600 → ~196.
+> Earlier (2026-08-22) the Cloud PaaS, Imports, Snapshots, Marketplace/Scripts,
+> Roadmap, Docs, Blog, Feedback, Referrals, Projects, Scaffold, OpsCopilot,
+> Remediations, ConfigRevisions, Ai and Launch modules went the same way.
+>
+> Things worth knowing about the shape that is left:
+>
+> - **`Server` is a vestigial owner row.** `CreateEdgeSite` mints one per edge
+>   site (`meta.host_kind = dply_edge_delivery`) so the workspace URLs keep the
+>   `/servers/{server}/sites/{site}/…` shape they were built on. The model is a
+>   thin record — every SSH/provisioning method left with the VM platform.
+> - **`/dashboard` is a 302 to `/edge`.** One product surface, so the edge site
+>   list *is* the dashboard. The route name survives so `route('dashboard')`
+>   call sites still resolve.
+> - **Insights was deleted, not retargeted.** Every runner in it SSH'd into a
+>   box; none applied to an edge site. Health that survives is StatusPages +
+>   `SiteUptimeMonitor` URL checks.
+> - **The MCP surface kept only `ListSites` / `GetSite` / `ListServers`** — the
+>   env-push, deploy, database and log-shipping tools were all VM-shaped.
+> - **Migrations were kept, not deleted.** They still create the removed
+>   products' tables on a fresh DB. Dropping them is a data decision (existing
+>   installs), so it was left out; the three data migrations that rewrote rows
+>   through now-deleted models are no-ops with a comment saying why.
+> - **`app/Actions/*` (the generic Actions framework, ~330 files) is untouched
+>   and unreferenced by the app.** It is dead weight, but it is not VM code —
+>   deleting it is a separate call.
 
 ## Where do I put / find X?
 
-- **A server/site workspace tab or page** → shell (`app/Livewire/Servers|Sites/…`).
-  Even if it drives a module, the *UI* stays in the shell.
+- **An edge site workspace tab or page** → shell (`app/Livewire/Sites/Edge/…`),
+  rendered by `SiteWorkspaceController` via `EdgeSettings`. Even if it drives a
+  module, the *UI* stays in the shell.
 - **Domain business logic, an engine, a queued worker for a capability** → that
   capability's module (`app/Modules/<Domain>/Services|Jobs`).
 - **A CLI command for a capability** → the module's `Console/`, registered in its
@@ -106,8 +114,6 @@ unrelated WIP commit three days earlier, so the boundary was silently unchecked.
 - **A hub model** (Site/Server/Organization/User/SiteBinding) → stays in
   `app/Models` (kernel). A leaf model used ~only by one module *may* move into it
   (some still pending — see the ADR).
-- **Shared SSH/provisioning jobs** (provider IP polling, systemd, env-push, SSL on
-  a box) → shell `app/Jobs` — modules dispatch them but don't own them.
 - **A Livewire alias** for a moved full-page/embedded component → register it in the
   module ServiceProvider's `boot()` (`Livewire::component('alias', Class::class)`).
   Guard tests in `tests/Feature/LivewireAliasGuardTest.php` enforce resolution.
@@ -123,22 +129,26 @@ composer test           # includes the module-boundary check (tests/Unit/ModuleB
 
 ### Test suites
 
-`phpunit.xml` declares four suites; `defaultTestSuite` is `Unit,Feature`, so a
+`phpunit.xml` declares three suites; `defaultTestSuite` is `Unit,Feature`, so a
 bare `artisan test` runs exactly those two.
 
 ```
 composer test:unit / test:feature      # one suite
-composer test:modules                  # app/Modules/*/Tests   — NOT green yet
 composer test:app                      # app/Actions/**/tests  — NOT green yet
 composer test:arch                     # tests/Arch — Pest arch rules (~45s)
-composer test:all                      # all five
+composer test:all                      # all four
 composer test:parallel / test:coverage / test:profile
 ```
 
-`Modules` and `App` cover the ~124 test files that live next to their code.
-They went uncollected for a long time and rotted (see the comment in
-`phpunit.xml`); they are registered so they can be run and paid down, but stay
-out of the default run until green.
+The `Modules` suite is gone with the Edge cut — every module-local test file
+was TaskRunner's. `App` still covers the Actions framework's own tests, which
+went uncollected for a long time and rotted (see the comment in `phpunit.xml`);
+it is registered so it can be run and paid down, but stays out of the default
+run until green.
+
+**The suite has not been run since the cut.** 761 test files that referenced
+removed classes were deleted (1068 → 305); the survivors compile but are
+unverified.
 
 ### Fast local runs (Pest TIA)
 
@@ -166,14 +176,9 @@ must keep running the suite in full.
 
 ### Measuring coverage
 
-Coverage is **43.5%** of statements as of 2026-08-16 (`app/`, excluding the
-test dirs listed in `phpunit.xml`'s `<source>`) — 100,924 / 231,793.
-
-Adding the `Modules` suite (`--testsuite=Unit,Feature,Modules`) takes it to
-**44.2%**: TaskRunner alone jumps 6.0% → 22.0%, because all 73 module-local
-test files are TaskRunner's and none of them run by default. That is the
-single largest coverage lever left, but it drags in 463 failures — pay those
-down before moving the suite into `defaultTestSuite`.
+The last measured number (**43.5%** of statements, 2026-08-16) predates the
+Edge cut and is meaningless now — two thirds of both `app/` and `tests/` are
+gone. Re-measure before quoting a figure.
 
 ```
 composer test:coverage:clover   # ~7min, writes coverage.xml (gitignored)
@@ -211,15 +216,16 @@ costs ~45s and needs 2G — the file raises `memory_limit` itself, since PHPUnit
 `<ini>` setting overrides `php -d`. CI runs them as a separate step.
 
 The **module boundary is not** an arch rule: `tests/Unit/ModuleBoundaryTest.php`
-already owns it, with a BASELINE of tracked debt an arch rule would duplicate.
+already owns it. Its `BASELINE` is empty since the Edge cut — both entries were
+Feedback / Roadmap components, and those modules are gone.
 
 ### Test groups
 
-Every test carries a layer group (`unit`, `feature`, `app`, `modules`) plus
-domain groups derived from its filename and directory — `servers`, `sites`,
-`deploy`, `cloud`, `edge`, `serverless`, `billing`, `queue`, `console`,
-`webserver`, `containers`, `livewire`, and ~25 more. The map lives at the
-bottom of `tests/Pest.php`; add a token there rather than tagging files.
+Every test carries a layer group (`unit`, `feature`, `app`) plus domain groups
+derived from its filename and directory — `sites`, `edge`, `billing`,
+`console`, `livewire`, and ~25 more. The map at the bottom of `tests/Pest.php`
+still lists tokens for removed product lines; they simply match nothing. Add a
+token there rather than tagging files.
 
 ```
 php artisan test --group=servers
@@ -234,8 +240,10 @@ present — resolving them costs seconds per run, so unfiltered runs skip it.
 
 - **Never** `migrate:fresh` / `migrate:reset` / `db:wipe` on any env (incl. testing)
   without explicit permission.
-- **No SSH in the render/HTTP path** — always dispatch a queued job and poll
-  (PHP 30s `max_execution_time`); resolve via `SshConnectionFactory`, never `new`.
+- **There is no SSH here any more.** `SshConnectionFactory`, `TaskRunner` and
+  every remote-exec path left with the VM platform. Long work still belongs in
+  a queued job and not the render/HTTP path (PHP 30s `max_execution_time`) —
+  edge builds already work that way.
 - **Livewire single root** — full-page views with multiple top-level roots throw
   "Snapshot missing"; wrap in `<div class="contents">`.
 - The user **tests manually in the browser** — don't run the test suite unless asked.

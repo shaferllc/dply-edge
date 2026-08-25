@@ -37,7 +37,7 @@
             ],
         ])
 
-        <div class="mb-5 rounded-2xl border border-brand-ink/10 bg-white px-4 py-4 dark:bg-zinc-900/40 sm:px-5">
+        <div class="mb-5 rounded-2xl border border-brand-ink/10 bg-white px-4 py-4 dark:bg-brand-ink/95/40 sm:px-5">
             <p class="text-xs font-semibold uppercase tracking-[0.16em] text-brand-sage">{{ __('Modes') }}</p>
             <div class="mt-3 grid gap-3 sm:grid-cols-3">
                 <div @class([
@@ -71,7 +71,7 @@
 
             <div class="mt-4 rounded-xl border border-dashed border-brand-ink/15 bg-brand-sand/15 px-4 py-3">
                 <p class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('What blocked visitors see') }}</p>
-                <div class="mt-2 rounded-lg border border-brand-ink/10 bg-zinc-900 px-3 py-3 font-mono text-xs leading-relaxed text-zinc-100">
+                <div class="mt-2 rounded-lg border border-brand-ink/10 bg-brand-ink/95 px-3 py-3 font-mono text-xs leading-relaxed text-brand-sand">
                     <span class="text-rose-300">HTTP/1.1 403 Forbidden</span><br>
                     <span class="text-zinc-400">Forbidden — content is not available in this region (XX).</span>
                 </div>
@@ -88,7 +88,7 @@
                         {{ __('Updating…') }}
                     </span>
                 </div>
-                <select id="country-mode" wire:model.live="country_mode" wire:loading.attr="disabled" wire:target="country_mode" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink focus:border-brand-forest focus:ring-brand-forest disabled:opacity-60 dark:border-brand-mist/20 dark:bg-zinc-900">
+                <select id="country-mode" wire:model.live="country_mode" wire:loading.attr="disabled" wire:target="country_mode" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink focus:border-brand-forest focus:ring-brand-forest disabled:opacity-60 dark:border-brand-mist/20 dark:bg-brand-ink/95">
                     <option value="off">{{ __('Off — allow all') }}</option>
                     <option value="allow">{{ __('Allow listed only') }}</option>
                     <option value="block">{{ __('Block listed') }}</option>
@@ -147,7 +147,7 @@
                     class="relative mt-1"
                 >
                     <div @class([
-                        'flex min-h-[44px] flex-wrap items-center gap-1.5 rounded-lg border bg-white px-2 py-1.5 focus-within:border-brand-forest focus-within:ring-1 focus-within:ring-brand-forest dark:border-brand-mist/20 dark:bg-zinc-900',
+                        'flex min-h-[44px] flex-wrap items-center gap-1.5 rounded-lg border bg-white px-2 py-1.5 focus-within:border-brand-forest focus-within:ring-1 focus-within:ring-brand-forest dark:border-brand-mist/20 dark:bg-brand-ink/95',
                         'border-brand-ink/15' => $country_mode !== 'off',
                         'border-brand-ink/10 opacity-70' => $country_mode === 'off',
                     ])>
@@ -183,7 +183,7 @@
                         x-show="open && filtered.length > 0"
                         x-cloak
                         x-transition.opacity
-                        class="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-brand-ink/10 bg-white py-1 shadow-lg dark:bg-zinc-900"
+                        class="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-brand-ink/10 bg-white py-1 shadow-lg dark:bg-brand-ink/95"
                     >
                         <template x-for="(entry, index) in filtered" :key="entry[0]">
                             <li
@@ -201,7 +201,7 @@
                     <p
                         x-show="open && query.trim() !== '' && filtered.length === 0"
                         x-cloak
-                        class="absolute z-20 mt-1 w-full rounded-lg border border-brand-ink/10 bg-white px-3 py-2 text-xs text-brand-mist shadow-lg dark:bg-zinc-900"
+                        class="absolute z-20 mt-1 w-full rounded-lg border border-brand-ink/10 bg-white px-3 py-2 text-xs text-brand-mist shadow-lg dark:bg-brand-ink/95"
                     >
                         {{ __('No country matches that.') }}
                     </p>

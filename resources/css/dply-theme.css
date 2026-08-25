@@ -8,9 +8,11 @@
        monitor sat empty on both sides. */
     --container-7xl: 90rem;
 
-    /* App font (matches Bunny font loaded in Blade layouts) */
-    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
+    /* App font — the same pair the login and marketing pages use, so the
+       workspace reads as the same product rather than a second one. */
+    --font-sans: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
         'Segoe UI Symbol', 'Noto Color Emoji';
+    --font-mono: 'Space Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
     /* Micro type scale — prefer text-xxs / text-3xs / text-2xs / text-xs over
        arbitrary text-[Npx]. Resize sitewide by editing these tokens only.
@@ -39,23 +41,119 @@
     --background-image-mesh-brand: radial-gradient(at 40% 20%, rgb(205 169 66 / 0.12) 0px, transparent 50%),
         radial-gradient(at 80% 0%, rgb(104 132 121 / 0.14) 0px, transparent 45%),
         radial-gradient(at 0% 50%, rgb(50 72 44 / 0.08) 0px, transparent 50%);
+
+    /* ── Edge marketing palette ───────────────────────────────────────────
+       The public-facing dply-edge identity ("Terminal"): near-black ground,
+       a single acid accent, monospace for anything the machine said.
+
+       Deliberately SEPARATE from the brand-* tokens above, which still dress
+       the authenticated app. The two are not meant to be mixed on one page —
+       the guest pages are edge-*, the workspace is brand-*. Carrying the
+       terminal look inward is a later, deliberate step, not a side effect of
+       these tokens existing.
+
+       Not theme-swapped: the marketing pages are dark in both colour schemes,
+       so there is no html.dark override for these. */
+    --color-edge-void: #0b0d0a;
+    --color-edge-panel: #101410;
+    --color-edge-raise: #12160f;
+    --color-edge-line: #23281f;
+    --color-edge-text: #e8ece3;
+    --color-edge-dim: #9aa291;
+    --color-edge-mute: #8a9180;
+    --color-edge-faint: #5c6353;
+    --color-edge-lime: #c3f53c;
+    --color-edge-lime-bright: #d9ff7a;
+
+    --font-display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+    --font-terminal: 'Space Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-/* Dark palette: same semantic tokens, tuned for low-light UI */
+/* ── The app theme: Terminal ──────────────────────────────────────────────
+   The authenticated app wears the same identity as the login and the public
+   pages: near-black ground, one acid accent, light type. The workspace views
+   still say `brand-*`; those tokens are simply pointed at the Terminal palette
+   here, so the whole app flips from one place instead of 300 rewritten views.
+
+   Tailwind v4 emits `var(--color-…)` for every utility, so redefining a token
+   redresses every usage — including core colours the views hardcode
+   (`bg-white` for a card, `bg-emerald-50` for a status chip). */
 html.dark {
     color-scheme: dark;
-    --color-brand-ink: #eef0e8;
-    --color-brand-forest: #9cbc92;
-    --color-brand-moss: #b9bcb4;
-    --color-brand-sage: #9fb5ae;
+
+    /* Type + ground */
+    --color-brand-ink: #e8ece3;        /* headings and body text */
+    --color-brand-cream: #0b0d0a;      /* page ground, and the label on an inverted button */
+    --color-brand-moss: #8a9180;       /* secondary text */
+    --color-brand-mist: #5c6353;       /* muted / captions */
+
+    /* Surfaces */
+    --color-white: #101410;            /* every bg-white card is a panel out here */
+    --color-brand-sand: #1b2018;       /* tint strips (bg-brand-sand/20 …) */
+
+    /* Accent — one acid green, as on the marketing pages */
+    --color-brand-sage: #c3f53c;
+    --color-brand-forest: #c3f53c;
+    --color-brand-gold: #d9ff7a;
     --color-brand-olive: #c9b86a;
-    --color-brand-rust: #d4a574;
+    --color-brand-rust: #e2a06a;
     --color-brand-copper: #d9b07a;
-    --color-brand-gold: #e6d18f;
-    --color-brand-sand: #2f352c;
-    --color-brand-cream: #141612;
-    --color-brand-mist: #7a7d76;
-    --background-image-mesh-brand: radial-gradient(at 40% 20%, rgb(205 169 66 / 0.06) 0px, transparent 50%),
-        radial-gradient(at 80% 0%, rgb(104 132 121 / 0.07) 0px, transparent 45%),
-        radial-gradient(at 0% 50%, rgb(50 72 44 / 0.05) 0px, transparent 50%);
+
+    /* Status tints: the views use light pastels (bg-emerald-50 + text-emerald-800).
+       Re-point both halves so a chip reads as a tinted glow, not a sticker. */
+    --color-emerald-50: rgb(16 185 129 / 0.12);
+    --color-emerald-100: rgb(16 185 129 / 0.18);
+    --color-emerald-200: rgb(16 185 129 / 0.35);
+    --color-emerald-700: #6ee7b7;
+    --color-emerald-800: #6ee7b7;
+    --color-emerald-900: #a7f3d0;
+    --color-emerald-950: #d1fae5;
+
+    --color-green-50: rgb(34 197 94 / 0.12);
+    --color-green-200: rgb(34 197 94 / 0.35);
+    --color-green-800: #86efac;
+    --color-green-900: #bbf7d0;
+
+    --color-amber-50: rgb(245 158 11 / 0.12);
+    --color-amber-100: rgb(245 158 11 / 0.18);
+    --color-amber-200: rgb(245 158 11 / 0.35);
+    --color-amber-500: #fbbf24;
+    --color-amber-600: #fcd34d;
+    --color-amber-700: #fcd34d;
+    --color-amber-800: #fcd34d;
+    --color-amber-900: #fde68a;
+    --color-amber-950: #fef3c7;
+
+    --color-rose-50: rgb(244 63 94 / 0.12);
+    --color-rose-100: rgb(244 63 94 / 0.18);
+    --color-rose-200: rgb(244 63 94 / 0.35);
+    --color-rose-600: #fb7185;
+    --color-rose-700: #fda4af;
+    --color-rose-800: #fda4af;
+    --color-rose-900: #fecdd3;
+
+    --color-red-50: rgb(239 68 68 / 0.12);
+    --color-red-100: rgb(239 68 68 / 0.18);
+    --color-red-200: rgb(239 68 68 / 0.35);
+    --color-red-600: #f87171;
+    --color-red-700: #fca5a5;
+    --color-red-800: #fca5a5;
+    --color-red-900: #fecaca;
+    --color-red-950: #fee2e2;
+
+    --color-sky-50: rgb(14 165 233 / 0.12);
+    --color-sky-100: rgb(14 165 233 / 0.18);
+    --color-sky-200: rgb(14 165 233 / 0.35);
+    --color-sky-500: #38bdf8;
+    --color-sky-800: #7dd3fc;
+
+    --color-zinc-100: #1b2018;
+    --color-zinc-200: #23281f;
+    --color-zinc-600: #8a9180;
+    --color-zinc-700: #9aa291;
+
+    /* The light theme's warm mesh would glow through a near-black ground. */
+    --background-image-mesh-brand: radial-gradient(at 40% 20%, rgb(195 245 60 / 0.05) 0px, transparent 50%),
+        radial-gradient(at 80% 0%, rgb(195 245 60 / 0.04) 0px, transparent 45%),
+        radial-gradient(at 0% 50%, rgb(104 132 121 / 0.05) 0px, transparent 50%);
 }

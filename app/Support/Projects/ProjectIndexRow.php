@@ -40,17 +40,15 @@ final readonly class ProjectIndexRow
             id: (string) $workspace->id,
             name: (string) $workspace->name,
             description: filled($workspace->description) ? (string) $workspace->description : null,
-            manageHref: route('projects.show', $workspace),
-            manageEnabled: true,
+            manageHref: null,
+            manageEnabled: false,
             serversCount: (int) ($workspace->servers_count ?? $workspace->servers()->count()),
             sitesCount: (int) ($workspace->sites_count ?? $workspace->sites()->count()),
             membersCount: $workspace->relationLoaded('members')
                 ? $workspace->members->count()
                 : (int) $workspace->members()->count(),
             roleLabel: $membership?->role ? ucfirst((string) $membership->role) : null,
-            labels: $workspace->relationLoaded('labels')
-                ? $workspace->labels->pluck('name')->filter()->values()->all()
-                : [],
+            labels: [],
             initials: self::initials((string) $workspace->name),
         );
     }

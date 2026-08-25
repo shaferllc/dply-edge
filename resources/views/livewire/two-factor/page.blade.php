@@ -47,7 +47,6 @@
     @endpush
 
     <x-profile-shell
-        dense
         :title="$shellTitle"
         :description="$shellDescription"
         icon="heroicon-o-lock-closed"
@@ -156,7 +155,7 @@
                     <a href="{{ route('profile.security') }}" wire:navigate class="text-xs font-medium text-brand-moss hover:text-brand-ink">{{ __('Cancel') }}</a>
                     <button
                         type="submit"
-                        class="inline-flex h-6 items-center gap-1 rounded-md border border-rose-200 bg-white px-2 text-xs font-semibold text-rose-700 shadow-sm transition-colors hover:bg-rose-50"
+                        class="inline-flex h-6 items-center gap-1 rounded-md border border-brand-ink/15 bg-white px-2.5 text-xs font-semibold text-brand-moss shadow-sm transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
                     >
                         <x-heroicon-o-shield-exclamation class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                         {{ __('Disable two-factor') }}

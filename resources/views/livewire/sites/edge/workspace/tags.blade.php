@@ -29,13 +29,18 @@
                 <span class="text-sm font-medium text-brand-ink">{{ __('Enable tag manager') }}</span>
             </label>
 
-            <label class="flex items-start gap-3">
-                <input type="checkbox" wire:model.live="consent_required" class="mt-0.5 rounded border-brand-ink/20 text-brand-sage" @disabled(! $managedDelivery) />
-                <span>
+            <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-xl border border-brand-ink/10 bg-white px-3 py-2.5">
+                <span class="min-w-0 flex-1 basis-56">
                     <span class="block text-sm font-medium text-brand-ink">{{ __('Consent helper') }}</span>
-                    <span class="mt-0.5 block text-xs text-brand-moss">{{ __('Injects `window.__dplyTags.consent` on every HTML page (localStorage `dply_tag_consent`). Works without script URLs — Save republishes delivery. Saving with this on also enables the tag manager.') }}</span>
+                    <span class="mt-0.5 block text-xs leading-relaxed text-brand-moss">{{ __('Injects `window.__dplyTags.consent` on every HTML page (localStorage `dply_tag_consent`). Works without script URLs — Save republishes delivery. Saving with this on also enables the tag manager.') }}</span>
                 </span>
-            </label>
+                <x-toggle-switch
+                    :enabled="(bool) $consent_required"
+                    wire:model.live="consent_required" @disabled(! $managedDelivery)
+                    :on-label="__('On')"
+                    :off-label="__('Off')"
+                />
+            </div>
 
             <div class="rounded-xl border border-brand-ink/10 bg-brand-sand/20 px-3 py-3 dark:bg-brand-sand/10 sm:px-4">
                 <p class="text-xs font-semibold uppercase tracking-[0.16em] text-brand-sage">{{ __('Examples') }}</p>

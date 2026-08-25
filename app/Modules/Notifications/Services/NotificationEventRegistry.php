@@ -2,7 +2,6 @@
 
 namespace App\Modules\Notifications\Services;
 
-use App\Support\ServerSystemdServiceNotificationKeys;
 
 class NotificationEventRegistry
 {
@@ -41,17 +40,6 @@ class NotificationEventRegistry
             ];
         }
 
-        if (ServerSystemdServiceNotificationKeys::isValidDynamicEventKey($eventKey)) {
-            return [
-                'key' => $eventKey,
-                'label' => 'Service alert',
-                'category' => 'server',
-                'severity' => 'warning',
-                'supports_in_app' => true,
-                'supports_email' => false,
-                'supports_webhook' => true,
-            ];
-        }
 
         return [
             'key' => $eventKey,

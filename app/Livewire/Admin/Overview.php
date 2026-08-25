@@ -78,10 +78,6 @@ class Overview extends Component
             $issues[] = __(':count failed queue jobs', ['count' => number_format($counts['failed_jobs'])]);
         }
 
-        if ($counts['task_runner_failed'] > 0) {
-            $issues[] = __(':count failed task runner tasks', ['count' => number_format($counts['task_runner_failed'])]);
-        }
-
         return $issues;
     }
 }

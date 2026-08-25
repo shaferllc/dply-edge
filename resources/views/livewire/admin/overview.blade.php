@@ -1,139 +1,199 @@
 @php
-    $card = 'dply-card-compact';
-    $mini = 'text-xs font-medium uppercase tracking-wide text-brand-mist';
     $pillOk = 'inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-800';
     $pillBad = 'inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-800';
+
+    // Hero tiles mirror the Edge index summary strip: icon + micro label on top,
+    // mono tabular number under it. Tone is the only thing that varies.
+    $kpis = [
+        ['icon' => 'heroicon-o-users', 'label' => __('Users'), 'value' => $counts['users'], 'tone' => 'text-brand-sage'],
+        ['icon' => 'heroicon-o-building-office-2', 'label' => __('Organizations'), 'value' => $counts['organizations'], 'tone' => 'text-brand-sage'],
+        ['icon' => 'heroicon-o-globe-alt', 'label' => __('Sites'), 'value' => $counts['sites'], 'tone' => 'text-brand-forest'],
+        ['icon' => 'heroicon-o-server-stack', 'label' => __('Servers'), 'value' => $counts['servers'], 'tone' => 'text-brand-mist'],
+        ['icon' => 'heroicon-o-clipboard-document-list', 'label' => __('Audit (24h)'), 'value' => $counts['audit_logs_24h'], 'tone' => 'text-brand-sage'],
+        ['icon' => 'heroicon-o-exclamation-triangle', 'label' => __('Failed jobs'), 'value' => $counts['failed_jobs'], 'tone' => $counts['failed_jobs'] > 0 ? 'text-rose-600' : 'text-brand-mist'],
+        ['icon' => 'heroicon-o-user-plus', 'label' => __('New users (7d)'), 'value' => $counts['users_7d'], 'tone' => 'text-brand-forest'],
+        ['icon' => 'heroicon-o-sparkles', 'label' => __('New orgs (7d)'), 'value' => $counts['organizations_7d'], 'tone' => 'text-brand-forest'],
+    ];
+
+    $quickLinks = [
+        ['route' => 'admin.operations', 'icon' => 'heroicon-o-wrench-screwdriver', 'label' => __('Operations'), 'note' => __('Runtime, queues, logs, exports, cache')],
+        ['route' => 'admin.audit', 'icon' => 'heroicon-o-clipboard-document-list', 'label' => __('Audit log'), 'note' => __('Filter and export platform activity')],
+        ['route' => 'admin.flags.global', 'icon' => 'heroicon-o-flag', 'label' => __('Global flags'), 'note' => __('App-wide kill switches')],
+        ['route' => 'admin.organizations.index', 'icon' => 'heroicon-o-building-office-2', 'label' => __('Organizations'), 'note' => __('Search orgs and manage overrides')],
+    ];
 @endphp
 
 <div>
-    <x-page-header
+    <x-breadcrumb-trail :items="[
+        ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
+        ['label' => __('Platform admin'), 'icon' => 'shield-check'],
+    ]" />
+
+    <x-profile-shell
+        class="mt-4"
         :title="__('Overview')"
         :description="__('Platform KPIs, health signals, and quick links into operations, audit, flags, and organizations.')"
-        flush
-        compact
-    />
+        icon="heroicon-o-shield-check"
+    >
+        <x-slot:actions>
+            <x-outline-link href="{{ route('admin.operations') }}" wire:navigate size="sm">
+                <x-heroicon-o-wrench-screwdriver class="h-4 w-4 shrink-0 opacity-90" aria-hidden="true" />
+                {{ __('Operations') }}
+            </x-outline-link>
+            <x-outline-link href="{{ route('admin.audit') }}" wire:navigate size="sm">
+                <x-heroicon-o-clipboard-document-list class="h-4 w-4 shrink-0 opacity-90" aria-hidden="true" />
+                {{ __('Audit log') }}
+            </x-outline-link>
+        </x-slot:actions>
 
-    @if ($healthIssues !== [])
-        <div class="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950" role="status">
-            <p class="font-semibold">{{ __('Attention needed') }}</p>
-            <ul class="mt-2 list-inside list-disc space-y-1">
-                @foreach ($healthIssues as $issue)
-                    <li>{{ $issue }}</li>
+        <x-slot:stats>
+            <dl class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                @foreach ($kpis as $stat)
+                    <div class="rounded-xl border border-brand-ink/10 bg-white/80 px-3 py-2">
+                        <dt class="flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wide text-brand-mist">
+                            <x-dynamic-component :component="$stat['icon']" class="h-3.5 w-3.5 shrink-0 {{ $stat['tone'] }}" aria-hidden="true" />
+                            <span class="truncate">{{ $stat['label'] }}</span>
+                        </dt>
+                        <dd class="mt-0.5 font-mono text-lg font-semibold tabular-nums leading-none text-brand-ink">{{ number_format($stat['value']) }}</dd>
+                    </div>
                 @endforeach
-            </ul>
-            <p class="mt-2">
-                <a href="{{ route('admin.operations') }}" wire:navigate class="font-medium underline">{{ __('Open operations') }}</a>
-            </p>
-        </div>
-    @else
-        <div class="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900" role="status">
-            {{ __('Core connectivity checks look healthy. Review operations for queue depth and logs.') }}
-        </div>
-    @endif
+            </dl>
+        </x-slot:stats>
 
-    <div class="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        @foreach ([
-            ['label' => __('Users'), 'value' => $counts['users']],
-            ['label' => __('Organizations'), 'value' => $counts['organizations']],
-            ['label' => __('Servers'), 'value' => $counts['servers']],
-            ['label' => __('Sites'), 'value' => $counts['sites']],
-            ['label' => __('Audit (24h)'), 'value' => $counts['audit_logs_24h']],
-            ['label' => __('Failed jobs'), 'value' => $counts['failed_jobs']],
-            ['label' => __('New users (7d)'), 'value' => $counts['users_7d']],
-            ['label' => __('New orgs (7d)'), 'value' => $counts['organizations_7d']],
-        ] as $stat)
-            <div class="{{ $card }}">
-                <p class="{{ $mini }}">{{ $stat['label'] }}</p>
-                <p class="mt-1 text-2xl font-semibold tabular-nums text-brand-ink">{{ number_format($stat['value']) }}</p>
+        {{-- Health banner rides at the top of the body as its own strip so the
+             card still reads as one surface. --}}
+        @if ($healthIssues !== [])
+            <div class="border-b border-brand-ink/10 bg-amber-50/70 px-3 py-3 text-sm text-amber-950 sm:px-4" role="status">
+                <p class="flex items-center gap-1.5 font-semibold">
+                    <x-heroicon-o-exclamation-triangle class="h-4 w-4 shrink-0 text-amber-700" aria-hidden="true" />
+                    {{ __('Attention needed') }}
+                </p>
+                <ul class="mt-2 list-inside list-disc space-y-1">
+                    @foreach ($healthIssues as $issue)
+                        <li>{{ $issue }}</li>
+                    @endforeach
+                </ul>
+                <p class="mt-2">
+                    <a href="{{ route('admin.operations') }}" wire:navigate class="font-medium underline">{{ __('Open operations') }}</a>
+                </p>
             </div>
-        @endforeach
-    </div>
+        @else
+            <div class="flex items-center gap-1.5 border-b border-brand-ink/10 bg-emerald-50/60 px-3 py-2.5 text-sm text-emerald-900 sm:px-4" role="status">
+                <x-heroicon-o-check-badge class="h-4 w-4 shrink-0 text-emerald-700" aria-hidden="true" />
+                {{ __('Core connectivity checks look healthy. Review operations for queue depth and logs.') }}
+            </div>
+        @endif
 
-    <div class="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <a href="{{ route('admin.operations') }}" wire:navigate class="{{ $card }} block transition hover:border-brand-sage/40">
-            <p class="font-semibold text-brand-ink">{{ __('Operations') }}</p>
-            <p class="mt-1 text-sm text-brand-moss">{{ __('Runtime, queues, logs, exports, cache') }}</p>
-        </a>
-        <a href="{{ route('admin.audit') }}" wire:navigate class="{{ $card }} block transition hover:border-brand-sage/40">
-            <p class="font-semibold text-brand-ink">{{ __('Audit log') }}</p>
-            <p class="mt-1 text-sm text-brand-moss">{{ __('Filter and export platform activity') }}</p>
-        </a>
-        <a href="{{ route('admin.flags.global') }}" wire:navigate class="{{ $card }} block transition hover:border-brand-sage/40">
-            <p class="font-semibold text-brand-ink">{{ __('Global flags') }}</p>
-            <p class="mt-1 text-sm text-brand-moss">{{ __('App-wide kill switches') }}</p>
-        </a>
-        <a href="{{ route('admin.organizations.index') }}" wire:navigate class="{{ $card }} block transition hover:border-brand-sage/40">
-            <p class="font-semibold text-brand-ink">{{ __('Organizations') }}</p>
-            <p class="mt-1 text-sm text-brand-moss">{{ __('Search orgs and manage overrides') }}</p>
-        </a>
-    </div>
+        <section class="border-b border-brand-ink/10">
+            <x-workspace-panel-head
+                dense
+                icon="heroicon-o-squares-2x2"
+                :title="__('Jump to')"
+                :note="__('The four admin surfaces behind this dashboard.')"
+            />
+            <div class="grid gap-2 px-3 py-3 sm:grid-cols-2 sm:px-4 lg:grid-cols-4">
+                @foreach ($quickLinks as $link)
+                    <a
+                        href="{{ route($link['route']) }}"
+                        wire:navigate
+                        class="group rounded-xl border border-brand-ink/10 bg-white/80 px-3 py-2.5 transition hover:border-brand-sage/40 hover:bg-brand-sand/30"
+                    >
+                        <p class="flex items-center gap-1.5 text-sm font-semibold text-brand-ink">
+                            <x-dynamic-component :component="$link['icon']" class="h-4 w-4 shrink-0 text-brand-sage" aria-hidden="true" />
+                            {{ $link['label'] }}
+                        </p>
+                        <p class="mt-1 text-xs text-brand-moss">{{ $link['note'] }}</p>
+                    </a>
+                @endforeach
+            </div>
+        </section>
 
-    <div class="mb-8 grid gap-6 lg:grid-cols-2">
-        <div class="{{ $card }} space-y-1">
-            <h2 class="mb-3 text-base font-semibold text-brand-ink">{{ __('Runtime snapshot') }}</h2>
-            <div class="flex justify-between gap-2 border-b border-brand-ink/5 py-2 text-sm">
-                <span class="text-brand-moss">{{ __('Environment') }}</span>
-                <span class="font-mono text-xs">{{ $system['env'] }}</span>
-            </div>
-            <div class="flex justify-between gap-2 border-b border-brand-ink/5 py-2 text-sm">
-                <span class="text-brand-moss">{{ __('Database') }}</span>
-                @if ($system['db_ok'])
-                    <span class="{{ $pillOk }}">{{ __('OK') }}</span>
-                @else
-                    <span class="{{ $pillBad }}">{{ __('Failed') }}</span>
-                @endif
-            </div>
-            <div class="flex justify-between gap-2 py-2 text-sm">
-                <span class="text-brand-moss">{{ __('Redis') }}</span>
-                @if ($system['redis_ok'] === true)
-                    <span class="{{ $pillOk }}">{{ __('OK') }}</span>
-                @elseif ($system['redis_ok'] === false)
-                    <span class="{{ $pillBad }}">{{ __('Failed') }}</span>
-                @else
-                    <span class="text-brand-mist">{{ __('Unknown') }}</span>
-                @endif
-            </div>
-        </div>
+        <section class="border-b border-brand-ink/10">
+            <x-workspace-panel-head
+                dense
+                icon="heroicon-o-cpu-chip"
+                :title="__('Runtime snapshot')"
+                :note="__('Environment and backing-service reachability for this node.')"
+            />
+            <dl class="px-3 py-1 text-sm sm:px-4">
+                <div class="flex items-baseline justify-between gap-2 border-b border-brand-ink/5 py-2">
+                    <dt class="text-brand-moss">{{ __('Environment') }}</dt>
+                    <dd class="font-mono text-xs text-brand-ink">{{ $system['env'] }}</dd>
+                </div>
+                <div class="flex items-baseline justify-between gap-2 border-b border-brand-ink/5 py-2">
+                    <dt class="text-brand-moss">{{ __('Database') }}</dt>
+                    <dd>
+                        @if ($system['db_ok'])
+                            <span class="{{ $pillOk }}">{{ __('OK') }}</span>
+                        @else
+                            <span class="{{ $pillBad }}">{{ __('Failed') }}</span>
+                        @endif
+                    </dd>
+                </div>
+                <div class="flex items-baseline justify-between gap-2 py-2">
+                    <dt class="text-brand-moss">{{ __('Redis') }}</dt>
+                    <dd>
+                        @if ($system['redis_ok'] === true)
+                            <span class="{{ $pillOk }}">{{ __('OK') }}</span>
+                        @elseif ($system['redis_ok'] === false)
+                            <span class="{{ $pillBad }}">{{ __('Failed') }}</span>
+                        @else
+                            <span class="text-brand-mist">{{ __('Unknown') }}</span>
+                        @endif
+                    </dd>
+                </div>
+            </dl>
+        </section>
 
-        <div class="{{ $card }}">
-            <h2 class="mb-3 text-base font-semibold text-brand-ink">{{ __('Top organizations by servers') }}</h2>
-            <ul class="divide-y divide-brand-ink/10 text-sm">
+        <section class="border-b border-brand-ink/10">
+            <x-workspace-panel-head
+                dense
+                icon="heroicon-o-building-office-2"
+                :title="__('Top organizations by servers')"
+                :count="$topOrganizations->count()"
+            />
+            <ul class="divide-y divide-brand-ink/5 text-sm">
                 @forelse ($topOrganizations as $org)
-                    <li class="flex items-center justify-between gap-2 py-2">
+                    <li class="flex items-center justify-between gap-2 px-3 py-2 sm:px-4">
                         <a href="{{ route('admin.organizations.show', $org) }}" wire:navigate class="truncate font-medium text-brand-ink hover:underline">{{ $org->name }}</a>
-                        <span class="tabular-nums text-brand-moss">{{ number_format($org->servers_count) }}</span>
+                        <span class="font-mono tabular-nums text-brand-moss">{{ number_format($org->servers_count) }}</span>
                     </li>
                 @empty
-                    <li class="py-4 text-brand-mist">{{ __('No organizations yet.') }}</li>
+                    <li class="px-3 py-6 text-center text-brand-mist sm:px-4">{{ __('No organizations yet.') }}</li>
                 @endforelse
             </ul>
-        </div>
-    </div>
+        </section>
 
-    <div class="grid gap-8 lg:grid-cols-2">
-        <section>
-            <div class="mb-3 flex items-center justify-between gap-2">
-                <h2 class="text-base font-semibold text-brand-ink">{{ __('Recent audit log') }}</h2>
-                <a href="{{ route('admin.audit') }}" wire:navigate class="text-sm font-medium text-brand-moss hover:text-brand-ink">{{ __('View all') }}</a>
-            </div>
-            <div class="overflow-hidden rounded-xl border border-brand-ink/10">
+        <section class="border-b border-brand-ink/10">
+            <x-workspace-panel-head
+                dense
+                icon="heroicon-o-clipboard-document-list"
+                :title="__('Recent audit log')"
+            >
+                <x-slot:actions>
+                    <x-outline-link href="{{ route('admin.audit') }}" wire:navigate size="xxs">
+                        {{ __('View all') }}
+                    </x-outline-link>
+                </x-slot:actions>
+            </x-workspace-panel-head>
+            <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-brand-ink/10 text-left text-xs">
-                    <thead class="bg-brand-sand/40 text-brand-moss">
+                    <thead class="bg-white text-brand-mist">
                         <tr>
-                            <th class="px-3 py-2 font-medium">{{ __('When') }}</th>
-                            <th class="px-3 py-2 font-medium">{{ __('Action') }}</th>
-                            <th class="px-3 py-2 font-medium">{{ __('User') }}</th>
+                            <th class="px-3 py-2 font-semibold uppercase tracking-wide sm:px-4">{{ __('When') }}</th>
+                            <th class="px-3 py-2 font-semibold uppercase tracking-wide">{{ __('Action') }}</th>
+                            <th class="px-3 py-2 font-semibold uppercase tracking-wide">{{ __('User') }}</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-brand-ink/5 bg-white">
+                    <tbody class="divide-y divide-brand-ink/5">
                         @forelse ($recentAuditLogs as $log)
                             <tr>
-                                <td class="whitespace-nowrap px-3 py-2 text-brand-mist">{{ $log->created_at?->timezone(config('app.timezone'))->format('M j H:i') }}</td>
-                                <td class="max-w-[10rem] truncate px-3 py-2 font-mono">{{ $log->action }}</td>
-                                <td class="max-w-[8rem] truncate px-3 py-2">{{ $log->user?->email ?? '—' }}</td>
+                                <td class="whitespace-nowrap px-3 py-2 text-brand-mist sm:px-4">{{ $log->created_at?->timezone(config('app.timezone'))->format('M j H:i') }}</td>
+                                <td class="max-w-[14rem] truncate px-3 py-2 font-mono text-brand-ink">{{ $log->action }}</td>
+                                <td class="max-w-[12rem] truncate px-3 py-2 text-brand-moss">{{ $log->user?->email ?? '—' }}</td>
                             </tr>
                         @empty
-                            <tr><td colspan="3" class="px-3 py-6 text-center text-brand-mist">{{ __('No audit entries yet.') }}</td></tr>
+                            <tr><td colspan="3" class="px-3 py-6 text-center text-brand-mist sm:px-4">{{ __('No audit entries yet.') }}</td></tr>
                         @endforelse
                     </tbody>
                 </table>
@@ -141,19 +201,27 @@
         </section>
 
         <section>
-            <h2 class="mb-3 text-base font-semibold text-brand-ink">{{ __('Newest users') }}</h2>
-            <div class="overflow-hidden rounded-xl border border-brand-ink/10 bg-white">
-                <ul class="divide-y divide-brand-ink/10 text-sm">
-                    @forelse ($recentUsers as $u)
-                        <li class="flex flex-wrap items-baseline justify-between gap-2 px-4 py-3">
-                            <span class="font-medium text-brand-ink">{{ $u->name }}</span>
-                            <span class="text-xs text-brand-moss">{{ $u->email }}</span>
-                        </li>
-                    @empty
-                        <li class="px-4 py-6 text-center text-brand-mist">{{ __('No users.') }}</li>
-                    @endforelse
-                </ul>
-            </div>
+            <x-workspace-panel-head
+                dense
+                icon="heroicon-o-user-plus"
+                :title="__('Newest users')"
+            >
+                <x-slot:actions>
+                    <x-outline-link href="{{ route('admin.users.index') }}" wire:navigate size="xxs">
+                        {{ __('All users') }}
+                    </x-outline-link>
+                </x-slot:actions>
+            </x-workspace-panel-head>
+            <ul class="divide-y divide-brand-ink/5 text-sm">
+                @forelse ($recentUsers as $u)
+                    <li class="flex flex-wrap items-baseline justify-between gap-2 px-3 py-2 sm:px-4">
+                        <span class="font-medium text-brand-ink">{{ $u->name }}</span>
+                        <span class="text-xs text-brand-moss">{{ $u->email }}</span>
+                    </li>
+                @empty
+                    <li class="px-3 py-6 text-center text-brand-mist sm:px-4">{{ __('No users.') }}</li>
+                @endforelse
+            </ul>
         </section>
-    </div>
+    </x-profile-shell>
 </div>

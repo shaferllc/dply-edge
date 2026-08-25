@@ -28,7 +28,7 @@
     $docLinkLabel = $docLabel ?? __('Documentation');
     $showDocs = filled($docRoute) || $docContextual;
     $resolvedContextualDocSlug = $docContextual
-        ? ($contextualDocSlug ?? app(\App\Modules\Docs\Support\ContextualDocResolver::class)->resolve())
+        ? $contextualDocSlug
         : null;
 
     /** @var array<string, string> Heroicon outline component names (allowlisted; never from raw user input). */
@@ -210,12 +210,6 @@
         @php $breadcrumbSite = $site instanceof \App\Models\Site ? $site : request()->route('site'); @endphp
         @if ($showDocs || isset($trailing) || $breadcrumbSite instanceof \App\Models\Site)
             <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                {{-- Deploy from anywhere: a persistent Deploy button + live
-                     console for the site in scope, next to Documentation. --}}
-                @if ($breadcrumbSite instanceof \App\Models\Site)
-                    <livewire:sites.deploy-control :site="$breadcrumbSite" :server="$breadcrumbSite->server" :key="'deploy-control-'.$breadcrumbSite->id" />
-                    <livewire:sites.env-quick-edit :site="$breadcrumbSite" :server="$breadcrumbSite->server" :key="'env-quick-edit-'.$breadcrumbSite->id" />
-                @endif
                 @if ($docContextual)
                     <x-docs-link :slug="$resolvedContextualDocSlug">
                         <x-heroicon-o-document-text class="h-3.5 w-3.5 shrink-0 opacity-90" aria-hidden="true" />

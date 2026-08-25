@@ -42,10 +42,6 @@ arch('no debug or shell-escape functions ship')
     ->ignoring([
         // Opt-in debug decorator; its dump() calls are guarded by function_exists().
         'App\Actions\Decorators\DebuggableDecorator',
-        // Drives the local Docker runtime and `dply about` respectively; both
-        // shell out deliberately and neither runs in a request path.
-        'App\Modules\Deploy\Services\LocalDockerRuntimeManager',
-        'App\Console\Commands\DplyAboutCommand',
     ]);
 
 arch('enums are enums')
@@ -67,13 +63,7 @@ arch('controllers are suffixed')
 arch('jobs are queueable')
     ->expect('App\Jobs')
     ->classes()
-    ->toImplement(ShouldQueue::class)
-    ->ignoring([
-        // Job *middleware*, not a job.
-        'App\Jobs\Middleware',
-        // An exception thrown by a job, filed next to it.
-        'App\Jobs\ManageRemoteTaskSupersededException',
-    ]);
+    ->toImplement(ShouldQueue::class);
 
 arch('models extend eloquent')
     ->expect('App\Models')
@@ -86,20 +76,11 @@ arch('livewire components extend component')
     ->expect('App\Livewire')
     ->classes()
     ->toExtend(Component::class)
-    ->ignoring([
-        // Livewire form objects extend Livewire\Form.
-        'App\Livewire\Forms',
-        // Pulse cards extend Laravel Pulse's own card component.
-        'App\Livewire\Pulse',
-    ]);
+    // Livewire form objects extend Livewire\Form.
+    ->ignoring('App\Livewire\Forms');
 
 arch('console commands extend command')
     ->expect('App\Console\Commands')
     ->classes()
     ->toExtend(Command::class);
 
-arch('serverless contracts are interfaces')
-    ->expect('App\Modules\Serverless\Contracts')
-    ->toBeInterfaces()
-    // The capability vocabulary is an enum, not an interface.
-    ->ignoring('App\Modules\Serverless\Contracts\ServerlessFeature');

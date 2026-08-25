@@ -5,17 +5,9 @@ declare(strict_types=1);
 namespace App\Models\Concerns\Site;
 
 use App\Enums\SiteType;
-use App\Livewire\Servers\WorkspaceCron;
-use App\Livewire\Sites\Settings;
 use App\Models\Server;
 use App\Models\Site;
-use App\Models\SiteBackend;
-use App\Models\SupervisorProgram;
-use App\Modules\Deploy\Services\DeploymentSecretInventory;
-use App\Modules\Deploy\Services\LaravelComposerPackageDetector;
-use App\Modules\Deploy\Services\RuntimeDetection\PhpRuntimeDetector;
-use App\Services\Servers\ServerCronSynchronizer;
-use App\Services\Servers\SupervisorDeployRestarter;
+use App\Modules\Edge\Services\RuntimeDetection\PhpRuntimeDetector;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\URL;
 
@@ -90,33 +82,6 @@ trait ResolvesSiteRuntime
     }
 
     /**
-     * The database engine this site targets.
-     *
-     * Prefers the explicit `database_engine` column when set (the user
-     * picked an engine on a multi-engine server), and falls back to the
-     * server's default ServerDatabaseEngine row. Returns null on hosts
-     * with no DB at all (cache-only / load-balancer / static-only servers).
-     *
-     * Per the strategy memo: "Site database_engine defaults to server's
-     * default; can be overridden to any engine installed on the server."
-     */
-    public function databaseEngine(): ?string
-    {
-        if (filled($this->database_engine)) {
-            return $this->database_engine;
-        }
-
-        $server = $this->server ?? Server::query()->find($this->server_id);
-        if ($server === null) {
-            return null;
-        }
-
-        $default = $server->defaultDatabaseEngine();
-
-        return $default?->engine;
-    }
-
-    /**
      * Back-compat shim for the dropped `php_version` column.
      *
      * The strategy memo's "drop php_version column entirely" decision
@@ -143,34 +108,6 @@ trait ResolvesSiteRuntime
     public function getPhpVersionAttribute(): ?string
     {
         return $this->phpVersion();
-    }
-
-    public function runtimeProfile(): string
-    {
-        $meta = $this->meta ?? [];
-        $profile = $meta['runtime_profile'] ?? null;
-
-        if ($profile !== null && $profile !== '') {
-            return (string) $profile;
-        }
-
-        if ($this->server?->isDigitalOceanFunctionsHost()) {
-            return 'digitalocean_functions_web';
-        }
-
-        if ($this->server?->isAwsLambdaHost()) {
-            return 'aws_lambda_bref_web';
-        }
-
-        if ($this->server?->isDockerHost()) {
-            return 'docker_web';
-        }
-
-        if ($this->server?->isKubernetesCluster()) {
-            return 'kubernetes_web';
-        }
-
-        return 'vm_web';
     }
 
     public function runtimeProfileLabel(): string
@@ -347,24 +284,6 @@ trait ResolvesSiteRuntime
         return $this->runtimeProfile() === 'docker_web';
     }
 
-    /**
-     * Docker workload on a BYO VM: compose deploy + host port, routed via the
-     * server's normal webserver (Caddy/Nginx) to {@see internal_port}.
-     */
-    public function usesVmDockerRuntime(): bool
-    {
-        if (! $this->usesDockerRuntime()) {
-            return false;
-        }
-
-        if ($this->server?->isDockerHost() || $this->usesLocalDockerHostRuntime()) {
-            return false;
-        }
-
-        return $this->runtimeTargetFamily() === 'byo_vm_docker'
-            || data_get($this->meta, 'runtime_target.vm_docker') === true;
-    }
-
     public function usesKubernetesRuntime(): bool
     {
         return $this->runtimeProfile() === 'kubernetes_web';
@@ -397,31 +316,6 @@ trait ResolvesSiteRuntime
     }
 
     /**
-     * Which live runtime-health probe the Runtime → Overview card should run:
-     * 'fpm' for a dedicated PHP-FPM pool, 'port' for a long-running app server
-     * that listens on {@see $app_port}, or null when there's nothing cheap to
-     * probe (static, Docker/Kubernetes/serverless — those have their own
-     * discovery surfaces). Used by both the Livewire loader and the blade so the
-     * deferred probe and the rendered card always agree.
-     */
-    public function runtimeHealthProbeKind(): ?string
-    {
-        if ($this->usesDedicatedPhpFpmPool()) {
-            return 'fpm';
-        }
-
-        if ($this->usesDockerRuntime() || $this->usesKubernetesRuntime() || $this->usesFunctionsRuntime()) {
-            return null;
-        }
-
-        if ((int) $this->app_port > 0 && $this->isLongRunningAppServer()) {
-            return 'port';
-        }
-
-        return null;
-    }
-
-    /**
      * Whether this site can use the site-scoped systemd Services workspace
      * (dply-site-{id}[-{name}].service). PHP/static and container/serverless
      * workloads use FPM, nginx, or Supervisor (Daemons) instead.
@@ -439,47 +333,6 @@ trait ResolvesSiteRuntime
         }
 
         return ! in_array((string) ($site->runtime ?? ''), ['php', 'static'], true);
-    }
-
-    /**
-     * The site's backend-group config (multi-backend behind a balancer):
-     * {enabled, substrate: haproxy|hetzner, load_balancer_id, desired_count}.
-     * Stored on meta; the site_backends rows are the source of truth for
-     * membership. See docs/MULTI_BACKEND_SITES.md.
-     *
-     * @return array<string, mixed>
-     */
-    public function backendGroup(): array
-    {
-        $group = data_get($this->meta, 'backend_group');
-
-        return is_array($group) ? $group : [];
-    }
-
-    /**
-     * Whether this site is served from ≥2 backends behind a balancer — the gate
-     * for rolling/canary. True only when the group is enabled AND it actually has
-     * at least two active backends (never offer a multi-backend method to a site
-     * that has only the primary up).
-     */
-    public function isMultiBackend(): bool
-    {
-        if (! (bool) ($this->backendGroup()['enabled'] ?? false)) {
-            return false;
-        }
-
-        return $this->backends()
-            ->where('state', SiteBackend::STATE_ACTIVE)
-            ->count() >= 2;
-    }
-
-    /**
-     * Whether the site's balancer substrate supports per-backend weights — the
-     * gate for canary (weighted shift). HAProxy yes; Hetzner cloud LB no.
-     */
-    public function backendSubstrateSupportsWeights(): bool
-    {
-        return ($this->backendGroup()['substrate'] ?? null) === 'haproxy';
     }
 
     public function usesContainerRuntime(): bool
@@ -598,30 +451,6 @@ trait ResolvesSiteRuntime
     }
 
     /**
-     * Whether the "Restart Supervisor programs after deploy" toggle is meaningful
-     * for this site — i.e. there is at least one active Supervisor program that
-     * {@see SupervisorDeployRestarter} would restart
-     * (site-scoped or a server-wide program with no site_id). Sites whose workers
-     * run as systemd units (restarted automatically on the atomic release swap),
-     * or that have no workers at all, return false.
-     */
-    public function hasRestartableSupervisorPrograms(): bool
-    {
-        $serverId = $this->server_id;
-        if ($serverId === null) {
-            return false;
-        }
-
-        return SupervisorProgram::query()
-            ->where('server_id', $serverId)
-            ->where('is_active', true)
-            ->where(function ($q): void {
-                $q->where('site_id', $this->id)->orWhereNull('site_id');
-            })
-            ->exists();
-    }
-
-    /**
      * Whether dply can manage per-minute crons on this site's host (mirrors
      * {@see WorkspaceCron::siteSupportsVmManagedCron()}).
      * Gates the "→ Cron" link shown when the Laravel scheduler toggle is hidden.
@@ -634,40 +463,6 @@ trait ResolvesSiteRuntime
             && ! $this->usesFunctionsRuntime()
             && ! $this->usesDockerRuntime()
             && ! $this->usesKubernetesRuntime();
-    }
-
-    /**
-     * Whether one-shot Laravel SSH setup from Site settings is allowed (BYO VM, SSH ready, Laravel detected).
-     */
-    public function canRunLaravelSshSetupActions(): bool
-    {
-        $this->loadMissing('server');
-        $server = $this->server;
-        if ($server === null || ! $server->isVmHost() || ! $server->isReady()) {
-            return false;
-        }
-
-        if (trim((string) $server->ssh_private_key) === '') {
-            return false;
-        }
-
-        if ($server->hostCapabilities()->supportsFunctionDeploy()) {
-            return false;
-        }
-
-        if ($this->resolvedRuntimeFrameworkKey() !== 'laravel') {
-            return false;
-        }
-
-        if ($this->type !== SiteType::Php) {
-            return false;
-        }
-
-        if (trim($this->effectiveEnvDirectory()) === '') {
-            return false;
-        }
-
-        return true;
     }
 
     /**
@@ -694,75 +489,11 @@ trait ResolvesSiteRuntime
     }
 
     /**
-     * @return list<string>
-     */
-    public function detectedLaravelPackageKeys(): array
-    {
-        $resolved = $this->resolvedRuntimeAppDetection();
-        if ($resolved === null || $this->resolvedRuntimeFrameworkKey() !== 'laravel') {
-            return [];
-        }
-
-        $keys = [];
-        foreach (LaravelComposerPackageDetector::PACKAGE_KEYS as $short => $_) {
-            $blobKey = 'laravel_'.$short;
-            if (($resolved[$blobKey] ?? false) === true) {
-                $keys[] = $short;
-            }
-        }
-
-        return $keys;
-    }
-
-    public function resolvedLaravelPackageFlag(string $short): bool
-    {
-        $resolved = $this->resolvedRuntimeAppDetection();
-        if ($resolved === null || $this->resolvedRuntimeFrameworkKey() !== 'laravel') {
-            return false;
-        }
-
-        if (! array_key_exists($short, LaravelComposerPackageDetector::PACKAGE_KEYS)) {
-            return false;
-        }
-
-        $blobKey = 'laravel_'.$short;
-
-        return ($resolved[$blobKey] ?? false) === true;
-    }
-
-    /**
-     * Octane settings UI when repository inspection found Laravel and a laravel/octane Composer dependency.
-     */
-    public function shouldShowOctaneRuntimeUi(): bool
-    {
-        return $this->hasOctanePackageInstalled();
-    }
-
-    /**
-     * Composer / runtime detection found `laravel/octane` — the package may be
-     * present but Octane is not the live runtime until {@see isOctaneEnabled()}.
-     */
-    public function hasOctanePackageInstalled(): bool
-    {
-        return $this->resolvedLaravelPackageFlag('octane');
-    }
-
-    /**
      * Operator saved an Octane port under Runtime / Laravel settings.
      */
     public function isOctaneEnabled(): bool
     {
         return (bool) $this->octane_port;
-    }
-
-    /**
-     * Whether Octane is installed AND enabled for this site — both composer
-     * package detection and a saved Octane port are required. Package alone
-     * still serves through PHP-FPM until a port is configured.
-     */
-    public function usesOctaneRuntime(): bool
-    {
-        return $this->isOctaneEnabled() && $this->hasOctanePackageInstalled();
     }
 
     /**
@@ -775,23 +506,6 @@ trait ResolvesSiteRuntime
         $p = $r['port'] ?? 8080;
 
         return is_numeric($p) ? max(1, min(65535, (int) $p)) : 8080;
-    }
-
-    public function shouldShowLaravelReverbRuntimeUi(): bool
-    {
-        return $this->resolvedLaravelPackageFlag('reverb');
-    }
-
-    /**
-     * Include Nginx/Caddy/Apache Reverb WebSocket proxy when Reverb is detected or port was saved in meta.
-     */
-    public function shouldProxyReverbInWebserver(): bool
-    {
-        $meta = $this->meta ?? [];
-        $hasSavedPort = is_array($meta['laravel_reverb'] ?? null)
-            && array_key_exists('port', $meta['laravel_reverb']);
-
-        return $this->resolvedLaravelPackageFlag('reverb') || $hasSavedPort;
     }
 
     /**
@@ -987,5 +701,33 @@ trait ResolvesSiteRuntime
         }
 
         return is_string($subdirectory) ? trim($subdirectory, '/') : '';
+    }
+
+    public function runtimeProfile(): string
+    {
+        $meta = $this->meta ?? [];
+        $profile = $meta['runtime_profile'] ?? null;
+
+        if ($profile !== null && $profile !== '') {
+            return (string) $profile;
+        }
+
+        if ($this->server?->isDigitalOceanFunctionsHost()) {
+            return 'digitalocean_functions_web';
+        }
+
+        if ($this->server?->isAwsLambdaHost()) {
+            return 'aws_lambda_bref_web';
+        }
+
+        if ($this->server?->isDockerHost()) {
+            return 'docker_web';
+        }
+
+        if ($this->server?->isKubernetesCluster()) {
+            return 'kubernetes_web';
+        }
+
+        return 'vm_web';
     }
 }

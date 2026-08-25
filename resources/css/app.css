@@ -159,6 +159,9 @@
         @apply border-brand-mist/25 bg-zinc-900 shadow-black/30;
     }
 
+    /* Terminal surfaces: panel over void, hairline in the line colour, no drop
+       shadow (there is no light source on this ground — depth comes from the
+       hairline and the panel step). */
     html.dark .dply-card,
     html.dark .dply-surface-nav,
     html.dark .dply-dialog,
@@ -166,7 +169,9 @@
     html.dark .dply-flyout-panel,
     html.dark .dply-modal-panel,
     html.dark .dply-card-compact {
-        @apply border-brand-mist/20 bg-zinc-900/95 shadow-black/25;
+        border-color: var(--color-edge-line);
+        background-color: var(--color-edge-panel);
+        box-shadow: none;
     }
 
     /* ── Global tooltip ───────────────────────────────────────────────────
@@ -547,4 +552,148 @@
 
 .dply-tablist-scroll::-webkit-scrollbar-thumb:hover {
     background-color: rgb(104 132 121 / 0.5);
+}
+
+/* ── Terminal theme: app-level corrections ───────────────────────────────
+   Redefining the tokens flips 300 views at once, but a handful of utilities
+   encode "dark thing on a light page" in their NAME rather than their token.
+   Those are corrected here, once, rather than swept through the views. */
+
+/* Primary actions: the views say `bg-brand-ink text-brand-cream`, which out
+   here resolves to a pale button. The product's primary is the acid green the
+   login and marketing CTAs use. Opacity variants (bg-brand-ink/95 terminal
+   blocks, /5 chips) are deliberately untouched. */
+html.dark .bg-brand-ink:not([class*='bg-brand-ink/']) {
+    background-color: var(--color-edge-lime);
+    color: var(--color-edge-void);
+}
+
+html.dark .bg-brand-ink:not([class*='bg-brand-ink/']) :is(svg, span, p) {
+    color: inherit;
+}
+
+html.dark .hover\:bg-brand-forest:hover {
+    background-color: var(--color-edge-lime-bright);
+    color: var(--color-edge-void);
+}
+
+/* Code / terminal blocks stay near-black on a near-black page, so they need a
+   hairline to read as a surface rather than a hole. */
+html.dark :is(pre, code)[class*='bg-brand-ink/'] {
+    border: 1px solid var(--color-edge-line);
+}
+
+/* Inputs: the shared field styles are drawn for paper. */
+html.dark .dply-input,
+html.dark input:is([type='text'], [type='email'], [type='password'], [type='search'], [type='url'], [type='number']),
+html.dark select,
+html.dark textarea {
+    background-color: var(--color-edge-void);
+    border-color: var(--color-edge-line);
+    color: var(--color-edge-text);
+}
+
+html.dark :is(input, select, textarea)::placeholder {
+    color: var(--color-edge-faint);
+}
+
+html.dark :is(input, select, textarea):focus {
+    border-color: var(--color-edge-lime);
+    box-shadow: 0 0 0 1px var(--color-edge-lime);
+    outline: none;
+}
+
+html.dark input:is([type='checkbox'], [type='radio']) {
+    accent-color: var(--color-edge-lime);
+    background-color: var(--color-edge-void);
+    border-color: var(--color-edge-line);
+}
+
+/* ── Edge auth shell ──────────────────────────────────────────────────────
+   The guest/auth pages run the dark "Terminal" identity while the workspace
+   stays on the brand-* palette. Rather than fork <x-text-input>,
+   <x-input-label> and <x-primary-button> — which are used on ~every
+   authenticated screen — these rules re-dress them for a dark ground and are
+   scoped to .edge-auth so nothing inside the app is affected.
+
+   Restyle here, never in the components. */
+.edge-auth .dply-input {
+    border-radius: 0;
+    border-color: var(--color-edge-line);
+    background-color: var(--color-edge-void);
+    color: var(--color-edge-text);
+    box-shadow: none;
+    font-family: var(--font-terminal);
+    font-size: 0.875rem;
+}
+
+.edge-auth .dply-input::placeholder {
+    color: var(--color-edge-faint);
+}
+
+.edge-auth .dply-input:focus {
+    border-color: var(--color-edge-lime);
+    box-shadow: 0 0 0 1px var(--color-edge-lime);
+    outline: none;
+}
+
+/* Labels and helper copy ship as text-brand-ink / text-brand-moss, which is
+   near-black on near-black out here. */
+.edge-auth label,
+.edge-auth .text-brand-ink {
+    color: var(--color-edge-text);
+}
+
+.edge-auth .text-brand-moss,
+.edge-auth .text-brand-mist {
+    color: var(--color-edge-mute);
+}
+
+.edge-auth a:not([class*='bg-']) {
+    color: var(--color-edge-text);
+}
+
+.edge-auth a:not([class*='bg-']):hover {
+    color: var(--color-edge-lime);
+}
+
+/* Primary action: square, lime, monospace — same affordance as the marketing
+   CTA so "deploy your first site" and "log in" read as one product. */
+.edge-auth button[type='submit'],
+.edge-auth .dply-btn-primary {
+    border-radius: 0;
+    background-color: var(--color-edge-lime);
+    color: var(--color-edge-void);
+    font-family: var(--font-terminal);
+    font-weight: 700;
+    box-shadow: none;
+}
+
+.edge-auth button[type='submit']:hover,
+.edge-auth .dply-btn-primary:hover {
+    background-color: var(--color-edge-lime-bright);
+}
+
+/* Pages that render under BOTH layouts (the invitation accept screen) keep the
+   brand-* markup and get their surfaces re-dressed here for the dark ground —
+   same rule as the inputs above: restyle in this file, never in the view. */
+.edge-auth .dply-card {
+    border-radius: 0;
+    border-color: var(--color-edge-line);
+    background-color: var(--color-edge-panel);
+    box-shadow: none;
+}
+
+.edge-auth .dply-card :is(.bg-white, [class*='bg-brand-sand'], [class*='bg-brand-sage']) {
+    background-color: transparent;
+}
+
+.edge-auth .dply-card [class*='border-brand-'] {
+    border-color: var(--color-edge-line);
+}
+
+/* Checkbox / radio accents */
+.edge-auth input[type='checkbox'],
+.edge-auth input[type='radio'] {
+    accent-color: var(--color-edge-lime);
 }

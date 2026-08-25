@@ -7,18 +7,13 @@ namespace App\Support\Errors;
 use App\Models\ConsoleAction;
 use App\Models\ErrorEvent;
 use App\Models\Server;
-use App\Models\ServerCacheService;
-use App\Models\ServerDatabaseEngine;
 use App\Models\Site;
 use App\Models\SiteBinding;
-use App\Models\SiteDeployment;
-use App\Modules\Remediations\Services\RemediationCatalog;
-use App\Modules\Serverless\Models\FunctionInvocation;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 
 /**
- * Normalizes a failed source (ConsoleAction / SiteDeployment / FunctionInvocation)
+ * Normalizes a failed source (ConsoleAction)
  * into a single {@see ErrorEvent} row. Shared by the model listeners and the
  * backfill command so live capture and historical seeding produce identical rows.
  *
@@ -28,8 +23,6 @@ use Illuminate\Support\Str;
  */
 class ErrorEventRecorder
 {
-    public function __construct(private readonly RemediationCatalog $remediations) {}
-
     /** Record a failed ConsoleAction. No-op if it isn't actually failed. */
     public function recordConsoleAction(ConsoleAction $action): ?ErrorEvent
     {
@@ -58,7 +51,7 @@ class ErrorEventRecorder
             'server_id' => $serverId,
             'site_id' => $siteId,
             'category' => (string) $action->kind,
-            'remediation_code' => $this->remediations->match($detail)['code'] ?? null,
+            'remediation_code' => null,
             'title' => $this->humanTitle((string) ($action->label ?: ''), (string) $action->kind),
             'detail' => $detail !== '' ? Str::limit($detail, 2000, '') : null,
             'link_url' => $link,
@@ -66,36 +59,6 @@ class ErrorEventRecorder
         ]);
     }
 
-    /** Record a failed SiteDeployment. No-op if it isn't actually failed. */
-    public function recordDeployment(SiteDeployment $deployment): ?ErrorEvent
-    {
-        if ($deployment->status !== SiteDeployment::STATUS_FAILED) {
-            return null;
-        }
-
-        $site = $deployment->site;
-        $server = $site?->server;
-        $detail = $this->deploymentDetail($deployment);
-        // Match against the FULL failure output (the signature often sits earlier
-        // than the truncated `detail` tail).
-        $matchCode = $this->remediations->match($this->deploymentMatchText($deployment))['code'] ?? null;
-
-        $link = ($site && $server)
-            ? route('sites.deployments.show', ['server' => $server->id, 'site' => $site->id, 'deployment' => $deployment->id])
-            : null;
-
-        return $this->upsert($deployment, [
-            'organization_id' => $site->organization_id ?? $server->organization_id,
-            'server_id' => $server?->id,
-            'site_id' => $site?->id,
-            'category' => 'deploy',
-            'remediation_code' => $matchCode,
-            'title' => $site ? __('Deployment failed — :site', ['site' => $site->name]) : __('Deployment failed'),
-            'detail' => $detail !== '' ? Str::limit($detail, 2000, '') : null,
-            'link_url' => $link,
-            'occurred_at' => $deployment->finished_at ?? $deployment->updated_at ?? now(),
-        ]);
-    }
 
     /**
      * Record one HTTP 5xx hit swept from a site's PHP-FPM access log (Tier-2 of
@@ -118,7 +81,7 @@ class ErrorEventRecorder
 
         $status = (int) $hit['status'];
         $request = trim($hit['method'].' '.$hit['uri']);
-        $link = route('sites.errors', [
+        $link = route('sites.show', [
             'server' => $site->server_id,
             'site' => $site->id,
             'reference' => $reference,
@@ -151,68 +114,6 @@ class ErrorEventRecorder
         );
     }
 
-    /**
-     * Record one failed serverless invocation. This is what puts a broken
-     * function into the same stream as a failed deploy — the Errors tab a
-     * serverless site already mounts, `dply errors`, and the site-error
-     * notifications. `dply serverless errors` stays the raw per-invocation
-     * feed underneath it.
-     *
-     * No-op for a success or an in-flight async row: `success` defaults to
-     * false on insert, so a pending row is not yet a failure.
-     *
-     * Volume is held down by the syncer, which folds a failing streak into one
-     * open event per site (the same fold uptime checks get) — a function
-     * failing on every request would otherwise mint thousands of rows a day.
-     */
-    public function recordFunctionInvocation(FunctionInvocation $invocation): ?ErrorEvent
-    {
-        if ($invocation->success || $invocation->isPending()) {
-            return null;
-        }
-
-        $site = $invocation->site;
-        if ($site === null) {
-            return null;
-        }
-
-        $detail = trim((string) ($invocation->result_excerpt ?? ''));
-        if ($detail === '') {
-            $lines = $invocation->logLines();
-            $detail = trim((string) (end($lines) ?: ''));
-        }
-
-        $status = $invocation->status_code;
-        $target = $invocation->path ?? $invocation->task;
-
-        return $this->upsert($invocation, [
-            'organization_id' => $site->organization_id,
-            // A function has no VM. Leaving server_id null keeps these out of
-            // the server roll-up, which is about a box.
-            'server_id' => null,
-            'site_id' => $site->id,
-            'category' => 'function_invocation',
-            'remediation_code' => $this->remediations->match($detail)['code'] ?? null,
-            'title' => $status !== null
-                ? __('Function returned HTTP :status — :site', ['status' => $status, 'site' => $site->name])
-                : __('Function invocation failed — :site', ['site' => $site->name]),
-            'detail' => $this->invocationDetail($detail, $target),
-            // The Errors tab is where this row is read; the invocation itself
-            // (log lines, result body) lives on the logs workspace.
-            'link_url' => route('serverless.logs', ['site' => $site->id]),
-            'occurred_at' => $invocation->created_at ?? now(),
-        ]);
-    }
-
-    /** Prefix the failing route/task so the row is actionable without opening it. */
-    private function invocationDetail(string $detail, ?string $target): string
-    {
-        $target = trim((string) $target);
-        $prefix = $target === '' ? '' : $target.' — ';
-        $body = $prefix.($detail !== '' ? $detail : __('No output captured.'));
-
-        return Str::limit($body, 2000, '');
-    }
 
     /**
      * Resolve [organization_id, server_id, site_id, link_url] from a
@@ -235,19 +136,7 @@ class ErrorEventRecorder
                 $subject->organization_id,
                 $subject->id,
                 null,
-                route('servers.overview', $subject->id),
-            ],
-            $subject instanceof ServerDatabaseEngine => [
-                $subject->server?->organization_id,
-                $subject->server_id,
                 null,
-                $subject->server_id ? route('servers.databases', $subject->server_id) : null,
-            ],
-            $subject instanceof ServerCacheService => [
-                $subject->server?->organization_id,
-                $subject->server_id,
-                null,
-                $subject->server_id ? route('servers.caches', $subject->server_id) : null,
             ],
             $subject instanceof SiteBinding => [
                 $subject->site?->organization_id,
@@ -299,6 +188,7 @@ class ErrorEventRecorder
         return Str::headline(str_replace([':', '.'], ' ', $kind)) ?: __('Operation failed');
     }
 
+
     /** Newest error-level line from a ConsoleAction's output, if any. */
     private function lastErrorLine(ConsoleAction $action): string
     {
@@ -310,30 +200,5 @@ class ErrorEventRecorder
         }
 
         return '';
-    }
-
-    /** Full failure output for signature matching — the whole log plus step outputs. */
-    private function deploymentMatchText(SiteDeployment $deployment): string
-    {
-        $parts = [(string) ($deployment->log_output ?? '')];
-        $phaseResults = is_array($deployment->phase_results ?? null) ? $deployment->phase_results : [];
-        array_walk_recursive($phaseResults, function ($value) use (&$parts): void {
-            if (is_string($value) && $value !== '') {
-                $parts[] = $value;
-            }
-        });
-
-        return implode("\n", $parts);
-    }
-
-    private function deploymentDetail(SiteDeployment $deployment): string
-    {
-        $exit = $deployment->exit_code;
-        $tail = trim((string) ($deployment->log_output ?? ''));
-        $tail = $tail === '' ? '' : trim((string) mb_substr($tail, -1000));
-
-        $prefix = sprintf('Exited %d. ', (int) $exit);
-
-        return trim($prefix.$tail);
     }
 }

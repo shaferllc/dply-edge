@@ -9,8 +9,6 @@ use App\Models\EdgeSiteAccessRule;
 use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
-use App\Models\SiteCertificate;
-use App\Models\SiteDeployment;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -45,8 +43,6 @@ class OrganizationComplianceExportController extends Controller
 
         $zip->addFromString('README.txt', $this->readme($organization));
         $zip->addFromString('audit_log.csv', $this->auditLogCsv($organization));
-        $zip->addFromString('deploys.csv', $this->deployHistoryCsv($organization));
-        $zip->addFromString('certificates.csv', $this->certificatesCsv($organization));
         $zip->addFromString('edge_access_rules.csv', $this->edgeAccessRulesCsv($organization));
         $zip->close();
 
@@ -103,70 +99,6 @@ class OrganizationComplianceExportController extends Controller
                 json_encode($row->old_values, JSON_UNESCAPED_SLASHES),
                 json_encode($row->new_values, JSON_UNESCAPED_SLASHES),
                 (string) ($row->ip_address ?? ''),
-            ],
-        );
-    }
-
-    private function deployHistoryCsv(Organization $organization): string
-    {
-        $siteIdQuery = Site::query()
-            ->where('organization_id', $organization->id)
-            ->orWhereIn('server_id', Server::query()->where('organization_id', $organization->id)->select('id'));
-
-        $query = SiteDeployment::query()
-            ->with('site:id,name,server_id')
-            ->whereIn('site_id', $siteIdQuery->select('id'))
-            ->orderBy('started_at');
-
-        return $this->streamCsv(
-            ['started_at', 'finished_at', 'site', 'site_id', 'status', 'trigger', 'git_sha', 'exit_code', 'duration_seconds'],
-            $query,
-            function (SiteDeployment $row) {
-                $duration = $row->started_at && $row->finished_at
-                    ? (int) round($row->finished_at->getTimestamp() - $row->started_at->getTimestamp())
-                    : '';
-
-                return [
-                    $row->started_at?->toIso8601String() ?? '',
-                    $row->finished_at?->toIso8601String() ?? '',
-                    (string) ($row->site !== null ? $row->site->name : ''),
-                    (string) $row->site_id,
-                    (string) $row->status,
-                    (string) ($row->trigger ?? ''),
-                    (string) ($row->git_sha ?? ''),
-                    $row->exit_code !== '' ? (string) $row->exit_code : '',
-                    (string) $duration,
-                ];
-            },
-        );
-    }
-
-    private function certificatesCsv(Organization $organization): string
-    {
-        $siteIdQuery = Site::query()
-            ->where('organization_id', $organization->id)
-            ->orWhereIn('server_id', Server::query()->where('organization_id', $organization->id)->select('id'));
-
-        $query = SiteCertificate::query()
-            ->with('site:id,name')
-            ->whereIn('site_id', $siteIdQuery->select('id'))
-            ->orderBy('expires_at');
-
-        return $this->streamCsv(
-            ['site', 'site_id', 'certificate_id', 'provider_type', 'challenge_type', 'scope_type', 'status', 'domains_json', 'expires_at', 'last_requested_at', 'last_installed_at'],
-            $query,
-            fn (SiteCertificate $row) => [
-                (string) ($row->site !== null ? $row->site->name : ''),
-                (string) $row->site_id,
-                (string) $row->id,
-                (string) ($row->provider_type ?? ''),
-                (string) ($row->challenge_type ?? ''),
-                (string) ($row->scope_type ?? ''),
-                (string) $row->status,
-                json_encode($row->domains_json, JSON_UNESCAPED_SLASHES),
-                $row->expires_at?->toIso8601String() ?? '',
-                $row->last_requested_at?->toIso8601String() ?? '',
-                $row->last_installed_at?->toIso8601String() ?? '',
             ],
         );
     }

@@ -10,6 +10,7 @@ use App\Modules\Billing\Services\EdgeUsageTotals;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
+use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 
 /**
  * Persists daily Edge usage snapshots per site. v1 pulls from Cloudflare when

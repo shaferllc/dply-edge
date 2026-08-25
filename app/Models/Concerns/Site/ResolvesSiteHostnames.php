@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace App\Models\Concerns\Site;
 
 use App\Jobs\DetectSiteCloudflareTlsJob;
-use App\Livewire\Sites\Settings;
-use App\Models\ServerWildcardCertificate;
 use App\Models\Site;
 use App\Models\SiteDomain;
 use App\Models\SitePreviewDomain;
@@ -25,7 +23,6 @@ use Illuminate\Support\Facades\URL;
  * @property-read \Illuminate\Database\Eloquent\Collection<int, SiteDomain> $domains
  * @property-read \Illuminate\Database\Eloquent\Collection<int, SitePreviewDomain> $previewDomains
  * @property-read \Illuminate\Database\Eloquent\Collection<int, SiteDomainAlias> $domainAliases
- * @property-read \Illuminate\Database\Eloquent\Collection<int, SiteTenantDomain> $tenantDomains
  */
 trait ResolvesSiteHostnames
 {
@@ -166,57 +163,6 @@ trait ResolvesSiteHostnames
         return is_string($zone) && trim($zone) !== '' ? strtolower(trim($zone)) : null;
     }
 
-    /**
-     * Memoized coveringServerWildcard() results, keyed by server+zone.
-     *
-     * @var array<string, ServerWildcardCertificate|null>
-     */
-    private array $coveringServerWildcardCache = [];
-
-    /**
-     * The installed per-server wildcard certificate that secures this site's
-     * testing hostname (e.g. *.on-dply.com on this site's server), or null.
-     *
-     * Memoized per instance — vhost rendering asks for this several times per
-     * request (443 gate, cert-pair paths). Call
-     * flushCoveringServerWildcardCache() after installing a wildcard on a Site
-     * instance that may have already resolved this.
-     */
-    public function coveringServerWildcard(): ?ServerWildcardCertificate
-    {
-        $zone = $this->testingZone();
-        if ($zone === null || $this->server_id === null) {
-            return null;
-        }
-
-        $key = $this->server_id.'|'.$zone;
-        if (! array_key_exists($key, $this->coveringServerWildcardCache)) {
-            $this->coveringServerWildcardCache[$key] = ServerWildcardCertificate::query()
-                ->where('server_id', $this->server_id)
-                ->where('zone', $zone)
-                ->where('status', ServerWildcardCertificate::STATUS_ACTIVE)
-                ->whereNotNull('last_installed_at')
-                ->first();
-        }
-
-        return $this->coveringServerWildcardCache[$key];
-    }
-
-    /** Drop the memoized coveringServerWildcard() results. */
-    public function flushCoveringServerWildcardCache(): void
-    {
-        $this->coveringServerWildcardCache = [];
-    }
-
-    /**
-     * True when an installed server wildcard already secures the testing
-     * hostname — meaning the vhost can emit :443 with no per-site cert.
-     */
-    public function isCoveredByServerWildcard(): bool
-    {
-        return $this->coveringServerWildcard() !== null;
-    }
-
     /** @return Collection<int, non-empty-string> */
     public function sslDomainHostnames(): Collection
     {
@@ -289,61 +235,6 @@ trait ResolvesSiteHostnames
     }
 
     /**
-     * @return list<string>
-     */
-    public function tenantHostnames(): array
-    {
-        $tenantDomains = $this->relationLoaded('tenantDomains')
-            ? $this->tenantDomains
-            : $this->tenantDomains()->get();
-
-        return $tenantDomains->pluck('hostname')
-            ->filter(fn (mixed $hostname): bool => is_string($hostname) && trim($hostname) !== '')
-            ->map(fn (string $hostname): string => strtolower(trim($hostname)))
-            ->unique()
-            ->values()
-            ->all();
-    }
-
-    /**
-     * Managed testing-domain hostnames provisioned per tenant (so the app can be
-     * reached as a given tenant on a dply testing zone before the customer's real
-     * DNS is in place). These must also be in the vhost server_name so the
-     * webserver answers for them — see {@see webserverHostnames()}.
-     *
-     * @return list<string>
-     */
-    public function tenantTestingHostnames(): array
-    {
-        $tenantDomains = $this->relationLoaded('tenantDomains')
-            ? $this->tenantDomains
-            : $this->tenantDomains()->get();
-
-        return $tenantDomains
-            ->map(fn ($tenant): ?string => $tenant->testingHostname())
-            ->filter(fn (?string $hostname): bool => is_string($hostname) && trim($hostname) !== '')
-            ->map(fn (string $hostname): string => strtolower(trim($hostname)))
-            ->unique()
-            ->values()
-            ->all();
-    }
-
-    /**
-     * @return list<string>
-     */
-    public function webserverHostnames(): array
-    {
-        return collect([
-            ...$this->customerDomainHostnames(),
-            ...$this->aliasHostnames(),
-            ...$this->tenantHostnames(),
-            ...$this->tenantTestingHostnames(),
-            ...$this->ownTestingHostnames(),
-            ...$this->previewHostnames(),
-        ])->unique()->values()->all();
-    }
-
-    /**
      * This site's own dply testing hostname (the provisioned `<hash>.on-dply.com`
      * stored in meta.testing_hostname). It must be in the vhost's server_name or
      * nginx 502s when the site is reached by that hostname before real DNS — the
@@ -388,4 +279,5 @@ trait ResolvesSiteHostnames
             ->values()
             ->all();
     }
+
 }

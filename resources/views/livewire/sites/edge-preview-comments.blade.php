@@ -6,28 +6,27 @@
         ['label' => __('Review hub'), 'icon' => 'chat-bubble-left-right'],
     ]" />
 
-    <x-hero-card
-        :eyebrow="__('Edge')"
+    <x-profile-shell
+        class="mt-4"
         :title="__('Preview review hub')"
         :description="__('PR-linked design review — threaded comments, approvals, and promote when ready.')"
-        icon="chat-bubble-left-right"
-        class="mt-5"
+        icon="heroicon-o-chat-bubble-left-right"
     >
-        <x-slot:topAction>
+        <x-slot:actions>
             @if (! empty($review['pr_url']))
-                <a href="{{ $review['pr_url'] }}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-xs font-semibold text-brand-ink shadow-sm hover:bg-brand-sand/40">
+                <a href="{{ $review['pr_url'] }}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 rounded-lg border border-brand-ink/15 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink shadow-sm transition-colors hover:bg-brand-sand/40">
                     <x-heroicon-o-code-bracket-square class="h-4 w-4" aria-hidden="true" />
                     {{ __('PR #:n', ['n' => $review['pr_number']]) }}
                 </a>
             @endif
             @if ($site->edgeLiveUrl())
-                <a href="{{ $site->edgeLiveUrl() }}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-xs font-semibold text-brand-forest shadow-sm hover:bg-brand-sand/40">
+                <a href="{{ $site->edgeLiveUrl() }}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 rounded-lg border border-brand-ink/15 bg-white px-3 py-1.5 text-xs font-semibold text-brand-forest shadow-sm transition-colors hover:bg-brand-sand/40">
                     <x-heroicon-o-arrow-top-right-on-square class="h-4 w-4" aria-hidden="true" />
                     {{ __('Open preview') }}
                 </a>
             @endif
-        </x-slot:topAction>
-    </x-hero-card>
+        </x-slot:actions>
+    </x-profile-shell>
 
     @php
         $reviewReady = ! empty($review['ready_to_promote']);
@@ -99,7 +98,13 @@
             </div>
             <div class="space-y-4 px-6 py-5">
                 @if ($review['approvals'] === [])
-                    <p class="text-sm text-brand-mist">{{ __('No approvals yet.') }}</p>
+                    <x-empty-state
+                        borderless
+                        compact
+                        icon="heroicon-o-check-badge"
+                        :title="__('No approvals yet')"
+                        :description="__('Reviewers who approve this preview will be listed here.')"
+                    />
                 @else
                     <ul class="space-y-2 text-sm">
                         @foreach ($review['approvals'] as $approval)
@@ -181,7 +186,12 @@
         @if ($threads->isEmpty())
             <div class="px-6 py-12 text-center">
                 <x-heroicon-o-chat-bubble-bottom-center-text class="mx-auto h-8 w-8 text-brand-moss/50" />
-                <p class="mt-3 text-sm text-brand-moss">{{ __('No review threads yet.') }}</p>
+                <x-empty-state
+                    borderless
+                    icon="heroicon-o-chat-bubble-left-right"
+                    :title="__('No review threads yet')"
+                    :description="__('Comments left on the preview URL show up here, grouped by thread.')"
+                />
             </div>
         @else
             <ul class="divide-y divide-brand-ink/10">

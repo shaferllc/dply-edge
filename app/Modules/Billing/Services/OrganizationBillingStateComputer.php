@@ -2,30 +2,17 @@
 
 namespace App\Modules\Billing\Services;
 
-use App\Models\FunctionAction;
 use App\Models\LookoutProject;
 use App\Models\Organization;
 use App\Models\Server;
-use App\Models\ServerLogUsageDaily;
 use App\Models\Site;
-use App\Modules\Logs\Services\ServerLogEntitlements;
-use App\Modules\Queue\Models\QueueNamespace;
-use App\Modules\Realtime\Models\RealtimeApp;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Schema;
 
 /**
  * Builds a {@see DesiredBillingState} for an organization by scanning its
- * currently *billable* units. Four kinds:
- *
- * - **BYO servers** — ready VM hosts the customer SSHs into. Counted, not
- *   sized: the flat plan is chosen by how many there are. dply-managed logical
- *   hosts (Cloud, Edge, serverless namespaces) are excluded from this scan.
- * - **Serverless functions** — code actions on active function-Sites.
- * - **dply Cloud apps** — container_active sites on container_backend
- *   `dply_cloud`, excluding branch previews.
- * - **dply Edge sites** — edge_active sites with edge_backend set, excluding
- *   branch previews.
+ * currently *billable* units. dply-edge bills exactly one kind — **Edge
+ * sites**: edge_active sites with `edge_backend = dply_edge`, excluding branch
+ * previews, plus their metered usage (requests / egress / R2 storage).
  *
  * Age filter: units younger than min_billable_age_days are excluded.
  */
@@ -35,15 +22,6 @@ class OrganizationBillingStateComputer
         private EdgeOrganizationUsageReader $usageReader,
         private EdgeUsageCostCalculator $usageCostCalculator,
         private SubscriptionPlanResolver $planResolver,
-        private CloudResourceCostCalculator $cloudResourceCalculator,
-        private ServerlessOrganizationUsageReader $serverlessUsageReader,
-        private ServerlessUsageCostCalculator $serverlessUsageCostCalculator,
-        private ServerlessResourceCostCalculator $serverlessResourceCalculator,
-        private ServerResourceCostCalculator $serverResourceCalculator,
-        private ServerLogEntitlements $serverLogEntitlements,
-        private ServerLogUsageCostCalculator $serverLogUsageCostCalculator,
-        private QueueFleetUsageReader $queueFleetUsageReader,
-        private QueueFleetUsageCostCalculator $queueFleetUsageCostCalculator,
     ) {}
 
     /**
@@ -68,20 +46,6 @@ class OrganizationBillingStateComputer
     private static array $desiredStateMemo = [];
 
     /**
-     * Request-scoped Schema::hasTable('function_actions') — information_schema
-     * round-trips otherwise repeat once per compute() before the desired-state
-     * memo lands (and whenever compute is flushed mid-request).
-     */
-    private static ?bool $functionActionsTableExists = null;
-
-    /**
-     * Metered log-bytes SUM keyed by org + period window.
-     *
-     * @var array<string, int>
-     */
-    private static array $serverLogBytesMemo = [];
-
-    /**
      * @return Collection<int, Server>
      */
     public function readyBillableServers(Organization $organization): Collection
@@ -96,9 +60,6 @@ class OrganizationBillingStateComputer
         return self::$readyBillableServersMemo[$key] = $organization->servers()
             ->where('status', Server::STATUS_READY)
             ->where('created_at', '<=', $ageCutoff)
-            // Downstream consumers (cost cards, analytics, health) read the
-            // latest metric snapshot per server — eager load it to avoid an N+1.
-            ->with('latestMetricSnapshot')
             ->get();
     }
 
@@ -129,8 +90,6 @@ class OrganizationBillingStateComputer
         if ($organizationId === null) {
             self::$readyBillableServersMemo = [];
             self::$desiredStateMemo = [];
-            self::$serverLogBytesMemo = [];
-            self::$functionActionsTableExists = null;
 
             return;
         }
@@ -139,12 +98,6 @@ class OrganizationBillingStateComputer
             self::$readyBillableServersMemo[$organizationId],
             self::$desiredStateMemo[$organizationId],
         );
-
-        foreach (array_keys(self::$serverLogBytesMemo) as $key) {
-            if (str_starts_with($key, $organizationId.'|')) {
-                unset(self::$serverLogBytesMemo[$key]);
-            }
-        }
     }
 
     public function compute(Organization $organization): DesiredBillingState
@@ -199,20 +152,10 @@ class OrganizationBillingStateComputer
     }
 
     /**
-     * Billable BYO server count, skipping the latest-metric-snapshot eager load
-     * that {@see readyBillableServers} carries.
-     *
-     * The snapshot join is the single slowest query in the billing scan, and it
-     * exists for the per-server cost cards and analytics — a count needs none of
-     * it. The managed/product-host filters are PHP predicates, so the rows still
-     * have to be loaded; only the join is dropped.
-     *
-     * Deliberately does NOT populate $readyBillableServersMemo: these models
-     * lack the eager-loaded relation, and seeding the shared memo with them
-     * would push an N+1 onto every later snapshot read. A full compute() in the
-     * same request therefore re-queries with the join — one extra query on
-     * billing pages, in exchange for dropping the join from every page that
-     * only renders the trial banner.
+     * Billable-unit count without the metric-snapshot join. dply-edge has no
+     * BYO servers, so this is structurally zero — kept as its own method
+     * because {@see isFree()} deliberately avoids seeding the shared
+     * ready-servers memo with relation-less models.
      */
     private function billableByoServerCountWithoutMetrics(Organization $organization): int
     {
@@ -233,107 +176,29 @@ class OrganizationBillingStateComputer
 
     private function computeFresh(Organization $organization): DesiredBillingState
     {
-        $billableServerCount = 0;
-
         $minAgeDays = max(0, (int) config('subscription.standard.min_billable_age_days', 1));
         $ageCutoff = now()->subDays($minAgeDays);
 
-        // dply-managed VMs run on dply-owned Hetzner infra and are billed all-in
-        // cost-plus, so they are excluded from the plan-tier scan and collected
-        // separately. BYO servers continue to drive the flat plan.
-        /** @var Collection<int, Server> $managedServers */
-        $managedServers = collect();
-
-        $this->readyBillableServers($organization)
-            ->each(function (Server $server) use (&$billableServerCount, $managedServers): void {
-                if ($server->isManagedProductHost()) {
-                    return;
-                }
-
-                if ($server->usesManagedHosting()) {
-                    $managedServers->push($server);
-
-                    return;
-                }
-
-                $billableServerCount++;
-            });
-
-        // Comped managed servers (the beta free-CX22 grant, support credits) are
-        // excluded from both the billed count and subtotal — the localized comp
-        // decision lives on Server::isComped() / the comped_until column.
-        $billableManagedServers = $managedServers->reject(fn (Server $server) => $server->isComped());
-        $managedServerCount = $billableManagedServers->count();
-        $managedServerSubtotalCents = $this->serverResourceCalculator->subtotalCents($billableManagedServers);
-
-        $serverlessCount = 0;
-        $cloudCount = 0;
         $edgeCount = 0;
         $edgeSsrCount = 0;
 
-        // Billable Cloud apps are collected so their backing DigitalOcean
-        // resources (containers, workers, databases, buckets) can be metered.
-        /** @var Collection<int, Site> $billableCloudSites */
-        $billableCloudSites = collect();
-
-        // dply-managed serverless functions are collected so their usage
-        // (metered) and managed DB/cache resources (cost-plus) can be billed
-        // on top of the flat per-function fee. BYO functions are excluded.
-        /** @var Collection<int, Site> $managedServerlessSites */
-        $managedServerlessSites = collect();
-
-        $siteQuery = $organization->sites()
-            ->where('created_at', '<=', $ageCutoff);
-
-        if ($this->functionActionsTableExists()) {
-            $siteQuery->withCount(['functionActions as code_action_count' => fn ($query) => $query->where('kind', FunctionAction::KIND_CODE)]);
-        }
-
-        $siteQuery->get()
-            ->each(function (Site $site) use (&$serverlessCount, &$cloudCount, &$edgeCount, &$edgeSsrCount, $billableCloudSites, $managedServerlessSites): void {
-                if ($site->status === Site::STATUS_FUNCTIONS_ACTIVE) {
-                    $serverlessCount += max(1, (int) $site->code_action_count);
-
-                    if ($site->usesManagedServerless()) {
-                        $managedServerlessSites->push($site);
-                    }
-
-                    return;
-                }
-
-                if ($site->status === Site::STATUS_CONTAINER_ACTIVE && $site->isDplyCloudSite() && ! $site->isCloudPreview()) {
-                    $cloudCount++;
-                    $billableCloudSites->push($site);
-
-                    return;
-                }
-
-                if (
-                    $site->status === Site::STATUS_EDGE_ACTIVE
-                    && $site->edge_backend === 'dply_edge'
-                    && ! $site->isEdgePreview()
-                ) {
-                    $edgeCount++;
-                    $runtimeMode = strtolower((string) ($site->edgeMeta()['runtime_mode'] ?? 'static'));
-                    if ($runtimeMode === 'ssr') {
-                        $edgeSsrCount++;
-                    }
-                }
-            });
-
-        $cloudResourceSubtotalCents = $this->cloudResourceCalculator->subtotalCents($billableCloudSites);
-
-        // Managed Realtime apps — billed per connection-tier (one line per tier,
-        // quantity = active apps on that tier). Rows with a null/unknown tier are
-        // attributed to the default tier via RealtimeApp::tierSlug().
-        $realtimeTierQuantities = [];
-        $organization->realtimeApps()
-            ->where('status', RealtimeApp::STATUS_ACTIVE)
+        $organization->sites()
             ->where('created_at', '<=', $ageCutoff)
-            ->get(['tier'])
-            ->each(function (RealtimeApp $app) use (&$realtimeTierQuantities): void {
-                $slug = $app->tierSlug();
-                $realtimeTierQuantities[$slug] = ($realtimeTierQuantities[$slug] ?? 0) + 1;
+            ->get()
+            ->each(function (Site $site) use (&$edgeCount, &$edgeSsrCount): void {
+                if (
+                    $site->status !== Site::STATUS_EDGE_ACTIVE
+                    || $site->edge_backend !== 'dply_edge'
+                    || $site->isEdgePreview()
+                ) {
+                    return;
+                }
+
+                $edgeCount++;
+                $runtimeMode = strtolower((string) ($site->edgeMeta()['runtime_mode'] ?? 'static'));
+                if ($runtimeMode === 'ssr') {
+                    $edgeSsrCount++;
+                }
             });
 
         // Managed Lookout error-tracking projects — billed per tier, the first
@@ -363,34 +228,6 @@ class OrganizationBillingStateComputer
                 });
         }
 
-        // dply Queue namespaces — billed per capacity tier, and free when the
-        // namespace serves a dply Serverless site (QueueNamespace::isBillable()).
-        // Dark until DPLY_QUEUE_BILLING_ENABLED, which must stay off until this
-        // predicate ships: ServerlessQueueProvisioner auto-creates namespaces
-        // the moment surface.queue opens, so billing-before-predicate would
-        // charge Serverless customers for what they were told was included.
-        // See docs/adr/managed-services-tier.md, decisions 4, 5 and 11.
-        $queueTierQuantities = [];
-        $queueBillableNamespaceIds = [];
-        if ((bool) config('queue_service.billing.enabled', false)) {
-            $organization->queueNamespaces()
-                ->where('status', QueueNamespace::STATUS_ACTIVE)
-                ->where('created_at', '<=', $ageCutoff)
-                // Eager-loaded because isBillable() reads the site's backend;
-                // without it this is an N+1 across every namespace in the org.
-                ->with('site:id,serverless_backend')
-                ->get(['id', 'site_id', 'tier'])
-                ->each(function (QueueNamespace $namespace) use (&$queueTierQuantities, &$queueBillableNamespaceIds): void {
-                    if (! $namespace->isBillable()) {
-                        return;
-                    }
-
-                    $slug = $namespace->tierConfig()->slug;
-                    $queueTierQuantities[$slug] = ($queueTierQuantities[$slug] ?? 0) + 1;
-                    $queueBillableNamespaceIds[] = (string) $namespace->id;
-                });
-        }
-
         [$usagePeriodStart, $usagePeriodEnd] = $this->usageReader->currentMonthWindow();
         $usageTotals = $this->usageReader->totalsForOrganization($organization, $usagePeriodStart, $usagePeriodEnd);
         $edgeUsageEstimate = $this->usageCostCalculator->estimate($usageTotals, $edgeCount);
@@ -401,110 +238,21 @@ class OrganizationBillingStateComputer
             'bytes_egress' => $usageTotals->bytesEgress,
             'r2_storage_bytes' => $usageTotals->r2StorageBytes,
         ]);
-        $edgeUsageSubtotalCents = (int) $edgeUsageEstimate['subtotal_cents'];
 
-        // dply Logs ingest overage — metered pass-through, billed against the
-        // org's plan entitlement (included GB + per-GB rate). Volume is the
-        // metered bytes for the current month from server_log_usage_daily (PR A).
-        // Dark until billing is enabled + a plan carries a rate; subtotal is 0
-        // otherwise, so this never adds a line today. Reuses the Edge month window.
-        $serverLogBytes = $this->serverLogBytesForPeriod(
-            $organization,
-            $usagePeriodStart->toDateString(),
-            $usagePeriodEnd->toDateString(),
-        );
-        $serverLogEntitlement = $this->serverLogEntitlements->forOrganization($organization);
-        $serverLogUsageEstimate = array_merge(
-            $this->serverLogUsageCostCalculator->estimate($serverLogEntitlement, $serverLogBytes),
-            [
-                'period_start' => $usagePeriodStart->toDateString(),
-                'period_end' => $usagePeriodEnd->toDateString(),
-                'retention_days' => $serverLogEntitlement->retentionDays,
-                'plan_key' => $serverLogEntitlement->planKey,
-            ],
-        );
-        $serverLogUsageSubtotalCents = (int) ($serverLogUsageEstimate['subtotal_cents']);
-
-        // Managed-serverless usage (metered invocations above the included
-        // allowance) + managed DB/cache resources, both cost-plus. BYO
-        // functions contribute nothing here.
-        $managedServerlessCount = $managedServerlessSites->count();
-        [$slPeriodStart, $slPeriodEnd] = $this->serverlessUsageReader->currentMonthWindow();
-        $serverlessUsageTotals = $this->serverlessUsageReader->totalsForOrganization($organization, $slPeriodStart, $slPeriodEnd);
-        $serverlessUsageEstimate = $this->serverlessUsageCostCalculator->estimate($serverlessUsageTotals, $managedServerlessCount);
-        $serverlessUsageSubtotalCents = (int) $serverlessUsageEstimate['subtotal_cents']
-            + $this->serverlessResourceCalculator->subtotalCents($managedServerlessSites);
-
-        // Managed queue workers: metered MiB-seconds by compute class plus job
-        // operations. Read from the daily rollup rather than the live counters
-        // so a recomputed invoice gives the same answer tomorrow.
-        [$qPeriodStart, $qPeriodEnd] = $this->queueFleetUsageReader->currentMonthWindow();
-        $queueUsageEstimate = array_merge(
-            $this->queueFleetUsageCostCalculator->estimate(
-                $this->queueFleetUsageReader->totalsForOrganization($organization, $qPeriodStart, $qPeriodEnd),
-            ),
-            [
-                'period_start' => $qPeriodStart->toDateString(),
-                'period_end' => $qPeriodEnd->toDateString(),
-            ],
-        );
-
-        // The flat plan is chosen by billable BYO server count.
-        // The canonical fleet bill carries the TRUE plan price (chosen by BYO
-        // server count) even for beta orgs — it's what "subscribe early" charges
-        // and what the fleet preview shows as post-beta value. The beta $0
-        // experience is a lifecycle/display concern, not baked in here: beta
-        // orgs simply have no Stripe subscription and are never paused (see
-        // Organization::trialState / betaFeeWaived). The free CX22 is the one
-        // genuine waiver and is already excluded above via comped_until.
-        $plan = $this->planResolver->resolveForServerCount($billableServerCount);
+        // dply-edge sells one product, so there is no server count to size a
+        // flat plan by — the plan resolver still picks the zero-server tier and
+        // every charge rides on the per-site + metered lines below.
+        $plan = $this->planResolver->resolveForServerCount(0);
 
         return DesiredBillingState::fromPlanAndUsage(
             plan: $plan,
-            billableServerCount: $billableServerCount,
-            serverlessCount: $serverlessCount,
-            serverlessUnitCents: (int) config('subscription.standard.serverless_cents', 200),
-            serverlessUsageSubtotalCents: $serverlessUsageSubtotalCents,
-            managedServerCount: $managedServerCount,
-            managedServerSubtotalCents: $managedServerSubtotalCents,
-            cloudCount: $cloudCount,
-            cloudUnitCents: (int) config('subscription.standard.cloud_cents', 500),
-            cloudResourceSubtotalCents: $cloudResourceSubtotalCents,
             edgeCount: $edgeCount,
             edgeUnitCents: (int) config('subscription.standard.edge_cents', 200),
             edgeSsrCount: $edgeSsrCount,
             edgeSsrUnitCents: (int) config('subscription.standard.edge_ssr_cents', 700),
-            edgeUsageSubtotalCents: $edgeUsageSubtotalCents,
+            edgeUsageSubtotalCents: (int) $edgeUsageEstimate['subtotal_cents'],
             edgeUsageEstimate: $edgeUsageEstimate,
-            realtimeTierQuantities: $realtimeTierQuantities,
             lookoutTierQuantities: $lookoutTierQuantities,
-            queueTierQuantities: $queueTierQuantities,
-            queueBillableNamespaceIds: $queueBillableNamespaceIds,
-            queueUsageSubtotalCents: (int) $queueUsageEstimate['subtotal_cents'],
-            queueUsageEstimate: $queueUsageEstimate,
-            serverLogUsageSubtotalCents: $serverLogUsageSubtotalCents,
-            serverLogUsageEstimate: $serverLogUsageEstimate,
         );
-    }
-
-    private function functionActionsTableExists(): bool
-    {
-        return self::$functionActionsTableExists ??= Schema::hasTable('function_actions');
-    }
-
-    private function serverLogBytesForPeriod(
-        Organization $organization,
-        string $periodStart,
-        string $periodEnd,
-    ): int {
-        $key = (string) $organization->id.'|'.$periodStart.'|'.$periodEnd;
-        if (isset(self::$serverLogBytesMemo[$key])) {
-            return self::$serverLogBytesMemo[$key];
-        }
-
-        return self::$serverLogBytesMemo[$key] = (int) ServerLogUsageDaily::query()
-            ->where('organization_id', $organization->id)
-            ->whereBetween('day', [$periodStart, $periodEnd])
-            ->sum('bytes');
     }
 }

@@ -5,27 +5,31 @@
         ['label' => __('Templates'), 'icon' => 'sparkles'],
     ]" />
 
-    <header class="mt-6 flex flex-wrap items-end justify-between gap-4">
-        <div>
-            <h1 class="text-2xl font-semibold text-brand-ink">{{ __('Edge templates') }}</h1>
-            <p class="mt-2 max-w-2xl text-sm text-brand-moss">
-                {{ __('Hand-picked starter repositories. Click Deploy — dply pre-fills the Create form with the template\'s repo, framework, and build settings so you go from zero to live in under a minute.') }}
-            </p>
-        </div>
-        <a href="{{ route('edge.import') }}" wire:navigate class="inline-flex items-center gap-1.5 rounded-lg border border-brand-ink/15 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-brand-sand/40 dark:border-brand-mist/20 dark:bg-zinc-900">
-            <x-heroicon-o-arrow-down-tray class="h-4 w-4" aria-hidden="true" />
-            {{ __('Already deploying elsewhere? Import →') }}
-        </a>
-    </header>
+    <x-profile-shell
+        class="mt-4"
+        :title="__('Edge templates')"
+        :description="__('Hand-picked starter repositories. Click Deploy — dply pre-fills the Create form with the template\'s repo, framework, and build settings so you go from zero to live in under a minute.')"
+        icon="heroicon-o-sparkles"
+    >
+        <x-slot:actions>
+            <x-outline-link href="{{ route('edge.index') }}" wire:navigate size="sm">
+                <x-heroicon-o-arrow-left class="h-4 w-4 shrink-0 opacity-90" aria-hidden="true" />
+                {{ __('Back to Edge sites') }}
+            </x-outline-link>
+            <x-outline-link href="{{ route('edge.import') }}" wire:navigate size="sm">
+                <x-heroicon-o-arrow-down-tray class="h-4 w-4 shrink-0 opacity-90" aria-hidden="true" />
+                {{ __('Import instead') }}
+            </x-outline-link>
+        </x-slot:actions>
 
     @if ($tags !== [])
-        <div class="mt-6 flex flex-wrap items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2 border-b border-brand-ink/10 px-3 py-2.5 sm:px-4">
             <span class="text-2xs font-semibold uppercase tracking-[0.18em] text-brand-mist">{{ __('Filter') }}</span>
             <button type="button"
                     wire:click="setFilter('')"
                     @class([
                         'rounded-full px-3 py-1 text-xs font-semibold transition',
-                        'bg-brand-ink text-white' => $filterTag === '',
+                        'bg-brand-ink text-brand-cream' => $filterTag === '',
                         'bg-brand-sand/30 text-brand-moss hover:bg-brand-sand/60' => $filterTag !== '',
                     ])>{{ __('All') }}</button>
             @foreach ($tags as $tag)
@@ -33,7 +37,7 @@
                         wire:click="setFilter('{{ $tag }}')"
                         @class([
                             'rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide transition',
-                            'bg-brand-ink text-white' => $filterTag === $tag,
+                            'bg-brand-ink text-brand-cream' => $filterTag === $tag,
                             'bg-brand-sand/30 text-brand-moss hover:bg-brand-sand/60' => $filterTag !== $tag,
                         ])>{{ $tag }}</button>
             @endforeach
@@ -41,9 +45,9 @@
     @endif
 
     @if ($templates === [])
-        <p class="mt-12 text-center text-sm text-brand-moss">{{ __('No templates match this filter yet.') }}</p>
+        <p class="px-3 py-12 text-center text-sm text-brand-moss sm:px-4">{{ __('No templates match this filter yet.') }}</p>
     @else
-        <div class="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        <div class="grid gap-4 px-3 py-4 sm:grid-cols-2 sm:px-4 lg:grid-cols-3">
             @foreach ($templates as $template)
                 @php
                     $prefill = array_filter([
@@ -96,4 +100,5 @@
             @endforeach
         </div>
     @endif
+    </x-profile-shell>
 </div>

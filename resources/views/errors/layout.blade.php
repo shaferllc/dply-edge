@@ -15,13 +15,13 @@
     <title>@yield('title', __('Error')) – {{ config('app.name', 'Laravel') }}</title>
 
     <link rel="preconnect" href="https://fonts.bunny.net">
-    <link href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600,700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.bunny.net/css?family=space-grotesk:400,500,700|space-mono:400,700&display=swap" rel="stylesheet" />
 
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @livewireStyles
     <style>[x-cloak]{display:none!important}</style>
 </head>
-<body class="font-sans antialiased bg-brand-cream text-brand-ink min-h-screen flex flex-col" style="font-family: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;">
+<body class="font-sans antialiased bg-brand-cream text-brand-ink min-h-screen flex flex-col">
     <div class="fixed inset-0 -z-20 bg-brand-cream"></div>
     <div class="fixed inset-0 -z-10 bg-mesh-brand"></div>
 
@@ -60,9 +60,6 @@
                         @endif
 
                         @yield('extra-actions')
-
-                        {{-- Search --}}
-                        @include('errors.partials.search')
 
                         {{-- Referrer --}}
                         @if(!empty($errorContext['referrer']) && !str_starts_with($errorContext['referrer'], url()->current()))

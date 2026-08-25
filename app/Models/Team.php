@@ -23,7 +23,6 @@ use Illuminate\Support\Carbon;
  * @property-read ?Organization $organization
  * @property-read Collection<int, User> $users
  * @property-read Collection<int, Server> $servers
- * @property-read Collection<int, TeamSshKey> $sshKeys
  * @property-read Collection<int, NotificationChannel> $notificationChannels
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
@@ -121,11 +120,6 @@ class Team extends Model
         return $this->userCanManageSshKeys($user);
     }
 
-    /** @return HasMany<TeamSshKey, $this> */
-    public function sshKeys(): HasMany
-    {
-        return $this->hasMany(TeamSshKey::class);
-    }
 
     /** @return MorphMany<NotificationChannel, $this> */
     public function notificationChannels(): MorphMany

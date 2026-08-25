@@ -4,9 +4,6 @@ declare(strict_types=1);
 
 namespace App\Models;
 
-use App\Livewire\Servers\WorkspaceErrors;
-use App\Livewire\Sites\Errors;
-use App\Modules\Remediations\Services\RemediationCatalog;
 use App\Support\Errors\ErrorEventRecorder;
 use App\Support\Errors\ErrorRetryRegistry;
 use Illuminate\Database\Eloquent\Builder;
@@ -234,15 +231,4 @@ class ErrorEvent extends Model
         return app(ErrorRetryRegistry::class)->isRetryable((string) $this->category);
     }
 
-    /**
-     * The recognized remediation for this error, if any (matched at capture time).
-     *
-     * @return array<string, mixed>|null
-     */
-    public function remediation(): ?array
-    {
-        return $this->remediation_code
-            ? app(RemediationCatalog::class)->find((string) $this->remediation_code)
-            : null;
-    }
 }

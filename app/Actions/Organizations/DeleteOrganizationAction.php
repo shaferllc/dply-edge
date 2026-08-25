@@ -38,10 +38,7 @@ class DeleteOrganizationAction
             // org delete can't trip a RESTRICT foreign key.
             foreach ([
                 'invitations', 'apiTokens', 'notificationWebhookDestinations',
-                'notificationChannels', 'scripts', 'webserverTemplates',
-                'serverBlueprints', 'cronJobTemplates', 'supervisorProgramTemplates',
-                'firewallRuleTemplates', 'organizationSshKeys', 'providerCredentials',
-                'backupConfigurations', 'statusPages', 'realtimeApps',
+                'notificationChannels', 'providerCredentials', 'statusPages',
                 'billingSnapshots', 'billingSubscriptionSyncEvents', 'teams',
                 'projects', 'workspaces', 'auditLogs',
             ] as $relation) {

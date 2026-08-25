@@ -200,21 +200,6 @@
                                 >
                                     @include('livewire.partials.command-palette-row', ['item' => $item, 'i' => $i, 'isNest' => false, 'isAction' => true])
                                 </button>
-                            @elseif ($isToggle)
-                                {{-- Toggle row (multi-select): ticks a site in/out
-                                     of the batch. Stays open on click/↵ so the set
-                                     is built without leaving the palette. --}}
-                                <button
-                                    type="button"
-                                    wire:click="toggleDeploySync('{{ $item['toggle']['id'] }}')"
-                                    data-cmdk-item
-                                    data-cmdk-toggle
-                                    @mouseenter="active = {{ $i }}"
-                                    :class="active === {{ $i }} ? 'bg-brand-sand/60 text-brand-ink' : 'text-brand-ink/90'"
-                                    class="flex w-full appearance-none items-center gap-3 rounded-lg border-0 px-2.5 py-2 text-left text-sm hover:bg-brand-sand/60 focus:outline-none"
-                                >
-                                    @include('livewire.partials.command-palette-row', ['item' => $item, 'i' => $i, 'isNest' => false, 'isToggle' => true])
-                                </button>
                             @elseif ($isNest)
                                 <button
                                     type="button"

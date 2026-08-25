@@ -19,7 +19,6 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property-read ?Organization $organization
  * @property-read ?User $user
  * @property-read ?Site $site
- * @property-read Collection<int, SiteDeployment> $deployments
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
  */
@@ -55,9 +54,4 @@ class Project extends Model
         return $this->hasOne(Site::class);
     }
 
-    /** @return HasMany<SiteDeployment, $this> */
-    public function deployments(): HasMany
-    {
-        return $this->hasMany(SiteDeployment::class, 'project_id')->orderByDesc('id');
-    }
 }

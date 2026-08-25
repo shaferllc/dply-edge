@@ -65,10 +65,6 @@
                     </div>
                 </div>
                 <div class="mt-4 flex flex-wrap items-center gap-2">
-                    <a href="{{ route('docs.markdown', ['slug' => 'org-roles-and-limits']) }}" wire:navigate class="inline-flex items-center gap-1.5 text-sm font-medium text-brand-sage underline decoration-brand-sage/35 underline-offset-2 transition hover:text-brand-ink hover:decoration-brand-ink/30">
-                        {{ __('Roles & limits') }}
-                        <x-heroicon-o-arrow-top-right-on-square class="h-4 w-4 shrink-0 opacity-80" aria-hidden="true" />
-                    </a>
                 </div>
             </div>
             <dl class="grid grid-cols-3 gap-2 lg:col-span-5">
@@ -324,7 +320,6 @@
                     </div>
                     <p class="mt-0.5 text-2xs leading-relaxed text-brand-moss">
                         {{ __('Where scheduled database dumps ship. Without one, a dump stays on the server that made it.') }}
-                        <a href="{{ route('backups.storage') }}" wire:navigate class="font-semibold text-brand-sage hover:text-brand-ink">{{ __('See what uses each destination') }}</a>
                     </p>
                     <ul class="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                         @foreach ($storageItems as $item)

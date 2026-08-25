@@ -1,40 +1,18 @@
 <?php
 
-use App\Models\SiteDeployStep;
 use Illuminate\Database\Migrations\Migration;
 
 /**
- * Drop explicit queue:restart / horizon:terminate pipeline steps. They are
- * redundant with dply's managed restart, which already reloads Horizon + queue
- * workers post-cutover — guarded on the package + command existing — so removing
- * the steps doesn't change behaviour or risk breaking an app that lacks them.
+ * No-op since the dply-edge cut (2026-08-25).
  *
- * EXCEPTION: sites that opted out of the managed restart
- * (meta.deploy.skip_managed_restart = true) rely on their explicit steps, so
- * theirs are kept.
+ * This was a data migration over VM / serverless rows — the models and tables
+ * it rewrote left with those product lines, so there is nothing to migrate.
+ * Kept as a file so the migrations table stays consistent for installs that
+ * already ran it.
  */
 return new class extends Migration
 {
-    public function up(): void
-    {
-        SiteDeployStep::query()
-            ->whereIn('step_type', [
-                SiteDeployStep::TYPE_ARTISAN_QUEUE_RESTART,
-                SiteDeployStep::TYPE_ARTISAN_HORIZON_TERMINATE,
-            ])
-            ->with('site:id,meta')
-            ->get()
-            ->each(function (SiteDeployStep $step): void {
-                $skipsManagedRestart = (bool) data_get($step->site->meta, 'deploy.skip_managed_restart', false);
-                if (! $skipsManagedRestart) {
-                    $step->delete();
-                }
-            });
-    }
+    public function up(): void {}
 
-    public function down(): void
-    {
-        // Not reversible — the deleted steps aren't snapshotted. dply's managed
-        // restart provides the equivalent behaviour, so nothing to restore.
-    }
+    public function down(): void {}
 };

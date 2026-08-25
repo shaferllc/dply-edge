@@ -5,26 +5,34 @@
         ['label' => __('Import'), 'icon' => 'arrow-down-tray'],
     ]" />
 
-    <header class="mt-6">
-        <h1 class="text-2xl font-semibold text-brand-ink">{{ __('Import from another edge host') }}</h1>
-        <p class="mt-2 max-w-2xl text-sm text-brand-moss">
-            {{ __('Pull a project\'s build settings, env vars, and custom domains from Vercel, Netlify, or Cloudflare Pages — we hand you off to the Edge Create form with everything pre-filled. Nothing is created on dply until you confirm.') }}
-        </p>
-    </header>
+    <x-profile-shell
+        class="mt-4"
+        :title="__('Import from another edge host')"
+        :description="__('Pull a project\'s build settings, env vars, and custom domains from Vercel, Netlify, or Cloudflare Pages — we hand you off to the Edge Create form with everything pre-filled. Nothing is created on dply until you confirm.')"
+        icon="heroicon-o-arrow-down-tray"
+    >
+        <x-slot:actions>
+            <x-outline-link href="{{ route('edge.index') }}" wire:navigate size="sm">
+                <x-heroicon-o-arrow-left class="h-4 w-4 shrink-0 opacity-90" aria-hidden="true" />
+                {{ __('Back to Edge sites') }}
+            </x-outline-link>
+        </x-slot:actions>
 
-    <ol class="mt-6 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-brand-mist">
-        @foreach (['provider' => __('Provider'), 'credential' => __('Credential'), 'projects' => __('Project'), 'preview' => __('Preview')] as $key => $label)
-            <li @class([
-                'rounded-full px-3 py-1',
-                'bg-brand-ink text-white' => $step === $key,
-                'bg-brand-sand/40 text-brand-moss' => $step !== $key,
-            ])>{{ $label }}</li>
-        @endforeach
-    </ol>
+        <ol class="flex flex-wrap gap-2 border-b border-brand-ink/10 px-3 py-2.5 text-2xs font-semibold uppercase tracking-[0.18em] text-brand-mist sm:px-4">
+            @foreach (['provider' => __('Provider'), 'credential' => __('Credential'), 'projects' => __('Project'), 'preview' => __('Preview')] as $key => $label)
+                <li @class([
+                    'rounded-full px-3 py-1',
+                    'bg-brand-ink text-brand-cream' => $step === $key,
+                    'bg-brand-sand/40 text-brand-moss' => $step !== $key,
+                ])>{{ $label }}</li>
+            @endforeach
+        </ol>
+
+        <div class="space-y-4 px-3 py-3 sm:px-4">
 
     {{-- Step 1 — provider --}}
     @if ($step === 'provider')
-        <div class="mt-6 grid gap-4 sm:grid-cols-3">
+        <div class="grid gap-4 sm:grid-cols-3">
             @foreach ($providers as $provider)
                 <button type="button"
                         wire:click="pickProvider('{{ $provider['key'] }}')"
@@ -120,7 +128,12 @@
             @endif
 
             @if ($projects === [])
-                <div class="px-6 py-10 text-center text-sm text-brand-moss">{{ __('No projects found for this credential.') }}</div>
+                <x-empty-state
+                    borderless
+                    icon="heroicon-o-folder-open"
+                    :title="__('No projects found')"
+                    :description="__('This credential returned no projects. Check that the token has project scope, or pick a different account.')"
+                />
             @else
                 <ul class="divide-y divide-brand-ink/8">
                     @foreach ($projects as $project)
@@ -243,4 +256,6 @@
             </div>
         </section>
     @endif
+    </div>
+    </x-profile-shell>
 </div>

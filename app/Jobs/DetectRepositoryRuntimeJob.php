@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Jobs;
 
-use App\Modules\Deploy\Services\RuntimeDetection\RepositoryRuntimePlan;
-use App\Modules\Deploy\Services\RuntimeDetection\RepositoryRuntimePreview;
+use App\Modules\Edge\Services\RuntimeDetection\RepositoryRuntimePlan;
+use App\Modules\Edge\Services\RuntimeDetection\RepositoryRuntimePreview;
 use App\Modules\Edge\Support\EdgeSitePackageHeuristics;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;

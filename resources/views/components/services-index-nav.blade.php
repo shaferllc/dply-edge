@@ -23,6 +23,14 @@
         ['route' => 'caches.index', 'match' => 'caches.*', 'label' => __('Caches'), 'icon' => 'bolt', 'feature' => 'surface.cache'],
     ];
 @endphp
+@php
+    $visible = array_values(array_filter($items, function (array $item): bool {
+        return \Illuminate\Support\Facades\Route::has($item['route'])
+            && (empty($item['feature']) || feature($item['feature']));
+    }));
+@endphp
+
+@if ($visible !== [])
 
 <nav class="border-b border-brand-ink/10 bg-brand-sand/20" aria-label="{{ __('Services') }}">
     <div class="mx-auto flex max-w-7xl items-center gap-3 px-4 sm:px-6 lg:px-8">
@@ -33,7 +41,7 @@
             {{ __('Services') }}
         </span>
         <div class="flex min-w-0 flex-1 gap-0.5 overflow-x-auto sm:gap-1" style="-webkit-overflow-scrolling: touch;">
-            @foreach ($items as $item)
+            @foreach ($visible as $item)
                 @php
                     // Same two guards as the compute row: a Queues entry can sit
                     // in this array before its pages exist and simply not render.
@@ -67,3 +75,4 @@
         </div>
     </div>
 </nav>
+@endif

@@ -14,7 +14,6 @@
 <div>
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <x-organization-shell
-            dense
             :organization="$organization"
             section="general"
             :title="__('Organization settings')"
@@ -326,7 +325,13 @@
                         <span class="mx-auto inline-flex h-10 w-10 items-center justify-center rounded-xl bg-brand-sand/45 text-brand-mist ring-1 ring-brand-ink/10">
                             <x-heroicon-o-key class="h-5 w-5" aria-hidden="true" />
                         </span>
-                        <p class="mt-3 text-sm text-brand-moss">{{ __('No API tokens yet.') }}</p>
+                        <x-empty-state
+                            borderless
+                            compact
+                            icon="heroicon-o-key"
+                            :title="__('No API tokens yet')"
+                            :description="__('Tokens let scripts and CI talk to the dply API on behalf of this organization.')"
+                        />
                         <a href="{{ route('profile.api-keys') }}" wire:navigate class="mt-1 inline-block text-xs font-medium text-brand-forest hover:underline">
                             {{ __('Create one in API keys settings') }}
                         </a>

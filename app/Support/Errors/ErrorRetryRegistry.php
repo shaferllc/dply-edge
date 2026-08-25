@@ -4,11 +4,7 @@ declare(strict_types=1);
 
 namespace App\Support\Errors;
 
-use App\Jobs\InstallDatabaseEngineJob;
-use App\Jobs\UninstallDatabaseEngineJob;
-use App\Models\ConsoleAction;
 use App\Models\ErrorEvent;
-use App\Models\ServerDatabaseEngine;
 use Closure;
 
 /**
@@ -44,43 +40,15 @@ class ErrorRetryRegistry
     }
 
     /**
+     * No category is retryable today — the retryable paths left with the VM
+     * platform. Add a handler that resolves the origin from the error's source
+     * row and dispatches the same job the original flow used; the re-dispatched
+     * job seeds its own console run, so retries stay self-tracking.
+     *
      * @return array<string, Closure(ErrorEvent, ?string): bool>
      */
     private function handlers(): array
     {
-        return $this->handlers ??= [
-            'db_engine_install' => fn (ErrorEvent $e, ?string $userId): bool => $this->reinstallEngine($e, $userId, true),
-            'db_engine_uninstall' => fn (ErrorEvent $e, ?string $userId): bool => $this->reinstallEngine($e, $userId, false),
-        ];
-    }
-
-    /** Re-dispatch the install/uninstall job for the engine behind a failed db_engine_* run. */
-    private function reinstallEngine(ErrorEvent $event, ?string $userId, bool $install): bool
-    {
-        $engine = $this->engineFromSource($event);
-        if (! $engine instanceof ServerDatabaseEngine) {
-            return false;
-        }
-
-        if ($install) {
-            InstallDatabaseEngineJob::dispatch((string) $engine->id, $userId);
-        } else {
-            UninstallDatabaseEngineJob::dispatch((string) $engine->id, $userId);
-        }
-
-        return true;
-    }
-
-    /** The ServerDatabaseEngine the error's source ConsoleAction was about. */
-    private function engineFromSource(ErrorEvent $event): ?ServerDatabaseEngine
-    {
-        if ($event->source_type !== (new ConsoleAction)->getMorphClass()) {
-            return null;
-        }
-
-        $action = ConsoleAction::query()->find($event->source_id);
-        $subject = $action?->subject;
-
-        return $subject instanceof ServerDatabaseEngine ? $subject : null;
+        return $this->handlers ??= [];
     }
 }

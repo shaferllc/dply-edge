@@ -11,7 +11,12 @@
     @endif
 
     @if ($dashboard_rewrites === [])
-        <p class="mt-3 text-sm text-brand-moss">{{ __('No dashboard rewrites yet.') }}</p>
+        <x-empty-state
+            borderless
+            compact
+            icon="heroicon-o-arrows-right-left"
+            :title="__('No dashboard rewrites yet')"
+        />
     @else
         <div class="mt-3 overflow-x-auto rounded-xl border border-brand-ink/10">
             <table class="min-w-full divide-y divide-brand-ink/8 text-xs">

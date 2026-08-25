@@ -6,25 +6,10 @@ namespace App\Mcp\Servers;
 
 use App\Mcp\Resources\SiteConfigResource;
 use App\Mcp\Resources\SiteListResource;
-use App\Mcp\Tools\Database\CreateSiteDatabase;
-use App\Mcp\Tools\Database\ListSiteDatabases;
-use App\Mcp\Tools\Deploy\DeploySite;
-use App\Mcp\Tools\Deploy\GetDeployment;
-use App\Mcp\Tools\Deploy\ListDeployments;
 use App\Mcp\Tools\Diagnostics\GetOperationStatus;
-use App\Mcp\Tools\Env\DeleteSiteEnvVar;
-use App\Mcp\Tools\Env\GetSiteEnv;
-use App\Mcp\Tools\Env\PushSiteEnv;
-use App\Mcp\Tools\Env\SetSiteEnvVar;
-use App\Mcp\Tools\Logs\DisableLogShipping;
-use App\Mcp\Tools\Logs\EnableLogShipping;
-use App\Mcp\Tools\Logs\GetLogShippingStatus;
-use App\Mcp\Tools\Logs\ResyncLogShipping;
 use App\Mcp\Tools\Sites\GetSite;
 use App\Mcp\Tools\Sites\ListServers;
 use App\Mcp\Tools\Sites\ListSites;
-use App\Mcp\Tools\Sites\ListSiteSchedules;
-use App\Mcp\Tools\Sites\ListSiteWorkers;
 use Laravel\Mcp\Server;
 use Laravel\Mcp\Server\Tool;
 
@@ -62,25 +47,10 @@ class DplyServer extends Server
         ListSites::class,
         GetSite::class,
         ListServers::class,
-        ListSiteWorkers::class,
-        ListSiteSchedules::class,
         // Deploy + poll
-        DeploySite::class,
-        ListDeployments::class,
-        GetDeployment::class,
         // Environment
-        GetSiteEnv::class,
-        SetSiteEnvVar::class,
-        DeleteSiteEnvVar::class,
-        PushSiteEnv::class,
         // Database
-        ListSiteDatabases::class,
-        CreateSiteDatabase::class,
         // Logs add-on (per-server edge Vector agent)
-        GetLogShippingStatus::class,
-        EnableLogShipping::class,
-        ResyncLogShipping::class,
-        DisableLogShipping::class,
         // Async operation polling
         GetOperationStatus::class,
     ];

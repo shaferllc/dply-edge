@@ -15,17 +15,6 @@
         :description="__('Link channels you can manage to events, then choose servers and sites in your current organization.')"
         icon="heroicon-o-paper-airplane"
     >
-        <x-slot:actions>
-            <x-outline-link href="{{ route('docs.index') }}" wire:navigate>
-                <x-heroicon-o-document-text class="h-4 w-4 shrink-0 opacity-90" aria-hidden="true" />
-                {{ __('Documentation') }}
-            </x-outline-link>
-            @if ($currentOrganization)
-                <x-badge tone="accent" :caps="false" class="text-xs">
-                    {{ __('Organization: :name', ['name' => $currentOrganization->name]) }}
-                </x-badge>
-            @endif
-        </x-slot:actions>
 
         @if (! $currentOrganization)
             <div class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
@@ -180,7 +169,13 @@
                                         <span>{{ $server->name }}</span>
                                     </label>
                                 @empty
-                                    <p class="text-sm text-brand-moss">{{ __('No servers in this organization.') }}</p>
+                                    <x-empty-state
+                                        borderless
+                                        compact
+                                        icon="heroicon-o-server-stack"
+                                        :title="__('No servers')"
+                                        :description="__('This organization has no servers to assign channels to.')"
+                                    />
                                 @endforelse
                             </div>
                             @error('selected_server_ids')
@@ -196,7 +191,13 @@
                                         <span>{{ $site->name }}</span>
                                     </label>
                                 @empty
-                                    <p class="text-sm text-brand-moss">{{ __('No sites in this organization.') }}</p>
+                                    <x-empty-state
+                                        borderless
+                                        compact
+                                        icon="heroicon-o-globe-alt"
+                                        :title="__('No sites')"
+                                        :description="__('This organization has no sites to assign channels to.')"
+                                    />
                                 @endforelse
                             </div>
                             @error('selected_site_ids')

@@ -45,15 +45,15 @@ class ErrorContext
             if ($server && $this->canViewServer($server)) {
                 $context['server'] = $server;
                 $context['suggestions'][] = [
-                    'label' => "Back to server: {$server->name}",
-                    'url' => route('servers.show', $server),
+                    'label' => 'Edge sites',
+                    'url' => route('edge.index'),
                     'primary' => true,
                 ];
             } elseif ($server) {
                 // Server exists but user can't view it
                 $context['suggestions'][] = [
-                    'label' => 'My servers',
-                    'url' => route('servers.index'),
+                    'label' => 'Edge sites',
+                    'url' => route('edge.index'),
                 ];
             }
         }
@@ -70,15 +70,15 @@ class ErrorContext
                     $context['server'] = $site->server;
                     $context['suggestions'][] = [
                         'label' => 'Back to site: '.($site->primaryDomain()->hostname ?? $site->name),
-                        'url' => route('servers.show', $site->server)."?site={$site->id}",
+                        'url' => route('sites.show', [$site->server, $site]),
                         'primary' => true,
                     ];
                 }
             } elseif ($site) {
                 // Site exists but user can't view it
                 $context['suggestions'][] = [
-                    'label' => 'My sites',
-                    'url' => route('sites.index'),
+                    'label' => 'Edge sites',
+                    'url' => route('edge.index'),
                 ];
             }
         }
@@ -110,11 +110,6 @@ class ErrorContext
 
             if ($project && $this->canViewProject($project)) {
                 $context['project'] = $project;
-                $context['suggestions'][] = [
-                    'label' => "Back to project: {$project->name}",
-                    'url' => route('projects.show', $project),
-                    'primary' => true,
-                ];
             }
         }
 
@@ -142,12 +137,8 @@ class ErrorContext
                 'primary' => true,
             ];
             $suggestions[] = [
-                'label' => 'Servers',
-                'url' => route('servers.index'),
-            ];
-            $suggestions[] = [
-                'label' => 'Sites',
-                'url' => route('sites.index'),
+                'label' => 'Edge sites',
+                'url' => route('edge.index'),
             ];
         } else {
             $suggestions[] = [

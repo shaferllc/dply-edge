@@ -72,7 +72,6 @@
              fmt(n) { return '$' + (Math.round(n * 100) / 100).toFixed(2); }
          }">
         <x-organization-shell
-            dense
             :organization="$organization"
             section="billing"
             :title="__('Billing & plan')"
@@ -194,7 +193,6 @@
             </div>
 
             @include('livewire.billing.partials.bill-hero')
-            @include('livewire.billing.partials.fleet-table')
             @include('livewire.billing.partials.bill-preview')
 
             {{-- Bundled products (free tracely + Lookout). Hidden while the perk
@@ -399,7 +397,13 @@
                             <span class="mx-auto inline-flex h-9 w-9 items-center justify-center rounded-xl bg-brand-sand/45 text-brand-mist ring-1 ring-brand-ink/10">
                                 <x-heroicon-o-document class="h-4 w-4" aria-hidden="true" />
                             </span>
-                            <p class="mt-2.5 text-sm text-brand-moss">{{ __('No invoices yet.') }}</p>
+                            <x-empty-state
+                                borderless
+                                compact
+                                icon="heroicon-o-document-text"
+                                :title="__('No invoices yet')"
+                                :description="__('Invoices appear here once this organization moves onto a paid plan.')"
+                            />
                         </div>
                     @else
                         <ul class="divide-y divide-brand-ink/10">

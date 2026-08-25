@@ -39,7 +39,7 @@
     <x-breadcrumb-trail
         :items="$breadcrumb"
         doc-contextual
-        :contextual-doc-slug="app(\App\Modules\Docs\Support\ContextualDocResolver::class)->resolve()"
+        :contextual-doc-slug="null"
     />
 @endif
 
@@ -171,64 +171,9 @@
                 </a>
                 {{-- Webserver templates nav temporarily hidden.
                 @can('view', $org)
-                    <a
-                        href="{{ route('organizations.webserver-templates', $org) }}"
-                        wire:navigate
-                        @class([$navBase, $link('webserver')])
-                    >
-                        <x-heroicon-o-server-stack class="{{ $ni }}" aria-hidden="true" />
-                        {{ __('Webserver templates') }}
-                    </a>
                 @endcan
                 --}}
             </nav>
-            <div
-                class="mt-4 border-t border-brand-ink/10 pt-4"
-                x-data="{
-                    _k: 'dply.orgNav.guidesCollapsed:{{ $org->id }}',
-                    collapsed: false,
-                    init() { try { this.collapsed = JSON.parse(localStorage.getItem(this._k)) || false; } catch (e) { this.collapsed = false; } },
-                    toggle() { this.collapsed = ! this.collapsed; localStorage.setItem(this._k, JSON.stringify(this.collapsed)); },
-                }"
-            >
-                <button
-                    type="button"
-                    x-on:click="toggle()"
-                    :aria-expanded="(! collapsed).toString()"
-                    class="flex w-full items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-brand-moss hover:text-brand-ink"
-                >
-                    <span x-bind:class="collapsed ? '' : 'rotate-90'" class="inline-flex transition-transform">
-                        <x-heroicon-o-chevron-right class="h-3 w-3" />
-                    </span>
-                    <span class="flex-1 text-left">{{ __('Guides') }}</span>
-                </button>
-                <nav class="mt-2 space-y-0.5" aria-label="{{ __('Documentation guides') }}" x-show="! collapsed" x-collapse>
-                    <a
-                        href="{{ route('docs.index') }}"
-                        wire:navigate
-                        @class([$navBase, request()->routeIs('docs.index') ? $docNavOn : $docNavOff])
-                    >
-                        <x-heroicon-o-rectangle-stack class="{{ $ni }}" aria-hidden="true" />
-                        {{ __('All docs') }}
-                    </a>
-                    <a
-                        href="{{ route('docs.connect-provider') }}"
-                        wire:navigate
-                        @class([$navBase, request()->routeIs('docs.connect-provider') ? $docNavOn : $docNavOff])
-                    >
-                        <x-heroicon-o-cloud class="{{ $ni }}" aria-hidden="true" />
-                        {{ __('Connect a provider') }}
-                    </a>
-                    <a
-                        href="{{ route('docs.markdown', ['slug' => 'org-roles-and-limits']) }}"
-                        wire:navigate
-                        @class([$navBase, request()->routeIs('docs.markdown') && request()->route('slug') === 'org-roles-and-limits' ? $docNavOn : $docNavOff])
-                    >
-                        <x-heroicon-o-user-group class="{{ $ni }}" aria-hidden="true" />
-                        {{ __('Roles & plan limits') }}
-                    </a>
-                </nav>
-            </div>
         </div>
         <a
             href="{{ route('organizations.index') }}"

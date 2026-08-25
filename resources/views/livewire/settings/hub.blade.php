@@ -38,7 +38,6 @@
     @endpush
 
     <x-profile-shell
-        dense
         :title="$isProfile ? __('Profile') : __('Servers & Sites')"
         :description="$isProfile
             ? __('Identity, preferences, sessions, and account on this page.')
@@ -48,20 +47,7 @@
         {{-- No header actions: Security is one click away in the settings nav. --}}
 
         <x-slot:stats>
-            <dl class="grid grid-cols-3 gap-px bg-brand-ink/5" aria-label="{{ __('Your settings at a glance') }}">
-                <div class="bg-white px-3 py-2">
-                    <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Theme') }}</dt>
-                    <dd class="mt-0.5 flex items-center gap-1.5">
-                        @if ($currentTheme === 'light')
-                            <x-heroicon-m-sun class="h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden="true" />
-                        @elseif ($currentTheme === 'dark')
-                            <x-heroicon-m-moon class="h-3.5 w-3.5 shrink-0 text-brand-forest" aria-hidden="true" />
-                        @else
-                            <x-heroicon-m-computer-desktop class="h-3.5 w-3.5 shrink-0 text-brand-moss" aria-hidden="true" />
-                        @endif
-                        <span class="truncate text-sm font-semibold capitalize text-brand-ink">{{ __(ucfirst((string) $currentTheme)) }}</span>
-                    </dd>
-                </div>
+            <dl class="grid grid-cols-2 gap-px bg-brand-ink/5" aria-label="{{ __('Your settings at a glance') }}">
                 <div class="bg-white px-3 py-2">
                     <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Nav') }}</dt>
                     <dd class="mt-0.5 flex items-center gap-1.5">
@@ -84,29 +70,51 @@
             </dl>
         </x-slot:stats>
 
-        <x-slot:tabs>
-            <x-server-workspace-tablist :aria-label="__('Settings sections')" bare class="!mb-0 w-full">
-                <x-server-workspace-tab
-                    as="a"
-                    :href="route('settings.profile')"
-                    :active="request()->routeIs('settings.profile')"
-                    wire:navigate
-                    icon="heroicon-o-user-circle"
-                >{{ __('Profile') }}</x-server-workspace-tab>
-                <x-server-workspace-tab
-                    as="a"
-                    :href="route('settings.servers')"
-                    :active="request()->routeIs('settings.servers')"
-                    wire:navigate
-                    icon="heroicon-o-server"
-                >{{ __('Servers & Sites') }}</x-server-workspace-tab>
-            </x-server-workspace-tablist>
-        </x-slot:tabs>
-
         @if ($section === 'profile')
             {{-- Identity: name / email / country / locale / timezone.
                  Lifted from the old /profile/edit page so settings/profile
                  is the single personal-settings surface. --}}
+            {{-- Identity band: who you are, before the fields that edit it.
+                 The avatar used to be 24px of chrome in a section header, which
+                 read as decoration rather than "this is your account". --}}
+            <div class="flex flex-wrap items-center gap-4 border-b border-brand-ink/10 bg-brand-sand/15 px-4 py-4 sm:px-5">
+                <img
+                    src="{{ $this->gravatarUrl }}"
+                    alt=""
+                    width="56"
+                    height="56"
+                    class="h-14 w-14 shrink-0 rounded-2xl border border-brand-ink/10 bg-white object-cover shadow-sm"
+                    title="{{ __('Gravatar, resolved from your email address.') }}"
+                />
+                <div class="min-w-0 flex-1">
+                    <p class="truncate text-base font-semibold tracking-tight text-brand-ink">{{ $u?->name }}</p>
+                    <p class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-brand-moss">
+                        <span class="truncate font-mono">{{ $u?->email }}</span>
+                        @if ($u instanceof \Illuminate\Contracts\Auth\MustVerifyEmail && ! $u->hasVerifiedEmail())
+                            <span class="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-px text-2xs font-semibold uppercase tracking-wide text-amber-800">
+                                <x-heroicon-m-exclamation-triangle class="h-3 w-3 shrink-0" aria-hidden="true" />
+                                {{ __('Unverified') }}
+                            </span>
+                        @else
+                            <span class="inline-flex items-center gap-1 rounded-full border border-brand-sage/30 bg-brand-sage/15 px-1.5 py-px text-2xs font-semibold uppercase tracking-wide text-brand-forest">
+                                <x-heroicon-m-check-badge class="h-3 w-3 shrink-0" aria-hidden="true" />
+                                {{ __('Verified') }}
+                            </span>
+                        @endif
+                    </p>
+                </div>
+                <dl class="flex shrink-0 flex-wrap items-center gap-2">
+                    <div class="rounded-xl border border-brand-ink/10 bg-white/80 px-3 py-2">
+                        <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Member since') }}</dt>
+                        <dd class="mt-0.5 text-sm font-semibold text-brand-ink">{{ $u?->created_at?->format('M Y') ?? '—' }}</dd>
+                    </div>
+                    <div class="rounded-xl border border-brand-ink/10 bg-white/80 px-3 py-2">
+                        <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Sessions') }}</dt>
+                        <dd class="mt-0.5 font-mono text-sm font-semibold tabular-nums text-brand-ink">{{ count($sessions) }}</dd>
+                    </div>
+                </dl>
+            </div>
+
             <div class="border-b border-brand-ink/10">
                 <x-workspace-panel-head
                     dense
@@ -119,19 +127,9 @@
                             <x-heroicon-m-check-circle class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                             {{ __('Saved') }}
                         </p>
-                        {{-- Avatar is read-only chrome, so it rides in the header
-                             rather than stealing a form column or a field row. --}}
-                        <img
-                            src="{{ $this->gravatarUrl }}"
-                            alt=""
-                            width="24"
-                            height="24"
-                            class="h-6 w-6 shrink-0 rounded-full border border-brand-ink/10 shadow-sm"
-                            title="{{ __('Gravatar, resolved from your email address.') }}"
-                        />
                     </x-slot:actions>
                 </x-workspace-panel-head>
-                <div class="px-3 py-2.5 sm:px-4">
+                <div class="px-3 py-3 sm:px-4">
                     {{-- Six-column base: the two identity fields take half each,
                          the three locale fields take a third each, so every row
                          fills the width instead of trailing off mid-panel. --}}
@@ -209,38 +207,23 @@
                          kinds of setting line up on a single control edge. --}}
                     @php
                         $segmented = fn (bool $on) => $on
-                            ? 'inline-flex h-6 items-center gap-1 rounded-md px-2 text-xs font-semibold transition bg-brand-ink text-brand-cream shadow-sm'
-                            : 'inline-flex h-6 items-center gap-1 rounded-md px-2 text-xs font-semibold transition text-brand-moss hover:bg-brand-sand/40 hover:text-brand-ink';
-                        $rowClass = 'flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 bg-white px-2.5 py-2';
-                        $captionClass = 'bg-brand-sand/25 px-2.5 py-1 text-2xs font-semibold uppercase tracking-[0.16em] text-brand-moss';
+                            ? 'inline-flex h-7 items-center gap-1 rounded-lg px-2.5 text-xs font-semibold transition bg-brand-ink text-brand-cream shadow-sm'
+                            : 'inline-flex h-7 items-center gap-1 rounded-lg px-2.5 text-xs font-semibold transition text-brand-moss hover:bg-brand-sand/40 hover:text-brand-ink';
+                        $rowClass = 'flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 px-3 py-2.5';
+                        $groupHead = 'flex items-center gap-1.5 border-b border-brand-ink/10 bg-brand-sand/25 px-3 py-2 text-2xs font-semibold uppercase tracking-[0.16em] text-brand-moss';
                     @endphp
 
-                    <div class="divide-y divide-brand-ink/10 overflow-hidden rounded-lg border border-brand-ink/10">
-                        <p class="{{ $captionClass }}">{{ __('Appearance & layout') }}</p>
-
-                        <div class="{{ $rowClass }}">
-                            <div class="min-w-0 flex-1 basis-64">
-                                <p class="text-sm font-medium text-brand-ink">{{ __('Theme mode') }}</p>
-                                <p class="mt-0.5 text-xs leading-relaxed text-brand-moss">{{ __('Choose an appearance or follow your system setting.') }}</p>
-                                @error('ui.theme') <p class="mt-1 text-xs text-red-600">{{ $message }}</p> @enderror
-                            </div>
-                            <div class="inline-flex shrink-0 flex-wrap gap-1 rounded-lg border border-brand-ink/10 bg-white p-0.5 shadow-sm">
-                                @foreach ($themeOptions as $opt)
-                                    <button type="button" wire:click="persistTheme('{{ $opt }}')" class="{{ $segmented(($ui['theme'] ?? '') === $opt) }}">
-                                        @if ($opt === 'light')
-                                            <x-heroicon-o-sun class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                                            {{ __('Light') }}
-                                        @elseif ($opt === 'dark')
-                                            <x-heroicon-o-moon class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                                            {{ __('Dark') }}
-                                        @else
-                                            <x-heroicon-o-computer-desktop class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                                            {{ __('System') }}
-                                        @endif
-                                    </button>
-                                @endforeach
-                            </div>
-                        </div>
+                    {{-- Two grouped cards: appearance is a set of pickers, email &
+                         behavior is a set of switches. Interleaving them in one
+                         flat list made every row look equally important and left
+                         the checkbox column visually unrelated to the pickers. --}}
+                    <div class="grid gap-3 lg:grid-cols-2 lg:items-start">
+                    <div class="overflow-hidden rounded-xl border border-brand-ink/10 bg-white">
+                        <p class="{{ $groupHead }}">
+                            <x-heroicon-o-swatch class="h-3.5 w-3.5 shrink-0 text-brand-sage" aria-hidden="true" />
+                            {{ __('Appearance & layout') }}
+                        </p>
+                        <div class="divide-y divide-brand-ink/10">
 
                         <div class="{{ $rowClass }}">
                             <div class="min-w-0 flex-1 basis-64">
@@ -291,25 +274,40 @@
                             </div>
                         </div>
 
-                        <p class="{{ $captionClass }}">{{ __('Email & behavior') }}</p>
+                        </div>
+                    </div>
 
-                        {{-- Checkbox sits in the same right-hand control column as
-                             the pickers above, so the list reads as one column of
-                             settings and one column of controls. --}}
+                    <div class="overflow-hidden rounded-xl border border-brand-ink/10 bg-white">
+                        <p class="{{ $groupHead }}">
+                            <x-heroicon-o-envelope class="h-3.5 w-3.5 shrink-0 text-brand-sage" aria-hidden="true" />
+                            {{ __('Email & behavior') }}
+                        </p>
+
+                        {{-- Real switches, not bare checkboxes: on/off is the whole
+                             point of these four rows, and a 16px tick reads as a
+                             form field rather than a state you can flip. --}}
+                        <div class="divide-y divide-brand-ink/10">
                         @foreach ([
                             ['key' => 'newsletter', 'title' => __('Receive newsletter'), 'desc' => __('Product updates only — no spam.')],
                             ['key' => 'keyboard_shortcuts', 'title' => __('Enable keyboard shortcuts'), 'desc' => __('Turns keyboard shortcuts on or off in the app.')],
                             ['key' => 'redirect_home_to_app', 'title' => __('Redirect to app when logged in'), 'desc' => __('Visiting the marketing homepage signed in sends you to the dashboard.')],
                             ['key' => 'subscription_invoice_emails', 'title' => __('Subscription invoice emails'), 'desc' => __('When your org moves from trial to Pro, include Stripe invoice PDFs in email.')],
                         ] as $toggle)
-                            <label class="{{ $rowClass }} cursor-pointer transition-colors hover:bg-brand-sand/15">
-                                <span class="min-w-0 flex-1 basis-64">
+                            <div class="{{ $rowClass }} transition-colors hover:bg-brand-sand/15">
+                                <span class="min-w-0 flex-1 basis-56">
                                     <span class="text-sm font-medium text-brand-ink">{{ $toggle['title'] }}</span>
                                     <span class="mt-0.5 block text-xs leading-relaxed text-brand-moss">{{ $toggle['desc'] }}</span>
                                 </span>
-                                <input type="checkbox" wire:model.boolean="ui.{{ $toggle['key'] }}" class="h-4 w-4 shrink-0 rounded border-brand-ink/30 text-brand-forest focus:ring-brand-forest" />
-                            </label>
+                                <x-toggle-switch
+                                    :enabled="(bool) ($ui[$toggle['key']] ?? false)"
+                                    wire:model.boolean.live="ui.{{ $toggle['key'] }}"
+                                    :on-label="__('On')"
+                                    :off-label="__('Off')"
+                                />
+                            </div>
                         @endforeach
+                        </div>
+                    </div>
                     </div>
                 </form>
             </div>
@@ -346,28 +344,58 @@
 
                 @if ($sessions === [])
                     <div class="px-3 py-3 text-center sm:px-4">
-                        <p class="text-xs text-brand-mist">{{ __('No active sessions.') }}</p>
+                        <x-empty-state
+                            borderless
+                            compact
+                            icon="heroicon-o-device-phone-mobile"
+                            :title="__('No active sessions')"
+                            :description="__('Sessions appear here as you sign in from other browsers or devices.')"
+                        />
                     </div>
                 @else
-                    <ul class="divide-y divide-brand-ink/10">
+                    <ul class="divide-y divide-brand-ink/5">
                         @foreach ($sessions as $session)
-                            <li class="flex items-center justify-between gap-3 px-3 py-2 transition-colors hover:bg-brand-sand/15 sm:px-4">
-                                <div class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                                    <span class="truncate text-sm font-semibold text-brand-ink">{{ $session['device_label'] }}</span>
-                                    @if ($session['is_current'])
-                                        <span class="inline-flex items-center rounded border border-brand-sage/30 bg-brand-sage/15 px-1 py-px text-2xs font-semibold uppercase tracking-wide text-brand-forest">{{ __('This device') }}</span>
+                            @php
+                                $label = (string) $session['device_label'];
+                                $isMobile = (bool) preg_match('/iphone|android|ipad|mobile/i', $label);
+                            @endphp
+                            <li @class([
+                                'group flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-brand-sand/15 sm:px-4',
+                                'bg-brand-sage/[0.06]' => $session['is_current'],
+                            ])>
+                                <span @class([
+                                    'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1',
+                                    'bg-brand-sage/15 text-brand-forest ring-brand-sage/25' => $session['is_current'],
+                                    'bg-brand-sand/40 text-brand-moss ring-brand-ink/10' => ! $session['is_current'],
+                                ])>
+                                    @if ($isMobile)
+                                        <x-heroicon-o-device-phone-mobile class="h-4 w-4" aria-hidden="true" />
+                                    @else
+                                        <x-heroicon-o-computer-desktop class="h-4 w-4" aria-hidden="true" />
                                     @endif
-                                    <span class="truncate text-xs text-brand-moss">
+                                </span>
+
+                                <div class="min-w-0 flex-1">
+                                    <p class="flex flex-wrap items-center gap-1.5">
+                                        <span class="truncate text-sm font-semibold text-brand-ink">{{ $label }}</span>
+                                        @if ($session['is_current'])
+                                            <span class="inline-flex items-center rounded border border-brand-sage/30 bg-brand-sage/15 px-1 py-px text-2xs font-semibold uppercase tracking-wide text-brand-forest">{{ __('This device') }}</span>
+                                        @endif
+                                    </p>
+                                    <p class="mt-0.5 truncate text-xs text-brand-moss">
                                         <span class="font-mono">{{ $session['ip_address'] ?? __('Unknown IP') }}</span>
                                         <span class="text-brand-mist"> · </span>
                                         {{ __('Last active :time', ['time' => \Carbon\Carbon::createFromTimestamp($session['last_activity'])->diffForHumans()]) }}
-                                    </span>
+                                    </p>
                                 </div>
+
                                 @if (! $session['is_current'])
+                                    {{-- Revealed on hover/focus: seven always-on red
+                                         buttons made the list read as a danger zone. --}}
                                     <button
                                         type="button"
                                         wire:click="openConfirmActionModal('revokeSession', ['{{ $session['id'] }}'], @js(__('Revoke session')), @js(__('Revoke this session? That device will be logged out on its next request.')), @js(__('Revoke')), true)"
-                                        class="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-rose-200 bg-white px-2 text-xs font-semibold text-rose-700 shadow-sm hover:bg-rose-50"
+                                        class="inline-flex h-7 shrink-0 items-center gap-1 rounded-lg border border-brand-ink/15 bg-white px-2.5 text-xs font-semibold text-brand-moss opacity-0 shadow-sm transition group-hover:opacity-100 focus-visible:opacity-100 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
                                     >
                                         <x-heroicon-o-x-mark class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                                         {{ __('Revoke') }}
@@ -380,25 +408,22 @@
             </div>
 
             {{-- Danger zone --}}
-            <div>
-                <x-workspace-panel-head
-                    dense
-                    tone="danger"
-                    icon="heroicon-o-trash"
-                    :title="__('Delete account')"
-                    :note="__('Signs you out and drops access to organizations and data tied to this login. Cannot be undone.')"
+            <div class="flex flex-wrap items-center gap-3 border-t border-rose-200/70 bg-rose-50/50 px-4 py-3.5 sm:px-5">
+                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-rose-600 ring-1 ring-rose-200">
+                    <x-heroicon-o-trash class="h-4.5 w-4.5" aria-hidden="true" />
+                </span>
+                <div class="min-w-0 flex-1">
+                    <p class="text-sm font-semibold text-rose-900">{{ __('Delete account') }}</p>
+                    <p class="mt-0.5 text-xs leading-relaxed text-rose-900/70">{{ __('Signs you out and drops access to organizations and data tied to this login. Cannot be undone.') }}</p>
+                </div>
+                <a
+                    href="{{ route('profile.delete-account') }}"
+                    wire:navigate
+                    class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-rose-300 bg-white px-3 text-xs font-semibold text-rose-700 shadow-sm transition hover:bg-rose-50"
                 >
-                    <x-slot:actions>
-                        <a
-                            href="{{ route('profile.delete-account') }}"
-                            wire:navigate
-                            class="inline-flex h-6 items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2 text-xs font-semibold text-red-700 shadow-sm transition hover:bg-red-100"
-                        >
-                            <x-heroicon-o-arrow-right-circle class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                            {{ __('Delete account') }}
-                        </a>
-                    </x-slot:actions>
-                </x-workspace-panel-head>
+                    {{ __('Delete account') }}
+                    <x-heroicon-o-arrow-right class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                </a>
             </div>
 
             <x-unsaved-changes-bar

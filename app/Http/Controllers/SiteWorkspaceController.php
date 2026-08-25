@@ -5,11 +5,9 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Livewire\Sites\EdgeSettings;
-use App\Livewire\Sites\Settings;
 use App\Models\Server;
 use App\Models\Site;
 use App\Support\Livewire\RendersLivewirePage;
-use App\Support\Serverless\ServerlessWorkspaceUrl;
 use Illuminate\Support\Facades\Gate;
 
 class SiteWorkspaceController
@@ -19,98 +17,10 @@ class SiteWorkspaceController
         abort_unless($site->server_id === $server->id, 404);
         Gate::authorize('view', $site);
 
-        // Serverless: keep never-live (or failed first-deploy) functions on the
-        // deploy journey — don't open the normal site workspace that reads as
-        // "created successfully". Mirrors Edge's provisioning shell for
-        // edge_failed / edge_provisioning before the first publish.
-        if (
-            $server->isDigitalOceanFunctionsHost()
-            && in_array($site->status, [
-                Site::STATUS_FUNCTIONS_CONFIGURED,
-                Site::STATUS_FUNCTIONS_FAILED,
-            ], true)
-            && $site->last_deploy_at === null
-        ) {
-            return redirect()->to(ServerlessWorkspaceUrl::journey($site));
-        }
-
-        // Choose-app flow: a site without an application installed must pick
-        // one before its workspace is usable — both freshly-created bare
-        // sites and existing repo-less web sites. Funnel it to the picker.
-        // Sites the user explicitly skipped render normally. VM hosts only.
-        if ($server->isVmHost() && $site->needsAppChoice()) {
-            return redirect()->route('sites.choose-app', ['server' => $server, 'site' => $site]);
-        }
-
-        $section = ($section === null || $section === '') ? 'general' : $section;
-
-        if (
-            $section === 'deploy'
-            && $server->isVmHost()
-            && ! $site->usesFunctionsRuntime()
-            && ! $site->usesEdgeRuntime()
-        ) {
-            return redirect()->route('sites.deployments.index', [
-                'server' => $server,
-                'site' => $site,
-                ...request()->query(),
-            ]);
-        }
-
-        // Environment now lives exclusively on the Deploy hub's Environment
-        // tab — the same component that owns the variables editor and the
-        // resource bindings. The old Settings → Environment section is gone for
-        // VM sites; funnel every deep-link (preflight fixes, env-diff "back",
-        // legacy /settings/environment) straight there. Mirrors the `deploy`
-        // redirect's host guard so container/serverless/edge sites, which keep
-        // their own environment surface, are left untouched.
-        if (
-            $section === 'environment'
-            && $server->isVmHost()
-            && ! $site->usesFunctionsRuntime()
-            && ! $site->usesEdgeRuntime()
-        ) {
-            return redirect()->route('sites.environment', [
-                'server' => $server,
-                'site' => $site,
-                ...request()->query(),
-            ]);
-        }
-
-        if ($section === 'pipeline') {
-            return redirect()->route('sites.pipeline', [
-                'server' => $server,
-                'site' => $site,
-                ...request()->query(),
-            ]);
-        }
-
-        if ($section === 'dns') {
-            $target = ServerlessWorkspaceUrl::forSitesRoute('sites.show', $site, [
-                'section' => 'routing',
-                'tab' => 'dns',
-                ...request()->query(),
-            ]);
-
-            if ($target !== null) {
-                return redirect()->to($target);
-            }
-
-            return redirect()->route('sites.show', [
-                'server' => $server,
-                'site' => $site,
-                'section' => 'routing',
-                'tab' => 'dns',
-                ...request()->query(),
-            ]);
-        }
-
-        $component = $site->usesEdgeRuntime() ? EdgeSettings::class : Settings::class;
-
-        return RendersLivewirePage::render($component, [
+        return RendersLivewirePage::render(EdgeSettings::class, [
             'server' => $server,
             'site' => $site,
-            'section' => $section,
+            'section' => ($section === null || $section === '') ? 'general' : $section,
         ]);
     }
 }

@@ -111,28 +111,6 @@ test('returns 404 when surface edge inactive', function () {
         ->assertStatus(400);
 });
 
-test('ssr detection auto selects hybrid and name from repo when no cloud app', function () {
-    $user = ownerWithOrg();
-
-    Livewire::actingAs($user)
-        ->test(Create::class)
-        ->set('repo', 'acme/next-app')
-        ->set('branch', 'main')
-        ->set('detectedPlan', [
-            'framework' => 'next',
-            'start_command' => 'next start',
-            'build_command' => 'npm run build',
-        ])
-        ->tap(function ($component): void {
-            $method = new ReflectionMethod($component->instance(), 'applyDetectedRuntimePrefills');
-            $method->setAccessible(true);
-            $method->invoke($component->instance());
-        })
-        ->assertSet('form.runtime_mode', 'hybrid')
-        ->assertSet('form.name', 'next-app')
-        ->assertSet('form.origin_url', '');
-});
-
 test('ssr detection still selects hybrid when output_dir is present', function () {
     $user = ownerWithOrg();
 
@@ -176,32 +154,6 @@ test('hybrid framework preset selects hybrid without start command', function ()
         ->assertSet('form.output_dir', 'build');
 });
 
-test('ssr detection auto fills origin from matching cloud app repo', function () {
-    $user = ownerWithOrg();
-    $org = $user->currentOrganization();
-
-    Site::factory()->create([
-        'organization_id' => $org->id,
-        'user_id' => $user->id,
-        'name' => 'Next API',
-        'container_backend' => 'digitalocean_app_platform',
-        'meta' => [
-            'container' => [
-                'source' => ['repo' => 'acme/next-app', 'branch' => 'main'],
-                'live_url' => 'https://next-api.ondigitalocean.app',
-            ],
-        ],
-    ]);
-
-    Livewire::actingAs($user)
-        ->test(Create::class)
-        ->set('form.name', 'SSR App')
-        ->set('repo', 'acme/next-app')
-        ->set('branch', 'main')
-        ->set('form.runtime_mode', 'hybrid')
-        ->assertSet('form.origin_url', 'https://next-api.ondigitalocean.app');
-});
-
 test('rejects ssr-looking detection on deploy when hybrid origin missing', function () {
     $user = ownerWithOrg();
 
@@ -238,7 +190,7 @@ test('rejects laravel detection on edge deploy', function () {
             'build_command' => 'composer install',
         ])
         ->assertSee('Not an Edge workload')
-        ->assertSee('Deploy on Cloud')
+        ->assertSee('Create a server')
         ->call('deploy')
         ->assertNoRedirect();
 
@@ -263,43 +215,6 @@ test('rejects nest api detection on edge deploy', function () {
         ->assertNoRedirect();
 
     expect(Site::query()->count())->toBe(0);
-});
-
-test('hybrid mode leaves origin empty when no cloud app matches', function () {
-    $user = ownerWithOrg();
-
-    Livewire::actingAs($user)
-        ->test(Create::class)
-        ->set('form.runtime_mode', 'hybrid')
-        ->set('form.name', 'My App')
-        ->assertSet('form.origin_url', '')
-        ->set('form.name', 'SSR App')
-        ->assertSet('form.origin_url', '');
-});
-
-test('hybrid mode uses live cloud app url when one is linked manually', function () {
-    $user = ownerWithOrg();
-    $org = $user->currentOrganization();
-
-    $cloudSite = Site::factory()->create([
-        'organization_id' => $org->id,
-        'user_id' => $user->id,
-        'name' => 'Next API',
-        'container_backend' => 'digitalocean_app_platform',
-        'meta' => [
-            'container' => [
-                'source' => ['repo' => 'acme/next-app', 'branch' => 'main'],
-                'live_url' => 'https://next-api.ondigitalocean.app',
-            ],
-        ],
-    ]);
-
-    Livewire::actingAs($user)
-        ->test(Create::class)
-        ->set('form.name', 'SSR App')
-        ->set('form.runtime_mode', 'hybrid')
-        ->set('form.origin_cloud_site_id', (string) $cloudSite->id)
-        ->assertSet('form.origin_url', 'https://next-api.ondigitalocean.app');
 });
 
 test('shows manual entry when no git accounts linked', function () {
@@ -397,104 +312,6 @@ test('does not auto detect for incomplete manual repo slug', function () {
         ->set('repo', '11ty')
         ->set('branch', 'main')
         ->assertSet('detectedPlan', []);
-});
-
-test('ssr without origin shows auto provision messaging when cloud available', function () {
-    config(['server_provision_fake.env_flag' => true]);
-    $user = ownerWithOrg();
-
-    Livewire::actingAs($user)
-        ->test(Create::class)
-        ->set('form.name', 'SSR App')
-        ->set('repo', 'acme/next-app')
-        ->set('branch', 'main')
-        ->set('form.runtime_mode', 'hybrid')
-        ->set('detectedPlan', [
-            'framework' => 'next',
-            'start_command' => 'next start',
-            'build_command' => 'npm run build',
-        ])
-        ->assertSee('Deploy hybrid stack')
-        ->assertSee('provisioned from this repository')
-        ->assertSee('SSR origin');
-});
-
-test('deploy auto provisions hybrid stack when ssr detected and cloud available', function () {
-    Queue::fake();
-    config(['server_provision_fake.env_flag' => true]);
-    $user = ownerWithOrg();
-
-    Livewire::actingAs($user)
-        ->test(Create::class)
-        ->set('form.name', 'SSR App')
-        ->set('repo', 'acme/next-app')
-        ->set('branch', 'main')
-        ->set('form.runtime_mode', 'hybrid')
-        ->set('detectedPlan', [
-            'framework' => 'next',
-            'start_command' => 'next start',
-            'build_command' => 'npm run build',
-        ])
-        ->call('deploy')
-        ->assertRedirect();
-
-    expect(Site::query()->where('type', SiteType::Container)->count())->toBe(1);
-});
-
-test('deploy hybrid stack redirects to cloud workspace', function () {
-    Queue::fake();
-    config(['server_provision_fake.env_flag' => true]);
-    $user = ownerWithOrg();
-
-    Livewire::actingAs($user)
-        ->test(Create::class)
-        ->set('form.name', 'SSR App')
-        ->set('repo', 'acme/next-app')
-        ->set('branch', 'main')
-        ->set('detectedPlan', [
-            'framework' => 'next',
-            'start_command' => 'next start',
-            'build_command' => 'npm run build',
-        ])
-        ->call('deployHybridStack')
-        ->assertRedirect();
-
-    $cloudSite = Site::query()->where('type', SiteType::Container)->first();
-    expect($cloudSite)->not->toBeNull();
-    expect($cloudSite->meta['container']['hybrid_edge_stack']['status'] ?? null)->toBe('awaiting_origin');
-});
-
-test('hybrid stack auto provision hidden when origin auto filled', function () {
-    config(['server_provision_fake.env_flag' => true]);
-    $user = ownerWithOrg();
-    $org = $user->currentOrganization();
-
-    Site::factory()->create([
-        'organization_id' => $org->id,
-        'user_id' => $user->id,
-        'name' => 'Next API',
-        'container_backend' => 'digitalocean_app_platform',
-        'meta' => [
-            'container' => [
-                'source' => ['repo' => 'acme/next-app', 'branch' => 'main'],
-                'live_url' => 'https://next-api.ondigitalocean.app',
-            ],
-        ],
-    ]);
-
-    Livewire::actingAs($user)
-        ->test(Create::class)
-        ->set('form.name', 'SSR App')
-        ->set('repo', 'acme/next-app')
-        ->set('branch', 'main')
-        ->set('detectedPlan', [
-            'framework' => 'next',
-            'start_command' => 'next start',
-        ])
-        ->set('form.runtime_mode', 'hybrid')
-        ->assertSet('form.origin_url', 'https://next-api.ondigitalocean.app')
-        ->assertSee('SSR origin URL')
-        ->assertSee('Deploy edge app');
 });
 
 function ownerWithOrg(): User

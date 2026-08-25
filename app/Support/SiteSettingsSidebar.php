@@ -5,7 +5,6 @@ namespace App\Support;
 use App\Models\Server;
 use App\Models\Site;
 use App\Modules\Edge\Support\EdgeSiteHasWorker;
-use App\Support\Sites\SiteDatabaseWorkspace;
 use Laravel\Pennant\Feature;
 
 /**
@@ -29,7 +28,7 @@ final class SiteSettingsSidebar
         $supportsSsh = $server->hostCapabilities()->supportsSsh();
 
         if ($site->isCustom()) {
-            return self::flagSupervisorSetup(self::customItems($site), $server);
+            return self::customItems($site);
         }
 
         $showWebserverConfigEditor = $supportsSsh
@@ -195,22 +194,19 @@ final class SiteSettingsSidebar
         // Framework-specific stack tabs (Laravel/Rails/WordPress) only apply to
         // VM workspaces where dply manages the stack directly. Container/
         // serverless workspaces never include these items in the base.
-        return self::flagSupervisorSetup(
-            collect($withBackground)
-                ->filter(fn (array $item): bool => ($item['id'] ?? null) !== 'laravel-stack' || $site->isLaravelFrameworkDetected())
-                ->filter(fn (array $item): bool => ($item['id'] ?? null) !== 'rails-stack' || $site->isRailsFrameworkDetected())
-                ->filter(fn (array $item): bool => ($item['id'] ?? null) !== 'wordpress' || $site->isWordPressDetected())
-                ->filter(fn (array $item): bool => ($item['id'] ?? null) !== 'services' || Site::supportsSystemdServices($site, $server))
-                ->filter(fn (array $item): bool => ($item['id'] ?? null) !== 'files' || $supportsSsh)
-                ->filter(fn (array $item): bool => ($item['id'] ?? null) !== 'database' || SiteDatabaseWorkspace::shouldShowTab($site, $server))
-                // Hide gated items when neither the full feature nor its coming-soon
-                // preview is active (e.g. Schedule, Backups).
-                ->filter(fn (array $item): bool => self::sidebarItemVisible($item))
-                ->map(fn (array $item): array => self::markPreviewOnly($item))
-                ->values()
-                ->all(),
-            $server,
-        );
+        return collect($withBackground)
+            ->filter(fn (array $item): bool => ($item['id'] ?? null) !== 'laravel-stack' || $site->isLaravelFrameworkDetected())
+            ->filter(fn (array $item): bool => ($item['id'] ?? null) !== 'rails-stack' || $site->isRailsFrameworkDetected())
+            ->filter(fn (array $item): bool => ($item['id'] ?? null) !== 'wordpress' || $site->isWordPressDetected())
+            ->filter(fn (array $item): bool => ($item['id'] ?? null) !== 'services' || Site::supportsSystemdServices($site, $server))
+            ->filter(fn (array $item): bool => ($item['id'] ?? null) !== 'files' || $supportsSsh)
+            ->filter(fn (array $item): bool => ($item['id'] ?? null) !== 'database')
+            // Hide gated items when neither the full feature nor its coming-soon
+            // preview is active (e.g. Schedule, Backups).
+            ->filter(fn (array $item): bool => self::sidebarItemVisible($item))
+            ->map(fn (array $item): array => self::markPreviewOnly($item))
+            ->values()
+            ->all();
     }
 
     /**
@@ -267,59 +263,72 @@ final class SiteSettingsSidebar
 
         $hasWorker = EdgeSiteHasWorker::for($site);
 
-        // Group order follows first appearance: Deploy → Networking (CDN /
-        // redirects) → Site (app features) → Background → Access → Observe.
-        // Bindings / Crons / Jobs need a per-site Worker (SSR or middleware).
+        // Five groups, in this order: Ship → Traffic → Protect → Extend →
+        // Manage. Only the FIRST group is open on a first visit (the sidebar
+        // partial seeds the rest collapsed), which is the whole point — 20 of
+        // these 26 sections are set-once, and they used to cost the same nav
+        // weight as the six that carry the daily work.
+        //
+        // The grouping is by WHY you open a section, not by subsystem. Hence
+        // Build & deploy logs sits under Ship (you read it while shipping)
+        // while request Logs sit under Traffic (you read them when something
+        // looks wrong). Bindings / Crons / Jobs need a per-site Worker.
         $items = [
-            ['id' => 'general', 'label' => __('Overview'), 'icon' => 'heroicon-o-home', 'group' => 'general'],
-            ['id' => 'edge-deploys', 'label' => __('Deploys'), 'icon' => 'heroicon-o-code-bracket-square', 'group' => 'deploy'],
-            ['id' => 'edge-build', 'label' => __('Build'), 'icon' => 'heroicon-o-wrench-screwdriver', 'group' => 'deploy'],
-            ['id' => 'edge-environment', 'label' => __('Environment'), 'icon' => 'heroicon-o-command-line', 'group' => 'deploy'],
-            ['id' => 'edge-deploy-triggers', 'label' => __('Deploy triggers'), 'icon' => 'heroicon-o-bolt', 'group' => 'deploy'],
+            ['id' => 'general', 'label' => __('Overview'), 'icon' => 'heroicon-o-home', 'group' => 'ship'],
+            ['id' => 'edge-deploys', 'label' => __('Deploys'), 'icon' => 'heroicon-o-code-bracket-square', 'group' => 'ship'],
+            ['id' => 'edge-build', 'label' => __('Build'), 'icon' => 'heroicon-o-wrench-screwdriver', 'group' => 'ship'],
+            ['id' => 'edge-environment', 'label' => __('Environment'), 'icon' => 'heroicon-o-command-line', 'group' => 'ship'],
         ];
 
-        if ($hasWorker) {
-            $items[] = ['id' => 'edge-bindings', 'label' => __('Bindings'), 'icon' => 'heroicon-o-puzzle-piece', 'group' => 'deploy'];
+        if (! $isPreviewChild) {
+            $items[] = ['id' => 'edge-previews', 'label' => __('Previews'), 'icon' => 'heroicon-o-sparkles', 'group' => 'ship'];
         }
 
-        $items[] = ['id' => 'edge-routing', 'label' => __('Routing'), 'icon' => 'heroicon-o-arrows-right-left', 'group' => 'networking'];
+        $items[] = ['id' => 'edge-deploy-triggers', 'label' => __('Deploy triggers'), 'icon' => 'heroicon-o-bolt', 'group' => 'ship'];
+        $items[] = ['id' => 'edge-logs', 'label' => __('Build & deploy logs'), 'icon' => 'heroicon-o-clipboard-document-list', 'group' => 'ship'];
+
+        // ── Traffic ──────────────────────────────────────────────────────
+        $items[] = ['id' => 'edge-routing', 'label' => __('Routing'), 'icon' => 'heroicon-o-arrows-right-left', 'group' => 'traffic'];
 
         if (! $isPreviewChild) {
-            $items[] = ['id' => 'edge-delivery', 'label' => __('Delivery'), 'icon' => 'heroicon-o-cloud', 'group' => 'networking'];
-            $items[] = ['id' => 'edge-previews', 'label' => __('Previews'), 'icon' => 'heroicon-o-sparkles', 'group' => 'deploy'];
+            $items[] = ['id' => 'edge-delivery', 'label' => __('Delivery'), 'icon' => 'heroicon-o-cloud', 'group' => 'traffic'];
+            $items[] = ['id' => 'edge-traffic', 'label' => __('Traffic & analytics'), 'icon' => 'heroicon-o-signal', 'group' => 'traffic'];
+        }
+
+        // ── Protect ──────────────────────────────────────────────────────
+        $items = [
+            ...$items,
+            ['id' => 'edge-firewall', 'label' => __('Firewall'), 'icon' => 'heroicon-o-shield-check', 'group' => 'protect'],
+            ['id' => 'edge-bot-protection', 'label' => __('Bot protection'), 'icon' => 'heroicon-o-finger-print', 'group' => 'protect'],
+            ['id' => 'edge-rate-limits', 'label' => __('Rate limits'), 'icon' => 'heroicon-o-no-symbol', 'group' => 'protect'],
+            ['id' => 'edge-waiting-room', 'label' => __('Waiting room'), 'icon' => 'heroicon-o-queue-list', 'group' => 'protect'],
+            ['id' => 'edge-members', 'label' => __('Members'), 'icon' => 'heroicon-o-user-group', 'group' => 'protect'],
+        ];
+
+        // ── Extend ───────────────────────────────────────────────────────
+        if ($hasWorker) {
+            $items[] = ['id' => 'edge-bindings', 'label' => __('Bindings'), 'icon' => 'heroicon-o-puzzle-piece', 'group' => 'extend'];
+            $items[] = ['id' => 'edge-crons', 'label' => __('Crons'), 'icon' => 'heroicon-o-clock', 'group' => 'extend'];
+            $items[] = ['id' => 'edge-jobs', 'label' => __('Jobs'), 'icon' => 'heroicon-o-rectangle-stack', 'group' => 'extend'];
         }
 
         $items = [
             ...$items,
-            ['id' => 'edge-error-pages', 'label' => __('Error pages'), 'icon' => 'heroicon-o-exclamation-circle', 'group' => 'site'],
-            ['id' => 'edge-forms', 'label' => __('Forms'), 'icon' => 'heroicon-o-inbox', 'group' => 'site'],
-            ['id' => 'edge-snippets', 'label' => __('Snippets'), 'icon' => 'heroicon-o-code-bracket', 'group' => 'site'],
-            ['id' => 'edge-tags', 'label' => __('Tags'), 'icon' => 'heroicon-o-tag', 'group' => 'site'],
+            ['id' => 'edge-error-pages', 'label' => __('Error pages'), 'icon' => 'heroicon-o-exclamation-circle', 'group' => 'extend'],
+            ['id' => 'edge-forms', 'label' => __('Forms'), 'icon' => 'heroicon-o-inbox', 'group' => 'extend'],
+            ['id' => 'edge-snippets', 'label' => __('Snippets'), 'icon' => 'heroicon-o-code-bracket', 'group' => 'extend'],
+            ['id' => 'edge-tags', 'label' => __('Tags'), 'icon' => 'heroicon-o-tag', 'group' => 'extend'],
         ];
 
-        if ($hasWorker) {
-            $items[] = ['id' => 'edge-crons', 'label' => __('Crons'), 'icon' => 'heroicon-o-clock', 'group' => 'background'];
-            $items[] = ['id' => 'edge-jobs', 'label' => __('Jobs'), 'icon' => 'heroicon-o-rectangle-stack', 'group' => 'background'];
-        }
-
-        $items = [
-            ...$items,
-            ['id' => 'edge-firewall', 'label' => __('Firewall'), 'icon' => 'heroicon-o-shield-check', 'group' => 'access'],
-            ['id' => 'edge-bot-protection', 'label' => __('Bot protection'), 'icon' => 'heroicon-o-finger-print', 'group' => 'access'],
-            ['id' => 'edge-rate-limits', 'label' => __('Rate limits'), 'icon' => 'heroicon-o-no-symbol', 'group' => 'access'],
-            ['id' => 'edge-waiting-room', 'label' => __('Waiting room'), 'icon' => 'heroicon-o-queue-list', 'group' => 'access'],
-            ['id' => 'edge-members', 'label' => __('Members'), 'icon' => 'heroicon-o-user-group', 'group' => 'access'],
-            ['id' => 'edge-alerts', 'label' => __('Alerts'), 'icon' => 'heroicon-o-bell-alert', 'group' => 'observability'],
-            ['id' => 'edge-audit', 'label' => __('Audit log'), 'icon' => 'heroicon-o-clipboard-document-list', 'group' => 'observability'],
-        ];
+        // ── Manage ───────────────────────────────────────────────────────
+        $items[] = ['id' => 'edge-alerts', 'label' => __('Alerts'), 'icon' => 'heroicon-o-bell-alert', 'group' => 'manage'];
+        $items[] = ['id' => 'edge-audit', 'label' => __('Audit log'), 'icon' => 'heroicon-o-clipboard-document-list', 'group' => 'manage'];
 
         if (! $isPreviewChild) {
-            $items[] = ['id' => 'edge-traffic', 'label' => __('Traffic & analytics'), 'icon' => 'heroicon-o-signal', 'group' => 'observability'];
-            $items[] = ['id' => 'edge-billing', 'label' => __('Billing & usage'), 'icon' => 'heroicon-o-chart-bar', 'group' => 'observability'];
+            $items[] = ['id' => 'edge-billing', 'label' => __('Billing & usage'), 'icon' => 'heroicon-o-chart-bar', 'group' => 'manage'];
         }
 
-        $items[] = ['id' => 'edge-logs', 'label' => __('Build & deploy logs'), 'icon' => 'heroicon-o-clipboard-document-list', 'group' => 'observability'];
-        $items[] = ['id' => 'danger', 'label' => __('Danger zone'), 'icon' => 'heroicon-o-exclamation-triangle', 'group' => 'danger'];
+        $items[] = ['id' => 'danger', 'label' => __('Danger zone'), 'icon' => 'heroicon-o-exclamation-triangle', 'group' => 'manage'];
 
         return $items;
     }
@@ -393,30 +402,6 @@ final class SiteSettingsSidebar
     }
 
     /**
-     * Attach `needs_setup => true` to the Daemons item when Supervisor
-     * isn't installed on the host. Mirrors the same flag emitted by
-     * {@see server_workspace_nav_for_server()} so the sidebar partial can render a
-     * "needs install" dot without re-querying the server.
-     *
-     * @param  list<array<string, mixed>>  $items
-     * @return list<array<string, mixed>>
-     */
-    private static function flagSupervisorSetup(array $items, Server $server): array
-    {
-        if ($server->supervisor_package_status === Server::SUPERVISOR_PACKAGE_INSTALLED) {
-            return $items;
-        }
-
-        return array_map(static function (array $item): array {
-            if (($item['id'] ?? null) === 'daemons') {
-                $item['needs_setup'] = true;
-            }
-
-            return $item;
-        }, $items);
-    }
-
-    /**
      * In-page runtime tabs for the combined Runtime workspace (Overview + language).
      *
      * @return array<string, string> tab key => label
@@ -442,4 +427,5 @@ final class SiteSettingsSidebar
 
         return $tabs;
     }
+
 }

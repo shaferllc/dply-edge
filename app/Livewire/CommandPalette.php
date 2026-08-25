@@ -10,7 +10,6 @@ use App\Livewire\Concerns\ResolvesCommandPaletteItems;
 use App\Livewire\Concerns\RunsCommandPaletteActions;
 use App\Models\Server;
 use App\Models\Site;
-use App\Modules\Docs\Support\ContextualDocResolver;
 use Illuminate\Contracts\View\View;
 use Livewire\Component;
 
@@ -60,17 +59,6 @@ class CommandPalette extends Component
      * guide for *this* page" no matter how deep you've drilled. Null off any
      * documented page.
      */
-    public ?string $contextDocSlug = null;
-
-    /**
-     * Site IDs ticked in the "Deploy together" multi-select context — the sites
-     * that ship when its "Deploy N sites" action fires. Seeded to every
-     * deployable peer when the operator drills into that context, then toggled
-     * per-row. Stored as strings to match the rendered row ids.
-     *
-     * @var list<string>
-     */
-    public array $deploySyncSelected = [];
 
     /**
      * Capture the current page's resource so the palette opens in context.
@@ -103,14 +91,6 @@ class CommandPalette extends Component
 
         if ($this->contextSeed !== null) {
             $this->stack = [$this->contextSeed];
-
-            // The resolver reads the live route (including the site section /
-            // server workspace tab), so the captured slug is page-specific.
-            try {
-                $this->contextDocSlug = app(ContextualDocResolver::class)->resolve();
-            } catch (\Throwable) {
-                $this->contextDocSlug = null;
-            }
         }
     }
 

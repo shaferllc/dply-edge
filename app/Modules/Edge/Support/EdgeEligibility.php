@@ -167,20 +167,6 @@ final class EdgeEligibility
     private static function reject(string $label, string $runtime): array
     {
         $display = $label !== '' ? $label : ($runtime !== '' ? $runtime : 'this');
-        $preferCloud = in_array($runtime, ['php', 'ruby', 'python', 'node'], true)
-            || in_array($display, ['laravel', 'symfony', 'wordpress', 'rails', 'sinatra', 'django', 'flask', 'fastapi', 'nest', 'express'], true);
-
-        if ($preferCloud) {
-            return [
-                'eligible' => false,
-                'message' => __(
-                    'This repository looks like a :stack app. Edge is for JavaScript static/SSG sites (and hybrid JS SSR). Use dply Cloud for long-running container apps.',
-                    ['stack' => $display],
-                ),
-                'alternative_route' => 'cloud.create',
-                'alternative_label' => __('Deploy on Cloud'),
-            ];
-        }
 
         return [
             'eligible' => false,

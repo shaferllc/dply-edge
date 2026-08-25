@@ -38,7 +38,10 @@
         data-cli-snippet="details"
         wire:ignore.self
     >
-        <summary class="cursor-pointer select-none font-semibold text-brand-ink">{{ $detailsSummary }}</summary>
+        <summary class="inline-flex cursor-pointer select-none items-center gap-1 font-semibold text-brand-ink marker:content-none [&::-webkit-details-marker]:hidden">
+            <x-heroicon-o-chevron-right class="h-3.5 w-3.5 shrink-0 text-brand-sage transition-transform [details[open]>summary_&]:rotate-90" aria-hidden="true" />
+            {{ $detailsSummary }}
+        </summary>
         @if ($intro)
             <p class="mt-2 text-brand-moss">{{ $intro }}</p>
         @endif
@@ -49,7 +52,7 @@
                         <span class="font-sans text-brand-moss">{{ $row['label'] }}</span>
                     @endif
                     <div class="mt-0.5 flex min-w-0 items-start gap-1.5">
-                        <code class="min-w-0 flex-1 select-all break-all rounded-md bg-brand-sand/80 px-1.5 py-0.5 text-brand-ink ring-1 ring-inset ring-brand-ink/10">{{ $row['command'] }}</code>
+                        <code class="min-w-0 flex-1 select-all break-all rounded-md bg-brand-ink/95 px-2 py-1 text-brand-sand ring-1 ring-inset ring-brand-ink/20"><span class="select-none text-brand-sage">$ </span>{{ $row['command'] }}</code>
                         <button
                             type="button"
                             class="mt-0.5 inline-flex shrink-0 items-center justify-center rounded p-1 text-brand-mist hover:bg-brand-sand hover:text-brand-ink"
@@ -71,7 +74,10 @@
         data-cli-snippet="stub"
         wire:ignore.self
     >
-        <summary class="cursor-pointer select-none font-semibold text-brand-ink">{{ $detailsSummary }}</summary>
+        <summary class="inline-flex cursor-pointer select-none items-center gap-1 font-semibold text-brand-ink marker:content-none [&::-webkit-details-marker]:hidden">
+            <x-heroicon-o-chevron-right class="h-3.5 w-3.5 shrink-0 text-brand-sage transition-transform [details[open]>summary_&]:rotate-90" aria-hidden="true" />
+            {{ $detailsSummary }}
+        </summary>
         <p class="mt-2 text-brand-moss">{{ $summary === null ? $stubMessage : ($intro ?? $stubMessage) }}</p>
     </details>
 @endif

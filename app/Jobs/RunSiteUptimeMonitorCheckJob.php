@@ -2,7 +2,6 @@
 
 namespace App\Jobs;
 
-use App\Jobs\Concerns\WritesConsoleAction;
 use App\Models\ConsoleAction;
 use App\Models\ErrorEvent;
 use App\Models\Site;
@@ -15,6 +14,7 @@ use App\Services\Sites\SiteUptimeCheckUrlResolver;
 use App\Services\Sites\UptimeProbeWorkerResolver;
 use App\Services\Status\MonitorOperationalState;
 use Carbon\CarbonImmutable;
+use App\Jobs\Concerns\WritesConsoleAction;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Database\Eloquent\Model;
@@ -586,7 +586,7 @@ class RunSiteUptimeMonitorCheckJob implements ShouldBeUnique, ShouldQueue
         $state = $outcome['state'];
         $label = (string) $monitor->label;
         $checkedUrl = $outcome['checked_url'];
-        $url = route('sites.monitor', [$site->server, $site], absolute: true);
+        $url = route('sites.show', [$site->server, $site, 'edge-alerts'], absolute: true);
 
         $baseMeta = [
             'site_id' => $site->id,

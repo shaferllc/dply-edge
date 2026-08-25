@@ -26,11 +26,6 @@ use Illuminate\Support\Str;
  * @property-read Collection<int, Server> $servers
  * @property-read Collection<int, Site> $sites
  * @property-read Collection<int, WorkspaceMember> $members
- * @property-read Collection<int, WorkspaceEnvironment> $environments
- * @property-read Collection<int, WorkspaceLabel> $labels
- * @property-read Collection<int, WorkspaceRunbook> $runbooks
- * @property-read Collection<int, WorkspaceVariable> $variables
- * @property-read Collection<int, WorkspaceDeployRun> $deployRuns
  * @property-read Collection<int, NotificationSubscription> $notificationSubscriptions
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
@@ -74,29 +69,6 @@ class Workspace extends Model
                     'role' => WorkspaceMember::ROLE_OWNER,
                 ]);
             }
-
-            if (! $workspace->environments()->exists()) {
-                $workspace->environments()->createMany([
-                    [
-                        'name' => 'Production',
-                        'slug' => 'production',
-                        'description' => 'Live production resources for this project.',
-                        'sort_order' => 1,
-                    ],
-                    [
-                        'name' => 'Staging',
-                        'slug' => 'staging',
-                        'description' => 'Pre-production validation resources.',
-                        'sort_order' => 2,
-                    ],
-                    [
-                        'name' => 'Development',
-                        'slug' => 'development',
-                        'description' => 'Internal development and testing resources.',
-                        'sort_order' => 3,
-                    ],
-                ]);
-            }
         });
     }
 
@@ -138,37 +110,7 @@ class Workspace extends Model
         return $this->hasMany(WorkspaceMember::class)->orderBy('created_at');
     }
 
-    /** @return HasMany<WorkspaceEnvironment, $this> */
-    public function environments(): HasMany
-    {
-        return $this->hasMany(WorkspaceEnvironment::class)->orderBy('sort_order')->orderBy('name');
-    }
 
-    /** @return BelongsToMany<WorkspaceLabel, $this> */
-    public function labels(): BelongsToMany
-    {
-        return $this->belongsToMany(WorkspaceLabel::class, 'workspace_label_assignments')
-            ->withTimestamps()
-            ->orderBy('name');
-    }
-
-    /** @return HasMany<WorkspaceRunbook, $this> */
-    public function runbooks(): HasMany
-    {
-        return $this->hasMany(WorkspaceRunbook::class)->orderBy('sort_order')->orderBy('title');
-    }
-
-    /** @return HasMany<WorkspaceVariable, $this> */
-    public function variables(): HasMany
-    {
-        return $this->hasMany(WorkspaceVariable::class)->orderBy('env_key');
-    }
-
-    /** @return HasMany<WorkspaceDeployRun, $this> */
-    public function deployRuns(): HasMany
-    {
-        return $this->hasMany(WorkspaceDeployRun::class)->orderByDesc('created_at');
-    }
 
     /** @return MorphMany<NotificationSubscription, $this> */
     public function notificationSubscriptions(): MorphMany

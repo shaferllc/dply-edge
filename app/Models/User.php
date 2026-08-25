@@ -50,7 +50,6 @@ use Laravel\Passkeys\PasskeyAuthenticatable;
  * @property-read Collection<int, ProviderCredential> $providerCredentials
  * @property-read Collection<int, Server> $servers
  * @property-read Collection<int, RecentResource> $recentResources
- * @property-read Collection<int, UserSshKey> $sshKeys
  * @property-read Collection<int, ApiToken> $apiTokens
  * @property-read Collection<int, NotificationChannel> $notificationChannels
  * @property-read Collection<int, NotificationInboxItem> $notificationInboxItems
@@ -59,7 +58,6 @@ use Laravel\Passkeys\PasskeyAuthenticatable;
  *           does not read, so it has to be declared here.
  * @property-read ?User $referrer
  * @property-read Collection<int, User> $referredUsers
- * @property-read Collection<int, ReferralReward> $referralRewardsGranted
  */
 #[Fillable([
     'name',
@@ -154,11 +152,6 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
         return $this->hasMany(RecentResource::class);
     }
 
-    /** @return HasMany<UserSshKey, $this> */
-    public function sshKeys(): HasMany
-    {
-        return $this->hasMany(UserSshKey::class);
-    }
 
     /** @return HasMany<ApiToken, $this> */
     public function apiTokens(): HasMany
@@ -193,17 +186,6 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     public function referredUsers(): HasMany
     {
         return $this->hasMany(User::class, 'referred_by_user_id');
-    }
-
-    /**
-     * Bonus rows granted to this user as the referrer.
-     *
-     * @return HasMany<ReferralReward, User>
-     */
-    /** @return HasMany<ReferralReward, $this> */
-    public function referralRewardsGranted(): HasMany
-    {
-        return $this->hasMany(ReferralReward::class, 'referrer_user_id');
     }
 
     /**

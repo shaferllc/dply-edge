@@ -1,7 +1,5 @@
 @php
     $items = [
-        ['route' => 'sites.index', 'match' => 'sites.index', 'label' => __('Sites'), 'icon' => 'globe-alt'],
-        ['route' => 'servers.index', 'match' => 'servers.index', 'label' => __('Servers'), 'icon' => 'server'],
         // Projects is deliberately absent: this row is labelled Compute and
         // Projects is a grouping container, not compute. It keeps its header
         // entry point under Apps. Don't re-add it here without renaming the
@@ -12,10 +10,17 @@
         // while the surface is parked — only the feature middleware rejects
         // — so Route::has() alone would keep linking them into a 400.
         ['route' => 'edge.index', 'match' => 'edge.*', 'label' => __('Edge'), 'icon' => 'bolt', 'feature' => 'surface.edge'],
-        ['route' => 'cloud.index', 'match' => 'cloud.*', 'label' => __('Cloud'), 'icon' => 'cloud', 'feature' => 'surface.cloud'],
         ['route' => 'serverless.index', 'match' => 'serverless.*', 'label' => __('Serverless'), 'icon' => 'cpu-chip', 'feature' => 'surface.serverless'],
     ];
 @endphp
+@php
+    $visible = array_values(array_filter($items, function (array $item): bool {
+        return \Illuminate\Support\Facades\Route::has($item['route'])
+            && (empty($item['feature']) || feature($item['feature']));
+    }));
+@endphp
+
+@if ($visible !== [])
 
 {{--
     The Compute row: the machines your code runs on. Carries the same eyebrow
@@ -33,7 +38,7 @@
             {{ __('Compute') }}
         </span>
         <div class="flex min-w-0 flex-1 gap-0.5 overflow-x-auto sm:gap-1" style="-webkit-overflow-scrolling: touch;">
-            @foreach ($items as $item)
+            @foreach ($visible as $item)
                 @php
                     $routeExists = \Illuminate\Support\Facades\Route::has($item['route']);
                     $featureOk = empty($item['feature']) || feature($item['feature']);
@@ -64,17 +69,6 @@
             @endforeach
         </div>
 
-        @if (request()->routeIs('servers.index'))
-            @can('create', App\Models\Server::class)
-                <a
-                    href="{{ route('servers.create') }}"
-                    wire:navigate
-                    class="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-brand-ink px-3 py-1.5 text-xs font-semibold text-brand-cream shadow-sm transition hover:bg-brand-forest"
-                >
-                    <x-heroicon-o-plus class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                    {{ __('Add server') }}
-                </a>
-            @endcan
-        @endif
     </div>
 </nav>
+@endif

@@ -15,7 +15,6 @@
     @endphp
 
     <x-profile-shell
-        dense
         :title="__('CLI')"
         :description="__('Install once, device-flow login, then manage sessions for your orgs.')"
         icon="heroicon-o-command-line"
@@ -104,7 +103,7 @@
                     </div>
                     <div>
                         <p class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('5. GitHub Actions') }}</p>
-                        <pre class="mt-1.5 max-h-40 overflow-auto rounded-md border border-brand-ink/10 bg-[#0b1020] px-2.5 py-2 font-mono text-2xs leading-relaxed text-slate-200"><code>name: Deploy
+                        <pre class="mt-1.5 max-h-40 overflow-auto rounded-md border border-brand-ink/10 bg-brand-ink/95 px-2.5 py-2 font-mono text-2xs leading-relaxed text-brand-sand"><code>name: Deploy
 on:
   push:
     branches: [main]
@@ -157,7 +156,7 @@ jobs:
                     <div class="grid gap-3 lg:grid-cols-2">
                         <div>
                             <p class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('YAML') }}</p>
-                            <pre class="mt-1 max-h-48 overflow-auto rounded-md border border-brand-ink/10 bg-[#0b1020] px-2.5 py-2 font-mono text-2xs leading-relaxed text-slate-200"><code>@verbatim build:
+                            <pre class="mt-1 max-h-48 overflow-auto rounded-md border border-brand-ink/10 bg-brand-ink/95 px-2.5 py-2 font-mono text-2xs leading-relaxed text-brand-sand"><code>@verbatim build:
   command: npm run build
   output: dist
   node: "20"
@@ -180,7 +179,7 @@ env:
                         </div>
                         <div>
                             <p class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('JSON') }}</p>
-                            <pre class="mt-1 max-h-48 overflow-auto rounded-md border border-brand-ink/10 bg-[#0b1020] px-2.5 py-2 font-mono text-2xs leading-relaxed text-slate-200"><code>@verbatim{
+                            <pre class="mt-1 max-h-48 overflow-auto rounded-md border border-brand-ink/10 bg-brand-ink/95 px-2.5 py-2 font-mono text-2xs leading-relaxed text-brand-sand"><code>@verbatim{
   "build": { "command": "npm run build", "output": "dist", "node": "20" },
   "redirects": [
     { "from": "/old/*", "to": "/new/:splat", "status": 301 }

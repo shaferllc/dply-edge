@@ -41,77 +41,7 @@ final class UptimeProbeRegionResolver
     {
         $site->loadMissing('server');
 
-        if ($site->usesFunctionsRuntime()) {
-            return $this->resolve($this->functionHostRegion($site));
-        }
-
         return $this->resolve($site->server?->region);
-    }
-
-    /**
-     * DigitalOcean Functions region: the host's `server.region`, else the
-     * `faas-{region}` slug on the invocation / API host, else nyc1. Never
-     * fall through to the first `probe_regions` key (Falkenstein) — that is
-     * the probe worker, not the function host.
-     */
-    private function functionHostRegion(Site $site): string
-    {
-        $fromServer = strtolower(trim((string) ($site->server?->region ?? '')));
-        if ($fromServer !== '') {
-            return $fromServer;
-        }
-
-        foreach ($this->functionRegionCandidates($site) as $candidate) {
-            $parsed = $this->regionFromFunctionsUrl($candidate);
-            if ($parsed !== null) {
-                return $parsed;
-            }
-        }
-
-        return 'nyc1';
-    }
-
-    /** @return list<string> */
-    private function functionRegionCandidates(Site $site): array
-    {
-        $candidates = [];
-        $config = $site->serverlessConfig();
-        foreach (['action_url', 'api_host'] as $key) {
-            $value = $config[$key] ?? null;
-            if (is_string($value) && trim($value) !== '') {
-                $candidates[] = trim($value);
-            }
-        }
-
-        $meta = is_array($site->server?->meta) ? $site->server->meta : [];
-        $hostConfig = is_array($meta['digitalocean_functions'] ?? null)
-            ? $meta['digitalocean_functions']
-            : [];
-        $apiHost = $hostConfig['api_host'] ?? null;
-        if (is_string($apiHost) && trim($apiHost) !== '') {
-            $candidates[] = trim($apiHost);
-        }
-
-        return $candidates;
-    }
-
-    /**
-     * Parse `faas-{region}` from a DigitalOcean Functions URL or host
-     * (`faas-nyc1.doserverless.co`, `faas-sfo3-abc.doserverless.co`).
-     */
-    private function regionFromFunctionsUrl(string $url): ?string
-    {
-        $host = parse_url($url, PHP_URL_HOST);
-        if (! is_string($host) || $host === '') {
-            $host = preg_replace('#^https?://#i', '', $url) ?? $url;
-            $host = explode('/', (string) $host, 2)[0];
-        }
-
-        if (preg_match('/^faas-([a-z]+[0-9]+)/i', $host, $matches) === 1) {
-            return strtolower($matches[1]);
-        }
-
-        return null;
     }
 
     /**
@@ -136,4 +66,5 @@ final class UptimeProbeRegionResolver
 
         return $fallback;
     }
+
 }

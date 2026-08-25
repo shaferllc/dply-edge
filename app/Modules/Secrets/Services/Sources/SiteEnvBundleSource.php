@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Modules\Secrets\Services\Sources;
 
-use App\Livewire\Sites\Concerns\ManagesSiteEnvironment;
 use App\Models\Site;
 use App\Modules\Secrets\Services\Contracts\SecretSource;
 use App\Modules\Secrets\Services\Scope;
@@ -12,7 +11,7 @@ use RuntimeException;
 
 /**
  * A portable, versioned backup of ONE site's editable environment secrets — the
- * same `.env` set surfaced by {@see ManagesSiteEnvironment}.
+ * same `.env` set the site workspace surfaces.
  *
  * The wedge (docs/SECRETS_UI.md §1): "I clobbered my `.env` / rotated a key
  * wrong — restore yesterday's version." Escrowed under the site's org scope and

@@ -400,7 +400,7 @@ class Create extends Component
             'edgeUsageBillingEnabled' => app(ManagedProductCostEstimator::class)->edgeUsageBillingEnabled(),
             'edgeUsageRates' => app(ManagedProductCostEstimator::class)->edgeUsageRates(),
             'cloudflareCredentials' => $cloudflareCredentials,
-            'orgCloudSites' => $this->orgCloudSitesForPicker(),
+            'orgCloudSites' => [],
             'ssrDetected' => $this->detectedPlan !== [] && EdgeSsrDetection::planLooksLikeSsr($this->detectedPlan),
             'ssrAvailable' => $ssrAvailable,
             'ssrUnavailableReason' => EdgeSsrAvailability::unavailableReason(),
@@ -408,11 +408,10 @@ class Create extends Component
             'edgeIneligibleMessage' => $eligibility['message'],
             'edgeAlternativeRoute' => $eligibility['alternative_route'],
             'edgeAlternativeLabel' => $eligibility['alternative_label'],
-            'suggestedHybridOriginUrl' => $this->suggestedHybridOriginUrlForName(),
-            'showHybridStackCta' => $this->showHybridStackCta(),
-            'autoProvisionHybridOrigin' => $this->shouldAutoProvisionHybridOrigin(),
-            'canProvisionCloudOrigin' => $this->canProvisionCloudOrigin(),
-            'cloudFee' => app(ManagedProductCostEstimator::class)->cloudFee(),
+            'suggestedHybridOriginUrl' => '',
+            'showHybridStackCta' => false,
+            'autoProvisionHybridOrigin' => false,
+            'canProvisionCloudOrigin' => false,
         ])->layout('layouts.app');
     }
 

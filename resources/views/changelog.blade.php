@@ -11,16 +11,16 @@
     @include('partials.theme-head')
 
     <link rel="preconnect" href="https://fonts.bunny.net">
-    <link href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600,700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.bunny.net/css?family=space-grotesk:400,500,700|space-mono:400,700&display=swap" rel="stylesheet" />
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @livewireStyles
     <style>[x-cloak] { display: none !important; }</style>
 </head>
-<body class="font-sans antialiased bg-brand-cream text-brand-ink" style="font-family: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;">
-    <div class="fixed inset-0 -z-20 bg-brand-cream"></div>
+<body class="bg-edge-void font-display text-edge-text antialiased">
+    <div class="fixed inset-0 -z-20 bg-edge-void"></div>
     <div class="fixed inset-0 -z-10 bg-mesh-brand"></div>
 
-    <x-site-header active="changelog" />
+    <x-edge-marketing-header active="changelog" />
 
     <main>
         {{-- Hero + entries are rendered after the data/computation block below. --}}
@@ -817,19 +817,19 @@ Unified Button And Binding UI',
             ];
 
             $tagStyles = [
-                'new'      => 'bg-emerald-50 text-emerald-800 ring-1 ring-inset ring-emerald-200/80',
-                'improved' => 'bg-sky-50 text-sky-800 ring-1 ring-inset ring-sky-200/80',
-                'fixed'    => 'bg-amber-50 text-amber-900 ring-1 ring-inset ring-amber-200/80',
-                'security' => 'bg-rose-50 text-rose-800 ring-1 ring-inset ring-rose-200/80',
+                'new'      => 'bg-edge-lime/10 text-edge-lime ring-1 ring-inset ring-edge-lime/30',
+                'improved' => 'bg-sky-400/10 text-sky-300 ring-1 ring-inset ring-sky-400/30',
+                'fixed'    => 'bg-amber-400/10 text-amber-300 ring-1 ring-inset ring-amber-400/30',
+                'security' => 'bg-rose-500/100/10 text-rose-300 ring-1 ring-inset ring-rose-500/30',
             ];
             $tagLabels = [
                 'new' => 'New', 'improved' => 'Improved', 'fixed' => 'Fixed', 'security' => 'Security',
             ];
             $tagDot = [
-                'security' => 'bg-rose-500',
-                'new'      => 'bg-emerald-500',
-                'improved' => 'bg-sky-500',
-                'fixed'    => 'bg-amber-500',
+                'security' => 'bg-rose-400',
+                'new'      => 'bg-edge-lime',
+                'improved' => 'bg-sky-400',
+                'fixed'    => 'bg-amber-400',
             ];
             $tagPriority = ['security', 'new', 'improved', 'fixed'];
 
@@ -837,7 +837,7 @@ Unified Button And Binding UI',
             $inline = function (string $s): string {
                 return preg_replace(
                     '/`([^`]+)`/',
-                    '<code class="rounded bg-brand-ink/[0.06] px-1.5 py-0.5 text-[0.85em] font-medium text-brand-forest">$1</code>',
+                    '<code class="rounded bg-edge-lime px-1.5 py-0.5 text-[0.85em] font-medium text-edge-lime">$1</code>',
                     e($s)
                 );
             };
@@ -887,34 +887,34 @@ Unified Button And Binding UI',
             <section class="px-4 py-12 pb-24 sm:px-6 sm:py-16 lg:px-8">
                 <div class="mx-auto max-w-6xl">
                     {{-- One surface: sand identity + flush filters + hairline entries --}}
-                    <div class="dply-card min-w-0 overflow-hidden p-0">
-                        <div class="border-b border-brand-ink/10 bg-brand-sand/20 px-5 py-6 sm:px-6 sm:py-7">
-                            <p class="text-xs font-semibold uppercase tracking-[0.16em] text-brand-sage">{{ config('app.name') }}</p>
-                            <h1 class="mt-1.5 text-3xl font-bold tracking-tight text-brand-ink sm:text-4xl">
+                    <div class="min-w-0 overflow-hidden border border-edge-line bg-edge-void">
+                        <div class="border-b border-edge-line bg-edge-panel px-5 py-6 sm:px-6 sm:py-7">
+                            <p class="text-xs font-semibold uppercase tracking-[0.16em] text-edge-lime">{{ config('app.name') }}</p>
+                            <h1 class="mt-1.5 text-3xl font-bold tracking-tight text-edge-text sm:text-4xl">
                                 {{ __('Changelog') }}
                             </h1>
-                            <p class="mt-2 max-w-xl text-sm leading-relaxed text-brand-moss sm:text-base">
+                            <p class="mt-2 max-w-xl text-sm leading-relaxed text-edge-mute sm:text-base">
                                 {{ __('What shipped — features, improvements, and fixes, newest first.') }}
                                 @if ($latestDay)
-                                    <span class="text-brand-mist">{{ __('Latest :date.', ['date' => $latestDay]) }}</span>
+                                    <span class="text-edge-faint">{{ __('Latest :date.', ['date' => $latestDay]) }}</span>
                                 @endif
                             </p>
                         </div>
 
-                        <div class="sticky top-16 z-10 border-b border-brand-ink/10 bg-white/95 px-4 py-3 backdrop-blur-md sm:px-5">
+                        <div class="sticky top-16 z-10 border-b border-edge-line bg-edge-panel px-4 py-3 sm:px-5">
                             <div class="flex flex-wrap items-center gap-1.5" role="tablist" aria-label="{{ __('Filter updates') }}">
                                 <button type="button" role="tab" @click="filter='all'"
                                     :aria-selected="(filter==='all').toString()"
-                                    :class="filter==='all' ? 'bg-brand-ink text-brand-cream shadow-sm' : 'text-brand-moss hover:bg-brand-sand/40 hover:text-brand-ink'"
-                                    class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors">
+                                    :class="filter==='all' ? 'bg-edge-lime text-edge-void ' : 'text-edge-mute hover:bg-edge-panel hover:text-edge-text'"
+                                    class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-colors">
                                     {{ __('All') }}
                                     <span class="tabular-nums opacity-70" x-text="totals.all"></span>
                                 </button>
                                 @foreach ($filterTags as $t)
                                     <button type="button" role="tab" @click="filter='{{ $t }}'"
                                         :aria-selected="(filter==='{{ $t }}').toString()"
-                                        :class="filter==='{{ $t }}' ? 'bg-brand-ink text-brand-cream shadow-sm' : 'text-brand-moss hover:bg-brand-sand/40 hover:text-brand-ink'"
-                                        class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors">
+                                        :class="filter==='{{ $t }}' ? 'bg-edge-lime text-edge-void ' : 'text-edge-mute hover:bg-edge-panel hover:text-edge-text'"
+                                        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-colors">
                                         {{ $tagLabels[$t] }}
                                         <span class="tabular-nums opacity-70">{{ $globalCounts[$t] }}</span>
                                     </button>
@@ -923,49 +923,49 @@ Unified Button And Binding UI',
                         </div>
 
                         <div x-show="visible === 0" x-cloak class="flex flex-col items-center justify-center px-5 py-16 text-center">
-                            <span class="flex h-11 w-11 items-center justify-center rounded-2xl bg-brand-sand/55 text-brand-mist ring-1 ring-brand-ink/10">
+                            <span class="flex h-11 w-11 items-center justify-center bg-edge-panel text-edge-faint ring-1 ring-edge-line">
                                 <x-heroicon-o-funnel class="h-5 w-5" aria-hidden="true" />
                             </span>
-                            <p class="mt-4 text-sm font-semibold text-brand-ink">{{ __('Nothing in this filter') }}</p>
-                            <p class="mt-1 text-sm text-brand-moss">{{ __('Try All, or pick another tag.') }}</p>
-                            <button type="button" @click="filter='all'" class="mt-4 text-xs font-semibold text-brand-sage hover:text-brand-ink">{{ __('Show all updates') }}</button>
+                            <p class="mt-4 text-sm font-semibold text-edge-text">{{ __('Nothing in this filter') }}</p>
+                            <p class="mt-1 text-sm text-edge-mute">{{ __('Try All, or pick another tag.') }}</p>
+                            <button type="button" @click="filter='all'" class="mt-4 text-xs font-semibold text-edge-lime hover:text-edge-text">{{ __('Show all updates') }}</button>
                         </div>
 
-                        <div class="divide-y divide-brand-ink/10">
+                        <div class="divide-y divide-edge-line">
                             @foreach ($months as $month)
                                 <section id="{{ $month['id'] }}" class="scroll-mt-28"
                                          x-show="has('{{ implode(',', array_keys($month['tags'])) }}')">
-                                    <div class="flex items-baseline justify-between gap-3 bg-brand-sand/15 px-5 py-3 sm:px-6">
-                                        <h2 class="text-sm font-semibold tracking-tight text-brand-ink">{{ $month['label'] }}</h2>
-                                        <span class="text-xs font-medium tabular-nums text-brand-mist"
+                                    <div class="flex items-baseline justify-between gap-3 bg-edge-panel px-5 py-3 sm:px-6">
+                                        <h2 class="text-sm font-semibold tracking-tight text-edge-text">{{ $month['label'] }}</h2>
+                                        <span class="text-xs font-medium tabular-nums text-edge-faint"
                                               x-text="(filter==='all' ? {{ $month['total'] }} : ({{ json_encode($month['counts']) }}[filter] || 0)) + ' updates'"></span>
                                     </div>
 
-                                    <ol class="divide-y divide-brand-ink/10">
+                                    <ol class="divide-y divide-edge-line">
                                         @foreach ($month['entries'] as $entry)
                                             <li x-show="has('{{ implode(',', $entry['tags']) }}')"
-                                                class="px-5 py-5 transition-colors hover:bg-brand-sand/15 sm:px-6 sm:py-5">
+                                                class="px-5 py-5 transition-colors hover:bg-edge-panel sm:px-6 sm:py-5">
                                                 <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-                                                    <span class="inline-flex h-2 w-2 shrink-0 rounded-full {{ $tagDot[$entry['primary']] ?? 'bg-brand-mist' }}" aria-hidden="true"></span>
+                                                    <span class="inline-flex h-2 w-2 shrink-0 rounded-full {{ $tagDot[$entry['primary']] ?? 'bg-edge-mute' }}" aria-hidden="true"></span>
                                                     @foreach ($entry['tags'] as $tag)
-                                                        <span class="inline-flex items-center rounded-md px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide {{ $tagStyles[$tag] ?? '' }}">
+                                                        <span class="inline-flex items-center px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide {{ $tagStyles[$tag] ?? '' }}">
                                                             {{ $tagLabels[$tag] ?? $tag }}
                                                         </span>
                                                     @endforeach
-                                                    <time datetime="{{ $entry['iso'] }}" class="text-xs font-medium tabular-nums text-brand-mist">
+                                                    <time datetime="{{ $entry['iso'] }}" class="text-xs font-medium tabular-nums text-edge-faint">
                                                         {{ $entry['day'] }}
                                                     </time>
                                                 </div>
-                                                <h3 class="mt-2 text-base font-semibold tracking-tight text-brand-ink sm:text-lg">
+                                                <h3 class="mt-2 text-base font-semibold tracking-tight text-edge-text sm:text-lg">
                                                     {!! $inline($entry['title']) !!}
                                                 </h3>
-                                                <p class="mt-1.5 max-w-4xl text-sm leading-relaxed text-brand-moss">
+                                                <p class="mt-1.5 max-w-4xl text-sm leading-relaxed text-edge-mute">
                                                     {!! $inline($entry['summary']) !!}
                                                 </p>
                                                 @if (! empty($entry['items']))
-                                                    <ul class="mt-3 space-y-1.5 border-l-2 border-brand-ink/10 pl-3">
+                                                    <ul class="mt-3 space-y-1.5 border-l-2 border-edge-line pl-3">
                                                         @foreach ($entry['items'] as $item)
-                                                            <li class="text-sm leading-relaxed text-brand-moss">{!! $item !!}</li>
+                                                            <li class="text-sm leading-relaxed text-edge-mute">{!! $item !!}</li>
                                                         @endforeach
                                                     </ul>
                                                 @endif
@@ -977,33 +977,27 @@ Unified Button And Binding UI',
                         </div>
                     </div>
 
-                    <p class="mt-6 text-center text-xs text-brand-mist">
-                        Looking ahead?
-                        <a href="{{ route('roadmap') }}" class="font-semibold text-brand-sage hover:text-brand-ink">{{ __('View the roadmap') }}</a>
-                    </p>
                 </div>
             </section>
         </div>
 
         {{-- CTA --}}
-        <section class="border-t border-brand-ink/10 bg-brand-sand/25 px-4 py-16 sm:px-6 lg:px-8">
+        <section class="border-t border-edge-line bg-edge-panel px-4 py-16 sm:px-6 lg:px-8">
             <div class="mx-auto max-w-2xl text-center">
-                <h2 class="text-2xl font-bold tracking-tight text-brand-ink">{{ __('Ship on infrastructure you control') }}</h2>
-                <p class="mt-3 text-sm leading-relaxed text-brand-moss sm:text-base">{{ __('Try dply free — no credit card until you\'re ready to standardize.') }}</p>
+                <h2 class="text-2xl font-bold tracking-tight text-edge-text">{{ __('Ship on infrastructure you control') }}</h2>
+                <p class="mt-3 text-sm leading-relaxed text-edge-mute sm:text-base">{{ __('Try dply free — no credit card until you\'re ready to standardize.') }}</p>
                 <div class="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row">
                     @auth
-                        <a href="{{ route('dashboard') }}" class="inline-flex w-full items-center justify-center rounded-xl bg-brand-ink px-6 py-3 text-sm font-semibold text-brand-cream shadow-md transition-colors hover:bg-brand-forest sm:w-auto">{{ __('Go to dashboard') }}</a>
-                        <a href="{{ route('roadmap') }}" class="inline-flex w-full items-center justify-center rounded-xl border border-brand-ink/15 bg-white px-6 py-3 text-sm font-semibold text-brand-ink transition-colors hover:bg-brand-sand/40 sm:w-auto">{{ __('View roadmap') }}</a>
+                        <a href="{{ route('dashboard') }}" class="inline-flex w-full items-center justify-center bg-edge-lime px-6 py-3 text-sm font-semibold text-edge-void transition-colors hover:bg-edge-lime/10 sm:w-auto">{{ __('Go to dashboard') }}</a>
                     @else
-                        <a href="{{ route('register') }}" class="inline-flex w-full items-center justify-center rounded-xl bg-brand-ink px-6 py-3 text-sm font-semibold text-brand-cream shadow-md transition-colors hover:bg-brand-forest sm:w-auto">{{ __('Start free trial') }}</a>
-                        <a href="{{ route('roadmap') }}" class="inline-flex w-full items-center justify-center rounded-xl border border-brand-ink/15 bg-white px-6 py-3 text-sm font-semibold text-brand-ink transition-colors hover:bg-brand-sand/40 sm:w-auto">{{ __('View roadmap') }}</a>
+                        <a href="{{ route('register') }}" class="inline-flex w-full items-center justify-center bg-edge-lime px-6 py-3 text-sm font-semibold text-edge-void transition-colors hover:bg-edge-lime/10 sm:w-auto">{{ __('Start free trial') }}</a>
                     @endauth
                 </div>
             </div>
         </section>
     </main>
 
-    <x-marketing-footer />
+    <x-edge-marketing-footer />
     @livewireScripts
 </body>
 </html>

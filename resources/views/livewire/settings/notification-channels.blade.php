@@ -10,7 +10,6 @@
     @if (! empty($useOrgShell))
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
             <x-organization-shell
-                dense
                 :organization="$organization"
                 :section="$orgShellSection ?? 'notifications'"
                 :title="$pageTitle"
@@ -84,7 +83,6 @@
         </div>
     @else
         <x-profile-shell
-            dense
             :title="$pageTitle"
             :description="$intro"
             icon="heroicon-o-bell"

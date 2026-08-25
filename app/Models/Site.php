@@ -3,19 +3,13 @@
 namespace App\Models;
 
 use App\Enums\SiteType;
-use App\Jobs\CleanupCustomSiteJob;
 use App\Models\Concerns\Site\DerivesWorkerEnvironment;
-use App\Models\Concerns\Site\GuardsSiteAccess;
 use App\Models\Concerns\Site\HasSiteRelationships;
-use App\Models\Concerns\Site\ManagesAtomicLayout;
 use App\Models\Concerns\Site\ManagesEdgeHosting;
-use App\Models\Concerns\Site\ManagesServerless;
 use App\Models\Concerns\Site\ResolvesSiteHostnames;
 use App\Models\Concerns\Site\ResolvesSiteRuntime;
 use App\Models\Concerns\Site\ResolvesSiteUrls;
-use App\Models\Concerns\Site\ResolvesWebserverConfig;
 use App\Models\Concerns\Site\TracksProvisioningStatus;
-use App\Modules\Scaffold\Services\PlaceholderDnsManager;
 use App\Support\Sites\SiteRelationPurger;
 use Database\Factories\SiteFactory;
 use Illuminate\Database\Eloquent\Builder;
@@ -102,19 +96,15 @@ use Illuminate\Support\Str;
 class Site extends Model
 {
     use DerivesWorkerEnvironment;
-    use GuardsSiteAccess;
 
     /** @use HasFactory<SiteFactory> */
     use HasFactory, HasUlids;
 
     use HasSiteRelationships;
-    use ManagesAtomicLayout;
     use ManagesEdgeHosting;
-    use ManagesServerless;
     use ResolvesSiteHostnames;
     use ResolvesSiteRuntime;
     use ResolvesSiteUrls;
-    use ResolvesWebserverConfig;
     use TracksProvisioningStatus;
 
     public const STATUS_PENDING = 'pending';
@@ -383,20 +373,6 @@ class Site extends Model
                 ]);
             }
 
-            // Every site that runs *something* (i.e. not a pure static host) gets a
-            // canonical "web" process row. The row's command is null at create time:
-            // PHP-FPM is implicit (the FPM master + per-site pool serve the site, no
-            // dedicated process here), and for other runtimes the command is filled in
-            // later by runtime detection / dply.yaml / the user.
-            if ($site->type !== SiteType::Static) {
-                $site->processes()->create([
-                    'type' => SiteProcess::TYPE_WEB,
-                    'name' => SiteProcess::TYPE_WEB,
-                    'command' => null,
-                    'scale' => 1,
-                    'is_active' => true,
-                ]);
-            }
         });
 
         static::deleting(function (Site $site): void {
@@ -413,47 +389,6 @@ class Site extends Model
                 ]);
             }
 
-            // Dispatch on-server cleanup for Custom (headless) sites
-            // before the row vanishes. We capture the resolved values
-            // here because effectiveSystemUser() needs the server, and
-            // we don't want the job racing on a stale lookup.
-            if ($site->isCustom() && $site->server_id !== null) {
-                try {
-                    $server = $site->server;
-                    if ($server) {
-                        CleanupCustomSiteJob::dispatch(
-                            (string) $server->id,
-                            (string) ($site->repository_path ?? ''),
-                            $site->effectiveSystemUser($server),
-                            trim((string) $site->php_fpm_user) !== '',
-                            $site->deploy_script_id ? (string) $site->deploy_script_id : null,
-                        );
-                    }
-                } catch (\Throwable $e) {
-                    Log::warning('Custom site cleanup dispatch failed', [
-                        'site_id' => $site->getKey(),
-                        'error' => $e->getMessage(),
-                    ]);
-                }
-            }
-
-            // Release any placeholder DNS record + ondply.io zone entry
-            // assigned to this site by the scaffold pipeline. release()
-            // is idempotent + safe to call on non-scaffolded sites
-            // (it short-circuits when meta.scaffold.placeholder_dns is
-            // absent), so it runs unconditionally on every site delete.
-            try {
-                app(PlaceholderDnsManager::class)->release($site);
-            } catch (\Throwable $e) {
-                // Best-effort cleanup. We do NOT want a transient DNS
-                // provider failure to block deletion of the site row;
-                // any orphaned record is recoverable via the manager's
-                // audit trail.
-                Log::warning('Site::deleting placeholder release failed', [
-                    'site_id' => $site->getKey(),
-                    'error' => $e->getMessage(),
-                ]);
-            }
         });
 
         static::deleted(function (Site $site): void {

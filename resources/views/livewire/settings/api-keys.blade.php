@@ -20,7 +20,6 @@
     @endpush
 
     <x-profile-shell
-        dense
         :title="__('API keys')"
         :description="__('Personal access tokens for the dply HTTP API — scoped to an organization, with explicit permissions and an optional IP allow-list.')"
         icon="heroicon-o-bolt"
@@ -237,7 +236,7 @@
                             <button
                                 type="button"
                                 wire:click="openConfirmActionModal('revokeToken', [{{ $t->id }}], @js(__('Revoke token')), @js(__('Revoke this token? It will stop working immediately.')), @js(__('Revoke')), true)"
-                                class="inline-flex h-6 shrink-0 items-center gap-1 self-start rounded-md border border-rose-200 bg-white px-2 text-xs font-semibold text-rose-700 shadow-sm hover:bg-rose-50 sm:self-auto"
+                                class="inline-flex h-6 shrink-0 items-center gap-1 self-start rounded-md border border-brand-ink/15 bg-white px-2.5 text-xs font-semibold text-brand-moss shadow-sm transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 sm:self-auto"
                             >
                                 <x-heroicon-o-no-symbol class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                                 {{ __('Revoke') }}

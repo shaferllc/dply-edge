@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Models\SocialAccount;
 use App\Models\User;
-use App\Modules\Referrals\Services\ReferralAttribution;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -249,8 +248,6 @@ class OAuthController extends Controller
             'password' => null,
             'email_verified_at' => now(),
         ]);
-
-        ReferralAttribution::assignFromSession($user);
 
         SocialAccount::create([
             'user_id' => $user->id,

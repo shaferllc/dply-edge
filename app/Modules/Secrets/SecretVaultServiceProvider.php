@@ -19,7 +19,6 @@ class SecretVaultServiceProvider extends ServiceProvider
     {
         if ($this->app->runningInConsole()) {
             $this->commands([
-                Console\SecretsCheckDriftCommand::class,
                 Console\SecretsEscrowCommand::class,
                 Console\SecretsOrgKeyCommand::class,
                 Console\SecretsReencryptCommand::class,

@@ -4,10 +4,7 @@ namespace App\Modules\Notifications\Services;
 
 use App\Models\Organization;
 use App\Models\Server;
-use App\Models\ServerAuthorizedKey;
-use App\Models\ServerDatabase;
 use App\Models\Site;
-use App\Models\SiteDeployment;
 use App\Models\Workspace;
 use Illuminate\Database\Eloquent\Model;
 
@@ -31,7 +28,7 @@ class ResourceNotificationContextResolver
                 'team_id' => $subject->team_id,
                 'resource_type' => Server::class,
                 'resource_id' => (string) $subject->getKey(),
-                'url' => route('servers.overview', $subject, absolute: true),
+                'url' => null,
                 'stakeholder_user_ids' => $this->serverStakeholders($subject),
             ];
         }
@@ -53,49 +50,13 @@ class ResourceNotificationContextResolver
                 'team_id' => null,
                 'resource_type' => Workspace::class,
                 'resource_id' => (string) $subject->getKey(),
-                'url' => route('projects.show', $subject, absolute: true),
+                'url' => null,
                 'stakeholder_user_ids' => $this->workspaceStakeholders($subject),
             ];
         }
 
-        if ($subject instanceof ServerDatabase) {
-            $subject->loadMissing('server.organization');
 
-            return [
-                'organization_id' => $subject->server?->organization_id,
-                'team_id' => $subject->server?->team_id,
-                'resource_type' => Server::class,
-                'resource_id' => $subject->server ? (string) $subject->server->getKey() : null,
-                'url' => $subject->server ? route('servers.databases', $subject->server, absolute: true) : null,
-                'stakeholder_user_ids' => $subject->server ? $this->serverStakeholders($subject->server) : [],
-            ];
-        }
 
-        if ($subject instanceof SiteDeployment) {
-            $subject->loadMissing('site.server', 'site.organization');
-
-            return [
-                'organization_id' => $subject->site?->organization_id,
-                'team_id' => null,
-                'resource_type' => Site::class,
-                'resource_id' => $subject->site ? (string) $subject->site->getKey() : null,
-                'url' => $subject->site ? route('sites.show', [$subject->site->server, $subject->site], absolute: true) : null,
-                'stakeholder_user_ids' => $subject->site ? $this->siteStakeholders($subject->site) : [],
-            ];
-        }
-
-        if ($subject instanceof ServerAuthorizedKey) {
-            $subject->loadMissing('server.organization');
-
-            return [
-                'organization_id' => $subject->server?->organization_id,
-                'team_id' => $subject->server?->team_id,
-                'resource_type' => Server::class,
-                'resource_id' => $subject->server ? (string) $subject->server->getKey() : null,
-                'url' => $subject->server ? route('servers.ssh-keys', $subject->server, absolute: true) : null,
-                'stakeholder_user_ids' => $subject->server ? $this->serverStakeholders($subject->server) : [],
-            ];
-        }
 
         $organizationId = null;
         if (isset($subject->organization_id) && $subject->organization_id !== '') {

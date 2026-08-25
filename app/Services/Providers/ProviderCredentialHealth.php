@@ -18,8 +18,6 @@ use App\Modules\Providers\Services\OvhService;
 use App\Modules\Providers\Services\UpCloudService;
 use App\Modules\Providers\Services\VultrService;
 use App\Modules\Edge\Support\EdgeOrgCredentialConfig;
-use App\Modules\Imports\Services\Forge\ForgeImportDriver;
-use App\Modules\Imports\Services\Ploi\PloiImportDriver;
 use App\Support\Providers\ProviderAuthFailure;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Str;
@@ -117,8 +115,6 @@ class ProviderCredentialHealth
             'gcp' => (new GcpDnsService($credential))->validateCredentials(),
             'azure' => (new AzureComputeService($credential))->validateCredentials(),
             'oracle' => (new OracleComputeService($credential))->validateCredentials(),
-            'ploi' => PloiImportDriver::for($credential)->validateConnection(),
-            'forge' => ForgeImportDriver::for($credential)->validateConnection(),
             default => throw new \RuntimeException(__('Unknown provider.')),
         };
     }

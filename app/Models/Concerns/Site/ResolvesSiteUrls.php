@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Models\Concerns\Site;
 
-use App\Livewire\Sites\Settings;
 use App\Models\Site;
 use App\Support\GitCloneUrl;
 use Illuminate\Database\Eloquent\Model;
@@ -231,32 +230,7 @@ trait ResolvesSiteUrls
         return route('hooks.site.deploy', ['site' => $this->id]);
     }
 
-    /**
-     * Signed URL CI can POST to for redeploying a cloud container
-     * site. The signature uses Laravel's signed-route mechanism
-     * keyed on APP_KEY — no expiry (CI scripts shouldn't have to
-     * refresh the URL on a schedule). Operators can rotate by
-     * regenerating webhook_secret on the site, which invalidates
-     * the URL via that field's inclusion in the signature.
-     */
-    public function cloudRedeployHookUrl(): string
-    {
-        return URL::signedRoute(
-            'hooks.cloud.redeploy',
-            ['site' => $this->id, 's' => substr((string) $this->webhook_secret, 0, 8)],
-        );
-    }
 
-    /**
-     * Inbound GitHub webhook URL — paste this into the repository's
-     * webhook settings on GitHub. The site's webhook_secret is the
-     * shared HMAC-SHA256 signing secret operators paste alongside.
-     * No URL signing here: GitHub signs the body, not the URL.
-     */
-    public function cloudGithubHookUrl(): string
-    {
-        return route('hooks.cloud.github', ['site' => $this->id]);
-    }
 
     /**
      * @return array<string, mixed>

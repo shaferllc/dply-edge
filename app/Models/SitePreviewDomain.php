@@ -30,7 +30,6 @@ use Illuminate\Support\Carbon;
  * @property string $ssl_status
  * @property ?string $zone
  * @property-read ?Site $site
- * @property-read Collection<int, SiteCertificate> $certificates
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
  */
@@ -79,9 +78,4 @@ class SitePreviewDomain extends Model
         return $this->belongsTo(Site::class);
     }
 
-    /** @return HasMany<SiteCertificate, $this> */
-    public function certificates(): HasMany
-    {
-        return $this->hasMany(SiteCertificate::class, 'preview_domain_id');
-    }
 }

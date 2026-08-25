@@ -15,12 +15,11 @@
                     <x-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
                         {{ __('Dashboard') }}
                     </x-nav-link>
-                    <x-nav-link :href="route('servers.index')" :active="request()->routeIs('servers.*')">
-                        {{ __('Servers') }}
-                    </x-nav-link>
-                    <x-nav-link :href="route('sites.index')" :active="request()->routeIs('sites.*')">
-                        {{ __('Sites') }}
-                    </x-nav-link>
+                    @feature('surface.edge')
+                        <x-nav-link :href="route('edge.index')" :active="request()->routeIs('edge.*')">
+                            {{ __('Edge') }}
+                        </x-nav-link>
+                    @endfeature
                     @can('viewAny', App\Models\ProviderCredential::class)
                         <x-nav-link :href="route('credentials.index')" :active="request()->routeIs('credentials.*')">
                             {{ __('Credentials') }}
@@ -87,12 +86,11 @@
             <x-responsive-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
                 {{ __('Dashboard') }}
             </x-responsive-nav-link>
-            <x-responsive-nav-link :href="route('servers.index')" :active="request()->routeIs('servers.*')">
-                {{ __('Servers') }}
-            </x-responsive-nav-link>
-            <x-responsive-nav-link :href="route('sites.index')" :active="request()->routeIs('sites.*')">
-                {{ __('Sites') }}
-            </x-responsive-nav-link>
+            @feature('surface.edge')
+                <x-responsive-nav-link :href="route('edge.index')" :active="request()->routeIs('edge.*')">
+                    {{ __('Edge') }}
+                </x-responsive-nav-link>
+            @endfeature
             @can('viewAny', App\Models\ProviderCredential::class)
                 <x-responsive-nav-link :href="route('credentials.index')" :active="request()->routeIs('credentials.*')">
                     {{ __('Credentials') }}

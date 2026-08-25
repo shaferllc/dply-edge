@@ -1,18 +1,35 @@
 <div>
-    <x-page-header
+    <x-breadcrumb-trail :items="[
+        ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
+        ['label' => __('Platform admin'), 'href' => route('admin.overview'), 'icon' => 'shield-check'],
+        ['label' => __('Flags'), 'href' => route('admin.flags.all'), 'icon' => 'flag'],
+        ['label' => $lineTitle, 'icon' => 'squares-2x2'],
+    ]" />
+
+    <x-profile-shell
+        class="mt-4"
         :title="$lineTitle"
         :description="$lineDescription"
-        flush
-        compact
-    />
+        icon="heroicon-o-flag"
+    >
+        <x-slot:actions>
+            <x-outline-link href="{{ route('admin.flags.all') }}" wire:navigate size="sm">
+                <x-heroicon-o-list-bullet class="h-4 w-4 shrink-0 opacity-90" aria-hidden="true" />
+                {{ __('All flags') }}
+            </x-outline-link>
+        </x-slot:actions>
 
     @if ($emergencyFlags !== [])
-        <section class="mb-8" aria-labelledby="emergency-flags-heading">
-            <h2 id="emergency-flags-heading" class="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-red-800">
-                {{ __('Emergency controls') }}
-            </h2>
-            <p class="mb-3 text-sm text-brand-moss">{{ __('Kill switches are set in config/features.php (via env) and shown here read-only.') }}</p>
-            <ul class="grid gap-2 lg:grid-cols-2">
+        <section class="border-b border-brand-ink/10" aria-labelledby="emergency-flags-heading">
+            <x-workspace-panel-head
+                dense
+                tone="danger"
+                icon="heroicon-o-exclamation-triangle"
+                :title="__('Emergency controls')"
+                :note="__('Kill switches are set in config/features.php (via env) and shown here read-only.')"
+                title-id="emergency-flags-heading"
+            />
+            <ul class="grid gap-2 px-3 py-3 sm:px-4 lg:grid-cols-2">
                 @foreach ($emergencyFlags as $flag)
                     <li wire:key="emergency-{{ $flag['key'] }}">
                         <x-admin-flag-row :flag="$flag" mode="global">
@@ -24,16 +41,18 @@
         </section>
     @endif
 
-    <div class="space-y-6">
         @foreach ($groups as $group)
-            <section class="dply-card-compact" wire:key="group-{{ $group['title'] }}">
-                <h2 class="text-xs font-semibold uppercase tracking-[0.14em] text-brand-mist">{{ $group['title'] }}</h2>
-                @if ($group['mode'] === 'global')
-                    <p class="mt-1 text-xs text-brand-moss">{{ __('App-wide flag set in config — not overridable per org.') }}</p>
-                @else
-                    <p class="mt-1 text-xs text-brand-moss">{{ __('Config default for every org unless an org has an explicit override. Set the global default in config/features.php; override per org from the organization page. Coming soon previews are nested under their feature.') }}</p>
-                @endif
-                <ul class="mt-3 grid gap-2 lg:grid-cols-2">
+            <section class="border-b border-brand-ink/10 last:border-0" wire:key="group-{{ $group['title'] }}">
+                <x-workspace-panel-head
+                    dense
+                    icon="heroicon-o-adjustments-horizontal"
+                    :title="$group['title']"
+                    :count="count($group['flags'])"
+                    :note="$group['mode'] === 'global'
+                        ? __('App-wide flag set in config — not overridable per org.')
+                        : __('Config default for every org unless an org has an explicit override.')"
+                />
+                <ul class="grid gap-2 px-3 py-3 sm:px-4 lg:grid-cols-2">
                     @foreach ($group['flags'] as $flag)
                         <li wire:key="flag-{{ $flag['key'] }}">
                             @if (! empty($flag['preview']))
@@ -101,7 +120,7 @@
                 </ul>
             </section>
         @endforeach
-    </div>
+    </x-profile-shell>
 
     @include('livewire.partials.confirm-action-modal')
 </div>

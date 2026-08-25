@@ -11,7 +11,12 @@
     @endif
 
     @if ($dashboard_headers === [])
-        <p class="mt-3 text-sm text-brand-moss">{{ __('No dashboard header rules yet.') }}</p>
+        <x-empty-state
+            borderless
+            compact
+            icon="heroicon-o-arrows-right-left"
+            :title="__('No dashboard header rules yet')"
+        />
     @else
         <ul class="mt-3 space-y-2">
             @foreach ($dashboard_headers as $index => $rule)

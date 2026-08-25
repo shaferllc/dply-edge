@@ -125,25 +125,6 @@ test('orgs inherit config defaults for gated surfaces', function () {
     expect(Feature::for($org)->active('provider.aws'))->toBeFalse();
 });
 
-test('cloud nav link is coming soon when surface disabled in config', function () {
-    $user = User::factory()->create();
-    $org = Organization::factory()->create();
-    $org->users()->attach($user->id, ['role' => 'owner']);
-    session(['current_organization_id' => $org->id]);
-
-    config(['features.surface.cloud' => false]);
-    Feature::flushCache();
-
-    expect(Feature::for($org)->active('surface.cloud'))->toBeFalse();
-
-    $this->actingAs($user)
-        ->get(route('dashboard'))
-        ->assertOk()
-        ->assertSee('Cloud apps')
-        ->assertSee(__('Coming soon'))
-        ->assertDontSee(route('cloud.index'), false);
-});
-
 test('per-org override beats the config default for a surface', function () {
     $org = Organization::factory()->create();
 

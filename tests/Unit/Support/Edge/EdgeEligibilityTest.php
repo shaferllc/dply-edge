@@ -34,12 +34,12 @@ test('blocks long-running backend frameworks', function (array $plan, string $ro
         ->and($result['alternative_route'])->toBe($route)
         ->and($result['message'])->not->toBeNull();
 })->with([
-    'laravel' => [['runtime' => 'php', 'framework' => 'laravel'], 'cloud.create'],
-    'wordpress' => [['runtime' => 'php', 'framework' => 'wordpress'], 'cloud.create'],
-    'rails' => [['runtime' => 'ruby', 'framework' => 'rails'], 'cloud.create'],
-    'django' => [['runtime' => 'python', 'framework' => 'django'], 'cloud.create'],
-    'nest api' => [['runtime' => 'node', 'framework' => 'nest'], 'cloud.create'],
-    'php runtime' => [['runtime' => 'php', 'framework' => 'php'], 'cloud.create'],
+    'laravel' => [['runtime' => 'php', 'framework' => 'laravel'], 'servers.create'],
+    'wordpress' => [['runtime' => 'php', 'framework' => 'wordpress'], 'servers.create'],
+    'rails' => [['runtime' => 'ruby', 'framework' => 'rails'], 'servers.create'],
+    'django' => [['runtime' => 'python', 'framework' => 'django'], 'servers.create'],
+    'nest api' => [['runtime' => 'node', 'framework' => 'nest'], 'servers.create'],
+    'php runtime' => [['runtime' => 'php', 'framework' => 'php'], 'servers.create'],
     'go runtime' => [['runtime' => 'go', 'framework' => ''], 'servers.create'],
 ]);
 

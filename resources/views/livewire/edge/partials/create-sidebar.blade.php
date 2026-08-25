@@ -24,7 +24,7 @@
         <dl class="divide-y divide-brand-ink/8 text-sm dark:divide-brand-mist/15">
             <div class="flex items-start justify-between gap-3 px-5 py-2.5">
                 <dt class="shrink-0 text-xs font-medium text-brand-mist">{{ __('Source') }}</dt>
-                <dd class="min-w-0 text-end font-mono text-xs text-brand-ink dark:text-brand-cream">
+                <dd class="min-w-0 text-end font-mono text-xs text-brand-ink dark:text-brand-ink">
                     <span class="block truncate">{{ $repoLabel }}</span>
                     @if (trim((string) $branch) !== '')
                         <span class="mt-0.5 block text-xs text-brand-moss">{{ __('Branch') }} {{ $branch }}</span>
@@ -33,7 +33,7 @@
             </div>
             <div class="flex items-start justify-between gap-3 px-5 py-2.5">
                 <dt class="shrink-0 text-xs font-medium text-brand-mist">{{ __('Build') }}</dt>
-                <dd class="min-w-0 text-end text-xs font-semibold text-brand-ink dark:text-brand-cream">
+                <dd class="min-w-0 text-end text-xs font-semibold text-brand-ink dark:text-brand-ink">
                     <span class="block truncate font-mono font-normal">{{ $buildCommand !== '' ? $buildCommand : __('Detected / default') }}</span>
                     <span class="mt-0.5 block text-xs font-normal text-brand-moss">
                         {{ __('Output') }} {{ $outputDir !== '' ? $outputDir : 'dist' }}
@@ -42,11 +42,11 @@
             </div>
             <div class="flex items-start justify-between gap-3 px-5 py-2.5">
                 <dt class="shrink-0 text-xs font-medium text-brand-mist">{{ __('Mode') }}</dt>
-                <dd class="min-w-0 text-end text-xs font-semibold text-brand-ink dark:text-brand-cream">{{ $runtimeLabel }}</dd>
+                <dd class="min-w-0 text-end text-xs font-semibold text-brand-ink dark:text-brand-ink">{{ $runtimeLabel }}</dd>
             </div>
             <div class="flex items-start justify-between gap-3 px-5 py-2.5">
                 <dt class="shrink-0 text-xs font-medium text-brand-mist">{{ __('Hosting') }}</dt>
-                <dd class="min-w-0 text-end text-xs font-semibold text-brand-ink dark:text-brand-cream">{{ $deliveryLabel }}</dd>
+                <dd class="min-w-0 text-end text-xs font-semibold text-brand-ink dark:text-brand-ink">{{ $deliveryLabel }}</dd>
             </div>
             <div class="flex items-center justify-between gap-3 bg-brand-sand/20 px-5 py-3 dark:bg-brand-sand/10">
                 <dt class="shrink-0 text-xs font-medium text-brand-mist">{{ __('Est. cost') }}</dt>
@@ -79,9 +79,5 @@
 
     <p class="px-1 text-xs leading-relaxed text-brand-moss">
         {{ __('Static/SSG JS, Keel, and hybrid SSR — not Laravel, Rails, WordPress, or Nest/Express. Worker SSR is optional.') }}
-        @if (\Illuminate\Support\Facades\Route::has('cloud.create'))
-            <a href="{{ route('cloud.create') }}" wire:navigate class="font-semibold text-brand-sage underline decoration-brand-sage/30 underline-offset-2 hover:text-brand-forest dark:hover:text-brand-gold">{{ __('Use Cloud') }}</a>
-            {{ __('or BYO.') }}
-        @endif
     </p>
 </aside>

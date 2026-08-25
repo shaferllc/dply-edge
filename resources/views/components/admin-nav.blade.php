@@ -10,8 +10,6 @@
     $overviewActive = request()->routeIs('admin.overview', 'admin.dashboard');
     $operationsActive = request()->routeIs('admin.operations');
     $auditActive = request()->routeIs('admin.audit');
-    $roadmapActive = request()->routeIs('admin.roadmap.*');
-    $feedbackActive = request()->routeIs('admin.feedback.*');
     $allFlagsActive = request()->routeIs('admin.flags.all');
     $globalFlagsActive = request()->routeIs('admin.flags.global');
     $productLineActive = request()->routeIs('admin.flags.*') && ! $globalFlagsActive && ! $allFlagsActive;
@@ -22,13 +20,6 @@
     $connectionsActive = request()->routeIs('admin.connections');
 
     $productLines = \App\Support\Admin\AdminFeatureFlags::productLineSlugs();
-    $vmLines = ['vm-servers', 'vm-sites'];
-    $newRoadmapSuggestionCount = \App\Models\RoadmapSuggestion::query()
-        ->where('status', \App\Models\RoadmapSuggestion::STATUS_NEW)
-        ->count();
-    $newFeedbackCount = \App\Models\FeedbackReport::query()
-        ->where('status', \App\Models\FeedbackReport::STATUS_NEW)
-        ->count();
 @endphp
 
 <nav aria-label="{{ __('Platform admin navigation') }}" class="dply-surface-nav sticky top-24 space-y-1">
@@ -52,21 +43,7 @@
         {{ __('Audit log') }}
     </a>
 
-    <a href="{{ route('admin.roadmap.index') }}" wire:navigate @class([$navBase, $roadmapActive ? $navOn : $navOff])>
-        <x-heroicon-o-map class="{{ $navIcon }}" />
-        {{ __('Roadmap') }}
-        @if (($newRoadmapSuggestionCount ?? 0) > 0)
-            <span class="ms-auto rounded-full bg-brand-rust/15 px-2 py-0.5 text-xs font-semibold text-brand-rust">{{ $newRoadmapSuggestionCount }}</span>
-        @endif
-    </a>
 
-    <a href="{{ route('admin.feedback.index') }}" wire:navigate @class([$navBase, $feedbackActive ? $navOn : $navOff])>
-        <x-heroicon-o-chat-bubble-left-right class="{{ $navIcon }}" />
-        {{ __('Feedback') }}
-        @if (($newFeedbackCount ?? 0) > 0)
-            <span class="ms-auto rounded-full bg-brand-rust/15 px-2 py-0.5 text-xs font-semibold text-brand-rust">{{ $newFeedbackCount }}</span>
-        @endif
-    </a>
 
     <div class="pt-2">
         <p class="px-3 pb-1 text-2xs font-semibold uppercase tracking-[0.14em] text-brand-mist">{{ __('Feature flags') }}</p>
@@ -80,23 +57,12 @@
         </a>
         <div class="mt-1 space-y-0.5 pl-2">
             <p class="px-3 py-1 text-2xs font-semibold uppercase tracking-[0.12em] text-brand-mist">{{ __('Product lines') }}</p>
-            <p class="px-3 py-0.5 text-2xs font-semibold uppercase tracking-[0.1em] text-brand-mist/80">{{ __('VM') }}</p>
-            @foreach ($vmLines as $slug)
-                @php $routeName = \App\Support\Admin\AdminFeatureFlags::productLineRoute($slug); @endphp
-                @if ($routeName && isset($productLines[$slug]))
-                    <a href="{{ route($routeName) }}" wire:navigate @class([$subNavBase, request()->routeIs($routeName) ? $subNavOn : $subNavOff])>
-                        {{ $productLines[$slug] }}
-                    </a>
-                @endif
-            @endforeach
             @foreach ($productLines as $slug => $label)
-                @if (! in_array($slug, $vmLines, true))
-                    @php $routeName = \App\Support\Admin\AdminFeatureFlags::productLineRoute($slug); @endphp
-                    @if ($routeName)
-                        <a href="{{ route($routeName) }}" wire:navigate @class([$subNavBase, request()->routeIs($routeName) ? $subNavOn : $subNavOff])>
-                            {{ $label }}
-                        </a>
-                    @endif
+                @php $routeName = \App\Support\Admin\AdminFeatureFlags::productLineRoute($slug); @endphp
+                @if ($routeName)
+                    <a href="{{ route($routeName) }}" wire:navigate @class([$subNavBase, request()->routeIs($routeName) ? $subNavOn : $subNavOff])>
+                        {{ $label }}
+                    </a>
                 @endif
             @endforeach
         </div>

@@ -31,7 +31,7 @@
             padding: 1.5rem;
             background: #FAF7F0;
             color: #1B2A24;
-            font-family: 'Instrument Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+            font-family: 'Space Grotesk', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
             line-height: 1.6;
         }
         .card {

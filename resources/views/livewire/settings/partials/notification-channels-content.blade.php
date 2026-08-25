@@ -78,7 +78,7 @@
                         <p class="px-3 py-2 text-xs text-brand-mist sm:px-4">{{ __('None yet.') }}</p>
                     @else
                         @foreach ($group['channels'] as $channel)
-                            <div class="flex items-center justify-between gap-3 border-t border-brand-ink/10 px-3 py-1.5 transition-colors hover:bg-brand-sand/15 sm:px-4">
+                            <div class="group flex items-center justify-between gap-3 border-t border-brand-ink/10 px-3 py-1.5 transition-colors hover:bg-brand-sand/15 sm:px-4">
                                 <div class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
                                     <span class="truncate text-sm font-medium text-brand-ink">{{ $channel->label }}</span>
                                     <span class="truncate text-xs text-brand-moss">{{ \App\Models\NotificationChannel::labelForType($channel->type) }}</span>
@@ -152,7 +152,7 @@
         @if ($slackWorkspaces->isNotEmpty())
             <ul class="divide-y divide-brand-ink/10 border-t border-brand-ink/10">
                 @foreach ($slackWorkspaces as $workspace)
-                    <li class="flex items-center justify-between gap-3 px-3 py-1.5 transition-colors hover:bg-brand-sand/15 sm:px-4">
+                    <li class="group flex items-center justify-between gap-3 px-3 py-1.5 transition-colors hover:bg-brand-sand/15 sm:px-4">
                         <div class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
                             <span class="truncate text-sm font-medium text-brand-ink">{{ $workspace->team_name }}</span>
                             <span class="truncate text-xs text-brand-mist">{{ __('Connected :when', ['when' => $workspace->created_at?->diffForHumans() ?? '—']) }}</span>
@@ -161,7 +161,7 @@
                             type="button"
                             wire:click="disconnectSlackWorkspace('{{ $workspace->id }}')"
                             wire:confirm="{{ __('Disconnect :team? Channels pointed at it stop delivering until you reconnect.', ['team' => $workspace->team_name]) }}"
-                            class="inline-flex h-6 shrink-0 items-center rounded-md border border-rose-200 bg-white px-2 text-xs font-semibold text-rose-700 shadow-sm transition hover:bg-rose-50"
+                            class="inline-flex h-6 shrink-0 items-center rounded-md border border-brand-ink/15 bg-white px-2.5 text-xs font-semibold text-brand-moss shadow-sm transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
                         >
                             {{ __('Disconnect') }}
                         </button>
@@ -202,7 +202,7 @@
         @if ($discordGuilds->isNotEmpty())
             <ul class="divide-y divide-brand-ink/10 border-t border-brand-ink/10">
                 @foreach ($discordGuilds as $guild)
-                    <li class="flex items-center justify-between gap-3 px-3 py-1.5 transition-colors hover:bg-brand-sand/15 sm:px-4">
+                    <li class="group flex items-center justify-between gap-3 px-3 py-1.5 transition-colors hover:bg-brand-sand/15 sm:px-4">
                         <div class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
                             <span class="truncate text-sm font-medium text-brand-ink">{{ $guild->guild_name }}</span>
                             <span class="truncate text-xs text-brand-mist">{{ __('Connected :when', ['when' => $guild->created_at?->diffForHumans() ?? '—']) }}</span>
@@ -211,7 +211,7 @@
                             type="button"
                             wire:click="disconnectDiscordGuild('{{ $guild->id }}')"
                             wire:confirm="{{ __('Disconnect :guild? Channels pointed at it stop delivering. Remove the dply bot in Discord to fully revoke access.', ['guild' => $guild->guild_name]) }}"
-                            class="inline-flex h-6 shrink-0 items-center rounded-md border border-rose-200 bg-white px-2 text-xs font-semibold text-rose-700 shadow-sm transition hover:bg-rose-50"
+                            class="inline-flex h-6 shrink-0 items-center rounded-md border border-brand-ink/15 bg-white px-2.5 text-xs font-semibold text-brand-moss shadow-sm transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
                         >
                             {{ __('Disconnect') }}
                         </button>
@@ -240,7 +240,7 @@
 
         <ul class="divide-y divide-brand-ink/10 border-t border-brand-ink/10">
             @foreach ($telegramChatRows as $chatRow)
-                <li class="flex items-center justify-between gap-3 px-3 py-1.5 transition-colors hover:bg-brand-sand/15 sm:px-4">
+                <li class="group flex items-center justify-between gap-3 px-3 py-1.5 transition-colors hover:bg-brand-sand/15 sm:px-4">
                     <div class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
                         <span class="truncate text-sm font-medium text-brand-ink">{{ $chatRow->chat_title }}</span>
                         <span class="truncate text-xs text-brand-mist">{{ __('Connected :when', ['when' => $chatRow->created_at?->diffForHumans() ?? '—']) }}</span>
@@ -249,7 +249,7 @@
                         type="button"
                         wire:click="disconnectTelegramChat('{{ $chatRow->id }}')"
                         wire:confirm="{{ __('Disconnect :chat? Channels pointed at it stop delivering. Remove the dply bot in Telegram to fully revoke access.', ['chat' => $chatRow->chat_title]) }}"
-                        class="inline-flex h-6 shrink-0 items-center rounded-md border border-rose-200 bg-white px-2 text-xs font-semibold text-rose-700 shadow-sm transition hover:bg-rose-50"
+                        class="inline-flex h-6 shrink-0 items-center rounded-md border border-brand-ink/15 bg-white px-2.5 text-xs font-semibold text-brand-moss shadow-sm transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
                     >
                         {{ __('Disconnect') }}
                     </button>
@@ -436,7 +436,7 @@
                                             <button
                                                 type="button"
                                                 wire:click="openConfirmActionModal('deleteChannel', ['{{ $channel->id }}'], @js(__('Delete notification channel')), @js(__('Remove this channel?')), @js(__('Delete')), true)"
-                                                class="inline-flex h-6 items-center gap-1 rounded-md border border-rose-200 bg-white px-2 text-xs font-semibold text-rose-700 shadow-sm hover:bg-rose-50"
+                                                class="inline-flex h-6 items-center gap-1 rounded-md border border-brand-ink/15 bg-white px-2.5 text-xs font-semibold text-brand-moss shadow-sm transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
                                             >
                                                 <x-heroicon-o-trash class="h-4 w-4 shrink-0" aria-hidden="true" />
                                                 {{ __('Delete') }}

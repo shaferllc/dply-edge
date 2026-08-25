@@ -99,7 +99,12 @@
                                             @endif
                                             <pre class="max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs text-brand-ink">{!! \App\Modules\Edge\Support\AnsiHtml::toHtml((string) $loadedBuildLog) !!}</pre>
                                         @else
-                                            <p class="text-xs text-brand-moss">{{ __('No build log stored for this deployment.') }}</p>
+                                            <x-empty-state
+                                                borderless
+                                                compact
+                                                icon="heroicon-o-document-text"
+                                                :title="__('No build log stored for this deployment')"
+                                            />
                                         @endif
                                     @endif
                                 </div>

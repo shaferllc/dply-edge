@@ -65,10 +65,6 @@ test('every encrypt() write site is classified for rotation coverage', function 
         'app/Livewire/Servers/Concerns/ManagesServerWebhook.php' => 'json_crypt: servers.meta.server_event_webhook_secret',
         'app/Livewire/TwoFactor/Page.php' => 'raw_crypt: users.two_factor_secret/recovery_codes',
         'app/Modules/Deploy/Services/EphemeralDeployCredentialManager.php' => 'raw_crypt: site_deployment_ephemeral_credentials.private_key_encrypted',
-        'app/Modules/Imports/Services/Handlers/PushSshKeyHandler.php' => 'raw_crypt: import_server_migrations.ssh_key_private_encrypted',
-        'app/Modules/Scaffold/Services/ScaffoldComposerPipeline.php' => 'json_crypt: sites.meta.scaffold.database.password',
-        'app/Modules/Scaffold/Services/ScaffoldLaravelPipeline.php' => 'json_crypt: sites.meta.scaffold.admin_password',
-        'app/Modules/Scaffold/Services/ScaffoldWordPressPipeline.php' => 'json_crypt: sites.meta.scaffold.admin_password',
         'app/Services/Servers/ServerMetricsGuestPushService.php' => 'json_crypt: servers.meta.monitoring_guest_push_cipher',
 
         // --- not APP_KEY at-rest data (no registry entry needed) ---

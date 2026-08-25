@@ -32,14 +32,14 @@
             ],
         ])
 
-        <div class="mb-5 rounded-2xl border border-brand-ink/10 bg-white px-4 py-4 dark:bg-zinc-900/40 sm:px-5">
+        <div class="mb-5 rounded-2xl border border-brand-ink/10 bg-white px-4 py-4 dark:bg-brand-ink/95/40 sm:px-5">
             <p class="text-xs font-semibold uppercase tracking-[0.16em] text-brand-sage">{{ __('What happens when a limit is hit') }}</p>
             <div class="mt-3 grid gap-3 sm:grid-cols-2">
                 <div class="rounded-xl border border-brand-ink/10 bg-brand-sand/20 px-3 py-3">
                     <p class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Block (429)') }}</p>
                     <p class="mt-1 text-sm font-medium text-brand-ink">{{ __('Plain “Too Many Requests”') }}</p>
                     <p class="mt-1 text-xs leading-relaxed text-brand-moss">{{ __('Edge returns HTTP 429 with Retry-After. Good for APIs, bots, and scrapers — no interactive page.') }}</p>
-                    <div class="mt-3 rounded-lg border border-brand-ink/10 bg-zinc-900 px-3 py-2 font-mono text-xs text-zinc-100">
+                    <div class="mt-3 rounded-lg border border-brand-ink/10 bg-brand-ink/95 px-3 py-2 font-mono text-xs text-brand-sand">
                         HTTP/1.1 429 Too Many Requests<br>
                         Retry-After: 60<br>
                         <span class="text-zinc-400">Too Many Requests</span>
@@ -69,13 +69,18 @@
         @include('livewire.sites.edge.workspace.partials.managed-only-banner', ['managedDelivery' => $managedDelivery])
 
         <div class="mt-4 space-y-4">
-            <label class="flex items-start gap-3">
-                <input type="checkbox" wire:model.live="enabled" class="mt-0.5 rounded border-brand-ink/20 text-brand-sage" @disabled(! $managedDelivery) />
-                <span>
+            <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-xl border border-brand-ink/10 bg-white px-3 py-2.5">
+                <span class="min-w-0 flex-1 basis-56">
                     <span class="block text-sm font-medium text-brand-ink">{{ __('Enable rate limits') }}</span>
-                    <span class="mt-0.5 block text-xs text-brand-moss">{{ __('When off, rules are ignored and every request passes through.') }}</span>
+                    <span class="mt-0.5 block text-xs leading-relaxed text-brand-moss">{{ __('When off, rules are ignored and every request passes through.') }}</span>
                 </span>
-            </label>
+                <x-toggle-switch
+                    :enabled="(bool) $enabled"
+                    wire:model.live="enabled" @disabled(! $managedDelivery)
+                    :on-label="__('On')"
+                    :off-label="__('Off')"
+                />
+            </div>
 
             <div>
                 <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Rules') }}</p>
@@ -110,7 +115,7 @@
                         </div>
                         <div>
                             <x-input-label :value="__('When exceeded')" />
-                            <select wire:model="rules.{{ $i }}.action" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm dark:bg-zinc-900" @disabled(! $managedDelivery)>
+                            <select wire:model="rules.{{ $i }}.action" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm dark:bg-brand-ink/95" @disabled(! $managedDelivery)>
                                 <option value="block">{{ __('Block (429)') }}</option>
                                 <option value="challenge">{{ __('Challenge (bot check)') }}</option>
                             </select>

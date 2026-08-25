@@ -33,7 +33,7 @@
     $docLinkLabel = $docLabel ?? __('Documentation');
     $showDocs = filled($docRoute) || $docContextual;
     $resolvedContextualDocSlug = $docContextual
-        ? ($contextualDocSlug ?? app(\App\Modules\Docs\Support\ContextualDocResolver::class)->resolve())
+        ? $contextualDocSlug
         : null;
 @endphp
 

@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use App\Jobs\Concerns\WritesConsoleAction;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;

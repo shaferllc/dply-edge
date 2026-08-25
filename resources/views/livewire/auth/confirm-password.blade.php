@@ -1,7 +1,7 @@
 <div>
     <x-livewire-validation-errors />
-    <div class="mb-6 flex gap-3 rounded-xl border border-amber-200/80 bg-amber-50/80 px-4 py-3 text-sm text-brand-forest">
-        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-amber-600 shadow-sm ring-1 ring-amber-200/60" aria-hidden="true">
+    <div class="mb-6 flex gap-3 border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
+        <span class="flex h-9 w-9 shrink-0 items-center justify-center border border-amber-400/40 bg-edge-void text-amber-300" aria-hidden="true">
             <x-heroicon-o-lock-closed class="h-5 w-5" />
         </span>
         <p class="leading-relaxed">{{ __('This is a secure area of the application. Please confirm your password before continuing.') }}</p>
@@ -24,7 +24,7 @@
             <x-text-input id="password" wire:model="password" class="block w-full mt-1" type="password" required autocomplete="current-password" />
             <x-input-error :messages="$errors->get('password')" class="mt-2" />
         </div>
-        <div class="pt-2 border-t border-brand-ink/10">
+        <div class="pt-2 border-t border-edge-line">
             <x-primary-button class="w-full sm:w-auto min-w-[8rem]" wire:loading.attr="disabled">
                 <span wire:loading.remove wire:target="submit">{{ __('Confirm') }}</span>
                 <span wire:loading wire:target="submit" class="inline-flex items-center justify-center gap-2">

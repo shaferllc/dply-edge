@@ -22,9 +22,6 @@ trait ManagesEdgeFormPrefills
             return;
         }
 
-        if ($this->form->runtime_mode === 'hybrid' && ! $this->originUrlTouched) {
-            $this->applyHybridOriginSuggestion();
-        }
     }
 
     public function updatedFormRuntimeMode(): void
@@ -35,9 +32,6 @@ trait ManagesEdgeFormPrefills
 
         $this->runtimeModeTouched = true;
 
-        if ($this->form->runtime_mode === 'hybrid') {
-            $this->applyHybridOriginSuggestion();
-        }
     }
 
     public function updatedFormOriginUrl(): void
@@ -49,27 +43,6 @@ trait ManagesEdgeFormPrefills
         $this->originUrlTouched = true;
     }
 
-    public function updatedFormOriginCloudSiteId(string $value): void
-    {
-        if ($value === '') {
-            if (! $this->originUrlTouched) {
-                $this->prefillingOrigin = true;
-                $this->form->origin_url = '';
-                $this->prefillingOrigin = false;
-            }
-
-            return;
-        }
-
-        $site = $this->findOrgCloudSite($value);
-        if ($site === null) {
-            return;
-        }
-
-        $liveUrl = $site->containerLiveUrl();
-        $this->form->origin_url = $liveUrl ?? '';
-        $this->originUrlTouched = $liveUrl !== null;
-    }
 
     public function updatedFormBuildCommand(): void
     {
@@ -118,8 +91,6 @@ trait ManagesEdgeFormPrefills
         $this->prefillingFromDetection = true;
         $this->form->runtime_mode = $mode;
         $this->prefillingFromDetection = false;
-
-        $this->applyHybridOriginSuggestion();
     }
 
     private function defaultNameFromRepo(): string

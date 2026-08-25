@@ -43,21 +43,6 @@ class SiteUptimeCheckUrlResolver
             return $this->applyScheme('https://'.$host, $monitor);
         }
 
-        // A serverless function publishes at its friendly hostname (and,
-        // failing that, its raw DigitalOcean Functions invocation URL) —
-        // neither is a `domains` row, so the checks above miss it.
-        if ($site->usesFunctionsRuntime()) {
-            $functionHost = $site->serverlessFunctionHost();
-            if (is_string($functionHost) && trim($functionHost) !== '') {
-                return $this->applyScheme('https://'.strtolower(trim($functionHost)), $monitor);
-            }
-
-            $actionUrl = trim((string) ($site->serverlessConfig()['action_url'] ?? ''));
-            if ($actionUrl !== '') {
-                return $this->applyScheme(rtrim($actionUrl, '/'), $monitor);
-            }
-        }
-
         $testing = $site->testingHostname();
         if ($testing !== '') {
             return $this->applyScheme('https://'.strtolower(trim($testing)), $monitor);

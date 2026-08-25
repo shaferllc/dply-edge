@@ -58,7 +58,6 @@
     @endpush
 
     <x-profile-shell
-        dense
         :title="__('Security')"
         :description="__('Password, passkeys, OAuth sign-in, and 2FA — layer at least two so a stolen credential alone can\'t reach your account.')"
         icon="heroicon-o-shield-check"
@@ -204,17 +203,23 @@
                 <p id="dply-passkey-register-error" class="mt-1.5 hidden text-xs text-red-700" role="alert"></p>
             </div>
 
-            <div class="border-t border-brand-ink/10 bg-brand-sand/25 px-3 py-1.5 sm:px-4">
-                <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-moss">{{ __('Registered') }}</p>
-            </div>
             @if ($passkeys->isEmpty())
-                <div class="px-3 py-3 text-center sm:px-4">
-                    <p class="text-xs text-brand-mist">{{ __('No passkeys registered yet.') }}</p>
+                {{-- An empty state that shows what a passkey is, rather than one
+                     grey line of text under a caption bar. --}}
+                <div class="flex flex-col items-center gap-1.5 border-t border-brand-ink/10 px-3 py-7 text-center sm:px-4">
+                    <span class="flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-sand/45 text-brand-mist ring-1 ring-brand-ink/10">
+                        <x-heroicon-o-finger-print class="h-5 w-5" aria-hidden="true" />
+                    </span>
+                    <p class="mt-1 text-sm font-semibold text-brand-ink">{{ __('No passkeys registered yet') }}</p>
+                    <p class="max-w-sm text-xs leading-relaxed text-brand-moss">{{ __('Add one above to sign in with your device PIN, fingerprint, or a hardware key instead of a password.') }}</p>
                 </div>
             @else
-                <ul class="divide-y divide-brand-ink/10">
+                <ul class="divide-y divide-brand-ink/5 border-t border-brand-ink/10">
                     @foreach ($passkeys as $cred)
-                        <li class="flex items-center justify-between gap-3 px-3 py-2 transition-colors hover:bg-brand-sand/15 sm:px-4">
+                        <li class="group flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-brand-sand/15 sm:px-4">
+                            <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-sage/15 text-brand-forest ring-1 ring-brand-sage/25">
+                                <x-heroicon-o-finger-print class="h-4 w-4" aria-hidden="true" />
+                            </span>
                             <div class="min-w-0 flex-1">
                                 <label class="sr-only" for="passkey-alias-{{ $cred->getKey() }}">{{ __('Passkey name') }}</label>
                                 <input
@@ -236,7 +241,7 @@
                             <button
                                 type="button"
                                 wire:click="openConfirmActionModal('removePasskey', @js([(string) $cred->getKey()]), @js(__('Remove passkey')), @js(__('Remove this passkey? You\'ll need another way to sign in if it was your only method.')), @js(__('Remove')), true)"
-                                class="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-rose-200 bg-white px-2 text-xs font-semibold text-rose-700 shadow-sm hover:bg-rose-50"
+                                class="inline-flex h-7 shrink-0 items-center gap-1 rounded-lg border border-brand-ink/15 bg-white px-2.5 text-xs font-semibold text-brand-moss opacity-0 shadow-sm transition group-hover:opacity-100 focus-visible:opacity-100 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
                             >
                                 <x-heroicon-o-trash class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                                 {{ __('Remove') }}
@@ -257,52 +262,53 @@
                     :count="$linkedOAuth > 0 ? $linkedOAuth : null"
                     :note="__('Sign in with the same GitHub, GitLab, or Bitbucket account you use for Git.')"
                 />
-                <div class="px-3 py-2.5 sm:px-4">
-                    @error('unlink')
-                        <p class="mb-2 text-xs text-red-600">{{ $message }}</p>
-                    @enderror
-                    <div class="overflow-hidden rounded-lg border border-brand-ink/10 bg-white">
-                        <ul class="divide-y divide-brand-ink/10">
-                            @foreach ($oauthProviders as $p)
-                                @php $linked = $socialAccounts->where('provider', $p['id']); @endphp
-                                <li>
-                                    <div class="flex flex-wrap items-center gap-2 bg-brand-sand/30 px-2.5 py-1.5">
-                                        <x-oauth-provider-icon :provider="$p['id']" size="h-4 w-4" />
-                                        <span class="text-sm font-semibold text-brand-ink">{{ $p['name'] }}</span>
-                                        @if ($linked->isNotEmpty())
-                                            <span class="inline-flex items-center gap-1 text-xs font-medium text-brand-forest">
-                                                <span class="inline-block h-1.5 w-1.5 rounded-full bg-brand-sage" aria-hidden="true"></span>
-                                                {{ trans_choice(':n linked|:n linked', $linked->count(), ['n' => $linked->count()]) }}
-                                            </span>
-                                        @else
-                                            <span class="text-xs text-brand-mist">{{ __('Not linked') }}</span>
-                                        @endif
-                                        <a
-                                            href="{{ route('oauth.redirect', ['provider' => $p['id'], 'return' => 'security']) }}"
-                                            class="ms-auto inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-brand-ink/15 bg-white px-2 text-xs font-semibold text-brand-ink shadow-sm transition-colors hover:bg-brand-sand/50"
-                                        >
-                                            <x-heroicon-o-link class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                                            {{ __('Link account') }}
-                                        </a>
-                                    </div>
-                                    @foreach ($linked as $account)
-                                        <div class="flex items-center justify-between gap-3 border-t border-brand-ink/10 px-2.5 py-1.5 transition-colors hover:bg-brand-sand/15">
-                                            <span class="truncate text-xs font-medium text-brand-ink">{{ $account->nickname ?? $account->provider_id }}</span>
-                                            <button
-                                                type="button"
-                                                wire:click="openConfirmActionModal('unlinkOAuthAccount', [{{ $account->id }}], @js(__('Unlink account')), @js(__('Unlink this account? You can link it again later from this page.')), @js(__('Unlink')), true)"
-                                                class="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-rose-200 bg-white px-2 text-xs font-semibold text-rose-700 shadow-sm hover:bg-rose-50"
-                                            >
-                                                <x-heroicon-o-link-slash class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                                                {{ __('Unlink') }}
-                                            </button>
-                                        </div>
-                                    @endforeach
-                                </li>
+                @error('unlink')
+                    <p class="px-3 pt-2 text-xs text-red-600 sm:px-4">{{ $message }}</p>
+                @enderror
+                {{-- One row per provider: mark, name, link state, action. The old
+                     nested card repeated a sand header for each of three rows and
+                     buried the linked identity a level down. --}}
+                <ul class="divide-y divide-brand-ink/5">
+                    @foreach ($oauthProviders as $p)
+                        @php $linked = $socialAccounts->where('provider', $p['id']); @endphp
+                        <li class="px-3 py-2.5 sm:px-4">
+                            <div class="flex flex-wrap items-center gap-2.5">
+                                <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white ring-1 ring-brand-ink/10">
+                                    <x-oauth-provider-icon :provider="$p['id']" size="h-4 w-4" />
+                                </span>
+                                <span class="text-sm font-semibold text-brand-ink">{{ $p['name'] }}</span>
+                                @if ($linked->isNotEmpty())
+                                    <span class="inline-flex items-center gap-1 rounded-full border border-brand-sage/30 bg-brand-sage/15 px-1.5 py-px text-2xs font-semibold uppercase tracking-wide text-brand-forest">
+                                        {{ trans_choice(':n linked|:n linked', $linked->count(), ['n' => $linked->count()]) }}
+                                    </span>
+                                @else
+                                    <span class="text-xs text-brand-mist">{{ __('Not linked') }}</span>
+                                @endif
+                                <a
+                                    href="{{ route('oauth.redirect', ['provider' => $p['id'], 'return' => 'security']) }}"
+                                    class="ms-auto inline-flex h-7 shrink-0 items-center gap-1 rounded-lg border border-brand-ink/15 bg-white px-2.5 text-xs font-semibold text-brand-ink shadow-sm transition-colors hover:bg-brand-sand/50"
+                                >
+                                    <x-heroicon-o-link class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                    {{ $linked->isNotEmpty() ? __('Link another') : __('Link account') }}
+                                </a>
+                            </div>
+
+                            @foreach ($linked as $account)
+                                <div class="group mt-1.5 flex items-center justify-between gap-3 rounded-lg bg-brand-sand/25 px-2.5 py-1.5">
+                                    <span class="truncate font-mono text-xs text-brand-ink">{{ $account->nickname ?? $account->provider_id }}</span>
+                                    <button
+                                        type="button"
+                                        wire:click="openConfirmActionModal('unlinkOAuthAccount', [{{ $account->id }}], @js(__('Unlink account')), @js(__('Unlink this account? You can link it again later from this page.')), @js(__('Unlink')), true)"
+                                        class="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-brand-ink/15 bg-white px-2 text-xs font-semibold text-brand-moss opacity-0 shadow-sm transition group-hover:opacity-100 focus-visible:opacity-100 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                                    >
+                                        <x-heroicon-o-link-slash class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                        {{ __('Unlink') }}
+                                    </button>
+                                </div>
                             @endforeach
-                        </ul>
-                    </div>
-                </div>
+                        </li>
+                    @endforeach
+                </ul>
             </div>
         @endif
 

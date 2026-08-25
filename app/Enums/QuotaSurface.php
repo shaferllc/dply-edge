@@ -12,8 +12,8 @@ use App\Models\Site;
  *
  * Every managed thing dply runs is a `Site` row, but they are not
  * interchangeable units of value: a VM site consumes a machine the customer
- * already pays a plan tier for, while Edge apps, Cloud apps and functions are
- * billed a la carte per app (see `edge_cents` / `cloud_cents` /
+ * already pays a plan tier for, while Edge apps and functions are
+ * billed a la carte per app (see `edge_cents` /
  * `serverless_cents` in config/product/subscription.php).
  *
  * They used to share ONE org-wide ceiling, so a Free org with two Edge static
@@ -28,7 +28,6 @@ enum QuotaSurface: string
 {
     case Site = 'site';
     case Edge = 'edge';
-    case Cloud = 'cloud';
     case Serverless = 'serverless';
 
     /**
@@ -41,7 +40,7 @@ enum QuotaSurface: string
         $server = $site->server;
 
         if ($server === null) {
-            return $site->isCloudContainerSite() ? self::Cloud : self::Site;
+            return self::Site;
         }
 
         // Driven off hostKinds() rather than a parallel match, so a surface
@@ -86,7 +85,6 @@ enum QuotaSurface: string
         return match ($this) {
             self::Site => 'max_sites',
             self::Edge => 'max_edge_apps',
-            self::Cloud => 'max_cloud_apps',
             self::Serverless => 'max_functions',
         };
     }
@@ -100,7 +98,6 @@ enum QuotaSurface: string
         return match ($this) {
             self::Site => 'sites',
             self::Edge => 'edge_apps',
-            self::Cloud => 'cloud_apps',
             self::Serverless => 'functions',
         };
     }
@@ -113,7 +110,6 @@ enum QuotaSurface: string
         return match ($this) {
             self::Site => 25,
             self::Edge => 25,
-            self::Cloud => 10,
             self::Serverless => 25,
         };
     }
@@ -126,7 +122,6 @@ enum QuotaSurface: string
         return match ($this) {
             self::Site => 'site|sites',
             self::Edge => 'Edge app|Edge apps',
-            self::Cloud => 'Cloud app|Cloud apps',
             self::Serverless => 'function|functions',
         };
     }
@@ -144,7 +139,6 @@ enum QuotaSurface: string
         return match ($this) {
             self::Site => 'site',
             self::Edge => 'Edge app',
-            self::Cloud => 'Cloud app',
             self::Serverless => 'function',
         };
     }
@@ -157,7 +151,6 @@ enum QuotaSurface: string
         return match ($this) {
             self::Site => 'sites.index',
             self::Edge => 'edge.index',
-            self::Cloud => 'cloud.index',
             self::Serverless => 'serverless.index',
         };
     }
@@ -169,30 +162,19 @@ enum QuotaSurface: string
      */
     public static function ordered(): array
     {
-        return [self::Site, self::Cloud, self::Edge, self::Serverless];
+        return [self::Site, self::Edge, self::Serverless];
     }
 
+
     /**
-     * Host kinds that consume this surface — used to count usage in SQL
-     * without hydrating every site. Null means "machine hosts" (the `Site`
-     * surface), which is the complement of the managed-product kinds.
+     * Host kinds a surface's quota counts, or null when it doesn't count hosts.
+     * dply-edge only mints edge delivery hosts — the machine + FaaS kinds left
+     * with the VM platform.
      *
      * @return list<string>|null
      */
     public function hostKinds(): ?array
     {
-        return match ($this) {
-            self::Site => null,
-            self::Edge => [Server::HOST_KIND_DPLY_EDGE],
-            self::Cloud => [
-                Server::HOST_KIND_DPLY_CLOUD,
-                Server::HOST_KIND_DIGITALOCEAN_APP_PLATFORM,
-                Server::HOST_KIND_AWS_APP_RUNNER,
-            ],
-            self::Serverless => [
-                Server::HOST_KIND_DIGITALOCEAN_FUNCTIONS,
-                Server::HOST_KIND_AWS_LAMBDA,
-            ],
-        };
+        return $this === self::Edge ? [Server::HOST_KIND_DPLY_EDGE] : null;
     }
 }

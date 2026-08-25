@@ -5,12 +5,9 @@ namespace App\Services\Sites;
 use App\Models\ProviderCredential;
 use App\Models\Site;
 use App\Models\SitePreviewDomain;
-use App\Models\SiteTenantDomain;
 use App\Modules\Providers\Cloudflare\CloudflareDnsService;
 use App\Modules\Providers\Namecheap\NamecheapDnsService;
 use App\Modules\Providers\Services\DigitalOceanService;
-use App\Modules\Deploy\Services\DeploymentContractBuilder;
-use App\Modules\Deploy\Services\DeploymentRevisionTracker;
 use App\Services\Sites\Dns\SiteDnsProviderFactory;
 use App\Support\Preview\UnifiedPreviewHostname;
 use App\Support\TestingDomains;
@@ -18,11 +15,6 @@ use Illuminate\Support\Str;
 
 class TestingHostnameProvisioner
 {
-    public function __construct(
-        private readonly DeploymentContractBuilder $contractBuilder,
-        private readonly DeploymentRevisionTracker $revisionTracker,
-    ) {}
-
     public function provision(Site $site): ?SitePreviewDomain
     {
         $site->loadMissing(['server', 'previewDomains', 'organization', 'dnsProviderCredential']);
@@ -112,7 +104,6 @@ class TestingHostnameProvisioner
                 'provisioned_at' => now()->toIso8601String(),
                 'credential_source' => $this->credentialSourceForSite($site),
             ]);
-            $this->revisionTracker->markApplied($site->fresh(), $this->contractBuilder->build($site->fresh())->revision(), 'publication');
 
             return $domain;
         } catch (\Throwable $e) {
@@ -252,124 +243,6 @@ class TestingHostnameProvisioner
         }
     }
 
-    public function provisionForTenant(Site $site, SiteTenantDomain $tenant): bool
-    {
-        $site->loadMissing(['server', 'organization']);
-
-        if (! $this->isEnabledForSite($site)) {
-            $this->storeTenantResult($tenant, ['status' => 'skipped', 'reason' => 'disabled']);
-
-            return false;
-        }
-
-        $serverIp = trim((string) ($site->server->ip_address ?? ''));
-        if ($serverIp === '') {
-            $this->storeTenantResult($tenant, ['status' => 'skipped', 'reason' => 'missing_server_ip']);
-
-            return false;
-        }
-
-        $routing = $this->resolveTestingProviderForSite($site);
-        $dnsProvider = $routing['dns_provider'];
-
-        $existing = $tenant->testingMeta();
-        $hostname = $tenant->testingHostname();
-        $zone = is_string($existing['zone'] ?? null) && trim((string) $existing['zone']) !== ''
-            ? strtolower(trim((string) $existing['zone']))
-            : null;
-        if ($hostname === null || $zone === null) {
-            $zone = $this->chooseZoneFromPool($site, $routing['pool']);
-            $hostname = $this->buildTenantHostname($site, $tenant, $zone);
-        }
-        $recordName = $this->relativeRecordName($hostname, $zone);
-
-        try {
-            $record = $dnsProvider->upsertRecord($zone, 'A', $recordName, $serverIp);
-
-            $this->storeTenantResult($tenant, [
-                'status' => 'ready',
-                'dns_status' => 'ready',
-                'hostname' => $hostname,
-                'zone' => $zone,
-                'record_name' => $recordName,
-                'record_id' => (string) ($record['id'] ?? ''),
-                'record_type' => 'A',
-                'record_data' => $serverIp,
-                'provider_type' => $routing['provider'],
-                'provisioned_at' => now()->toIso8601String(),
-            ]);
-
-            return true;
-        } catch (\Throwable $e) {
-            $this->storeTenantResult($tenant, [
-                'status' => 'failed',
-                'dns_status' => 'failed',
-                'hostname' => $hostname,
-                'zone' => $zone,
-                'record_name' => $recordName,
-                'record_data' => $serverIp,
-                'error' => $e->getMessage(),
-                'failed_at' => now()->toIso8601String(),
-            ]);
-
-            return false;
-        }
-    }
-
-    /**
-     * Tear down a tenant's managed testing hostname: delete the DNS record (best
-     * effort) and clear the tenant's testing meta. The caller re-applies the
-     * webserver config so the hostname drops out of the vhost server_name.
-     */
-    public function deleteForTenant(Site $site, SiteTenantDomain $tenant): void
-    {
-        $site->loadMissing(['server', 'organization']);
-
-        $meta = $tenant->testingMeta();
-        $zone = strtolower(trim((string) ($meta['zone'] ?? '')));
-        $recordId = (string) ($meta['record_id'] ?? '');
-
-        if ($zone !== '' && $recordId !== '') {
-            try {
-                $this->resolveTestingProviderForSite($site)['dns_provider']->deleteRecord($zone, $recordId);
-            } catch (\Throwable) {
-                // Best effort — clear the local record regardless so the UI and
-                // server_name stay consistent even if the provider call fails.
-            }
-        }
-
-        $tenantMeta = is_array($tenant->meta) ? $tenant->meta : [];
-        unset($tenantMeta['testing']);
-        $tenant->forceFill(['meta' => $tenantMeta])->save();
-    }
-
-    public function buildTenantHostname(Site $site, SiteTenantDomain $tenant, string $zone): string
-    {
-        $siteBase = trim(Str::slug($site->slug !== '' ? $site->slug : $site->name), '-');
-        $siteBase = $siteBase !== '' ? $siteBase : 'site';
-
-        $tenantSource = (string) ($tenant->tenant_key ?: Str::before((string) $tenant->hostname, '.'));
-        $tenantBase = trim(Str::slug($tenantSource), '-');
-        $tenantBase = $tenantBase !== '' ? $tenantBase : 'tenant';
-
-        $suffix = Str::lower(substr(sha1((string) ($tenant->id ?: $tenant->hostname)), 0, 6));
-
-        $label = rtrim(Str::limit($tenantBase.'-'.$siteBase.'-'.$suffix, 63, ''), '-');
-
-        return $label.'.'.$zone;
-    }
-
-    /**
-     * @param  array<string, mixed>  $payload
-     */
-    private function storeTenantResult(SiteTenantDomain $tenant, array $payload): void
-    {
-        $meta = is_array($tenant->meta) ? $tenant->meta : [];
-        $meta['testing'] = $payload;
-        $tenant->forceFill(['meta' => $meta])->save();
-        $tenant->setAttribute('meta', $meta);
-    }
-
     private function normalizedSiteDnsZone(Site $site): ?string
     {
         $z = strtolower(trim((string) ($site->dns_zone ?? '')));
@@ -501,7 +374,7 @@ class TestingHostnameProvisioner
                 return;
             }
             $cloudflareAuth = $credential ?? TestingDomains::cloudflareApiToken();
-            if ($cloudflareAuth === '' || $cloudflareAuth === null) {
+            if ($cloudflareAuth === '') {
                 return;
             }
             (new CloudflareDnsService($cloudflareAuth))->deleteDnsRecord($zone, $recordId);

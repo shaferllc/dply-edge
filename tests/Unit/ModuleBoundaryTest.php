@@ -53,12 +53,8 @@ use PhpParser\PhpVersion;
  * @var array<class-string, list<class-string>>
  */
 const BASELINE = [
-    'App\Modules\Feedback\Livewire\Admin\Index' => [
-        'App\Livewire\Admin\Concerns\AuthorizesPlatformAdmin',
-    ],
-    'App\Modules\Roadmap\Livewire\Admin\Index' => [
-        'App\Livewire\Admin\Concerns\AuthorizesPlatformAdmin',
-    ],
+    // Empty since the dply-edge cut (2026-08-25): both entries were Feedback /
+    // Roadmap module components, and those modules left with the VM platform.
 ];
 
 /**
@@ -269,7 +265,7 @@ test('the scanner actually sees both layers', function (): void {
     $files = moduleFiles();
 
     expect($files)->not->toBeEmpty('No files found under app/Modules — the scan path is wrong.');
-    expect(count($files))->toBeGreaterThan(500, 'Suspiciously few module files — is the scan path right?');
+    expect(count($files))->toBeGreaterThan(250, 'Suspiciously few module files — is the scan path right?');
 
     // Layer classification must still work in both directions.
     expect(layerOf('App\Modules\Deploy\Services\Foo'))->toBe('Modules');
@@ -283,7 +279,7 @@ test('the scanner actually sees both layers', function (): void {
 
     // And the parser must actually resolve names — a silent parse failure
     // would return an empty list and pass the boundary test for free.
-    [$declared, $names] = referencesIn(dirname(__DIR__, 2).'/app/Modules/Feedback/Livewire/Admin/Index.php');
-    expect($declared)->toBe('App\Modules\Feedback\Livewire\Admin\Index');
-    expect($names)->toContain('App\Livewire\Admin\Concerns\AuthorizesPlatformAdmin');
+    [$declared, $names] = referencesIn(dirname(__DIR__, 2).'/app/Modules/Edge/Livewire/Import.php');
+    expect($declared)->toBe('App\Modules\Edge\Livewire\Import');
+    expect($names)->toContain('App\Livewire\Concerns\DispatchesToastNotifications');
 });

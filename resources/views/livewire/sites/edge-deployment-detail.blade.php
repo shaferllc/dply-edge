@@ -67,7 +67,6 @@
 
                 @if ($deployment->status === \App\Models\EdgeDeployment::STATUS_FAILED)
                     <div class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
-                        <x-ops-copilot-callout :site="$site" :show="true" />
                     </div>
                 @endif
 

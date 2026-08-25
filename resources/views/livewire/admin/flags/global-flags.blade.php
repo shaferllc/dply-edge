@@ -1,16 +1,32 @@
 <div>
-    <x-page-header
+    <x-breadcrumb-trail :items="[
+        ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
+        ['label' => __('Platform admin'), 'href' => route('admin.overview'), 'icon' => 'shield-check'],
+        ['label' => __('App-wide flags'), 'icon' => 'flag'],
+    ]" />
+
+    <x-profile-shell
+        class="mt-4"
         :title="__('App-wide feature flags')"
         :description="__('Global kill switches and cross-cutting product flags. These are set in config/features.php (via env) and shown here read-only.')"
-        flush
-        compact
-    />
+        icon="heroicon-o-flag"
+    >
+        <x-slot:actions>
+            <x-outline-link href="{{ route('admin.flags.all') }}" wire:navigate size="sm">
+                <x-heroicon-o-list-bullet class="h-4 w-4 shrink-0 opacity-90" aria-hidden="true" />
+                {{ __('All flags') }}
+            </x-outline-link>
+        </x-slot:actions>
 
-    <div class="space-y-6">
         @foreach ($groups as $group)
-            <section class="dply-card-compact">
-                <h2 class="text-xs font-semibold uppercase tracking-[0.14em] text-brand-mist">{{ $group['title'] }}</h2>
-                <ul class="mt-3 grid gap-2 lg:grid-cols-2">
+            <section class="border-b border-brand-ink/10 last:border-0">
+                <x-workspace-panel-head
+                    dense
+                    icon="heroicon-o-adjustments-horizontal"
+                    :title="$group['title']"
+                    :count="count($group['flags'])"
+                />
+                <ul class="grid gap-2 px-3 py-3 sm:px-4 lg:grid-cols-2">
                     @foreach ($group['flags'] as $flag)
                         <li wire:key="global-flag-{{ $flag['key'] }}">
                             <x-admin-flag-row :flag="$flag" mode="global">
@@ -21,5 +37,5 @@
                 </ul>
             </section>
         @endforeach
-    </div>
+    </x-profile-shell>
 </div>

@@ -82,17 +82,7 @@ class Hub extends Component
             'timezone' => $user->timezone ?? config('app.timezone'),
         ]);
 
-        $legacyTab = request()->query('tab');
-        if (in_array($legacyTab, ['servers', 'servers-sites'], true)) {
-            $this->redirect(route('settings.servers'), navigate: true);
-
-            return;
-        }
-
-        $this->section = match (request()->route()?->getName()) {
-            'settings.servers' => 'servers',
-            default => 'profile',
-        };
+        $this->section = 'profile';
 
         $org = $user->currentOrganization();
         $this->hydrateServerSiteState($org);
@@ -326,15 +316,18 @@ class Hub extends Component
      */
     protected function insightsStateFromOrg(Organization $org): array
     {
-        $m = $org->mergedInsightsPreferences();
-        $freq = $m['digest_frequency'] === 'weekly' ? 'weekly' : 'daily';
+        // config/insights.php left with the Insights module, so the merged array
+        // is whatever the org has stored — possibly nothing. Layer it over the
+        // defaults rather than indexing keys that may not be there.
+        $m = array_replace($this->defaultInsightsState(), $org->mergedInsightsPreferences());
+        $freq = ($m['digest_frequency'] ?? 'daily') === 'weekly' ? 'weekly' : 'daily';
 
         return [
-            'digest_non_critical' => $m['digest_non_critical'],
+            'digest_non_critical' => (bool) $m['digest_non_critical'],
             'digest_frequency' => $freq,
-            'quiet_hours_enabled' => $m['quiet_hours_enabled'],
-            'quiet_hours_start' => $m['quiet_hours_start'],
-            'quiet_hours_end' => $m['quiet_hours_end'],
+            'quiet_hours_enabled' => (bool) $m['quiet_hours_enabled'],
+            'quiet_hours_start' => (int) $m['quiet_hours_start'],
+            'quiet_hours_end' => (int) $m['quiet_hours_end'],
             'allow_config_mutation' => (bool) ($m['allow_config_mutation'] ?? true),
         ];
     }
@@ -524,10 +517,7 @@ class Hub extends Component
 
         session()->flash('success', __('Navigation layout updated.'));
 
-        $this->redirect(
-            $this->section === 'servers' ? route('settings.servers') : route('settings.profile'),
-            navigate: false,
-        );
+        $this->redirect(route('settings.profile'), navigate: false);
     }
 
     /**

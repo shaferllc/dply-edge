@@ -35,7 +35,7 @@
 
 <div class="relative overflow-hidden rounded-2xl border border-brand-ink/10 bg-white shadow-sm ring-1 ring-brand-ink/[0.04]">
     {{-- Terminal hero --}}
-    <div class="relative overflow-hidden bg-[#0b1020] px-5 pb-6 pt-5 sm:px-6 sm:pb-7 sm:pt-6">
+    <div class="relative overflow-hidden bg-brand-ink/95 px-5 pb-6 pt-5 sm:px-6 sm:pb-7 sm:pt-6">
         <div class="pointer-events-none absolute -end-16 -top-20 h-56 w-56 rounded-full bg-sky-500/10 blur-3xl" aria-hidden="true"></div>
         <div class="pointer-events-none absolute -bottom-24 start-8 h-48 w-48 rounded-full bg-brand-gold/10 blur-3xl" aria-hidden="true"></div>
 

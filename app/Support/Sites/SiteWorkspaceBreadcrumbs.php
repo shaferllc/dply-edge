@@ -6,7 +6,6 @@ namespace App\Support\Sites;
 
 use App\Models\Server;
 use App\Models\Site;
-use App\Support\Serverless\ServerlessWorkspaceUrl;
 use App\Support\SiteSettingsHeader;
 
 /**
@@ -23,50 +22,7 @@ final class SiteWorkspaceBreadcrumbs
         string $currentLabel,
         ?string $currentIcon = null,
     ): array {
-        if ($site->usesEdgeRuntime()) {
-            return self::edgeItems($server, $site, $currentLabel, $currentIcon);
-        }
-
-        if ($site->usesFunctionsRuntime()) {
-            return self::serverlessItems($site, $currentLabel, $currentIcon);
-        }
-
-        $items = [
-            ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
-            ['label' => __('Servers'), 'href' => route('servers.index'), 'icon' => 'server-stack'],
-        ];
-
-        // The project deliberately isn't a crumb here. This trail is already
-        // Dashboard → Servers → server → Sites → site → page; the project isn't
-        // a step on that path (you don't reach the site through it), and it made
-        // an eight-crumb bar that wrapped. The project is still reachable from
-        // the server overview and the Projects surface.
-
-        $items[] = [
-            'label' => $server->name,
-            'href' => route('servers.overview', $server),
-            'icon' => 'server-stack',
-            'avatar' => $server->name ?: (string) $server->id,
-            'avatar_image' => $server->logoUrl(),
-        ];
-        $items[] = [
-            'label' => __('Sites'),
-            'href' => route('servers.sites', $server),
-            'icon' => 'rectangle-stack',
-        ];
-        $items[] = [
-            'label' => $site->name,
-            'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'general']),
-            'icon' => 'globe-alt',
-            'avatar' => $site->name ?: (string) $site->id,
-            'avatar_image' => $site->logoUrl(),
-        ];
-        $items[] = [
-            'label' => $currentLabel,
-            'icon' => $currentIcon ?? 'map-pin',
-        ];
-
-        return $items;
+        return self::edgeItems($server, $site, $currentLabel, $currentIcon);
     }
 
     /**
@@ -95,31 +51,6 @@ final class SiteWorkspaceBreadcrumbs
         ];
 
         return $items;
-    }
-
-    /**
-     * @return list<array{label: string, href?: string|null, icon?: string|null}>
-     */
-    private static function serverlessItems(
-        Site $site,
-        string $currentLabel,
-        ?string $currentIcon,
-    ): array {
-        return [
-            ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
-            ['label' => __('Serverless'), 'href' => route('serverless.index'), 'icon' => 'bolt'],
-            [
-                'label' => $site->name,
-                'href' => ServerlessWorkspaceUrl::show($site),
-                'icon' => 'bolt',
-                'avatar' => $site->name ?: (string) $site->id,
-                'avatar_image' => $site->logoUrl(),
-            ],
-            [
-                'label' => $currentLabel,
-                'icon' => $currentIcon ?? 'map-pin',
-            ],
-        ];
     }
 
     public static function iconKeyFromSection(string $section, Site $site, Server $server): string

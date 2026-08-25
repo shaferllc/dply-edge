@@ -188,12 +188,11 @@ final class AdminFeatureFlags
 
     public static function productLineRoute(string $slug): ?string
     {
+        // Only the two surfaces that still have routes. The VM / Cloud /
+        // Serverless flag pages left with those product lines; returning their
+        // dead route names here threw RouteNotFound from the admin nav.
         return match ($slug) {
-            'vm-servers' => 'admin.flags.vm.servers',
-            'vm-sites' => 'admin.flags.vm.sites',
-            'cloud' => 'admin.flags.cloud',
             'edge' => 'admin.flags.edge',
-            'serverless' => 'admin.flags.serverless',
             'platform' => 'admin.flags.platform',
             default => null,
         };

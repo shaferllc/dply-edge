@@ -21,7 +21,7 @@
             <x-text-input id="password_confirmation" wire:model="password_confirmation" class="block w-full mt-1" type="password" required autocomplete="new-password" />
             <x-input-error :messages="$errors->get('password_confirmation')" class="mt-2" />
         </div>
-        <div class="pt-2 border-t border-brand-ink/10">
+        <div class="pt-2 border-t border-edge-line">
             <x-primary-button class="w-full sm:w-auto min-w-[10rem]" wire:loading.attr="disabled">
                 <span wire:loading.remove wire:target="submit">{{ __('Reset Password') }}</span>
                 <span wire:loading wire:target="submit" class="inline-flex items-center justify-center gap-2">

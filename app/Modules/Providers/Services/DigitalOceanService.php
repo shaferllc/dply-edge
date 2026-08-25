@@ -6,7 +6,6 @@ use App\Models\ProviderCredential;
 use App\Services\Concerns\ManagesDoCatalog;
 use App\Services\Concerns\ManagesDoDomainsSshKeys;
 use App\Services\Concerns\ManagesDoDroplets;
-use App\Services\Concerns\ManagesDoFunctionsDatabases;
 use App\Services\Concerns\ManagesDoKubernetes;
 use App\Services\Concerns\ManagesDoSpacesRegistry;
 use Illuminate\Http\Client\Response;
@@ -18,7 +17,6 @@ class DigitalOceanService
     use ManagesDoCatalog;
     use ManagesDoDomainsSshKeys;
     use ManagesDoDroplets;
-    use ManagesDoFunctionsDatabases;
     use ManagesDoKubernetes;
     use ManagesDoSpacesRegistry;
 

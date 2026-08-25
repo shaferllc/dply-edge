@@ -78,16 +78,6 @@ final class HostCapabilities
         ], true);
     }
 
-    public function supportsContainerDeploy(): bool
-    {
-        return $this->kind() === Server::HOST_KIND_DOCKER;
-    }
-
-    public function supportsClusterDeploy(): bool
-    {
-        return $this->kind() === Server::HOST_KIND_KUBERNETES;
-    }
-
     public function supportsIngressManagement(): bool
     {
         return $this->supportsClusterDeploy();
@@ -101,5 +91,10 @@ final class HostCapabilities
     public function supportsHttp3Certificates(): bool
     {
         return $this->supportsSsh();
+    }
+
+    public function supportsClusterDeploy(): bool
+    {
+        return $this->kind() === Server::HOST_KIND_KUBERNETES;
     }
 }

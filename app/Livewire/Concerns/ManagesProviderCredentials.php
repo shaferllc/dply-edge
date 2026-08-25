@@ -12,16 +12,14 @@ use App\Modules\Providers\Cloudflare\CloudflareEdgeCredentialValidator;
 use App\Modules\Providers\Services\DigitalOceanService;
 use App\Modules\Providers\Services\GcpDnsService;
 use App\Modules\Providers\Services\HetznerService;
-use App\Modules\Imports\Services\Forge\ForgeImportDriver;
-use App\Modules\Imports\Services\Ploi\PloiImportDriver;
 use App\Modules\Providers\Services\LinodeService;
 use App\Modules\Providers\Services\OracleComputeService;
 use App\Modules\Providers\Services\OvhService;
 use App\Modules\Providers\Services\UpCloudService;
 use App\Modules\Providers\Services\VultrService;
-use App\Support\Cloud\GcpAccessToken;
 use App\Modules\Edge\Support\EdgeOrgCredentialConfig;
 use App\Services\Providers\ProviderCredentialHealth;
+use App\Support\Cloud\GcpAccessToken;
 use App\Support\ServerProviderGate;
 
 trait ManagesProviderCredentials
@@ -814,10 +812,6 @@ trait ManagesProviderCredentials
                     $accountId = (new CloudflareEdgeCredentialValidator)->validate($credential);
                     EdgeOrgCredentialConfig::merge($credential, ['account_id' => $accountId]);
                 }
-            } elseif ($provider === 'ploi') {
-                PloiImportDriver::for($credential)->validateConnection();
-            } elseif ($provider === 'forge') {
-                ForgeImportDriver::for($credential)->validateConnection();
             } elseif (in_array($provider, ['gandi', 'ghcr'], true)) {
                 // No validation service yet; credential saved for future use
             } else {

@@ -10,7 +10,7 @@
         <title>@yield('title', config('app.name', 'Laravel'))</title>
 
         <link rel="preconnect" href="https://fonts.bunny.net">
-        <link href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600,700&display=swap" rel="stylesheet" />
+        <link href="https://fonts.bunny.net/css?family=space-grotesk:400,500,700|space-mono:400,700&display=swap" rel="stylesheet" />
 
         @vite(['resources/css/app.css', 'resources/js/app.js'])
         @livewireStyles
@@ -22,7 +22,7 @@
             $settingsNavLayout = in_array($settingsNavLayout, ['sidebar', 'top'], true) ? $settingsNavLayout : 'sidebar';
         @endphp
     </head>
-    <body class="font-sans antialiased bg-brand-cream text-brand-ink min-h-screen flex flex-col" style="font-family: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;" x-data="toastStore({ position: @js($toastPosition) })">
+    <body class="font-sans antialiased bg-brand-cream text-brand-ink min-h-screen flex flex-col" x-data="toastStore({ position: @js($toastPosition) })">
         <div class="flex flex-col flex-1 min-h-0">
             <x-site-header />
 
@@ -58,7 +58,6 @@
 
         @auth
             <livewire:settings.connect-provider-modal :key="'global-connect-provider-modal'" />
-            @include('partials.docs-sidebar')
         @endauth
 
         {{ $modals ?? '' }}

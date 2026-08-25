@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace App\Services\DeployContract;
 
-use App\Models\DeployContractRun;
 use App\Models\EdgeDeployment;
 use App\Models\Site;
 use Laravel\Pennant\Feature;
+use App\Models\DeployContractRun;
 
 /**
  * Aggregates deploy contract status for a preview — latest run, promote gate.

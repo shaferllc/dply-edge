@@ -127,13 +127,9 @@ class SecretResidencyResolver
         // is NOT enabled we fail closed rather than ship an unresolved directive
         // or silently pull the secret into dply.
         if ($store->resolvesOnBox()) {
-            if (! config('secret_vault.residency.onbox_enabled')) {
-                throw new RuntimeException(
-                    "external secret '{$residency->key}' resolves on the server (on-box mode), which is not enabled on this platform."
-                );
-            }
-
-            return OnBoxSecretManifestBuilder::directiveFor($residency->id);
+            throw new RuntimeException(
+                "external secret '{$residency->key}' resolves on the server (on-box mode), which dply-edge does not run."
+            );
         }
 
         return $this->stores->for($store)->fetch($store, $residency->reference);

@@ -135,9 +135,6 @@
         "test:feature": [
             "@php artisan test --testsuite=Feature"
         ],
-        "test:modules": [
-            "@php artisan test --testsuite=Modules"
-        ],
         "test:app": [
             "@php artisan test --testsuite=App"
         ],
@@ -145,7 +142,7 @@
             "@php artisan test --testsuite=Arch"
         ],
         "test:all": [
-            "@php artisan test --testsuite=Unit,Feature,Modules,App,Arch"
+            "@php artisan test --testsuite=Unit,Feature,App,Arch"
         ],
         "test:parallel": [
             "@php artisan config:clear --ansi",

@@ -1,13 +1,49 @@
 <div>
-    <x-page-header
+    <x-breadcrumb-trail :items="[
+        ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
+        ['label' => __('Platform admin'), 'href' => route('admin.overview'), 'icon' => 'shield-check'],
+        ['label' => __('All flags'), 'icon' => 'flag'],
+    ]" />
+
+    <x-profile-shell
+        class="mt-4"
         :title="__('All feature flags')"
         :description="__('Every Pennant flag in the app. Toggling here sets a platform-wide default that beats config/env for all scopes — an explicit per-org override still wins.')"
-        flush
-        compact
-    />
+        icon="heroicon-o-flag"
+    >
+        <x-slot:actions>
+            <x-outline-link href="{{ route('admin.flags.global') }}" wire:navigate size="sm">
+                <x-heroicon-o-globe-alt class="h-4 w-4 shrink-0 opacity-90" aria-hidden="true" />
+                {{ __('App-wide') }}
+            </x-outline-link>
+        </x-slot:actions>
 
-    {{-- Filters --}}
-    <section class="dply-card-compact mb-6">
+        <x-slot:stats>
+            <dl class="grid grid-cols-3 gap-2">
+                <div class="rounded-xl border border-brand-ink/10 bg-white/80 px-3 py-2">
+                    <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Shown') }}</dt>
+                    <dd class="mt-0.5 font-mono text-lg font-semibold tabular-nums leading-none text-brand-ink">{{ $totalShown }}</dd>
+                </div>
+                <div class="rounded-xl border border-brand-ink/10 bg-white/80 px-3 py-2">
+                    <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Total') }}</dt>
+                    <dd class="mt-0.5 font-mono text-lg font-semibold tabular-nums leading-none text-brand-ink">{{ $totalFlags }}</dd>
+                </div>
+                <div class="rounded-xl border border-brand-ink/10 bg-white/80 px-3 py-2">
+                    <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Overrides') }}</dt>
+                    <dd class="mt-0.5 font-mono text-lg font-semibold tabular-nums leading-none {{ $overriddenCount > 0 ? 'text-brand-rust' : 'text-brand-ink' }}">{{ $overriddenCount }}</dd>
+                </div>
+            </dl>
+        </x-slot:stats>
+
+        {{-- Filters --}}
+        <section class="border-b border-brand-ink/10">
+        <x-workspace-panel-head
+            dense
+            icon="heroicon-o-funnel"
+            :title="__('Filters')"
+            :note="__('Narrow by key, namespace, or override state.')"
+        />
+        <div class="px-3 py-3 sm:px-4">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
             <label class="flex-1">
                 <span class="mb-1 block text-xs font-semibold uppercase tracking-[0.12em] text-brand-mist">{{ __('Search') }}</span>
@@ -42,31 +78,27 @@
             </label>
         </div>
 
-        <div class="mt-3 flex flex-wrap items-center gap-3 text-xs text-brand-mist">
-            <span>{{ __(':shown of :total flags', ['shown' => $totalShown, 'total' => $totalFlags]) }}</span>
-            @if ($overriddenCount > 0)
-                <span class="inline-flex items-center gap-1 rounded-full bg-brand-rust/10 px-2 py-0.5 font-semibold text-brand-rust">
-                    {{ __(':count platform override(s)', ['count' => $overriddenCount]) }}
-                </span>
-            @endif
-            @if ($search !== '' || $namespace !== '' || $onlyOverridden)
+        @if ($search !== '' || $namespace !== '' || $onlyOverridden)
+            <div class="mt-3 text-xs text-brand-mist">
                 <button type="button" wire:click="resetFilters" class="font-medium text-brand-moss underline-offset-2 hover:underline">
                     {{ __('Reset filters') }}
                 </button>
-            @endif
+            </div>
+        @endif
         </div>
-    </section>
+        </section>
 
-    {{-- Flag groups --}}
-    <div class="space-y-6">
+        {{-- Flag groups --}}
         @forelse ($groups as $group)
-            <section class="dply-card-compact" wire:key="ns-{{ $group['namespace'] }}">
-                <div class="mb-3 flex items-baseline justify-between gap-3">
-                    <h2 class="text-xs font-semibold uppercase tracking-[0.14em] text-brand-mist">{{ $group['namespace'] }}</h2>
-                    <span class="text-2xs text-brand-mist">{{ trans_choice('{1} :count flag|[2,*] :count flags', count($group['flags']), ['count' => count($group['flags'])]) }}</span>
-                </div>
+            <section class="border-b border-brand-ink/10 last:border-0" wire:key="ns-{{ $group['namespace'] }}">
+                <x-workspace-panel-head
+                    dense
+                    icon="heroicon-o-adjustments-horizontal"
+                    :title="$group['namespace']"
+                    :count="count($group['flags'])"
+                />
 
-                <ul class="grid gap-2 lg:grid-cols-2">
+                <ul class="grid gap-2 px-3 py-3 sm:px-4 lg:grid-cols-2">
                     @foreach ($group['flags'] as $flag)
                         <li wire:key="flag-{{ $flag['key'] }}">
                             <x-admin-flag-row :flag="$flag" mode="platform">
@@ -96,12 +128,12 @@
                                         >{{ __(':count org', ['count' => $flag['orgOverrides']]) }}</button>
                                     @endif
 
-                                    <input
-                                        type="checkbox"
+                                    <x-toggle-switch
+                                        :enabled="(bool) $flag['active']"
                                         wire:click="togglePlatformFlag('{{ $flag['key'] }}')"
                                         wire:loading.attr="disabled"
-                                        @checked($flag['active'])
-                                        class="h-4 w-4 shrink-0 rounded border-brand-ink/30 text-brand-sage focus:ring-brand-sage"
+                                        on-label=""
+                                        off-label=""
                                     />
                                 </span>
                             </x-admin-flag-row>
@@ -110,11 +142,11 @@
                 </ul>
             </section>
         @empty
-            <div class="dply-card-compact text-center text-sm text-brand-moss">
+            <div class="px-3 py-10 text-center text-sm text-brand-moss sm:px-4">
                 {{ __('No flags match your filters.') }}
             </div>
         @endforelse
-    </div>
+    </x-profile-shell>
 
     @include('livewire.partials.confirm-action-modal')
 </div>

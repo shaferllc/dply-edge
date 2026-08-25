@@ -11,6 +11,7 @@ use App\Modules\Edge\Support\EdgeWranglerConfigGenerator;
 use App\Modules\Edge\Support\FakeEdgeProvision;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Str;
+use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 
 /**
  * One-shot platform setup for optional Edge delivery features:

@@ -6,6 +6,7 @@ namespace App\Modules\Edge\Services;
 
 use App\Models\ProviderCredential;
 use App\Modules\Edge\Support\EdgeOrgCredentialConfig;
+use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 
 class EdgeOrgInfraBootstrapper
 {

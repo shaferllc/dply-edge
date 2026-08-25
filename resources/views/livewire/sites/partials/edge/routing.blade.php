@@ -67,7 +67,12 @@
                     <span class="rounded-full bg-brand-sand/60 px-2 py-0.5 font-mono text-2xs text-brand-moss">{{ count($redirects) }}</span>
                 </h4>
                 @if ($redirects === [])
-                    <p class="mt-2 text-xs text-brand-moss">{{ __('No redirects declared.') }}</p>
+                    <x-empty-state
+                        borderless
+                        compact
+                        icon="heroicon-o-arrows-right-left"
+                        :title="__('No redirects declared')"
+                    />
                 @else
                     <div class="mt-2 overflow-x-auto rounded-lg border border-brand-ink/10">
                         <table class="min-w-full divide-y divide-brand-ink/8 text-xs">
@@ -99,7 +104,12 @@
                     <span class="rounded-full bg-brand-sand/60 px-2 py-0.5 font-mono text-2xs text-brand-moss">{{ count($rewrites) }}</span>
                 </h4>
                 @if ($rewrites === [])
-                    <p class="mt-2 text-xs text-brand-moss">{{ __('No rewrites declared.') }}</p>
+                    <x-empty-state
+                        borderless
+                        compact
+                        icon="heroicon-o-arrows-right-left"
+                        :title="__('No rewrites declared')"
+                    />
                 @else
                     <div class="mt-2 overflow-x-auto rounded-lg border border-brand-ink/10">
                         <table class="min-w-full divide-y divide-brand-ink/8 text-xs">
@@ -129,7 +139,12 @@
                     <span class="rounded-full bg-brand-sand/60 px-2 py-0.5 font-mono text-2xs text-brand-moss">{{ count($headers) }}</span>
                 </h4>
                 @if ($headers === [])
-                    <p class="mt-2 text-xs text-brand-moss">{{ __('No header rules declared.') }}</p>
+                    <x-empty-state
+                        borderless
+                        compact
+                        icon="heroicon-o-arrows-right-left"
+                        :title="__('No header rules declared')"
+                    />
                 @else
                     <ul class="mt-2 space-y-2">
                         @foreach ($headers as $rule)

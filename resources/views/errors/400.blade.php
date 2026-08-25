@@ -34,6 +34,5 @@
             </a>
         </div>
 
-        @include('errors.partials.search')
     </div>
 @endsection

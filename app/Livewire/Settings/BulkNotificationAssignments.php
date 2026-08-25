@@ -16,7 +16,6 @@ use App\Modules\Notifications\Channels\PagerDuty\PagerDutyMessage;
 use App\Modules\Notifications\Services\AssignableNotificationChannels;
 use App\Modules\Notifications\Services\MicrosoftTeamsClient;
 use App\Support\NotificationSubscriptionRules;
-use App\Support\ServerSystemdServiceNotificationKeys;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
@@ -288,7 +287,7 @@ class BulkNotificationAssignments extends Component
             }
         }
         foreach ($this->selected_event_keys as $ek) {
-            if (! in_array($ek, $validEvents, true) && ! ServerSystemdServiceNotificationKeys::isValidDynamicEventKey($ek)) {
+            if (! in_array($ek, $validEvents, true)) {
                 $this->addError('selected_event_keys', __('Invalid notification type.'));
 
                 return;

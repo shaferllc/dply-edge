@@ -37,7 +37,6 @@
 <div>
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <x-organization-shell
-            dense
             :organization="$organization"
             section="members"
             :title="__('Members')"
@@ -162,7 +161,7 @@
                     </div>
                     <ul class="divide-y divide-brand-ink/10">
                         @foreach ($organization->invitations as $inv)
-                            <li class="flex items-center gap-3 bg-amber-50/20 px-5 py-2 transition-colors hover:bg-amber-50/50 sm:px-6">
+                            <li class="group flex items-center gap-3 bg-amber-50/20 px-5 py-2 transition-colors hover:bg-amber-50/50 sm:px-6">
                                 <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-700 ring-1 ring-amber-200">
                                     <x-heroicon-o-envelope class="h-3.5 w-3.5" aria-hidden="true" />
                                 </span>
@@ -190,7 +189,7 @@
                                     <button
                                         type="button"
                                         wire:click="promptCancelInvitation('{{ $inv->id }}')"
-                                        class="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-rose-200 bg-white px-2 text-xs font-semibold text-rose-700 shadow-sm transition-colors hover:bg-rose-50"
+                                        class="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-brand-ink/15 bg-white px-2.5 text-xs font-semibold text-brand-moss shadow-sm transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
                                     >
                                         <x-heroicon-o-x-mark class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                                         {{ __('Cancel') }}
@@ -223,7 +222,7 @@
                                 $role = strtolower((string) $user->pivot->role);
                                 $teamNames = $organization->teams->filter(fn ($t) => $t->users->contains('id', $user->id))->pluck('name');
                             @endphp
-                            <li class="flex items-center gap-3 px-5 py-2 transition-colors hover:bg-brand-sand/15 sm:px-6">
+                            <li class="group flex items-center gap-3 px-5 py-2 transition-colors hover:bg-brand-sand/15 sm:px-6">
                                 <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-2xs font-semibold ring-1 {{ $avatarClasses($role) }}">
                                     {{ $initialsOf($user) }}
                                 </span>

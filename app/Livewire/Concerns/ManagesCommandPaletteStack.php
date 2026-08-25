@@ -28,18 +28,6 @@ trait ManagesCommandPaletteStack
             $label = $this->scopedSite($org, $id)?->name;
         } elseif ($type === 'server' && $id !== null) {
             $label = $this->scopedServer($org, $id)?->name;
-        } elseif ($type === 'deploy-sync' && $id !== null) {
-            // Drilling into the multi-select: default-tick every deployable peer
-            // (matches the Deployments "Sync deploy" panel) so a drill-in + ↵ on
-            // the action ships the whole group without any extra ticking.
-            $anchor = $this->scopedSite($org, $id);
-            if ($anchor !== null) {
-                $label = __('Deploy together');
-                $this->deploySyncSelected = $this->deploySyncPeers($anchor)
-                    ->pluck('id')
-                    ->map(fn ($peerId): string => (string) $peerId)
-                    ->all();
-            }
         }
 
         if ($label === null) {

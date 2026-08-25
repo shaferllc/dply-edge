@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use RuntimeException;
 use Throwable;
+use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 
 /**
  * Provision DNS for custom hostnames on Edge sites — manual CNAME verification

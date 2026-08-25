@@ -14,14 +14,14 @@
 
     <x-seo-meta :title="$title" :description="$description" />
     <link rel="preconnect" href="https://fonts.bunny.net">
-    <link href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600,700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.bunny.net/css?family=space-grotesk:400,500,700|space-mono:400,700&display=swap" rel="stylesheet" />
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @livewireStyles
     <style>
         [x-cloak] { display: none !important; }
     </style>
 </head>
-<body class="flex min-h-dvh flex-col font-sans antialiased bg-brand-cream text-brand-ink" style="font-family: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;">
+<body class="flex min-h-dvh flex-col font-sans antialiased bg-brand-cream text-brand-ink">
     <x-site-header :active="$active" />
     <main class="flex-1">
         {{ $slot }}

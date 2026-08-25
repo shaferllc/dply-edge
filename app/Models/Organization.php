@@ -9,8 +9,6 @@ use App\Models\Concerns\ManagesOrganizationQuotas;
 use App\Models\Concerns\ManagesOrganizationSubscription;
 use App\Models\Concerns\ManagesOrganizationTrialState;
 use App\Models\Concerns\RoutesIntercomNotifications;
-use App\Modules\Queue\Models\QueueNamespace;
-use App\Modules\Realtime\Models\RealtimeApp;
 use Database\Factories\OrganizationFactory;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
@@ -62,23 +60,13 @@ use Laravel\Cashier\Billable;
  * @property-read Collection<int, Server> $servers
  * @property-read Collection<int, Site> $sites
  * @property-read Collection<int, OrganizationSecret> $sharedSecrets
- * @property-read Collection<int, Script> $scripts
  * @property-read Collection<int, NotificationChannel> $notificationChannels
- * @property-read Collection<int, WebserverTemplate> $webserverTemplates
- * @property-read Collection<int, OrganizationSshKey> $organizationSshKeys
- * @property-read Collection<int, RealtimeApp> $realtimeApps
  * @property-read Collection<int, OrganizationBillingSnapshot> $billingSnapshots
  * @property-read Collection<int, BillingSubscriptionSyncEvent> $billingSubscriptionSyncEvents
- * @property-read Collection<int, OrganizationCronJobTemplate> $cronJobTemplates
- * @property-read Collection<int, OrganizationSupervisorProgramTemplate> $supervisorProgramTemplates
- * @property-read Collection<int, FirewallRuleTemplate> $firewallRuleTemplates
- * @property-read Collection<int, ServerBlueprint> $serverBlueprints
- * @property-read ?Script $defaultSiteScript
  * @property-read Collection<int, Project> $projects
  * @property-read Collection<int, Workspace> $workspaces
  * @property-read Collection<int, StatusPage> $statusPages
  * @property-read Collection<int, ProviderCredential> $providerCredentials
- * @property-read Collection<int, BackupConfiguration> $backupConfigurations
  * @property-read Collection<int, OrganizationInvitation> $invitations
  * @property-read Collection<int, AuditLog> $auditLogs
  * @property-read Collection<int, ApiToken> $apiTokens
@@ -181,11 +169,6 @@ class Organization extends Model
         return $this->hasMany(Team::class);
     }
 
-    /** @return HasMany<WebserverTemplate, $this> */
-    public function webserverTemplates(): HasMany
-    {
-        return $this->hasMany(WebserverTemplate::class);
-    }
 
     /** @return HasMany<Server, $this> */
     public function servers(): HasMany
@@ -193,11 +176,6 @@ class Organization extends Model
         return $this->hasMany(Server::class);
     }
 
-    /** @return HasMany<OrganizationSshKey, $this> */
-    public function organizationSshKeys(): HasMany
-    {
-        return $this->hasMany(OrganizationSshKey::class);
-    }
 
     /** @return HasMany<Site, $this> */
     public function sites(): HasMany
@@ -233,11 +211,6 @@ class Organization extends Model
         return $this->hasOne(OrgSecretKey::class);
     }
 
-    /** @return HasMany<RealtimeApp, $this> */
-    public function realtimeApps(): HasMany
-    {
-        return $this->hasMany(RealtimeApp::class);
-    }
 
     /** @return HasMany<LookoutProject, $this> */
     public function lookoutProjects(): HasMany
@@ -245,11 +218,6 @@ class Organization extends Model
         return $this->hasMany(LookoutProject::class);
     }
 
-    /** @return HasMany<QueueNamespace, $this> */
-    public function queueNamespaces(): HasMany
-    {
-        return $this->hasMany(QueueNamespace::class);
-    }
 
     /** @return HasMany<OrganizationBillingSnapshot, $this> */
     public function billingSnapshots(): HasMany
@@ -263,41 +231,11 @@ class Organization extends Model
         return $this->hasMany(BillingSubscriptionSyncEvent::class);
     }
 
-    /** @return HasMany<Script, $this> */
-    public function scripts(): HasMany
-    {
-        return $this->hasMany(Script::class);
-    }
 
-    /** @return HasMany<OrganizationCronJobTemplate, $this> */
-    public function cronJobTemplates(): HasMany
-    {
-        return $this->hasMany(OrganizationCronJobTemplate::class);
-    }
 
-    /** @return HasMany<OrganizationSupervisorProgramTemplate, $this> */
-    public function supervisorProgramTemplates(): HasMany
-    {
-        return $this->hasMany(OrganizationSupervisorProgramTemplate::class);
-    }
 
-    /** @return HasMany<FirewallRuleTemplate, $this> */
-    public function firewallRuleTemplates(): HasMany
-    {
-        return $this->hasMany(FirewallRuleTemplate::class);
-    }
 
-    /** @return HasMany<ServerBlueprint, $this> */
-    public function serverBlueprints(): HasMany
-    {
-        return $this->hasMany(ServerBlueprint::class);
-    }
 
-    /** @return BelongsTo<Script, $this> */
-    public function defaultSiteScript(): BelongsTo
-    {
-        return $this->belongsTo(Script::class, 'default_site_script_id');
-    }
 
     /** @return HasMany<Project, $this> */
     public function projects(): HasMany
@@ -323,11 +261,6 @@ class Organization extends Model
         return $this->hasMany(ProviderCredential::class);
     }
 
-    /** @return HasMany<BackupConfiguration, $this> */
-    public function backupConfigurations(): HasMany
-    {
-        return $this->hasMany(BackupConfiguration::class);
-    }
 
     /** @return HasMany<OrganizationInvitation, $this> */
     public function invitations(): HasMany

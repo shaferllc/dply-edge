@@ -6,19 +6,19 @@
         ]" />
 
         {{-- Hero: positioning + at-a-glance rollups. --}}
-        <x-hero-card
-            icon="bell"
-            :eyebrow="__('Inbox')"
+        <x-profile-shell
+            icon="heroicon-o-bell"
             :title="__('Notifications')"
             :description="$notificationsReady
                 ? __('Deploys, monitoring alerts, SSL events, and security findings across everything you can access.')
                 : __('Run the latest database migrations to enable the shared inbox.')"
         >
+            <x-slot:actions>
             @if ($notificationsReady && $unreadCount > 0)
                 <button
                     type="button"
                     wire:click="markAllAsRead"
-                    class="inline-flex items-center gap-2 rounded-xl bg-brand-ink px-4 py-2 text-sm font-semibold text-brand-cream shadow-md transition-colors hover:bg-brand-forest"
+                    class="inline-flex items-center gap-1.5 rounded-lg bg-brand-ink px-3 py-1.5 text-xs font-semibold text-brand-cream shadow-sm transition-colors hover:bg-brand-forest"
                 >
                     <x-heroicon-o-check class="h-4 w-4 shrink-0" aria-hidden="true" />
                     {{ __('Mark all read') }}
@@ -28,46 +28,46 @@
                 <button
                     type="button"
                     wire:click="openConfirmActionModal('deleteAllRead', [], @js(__('Delete all read notifications?')), @js(__('Saved (starred) items are kept. This cannot be undone.')), @js(__('Delete all read')), true)"
-                    class="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 py-2 text-sm font-semibold text-rose-700 shadow-sm transition hover:bg-rose-50"
+                    class="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 shadow-sm transition hover:bg-rose-50"
                 >
                     <x-heroicon-o-trash class="h-4 w-4 shrink-0" aria-hidden="true" />
                     {{ __('Delete all read') }}
                 </button>
             @endif
+            </x-slot:actions>
 
             <x-slot:stats>
                 <dl class="grid grid-cols-4 gap-2">
                     <div @class([
-                        'rounded-2xl border px-3 py-3 shadow-sm',
+                        'rounded-xl border px-3 py-2',
                         'border-brand-gold/40 bg-brand-gold/8' => $unreadCount > 0,
-                        'border-brand-ink/10 bg-white' => $unreadCount === 0,
+                        'border-brand-ink/10 bg-white/80' => $unreadCount === 0,
                     ])>
                         <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Unread') }}</dt>
-                        <dd class="mt-1 font-mono text-xl font-semibold tabular-nums text-brand-ink">{{ $unreadCount }}</dd>
+                        <dd class="mt-0.5 font-mono text-lg font-semibold leading-none tabular-nums text-brand-ink">{{ $unreadCount }}</dd>
                     </div>
                     <div @class([
-                        'rounded-2xl border px-3 py-3 shadow-sm',
+                        'rounded-xl border px-3 py-2',
                         'border-amber-200 bg-amber-50/60' => $attentionCount > 0,
-                        'border-brand-ink/10 bg-white' => $attentionCount === 0,
+                        'border-brand-ink/10 bg-white/80' => $attentionCount === 0,
                     ])>
                         <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Attention') }}</dt>
-                        <dd class="mt-1 font-mono text-xl font-semibold tabular-nums {{ $attentionCount > 0 ? 'text-amber-700' : 'text-brand-ink' }}">{{ $attentionCount }}</dd>
+                        <dd class="mt-0.5 font-mono text-lg font-semibold leading-none tabular-nums {{ $attentionCount > 0 ? 'text-amber-700' : 'text-brand-ink' }}">{{ $attentionCount }}</dd>
                     </div>
-                    <div class="rounded-2xl border border-brand-ink/10 bg-white px-3 py-3 shadow-sm">
+                    <div class="rounded-xl border border-brand-ink/10 bg-white/80 px-3 py-2">
                         <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Saved') }}</dt>
-                        <dd class="mt-1 font-mono text-xl font-semibold tabular-nums text-brand-ink">{{ $savedCount }}</dd>
+                        <dd class="mt-0.5 font-mono text-lg font-semibold leading-none tabular-nums text-brand-ink">{{ $savedCount }}</dd>
                     </div>
-                    <div class="rounded-2xl border border-brand-ink/10 bg-white px-3 py-3 shadow-sm">
+                    <div class="rounded-xl border border-brand-ink/10 bg-white/80 px-3 py-2">
                         <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Total') }}</dt>
-                        <dd class="mt-1 font-mono text-xl font-semibold tabular-nums text-brand-ink">{{ $totalCount }}</dd>
+                        <dd class="mt-0.5 font-mono text-lg font-semibold leading-none tabular-nums text-brand-ink">{{ $totalCount }}</dd>
                     </div>
                 </dl>
             </x-slot:stats>
-        </x-hero-card>
 
         @if ($notificationsReady)
             {{-- Toolbar: tabs + filters. --}}
-            <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div class="flex flex-col gap-3 border-b border-brand-ink/10 px-3 py-3 sm:px-4 lg:flex-row lg:items-center lg:justify-between">
                 <div class="inline-flex items-center gap-1 rounded-xl border border-brand-ink/10 bg-white p-1 shadow-sm">
                     @foreach (['unread' => __('Unread'), 'all' => __('All'), 'saved' => __('Saved')] as $key => $label)
                         <button
@@ -115,7 +115,7 @@
 
             {{-- Bulk action bar — appears once items are selected. --}}
             @if (count($selected) > 0)
-                <div class="flex flex-wrap items-center gap-2 rounded-xl border border-brand-ink/15 bg-brand-sand/30 px-4 py-2.5 shadow-sm">
+                <div class="flex flex-wrap items-center gap-2 border-b border-brand-ink/10 bg-brand-sand/30 px-3 py-2.5 sm:px-4">
                     <span class="text-sm font-semibold text-brand-ink">{{ trans_choice('{1}1 selected|[2,*]:count selected', count($selected), ['count' => count($selected)]) }}</span>
                     <span class="mx-1 h-4 w-px bg-brand-ink/15"></span>
                     <button type="button" wire:click="markSelectedRead" class="inline-flex items-center gap-1.5 rounded-lg border border-brand-ink/15 bg-white px-2.5 py-1.5 text-xs font-semibold text-brand-ink hover:bg-white/70">
@@ -136,7 +136,7 @@
         @endif
 
         {{-- Feed. --}}
-        <div class="space-y-3">
+        <div class="space-y-3 px-3 py-3 sm:px-4">
             @forelse ($items as $item)
                 @php
                     $meta = is_array($item->event?->metadata ?? null) ? $item->event->metadata : [];
@@ -227,6 +227,7 @@
                 </div>
             @endforelse
         </div>
+        </x-profile-shell>
     </div>
 
     @include('livewire.partials.confirm-action-modal')

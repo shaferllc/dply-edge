@@ -26,13 +26,18 @@
         @include('livewire.sites.edge.workspace.partials.managed-only-banner', ['managedDelivery' => $managedDelivery])
 
         <div class="mt-4 space-y-4" @disabled(! $managedDelivery)>
-            <label class="flex items-start gap-3">
-                <input type="checkbox" wire:model.live="enabled" class="mt-0.5 rounded border-brand-ink/20 text-brand-sage" @disabled(! $managedDelivery) />
-                <span>
+            <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-xl border border-brand-ink/10 bg-white px-3 py-2.5">
+                <span class="min-w-0 flex-1 basis-56">
                     <span class="block text-sm font-medium text-brand-ink">{{ __('Enable bot protection') }}</span>
-                    <span class="mt-0.5 block text-xs text-brand-moss">{{ __('When on, Edge injects the challenge on the mode you select below.') }}</span>
+                    <span class="mt-0.5 block text-xs leading-relaxed text-brand-moss">{{ __('When on, Edge injects the challenge on the mode you select below.') }}</span>
                 </span>
-            </label>
+                <x-toggle-switch
+                    :enabled="(bool) $enabled"
+                    wire:model.live="enabled" @disabled(! $managedDelivery)
+                    :on-label="__('On')"
+                    :off-label="__('Off')"
+                />
+            </div>
 
             <div>
                 <x-input-label for="mode" :value="__('Where to challenge')" />

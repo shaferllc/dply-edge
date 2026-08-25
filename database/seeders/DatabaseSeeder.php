@@ -18,10 +18,6 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        $this->call(MarketplaceItemSeeder::class);
-        $this->call(RoadmapReleaseSeeder::class);
-        $this->call(RoadmapItemSeeder::class);
-
         // User::factory(10)->create();
 
         User::query()->updateOrCreate(
@@ -38,6 +34,5 @@ class DatabaseSeeder extends Seeder
             $this->call(LocalDemoServersSeeder::class);
         }
 
-        $this->call(ScriptSeeder::class);
     }
 }

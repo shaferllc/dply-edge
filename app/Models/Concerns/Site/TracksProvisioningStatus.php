@@ -5,14 +5,8 @@ declare(strict_types=1);
 namespace App\Models\Concerns\Site;
 
 use App\Enums\SiteType;
-use App\Jobs\PreflightSiteSetupJob;
 use App\Models\Site;
-use App\Models\SiteCertificate;
-use App\Modules\Deploy\Services\SiteBindingManager;
-use App\Services\Sites\CaddySiteConfigBuilder;
 use App\Services\Sites\DotEnvFileParser;
-use App\Services\Sites\SiteWorkerPageBuilder;
-use App\Support\Sites\BootCriticalEnv;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\URL;
@@ -45,66 +39,7 @@ trait TracksProvisioningStatus
 
         $server = $this->server;
 
-        return $server !== null
-            && $server->isReady()
-            && $server->hasAnySshPrivateKey();
-    }
-
-    public function currentSslSummary(): string
-    {
-        $certificates = $this->relationLoaded('certificates')
-            ? $this->certificates
-            : $this->certificates()->get();
-
-        if ($certificates->contains('status', SiteCertificate::STATUS_ACTIVE)) {
-            return self::SSL_ACTIVE;
-        }
-
-        if ($certificates->contains('status', SiteCertificate::STATUS_PENDING)
-            || $certificates->contains('status', SiteCertificate::STATUS_ISSUED)
-            || $certificates->contains('status', SiteCertificate::STATUS_INSTALLING)) {
-            return self::SSL_PENDING;
-        }
-
-        if ($certificates->contains('status', SiteCertificate::STATUS_FAILED)) {
-            return self::SSL_FAILED;
-        }
-
-        return $this->ssl_status;
-    }
-
-    /**
-     * A headless site runs deployed code with no HTTP front (no webserver,
-     * no domain, no SSL) — e.g. a queue-worker host where webserver=none.
-     * It still uses the full standard deploy pipeline (git, build, releases),
-     * just skips the vhost / testing-hostname / reachability steps.
-     */
-    public function isHeadless(): bool
-    {
-        return $this->webserver() === 'none';
-    }
-
-    /**
-     * A worker site lives on a worker host (server_role=worker). Unlike a
-     * headless site it still runs Caddy (so it can attach a testing URL), but
-     * it only runs queue workers from the deployed code and never serves a web
-     * app. The webserver therefore locks the URL down to a static "this runs
-     * workers" page instead of exposing the deployed code — see
-     * {@see CaddySiteConfigBuilder} and
-     * {@see SiteWorkerPageBuilder}.
-     */
-    public function isWorkerSite(): bool
-    {
-        $meta = $this->meta ?? [];
-
-        // Explicit per-site override wins when set (the user toggle). Absent an
-        // override, worker mode defaults ON for sites on a worker host and OFF
-        // everywhere else.
-        if (array_key_exists('worker_mode', $meta) && $meta['worker_mode'] !== null) {
-            return (bool) $meta['worker_mode'];
-        }
-
-        return $this->server?->isWorkerHost() === true;
+        return $server !== null && $server->isReady();
     }
 
     /**
@@ -496,75 +431,6 @@ trait TracksProvisioningStatus
     public function isInFirstDeploySetup(): bool
     {
         return in_array($this->firstDeploySetupState(), ['scanning', 'needs_setup', 'scan_failed'], true);
-    }
-
-    /**
-     * Required env keys still unsatisfied in the current env cache — the
-     * "N variables left" the wizard and Overview card count, and the final
-     * Deploy completeness gate. A key is satisfied when the cached .env carries
-     * a non-empty value for it (resource keys included: they become satisfied
-     * when the Resources step provisions and injects their credentials).
-     * APP_KEY is excluded — the deploy mints it.
-     *
-     * Distinct from {@see missingRequiredEnvKeys()} (the deploy-gate's strict,
-     * present-keys-driven check): this is the wizard's cache-driven count.
-     *
-     * @return list<string>
-     */
-    public function unsatisfiedRequiredEnvKeys(): array
-    {
-        $keys = data_get($this->envRequirements(), 'keys');
-        if (! is_array($keys) || $keys === []) {
-            return [];
-        }
-
-        $current = [];
-        if (filled($this->env_file_content)) {
-            $parsed = app(DotEnvFileParser::class)->parse((string) $this->env_file_content);
-            $current = $parsed['variables'];
-        }
-
-        $missing = [];
-        foreach ($keys as $key) {
-            if (! ($key['required'] ?? false)) {
-                continue;
-            }
-            $name = (string) ($key['key'] ?? '');
-            if ($name === '' || $name === 'APP_KEY') {
-                continue;
-            }
-            $value = trim((string) ($current[$name] ?? ''));
-            if ($value === '' || strtolower($value) === 'null') {
-                $missing[] = $name;
-            }
-        }
-
-        assert($this instanceof Site);
-        $owned = array_flip(app(SiteBindingManager::class)->ownedEnvKeysForSite($this));
-        $missing = array_values(array_filter(
-            $missing,
-            static fn (string $name): bool => ! isset($owned[$name]),
-        ));
-
-        return $missing;
-    }
-
-    /**
-     * The subset of {@see unsatisfiedRequiredEnvKeys()} that genuinely blocks a
-     * first boot — the first-deploy setup wizard's HARD gate. The scanner marks
-     * hundreds of keys "required"; only the boot-critical ones (framework URL +
-     * database connection) should hold the deploy. Everything else is optional
-     * and the operator can fill it from the Environment tab any time.
-     * See {@see BootCriticalEnv}.
-     *
-     * @return list<string>
-     */
-    public function unsatisfiedBootCriticalEnvKeys(): array
-    {
-        return array_values(array_filter(
-            $this->unsatisfiedRequiredEnvKeys(),
-            static fn (string $key): bool => BootCriticalEnv::isBootCritical($key),
-        ));
     }
 
     /**

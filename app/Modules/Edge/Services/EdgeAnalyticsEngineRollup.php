@@ -8,6 +8,7 @@ use App\Models\Site;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
+use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 
 /**
  * Pulls hourly performance rollups from Cloudflare Analytics Engine SQL.

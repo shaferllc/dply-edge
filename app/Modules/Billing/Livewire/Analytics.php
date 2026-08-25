@@ -24,7 +24,6 @@ class Analytics extends Component
         $analytics = $billingAnalytics->forOrganization($this->organization);
 
         return view('livewire.billing.analytics', [
-            'costObservatory' => $analytics['cost_observatory'] ?? [],
             'summary' => $analytics['summary'] ?? [],
             'forecast' => $analytics['forecast'] ?? [],
             'spendTrend' => $analytics['spend_trend'] ?? [],

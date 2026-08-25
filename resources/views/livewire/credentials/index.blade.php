@@ -2,7 +2,6 @@
     @if (! empty($useOrgShell) && $organization)
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
             <x-organization-shell
-                dense
                 :organization="$organization"
                 section="providers"
                 :title="__('Credentials')"
@@ -15,10 +14,6 @@
                 ]"
             >
                 <x-slot:actions>
-                    <x-outline-link href="{{ route('docs.markdown', ['slug' => 'org-roles-and-limits']) }}" wire:navigate size="xxs">
-                        <x-heroicon-o-user-group class="h-3.5 w-3.5 shrink-0 opacity-90" aria-hidden="true" />
-                        {{ __('Roles & limits') }}
-                    </x-outline-link>
                     @if ($credentials->isNotEmpty())
                         <button
                             type="button"
@@ -51,13 +46,6 @@
                                 @elseif ($verifiedCount > 0)
                                     <span class="text-2xs font-semibold text-brand-forest">{{ __(':n connected', ['n' => $verifiedCount]) }}</span>
                                 @endif
-                            </dd>
-                        </div>
-                        <div class="bg-white px-3 py-2">
-                            <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Storage') }}</dt>
-                            <dd class="mt-0.5 flex items-baseline gap-1.5">
-                                <span class="font-mono text-base font-semibold tabular-nums text-brand-ink">{{ $storageCount }}</span>
-                                <a href="{{ route('backups.storage') }}" wire:navigate class="text-2xs font-semibold text-brand-sage hover:text-brand-ink">{{ __('Usage') }} →</a>
                             </dd>
                         </div>
                         <div class="bg-white px-3 py-2">
@@ -136,9 +124,6 @@
                             <x-heroicon-o-information-circle class="h-4 w-4 shrink-0 text-brand-sage" aria-hidden="true" />
                             {{ __('Only owners and admins can add or remove credentials.') }}
                         </span>
-                        <a href="{{ route('docs.connect-provider') }}" wire:navigate class="ms-auto font-semibold text-brand-sage hover:text-brand-ink">
-                            {{ __('Connecting a provider') }} →
-                        </a>
                     </div>
                 </x-slot:footer>
             </x-organization-shell>
@@ -158,7 +143,6 @@
          two-mode dialog: "connect existing" records keys for a bucket you
          already have, "create new bucket" provisions one on the provider using
          a connected cloud token. Same dialog the server workspace opens. --}}
-    @include('livewire.servers.partials.backups._add-destination-modal')
 
     <x-slot name="modals">
         @include('livewire.partials.confirm-action-modal')

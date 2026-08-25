@@ -8,7 +8,6 @@ use App\Modules\Edge\Actions\RedeployEdgeSite;
 use App\Models\EdgeDeployment;
 use App\Models\Site;
 use App\Modules\Edge\Services\EdgeSiteCanceller;
-use App\Services\Sites\SiteProvisioner;
 use Livewire\Attributes\On;
 
 trait ManagesEdgeSiteProvisioning
@@ -34,7 +33,7 @@ trait ManagesEdgeSiteProvisioning
         $this->site->refresh();
     }
 
-    public function retryProvisioning(SiteProvisioner $siteProvisioner): void
+    public function retryProvisioning(): void
     {
         $this->authorize('update', $this->site);
 

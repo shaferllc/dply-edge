@@ -54,7 +54,12 @@
                 </div>
 
                 @if ($queueBindings === [])
-                    <p class="mt-3 text-sm text-brand-moss">{{ __('No queue bindings yet.') }}</p>
+                    <x-empty-state
+                        borderless
+                        compact
+                        icon="heroicon-o-queue-list"
+                        :title="__('No queue bindings yet')"
+                    />
                 @else
                     <ul class="mt-3 divide-y divide-brand-ink/8 rounded-lg border border-brand-ink/10">
                         @foreach ($queueBindings as $binding)

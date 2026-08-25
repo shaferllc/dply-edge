@@ -8,7 +8,6 @@ use App\Modules\Billing\Services\BillingSubscriptionSyncEventRecorder;
 use App\Modules\Billing\Services\BundleEntitlementSynchronizer;
 use App\Modules\Billing\Services\OrganizationBillingStateComputer;
 use App\Modules\Billing\Services\StripeSubscriptionSyncer;
-use App\Modules\Queue\Services\QueueBillabilityFlipNotifier;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -44,7 +43,6 @@ class SyncOrganizationBillingJob implements ShouldBeUnique, ShouldQueue
         StripeSubscriptionSyncer $syncer,
         BillingSubscriptionSyncEventRecorder $eventRecorder,
         BundleEntitlementSynchronizer $bundle,
-        QueueBillabilityFlipNotifier $queueFlips,
     ): void {
         $organization = Organization::find($this->organizationId);
         if (! $organization) {
@@ -90,7 +88,6 @@ class SyncOrganizationBillingJob implements ShouldBeUnique, ShouldQueue
         // from free to its tier fee, and nothing on the namespace changes, so
         // the observer cannot see it. Runs after the reconcile succeeded: we
         // announce what we actually applied, not what we intended to.
-        $queueFlips->notifyFlips($organization, $desired->queueBillableNamespaceIds);
 
         // Fast path: re-evaluate the bundled-products perk right after billing
         // syncs so a plan change flips the bundle within seconds. Dark + a no-op

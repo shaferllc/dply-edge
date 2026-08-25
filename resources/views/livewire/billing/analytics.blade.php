@@ -75,7 +75,6 @@
         @endphp
 
         <x-organization-shell
-            dense
             :organization="$organization"
             section="billing-analytics"
             :title="__('Billing analytics')"
@@ -127,120 +126,6 @@
                 </dl>
             </x-slot:stats>
 
-            @if (cost_observatory_active($organization))
-                @php
-                    $obsDplyCents = (int) ($costObservatory['dply_platform_cents'] ?? 0);
-                    $obsProviderCents = (int) ($costObservatory['provider_infrastructure_cents'] ?? 0);
-                    $obsStackCents = (int) ($costObservatory['stack_total_cents'] ?? 0);
-                    $obsPartial = ! empty($costObservatory['provider_partial']);
-                    $obsUnknown = (int) ($costObservatory['provider_unknown_count'] ?? 0);
-                    $obsServers = is_array($costObservatory['servers'] ?? null) ? $costObservatory['servers'] : [];
-                @endphp
-                <section class="border-b border-brand-ink/10 last:border-b-0">
-                    <x-workspace-panel-head
-                        dense
-                        class="border-b border-brand-ink/10"
-                        icon="heroicon-o-banknotes"
-                        :title="__('Transparent cost observatory')"
-                        :note="__('We bill our work; you pay your cloud provider directly.')"
-                    />
-
-                    <dl class="grid gap-px bg-brand-ink/5 sm:grid-cols-3">
-                        <div class="{{ $cell }}">
-                            <dt class="{{ $cellLabel }}">{{ __('Dply platform') }}</dt>
-                            <dd class="{{ $cellValue }}">${{ number_format($obsDplyCents / 100, 2) }}<span class="text-xs font-normal text-brand-moss">/mo</span></dd>
-                            <p class="{{ $cellNote }}">{{ __('Plan + managed products + Edge usage') }}</p>
-                        </div>
-                        <div class="{{ $cell }}">
-                            <dt class="{{ $cellLabel }}">{{ __('Provider infrastructure') }}</dt>
-                            <dd class="{{ $cellValue }}">
-                                @if ($obsProviderCents > 0)
-                                    ${{ number_format($obsProviderCents / 100, 2) }}<span class="text-xs font-normal text-brand-moss">/mo</span>
-                                @else
-                                    <span class="text-sm">{{ __('Unknown') }}</span>
-                                @endif
-                            </dd>
-                            <p class="{{ $cellNote }}">
-                                @if ($obsPartial)
-                                    {{ trans_choice(':known with estimates · :unknown need cost notes|:known with estimates · :unknown need cost notes', $obsUnknown, ['known' => count($obsServers) - $obsUnknown, 'unknown' => $obsUnknown]) }}
-                                @else
-                                    {{ __('Catalog or saved notes on BYO VMs') }}
-                                @endif
-                            </p>
-                        </div>
-                        <div class="{{ $cell }}">
-                            <dt class="{{ $cellLabel }}">{{ __('Full stack estimate') }}</dt>
-                            <dd class="{{ $cellValue }} !text-brand-forest">${{ number_format($obsStackCents / 100, 2) }}<span class="text-xs font-normal text-brand-moss">/mo</span></dd>
-                            <p class="{{ $cellNote }}">{{ __('Dply + provider (where known)') }}</p>
-                        </div>
-                    </dl>
-
-                    @if ($obsServers !== [])
-                        <details class="group border-t border-brand-ink/10">
-                            <summary class="flex cursor-pointer list-none items-center gap-1.5 px-3 py-2 text-xs font-medium text-brand-moss hover:text-brand-ink sm:px-4">
-                                <x-heroicon-o-chevron-right class="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-90" aria-hidden="true" />
-                                {{ __('BYO VM provider estimates') }}
-                                <span class="text-brand-mist">({{ count($obsServers) }})</span>
-                            </summary>
-                            <table class="w-full border-t border-brand-ink/10 text-sm">
-                                <thead class="bg-brand-sand/35 text-2xs font-semibold uppercase tracking-wide text-brand-moss">
-                                    <tr>
-                                        <th class="{{ $th }} text-left">{{ __('Server') }}</th>
-                                        <th class="{{ $th }} text-left">{{ __('Provider / plan') }}</th>
-                                        <th class="{{ $th }} text-left">{{ __('Source') }}</th>
-                                        <th class="{{ $th }} text-right">{{ __('Est. /mo') }}</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-brand-ink/5">
-                                    @foreach ($obsServers as $obsServer)
-                                        <tr class="transition-colors hover:bg-brand-sand/15">
-                                            <td class="{{ $td }} font-medium text-brand-ink">{{ $obsServer['name'] }}</td>
-                                            <td class="{{ $td }} text-brand-moss">
-                                                {{ $obsServer['provider'] ?? '—' }}
-                                                @if (! empty($obsServer['plan']))
-                                                    <span class="text-brand-mist">· {{ $obsServer['plan'] }}</span>
-                                                @endif
-                                            </td>
-                                            <td class="{{ $td }} text-xs text-brand-moss">
-                                                @switch($obsServer['source'] ?? 'unknown')
-                                                    @case('note')
-                                                        {{ __('Saved note') }}
-                                                        @break
-                                                    @case('catalog')
-                                                        {{ __('Provider catalog') }}
-                                                        @break
-                                                    @default
-                                                        {{ $obsServer['detail'] ?? __('Add cost note on server') }}
-                                                @endswitch
-                                            </td>
-                                            <td class="{{ $td }} text-right font-mono tabular-nums text-brand-ink">
-                                                @if (($obsServer['monthly_usd_cents'] ?? 0) > 0)
-                                                    ${{ number_format($obsServer['monthly_usd_cents'] / 100, 2) }}
-                                                @else
-                                                    —
-                                                @endif
-                                            </td>
-                                        </tr>
-                                    @endforeach
-                                </tbody>
-                                <tfoot class="bg-brand-sand/30 text-xs">
-                                    <tr>
-                                        <td colspan="3" class="{{ $td }} text-right font-semibold uppercase tracking-wide text-brand-moss">{{ __('Provider subtotal') }}</td>
-                                        <td class="{{ $td }} text-right font-mono font-semibold tabular-nums text-brand-ink">${{ number_format($obsProviderCents / 100, 2) }}</td>
-                                    </tr>
-                                    <tr>
-                                        <td colspan="3" class="{{ $td }} text-right font-semibold uppercase tracking-wide text-brand-sage">{{ __('Dply + provider') }}</td>
-                                        <td class="{{ $td }} text-right font-mono font-semibold tabular-nums text-brand-forest">${{ number_format($obsStackCents / 100, 2) }}</td>
-                                    </tr>
-                                </tfoot>
-                            </table>
-                            @if (! empty($costObservatory['disclaimer']))
-                                <p class="px-3 py-2 text-xs leading-relaxed text-brand-mist sm:px-4">{{ $costObservatory['disclaimer'] }}</p>
-                            @endif
-                        </details>
-                    @endif
-                </section>
-            @endif
 
             {{-- Cost forecast. Deliberately NOT "recurring revenue": this page is
                  gated by authorize('update', $organization), so the reader is the
@@ -290,7 +175,13 @@
 
                 @if ($spendTrendNinety === [])
                     <div class="px-3 py-6 text-center sm:px-4">
-                        <p class="text-sm text-brand-moss">{{ __('No snapshots yet. Daily snapshots populate this trend automatically.') }}</p>
+                        <x-empty-state
+                            borderless
+                            compact
+                            icon="heroicon-o-chart-bar"
+                            :title="__('No snapshots yet')"
+                            :description="__('Daily snapshots populate this trend automatically — check back tomorrow.')"
+                        />
                     </div>
                 @else
                     <div class="px-3 py-3 sm:px-4">

@@ -33,7 +33,6 @@ class ListServers extends AbstractDplyTool
         // apps, function namespaces and Cloud containers are placeholder host
         // rows, not servers.
         $servers = Server::query()
-            ->onlyMachineHosts()
             ->where('organization_id', $organization->id)
             ->orderBy('name')
             ->get(['id', 'name', 'status', 'ip_address', 'provider', 'created_at']);
@@ -43,7 +42,6 @@ class ListServers extends AbstractDplyTool
                 'id' => $s->id,
                 'name' => $s->name,
                 'status' => $s->status,
-                'ip_address' => $s->ip_address,
                 'provider' => $s->provider->value,
                 'created_at' => $s->created_at->toIso8601String(),
             ])->all(),

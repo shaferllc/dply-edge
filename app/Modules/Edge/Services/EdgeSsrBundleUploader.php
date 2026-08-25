@@ -12,6 +12,7 @@ use App\Modules\Edge\Support\FakeEdgeProvision;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
+use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 
 /**
  * Ships a per-deployment SSR Worker bundle (produced by EdgeBuildRunner

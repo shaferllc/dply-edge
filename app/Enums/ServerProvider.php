@@ -2,7 +2,6 @@
 
 namespace App\Enums;
 
-use App\Support\Servers\ServerImageProvider;
 
 enum ServerProvider: string
 {

@@ -29,7 +29,6 @@ final class BillingAnalytics
         private readonly OrganizationBillingStateComputer $billingStateComputer,
         private readonly EdgeSiteBillingAnalytics $edgeSiteBillingAnalytics,
         private readonly BillingForecastCalculator $forecastCalculator,
-        private readonly OrganizationCostObservatory $costObservatory,
     ) {}
 
     /**
@@ -42,7 +41,6 @@ final class BillingAnalytics
         $snapshotThirtyDaysAgo = $this->snapshotThirtyDaysAgo($organization);
 
         return [
-            'cost_observatory' => $this->costObservatory->forOrganization($organization, $state),
             'summary' => $this->summary($organization, $state),
             'forecast' => $this->forecast($organization, $state, $snapshotThirtyDaysAgo),
             'spend_trend' => $spendTrend,

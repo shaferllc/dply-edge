@@ -3,29 +3,48 @@
 @endphp
 
 <div>
-    <div class="mb-6 flex flex-wrap items-start justify-between gap-4 border-b border-brand-ink/10 pb-6">
-        <div>
-            <x-page-header
-                :title="$organization->name"
-                :description="__('Per-org Pennant overrides by product line. Emergency global kill switches are not overridable here.')"
-                flush
-                compact
-            />
-            <p class="mt-2 text-xs text-brand-mist">
-                {{ __(':count explicit overrides · ID :id', ['count' => number_format($overrideCount), 'id' => $organization->id]) }}
-            </p>
-        </div>
-        <a href="{{ route('organizations.show', $organization) }}" wire:navigate class="inline-flex items-center gap-2 rounded-lg border border-brand-ink/15 bg-white px-4 py-2.5 text-sm font-medium shadow-sm hover:bg-brand-sand/40">
-            {{ __('Open in app') }}
-            <x-heroicon-o-arrow-top-right-on-square class="h-4 w-4 text-brand-moss" />
-        </a>
-    </div>
+    <x-breadcrumb-trail :items="[
+        ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
+        ['label' => __('Platform admin'), 'href' => route('admin.overview'), 'icon' => 'shield-check'],
+        ['label' => __('Organizations'), 'href' => route('admin.organizations.index'), 'icon' => 'building-office-2'],
+        ['label' => $organization->name, 'icon' => 'building-office-2'],
+    ]" />
 
-    {{-- Members — impersonate any member to see the app from their seat. --}}
-    <div class="mb-6 overflow-hidden rounded-xl border border-brand-ink/10 bg-white shadow-sm">
-        <div class="border-b border-brand-ink/10 bg-brand-cream/50 px-4 py-2.5">
-            <h2 class="text-xs font-semibold uppercase tracking-wide text-brand-moss">{{ __('Members') }} ({{ $members->count() }})</h2>
-        </div>
+    <x-profile-shell
+        class="mt-4"
+        :title="$organization->name"
+        :description="__('Per-org Pennant overrides by product line. Emergency global kill switches are not overridable here.')"
+        icon="heroicon-o-building-office-2"
+    >
+        <x-slot:actions>
+            <x-outline-link href="{{ route('organizations.show', $organization) }}" wire:navigate size="sm">
+                {{ __('Open in app') }}
+                <x-heroicon-o-arrow-top-right-on-square class="h-4 w-4 shrink-0 text-brand-moss" aria-hidden="true" />
+            </x-outline-link>
+        </x-slot:actions>
+
+        <x-slot:stats>
+            <dl class="grid grid-cols-2 gap-2">
+                <div class="rounded-xl border border-brand-ink/10 bg-white/80 px-3 py-2">
+                    <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Overrides') }}</dt>
+                    <dd class="mt-0.5 font-mono text-lg font-semibold tabular-nums leading-none text-brand-ink">{{ number_format($overrideCount) }}</dd>
+                </div>
+                <div class="rounded-xl border border-brand-ink/10 bg-white/80 px-3 py-2">
+                    <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Members') }}</dt>
+                    <dd class="mt-0.5 font-mono text-lg font-semibold tabular-nums leading-none text-brand-ink">{{ $members->count() }}</dd>
+                </div>
+            </dl>
+        </x-slot:stats>
+
+        {{-- Members — impersonate any member to see the app from their seat. --}}
+        <section class="border-b border-brand-ink/10">
+        <x-workspace-panel-head
+            dense
+            icon="heroicon-o-users"
+            :title="__('Members')"
+            :count="$members->count()"
+            :note="__('ID :id', ['id' => $organization->id])"
+        />
         <ul class="divide-y divide-brand-ink/5">
             @forelse ($members as $member)
                 <li class="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
@@ -36,22 +55,30 @@
                     <x-impersonate-button :user="$member" variant="subtle" />
                 </li>
             @empty
-                <li class="px-4 py-4 text-center text-xs text-brand-mist">{{ __('No members.') }}</li>
+                <li>
+                    <x-empty-state
+                        borderless
+                        compact
+                        icon="heroicon-o-users"
+                        :title="__('No members')"
+                        :description="__('Nobody has accepted an invitation to this organization yet.')"
+                    />
+                </li>
             @endforelse
         </ul>
-    </div>
+        </section>
 
-    <div class="mb-6">
-        <x-server-workspace-tablist :aria-label="__('Feature flag product lines')" scroll>
-            @foreach ($tabs as $slug => $label)
-                <x-server-workspace-tab :active="$tab === $slug" icon="heroicon-o-flag" wire:click="setTab('{{ $slug }}')">{{ $label }}</x-server-workspace-tab>
-            @endforeach
-        </x-server-workspace-tablist>
-    </div>
+        <div class="border-b border-brand-ink/10 px-3 py-2 sm:px-4">
+            <x-server-workspace-tablist :aria-label="__('Feature flag product lines')" scroll>
+                @foreach ($tabs as $slug => $label)
+                    <x-server-workspace-tab :active="$tab === $slug" icon="heroicon-o-flag" wire:click="setTab('{{ $slug }}')">{{ $label }}</x-server-workspace-tab>
+                @endforeach
+            </x-server-workspace-tablist>
+        </div>
 
-    <div class="space-y-4">
+    <div class="space-y-3 px-3 py-3 sm:px-4">
         @forelse ($groups as $group)
-            <details class="dply-card-compact group" @if($loop->first) open @endif wire:key="org-group-{{ $group['title'] }}">
+            <details class="group rounded-xl border border-brand-ink/10 bg-white/80 px-3 py-2.5" @if($loop->first) open @endif wire:key="org-group-{{ $group['title'] }}">
                 <summary class="cursor-pointer list-none font-semibold text-brand-ink marker:content-none [&::-webkit-details-marker]:hidden">
                     <span class="flex items-center justify-between gap-2">
                         {{ $group['title'] }}
@@ -62,14 +89,25 @@
                     @foreach ($group['flags'] as $flag)
                         <li wire:key="org-flag-{{ $flag['key'] }}">
                             <x-admin-flag-row :flag="$flag" mode="org">
-                                <input type="checkbox" wire:click="toggleOrgFeatureFlag('{{ $flag['key'] }}')" wire:loading.attr="disabled" @checked($flag['active']) class="h-4 w-4 shrink-0 rounded border-brand-ink/30 text-brand-sage focus:ring-brand-sage" />
+                                <x-toggle-switch
+                                    :enabled="(bool) $flag['active']"
+                                    wire:click="toggleOrgFeatureFlag('{{ $flag['key'] }}')"
+                                    wire:loading.attr="disabled"
+                                    on-label=""
+                                    off-label=""
+                                />
                             </x-admin-flag-row>
                         </li>
                     @endforeach
                 </ul>
             </details>
         @empty
-            <p class="rounded-xl border border-dashed border-brand-ink/15 px-4 py-6 text-sm text-brand-moss">{{ __('No org-scoped flags for this product line.') }}</p>
+            <x-empty-state
+                icon="heroicon-o-flag"
+                :title="__('No org-scoped flags')"
+                :description="__('This product line has no flags that can be overridden per organization.')"
+            />
         @endforelse
     </div>
+    </x-profile-shell>
 </div>

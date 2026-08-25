@@ -521,48 +521,12 @@
 
                             @if ($form->runtime_mode === 'hybrid')
                                 <div class="rounded-xl border border-brand-sage/30 bg-brand-sage/8 px-4 py-3 dark:border-brand-sage/25 dark:bg-brand-sage/10">
-                                    @if ($ssrDetected && trim($form->origin_url) === '' && $autoProvisionHybridOrigin)
-                                        <p class="text-sm font-medium text-brand-ink">{{ __('Hybrid SSR detected') }}</p>
-                                        <p class="mt-1 text-xs leading-relaxed text-brand-moss">{{ __('Deploy will create a Cloud origin and Edge front automatically.') }}</p>
-                                    @elseif ($autoProvisionHybridOrigin)
-                                        <p class="text-sm font-medium text-brand-ink">{{ __('SSR origin') }}</p>
-                                        <p class="mt-1 text-xs leading-relaxed text-brand-moss">{{ __('A Cloud app will be provisioned from this repo; Edge starts when the origin is live.') }}</p>
-                                    @else
                                         <x-input-label for="origin_url" :value="__('SSR origin URL')" />
                                         @if ($ssrDetected)
-                                            <p class="mt-1 text-xs text-brand-moss">{{ __('Server-rendered app detected — link a Cloud app or enter its live URL.') }}</p>
+                                            <p class="mt-1 text-xs text-brand-moss">{{ __('Server-rendered app detected — enter the live URL of its origin.') }}</p>
                                         @endif
                                         <x-text-input id="origin_url" wire:model.live="form.origin_url" type="url" class="mt-2 block w-full font-mono text-sm" placeholder="https://my-app.example.com" required />
-                                        @if ($suggestedHybridOriginUrl !== '' && $form->origin_url === $suggestedHybridOriginUrl)
-                                            <p class="mt-2 inline-flex items-center gap-1.5 rounded-full bg-brand-sage/10 px-2.5 py-1 text-xs font-medium text-brand-forest dark:text-brand-sage">
-                                                <x-heroicon-o-sparkles class="h-4 w-4" />
-                                                {{ __('Auto-filled from Cloud app') }}
-                                            </p>
-                                        @endif
-                                        <p class="mt-2 text-xs text-brand-moss">
-                                            <a href="{{ route('cloud.create') }}" wire:navigate class="font-medium text-brand-forest hover:underline dark:text-brand-sage">{{ __('Create a Cloud app') }}</a>
-                                            {{ __('if you need a new origin.') }}
-                                        </p>
                                         <x-input-error :messages="$errors->get('form.origin_url')" class="mt-2" />
-                                        @if ($orgCloudSites !== [])
-                                            <details class="mt-3">
-                                                <summary class="cursor-pointer text-xs font-semibold text-brand-ink">{{ __('Link an existing Cloud app') }}</summary>
-                                                <select id="origin_cloud_site_id" wire:model.live="form.origin_cloud_site_id" class="dply-input mt-2 block w-full text-sm">
-                                                    <option value="">{{ __('Use suggested URL') }}</option>
-                                                    @foreach ($orgCloudSites as $cloudSite)
-                                                        <option value="{{ $cloudSite['id'] }}">
-                                                            {{ $cloudSite['label'] }}
-                                                            @if (! empty($cloudSite['live_url']))
-                                                                — {{ $cloudSite['live_url'] }}
-                                                            @elseif (! empty($cloudSite['repo']))
-                                                                ({{ $cloudSite['repo'] }})
-                                                            @endif
-                                                        </option>
-                                                    @endforeach
-                                                </select>
-                                            </details>
-                                        @endif
-                                    @endif
                                 </div>
                             @endif
 
@@ -715,14 +679,14 @@
                             <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end">
                                 @php
                                     $deployBlocked = $ssrDetected && trim($form->origin_url) === '' && $form->runtime_mode !== 'hybrid';
-                                    $hybridMissingOrigin = $form->runtime_mode === 'hybrid' && trim($form->origin_url) === '' && ! $autoProvisionHybridOrigin;
+                                    $hybridMissingOrigin = $form->runtime_mode === 'hybrid' && trim($form->origin_url) === '';
                                     $missingName = trim($form->name) === '';
                                     $missingRepo = trim($repo) === '';
                                     $missingBranch = trim($branch) === '';
                                     $edgeDeployDisabled = ! $edgeEligible || $deployBlocked || $hybridMissingOrigin
                                         || $missingName || $missingRepo || $missingBranch;
-                                    $deployLabel = $autoProvisionHybridOrigin ? __('Deploy hybrid stack') : __('Deploy edge app');
-                                    $detectTargets = 'deploy,deployHybridStack,detectFromRepository,repo,branch,repository_selection,source_control_account_id,repo_source';
+                                    $deployLabel = __('Deploy edge app');
+                                    $detectTargets = 'deploy,detectFromRepository,repo,branch,repository_selection,source_control_account_id,repo_source';
                                 @endphp
                                 <x-primary-button
                                     type="submit"
@@ -731,11 +695,11 @@
                                     :disabled="$edgeDeployDisabled"
                                     class="w-full sm:w-auto disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-brand-ink disabled:shadow-none"
                                 >
-                                    <span wire:loading.remove wire:target="deploy,deployHybridStack" class="inline-flex items-center gap-2 whitespace-nowrap">
+                                    <span wire:loading.remove wire:target="deploy" class="inline-flex items-center gap-2 whitespace-nowrap">
                                         <x-heroicon-o-rocket-launch class="inline-block h-4 w-4 shrink-0 align-middle" aria-hidden="true" />
                                         {{ $deployLabel }}
                                     </span>
-                                    <span wire:loading wire:target="deploy,deployHybridStack" class="inline-flex items-center justify-center gap-2 whitespace-nowrap">
+                                    <span wire:loading wire:target="deploy" class="inline-flex items-center justify-center gap-2 whitespace-nowrap">
                                         <x-spinner variant="cream" />
                                         {{ __('Queueing…') }}
                                     </span>
@@ -755,46 +719,4 @@
 
     <livewire:credentials.add-provider-credential-modal capability="cdn" default-provider="cloudflare" />
 
-    <x-modal
-        name="edge-create-hybrid-stack-confirmation"
-        :show="false"
-        maxWidth="lg"
-        overlayClass="bg-brand-ink/30"
-        panelClass="dply-modal-panel"
-        focusable
-    >
-        <div class="border-b border-brand-ink/10 px-6 py-5 dark:border-brand-mist/20">
-            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-brand-sage">{{ __('Hybrid SSR stack') }}</p>
-            <h2 class="mt-2 text-xl font-semibold text-brand-ink">{{ __('Deploy Cloud origin + Edge hybrid?') }}</h2>
-            <p class="mt-2 text-sm leading-6 text-brand-moss">
-                {{ __('dply will create a Cloud app from :repo as the SSR origin, then create an Edge hybrid site that serves static assets globally and proxies dynamic routes to that origin.', ['repo' => $repo !== '' ? $repo : __('this repository')]) }}
-            </p>
-            <ul class="mt-3 list-disc space-y-1 pl-5 text-xs text-brand-moss">
-                <li>{{ __('Cloud origin: server-rendered routes (:branch branch)', ['branch' => $branch]) }}</li>
-                <li>{{ __('Edge front: static build + CDN delivery for :name', ['name' => $form->name !== '' ? $form->name : __('your app')]) }}</li>
-                <li>{{ __('Billing: Edge ($:edge/mo per site) + Cloud container tier ($:cloud/mo base)', ['edge' => number_format($edgeFee, 2), 'cloud' => number_format($cloudFee, 2)]) }}</li>
-                <li>{{ __('Origin URL is usually ready within a few minutes; Edge build starts automatically.') }}</li>
-            </ul>
-        </div>
-        <div class="flex flex-col-reverse gap-2 px-6 py-5 sm:flex-row sm:justify-end">
-            <button
-                type="button"
-                wire:click="closeHybridStackModal"
-                class="inline-flex items-center justify-center rounded-xl border border-brand-ink/15 bg-white px-4 py-2.5 text-sm font-semibold text-brand-ink transition-colors hover:border-brand-sage/40 hover:text-brand-forest dark:border-brand-mist/25 dark:bg-zinc-800 dark:hover:text-brand-sage"
-            >
-                {{ __('Cancel') }}
-            </button>
-            <button
-                type="button"
-                wire:click="deployHybridStack"
-                wire:loading.attr="disabled"
-                wire:target="deployHybridStack"
-                class="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-forest px-4 py-2.5 text-sm font-semibold text-brand-cream shadow-sm transition-colors hover:bg-brand-ink disabled:opacity-60 dark:bg-brand-sage dark:text-brand-ink"
-            >
-                <x-spinner wire:loading wire:target="deployHybridStack" size="sm" variant="cream" />
-                <span wire:loading.remove wire:target="deployHybridStack">{{ __('Deploy hybrid stack') }}</span>
-                <span wire:loading wire:target="deployHybridStack">{{ __('Queueing…') }}</span>
-            </button>
-        </div>
-    </x-modal>
 </div>

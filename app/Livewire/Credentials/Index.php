@@ -5,26 +5,17 @@ namespace App\Livewire\Credentials;
 use App\Enums\ServerProvider;
 use App\Livewire\Concerns\DispatchesToastNotifications;
 use App\Livewire\Concerns\ManagesProviderCredentials;
-use App\Livewire\Servers\Concerns\ManagesBackupDestinationModal;
-use App\Models\BackupConfiguration;
 use App\Models\Organization;
 use App\Models\ProviderCredential;
-use App\Support\ServerProviderGate;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\On;
 use Livewire\Component;
+use App\Support\ServerProviderGate;
 
 /**
  * The organization's Credentials page: every secret this org hands to a third
- * party. Two families live here, and they are genuinely different shapes —
- * {@see ProviderCredential} is one API token per cloud/DNS/CDN provider, while
- * {@see BackupConfiguration} is a named bucket or remote with its own config,
- * many per provider.
- *
- * They are deliberately NOT merged into `credentialProviderNav()`: that list is
- * also what the server-create flow reads to decide where a VM can be
- * provisioned, and an S3 bucket is not somewhere you can boot a server.
+ * party — one API token per cloud/DNS/CDN provider ({@see ProviderCredential}).
  */
 class Index extends Component
 {
@@ -32,7 +23,6 @@ class Index extends Component
     // Brings BOTH create modes — "connect existing" and "provision a new
     // bucket" — so a storage card here can create the bucket, not just record
     // keys for one you made elsewhere.
-    use ManagesBackupDestinationModal;
     use ManagesProviderCredentials;
 
     /**
@@ -71,7 +61,6 @@ class Index extends Component
 
     public function mount(?Organization $organization = null): void
     {
-        $this->destinationForm = $this->emptyDestinationForm();
         $this->organization = $organization;
 
         if ($this->organization) {
@@ -303,72 +292,6 @@ class Index extends Component
         return $this->credentialCounts()[$provider] ?? 0;
     }
 
-    /**
-     * Storage destinations grouped by provider, memoised for the request the
-     * same way credential counts are — the card grid asks per provider.
-     *
-     * @var \Illuminate\Support\Collection<string, \Illuminate\Support\Collection<int, BackupConfiguration>>|null
-     */
-    private $storageByProviderMemo = null;
-
-    /** @return \Illuminate\Support\Collection<int, BackupConfiguration> */
-    public function storageDestinationsFor(string $provider)
-    {
-        if ($this->storageByProviderMemo === null) {
-            $org = $this->organization ?: Auth::user()?->currentOrganization();
-
-            $this->storageByProviderMemo = $org instanceof Organization
-                ? $org->backupConfigurations()->orderBy('name')->get()->groupBy('provider')
-                : collect();
-        }
-
-        return $this->storageByProviderMemo->get($provider) ?? collect();
-    }
-
-    /**
-     * Open the shared add-destination modal with a provider preselected. The
-     * card grid is the entry point, so the provider is always known by the time
-     * we get here.
-     */
-    public function openStorageModal(string $provider = ''): void
-    {
-        $this->authorize('create', BackupConfiguration::class);
-        $this->resetErrorBag();
-
-        $this->destinationForm = $this->emptyDestinationForm();
-        $this->destination_create_mode = 'connect';
-        $this->resetProvisionForm();
-
-        if ($provider !== '' && in_array($provider, BackupConfiguration::providers(), true)) {
-            $this->destinationForm['provider'] = $provider;
-        }
-
-        $this->showDestinationModal = true;
-    }
-
-    /** This page scopes to an explicit organization, not the session's current one. */
-    protected function backupDestinationOrganization(): ?Organization
-    {
-        return $this->organization ?: Auth::user()?->currentOrganization();
-    }
-
-    /** The trait creates the row; auditing is this surface's business. */
-    protected function onBackupDestinationCreated(BackupConfiguration $destination): void
-    {
-        $org = $this->backupDestinationOrganization();
-        if ($org === null) {
-            return;
-        }
-
-        audit_log($org, Auth::user(), 'backup.destination.created', $destination, null, [
-            'name' => $destination->name,
-            'provider' => $destination->provider,
-        ]);
-
-        // Drop the memo so the card grid reflects the new row on this render.
-        $this->storageByProviderMemo = null;
-    }
-
     public function render(): View
     {
         $org = $this->organization ?: auth()->user()->currentOrganization();
@@ -376,17 +299,13 @@ class Index extends Component
             ? ProviderCredential::where('organization_id', $org->id)->latest()->get()
             : auth()->user()->providerCredentials()->whereNull('organization_id')->latest()->get();
 
-        // The storage family is its own tab: showing buckets under a "Compute"
-        // or "DNS" filter would be a category error.
-        $showStorage = in_array($this->tab, ['all', 'storage'], true);
-
         return view('livewire.credentials.index', [
             'credentials' => $credentials,
             'providerNav' => $this->tab === 'storage'
                 ? []
                 : self::credentialProviderNav($this->capabilityForTab()),
-            'storageNav' => $showStorage ? self::storageProviderNav() : [],
-            'storageCount' => $org instanceof Organization ? $org->backupConfigurations()->count() : 0,
+            'storageNav' => [],
+            'storageCount' => 0,
             'activeProviderLabel' => $this->resolveActiveProviderLabel(),
             'organization' => $org,
             'useOrgShell' => $org instanceof Organization,
@@ -394,26 +313,4 @@ class Index extends Component
         ])->layout($org instanceof Organization ? 'layouts.app' : 'layouts.settings');
     }
 
-    /**
-     * The storage family, shaped like {@see credentialProviderNav()} so the card
-     * grid can render both with the same markup.
-     *
-     * @return list<array{label: string, items: list<array{id: string, label: string, comingSoon: bool}>}>
-     */
-    public static function storageProviderNav(): array
-    {
-        $items = [];
-        foreach (BackupConfiguration::providers() as $provider) {
-            $items[] = [
-                'id' => $provider,
-                'label' => BackupConfiguration::labelForProvider($provider),
-                'comingSoon' => ! BackupConfiguration::isProviderAvailable($provider),
-            ];
-        }
-
-        return [[
-            'label' => __('Backup storage'),
-            'items' => $items,
-        ]];
-    }
 }

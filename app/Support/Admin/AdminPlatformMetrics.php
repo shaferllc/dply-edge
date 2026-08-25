@@ -9,13 +9,10 @@ use App\Models\AuditLog;
 use App\Models\Organization;
 use App\Models\OrganizationInvitation;
 use App\Models\Project;
-use App\Models\Script;
 use App\Models\Server;
 use App\Models\Site;
 use App\Models\StatusPage;
 use App\Models\User;
-use App\Modules\TaskRunner\Enums\TaskStatus;
-use App\Modules\TaskRunner\Models\Task as TaskRunnerTask;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Redis;
@@ -48,18 +45,12 @@ final class AdminPlatformMetrics
             'servers' => Server::query()->count(),
             'sites' => Site::query()->count(),
             'audit_logs_24h' => AuditLog::query()->where('created_at', '>=', $since)->count(),
-            'task_runner_tasks_pending' => TaskRunnerTask::query()->where('status', TaskStatus::Pending)->count(),
             'users_7d' => User::query()->where('created_at', '>=', $since7d)->count(),
             'organizations_7d' => Organization::query()->where('created_at', '>=', $since7d)->count(),
             'api_tokens' => ApiToken::query()->count(),
             'invitations_open' => OrganizationInvitation::query()->where('expires_at', '>', now())->count(),
             'status_pages' => StatusPage::query()->count(),
-            'scripts' => Script::query()->count(),
             'projects' => Project::query()->count(),
-            'task_runner_failed' => TaskRunnerTask::query()
-                ->whereIn('status', TaskStatus::getFailedStatuses())
-                ->count(),
-            'task_runner_running' => TaskRunnerTask::query()->where('status', TaskStatus::Running)->count(),
             'pending_jobs' => $pendingJobs,
             'failed_jobs' => $failedJobsCount,
         ];

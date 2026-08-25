@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -65,6 +66,24 @@ class AuditLog extends Model
     }
 
     /**
+     * Audit rows outlive their subject class — the Edge cut deleted whole model
+     * namespaces, and morphTo instantiates whatever string sits in the column
+     * ("Class App\Models\SiteDeploymentEphemeralCredential not found"), which
+     * takes down every page that eager-loads or reads the relation. Hiding
+     * unresolvable types here fixes all of them at once: the relation simply
+     * resolves to null. The raw column is untouched — {@see subjectSummary()}
+     * still labels the row from it.
+     *
+     * @return Attribute<?string, ?string>
+     */
+    protected function subjectType(): Attribute
+    {
+        return Attribute::get(
+            fn (?string $value): ?string => $value !== null && class_exists($value) ? $value : null,
+        );
+    }
+
+    /**
      * Create an audit log entry.
      *
      * @param  array<string, mixed>|null  $oldValues
@@ -102,35 +121,36 @@ class AuditLog extends Model
      */
     public function getSubjectSummaryAttribute(): ?string
     {
+        // subject_type reads null for classes that no longer exist, so this
+        // resolves the relation only when it can actually be hydrated.
         $subject = $this->subject_type && $this->subject_id ? $this->subject : null;
+        $rawType = (string) ($this->getRawOriginal('subject_type') ?? '');
         $name = $subject
             ? match (true) {
                 $subject instanceof Server => $subject->name,
                 $subject instanceof Team => $subject->name,
                 $subject instanceof OrganizationInvitation => $subject->email,
                 $subject instanceof Site => $subject->name,
-                $subject instanceof SiteDeployment => 'deployment #'.$subject->getKey(),
                 $subject instanceof Workspace => $subject->name,
                 default => null,
             }
         : ($this->old_values['name'] ?? $this->new_values['name'] ?? null);
 
         if ($name !== null) {
-            $label = match ($this->subject_type) {
+            $label = match ($rawType) {
                 Server::class => 'Server',
                 Team::class => 'Team',
                 OrganizationInvitation::class => 'Invitation',
                 Site::class => 'Site',
-                SiteDeployment::class => 'Deployment',
                 Workspace::class => 'Project',
-                default => class_basename($this->subject_type ?? ''),
+                default => class_basename($rawType),
             };
 
             return ($label ? $label.': ' : '').$name;
         }
 
-        if ($this->subject_type && $this->subject_id) {
-            return class_basename($this->subject_type).' #'.$this->subject_id;
+        if ($rawType !== '' && $this->subject_id) {
+            return class_basename($rawType).' #'.$this->subject_id;
         }
 
         return null;

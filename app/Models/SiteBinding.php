@@ -153,59 +153,12 @@ class SiteBinding extends Model
             }
         }
 
-        // Managed Redis bindings stored before TLS was injected still have
-        // HOST/PORT/PASSWORD only. Re-derive from the cluster so the next
-        // env push / deploy handshakes with rediss:// instead of 500ing.
-        if ($this->type === 'redis' && $this->target_type === 'cloud_database' && filled($this->target_id)) {
-            $cluster = CloudDatabase::query()->find($this->target_id);
-            if ($cluster instanceof CloudDatabase) {
-                $connection = (string) (data_get($this->config, 'connection') ?? '');
-                $prefix = ($connection === '' || strtolower($connection) === 'primary')
-                    ? 'REDIS'
-                    : 'REDIS_'.strtoupper($connection);
-                foreach ($cluster->connectionEnvVars($prefix) as $key => $value) {
-                    $clean[$key] = $value;
-                }
-            }
-        }
-
         return $clean;
     }
 
     public function wasProvisionedByDply(): bool
     {
         return $this->mode === 'provision_new';
-    }
-
-    /**
-     * Hosted / remote database the operator can still configure (managed
-     * cluster, dedicated DB VM, serverless vendor, or an external host).
-     * On-box and same-server Docker placements are not remote.
-     */
-    public function isRemoteConfigurableDatabase(): bool
-    {
-        if ($this->type !== 'database') {
-            return false;
-        }
-
-        if ($this->target_type === 'cloud_database') {
-            return true;
-        }
-
-        $config = is_array($this->config) ? $this->config : [];
-        if (! empty($config['managed']) || ($config['placement'] ?? '') === 'managed') {
-            return true;
-        }
-
-        $placement = strtolower(trim((string) ($config['placement'] ?? '')));
-        if ($placement !== '' && ! in_array($placement, ['on_box', 'same_server', 'docker'], true)) {
-            return true;
-        }
-
-        $env = is_array($this->injected_env) ? $this->injected_env : [];
-        $host = strtolower(trim((string) ($config['host'] ?? $env['DB_HOST'] ?? '')));
-
-        return $host !== '' && ! in_array($host, ['127.0.0.1', 'localhost', '::1'], true);
     }
 
     /**
