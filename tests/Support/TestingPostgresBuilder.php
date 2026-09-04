@@ -10,10 +10,18 @@ use Illuminate\Database\Schema\PostgresBuilder;
  *
  * Batches drops so each statement stays under typical limits (64) without
  * requiring a local Postgres restart.
+ *
+ * The chunk is 12, not 32: the drop is `DROP TABLE … CASCADE`, and cascading
+ * through foreign keys takes locks on the *referenced* tables too, so a chunk
+ * of 32 could blow past max_locks_per_transaction (64 by default) depending on
+ * which tables happened to land in it. When that happened the wipe aborted
+ * half-done and the run that followed migrated onto a partial schema —
+ * surfacing as a couple of hundred "relation … does not exist" failures that
+ * cleared on the next run and came back on the one after.
  */
 class TestingPostgresBuilder extends PostgresBuilder
 {
-    private const DROP_CHUNK_SIZE = 32;
+    private const DROP_CHUNK_SIZE = 12;
 
     public function dropAllTables(): void
     {

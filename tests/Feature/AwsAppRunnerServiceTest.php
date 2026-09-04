@@ -154,14 +154,16 @@ test('list operations returns normalized rows', function () {
     expect($ops[0]['type'])->toBe('START_DEPLOYMENT');
     expect($ops[0]['status'])->toBe('SUCCEEDED');
 });
-test('stop deployment calls api', function () {
+/*
+ | App Runner has no stop/cancel-deployment operation — the SDK exposes
+ | startDeployment / pauseService / resumeService only — so the method reports
+ | "could not cancel" without touching the client.
+ */
+test('stop deployment reports failure without calling the api', function () {
     $client = Mockery::mock(AppRunnerClient::class);
-    $client->shouldReceive('stopDeployment')
-        ->once()
-        ->with(['ServiceArn' => 'arn:test', 'OperationId' => 'op-1'])
-        ->andReturn(new Result(['OperationId' => 'op-1']));
+    $client->shouldNotReceive('stopDeployment');
 
-    expect(service($client)->stopDeployment('arn:test', 'op-1'))->toBeTrue();
+    expect(service($client)->stopDeployment('arn:test', 'op-1'))->toBeFalse();
 });
 test('get service metrics maps cloudwatch series', function () {
     $cw = Mockery::mock(\Aws\CloudWatch\CloudWatchClient::class);

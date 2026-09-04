@@ -151,16 +151,6 @@ Route::get('/features', function () {
     return view('features');
 })->name('features');
 
-Route::get('/changelog', function () {
-    return view('changelog');
-})->name('changelog');
-
-Route::get('/migrate', function () {
-    return view('migrate.index', [
-        'sources' => config('migration_sources', []),
-    ]);
-})->name('migrate.index');
-
 Route::get('/deploy', function (Request $request) {
     $allowed = ['repo', 'branch', 'name', 'runtime_mode', 'build_command', 'output_dir'];
     $query = array_filter(
@@ -170,18 +160,6 @@ Route::get('/deploy', function (Request $request) {
 
     return redirect()->route('edge.create', $query);
 })->name('deploy.shortlink');
-
-Route::get('/migrate/{slug}', function (string $slug) {
-    $source = config('migration_sources.'.$slug);
-
-    abort_unless($source, 404);
-
-    return view('migrate.show', [
-        'slug' => $slug,
-        'source' => $source,
-    ]);
-})->whereIn('slug', array_keys(config('migration_sources', [])))
-    ->name('migrate.show');
 
 Route::livewire('/coming-soon', MarketingComingSoonSignup::class)
     ->name('coming-soon');
@@ -206,13 +184,13 @@ Route::livewire('invitations/accept/{token}', InvitationsAccept::class)
 Route::middleware(['auth', 'verified', 'org'])->group(function () {
     // dply-edge has one product surface — the edge site list is the dashboard.
     // Kept as a named route so every route('dashboard') call site still resolves.
-    Route::redirect('/dashboard', '/edge')->name('dashboard');
+    Route::redirect('/dashboard', '/apps')->name('dashboard');
     // OAuth-style device-flow approval page for the dply CLI. The CLI
     // prints a short code; user lands here (deep link or paste),
     // confirms scopes + org, and we mint an ApiToken that the polling
     // CLI picks up exactly once via /api/v1/auth/device/poll.
     Route::livewire('/auth/device', AuthDeviceApproval::class)->name('auth.device.show');
-    Route::get('/edge/sites/{site}/preview-access', EdgePreviewAccessController::class)
+    Route::get('/apps/sites/{site}/preview-access', EdgePreviewAccessController::class)
         ->name('edge.preview-access');
 
     Route::prefix('admin')
@@ -295,11 +273,21 @@ Route::middleware(['auth', 'verified', 'org'])->group(function () {
     Route::livewire('organizations/{organization}/secrets', OrganizationsSecrets::class)->name('organizations.secrets');
 
     Route::middleware('feature:surface.edge')->group(function (): void {
-        Route::livewire('edge', EdgeIndex::class)->name('edge.index');
-        Route::livewire('edge/create', EdgeCreate::class)->name('edge.create');
-        Route::livewire('edge/import', Import::class)->name('edge.import');
-        Route::livewire('edge/templates', Templates::class)->name('edge.templates');
-        Route::livewire('edge/usage', Usage::class)->name('edge.usage');
+        Route::livewire('apps', EdgeIndex::class)->name('edge.index');
+        Route::livewire('apps/create', EdgeCreate::class)->name('edge.create');
+        Route::livewire('apps/import', Import::class)->name('edge.import');
+        Route::livewire('apps/templates', Templates::class)->name('edge.templates');
+        Route::livewire('apps/usage', Usage::class)->name('edge.usage');
+
+        /*
+         * Legacy /edge/* URLs. The section was renamed to "Apps" — /edge named
+         * where the code runs (Cloudflare's edge) rather than what the user has.
+         * Route NAMES stay edge.* on purpose: they are internal, match the Edge
+         * module, and renaming 41 call sites buys nothing a user can see.
+         * Permanent so bookmarks and any external links move over for good.
+         */
+        Route::permanentRedirect('edge', 'apps');
+        Route::permanentRedirect('edge/{path}', 'apps/{path}')->where('path', '.*');
     });
 
     Route::middleware('feature:surface.status_pages')->group(function (): void {

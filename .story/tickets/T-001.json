@@ -1,0 +1,12 @@
+{
+  "blockedBy": [],
+  "completedDate": null,
+  "createdDate": "2026-09-04",
+  "description": "The working tree carries 180 status entries: 86 deletions (85 of them .php), 89 modifications, and 4 untracked files, all sitting under a chain of commits named \"wip\".\n\nTwo different kinds of change are mixed together. One half is the tail of the Edge-only cut — deleted VM-era tests, dead views (server-create-stepper, server-metric-pulse, site-daemon-suggestions), removed Insight models, and config/product/migration_sources.php. The other half is unfinished polish that the edge-polish tickets are meant to complete.\n\nPartition them. Commit only the cut half, in coherent chunks with real messages. Leave the polish uncommitted so its own tickets can finish it rather than shipping it half-done. Check each deletion for surviving references before committing it.\n",
+  "id": "T-001",
+  "order": 10,
+  "phase": "cut-cleanup",
+  "status": "open",
+  "title": "Review and partition the Edge-cut working tree",
+  "type": "task"
+}

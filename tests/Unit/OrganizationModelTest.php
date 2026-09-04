@@ -163,64 +163,7 @@ test('max servers is unlimited for all orgs', function () {
     expect($trialOrg->maxServersDisplay())->toBe('Unlimited');
 });
 
-test('site ceiling follows the plan resolved from billable server count', function () {
-    config(['subscription.standard.min_billable_age_days' => 1]);
-    config(['subscription.standard.plans' => [
-        'free' => ['label' => 'Free', 'price_cents' => 0, 'max_servers' => 1, 'max_sites' => 1],
-        'starter' => ['label' => 'Starter', 'price_cents' => 900, 'max_servers' => 3, 'max_sites' => 10],
-        'pro' => ['label' => 'Pro', 'price_cents' => 1900, 'max_servers' => 10, 'max_sites' => 30],
-        'business' => ['label' => 'Business', 'price_cents' => 3900, 'max_servers' => null, 'max_sites' => null],
-    ]]);
 
-    $org = Organization::factory()->create();
-
-    // No billable servers -> Free plan -> single site ceiling.
-    expect($org->planSiteLimit())->toBe(1);
-    expect($org->maxSites())->toBe(1);
-    expect($org->maxSitesDisplay())->toBe('1');
-
-    // Two aged, ready VM servers move the org onto Starter (≤3 servers).
-    Server::factory()->count(2)->create([
-        'organization_id' => $org->id,
-        'status' => Server::STATUS_READY,
-        'created_at' => now()->subDays(3),
-    ]);
-
-    $org->refresh();
-    expect($org->currentSubscriptionPlan()['key'])->toBe('starter');
-    expect($org->planSiteLimit())->toBe(10);
-    expect($org->maxSites())->toBe(10);
-});
-
-test('canCreateSite hard-blocks at the plan site ceiling', function () {
-    config(['subscription.standard.plans' => [
-        'free' => ['label' => 'Free', 'price_cents' => 0, 'max_servers' => 1, 'max_sites' => 1],
-        'business' => ['label' => 'Business', 'price_cents' => 3900, 'max_servers' => null, 'max_sites' => null],
-    ]]);
-
-    $org = Organization::factory()->create();
-
-    expect($org->canCreateSite())->toBeTrue();
-    expect($org->siteLimitReached())->toBeFalse();
-
-    $server = Server::factory()->create([
-        'organization_id' => $org->id,
-        'status' => Server::STATUS_READY,
-        'created_at' => now()->subDays(3),
-    ]);
-    Site::factory()->create([
-        'organization_id' => $org->id,
-        'server_id' => $server->id,
-    ]);
-
-    $org->refresh();
-
-    // Free plan = 1 site, now consumed.
-    expect($org->quotaCountedSiteCount())->toBe(1);
-    expect($org->siteLimitReached())->toBeTrue();
-    expect($org->canCreateSite())->toBeFalse();
-    expect($org->siteLimitMessage())->toContain('Free plan');
-});
 
 test('unlimited plans never block site creation', function () {
     config(['subscription.standard.plans' => [

@@ -35,7 +35,7 @@ test('returns 404 when surface edge inactive', function () {
 
     $this->actingAs($user)
         ->get(route('edge.index'))
-        ->assertStatus(400);
+        ->assertStatus(404);
 });
 
 test('authenticated user sees edge sites index when surface edge active', function () {
@@ -48,7 +48,7 @@ test('authenticated user sees edge sites index when surface edge active', functi
         ->get(route('edge.index'))
         ->assertOk()
         ->assertSee('Edge sites')
-        ->assertSee('No edge sites found');
+        ->assertSee('Launch your first Edge site');
 });
 
 test('redesigned index renders richer edge site metadata', function () {
@@ -74,7 +74,7 @@ test('redesigned index renders richer edge site metadata', function () {
     $this->actingAs($user)
         ->get(route('edge.index'))
         ->assertOk()
-        ->assertSee('Edge fleet')
+        ->assertSee('Edge sites')
         ->assertSee('Hybrid')
         ->assertSee('Nextjs')
         ->assertSee('edge-portal.on-dply.site');

@@ -57,9 +57,13 @@
                         <span class="truncate text-xs text-brand-moss">{{ trans_choice('account|accounts', $totalOAuth) }}</span>
                     </dd>
                 </div>
+                {{-- A brand token, not bg-violet-50. The dark theme redefines the
+                     brand scale (and `white`), but raw Tailwind palette colours are
+                     left alone — so violet-50 stayed a near-white tint under the
+                     theme's light text and the token count was invisible. --}}
                 <div @class([
                     'px-3 py-2',
-                    'bg-violet-50' => $totalPats > 0,
+                    'bg-brand-gold/10' => $totalPats > 0,
                     'bg-white' => $totalPats === 0,
                 ])>
                     <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Tokens') }}</dt>
@@ -187,18 +191,15 @@
                     </div>
                 @endif
 
-                {{-- Linked accounts + tokens list. --}}
-                @if (! $hasAny)
-                    <div class="px-3 py-3 text-center sm:px-4">
-                        <x-empty-state
-                            borderless
-                            compact
-                            icon="heroicon-o-link"
-                            :title="__('No linked accounts or tokens yet')"
-                            :description="__('Connect a Git provider above so dply can read your repositories and deploy on push.')"
-                        />
-                    </div>
-                @else
+                {{-- Linked accounts + tokens list. An unlinked provider collapses to
+                     its header row and nothing else: that row already carries
+                     "Link <provider>" and "Add token", which was the entire content
+                     of the empty state it replaces. Rendered per provider, that
+                     block cost ~200px each — two of them here — and, sitting under
+                     a provider that does list tokens, "No linked accounts or tokens
+                     yet" read as a verdict on the whole page. Its copy also said
+                     "connect a provider above" while the buttons sit on its own row. --}}
+                @if ($hasAny)
                     <ul class="divide-y divide-brand-ink/10 border-t border-brand-ink/10">
                         @foreach ($provider['accounts'] as $account)
                             <li wire:key="sc-oauth-{{ $account->id }}" class="flex flex-col gap-1.5 px-3 py-2 transition-colors hover:bg-brand-sand/15 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-4">
@@ -271,7 +272,7 @@
                                         @if ($pat->validation_error)
                                             <span class="text-brand-mist">·</span>
                                             <span class="font-medium text-rose-600">
-                                                {{ __('Rejected by the provider (:error) — replace it below', ['error' => $pat->validation_error]) }}
+                                                {{ __('Rejected by the provider (:error) — use Edit to replace it', ['error' => $pat->validation_error]) }}
                                             </span>
                                         @elseif ($pat->expires_at)
                                             <span class="text-brand-mist">·</span>
@@ -282,7 +283,7 @@
                                                 'font-medium text-amber-700' => ! $pat->expires_at->isPast() && $pat->expires_at->lte(now()->addDays(7)),
                                             ])>
                                                 @if ($pat->expires_at->isPast())
-                                                    {{ __('Expired :time — replace it below', ['time' => $pat->expires_at->diffForHumans()]) }}
+                                                    {{ __('Expired :time — use Edit to replace it', ['time' => $pat->expires_at->diffForHumans()]) }}
                                                 @else
                                                     {{ __('Expires :time', ['time' => $pat->expires_at->diffForHumans()]) }}
                                                 @endif
@@ -294,7 +295,7 @@
                                             <span @class(['text-amber-700 font-medium' => $pat->last_validated_at->lt(now()->subDays(25))])>
                                                 {{ __('Validated :time', ['time' => $pat->last_validated_at->diffForHumans()]) }}
                                                 @if ($pat->last_validated_at->lt(now()->subDays(25)))
-                                                    — {{ __('may be expiring; replace it below if deploys fail to authenticate') }}
+                                                    — {{ __('may be expiring; use Edit to replace it if deploys fail to authenticate') }}
                                                 @endif
                                             </span>
                                         @endif

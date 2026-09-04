@@ -1,4 +1,4 @@
-<div class="edge-auth min-h-screen bg-edge-void font-display text-edge-text">
+<div class="edge-auth min-h-dvh bg-edge-void font-display text-edge-text">
 
     <x-edge-marketing-header />
 

@@ -108,12 +108,11 @@ trait BuildsCommandPaletteGroups
             }
             $resourceItems[] = [
                 'label' => __($label),
-                'sublabel' => __('Browse…'),
                 'into' => ['type' => $type],
                 'icon' => $icon,
             ];
         }
-        $groups[] = ['label' => __('Browse'), 'items' => $resourceItems];
+        $groups[] = ['label' => __('Resources'), 'items' => $resourceItems];
 
         $specs = $this->commandSpecs();
         $groups[] = ['label' => __('Create'), 'items' => $this->resolveCommandItems($specs['create'], $org, $needle, $isAdmin)];
@@ -122,14 +121,14 @@ trait BuildsCommandPaletteGroups
         // Nestable management areas.
         $manage = [];
         if ($needle === '' || str_contains('settings preferences account profile', $needle)) {
-            $manage[] = ['label' => __('Settings'), 'sublabel' => __('Browse…'), 'into' => ['type' => 'settings'], 'icon' => 'cog-6-tooth'];
+            $manage[] = ['label' => __('Settings'), 'into' => ['type' => 'settings'], 'icon' => 'cog-6-tooth'];
         }
         // Switching is only meaningful with more than one org to switch between.
         if (auth()->user()?->organizations()->count() > 1 && ($needle === '' || str_contains('switch organization team', $needle))) {
-            $manage[] = ['label' => __('Switch organization'), 'sublabel' => __('Browse…'), 'into' => ['type' => 'switch-org'], 'icon' => 'building-office-2'];
+            $manage[] = ['label' => __('Switch organization'), 'into' => ['type' => 'switch-org'], 'icon' => 'building-office-2'];
         }
         if ($isAdmin && ($needle === '' || str_contains('admin platform', $needle))) {
-            $manage[] = ['label' => __('Admin'), 'sublabel' => __('Browse…'), 'into' => ['type' => 'admin'], 'icon' => 'wrench-screwdriver'];
+            $manage[] = ['label' => __('Admin'), 'into' => ['type' => 'admin'], 'icon' => 'wrench-screwdriver'];
         }
         $groups[] = ['label' => __('Manage'), 'items' => $manage];
 

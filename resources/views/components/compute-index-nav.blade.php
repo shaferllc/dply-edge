@@ -9,7 +9,7 @@
         // These carry a `feature` key because their routes stay registered
         // while the surface is parked — only the feature middleware rejects
         // — so Route::has() alone would keep linking them into a 400.
-        ['route' => 'edge.index', 'match' => 'edge.*', 'label' => __('Edge'), 'icon' => 'bolt', 'feature' => 'surface.edge'],
+        ['route' => 'edge.index', 'match' => 'edge.*', 'label' => __('Apps'), 'icon' => 'bolt', 'feature' => 'surface.edge'],
         ['route' => 'serverless.index', 'match' => 'serverless.*', 'label' => __('Serverless'), 'icon' => 'cpu-chip', 'feature' => 'surface.serverless'],
     ];
 @endphp

@@ -1,12 +1,28 @@
-{{-- One theme: Terminal. The app wears the same near-black ground and acid
-     accent as the login and the public pages, so `dark` is set before first
-     paint rather than read from a user preference. --}}
+{{-- One theme: Terminal. `class="dark"` is a static attribute on <html> in every
+     layout that includes this partial — not added by script. A script can be
+     blocked, deferred, or lost in a wire:navigate swap, and the moment the class
+     is missing the whole app falls back to the light `:root` palette, which is
+     what "defaults to light on first load" was. Static markup cannot race. --}}
 <meta name="dply-theme" content="dark">
-<script>
-    (function () {
-        document.documentElement.classList.add('dark');
-    })();
-</script>
+{{-- Ground painted inline, before @vite. `color-scheme: dark` lives on
+     `html.dark` in dply-theme.css, which cannot apply until the stylesheet has
+     loaded — so the browser paints its default white canvas first and the page
+     flashes light. That is worst under `npm run dev`, where Vite injects CSS
+     with JavaScript and there is no render-blocking <link> at all. #0b0d0a is
+     the dark ground for both body classes in use (`bg-brand-cream`, which the
+     dark block redefines, and `bg-edge-void`). Keep in sync with theme-color. --}}
+<meta name="color-scheme" content="dark">
+<style>html{color-scheme:dark;background-color:#0b0d0a}</style>
+
+{{-- Fonts: the Terminal pair. Loaded here, once, because every layout that
+     needs them already includes this partial — it used to be copy-pasted into
+     14 views, and the weight list drifted out of sync with what the app uses.
+     600 matters: `font-semibold` is the app's dominant weight (~1700 uses) and
+     without it the browser snapped to 700, collapsing semibold and bold into
+     the same rendered weight. --}}
+<link rel="preconnect" href="https://fonts.bunny.net">
+<link rel="preconnect" href="https://fonts.bunny.net" crossorigin>
+<link href="https://fonts.bunny.net/css?family=space-grotesk:400,500,600,700|space-mono:400,700&display=swap" rel="stylesheet">
 
 {{-- Favicons (served from public/ root). --}}
 <link rel="icon" href="{{ asset('favicon.ico') }}" sizes="32x32">

@@ -5,6 +5,7 @@ namespace Tests\Feature\TrialStateGatingTest;
 use App\Enums\TrialState;
 use App\Models\Organization;
 use App\Models\Server;
+use App\Models\Site;
 use App\Modules\Billing\Models\Subscription;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
@@ -20,16 +21,26 @@ beforeEach(function () {
 });
 
 /**
- * Put an org over the Free-plan ceiling (2+ billable servers) so it owes for a
- * paid plan and is therefore subject to the trial/pause ladder. A Free-zone org
- * (≤1 server, no managed products) is never paused — it's just a free user.
+ * Give the org something that actually bills, so it owes money this cycle and
+ * is therefore subject to the trial/pause ladder. An org that owes nothing is
+ * never paused — it just lives on the free tier.
+ *
+ * Billing counts live Edge sites now, not BYO servers
+ * ({@see \App\Modules\Billing\Services\OrganizationBillingStateComputer}),
+ * so the fleet here is edge-active sites on their vestigial owner server.
  */
 function billableFleet(Organization $org, int $count = 2): void
 {
+    $server = Server::factory()->create([
+        'organization_id' => $org->id,
+        'status' => Server::STATUS_READY,
+    ]);
+
     for ($i = 0; $i < $count; $i++) {
-        Server::factory()->create([
-            'organization_id' => $org->id,
-            'status' => Server::STATUS_READY,
+        Site::factory()->create([
+            'server_id' => $server->id,
+            'status' => Site::STATUS_EDGE_ACTIVE,
+            'edge_backend' => 'dply_edge',
         ]);
     }
 }
@@ -60,11 +71,16 @@ test('expired hard state past soft window', function () {
     expect($org->fresh()->canSchedulerRun())->toBeFalse();
 });
 
-test('a free-zone org is never paused after its trial lapses', function () {
-    // One server, no managed products → Free plan ($0). Even long past the
-    // hard-pause window the org stays usable as a free user.
+test('an org that owes nothing is never paused after its trial lapses', function () {
+    // Nothing live to bill for: an owner server with no edge-active site on it.
+    // Every live Edge site carries a platform fee, so "free zone" now means
+    // "no live sites", not "one server". Even long past the hard-pause window
+    // the org stays usable.
     $org = Organization::factory()->create(['trial_ends_at' => now()->subDays(120)]);
-    billableFleet($org, 1);
+    Server::factory()->create([
+        'organization_id' => $org->id,
+        'status' => Server::STATUS_READY,
+    ]);
 
     expect($org->fresh()->trialState())->toBe(TrialState::NoTrial);
     expect($org->fresh()->canDeploy())->toBeTrue();

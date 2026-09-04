@@ -60,12 +60,10 @@ test('every encrypt() write site is classified for rotation coverage', function 
     // not APP_KEY at-rest data (age / engine / trait).
     $classified = [
         // --- registry-covered (config/secret_vault.php) ---
-        'app/Actions/Servers/BuildServerProvisionMeta.php' => 'json_crypt: servers.meta.{cache,database}_server.password_encrypted',
+        // The server-webhook, provision-meta, ephemeral-deploy-key and
+        // metrics-push writers left with the VM platform in the Edge cut.
         'app/Livewire/Auth/TwoFactorChallenge.php' => 'raw_crypt: users.two_factor_recovery_codes',
-        'app/Livewire/Servers/Concerns/ManagesServerWebhook.php' => 'json_crypt: servers.meta.server_event_webhook_secret',
         'app/Livewire/TwoFactor/Page.php' => 'raw_crypt: users.two_factor_secret/recovery_codes',
-        'app/Modules/Deploy/Services/EphemeralDeployCredentialManager.php' => 'raw_crypt: site_deployment_ephemeral_credentials.private_key_encrypted',
-        'app/Services/Servers/ServerMetricsGuestPushService.php' => 'json_crypt: servers.meta.monitoring_guest_push_cipher',
 
         // --- not APP_KEY at-rest data (no registry entry needed) ---
         'app/Actions/Concerns/AsEncrypted.php' => 'trait definition; not used to persist in-app',

@@ -5,7 +5,7 @@
     <div class="border-b border-edge-line bg-edge-panel">
         <div class="max-w-3xl mx-auto px-4 py-8">
             <div class="flex items-center gap-3 mb-2">
-                <img src="{{ asset('images/dply-logo.svg') }}" alt="" class="h-10 w-auto" width="48" height="54" />
+                <x-dply-wordmark class="text-sm text-edge-text" />
                 <div>
                     <h1 class="text-xl font-semibold text-edge-text">{{ $statusPage->name }}</h1>
                     @if ($statusPage->description)

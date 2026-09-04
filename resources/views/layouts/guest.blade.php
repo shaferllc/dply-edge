@@ -1,28 +1,25 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="dark">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <meta name="theme-color" content="#0b0d0a">
 
     @include('partials.theme-head')
 
     <title>{{ ($title ?? null) ? $title . ' – ' : '' }}{{ config('app.name', 'Laravel') }}</title>
 
-    <link rel="preconnect" href="https://fonts.bunny.net">
-    <link href="https://fonts.bunny.net/css?family=space-grotesk:400,500,700|space-mono:400,700&display=swap" rel="stylesheet" />
-
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @livewireStyles
     <style>[x-cloak]{display:none!important}</style>
 </head>
-<body class="edge-auth flex min-h-screen flex-col bg-edge-void font-display text-edge-text antialiased">
+<body class="edge-auth flex min-h-dvh flex-col bg-edge-void font-display text-edge-text antialiased">
+@include('partials.skip-link')
     @include('partials.auth-aside-variant')
 
     <x-edge-marketing-header />
 
-    <main class="w-full flex-1 px-6 py-12 lg:px-10 lg:py-16">
+    <main id="main-content" tabindex="-1" class="w-full flex-1 px-6 py-12 lg:px-10 lg:py-16">
         <div class="mx-auto w-full max-w-5xl">
             <div class="grid items-start gap-8 lg:grid-cols-12 lg:gap-12">
                 <div class="order-1 lg:order-2 lg:col-span-7">

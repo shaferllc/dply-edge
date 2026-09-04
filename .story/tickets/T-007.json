@@ -1,0 +1,12 @@
+{
+  "blockedBy": [],
+  "completedDate": null,
+  "createdDate": "2026-09-04",
+  "description": "197 migrations remain, and they still create the removed products' tables on a fresh database. They were kept deliberately at the cut because dropping them affects existing installs, so this is a data decision rather than a cleanup.\n\nThree data migrations that rewrote rows through now-deleted models are already no-ops with a comment explaining why.\n\nDecide: squash to a post-cut baseline, delete the dead ones and accept that existing installs keep orphan tables, or keep them and document the choice. Whichever way it goes, record it so the next session does not reopen the question.\n",
+  "id": "T-007",
+  "order": 20,
+  "phase": "dead-weight",
+  "status": "open",
+  "title": "Decide the retained removed-product migrations",
+  "type": "task"
+}

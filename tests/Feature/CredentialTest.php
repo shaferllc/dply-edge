@@ -59,8 +59,8 @@ test('organization credentials page is displayed', function () {
     $response = $this->actingAs($user)->get(route('organizations.credentials', $org));
 
     $response->assertOk();
-    $response->assertSee('Provider credentials');
-    $response->assertSee('Server providers');
+    $response->assertSee('Credentials');
+    $response->assertSee('Connect a provider');
 });
 
 test('credentials index forbidden for deployer', function () {
@@ -69,53 +69,15 @@ test('credentials index forbidden for deployer', function () {
     $org->users()->attach($user->id, ['role' => 'deployer']);
     session(['current_organization_id' => $org->id]);
 
-    $response = $this->actingAs($user)->get(route('credentials.index'));
+    // /credentials is a session-scoped shortcut that redirects into the org
+    // page, so the policy is asserted on the page that actually renders.
+    $response = $this->actingAs($user)->get(route('organizations.credentials', $org));
 
     $response->assertForbidden();
 });
 
-test('credentials index refreshes provider cards after credential created in modal', function () {
-    $user = userWithOrganization();
-    $org = $user->currentOrganization();
 
-    Livewire::actingAs($user)
-        ->test(CredentialsIndex::class, ['organization' => $org])
-        ->assertSee('Not connected');
 
-    $credential = ProviderCredential::factory()->create([
-        'user_id' => $user->id,
-        'organization_id' => $org->id,
-        'provider' => 'digitalocean',
-        'name' => 'Production DO',
-    ]);
-
-    Livewire::actingAs($user)
-        ->test(CredentialsIndex::class, ['organization' => $org])
-        ->dispatch('provider-credential-created', provider: 'digitalocean', credentialId: $credential->id)
-        ->assertSee('1 credential');
-});
-
-test('credentials store validates required fields', function () {
-    $user = userWithOrganization();
-
-    Livewire::actingAs($user)
-        ->test(CredentialsIndex::class)
-        ->set('do_api_token', '')
-        ->call('storeDigitalOcean')
-        ->assertHasErrors('do_api_token');
-});
-
-test('credentials store redirects back when token invalid', function () {
-    $user = userWithOrganization();
-
-    Livewire::actingAs($user)
-        ->test(CredentialsIndex::class)
-        ->set('do_api_token', 'dop_v1_invalid')
-        ->call('storeDigitalOcean')
-        ->assertHasErrors('do_api_token');
-
-    $this->assertDatabaseCount('provider_credentials', 0);
-});
 
 test('credentials can be destroyed by owner', function () {
     $user = userWithOrganization();

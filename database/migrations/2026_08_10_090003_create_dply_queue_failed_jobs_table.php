@@ -28,6 +28,10 @@ return new class extends Migration
 
     public function up(): void
     {
+        if (Schema::connection('dply_queue')->hasTable('dply_queue_failed_jobs')) {
+            return;
+        }
+
         Schema::connection('dply_queue')->create('dply_queue_failed_jobs', function (Blueprint $table): void {
             $table->ulid('id')->primary();
             $table->ulid('namespace_id');

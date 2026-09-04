@@ -311,15 +311,25 @@ return [
             // cents. The previous default of 360 was a 10x typo that billed
             // customers ten times the real cost.
             'r2_class_b_cents_per_million' => (int) env('DPLY_EDGE_USAGE_R2_CLASS_B_CENTS_PER_MILLION', 36),
-            'included_requests_per_site' => (int) env('DPLY_EDGE_USAGE_INCLUDED_REQUESTS_PER_SITE', 5_000_000),
+            // 5M was break-even against the $2 platform fee on its own: 5M
+            // requests is $1.50 at Cloudflare list ($0.30/M), and $2 only buys
+            // ~6.7M before storage, ops and the custom hostname are paid for —
+            // so any site that actually used its allowance was served at a loss.
+            // 1M costs $0.30 and still sits well above what a typical static
+            // site does in a month (usually under 500k).
+            'included_requests_per_site' => (int) env('DPLY_EDGE_USAGE_INCLUDED_REQUESTS_PER_SITE', 1_000_000),
             'included_egress_gb_per_site' => (int) env('DPLY_EDGE_USAGE_INCLUDED_EGRESS_GB_PER_SITE', 100),
             'included_r2_storage_gb_per_site' => (int) env('DPLY_EDGE_USAGE_INCLUDED_R2_STORAGE_GB_PER_SITE', 5),
             // R2 operations included allowances — keep small sites at $0.
             // Class A = writes (PUT/POST/LIST/COPY); Class B = reads (GET/HEAD).
             // Cloudflare's free tier is 1M Class A + 10M Class B per month
-            // org-wide; we allocate generous per-site allowances so a typical
-            // static deploy never accrues ops charges.
-            'included_r2_class_a_ops_per_site' => (int) env('DPLY_EDGE_USAGE_INCLUDED_R2_CLASS_A_OPS_PER_SITE', 100_000),
+            // org-wide. Class B (reads) stays generous — cache hits never touch
+            // R2, so the allowance is nearly free to give. Class A (writes) is
+            // sized to a real deploy cadence instead.
+            // 100k writes is $0.45 at list — 22% of the platform fee — for an
+            // allowance nothing reaches: a 2,000-file site deploying ten times
+            // a month writes 20k objects.
+            'included_r2_class_a_ops_per_site' => (int) env('DPLY_EDGE_USAGE_INCLUDED_R2_CLASS_A_OPS_PER_SITE', 20_000),
             'included_r2_class_b_ops_per_site' => (int) env('DPLY_EDGE_USAGE_INCLUDED_R2_CLASS_B_OPS_PER_SITE', 1_000_000),
         ],
     ],

@@ -1,0 +1,16 @@
+{
+  "components": [],
+  "createdBy": "codex-review",
+  "dedupeKey": "story-setup-2026-09-04:agents-drift",
+  "discoveredDate": "2026-09-04",
+  "id": "ISS-002",
+  "impact": "AGENTS.md is 80KB and auto-loads into every session. It still instructs agents about the /live mirror's parallel /servers, /cloud, /serverless and /projects indexes, 'Add server' placement, and SSH provisioning conventions for product lines removed on 2026-08-25. Agents follow it and build against a platform that no longer exists. T-002 covers the rewrite; filed separately so the hazard is visible before that ticket runs.",
+  "location": [],
+  "phase": null,
+  "relatedTickets": [],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "high",
+  "status": "open",
+  "title": "AGENTS.md still teaches deleted VM, Cloud and Serverless surfaces"
+}

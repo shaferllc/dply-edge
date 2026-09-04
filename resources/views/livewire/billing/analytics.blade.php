@@ -39,7 +39,7 @@
             // Resource-count parts the hero stat shows — only surfaces the org has.
             $resourceParts = collect([
                 ['count' => $summary['server_count'] ?? 0, 'label' => __('VM'), 'visible' => true],
-                ['count' => $summary['edge_count'] ?? 0, 'label' => __('Edge'), 'visible' => $edgeOn],
+                ['count' => $summary['edge_count'] ?? 0, 'label' => __('Apps'), 'visible' => $edgeOn],
                 ['count' => $summary['cloud_count'] ?? 0, 'label' => __('Cloud'), 'visible' => $cloudOn],
                 ['count' => $summary['serverless_count'] ?? 0, 'label' => __('Fn'), 'visible' => $serverlessOn],
             ])->filter(fn (array $p) => $p['visible'])->values();
@@ -211,7 +211,7 @@
                                     <tr>
                                         <th class="{{ $th }} text-left">{{ __('Date') }}</th>
                                         <th class="{{ $th }} text-right">{{ __('Total') }}</th>
-                                        <th class="{{ $th }} text-right">{{ __('Edge usage') }}</th>
+                                        <th class="{{ $th }} text-right">{{ __('Apps usage') }}</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-brand-ink/5">
@@ -304,7 +304,7 @@
                         dense
                         class="border-b border-brand-ink/10"
                         icon="heroicon-o-bolt"
-                        :title="__('Edge sites')"
+                        :title="__('Apps')"
                         :count="count($edgeSites) ?: null"
                         :note="__('Per-site platform fee, delivery usage (MTD), and daily request trends.')"
                     />
@@ -343,7 +343,7 @@
                 {{-- Managed products --}}
                 @php
                     $managedCatalog = array_filter([
-                        'edge' => $edgeOn ? ['title' => __('Edge sites'), 'icon' => 'heroicon-o-globe-alt'] : null,
+                        'edge' => $edgeOn ? ['title' => __('Apps'), 'icon' => 'heroicon-o-globe-alt'] : null,
                         'cloud' => $cloudOn ? ['title' => __('Cloud apps'), 'icon' => 'heroicon-o-cube'] : null,
                         'serverless' => $serverlessOn ? ['title' => __('Serverless apps'), 'icon' => 'heroicon-o-bolt'] : null,
                     ]);

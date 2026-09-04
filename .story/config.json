@@ -1,0 +1,22 @@
+{
+  "features": {
+    "handovers": true,
+    "issues": true,
+    "reviews": true,
+    "roadmap": true,
+    "tickets": true
+  },
+  "language": "php",
+  "project": "dply-edge",
+  "schemaVersion": 2,
+  "type": "laravel",
+  "version": 2,
+  "recipeOverrides": {
+    "stages": {
+      "TEST": {
+        "enabled": true,
+        "command": "composer test"
+      }
+    }
+  }
+}

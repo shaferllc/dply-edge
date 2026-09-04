@@ -1,7 +1,7 @@
 <div class="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
     <x-breadcrumb-trail :items="[
         ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
-        ['label' => __('Edge'), 'href' => route('edge.index'), 'icon' => 'globe-alt'],
+        ['label' => __('Apps'), 'href' => route('edge.index'), 'icon' => 'globe-alt'],
         ['label' => __('Import'), 'icon' => 'arrow-down-tray'],
     ]" />
 

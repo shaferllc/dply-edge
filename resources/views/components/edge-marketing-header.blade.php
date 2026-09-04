@@ -14,14 +14,13 @@
         ['label' => __('How it works'), 'href' => url('/#how-it-works')],
         ['label' => __('Pricing'), 'href' => route('pricing'), 'key' => 'pricing'],
         ['label' => __('Features'), 'href' => route('features'), 'key' => 'features'],
-        ['label' => __('Changelog'), 'href' => route('changelog'), 'key' => 'changelog'],
     ];
 @endphp
 
 <header class="sticky top-0 z-40 border-b border-edge-line bg-edge-void/95 backdrop-blur supports-[backdrop-filter]:bg-edge-void/80">
     <div class="mx-auto flex max-w-6xl items-center justify-between gap-6 px-6 py-4 lg:px-10">
-        <a href="{{ url('/') }}" class="font-terminal text-[15px] font-bold tracking-[-0.02em] text-edge-text">
-            dply<span class="text-edge-lime">/</span>edge
+        <a href="{{ url('/') }}" class="transition-opacity hover:opacity-80">
+            <x-dply-wordmark class="text-[15px] text-edge-text" />
         </a>
 
         <nav class="hidden items-center gap-7 md:flex" aria-label="{{ __('Marketing') }}">

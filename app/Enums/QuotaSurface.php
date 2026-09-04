@@ -51,6 +51,20 @@ enum QuotaSurface: string
             $kinds = $surface->hostKinds();
 
             if ($kinds !== null && in_array($hostKind, $kinds, true)) {
+                // Classification here reads the SERVER's host kind, but the Edge
+                // index lists sites by the site's own columns (edge_backend /
+                // runtime_profile). Where the two disagree a row counts against
+                // the Edge ceiling while never appearing in the list, so the org
+                // is blocked by apps it can neither see nor delete — observed
+                // 2026-08-30, when four nginx/caddy rows read as "3 of 3 Edge
+                // apps" on an org whose Apps page showed the empty state.
+                //
+                // countsAsEdgeApp() is the shared definition, matching the scope
+                // the index queries with, so the two cannot disagree again.
+                if ($surface === self::Edge && ! $site->countsAsEdgeApp()) {
+                    return self::Site;
+                }
+
                 return $surface;
             }
         }

@@ -4,6 +4,7 @@ namespace Tests\Feature\Components\TrialPauseBannerTest;
 
 use App\Models\Organization;
 use App\Models\Server;
+use App\Models\Site;
 use App\Modules\Billing\Models\Subscription;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Blade;
@@ -25,14 +26,21 @@ function renderTrialPauseBanner(Organization $org): string
 }
 
 /**
- * Two servers → a paid (Starter) plan, so the org is subject to pausing
- * rather than living on the always-free single-server tier.
+ * Something that actually bills, so the org is subject to pausing rather than
+ * living on the free tier. Billing counts live Edge sites, not BYO servers.
  */
 function payingFleet(Organization $org): void
 {
-    Server::factory()->count(2)->create([
+    $server = Server::factory()->create([
         'organization_id' => $org->id,
         'status' => Server::STATUS_READY,
+    ]);
+
+    Site::factory()->create([
+        'server_id' => $server->id,
+        'organization_id' => $org->id,
+        'status' => Site::STATUS_EDGE_ACTIVE,
+        'edge_backend' => 'dply_edge',
     ]);
 }
 

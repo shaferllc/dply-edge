@@ -28,6 +28,10 @@ return new class extends Migration
 
     public function up(): void
     {
+        if (Schema::connection(self::CONNECTION)->hasTable('dply_cache_items')) {
+            return;
+        }
+
         Schema::connection(self::CONNECTION)->create('dply_cache_items', function (Blueprint $table): void {
             $table->char('cache_id', 26);
 
@@ -67,6 +71,8 @@ return new class extends Migration
          * counter beside the rows it counts makes the two configurations
          * behave identically.
          */
+        Schema::connection(self::CONNECTION)->dropIfExists('dply_cache_usage');
+
         Schema::connection(self::CONNECTION)->create('dply_cache_usage', function (Blueprint $table): void {
             $table->char('cache_id', 26)->primary();
             $table->bigInteger('resident_bytes')->default(0);

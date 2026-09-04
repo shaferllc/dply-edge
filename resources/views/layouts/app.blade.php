@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="dark">
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -22,10 +22,6 @@
             </script>
         @endif
 
-        <!-- Fonts: the Terminal pair, shared with the login and marketing pages -->
-        <link rel="preconnect" href="https://fonts.bunny.net">
-        <link href="https://fonts.bunny.net/css?family=space-grotesk:400,500,700|space-mono:400,700&display=swap" rel="stylesheet" />
-
         <!-- Scripts -->
         @vite(['resources/css/app.css', 'resources/js/app.js'])
         @if ($echoClient)
@@ -38,7 +34,8 @@
             $toastPosition = \App\Support\NotificationToastPosition::resolvedFor(auth()->user());
         @endphp
     </head>
-    <body class="font-sans antialiased bg-brand-cream text-brand-ink min-h-screen flex flex-col" x-data="toastStore({ position: @js($toastPosition) })">
+    <body class="font-sans antialiased bg-brand-cream text-brand-ink min-h-dvh flex flex-col" x-data="toastStore({ position: @js($toastPosition) })">
+        @include('partials.skip-link')
         <x-impersonation-banner />
         <div class="flex flex-col flex-1 min-h-0">
             <x-site-header />
@@ -77,7 +74,7 @@
             @endisset
 
             <!-- Page Content -->
-            <main class="flex-1 w-full pb-28 sm:pb-32">
+            <main id="main-content" tabindex="-1" class="flex-1 w-full pb-28 sm:pb-32">
                 {{ $slot }}
             </main>
         </div>
@@ -92,7 +89,7 @@
         @auth
             {{-- The global command palette (⌘K) is now mounted inside
                  <x-site-header> (rendered above) so the shortcut + search also
-                 work on guest marketing pages (changelog / features / pricing)
+                 work on guest marketing pages (features / pricing / welcome)
                  when signed in — not just inside this app layout. --}}
 
             {{-- Shared Git provider connect modal (OAuth + PAT). Mounted here — not

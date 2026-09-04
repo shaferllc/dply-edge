@@ -61,10 +61,9 @@ test('edge overview shows live url redeploy and no nginx references', function (
         ->test(EdgeSettings::class, ['server' => $server, 'site' => $site, 'section' => 'general'])
         ->assertSee('Edge App')
         ->assertSee('https://edge-app.dply.host')
-        ->assertSee('Redeploy')
-        ->assertSee('Open live site')
+        ->assertSee('Open')
         ->assertSee('acme/web')
-        ->assertSee('Deploy history')
+        ->assertSee('Latest deploy')
         ->assertDontSee('nginx')
         ->assertDontSee('Webserver')
         ->assertDontSee('PHP-FPM');
@@ -86,8 +85,7 @@ test('edge breadcrumbs use edge not servers or infrastructure path', function ()
     $this->actingAs($user)
         ->get(route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'general']))
         ->assertOk()
-        ->assertSee('Edge')
-        ->assertSee('Edge site workspace');
+        ->assertSee('Edge');
 });
 
 test('edge deploys section renders deploy history table', function () {

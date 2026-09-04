@@ -1,168 +1,154 @@
+@props([])
+
 @php
-    $presets = [
-        ['label' => 'Solo dev', 'hint' => '1 server', 'servers' => 1, 'edge' => 0, 'cloud' => 0, 'serverless' => 0],
-        ['label' => 'Side project', 'hint' => '2 servers + 1 Edge site', 'servers' => 2, 'edge' => 1, 'cloud' => 0, 'serverless' => 0],
-        ['label' => 'Small team', 'hint' => '5 servers + 2 Cloud apps', 'servers' => 5, 'edge' => 0, 'cloud' => 2, 'serverless' => 0],
-        ['label' => 'Growing fleet', 'hint' => '12 servers, mixed managed', 'servers' => 12, 'edge' => 3, 'cloud' => 2, 'serverless' => 4],
+    /*
+     | Edge-only estimator. Inputs are the two things that can move a bill: how
+     | many live sites of each kind you run, and how much delivery they do.
+     | Allowances are per site, so they scale with the site count — the same way
+     | EdgeUsageCostCalculator applies them when the invoice is built.
+     */
+    $calc = [
+        'sitePrice' => $sitePrice,
+        'ssrPrice' => $ssrPrice,
+        'annualPct' => $annualPct,
+        'requestsPerMillion' => (float) $rates['requests_per_million'],
+        'egressPerGb' => (float) $rates['egress_per_gb'],
+        'storagePerGb' => (float) $rates['storage_per_gb'],
+        'includedRequestsM' => $includedRequests / 1_000_000,
+        'includedEgressGb' => $includedEgress,
+        'includedStorageGb' => $includedStorage,
     ];
 
-    // Managed surfaces that aren't live yet render as "coming soon": the row is
-    // shown but its stepper is disabled, and presets won't pre-fill a count for it.
-    $surfaceAvailable = [
-        'edge' => \Laravel\Pennant\Feature::active('surface.edge'),
-        'cloud' => \Laravel\Pennant\Feature::active('surface.cloud'),
-        'serverless' => \Laravel\Pennant\Feature::active('surface.serverless'),
+    $presets = [
+        ['label' => __('Personal site'), 'hint' => __('1 static site, light traffic'), 'static' => 1, 'ssr' => 0, 'requests' => 1, 'egress' => 20, 'storage' => 1],
+        ['label' => __('Agency'), 'hint' => __('8 client sites'), 'static' => 8, 'ssr' => 0, 'requests' => 20, 'egress' => 400, 'storage' => 12],
+        ['label' => __('SaaS marketing'), 'hint' => __('2 static + 1 SSR app'), 'static' => 2, 'ssr' => 1, 'requests' => 25, 'egress' => 500, 'storage' => 10],
+        ['label' => __('High traffic'), 'hint' => __('1 SSR app, 60M requests'), 'static' => 0, 'ssr' => 1, 'requests' => 60, 'egress' => 1200, 'storage' => 20],
     ];
 @endphp
 
-<section class="pb-16 px-4 sm:px-6 lg:px-8">
-    <div class="mx-auto max-w-5xl border border-edge-line bg-edge-panel overflow-hidden">
-        {{-- HERO: total at the top --}}
-        <div class="px-8 py-6 bg-edge-void border-b border-edge-line">
-            <div class="flex flex-wrap items-end justify-between gap-4">
-                <div>
-                    <h2 class="text-sm font-semibold uppercase tracking-wider text-edge-lime">Estimate your bill</h2>
-                    <div class="mt-2 flex items-baseline gap-2">
-                        <span class="text-5xl font-bold tracking-tight text-edge-text" x-text="fmt(billedTotal)"></span>
-                        <span class="text-lg text-edge-mute" x-text="annual ? '/yr' : '/mo'"></span>
-                    </div>
-                    <p class="mt-2 text-sm text-edge-mute">
-                        You're on the <span class="font-semibold text-edge-text" x-text="effectivePlan.label"></span> plan.
-                        <span x-show="needsPaidForManaged" x-cloak class="text-edge-lime">Managed products need a paid plan, so Free is bumped up.</span>
-                    </p>
-                    <p class="mt-1 text-sm text-edge-mute" x-show="!annual" x-cloak>
-                        <span class="font-semibold text-edge-lime" x-text="fmt(monthlyTotal * 12 * annualPct / 100)"></span>
-                        / yr saved if you switch to annual billing.
-                    </p>
-                    <p class="mt-1 text-sm text-edge-mute" x-show="annual" x-cloak>
-                        <span x-text="fmt(billedTotal / 12)"></span> / mo effective ({{ $annualPct }}% off monthly).
-                    </p>
-                </div>
-                <div class="inline-flex items-center gap-1 p-1 border border-edge-line bg-edge-panel">
-                    <button type="button" @click="annual = false" :class="!annual ? 'bg-edge-lime text-edge-void' : 'text-edge-mute'" class="px-4 py-1.5 text-xs font-semibold transition">Monthly</button>
-                    <button type="button" @click="annual = true" :class="annual ? 'bg-edge-lime text-edge-void' : 'text-edge-mute'" class="px-4 py-1.5 text-xs font-semibold transition">Yearly</button>
-                </div>
-            </div>
-        </div>
+<div
+    x-data="{
+        annual: false,
+        staticSites: 2,
+        ssrSites: 0,
+        requestsM: 8,
+        egressGb: 150,
+        storageGb: 6,
+        c: @js($calc),
 
-        {{-- Presets --}}
-        <div class="px-8 py-4 border-b border-edge-line flex flex-wrap items-center gap-2">
-            <span class="text-xs font-semibold uppercase tracking-wider text-edge-text mr-2">Quick picks</span>
-            @foreach ($presets as $preset)
-                <button type="button"
-                        @click="servers = {{ $preset['servers'] }}; edge = {{ $surfaceAvailable['edge'] ? $preset['edge'] : 0 }}; cloud = {{ $surfaceAvailable['cloud'] ? $preset['cloud'] : 0 }}; serverless = {{ $surfaceAvailable['serverless'] ? $preset['serverless'] : 0 }}"
-                        class="inline-flex flex-col items-start border border-edge-line bg-edge-panel px-3 py-1.5 hover:border-edge-line hover:bg-edge-void transition-colors text-left">
-                    <span class="text-xs font-semibold text-edge-text">{{ $preset['label'] }}</span>
-                    <span class="text-2xs text-edge-mute">{{ $preset['hint'] }}</span>
-                </button>
-            @endforeach
-            <button type="button"
-                    @click="servers = 1; edge = 0; cloud = 0; serverless = 0"
-                    class="inline-flex items-center px-3 py-1.5 text-xs text-edge-mute hover:text-edge-text transition-colors ml-auto">
-                Reset
+        clamp(v, min) { const n = Number(v); return Number.isFinite(n) && n > min ? n : min; },
+        get sites() { return this.clamp(this.staticSites, 0) + this.clamp(this.ssrSites, 0); },
+        get platform() {
+            return this.clamp(this.staticSites, 0) * this.c.sitePrice
+                + this.clamp(this.ssrSites, 0) * this.c.ssrPrice;
+        },
+        get platformBilled() {
+            return this.annual ? this.platform * (1 - this.c.annualPct / 100) : this.platform;
+        },
+        over(used, includedPerSite) {
+            const allowance = includedPerSite * this.sites;
+            return Math.max(0, this.clamp(used, 0) - allowance);
+        },
+        get requestsCost() { return this.over(this.requestsM, this.c.includedRequestsM) * this.c.requestsPerMillion; },
+        get egressCost() { return this.over(this.egressGb, this.c.includedEgressGb) * this.c.egressPerGb; },
+        get storageCost() { return this.over(this.storageGb, this.c.includedStorageGb) * this.c.storagePerGb; },
+        get usage() { return this.requestsCost + this.egressCost + this.storageCost; },
+        get total() { return this.platformBilled + this.usage; },
+        money(v) { return '$' + (Math.round(v * 100) / 100).toFixed(2); },
+        apply(p) {
+            this.staticSites = p.static; this.ssrSites = p.ssr;
+            this.requestsM = p.requests; this.egressGb = p.egress; this.storageGb = p.storage;
+        },
+    }"
+    class="mt-8 border border-edge-line bg-edge-panel"
+>
+    {{-- Presets --}}
+    <div class="flex flex-wrap items-center gap-2 border-b border-edge-line px-5 py-3">
+        <span class="font-terminal text-[11px] uppercase tracking-[0.16em] text-edge-faint">{{ __('Start from') }}</span>
+        @foreach ($presets as $preset)
+            <button
+                type="button"
+                x-on:click="apply(@js(['static' => $preset['static'], 'ssr' => $preset['ssr'], 'requests' => $preset['requests'], 'egress' => $preset['egress'], 'storage' => $preset['storage']]))"
+                class="border border-edge-line px-3 py-1.5 text-left transition-colors hover:border-edge-lime/50 hover:bg-edge-lime/5"
+            >
+                <span class="block text-xs font-semibold text-edge-text">{{ $preset['label'] }}</span>
+                <span class="block text-[11px] text-edge-mute">{{ $preset['hint'] }}</span>
             </button>
-        </div>
+        @endforeach
 
-        {{-- Stepper rows --}}
-        <div class="px-8 py-6 space-y-2">
-            {{-- Servers drive the plan --}}
-            <div class="flex items-center gap-4 bg-edge-void px-3 py-3">
-                <div class="flex-1 min-w-0">
-                    <div class="text-sm font-semibold text-edge-text">BYO servers</div>
-                    <div class="text-xs text-edge-mute">Sets your plan — <span x-text="effectivePlan.label"></span></div>
-                </div>
-                <div class="text-sm font-semibold text-edge-text tabular-nums w-24 text-right" x-text="planPrice > 0 ? fmt(planPrice) + '/mo' : 'Free'"></div>
-                <div class="inline-flex items-center gap-1">
-                    <button type="button"
-                            @click="servers = Math.max(1, servers - 1)"
-                            class="inline-flex items-center justify-center w-8 h-8 border border-edge-line bg-edge-panel text-edge-text hover:border-edge-line hover:bg-edge-void transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                            :disabled="servers <= 1">
-                        <span class="text-lg leading-none">−</span>
-                    </button>
-                    <input type="number" min="1" step="1"
-                           x-model.number="servers"
-                           class="w-14 border border-edge-line bg-edge-panel px-2 py-1.5 text-sm text-center tabular-nums focus:border-edge-line focus:ring-1 focus:ring-edge-line focus:outline-none">
-                    <button type="button"
-                            @click="servers = servers + 1"
-                            class="inline-flex items-center justify-center w-8 h-8 border border-edge-line bg-edge-panel text-edge-text hover:border-edge-line hover:bg-edge-void transition-colors">
-                        <span class="text-lg leading-none">+</span>
-                    </button>
-                </div>
-            </div>
-
-            {{-- Managed products --}}
-            @foreach ([
-                ['key' => 'edge', 'label' => 'dply Edge sites', 'priceVar' => 'edgePrice', 'unit' => 'per site'],
-                ['key' => 'cloud', 'label' => 'dply Cloud apps', 'priceVar' => 'cloudPrice', 'unit' => 'per app'],
-                ['key' => 'serverless', 'label' => 'Serverless functions', 'priceVar' => 'serverlessPrice', 'unit' => 'per function'],
-            ] as $row)
-                @php $comingSoon = ! ($surfaceAvailable[$row['key']] ?? false); @endphp
-                <div @class([
-                    'flex items-center gap-4  transition-colors px-3 py-2',
-                    'hover:bg-edge-void' => ! $comingSoon,
-                    'opacity-70' => $comingSoon,
-                ])>
-                    <div class="flex-1 min-w-0">
-                        <div class="flex items-center gap-2">
-                            <span class="text-sm text-edge-text">{{ $row['label'] }}</span>
-                            @if ($comingSoon)
-                                <span class="shrink-0 rounded-full bg-edge-lime/10 px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide text-edge-lime ring-1 ring-inset ring-edge-line">{{ __('Coming soon') }}</span>
-                            @endif
-                        </div>
-                        <div class="text-xs text-edge-mute"><span x-text="fmt({{ $row['priceVar'] }})"></span> {{ $row['unit'] }} / mo</div>
-                    </div>
-                    @if ($comingSoon)
-                        <div class="text-sm text-edge-mute tabular-nums w-24 text-right">—</div>
-                        <div class="inline-flex items-center gap-1 opacity-50">
-                            <button type="button" disabled aria-disabled="true"
-                                    class="inline-flex items-center justify-center w-8 h-8 border border-edge-line bg-edge-panel text-edge-text cursor-not-allowed">
-                                <span class="text-lg leading-none">−</span>
-                            </button>
-                            <input type="number" value="0" disabled aria-disabled="true"
-                                   class="w-14 border border-edge-line bg-edge-void px-2 py-1.5 text-sm text-center tabular-nums text-edge-text cursor-not-allowed">
-                            <button type="button" disabled aria-disabled="true"
-                                    class="inline-flex items-center justify-center w-8 h-8 border border-edge-line bg-edge-panel text-edge-text cursor-not-allowed">
-                                <span class="text-lg leading-none">+</span>
-                            </button>
-                        </div>
-                    @else
-                        <div class="text-sm font-semibold text-edge-text tabular-nums w-24 text-right" x-text="fmt(({{ $row['key'] }} || 0) * {{ $row['priceVar'] }})"></div>
-                        <div class="inline-flex items-center gap-1">
-                            <button type="button"
-                                    @click="{{ $row['key'] }} = Math.max(0, ({{ $row['key'] }} || 0) - 1)"
-                                    class="inline-flex items-center justify-center w-8 h-8 border border-edge-line bg-edge-panel text-edge-text hover:border-edge-line hover:bg-edge-void transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                                    :disabled="({{ $row['key'] }} || 0) === 0">
-                                <span class="text-lg leading-none">−</span>
-                            </button>
-                            <input type="number" min="0" step="1"
-                                   x-model.number="{{ $row['key'] }}"
-                                   class="w-14 border border-edge-line bg-edge-panel px-2 py-1.5 text-sm text-center tabular-nums focus:border-edge-line focus:ring-1 focus:ring-edge-line focus:outline-none">
-                            <button type="button"
-                                    @click="{{ $row['key'] }} = ({{ $row['key'] }} || 0) + 1"
-                                    class="inline-flex items-center justify-center w-8 h-8 border border-edge-line bg-edge-panel text-edge-text hover:border-edge-line hover:bg-edge-void transition-colors">
-                                <span class="text-lg leading-none">+</span>
-                            </button>
-                        </div>
-                    @endif
-                </div>
-            @endforeach
-        </div>
-
-        {{-- Breakdown footer --}}
-        <div class="px-8 py-5 bg-edge-void border-t border-edge-line text-sm">
-            <div class="flex items-center justify-between">
-                <span class="text-edge-mute"><span x-text="effectivePlan.label"></span> plan (<span x-text="servers"></span> <span x-text="servers === 1 ? 'server' : 'servers'"></span>)</span>
-                <span class="tabular-nums font-semibold text-edge-text" x-text="planPrice > 0 ? fmt(planPrice) : 'Free'"></span>
-            </div>
-            <div class="flex items-center justify-between mt-1.5">
-                <span class="text-edge-mute">Managed products</span>
-                <span class="font-semibold text-edge-text tabular-nums" x-text="fmt(managedTotal)"></span>
-            </div>
-            <div x-show="annual" x-cloak class="flex items-center justify-between mt-1.5 text-edge-lime">
-                <span>Annual discount ({{ $annualPct }}%)</span>
-                <span class="font-semibold tabular-nums" x-text="'−' + fmt(monthlyTotal * 12 * annualPct / 100)"></span>
-            </div>
-            <p class="mt-3 text-xs text-edge-mute">Plus metered Edge delivery usage where applicable. Servers under one day old aren't counted.</p>
+        <div class="ms-auto inline-flex border border-edge-line">
+            <button type="button" x-on:click="annual = false" class="font-terminal px-3 py-1.5 text-xs transition-colors" :class="!annual ? 'bg-edge-lime text-edge-void font-bold' : 'text-edge-mute hover:text-edge-text'">{{ __('Monthly') }}</button>
+            <button type="button" x-on:click="annual = true" class="font-terminal px-3 py-1.5 text-xs transition-colors" :class="annual ? 'bg-edge-lime text-edge-void font-bold' : 'text-edge-mute hover:text-edge-text'">{{ __('Annual −:pct%', ['pct' => $annualPct]) }}</button>
         </div>
     </div>
-</section>
+
+    <div class="grid gap-px bg-edge-line lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
+        {{-- Inputs --}}
+        <div class="space-y-px bg-edge-line">
+            @foreach ([
+                ['model' => 'staticSites', 'label' => __('Static / hybrid sites'), 'hint' => __('$:price per live site / mo', ['price' => number_format($sitePrice, 2)]), 'step' => 1, 'suffix' => __('sites')],
+                ['model' => 'ssrSites', 'label' => __('Worker SSR sites'), 'hint' => __('$:price per live site / mo', ['price' => number_format($ssrPrice, 2)]), 'step' => 1, 'suffix' => __('sites')],
+                ['model' => 'requestsM', 'label' => __('Requests'), 'hint' => __(':n M included per site', ['n' => (int) ($includedRequests / 1_000_000)]), 'step' => 1, 'suffix' => __('million / mo')],
+                ['model' => 'egressGb', 'label' => __('Egress'), 'hint' => __(':n GB included per site', ['n' => $includedEgress]), 'step' => 10, 'suffix' => __('GB / mo')],
+                ['model' => 'storageGb', 'label' => __('Stored output'), 'hint' => __(':n GB included per site', ['n' => $includedStorage]), 'step' => 1, 'suffix' => __('GB')],
+            ] as $field)
+                <div class="flex flex-wrap items-center justify-between gap-4 bg-edge-panel px-5 py-3.5">
+                    <div class="min-w-0">
+                        <p class="text-sm font-medium text-edge-text">{{ $field['label'] }}</p>
+                        <p class="mt-0.5 text-xs text-edge-mute">{{ $field['hint'] }}</p>
+                    </div>
+                    <div class="flex shrink-0 items-center gap-2">
+                        <button type="button" x-on:click="{{ $field['model'] }} = Math.max(0, Number({{ $field['model'] }}) - {{ $field['step'] }})" class="font-terminal flex h-8 w-8 items-center justify-center border border-edge-line text-edge-mute transition-colors hover:border-edge-lime/50 hover:text-edge-text" aria-label="{{ __('Decrease') }}">−</button>
+                        <input
+                            type="number"
+                            min="0"
+                            step="{{ $field['step'] }}"
+                            x-model.number="{{ $field['model'] }}"
+                            class="font-terminal h-8 w-20 border border-edge-line bg-edge-void px-2 text-center text-sm text-edge-text focus:border-edge-lime focus:outline-none focus:ring-0"
+                            aria-label="{{ $field['label'] }}"
+                        />
+                        <button type="button" x-on:click="{{ $field['model'] }} = Number({{ $field['model'] }}) + {{ $field['step'] }}" class="font-terminal flex h-8 w-8 items-center justify-center border border-edge-line text-edge-mute transition-colors hover:border-edge-lime/50 hover:text-edge-text" aria-label="{{ __('Increase') }}">+</button>
+                        <span class="w-24 shrink-0 text-xs text-edge-mute">{{ $field['suffix'] }}</span>
+                    </div>
+                </div>
+            @endforeach
+        </div>
+
+        {{-- Total --}}
+        <div class="bg-edge-panel px-5 py-5">
+            <p class="font-terminal text-[11px] uppercase tracking-[0.16em] text-edge-faint">{{ __('Estimated month') }}</p>
+            <p class="font-terminal mt-3 text-4xl font-bold text-edge-lime" x-text="money(total)">$0.00</p>
+            <p class="mt-1 text-xs text-edge-mute" x-show="annual" x-cloak>
+                {{ __('Platform fee shown with the annual discount applied; delivery is always billed monthly.') }}
+            </p>
+
+            <dl class="mt-6 space-y-2 text-sm">
+                <div class="flex items-baseline justify-between gap-3 border-b border-edge-line pb-2">
+                    <dt class="text-edge-mute"><span x-text="sites"></span> {{ __('live sites — platform fee') }}</dt>
+                    <dd class="font-terminal text-edge-text" x-text="money(platformBilled)"></dd>
+                </div>
+                <div class="flex items-baseline justify-between gap-3">
+                    <dt class="text-edge-mute">{{ __('Requests over allowance') }}</dt>
+                    <dd class="font-terminal text-edge-text" x-text="money(requestsCost)"></dd>
+                </div>
+                <div class="flex items-baseline justify-between gap-3">
+                    <dt class="text-edge-mute">{{ __('Egress over allowance') }}</dt>
+                    <dd class="font-terminal text-edge-text" x-text="money(egressCost)"></dd>
+                </div>
+                <div class="flex items-baseline justify-between gap-3 border-b border-edge-line pb-2">
+                    <dt class="text-edge-mute">{{ __('Storage over allowance') }}</dt>
+                    <dd class="font-terminal text-edge-text" x-text="money(storageCost)"></dd>
+                </div>
+                <div class="flex items-baseline justify-between gap-3 pt-1">
+                    <dt class="font-semibold text-edge-text">{{ __('Total') }}</dt>
+                    <dd class="font-terminal font-bold text-edge-lime" x-text="money(total) + '/mo'"></dd>
+                </div>
+            </dl>
+
+            <p class="mt-5 text-xs leading-relaxed text-edge-mute">
+                {{ __('Allowances are per site, so they grow as you add sites. Preview deployments are free and are not counted here.') }}
+            </p>
+        </div>
+    </div>
+</div>

@@ -10,7 +10,10 @@
     <div class="px-3 py-3 sm:px-4">
         <div class="flex flex-wrap items-start gap-x-6 gap-y-3">
             <div class="min-w-0 flex-1">
-                <p class="text-sm font-semibold text-brand-ink">{{ __('How notification channels work') }}</p>
+                {{-- Suppressed when a <details> summary already carries the title. --}}
+                @unless ($hideTitle ?? false)
+                    <p class="text-sm font-semibold text-brand-ink">{{ __('How notification channels work') }}</p>
+                @endunless
                 <p class="mt-0.5 max-w-2xl text-xs leading-relaxed text-brand-moss">
                     {{ __('A channel is a destination — a chat room, an inbox, a pager, an endpoint. Adding one does not send anything on its own: you also choose which events route to it.') }}
                 </p>

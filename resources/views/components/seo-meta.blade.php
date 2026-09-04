@@ -29,7 +29,7 @@
         ?? ($title ? $title.' – '.$appName : $appName);
 
     $resolvedDescription = $description
-        ?? 'One control plane for the servers you own: provision from your cloud or bring any box over SSH, deploy from git, and manage TLS, databases, cron, firewall, and backups—with teams and an API behind every action.';
+        ?? 'Deploy static, SSG, and SSR sites straight from git to a global edge network. Preview URLs on every branch, custom domains with automatic TLS, access rules, and request analytics.';
 
     $resolvedCanonical = $canonical ?? url()->current();
     $resolvedImage = $image ? asset($image) : asset('images/og/dply-og.png');
@@ -47,7 +47,7 @@
 <meta property="og:image" content="{{ $resolvedImage }}">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="{{ $appName }} — infrastructure operations for the servers you own">
+<meta property="og:image:alt" content="{{ $appName }} — edge hosting for static, SSG, and SSR sites">
 
 {{-- Twitter --}}
 <meta name="twitter:card" content="summary_large_image">

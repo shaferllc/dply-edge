@@ -7,7 +7,7 @@
     a Refresh because the usual cause is a stale snapshot the user can recover from.
 --}}
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="dark">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -20,11 +20,12 @@
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     <style>[x-cloak]{display:none!important}</style>
 </head>
-<body class="font-sans antialiased bg-brand-cream text-brand-ink min-h-screen flex flex-col">
+<body class="font-sans antialiased bg-brand-cream text-brand-ink min-h-dvh flex flex-col">
+@include('partials.skip-link')
     <div class="fixed inset-0 -z-20 bg-brand-cream"></div>
     <div class="fixed inset-0 -z-10 bg-mesh-brand"></div>
 
-    <main class="flex-1 w-full px-4 sm:px-6 py-16 flex items-center justify-center">
+    <main id="main-content" tabindex="-1" class="flex-1 w-full px-4 sm:px-6 py-16 flex items-center justify-center">
         <div class="w-full max-w-lg mx-auto text-center">
             <div class="rounded-3xl border border-brand-ink/10 bg-white/90 backdrop-blur-sm shadow-xl shadow-brand-forest/10 ring-1 ring-brand-ink/5 px-8 py-12 sm:px-10 sm:py-14">
                 <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-brand-sand/60 text-brand-forest">

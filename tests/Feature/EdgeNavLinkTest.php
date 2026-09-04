@@ -11,41 +11,32 @@ use Laravel\Pennant\Feature;
 
 uses(RefreshDatabase::class);
 
-test('authenticated dashboard includes edge link when surface edge active', function () {
+/*
+ | The nav is asserted on /edge rather than /dashboard: the dashboard route is
+ | a redirect into this surface now.
+ */
+test('edge surface carries the compute nav row when surface edge is active', function () {
     Feature::define('surface.edge', fn () => true);
     Feature::flushCache();
     $user = ownerWithOrg();
 
     $this->actingAs($user)
-        ->get(route('dashboard'))
+        ->get(route('edge.index'))
         ->assertOk()
+        ->assertSee('Compute')
         ->assertSee('Edge')
         ->assertSee(route('edge.index'), false);
 });
 
-test('edge link hidden when surface edge inactive', function () {
+test('edge surface is not reachable when surface edge is inactive', function () {
     Feature::define('surface.edge', fn () => false);
     Feature::flushCache();
 
     $user = ownerWithOrg();
 
     $this->actingAs($user)
-        ->get(route('dashboard'))
-        ->assertOk()
-        ->assertDontSee(route('edge.index'), false);
-});
-
-test('browse dropdown includes edge when surface edge active', function () {
-    Feature::define('surface.edge', fn () => true);
-    Feature::flushCache();
-    $user = ownerWithOrg();
-
-    $this->actingAs($user)
-        ->get(route('dashboard'))
-        ->assertOk()
-        ->assertSee('Compute')
-        ->assertSee('Edge')
-        ->assertSee(route('edge.index'), false);
+        ->get(route('edge.index'))
+        ->assertNotFound();
 });
 
 function ownerWithOrg(): User

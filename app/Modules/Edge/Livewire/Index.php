@@ -327,11 +327,10 @@ class Index extends Component
      */
     private function edgeSitesQuery(Organization $organization): Builder
     {
+        // Shared with the Edge quota via Site::countsAsEdgeApp(), so a row can
+        // never count against the ceiling without also appearing in this list.
         return Site::query()
             ->where('organization_id', $organization->id)
-            ->where(function (Builder $q): void {
-                $q->whereNotNull('edge_backend')
-                    ->orWhere('meta->runtime_profile', 'edge_web');
-            });
+            ->edgeListed();
     }
 }

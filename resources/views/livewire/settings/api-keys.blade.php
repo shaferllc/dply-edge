@@ -185,17 +185,28 @@
                     <button type="button" wire:click="$set('token_list_search', '')" class="mt-2 text-xs font-semibold text-brand-sage hover:text-brand-ink">{{ __('Clear search') }}</button>
                 </div>
             @else
-                <ul class="divide-y divide-brand-ink/10">
+                {{-- Aligned columns rather than one wrapping line per token. Tokens
+                     are near-always named for the tool that issued them ("dply CLI"
+                     five times over), so the masked value is the real identifier and
+                     gets its own line instead of being buried mid-sentence. Abilities
+                     collapse behind a count — a native <details>, so expanding one
+                     costs no round-trip and no JS. --}}
+                <div class="hidden border-b border-brand-ink/10 bg-brand-sand/20 px-4 py-1.5 sm:grid sm:grid-cols-[minmax(0,1fr)_8.5rem_8.5rem_5.5rem] sm:gap-3">
+                    @foreach ([__('Token'), __('Last used'), __('Expires')] as $heading)
+                        <span class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ $heading }}</span>
+                    @endforeach
+                    <span class="sr-only">{{ __('Actions') }}</span>
+                </div>
+                <ul role="list" class="divide-y divide-brand-ink/10">
                     @foreach ($tokens as $t)
                         @php
                             $expired = $t->expires_at !== null && $t->expires_at->isPast();
                             $expiringSoonRow = $t->expires_at !== null && $t->expires_at->isFuture() && $t->expires_at->diffInDays(now()) <= 14;
+                            $abilityCount = count($t->abilities ?? []);
                         @endphp
-                        <li wire:key="api-token-{{ $t->id }}" class="flex flex-col gap-1.5 px-3 py-2 transition-colors hover:bg-brand-sand/15 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-4">
-                            <div class="min-w-0 flex-1">
-                                {{-- Name, state, masked value and metadata share one
-                                     wrapping line; abilities keep their own so a
-                                     long scope list can't push the row open. --}}
+                        <li wire:key="api-token-{{ $t->id }}" class="grid gap-1.5 px-3 py-2.5 transition-colors hover:bg-brand-sand/15 sm:grid-cols-[minmax(0,1fr)_8.5rem_8.5rem_5.5rem] sm:items-baseline sm:gap-3 sm:px-4">
+                            {{-- Identity: name + state, with the masked value beneath. --}}
+                            <div class="min-w-0">
                                 <div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                                     <span class="truncate text-sm font-semibold text-brand-ink">{{ $t->name }}</span>
                                     @if ($expired)
@@ -209,34 +220,45 @@
                                             {{ __('Expiring') }}
                                         </span>
                                     @endif
-                                    <span class="truncate font-mono text-xs text-brand-mist">{{ $t->masked_display }}</span>
-                                    <span class="truncate text-xs text-brand-moss">
-                                        {{ $t->last_used_at
-                                            ? __('used :time', ['time' => $t->last_used_at->diffForHumans()])
-                                            : __('never used') }}@if ($t->expires_at) · {{ __('expires :date', ['date' => $t->expires_at->format('M j, Y')]) }}@endif
-                                    </span>
+                                </div>
+                                <div class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                                    <code class="truncate font-mono text-xs text-brand-mist">{{ $t->masked_display }}</code>
                                     @if ($t->allowed_ips)
-                                        <span class="inline-flex shrink-0 items-center gap-1 text-xs text-brand-moss">
+                                        <span class="inline-flex shrink-0 items-center gap-1 text-2xs text-brand-moss" title="{{ __('IP allow-list') }}">
                                             <x-heroicon-m-globe-alt class="h-3 w-3 shrink-0" aria-hidden="true" />
                                             <span class="font-mono">{{ implode(', ', $t->allowed_ips) }}</span>
                                         </span>
                                     @endif
                                 </div>
-                                @if ($t->abilities)
-                                    <p class="mt-0.5 flex flex-wrap gap-1">
-                                        @foreach (array_slice($t->abilities, 0, 6) as $ability)
-                                            <code class="inline-flex items-center rounded bg-brand-sand/55 px-1 py-px font-mono text-2xs text-brand-moss">{{ $ability }}</code>
-                                        @endforeach
-                                        @if (count($t->abilities) > 6)
-                                            <span class="inline-flex items-center rounded bg-brand-sand/55 px-1 py-px font-mono text-2xs text-brand-moss">+{{ count($t->abilities) - 6 }}</span>
-                                        @endif
-                                    </p>
+                                @if ($abilityCount > 0)
+                                    <details class="group mt-1">
+                                        <summary class="inline-flex cursor-pointer list-none items-center gap-1 text-2xs font-medium text-brand-moss transition-colors hover:text-brand-ink [&::-webkit-details-marker]:hidden">
+                                            <x-heroicon-m-chevron-right class="h-3 w-3 shrink-0 transition-transform group-open:rotate-90" aria-hidden="true" />
+                                            {{ trans_choice(':count permission|:count permissions', $abilityCount, ['count' => $abilityCount]) }}
+                                        </summary>
+                                        <div class="mt-1 flex flex-wrap gap-1">
+                                            @foreach ($t->abilities as $ability)
+                                                <code class="inline-flex items-center rounded bg-brand-sand/55 px-1 py-px font-mono text-2xs text-brand-moss">{{ $ability }}</code>
+                                            @endforeach
+                                        </div>
+                                    </details>
                                 @endif
                             </div>
+
+                            <div class="text-xs text-brand-moss">
+                                <span class="text-brand-mist sm:hidden">{{ __('Last used') }}: </span>
+                                {{ $t->last_used_at ? $t->last_used_at->diffForHumans() : __('Never') }}
+                            </div>
+
+                            <div class="text-xs {{ $expired ? 'text-red-700' : ($expiringSoonRow ? 'text-amber-900' : 'text-brand-moss') }}">
+                                <span class="text-brand-mist sm:hidden">{{ __('Expires') }}: </span>
+                                {{ $t->expires_at ? $t->expires_at->format('M j, Y') : __('Never') }}
+                            </div>
+
                             <button
                                 type="button"
                                 wire:click="openConfirmActionModal('revokeToken', [{{ $t->id }}], @js(__('Revoke token')), @js(__('Revoke this token? It will stop working immediately.')), @js(__('Revoke')), true)"
-                                class="inline-flex h-6 shrink-0 items-center gap-1 self-start rounded-md border border-brand-ink/15 bg-white px-2.5 text-xs font-semibold text-brand-moss shadow-sm transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 sm:self-auto"
+                                class="inline-flex h-6 shrink-0 items-center gap-1 justify-self-start rounded-md border border-transparent px-2 text-xs font-semibold text-brand-moss transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 sm:justify-self-end"
                             >
                                 <x-heroicon-o-no-symbol class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                                 {{ __('Revoke') }}

@@ -31,7 +31,13 @@ test('fake mode banner suggests app url host when testing domain is not valet', 
 });
 
 test('local dev checks fail when testing domain missing', function () {
-    config(['edge.testing_domains' => []]);
+    // EdgeTestingDomains::all() falls back to the shared testing_domains
+    // config, so both sources have to be empty for "no domain configured".
+    config([
+        'edge.testing_domains' => [],
+        'testing_domains.edge' => [],
+        'testing_domains.edge_apex' => '',
+    ]);
 
     $checks = EdgeLocalDevDiagnostics::checks();
 

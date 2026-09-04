@@ -1,0 +1,12 @@
+{
+  "blockedBy": [],
+  "completedDate": null,
+  "createdDate": "2026-09-04",
+  "description": "AGENTS.md is 80KB of accumulated conventions and is auto-loaded into every session, which makes it the highest-leverage stale document in the repo.\n\nIt still instructs agents about surfaces that no longer exist: the /live production mirror's parallel /servers, /cloud, /serverless and /projects indexes, \"Add server\" placement on the servers index, SSH and provisioning conventions, and per-product chrome rules for deleted product lines. An agent following it today will build against a platform that was removed on 2026-08-25.\n\nKeep the conventions that still apply — styling, Livewire patterns, feature-flag layers, the billing model, shared header and footer components — and cut everything scoped to a deleted surface. AGENTS.original.md can be deleted or archived at the same time.\n",
+  "id": "T-002",
+  "order": 20,
+  "phase": "cut-cleanup",
+  "status": "open",
+  "title": "Rewrite AGENTS.md for the Edge-only shape",
+  "type": "chore"
+}

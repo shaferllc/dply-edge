@@ -1,0 +1,12 @@
+{
+  "blockedBy": [],
+  "completedDate": null,
+  "createdDate": "2026-09-04",
+  "description": "Several pages are mid-redesign in the working tree and should be finished rather than committed half-done.\n\nIn flight: /profile/api-keys, /profile/notification-channels (both the content and explainer partials), /settings/profile via the settings hub, /profile/source-control, and the /features marketing page, which was flagged as doing too much. Also the first-load theme default, where resources/js/theme.js was deleted in favour of the inline theme-head partial — verify it no longer flashes light before settling.\n\nRoughly 50 view files are touched. The user tests these manually in the browser.\n",
+  "id": "T-010",
+  "order": 20,
+  "phase": "edge-polish",
+  "status": "open",
+  "title": "Finish the settings and marketing redesigns",
+  "type": "task"
+}

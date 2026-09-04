@@ -8,8 +8,6 @@ use App\Models\EdgeDeployment;
 use App\Models\EdgeSiteAccessRule;
 use App\Models\EdgeSiteEnvVar;
 use App\Models\EdgeSiteMember;
-use App\Models\InsightFinding;
-use App\Models\InsightSetting;
 use App\Models\NotificationSubscription;
 use App\Models\Organization;
 use App\Models\OrganizationSecret;
@@ -69,8 +67,6 @@ use Illuminate\Support\Collection;
  * @property-read \Illuminate\Database\Eloquent\Collection<int, EdgeSiteEnvVar> $edgeEnvVars
  * @property-read \Illuminate\Database\Eloquent\Collection<int, EdgeSiteMember> $edgeSiteMembers
  * @property-read \Illuminate\Database\Eloquent\Collection<int, NotificationSubscription> $notificationSubscriptions
- * @property-read ?InsightSetting $insightSetting
- * @property-read \Illuminate\Database\Eloquent\Collection<int, InsightFinding> $insightFindings
  */
 trait HasSiteRelationships
 {

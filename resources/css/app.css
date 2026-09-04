@@ -2,7 +2,7 @@
 @plugin '@tailwindcss/forms';
 @plugin '@tailwindcss/typography';
 
-/* Class-based dark mode (toggle `dark` on <html> via resources/views/partials/theme-head.blade.php + theme.js). */
+/* Class-based dark mode. `dark` is a static attribute on <html> in every layout — no JS toggles it. */
 @custom-variant dark (&:where(.dark, .dark *));
 
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
@@ -696,4 +696,63 @@ html.dark input:is([type='checkbox'], [type='radio']) {
 .edge-auth input[type='checkbox'],
 .edge-auth input[type='radio'] {
     accent-color: var(--color-edge-lime);
+}
+
+/* ── Motion, focus and measure: app-wide defaults ─────────────────────────
+   Three gaps that were never set anywhere, added once here rather than swept
+   through the views. Unlayered, so these beat Tailwind's layered utilities. */
+
+/* Anchor jumps (in-page tab strips, the docs TOC, #-links in long-form copy)
+   teleported. `scroll-padding-top` keeps the target clear of the sticky
+   <x-site-header> (z-30) rather than landing underneath it. */
+html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 5rem;
+}
+
+/* Honour the OS "reduce motion" setting. The app animates on every screen —
+   wire:click spinners, animate-pulse skeletons, the live-request animate-ping,
+   sidebar collapse, tooltip fades.
+   Times are collapsed to 0.01ms rather than set to `none` on purpose: the
+   `animationend` / `transitionend` events still fire, so anything waiting on
+   one is not left hanging. */
+@media (prefers-reduced-motion: reduce) {
+    html {
+        scroll-behavior: auto;
+    }
+
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+
+/* Keyboard focus fallback. Most controls carry an explicit `focus:ring-*`,
+   but the ones that don't (bare links, [tabindex] rows, summary elements)
+   fell back to the UA outline — which is invisible against the near-black
+   Terminal ground. This only paints where nothing else already did:
+   `:focus-visible` keeps it off mouse clicks. */
+:focus-visible {
+    outline: 2px solid var(--color-edge-lime);
+    outline-offset: 2px;
+}
+
+/* …but never double up on a control that already draws its own ring. */
+:where(.focus\:ring-2, .focus\:ring-1, .dply-input, button, [role='button']):focus-visible {
+    outline-color: color-mix(in srgb, var(--color-edge-lime) 80%, transparent);
+}
+
+/* Measure. Headings were breaking with a single orphaned word on the last
+   line (worst on the marketing hero and card titles); body copy in prose
+   blocks had the same problem at the paragraph level. */
+h1, h2, h3 {
+    text-wrap: balance;
+}
+
+p {
+    text-wrap: pretty;
 }

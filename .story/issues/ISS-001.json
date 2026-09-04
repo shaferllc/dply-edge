@@ -1,0 +1,16 @@
+{
+  "components": [],
+  "createdBy": "codex-review",
+  "dedupeKey": "story-setup-2026-09-04:actions-refs",
+  "discoveredDate": "2026-09-04",
+  "id": "ISS-001",
+  "impact": "CLAUDE.md's Edge-cut note says app/Actions/* is 'untouched and unreferenced by the app' at ~330 files. It is 380 files and 10 files outside it import from it, including app/Livewire/Auth/Login.php and Auth/Register.php. Any session that trusts the note and deletes the directory breaks login and registration. Verified 2026-09-04 with a fixed-string grep; an earlier over-escaped regex is what produced the false zero.",
+  "location": [],
+  "phase": null,
+  "relatedTickets": [],
+  "resolution": null,
+  "resolvedDate": null,
+  "severity": "medium",
+  "status": "open",
+  "title": "CLAUDE.md wrongly states app/Actions/* is unreferenced"
+}

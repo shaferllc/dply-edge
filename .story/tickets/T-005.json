@@ -1,0 +1,15 @@
+{
+  "blockedBy": [
+    "T-004"
+  ],
+  "completedDate": null,
+  "createdDate": "2026-09-04",
+  "description": "The last measured figure, 43.5% of statements on 2026-08-16, predates the cut and is meaningless — two thirds of both app/ and tests/ are gone.\n\nRun composer test:coverage:clover (about 7 minutes). Do not combine it with TIA: a replay-measured percentage reports whatever TIA chose to re-execute, not a property of the codebase. Record the new baseline in CLAUDE.md, replacing the stale number.\n",
+  "displayId": "T-005",
+  "id": "T-005",
+  "order": 20,
+  "phase": "suite-recovery",
+  "status": "open",
+  "title": "Re-measure coverage post-cut",
+  "type": "chore"
+}

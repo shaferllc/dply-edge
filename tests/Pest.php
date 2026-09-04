@@ -2,7 +2,7 @@
 
 use Laravel\Pennant\Feature;
 use Laravel\Pennant\FeatureManager;
-use Tests\Concerns\FakesRemoteServerAccess;
+use Tests\Concerns\FakesBackgroundWork;
 use Tests\TestCase;
 
 /**
@@ -60,7 +60,7 @@ function redefinePennantFeaturesFromConfig(): void
 pest()->extend(TestCase::class)->group('unit')->in('Unit');
 
 pest()->extend(TestCase::class)
-    ->use(FakesRemoteServerAccess::class)
+    ->use(FakesBackgroundWork::class)
     ->group('feature')
     ->in('Feature');
 

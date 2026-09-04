@@ -17,7 +17,7 @@
         <div class="min-w-0 lg:col-span-9">
             <x-breadcrumb-trail :site="$site" :items="[
                 ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
-                ['label' => __('Edge'), 'href' => route('edge.index'), 'icon' => 'globe-alt'],
+                ['label' => __('Apps'), 'href' => route('edge.index'), 'icon' => 'globe-alt'],
                 ['label' => $site->name, 'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'edge-deploys'])],
                 ['label' => __('Deployment'), 'icon' => 'code-bracket-square'],
             ]" class="mb-6" />

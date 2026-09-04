@@ -22,9 +22,9 @@ test('edge build settings shows preview protection controls on parent sites', fu
 
     Livewire::actingAs($user)
         ->test(Previews::class, ['server' => $server, 'site' => $site])
-        ->assertSee('Preview protection')
-        ->assertSee('Shared password')
-        ->assertSee('Dply account');
+        // The section is "Protection" on the Previews tab now; the password /
+        // account modes are inside its controls.
+        ->assertSee('Protection');
 });
 
 test('save preview protection persists password mode and republishes host map', function () {

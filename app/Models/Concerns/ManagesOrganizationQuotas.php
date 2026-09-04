@@ -129,8 +129,12 @@ trait ManagesOrganizationQuotas
             );
         }
 
+        // "Add a server to move up to the next plan" outlived the VM platform: the
+        // 2026-08-25 Edge cut removed provisioning entirely, and a Server row is now
+        // minted automatically per Edge site, so there is no add-server flow for a
+        // user to follow. The upgrade path is the organization's subscription page.
         return sprintf(
-            'Your %s plan includes %d %s. Add a server to move up to the next plan, or contact us to raise your limit.',
+            'Your %s plan includes %d %s. Upgrade the organization plan to raise this limit, or contact us.',
             $this->currentSubscriptionPlan()['label'],
             $limit,
             trans_choice($surface->nounKey(), $limit),

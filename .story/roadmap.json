@@ -1,0 +1,37 @@
+{
+  "blockers": [],
+  "date": "2026-09-04",
+  "phases": [
+    {
+      "description": "Land the in-flight remnants of the 2026-08-25 Edge-only cut: partition and commit the working tree, and rewrite the docs that still describe the deleted VM, Cloud, and Serverless product lines.",
+      "id": "cut-cleanup",
+      "label": "PHASE 1",
+      "name": "Finish the Edge-only cut"
+    },
+    {
+      "description": "The suite has not been run since the cut. Survivors compile but are unverified, and the last coverage figure predates the deletion of two thirds of app/ and tests/.",
+      "id": "suite-recovery",
+      "label": "PHASE 2",
+      "name": "Get the test suite trustworthy"
+    },
+    {
+      "description": "Decisions CLAUDE.md explicitly deferred: the app/Actions framework, migrations that still create removed products' tables, and leaf models pending a move into their modules.",
+      "id": "dead-weight",
+      "label": "PHASE 3",
+      "name": "Retire what the cut left behind"
+    },
+    {
+      "description": "In-flight product work: the quota and plan surface still assumes a VM platform, and several settings and marketing pages are mid-redesign.",
+      "id": "edge-polish",
+      "label": "PHASE 4",
+      "name": "Edge product and UI polish"
+    },
+    {
+      "description": "Initial project setup.",
+      "id": "p0",
+      "label": "PHASE 0",
+      "name": "Setup"
+    }
+  ],
+  "title": "dply-edge"
+}

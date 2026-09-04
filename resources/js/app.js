@@ -4,7 +4,6 @@ import {
     dplyEnsureDocsProseStyles,
     registerDplyLazyAssetListeners,
 } from './lazy-load.js';
-import { registerDplyThemeListeners } from './theme.js';
 import { registerDeployPipelineWorkspace } from './deploy-pipeline-dnd.js';
 import { registerRealtimeConsole } from './realtime-console.js';
 import {
@@ -17,7 +16,6 @@ import { registerMarkdownEditor } from './markdown-editor.js';
 window.dplyEnsureDocsProseStyles = dplyEnsureDocsProseStyles;
 
 registerDplyLazyAssetListeners();
-registerDplyThemeListeners();
 // Styled hover tooltips for [data-tooltip] and for truncated [title] text.
 registerDplyTooltips();
 
@@ -265,10 +263,6 @@ document.addEventListener('DOMContentLoaded', () => {
 // wire:navigate swaps the DOM without firing DOMContentLoaded — re-render any maps
 // that landed in the new page so the create wizard's region map works after SPA nav.
 document.addEventListener('livewire:navigated', () => {
-    renderDplyRegionMaps().catch(() => {});
-});
-
-window.addEventListener('dply-theme-applied', () => {
     renderDplyRegionMaps().catch(() => {});
 });
 

@@ -33,7 +33,6 @@ final class ConfigDirectoryAliases
         'dply' => 'product.dply',
         'edge' => 'product.edge',
         'lookout' => 'product.lookout',
-        'migration_sources' => 'product.migration_sources',
         'passkeys' => 'product.passkeys',
         'preview' => 'product.preview',
         'profile_options' => 'product.profile_options',

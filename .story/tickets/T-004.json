@@ -1,0 +1,15 @@
+{
+  "blockedBy": [
+    "T-001"
+  ],
+  "completedDate": null,
+  "createdDate": "2026-09-04",
+  "description": "The suite has not been run since the Edge-only cut. 761 test files that referenced removed classes were deleted at the cut itself, and the working tree deletes 85 more. The survivors compile but nothing has verified they pass.\n\nRun composer test against the partitioned tree. Classify the failures rather than fixing them one by one — expect clusters around removed models, deleted routes, and factories for tables that no longer have a model.\n\nLikely oversized. Split it by failure class once the first run shows what is actually broken.\n",
+  "displayId": "T-004",
+  "id": "T-004",
+  "order": 10,
+  "phase": "suite-recovery",
+  "status": "open",
+  "title": "Run the full suite and fix the fallout",
+  "type": "task"
+}

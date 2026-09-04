@@ -265,6 +265,35 @@ trait ManagesEdgeHosting
         return 'vm';
     }
 
+    /**
+     * Whether this row is an Edge app for listing AND for quota purposes.
+     *
+     * One definition, two forms: this predicate and {@see scopeEdgeListed()}.
+     * The Edge index and the Edge quota used to derive "is this an Edge app?"
+     * differently — the index from these two columns, the quota from the
+     * SERVER's host kind — so a row could count against the ceiling while never
+     * appearing in the list, blocking an org with apps it could not see or
+     * delete. Change both forms together, or the two drift apart again.
+     */
+    public function countsAsEdgeApp(): bool
+    {
+        return (is_string($this->edge_backend) && $this->edge_backend !== '')
+            || ($this->meta['runtime_profile'] ?? null) === 'edge_web';
+    }
+
+    /**
+     * Query form of {@see countsAsEdgeApp()}.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder<Site>  $query
+     */
+    public function scopeEdgeListed(\Illuminate\Database\Eloquent\Builder $query): void
+    {
+        $query->where(function (\Illuminate\Database\Eloquent\Builder $q): void {
+            $q->whereNotNull('edge_backend')
+                ->orWhere('meta->runtime_profile', 'edge_web');
+        });
+    }
+
     public function isCloudPreview(): bool
     {
         $container = is_array($this->meta['container'] ?? null) ? $this->meta['container'] : [];

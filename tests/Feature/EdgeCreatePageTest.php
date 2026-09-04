@@ -108,7 +108,7 @@ test('returns 404 when surface edge inactive', function () {
 
     $this->actingAs($user)
         ->get(route('edge.create'))
-        ->assertStatus(400);
+        ->assertStatus(404);
 });
 
 test('ssr detection still selects hybrid when output_dir is present', function () {
@@ -190,7 +190,6 @@ test('rejects laravel detection on edge deploy', function () {
             'build_command' => 'composer install',
         ])
         ->assertSee('Not an Edge workload')
-        ->assertSee('Create a server')
         ->call('deploy')
         ->assertNoRedirect();
 

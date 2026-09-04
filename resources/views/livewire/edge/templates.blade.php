@@ -1,13 +1,13 @@
 <div class="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
     <x-breadcrumb-trail :items="[
         ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
-        ['label' => __('Edge'), 'href' => route('edge.index'), 'icon' => 'globe-alt'],
+        ['label' => __('Apps'), 'href' => route('edge.index'), 'icon' => 'globe-alt'],
         ['label' => __('Templates'), 'icon' => 'sparkles'],
     ]" />
 
     <x-profile-shell
         class="mt-4"
-        :title="__('Edge templates')"
+        :title="__('App templates')"
         :description="__('Hand-picked starter repositories. Click Deploy — dply pre-fills the Create form with the template\'s repo, framework, and build settings so you go from zero to live in under a minute.')"
         icon="heroicon-o-sparkles"
     >

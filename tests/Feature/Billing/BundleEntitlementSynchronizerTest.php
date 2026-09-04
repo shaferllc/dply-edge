@@ -7,7 +7,12 @@ use App\Models\Organization;
 use App\Models\OrganizationBundleEntitlement;
 use App\Modules\Billing\Events\BundleEntitlementChanged;
 use App\Modules\Billing\Services\BundleEntitlementSynchronizer;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
+
+// Without this the entitlement rows written by the earlier tests in this file
+// survive into the next one, and the "inert" assertion counts them.
+uses(RefreshDatabase::class);
 
 beforeEach(function (): void {
     config()->set('bundle.enabled', true);
@@ -28,7 +33,9 @@ it('is inert while the perk is dark', function (): void {
     $org = Organization::factory()->create();
 
     expect(app(BundleEntitlementSynchronizer::class)->sync(orgQualifying($org, true)))->toBeNull();
-    expect(OrganizationBundleEntitlement::count())->toBe(0);
+    // Scoped to this org: a global count picks up rows any other test in the
+    // run left behind and makes this assertion order-dependent.
+    expect(OrganizationBundleEntitlement::query()->where('organization_id', $org->id)->count())->toBe(0);
     Event::assertNotDispatched(BundleEntitlementChanged::class);
 });
 

@@ -14,12 +14,12 @@
 <div class="dply-page-shell space-y-4 pt-6">
     <x-breadcrumb-trail :items="[
         ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
-        ['label' => __('Edge'), 'href' => route('edge.index'), 'icon' => 'globe-alt'],
+        ['label' => __('Apps'), 'href' => route('edge.index'), 'icon' => 'globe-alt'],
         ['label' => __('Usage'), 'icon' => 'chart-bar'],
     ]" />
 
     <x-profile-shell
-        :title="__('Edge usage')"
+        :title="__('Apps usage')"
         :description="__('Cross-site view of requests, bandwidth, storage, and estimated cost for the current calendar month.')"
         icon="heroicon-o-chart-bar"
     >
@@ -37,7 +37,7 @@
                     <div class="rounded-xl border border-brand-ink/10 bg-white/80 px-3 py-2">
                         <dt class="flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wide text-brand-mist">
                             <x-heroicon-o-globe-alt class="h-3.5 w-3.5 shrink-0 text-brand-sage" aria-hidden="true" />
-                            <span class="truncate">{{ __('Edge sites') }}</span>
+                            <span class="truncate">{{ __('Apps') }}</span>
                         </dt>
                         <dd class="mt-0.5 font-mono text-lg font-semibold tabular-nums leading-none text-brand-ink">{{ number_format($totals['all_sites']) }}</dd>
                         <p class="mt-1 text-2xs text-brand-mist">{{ __(':n billable', ['n' => number_format($totals['sites'])]) }}</p>
@@ -82,7 +82,7 @@
 
         @unless ($edgeEnabled)
             <div class="border-b border-brand-ink/10 bg-amber-50/70 px-3 py-3 text-sm text-amber-900 sm:px-4">
-                {{ __('Edge is not enabled for this organization.') }}
+                {{ __('Apps are not enabled for this organization.') }}
             </div>
         @else
             @if (empty($rows))

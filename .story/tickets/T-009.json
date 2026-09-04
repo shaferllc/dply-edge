@@ -1,0 +1,12 @@
+{
+  "blockedBy": [],
+  "completedDate": null,
+  "createdDate": "2026-09-04",
+  "description": "The upgrade path still speaks in VM terms. The free-plan notice reads \"Your Free plan includes 3 Edge apps. Add a server to move up to the next plan, or contact us to raise your limit\" — but there is no VM platform to add a server to, and Server is now a vestigial owner row minted per edge site.\n\nTouches app/Enums/QuotaSurface.php, app/Models/Concerns/ManagesOrganizationQuotas.php, app/Models/Concerns/Site/ManagesEdgeHosting.php and app/Modules/Edge/Livewire/Index.php, all of which have uncommitted edits already. tests/Unit/QuotaSurfaceEdgeTest.php was added for this.\n\nFinish it against the real Edge billing model so the upgrade call to action points somewhere that exists.\n",
+  "id": "T-009",
+  "order": 10,
+  "phase": "edge-polish",
+  "status": "open",
+  "title": "Fix the quota and plan surface for Edge-only",
+  "type": "task"
+}

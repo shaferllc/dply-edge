@@ -59,7 +59,11 @@ function translator(): EdgeRepoBindingTranslator
         }
     };
 
-    return new EdgeRepoBindingTranslator($resolver, $defaults);
+    return new EdgeRepoBindingTranslator(
+        $resolver,
+        $defaults,
+        app(\App\Modules\Edge\Services\EdgeDplyResourceResolver::class),
+    );
 }
 
 test('dashboard overrides are normalized, deduped, and stripped of reserved names', function () {

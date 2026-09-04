@@ -17,13 +17,11 @@
                     <ul class="mt-3 space-y-2">
                         <li><a href="{{ route('pricing') }}" class="text-sm text-edge-mute transition-colors hover:text-edge-text">{{ __('Pricing') }}</a></li>
                         <li><a href="{{ route('features') }}" class="text-sm text-edge-mute transition-colors hover:text-edge-text">{{ __('Features') }}</a></li>
-                        <li><a href="{{ route('changelog') }}" class="text-sm text-edge-mute transition-colors hover:text-edge-text">{{ __('Changelog') }}</a></li>
                     </ul>
                 </div>
                 <div>
                     <p class="font-terminal text-[11px] uppercase tracking-[0.14em] text-edge-faint">{{ __('Move') }}</p>
                     <ul class="mt-3 space-y-2">
-                        <li><a href="{{ route('migrate.index') }}" class="text-sm text-edge-mute transition-colors hover:text-edge-text">{{ __('Migrate') }}</a></li>
                         <li><a href="{{ route('cli.install') }}" class="text-sm text-edge-mute transition-colors hover:text-edge-text">{{ __('CLI') }}</a></li>
                     </ul>
                 </div>

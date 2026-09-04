@@ -1,60 +1,55 @@
 <?php
 
-declare(strict_types=1);
-
 namespace Tests\Feature\Observers\SiteBillingObserverTest;
 
-use App\Enums\SiteType;
-use App\Modules\Billing\Jobs\SyncOrganizationBillingJob;
 use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
+use App\Models\User;
+use App\Modules\Billing\Jobs\SyncOrganizationBillingJob;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Queue;
 
 uses(RefreshDatabase::class);
 
-test('edge site going live dispatches billing sync', function () {
-    Bus::fake([SyncOrganizationBillingJob::class]);
-    $org = Organization::factory()->create();
+/*
+ | Replaces ServerObserverBillingSyncTest. Server lifecycle no longer moves the
+ | bill — billing counts live Edge sites — so the sync is driven by
+ | App\Modules\Billing\Observers\SiteBillingObserver.
+ */
+function edgeSiteFor(Organization $org): Site
+{
+    $user = User::factory()->create();
     $server = Server::factory()->create([
         'organization_id' => $org->id,
-        'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE],
+        'user_id' => $user->id,
+        'status' => Server::STATUS_READY,
     ]);
-    $site = Site::factory()->create([
-        'organization_id' => $org->id,
+
+    return Site::factory()->create([
         'server_id' => $server->id,
-        'type' => SiteType::Static,
+        'user_id' => $user->id,
+        'organization_id' => $org->id,
+        'status' => Site::STATUS_EDGE_ACTIVE,
         'edge_backend' => 'dply_edge',
-        'status' => Site::STATUS_EDGE_PROVISIONING,
     ]);
+}
+
+test('dispatches a billing sync when a site becomes edge-active', function () {
+    $org = Organization::factory()->create();
+    $site = edgeSiteFor($org);
+    $site->update(['status' => Site::STATUS_PENDING]);
 
     $site->update(['status' => Site::STATUS_EDGE_ACTIVE]);
 
-    Bus::assertDispatched(
-        SyncOrganizationBillingJob::class,
-        fn (SyncOrganizationBillingJob $job) => $job->organizationId === $org->id,
-    );
+    Queue::assertPushed(SyncOrganizationBillingJob::class);
 });
 
-test('cloud site deletion dispatches billing sync when active', function () {
-    Bus::fake([SyncOrganizationBillingJob::class]);
+test('dispatches a billing sync when an edge site is deleted', function () {
     $org = Organization::factory()->create();
-    $server = Server::factory()->create([
-        'organization_id' => $org->id,
-        'meta' => ['host_kind' => Server::HOST_KIND_DPLY_CLOUD],
-    ]);
-    $site = Site::factory()->create([
-        'organization_id' => $org->id,
-        'server_id' => $server->id,
-        'container_backend' => 'dply_cloud',
-        'status' => Site::STATUS_CONTAINER_ACTIVE,
-    ]);
+    $site = edgeSiteFor($org);
 
     $site->delete();
 
-    Bus::assertDispatched(
-        SyncOrganizationBillingJob::class,
-        fn (SyncOrganizationBillingJob $job) => $job->organizationId === $org->id,
-    );
+    Queue::assertPushed(SyncOrganizationBillingJob::class);
 });

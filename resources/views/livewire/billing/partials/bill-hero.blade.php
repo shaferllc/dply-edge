@@ -26,12 +26,12 @@
         $segments[] = ['key' => 'cloud', 'label' => __('Cloud').' × '.$state->cloudCount, 'cents' => $state->cloudSubtotalCents];
     }
     if ($state->edgeSubtotalCents > 0) {
-        $segments[] = ['key' => 'edge', 'label' => __('Edge').' × '.$state->edgeCount, 'cents' => $state->edgeSubtotalCents];
+        $segments[] = ['key' => 'edge', 'label' => __('Apps').' × '.$state->edgeCount, 'cents' => $state->edgeSubtotalCents];
     }
     if ($state->edgeUsageSubtotalCents > 0) {
         $segments[] = [
             'key' => 'edge_usage',
-            'label' => __('Edge usage'),
+            'label' => __('Apps usage'),
             'cents' => $state->edgeUsageSubtotalCents,
         ];
     }

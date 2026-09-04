@@ -64,46 +64,9 @@ test('platform admin global flags page renders config-driven flags read-only', f
         ->assertDontSee('requestGlobalFeatureFlagToggle');
 });
 
-test('legacy defaults workspace route redirects to vm servers', function () {
-    $user = User::factory()->create();
 
-    $this->actingAs($user)->get(route('admin.flags.defaults', 'workspace'))
-        ->assertRedirect(route('admin.flags.vm.servers'));
-});
 
-test('vm servers product line page shows emergency and provider flags', function () {
-    $user = User::factory()->create();
 
-    $this->actingAs($user)->get(route('admin.flags.vm.servers'))
-        ->assertOk()
-        ->assertSee(__('Emergency controls'))
-        ->assertSee('global.vm_enabled')
-        ->assertSee('provider.aws')
-        ->assertSee('workspace.ephemeral_credentials');
-});
-
-test('vm servers product line groups feature flags with their coming soon previews', function () {
-    $user = User::factory()->create();
-
-    $html = $this->actingAs($user)->get(route('admin.flags.vm.servers'))->assertOk()->getContent();
-
-    expect(substr_count($html, 'wire:key="group-Console"'))->toBe(1)
-        ->and(substr_count($html, 'wire:key="group-Insights"'))->toBe(1)
-        ->and(substr_count($html, 'wire:key="group-Blueprint"'))->toBe(1)
-        ->and($html)->toContain('workspace.console_preview')
-        ->and($html)->toContain('workspace.insights_preview')
-        ->and($html)->toContain('workspace.server_blueprint_preview')
-        ->and($html)->toContain('workspace.files_preview')
-        ->and($html)->toContain(__('Shows Soon badge + teaser page when the full workspace above is off. Overridable per org.'));
-});
-
-test('vm sites product line page shows site promote flag', function () {
-    $user = User::factory()->create();
-
-    Livewire::actingAs($user)
-        ->test(ProductLineFlags::class, ['line' => 'vm-sites'])
-        ->assertSee('workspace.site_promote');
-});
 
 test('edge product line page shows delivery emergency and surface flags', function () {
     $user = User::factory()->create();

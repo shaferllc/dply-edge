@@ -29,12 +29,16 @@
 {{-- "Available beyond your personal channels" — shown only on the personal
      /settings/notification-channels page, where the user can also see org +
      team-owned channels that target them. --}}
-@if (empty($useOrgShell) && (($currentOrganization ?? null) || ($teamChannelGroups ?? collect())->isNotEmpty()))
-    @php
-        // One flat list of inherited channels: an owner caption row, then its
-        // channels. Three nested card levels (section → per-owner card → rows)
-        // were spending most of their height on borders.
-        $inheritedGroups = collect();
+@php
+    // One flat list of inherited channels: an owner caption row, then its
+    // channels. Three nested card levels (section → per-owner card → rows)
+    // were spending most of their height on borders.
+    //
+    // Groups with nothing in them are dropped rather than rendered as "None
+    // yet." — an owner caption plus an empty-state line is a whole band of
+    // chrome saying nothing. The counts already live in the stats row above.
+    $inheritedGroups = collect();
+    if (empty($useOrgShell)) {
         if (($currentOrganization ?? null) && isset($organizationChannels)) {
             $inheritedGroups->push([
                 'kind' => __('Organization'),
@@ -53,7 +57,10 @@
                 'channels' => $entry['channels'],
             ]);
         }
-    @endphp
+        $inheritedGroups = $inheritedGroups->filter(fn ($g) => $g['channels']->isNotEmpty())->values();
+    }
+@endphp
+@if ($inheritedGroups->isNotEmpty())
     <div class="border-b border-brand-ink/10">
         <x-workspace-panel-head
             dense
@@ -74,10 +81,7 @@
                             </a>
                         @endif
                     </div>
-                    @if ($group['channels']->isEmpty())
-                        <p class="px-3 py-2 text-xs text-brand-mist sm:px-4">{{ __('None yet.') }}</p>
-                    @else
-                        @foreach ($group['channels'] as $channel)
+                    @foreach ($group['channels'] as $channel)
                             <div class="group flex items-center justify-between gap-3 border-t border-brand-ink/10 px-3 py-1.5 transition-colors hover:bg-brand-sand/15 sm:px-4">
                                 <div class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
                                     <span class="truncate text-sm font-medium text-brand-ink">{{ $channel->label }}</span>
@@ -85,21 +89,35 @@
                                 </div>
                                 <span class="shrink-0 rounded bg-brand-sand/60 px-1.5 py-px text-2xs font-semibold uppercase tracking-wide text-brand-moss">{{ trans_choice(':n use|:n uses', $channel->subscriptions_count, ['n' => $channel->subscriptions_count]) }}</span>
                             </div>
-                        @endforeach
-                    @endif
+                    @endforeach
                 </li>
             @endforeach
         </ul>
     </div>
 @endif
 
-{{-- The two-step model, stated once at the top. Hidden while searching so it
-     doesn't sit between the query and its results. --}}
+{{-- The two-step model. Hidden while searching so it doesn't sit between the
+     query and its results, and — once you already have a channel — folded behind
+     a disclosure. Standing teaching copy earns its space on an empty page; above
+     a list you've already built, it is the tallest thing you scroll past. --}}
 @if (! $hasChannelSearch)
-    @include('livewire.settings.partials.notification-channels-explainer', [
-        'canManage' => $canManage,
-        'bulkAssignUrl' => ! empty($showBulkAssign ?? false) ? route('profile.notification-channels.bulk-assign') : null,
-    ])
+    @php
+        $explainerData = [
+            'canManage' => $canManage,
+            'bulkAssignUrl' => ! empty($showBulkAssign ?? false) ? route('profile.notification-channels.bulk-assign') : null,
+        ];
+    @endphp
+    @if ($channelTotal === 0)
+        @include('livewire.settings.partials.notification-channels-explainer', $explainerData)
+    @else
+        <details class="group border-b border-brand-ink/10">
+            <summary class="flex cursor-pointer list-none items-center gap-1.5 px-3 py-2 text-xs font-semibold text-brand-moss transition-colors hover:text-brand-ink sm:px-4 [&::-webkit-details-marker]:hidden">
+                <x-heroicon-m-chevron-right class="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-90" aria-hidden="true" />
+                {{ __('How notification channels work') }}
+            </summary>
+            @include('livewire.settings.partials.notification-channels-explainer', $explainerData + ['hideTitle' => true])
+        </details>
+    @endif
 @endif
 
 @if ($canManage && count($types) === 0)
@@ -125,8 +143,40 @@
      URLs and this strip would just be a dead end. --}}
 @php
     $slackWorkspaces = $canManage ? $this->slackInstallations() : collect();
+    $discordGuilds = $canManage ? $this->discordInstallations() : collect();
+    $slackAvailable = $canManage && ($this->slackOauthConfigured() || $slackWorkspaces->isNotEmpty());
+    $discordAvailable = $canManage && ($this->discordOauthConfigured() || $discordGuilds->isNotEmpty());
+    // Nothing connected anywhere: the two provider strips carry no list, only an
+    // offer each, so they collapse into one row instead of two full-width bands.
+    $noAppsConnected = $slackWorkspaces->isEmpty() && $discordGuilds->isEmpty();
 @endphp
-@if ($canManage && ($this->slackOauthConfigured() || $slackWorkspaces->isNotEmpty()))
+@if (($slackAvailable || $discordAvailable) && $noAppsConnected)
+    <div class="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-brand-ink/10 px-3 py-2 sm:px-4">
+        <span class="shrink-0 text-xs font-semibold text-brand-ink">{{ __('Connect a chat app') }}</span>
+        <span class="min-w-0 flex-1 truncate text-xs text-brand-mist">{{ __('Route alerts to any channel without copying webhook URLs.') }}</span>
+        @if ($slackAvailable && $this->slackOauthConfigured())
+            <a
+                href="{{ $this->slackConnectUrl() }}"
+                x-on:click.prevent="window.location.href = @js($this->slackConnectUrl()) + '&return_to=' + encodeURIComponent(window.location.pathname + window.location.search)"
+                class="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-brand-ink/15 bg-white px-2 text-xs font-semibold text-brand-ink shadow-sm transition hover:bg-brand-sand/40"
+            >
+                <x-heroicon-o-chat-bubble-left-right class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                {{ __('Add to Slack') }}
+            </a>
+        @endif
+        @if ($discordAvailable && $this->discordOauthConfigured())
+            <a
+                href="{{ $this->discordConnectUrl() }}"
+                x-on:click.prevent="window.location.href = @js($this->discordConnectUrl()) + '&return_to=' + encodeURIComponent(window.location.pathname + window.location.search)"
+                class="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-brand-ink/15 bg-white px-2 text-xs font-semibold text-brand-ink shadow-sm transition hover:bg-brand-sand/40"
+            >
+                <x-heroicon-o-chat-bubble-oval-left-ellipsis class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                {{ __('Add to Discord') }}
+            </a>
+        @endif
+    </div>
+@endif
+@if ($slackAvailable && ! $noAppsConnected)
     <div class="border-b border-brand-ink/10">
         <x-workspace-panel-head
             dense
@@ -173,10 +223,7 @@
 @endif
 
 {{-- Connected Discord servers — same shape as the Slack strip above. --}}
-@php
-    $discordGuilds = $canManage ? $this->discordInstallations() : collect();
-@endphp
-@if ($canManage && ($this->discordOauthConfigured() || $discordGuilds->isNotEmpty()))
+@if ($discordAvailable && ! $noAppsConnected)
     <div class="border-b border-brand-ink/10">
         <x-workspace-panel-head
             dense

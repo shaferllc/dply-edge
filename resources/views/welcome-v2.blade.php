@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="dark">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,12 +7,9 @@
         full-title="{{ config('app.name') }} – Push a repo, get a site on the edge"
         description="dply edge builds your Git repository and publishes it to Cloudflare R2 and Workers. Static, hybrid or Worker SSR — with an HTTPS hostname before the first build finishes." />
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <meta name="theme-color" content="#0b0d0a">
 
     @include('partials.theme-head')
 
-    <link rel="preconnect" href="https://fonts.bunny.net">
-    <link href="https://fonts.bunny.net/css?family=space-grotesk:400,500,700|space-mono:400,700&display=swap" rel="stylesheet" />
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @livewireStyles
     <style>
@@ -34,10 +31,11 @@
     </style>
 </head>
 <body class="bg-edge-void font-display text-edge-text antialiased">
+@include('partials.skip-link')
 
     <x-edge-marketing-header />
 
-    <main>
+    <main id="main-content" tabindex="-1">
         {{-- ============================== HERO ============================== --}}
         <section class="border-b border-edge-line">
             <div class="mx-auto max-w-6xl px-6 pb-16 pt-16 lg:grid lg:grid-cols-12 lg:gap-14 lg:px-10 lg:pb-20 lg:pt-24">

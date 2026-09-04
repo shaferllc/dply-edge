@@ -119,7 +119,17 @@ test('throws when repo missing', function () {
     ]);
 })->throws(\InvalidArgumentException::class);
 
-test('throws when runtime mode is ssr', function () {
+/*
+ | Worker SSR is a real delivery mode now (it carries its own platform fee);
+ | it is refused only when the Edge platform can't run it — no Cloudflare
+ | credentials and Fake Edge off.
+ */
+test('throws when ssr is requested and the platform cannot run it', function () {
+    config([
+        'edge.fake.enabled' => false,
+        'edge.cloudflare.account_id' => '',
+        'edge.cloudflare.api_token' => '',
+    ]);
     [$user, $org] = scaffold();
 
     (new CreateEdgeSite)->handle($user, $org, [

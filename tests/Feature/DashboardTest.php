@@ -18,27 +18,17 @@ function userWithOrganization(): User
     return $user;
 }
 
-test('dashboard is displayed for authenticated user', function () {
+/*
+ | There is no dashboard page any more: one product surface means the edge
+ | site list IS the dashboard. The route name survives so `route('dashboard')`
+ | call sites keep resolving — see CLAUDE.md, "The Edge-only cut".
+ */
+test('dashboard sends an authenticated user to the edge surface', function () {
     $user = userWithOrganization();
 
-    $response = $this->actingAs($user)->get(route('dashboard'));
-
-    $response->assertOk();
-    $response->assertSee('Welcome back');
-    $response->assertSee('Operate from one place');
-    $response->assertSee('Keep the workspace ready');
-    $response->assertSee('Add a server');
-    $response->assertSee(route('servers.create'), false);
-});
-
-test('dashboard prompts for provider setup when no provider credentials exist', function () {
-    $user = userWithOrganization();
-
-    $response = $this->actingAs($user)->get(route('dashboard'));
-
-    $response->assertOk();
-    $response->assertSee('Add provider credentials before you provision');
-    $response->assertSee('Connect a supported infrastructure provider so this workspace can launch and manage real servers instead of stopping at setup.');
+    $this->actingAs($user)
+        ->get(route('dashboard'))
+        ->assertRedirect(route('edge.index'));
 });
 
 test('dashboard redirects guest to login', function () {

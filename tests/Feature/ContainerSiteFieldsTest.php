@@ -60,30 +60,6 @@ test('php site does not use container runtime', function () {
 
     expect($site->fresh()->usesContainerRuntime())->toBeFalse();
 });
-test('server host kind helpers for container kinds', function () {
-    $user = User::factory()->create();
-    $appPlatform = Server::factory()->create([
-        'user_id' => $user->id,
-        'meta' => ['host_kind' => Server::HOST_KIND_DIGITALOCEAN_APP_PLATFORM],
-    ]);
-    $appRunner = Server::factory()->create([
-        'user_id' => $user->id,
-        'meta' => ['host_kind' => Server::HOST_KIND_AWS_APP_RUNNER],
-    ]);
-    $edge = Server::factory()->create([
-        'user_id' => $user->id,
-        'meta' => ['host_kind' => Server::HOST_KIND_DPLY_CLOUD],
-    ]);
-    $vm = Server::factory()->create(['user_id' => $user->id]);
-
-    expect($appPlatform->isDigitalOceanAppPlatformHost())->toBeTrue();
-    expect($appPlatform->isContainerHost())->toBeTrue();
-    expect($appRunner->isAwsAppRunnerHost())->toBeTrue();
-    expect($appRunner->isContainerHost())->toBeTrue();
-    expect($edge->isDplyCloudHost())->toBeTrue();
-    expect($edge->isContainerHost())->toBeTrue();
-    expect($vm->isContainerHost())->toBeFalse();
-});
 test('container live url reads from meta', function () {
     $user = User::factory()->create();
     $server = Server::factory()->ready()->create(['user_id' => $user->id]);

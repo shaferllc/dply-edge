@@ -29,21 +29,25 @@ test('dashboard renders edge panel for edge site', function () {
         ->assertSee('https://edge-app.dply.host')
         ->assertSee('acme/web@main')
         ->assertDontSee('{{ $edgeBranch }}')
-        ->assertSee('Redeploy')
         ->assertSee('acme/web');
 });
 
+/*
+ | The overview owns identity, live URL, source and the latest deploy. The
+ | delivery label ("Managed Edge" / "Managed Edge (local)") is still computed
+ | by EdgeSiteViewData but no view prints it any more, and redeploying moved
+ | to the Deploys section — so neither is asserted here.
+ */
 test('dashboard shows fake edge banner when fake mode enabled', function () {
     config(['edge.fake.enabled' => true]);
     [$user, $server, $site] = makeEdgeSite();
 
     Livewire::actingAs($user)
         ->test(EdgeSettings::class, ['server' => $server, 'site' => $site, 'section' => 'general'])
-        ->assertSee('Fake edge — local mode')
-        ->assertSee('Managed Edge (local)');
+        ->assertSee('Fake edge — local mode');
 });
 
-test('dashboard shows cloudflare delivery label when platform configured', function () {
+test('dashboard hides the fake edge banner when the platform is configured', function () {
     config([
         'edge.fake.enabled' => false,
         'edge.r2.bucket' => 'dply-edge',
@@ -57,7 +61,6 @@ test('dashboard shows cloudflare delivery label when platform configured', funct
 
     Livewire::actingAs($user)
         ->test(EdgeSettings::class, ['server' => $server, 'site' => $site, 'section' => 'general'])
-        ->assertSee('Managed Edge')
         ->assertDontSee('Fake edge — local mode');
 });
 
@@ -72,7 +75,12 @@ test('redeploy button dispatches build job', function () {
     Queue::assertPushed(BuildEdgeSiteJob::class);
 });
 
-test('panel does not render for non edge site', function () {
+/*
+ | Non-edge sites are not reachable at all now: the workspace controller only
+ | serves Edge sites, so a PHP site 404s rather than rendering a workspace
+ | without the Edge panel.
+ */
+test('workspace is not reachable for a non edge site', function () {
     $user = User::factory()->create();
     $org = Organization::factory()->create();
     $org->users()->attach($user->id, ['role' => 'owner']);
@@ -91,8 +99,7 @@ test('panel does not render for non edge site', function () {
 
     $this->actingAs($user)
         ->get(route('sites.show', ['server' => $server, 'site' => $site]))
-        ->assertOk()
-        ->assertDontSee('Delete Edge site');
+        ->assertNotFound();
 });
 
 test('preview teardown dispatches job', function () {

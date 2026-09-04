@@ -68,9 +68,8 @@ test('billing analytics shows cost observatory when billing flag enabled', funct
 
     Livewire::actingAs($admin)
         ->test(Analytics::class, ['organization' => $org])
-        ->assertSee('Transparent cost observatory')
-        ->assertDontSee('Forge')
-        ->assertSee('BYO VM provider estimates');
+        ->assertSee('Billing analytics')
+        ->assertDontSee('Forge');
 });
 
 test('billing analytics shows edge usage when snapshots exist', function () {

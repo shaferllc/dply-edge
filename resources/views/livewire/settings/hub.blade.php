@@ -46,6 +46,13 @@
     >
         {{-- No header actions: Security is one click away in the settings nav. --}}
 
+        {{-- Not on the profile page: both figures are controls further down this
+             same screen — Nav is the Navigation layout toggle, Timezone is the
+             Timezone select. A glance row earns its place when it summarises
+             something you would otherwise have to go and find; restating a
+             setting a scroll above the switch that sets it is just a second
+             copy to keep in sync. Other sections keep it. --}}
+        @unless ($isProfile)
         <x-slot:stats>
             <dl class="grid grid-cols-2 gap-px bg-brand-ink/5" aria-label="{{ __('Your settings at a glance') }}">
                 <div class="bg-white px-3 py-2">
@@ -69,6 +76,7 @@
                 </div>
             </dl>
         </x-slot:stats>
+        @endunless
 
         @if ($section === 'profile')
             {{-- Identity: name / email / country / locale / timezone.
@@ -103,14 +111,13 @@
                         @endif
                     </p>
                 </div>
+                {{-- Member since only. The session count was a second copy of the
+                     badge on the "Active sessions" heading below, which also lists
+                     the devices — this chip could only ever agree with it. --}}
                 <dl class="flex shrink-0 flex-wrap items-center gap-2">
                     <div class="rounded-xl border border-brand-ink/10 bg-white/80 px-3 py-2">
                         <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Member since') }}</dt>
                         <dd class="mt-0.5 text-sm font-semibold text-brand-ink">{{ $u?->created_at?->format('M Y') ?? '—' }}</dd>
-                    </div>
-                    <div class="rounded-xl border border-brand-ink/10 bg-white/80 px-3 py-2">
-                        <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Sessions') }}</dt>
-                        <dd class="mt-0.5 font-mono text-sm font-semibold tabular-nums text-brand-ink">{{ count($sessions) }}</dd>
                     </div>
                 </dl>
             </div>

@@ -59,7 +59,9 @@ trait ResolvesSiteRuntime
             return $this->runtime;
         }
 
-        return $this->type->value;
+        // `type` is nullable — an Edge site row can carry neither, and reading
+        // ->value off null fatals rather than returning "no runtime known".
+        return $this->type?->value;
     }
 
     /**

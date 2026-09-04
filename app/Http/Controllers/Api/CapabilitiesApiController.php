@@ -42,7 +42,7 @@ class CapabilitiesApiController extends Controller
                     'enabled' => Feature::active('surface.edge'),
                     'cli_create_supported' => false,
                     'cli_create' => false,
-                    'create_url' => url('/edge/create'),
+                    'create_url' => route('edge.create'),
                     'requires_git' => true,
                 ],
             ],

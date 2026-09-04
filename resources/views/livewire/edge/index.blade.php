@@ -13,7 +13,7 @@
         empty-state="local"
         :breadcrumbs="[
             ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
-            ['label' => __('Edge'), 'icon' => 'globe-alt'],
+            ['label' => __('Apps'), 'icon' => 'globe-alt'],
         ]"
     >
         <x-slot:modals>
@@ -113,7 +113,7 @@
                     <div class="min-w-0">
                         <p class="text-xs font-semibold uppercase tracking-[0.18em] text-brand-sage">{{ __('Quick look') }}</p>
                         <h2 class="mt-1 truncate text-base font-semibold text-brand-ink">
-                            {{ $quickLookSite?->name ?? __('Edge site') }}
+                            {{ $quickLookSite?->name ?? __('App') }}
                         </h2>
                         @if ($quickLookSite && $quickLookSite->edgeLiveUrl())
                             <a

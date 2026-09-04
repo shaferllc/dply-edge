@@ -1,0 +1,15 @@
+{
+  "blockedBy": [
+    "T-001"
+  ],
+  "completedDate": null,
+  "createdDate": "2026-09-04",
+  "description": "README.md still advertises BYO servers, Cloud apps, Serverless and WordPress as product lines, with a status table, quick-start instructions and links to docs for all of them. None of that code exists.\n\ndocs/ holds 77 files for deleted products: 30 VM_SITE_*.md and 47 SERVER_*.md. Several surviving docs link into them.\n\nTrim README to the Edge product and fix the quick start. Delete or archive the dead docs and repair the inbound links. Note that docs/edge-roadmap.md and docs/edge-roadmap-next.md are completed history (Waves A-E, closed 2026-07-09) and carry their own doc-drift warning — they should be marked as history, not deleted. Clear the root cruft while here: _probes_tmp.php and the stray database.sqlite that the README says is unused.\n",
+  "displayId": "T-003",
+  "id": "T-003",
+  "order": 30,
+  "phase": "cut-cleanup",
+  "status": "open",
+  "title": "Purge dead docs and stale README product lines",
+  "type": "chore"
+}

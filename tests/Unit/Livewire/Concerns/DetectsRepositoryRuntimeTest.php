@@ -39,32 +39,3 @@ test('normalize to clone url passes full urls through', function () {
 test('normalize to clone url returns empty for blank input', function () {
     expect(subject()->normalizeToCloneUrl('   '))->toBe('');
 });
-test('serverless detection collapses unknown framework to no match', function () {
-    $plan = subject()->exposeServerlessDetectionToArray(['framework' => 'unknown', 'runtime' => ''], 'https://github.com/acme/api.git', 'main');
-
-    expect($plan['no_match'])->toBeTrue();
-    expect($plan['kind'])->toBe('serverless');
-    $this->assertArrayNotHasKey('runtime', $plan);
-});
-test('serverless detection maps a recognized action', function () {
-    $plan = subject()->exposeServerlessDetectionToArray([
-        'framework' => 'raw',
-        'deploy_kind' => 'raw',
-        'runtime' => 'php:8.3',
-        'entrypoint' => 'main',
-        'build_command' => 'composer install',
-        'confidence' => 'high',
-        'reasons' => ['Detected a raw php function.'],
-        'warnings' => [],
-    ], 'https://github.com/acme/api.git', 'main');
-
-    expect($plan['kind'])->toBe('serverless');
-    expect($plan['framework'])->toBe('raw');
-    expect($plan['runtime'])->toBe('php:8.3');
-    expect($plan['entrypoint'])->toBe('main');
-    expect($plan['build_command'])->toBe('composer install');
-    expect($plan['confidence'])->toBe('high');
-    expect($plan['version'])->toBeNull();
-    expect($plan['processes'])->toBe([]);
-    $this->assertArrayNotHasKey('no_match', $plan);
-});

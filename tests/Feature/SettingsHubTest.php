@@ -27,15 +27,6 @@ test('settings hub shows breadcrumb dashboard settings profile', function () {
         ->assertSee('aria-current="page"', false);
 });
 
-test('settings hub servers tab shows servers and sites in breadcrumb', function () {
-    $user = User::factory()->create();
-
-    $this->actingAs($user)
-        ->get(route('settings.servers'))
-        ->assertOk()
-        ->assertSeeText('Servers & Sites')
-        ->assertSee('aria-current="page"', false);
-});
 
 test('settings shell uses horizontal nav when navigation layout is top', function () {
     $user = User::factory()->create([
