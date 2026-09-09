@@ -25,12 +25,6 @@
       "id": "edge-polish",
       "label": "PHASE 4",
       "name": "Edge product and UI polish"
-    },
-    {
-      "description": "Initial project setup.",
-      "id": "p0",
-      "label": "PHASE 0",
-      "name": "Setup"
     }
   ],
   "title": "dply-edge"

@@ -3,14 +3,15 @@
   "createdBy": "codex-review",
   "dedupeKey": "story-setup-2026-09-04:agents-drift",
   "discoveredDate": "2026-09-04",
+  "displayId": "ISS-002",
   "id": "ISS-002",
   "impact": "AGENTS.md is 80KB and auto-loads into every session. It still instructs agents about the /live mirror's parallel /servers, /cloud, /serverless and /projects indexes, 'Add server' placement, and SSH provisioning conventions for product lines removed on 2026-08-25. Agents follow it and build against a platform that no longer exists. T-002 covers the rewrite; filed separately so the hazard is visible before that ticket runs.",
   "location": [],
   "phase": null,
   "relatedTickets": [],
-  "resolution": null,
-  "resolvedDate": null,
+  "resolution": "AGENTS.md rewritten for the Edge-only shape (2026-09-04): 82KB -> 35KB. Every convention scoped to a deleted surface was cut - VM/BYO server workspace, Cloud, Serverless, WordPress, the /live production mirror, /infrastructure, /projects, /marketplace, /roadmap, /docs, /launches, Fleet, edge-proxy, cache and database engine gating, VM provider Pennant wiring, DNS automation, Tier B launch wizard. A Codex read-only audit of the rewrite then caught 9 factual errors inherited from the old file and 3 dropped-but-still-live conventions; all 12 were verified against the code and fixed. Notable corrections: surface.edge is the route gate and is hardcoded false (not an env-driven delivery pause); feature flags are three-layer with a feature_platform_overrides table, not config-first; included allowance is 1M requests, not 5M; the markup key is dply.edge.usage_billing.markup_percent; the custom-hostname toggle is edge.custom_hostnames.enabled; EdgeEligibility does admit generic Node; EdgeSsrAvailability does not validate the token; Alerts is not in the EdgeHostMapAddons payload. Restored the deploy-contract/shadow-replay/preview-review promote gates, admin-only provider credential deletion, and the SiteApiAccess convention (with the Edge REST org-only scoping noted as active drift). A new 'Known leftovers from the cut' section documents the remaining traps.",
+  "resolvedDate": "2026-09-04",
   "severity": "high",
-  "status": "open",
+  "status": "resolved",
   "title": "AGENTS.md still teaches deleted VM, Cloud and Serverless surfaces"
 }

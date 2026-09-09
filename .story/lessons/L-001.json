@@ -1,0 +1,17 @@
+{
+  "content": "Search PHP namespaces with grep -rlF 'App\\Actions' -- fixed-string mode, no regex escaping. Backslash counting through shell quoting plus BRE silently produces a false zero, and a zero-hit result reads as proof of absence. When a grep returning nothing is about to become a claim that something is unused, re-run it a second way before writing the claim down.",
+  "context": "During project setup I ran grep -rl 'App\\\\\\\\Actions' to test whether app/Actions was referenced and got zero hits, then reported the directory as dead. An independent Codex review found 10 live consumers including Auth/Login and Auth/Register. The single-quoted pattern reached grep as four backslashes, which BRE reads as two literal ones, so it searched for App\\\\Actions and matched nothing.",
+  "createdDate": "2026-09-04",
+  "id": "L-001",
+  "lastValidated": "2026-09-04",
+  "reinforcements": 0,
+  "source": "correction",
+  "status": "active",
+  "supersedes": null,
+  "tags": [
+    "tooling",
+    "verification"
+  ],
+  "title": "Use grep -F for PHP namespace searches",
+  "updatedDate": "2026-09-04"
+}

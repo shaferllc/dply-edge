@@ -1,46 +1,593 @@
+# AGENTS.md — product & UI conventions
+
+Conventions for building in dply-edge. For the **codebase map** (module tiers,
+where code goes, commands, test suites) see **`CLAUDE.md`**. This file is the
+*how it should look and behave* half.
+
+> **Rewritten 2026-09-04 for the Edge-only shape.** The prior version was 82KB
+> of accumulated preferences covering the VM/BYO, Cloud, Serverless and
+> WordPress product lines removed on 2026-08-22 / 2026-08-25, plus the `/live`
+> production mirror, `/infrastructure` hub, `/projects`, `/marketplace`,
+> `/roadmap`, `/docs`, `/launches` and Fleet — none of which have routes any
+> more. Conventions scoped to those surfaces were cut, not archived. Every
+> factual claim below was re-checked against the code during the rewrite;
+> several inherited ones turned out to be wrong and are corrected here.
+
+---
+
 ## Learned User Preferences
 
-- **Production data mirror (`/live/…`, local-only):** purpose is to view the **exact production control-plane data** via the remote REST API (`DPLY_LIVE_API_BASE_URL`), not a divergent local UX. **`/servers`↔`/live/servers`, `/sites`↔`/live/sites`, and parallel indexes (`/projects`, `/edge`, `/cloud`, `/serverless`, …) must stay visually matched** — shared index page components / DTOs / filter rail / cards (same merged-chrome shell, e.g. **`x-profile-shell`**, so local and `/live` update together); no Operations pills, Infrastructure crumb, Launchpad, or More on these surfaces. Production context = amber banner + `x-production-data-nav` only (not different hero eyebrow/breadcrumbs) — **keep that banner when drilling from `/live` into a site/server workspace**. **Add server** belongs on the **servers** index only (creates in the **local** workspace); omit it on the sites index — site rows should link to their server instead. Opening a live site goes **straight to the local site workspace** (materialize from the Production API into local DB if missing) — never an intermediate API/debug screen; manage path only. **Deploy / Sync servers** on `/live/servers` must use the same buttons as local (not external prod links) and queue via the Production API after typing **PRODUCTION** (`ConfirmsProductionWrites`); never delete remote hosts from the mirror. Prefer changing the shared Blade/DTO once over forking local vs live chrome.
-- One shared site header across marketing + authed app layouts; only nav differs guest vs signed-in. Prefer **[Blade UI Kit Blade Icons](https://blade-ui-kit.com/blade-icons)** for **header + primary nav** icons, keep header logo prominent, avoid crowded top bar by moving **overflow links into dropdowns**.
-- **Shared global footer** (same **`x-marketing-footer`** component or equiv) on **app**, **settings**, **public status** layouts — match marketing/guest, stay anchored on short pages.
-- Aim enterprise-ready SaaS look/feel matching product logo + brand colors. Use Tailwind CSS v4 w/ CSS-first config (`@import "tailwindcss"`, `@theme`, related v4 patterns) for new/updated styling. Keep readable UI type at a **12px minimum** — avoid raw `text-[11px]` (and similar sub-12 arbitrary sizes for body/labels); use a **named micro scale** (`text-xxs` = 8px) only for true micro badges, and prefer tokens over one-off `text-[Npx]` so sizes stay easy to retune. Keep sibling controls (incl. Copy) on a **consistent size** within a surface; do **not clip or truncate** workspace action labels/buttons in overflow. Prefer basics-first progressive disclosure: one primary workflow leads, advanced tools secondary. Default + auto-fill app-aware setup values where possible, esp. server/site creation. **Create/provision wizard summary cards** tied to form fields use **`wire:model.live`** so header/name previews update on each keystroke (default `wire:model` only syncs on blur). **Server / Cloud / Edge / Serverless create** share a two-column layout (`max-w-7xl`): form in **`x-profile-shell`** + sticky live summary sidebar (**`lg:sticky lg:top-24`** + **`lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto`**; below site header; scrolls with page then pins; internal scroll when tall). Prefer **illustrated tile pickers** w/ topology/capability badges for high-impact provision choices (dedicated cache engine, network access, auth)—not plain dropdowns. Prefer repo-driven setup auto-detecting runtime/framework instead of low-level steps unless needed — **Edge create** mirrors **Cloud create** Git UX (connected-account picker + manual entry); Git repo pickers (Cloud / Edge / Serverless) must **not auto-select the first repo** when the list loads — leave unselected until the operator picks; keep it **form-first and lean** (no duplicate how-it-works / delivery explainer walls in form + sidebar; maximize auto-detect over teaching copy); auto-detect build command + output dir on complete repo paste (debounced), w/ **Detect runtime** for manual retry; filter out framework/tooling monorepo roots that won’t emit a site `dist/` (prefer real app packages / samples); a short **what Edge accepts** hint is enough (static/SSG JS frameworks — not PHP/Laravel/Rails/WP or long-running Node APIs); **omit empty status/stat bars** when detection has nothing to show; on **local / fake-Edge** offer **Load sample app** to prefill a known public template + run detection. **SSR repos** auto-enable **hybrid** w/ **Deploy hybrid stack** — auto-provision **Cloud** origin when available (no manual origin URL unless linking existing/external origin); Worker-native SSR availability comes from **valid Cloudflare API token** detection (`EdgeSsrAvailability`), not a hard “unavailable” when creds exist. Empty Cloudflare credential state: **guidance + in-modal token add** (same `AddProviderCredentialModal` pattern) — never an empty dropdown or force a leave-page trip to `/credentials`. **Edge customer copy** hides Cloudflare/provider internals (UI label **Bindings**, not “Cloudflare bindings”). **Edge site workspace** uses the same **merged chrome** as BYO/settings; keep sections progressive — **Overview** = status + URL + actions + shortcuts into dedicated leaves (not a dump of delivery/domains/bindings/traffic/billing, and **no overlapping copies** of Traffic / Deploys / other leaf content); Build / Environment / Deploy triggers / Bindings / Previews stay short and focused; Build splits build/repo config from preview protection, monorepo root, deploy hooks — not one overloaded page. **Networking** = domains / DNS / routing / edge-routing only — managed add-ons (Bot protection, Rate limits, Forms, Jobs, Waiting room, Snippets, Cache tags, Alerts, …) belong under Access/Site-style groups, not Networking; each of those section pages should include short **what it does / how to use** guidance (**collapsible** “how it works” / feature guides; put long examples + **`dply.yaml` samples under Advanced** or in **modals** so the page stays slim), not bare forms. **Gate Worker-only Edge nav** (Jobs, Crons, and similar) until the site has SSR/worker capability enabled — don’t show those leaves on pure static sites. **Alerts** = notification **channel** routing like BYO (event subscriptions per channel + thresholds), not thresholds-only. **Bot protection** should let operators **generate Turnstile keys in-context** on that section (same spirit as in-modal credential add — not a force-leave to `/credentials`). **Dark mode** = first-class across authed app surfaces, not isolated pages. Multi-step setup/provision flows **number from 1, not 0**; site provision journey steps stay **one sequential list** (wildcard TLS in line with the others — don't insert a later step that resets the queue to 0). Avoid shipping huge unsplit JS bundles — **code-split / serve heavy vendor libs from CDN**; Laravel **Debug Bar** for local profiling. **Gated / not-yet-shipped features stay visible** — show them in nav/menus and lists with an explicit **"Coming soon"** label/badge + a **teaser/preview** of the feature, never silently hidden (count/insight badges still gate on the *real* live flag, not the preview flag); give coming-soon/teaser blocks **comfortable spacing** (not cramped stacked cards). **BYO server + site workspace** pages (Overview, Run, Console, Sites, Deploys, Webserver, Docker, Firewall, Logs, Files, Settings, Notifications, Maintenance, Blueprint, …) should share one **merged chrome**: one outer **`dply-card … p-0`** (not a floating/`x-hero-card` hero), **sand identity header** (`bg-brand-sand/20`, icon + title + short description), nested sections as **hairline strips** (`border-b border-brand-ink/10`) rather than stacked nested cards / large `space-y-6` gaps, **flush** sub-tabs when present, **embedded** console banners inside the card, and the **shared collapsible sand CLI footer** (`bg-brand-sand/25`) on **every** CLI-help surface (BYO, Cloud, Edge, Serverless, Runtime—never a one-off command block); **coming-soon** teasers stay **standalone** (don’t nest them in the outer card). Prefer **compact combined** header/stat strips over stacked duplicate cards, use **Overview-matching loading/skeleton** states (not bare spinners), and keep **Notifications** (and sibling) tabs visually aligned with the rest of that workspace — every feature Notifications matrix (Logs, Backups, Health, …) shares the same chrome, empty state, and channel-routing UI; paid/entitlement gates are the exception, not the default.
-- Include **features** (or equiv) page explaining **how capabilities connect**, not just isolated lists. For BYO, surface **subscription + plan limits** in product UI, align w/ **docs** (roles, quotas, gates).
-- **Framework-gated UI:** any framework-specific preset, command default, helper, or nav item only when `Site::isLaravelFrameworkDetected()` / `isRailsFrameworkDetected()` / etc. matches the **target site**; otherwise generic (custom command). See `.cursor/rules/framework-gated-ui.mdc`.
-- Prefer **Livewire v3 `Form` objects** (or equiv) for forms w/ **~4+** fields vs many separate `wire:model` props. **Livewire `stream()`** for long-running output (e.g. remote SSH): **only stream during Livewire requests** (`Livewire::isLivewireRequest()`), not full-page navs — else full-doc HTML corrupts. Page tracking **unsaved changes** (`wire:dirty` / unsaved bar): avoid Livewire actions for **non-persisting** UI (e.g. toast position previews) — refreshes snapshot, clears dirty; use **client-side** dispatch — prefer the **floating unsaved-changes save bar** (`InteractsWithUnsavedChangesBar`) for multi-section settings forms (e.g. server **Settings**) over scattered per-card Save buttons; **BYO Deploy Pipeline** (`WorkspacePipeline`, **`sites.pipeline`**) must use it whenever steps/hooks/anchors change. **`#[Computed]`** accessors used as **`$this->property`** (not method calls): add **`@property-read`** on component/trait for static analysis + IDEs. **Large multi-tab** Livewire workspaces: **lazy-render** active panel w/ **`@if ($tab === '…')`** (not **`:hidden=`** CSS-only), split blades under **`partials/{area}/`**, move preamble to **`*ViewData`** merged in **`render()`**, **gate heavy `render()`** by active tab/section. **Deploy Pipeline** UX: pill/timeline **DnD** for step order (`deploy-pipeline-dnd.js` — Sortable **`ghostClass`/`chosenClass` = single CSS token**, not space-separated Tailwind); palette drops generic **Shell/Webhook/Notification** types configured in **modals**; **hooks between steps** + trailing **`after_activate`** slot; **confirm** before duplicate step adds; **Reference** tab lists full step catalog (incl. framework-gated types). After step/hook/starter/template mutations call **`syncEditingPipelineSnapshot()`** so the timeline updates without **`$site->refresh()`** / **`unsetRelation('deployPipelines')`** on the same Livewire request. **Vite page-scoped entries** for heavy JS (CodeMirror, passkeys, pipeline DnD): dedicated **`*-lazy.js`** inputs + **`@vite([...])`** only on blades that need them (site Files, config editor, login/security, pipeline Steps tab) — **not** dynamic **`import()`** from **`app.js`** (avoids global prefetch / `dynamicImports` on every page). **Edge workspace** = per-section **Livewire child components** under **`Sites/Edge/Workspace/*`**; mount **Form objects** (e.g. **`EdgeBuildSettingsForm`**) only on active section; **`wire:init`** for heavy overview cards (traffic/billing). Remote SSH-backed inventories (**Configuration** file catalog, etc.) must not block first paint — discover/load via **`wire:init`** w/ loading shell + short TTL cache; batch remote stat/read calls; avoid re-querying route-bound **`Server`** when already on the component. Long-running **install / provision / upgrade** actions (mise runtimes, packages, Docker, etc.) must show explicit **loading/spinner states** while queued/running, **reprobe + refresh status after completion** (don't leave stale state), and **conditionally render actions** — hide **Upgrade** when already up-to-date, show **Enable**/activate when installed-but-not-activated. Prefer **auto-retry** for flaky package installs. **Don't hydrate the same inventory in both `mount()` and `render()`** — `render()` already hydrates per active tab on every request (incl. initial load), so duplicate it in `mount()` and you double every query; keep only **session-based** hydration (e.g. banner-dismissal) in `mount()`. **Request-memo** hot lookups reused across a single Livewire render (e.g. **`ProductionDataMirror`** connection, billing ready-server scans, **`AssignableNotificationChannels`**) so Debugbar doesn't show the same query dozens of times. **SSH-backed server + site async actions** (PHP/Manage/Webserver/Caches, basic auth, env push/sync, webserver apply) stream via **`RunsServerConsoleActions`** + **`console-action-banner-static`** — not legacy **`remote_output`** panels; seed **`ConsoleAction`** before dispatch and pass **`consoleRunId`** into the job so the banner tracks the same row; site **`Show`/`Settings`** use **`WatchesConsoleActionOutcomes`** — success/error toasts only at terminal state (not on dispatch); **`queued`** past **`console_actions.queued_stalled_after_seconds`** (~45s) → failed w/ queue-worker hint. Nested site **Resources** (`ResourceMap`) is its own Livewire child — it must seed **`seedQueuedConsoleAction`** itself (does not inherit Show); Test/Fix console banners render on the child, not the parent Settings banner. **Async table rows** use **`x-workspace-table-row`**: row dims + centered **Working…** overlay + per-button **`wire:loading`** labels (PHP version rows = reference).
-- **Toasts** (or equiv non-blocking notification UI) for routine **success/error** feedback in-product; **copy-to-clipboard** shows explicit **copied** confirmation (inline state or toast). App **500** pages should expose the exception in a **collapsed/hidden** disclosure operators can open (not opaque-only). Avoid **`session()->flash('success')` / `flash('error')`** + Blade-only **`$flash_*`** patterns for this. Avoid native **`alert()`** / browser dialogs — use **site-styled modals** for confirmations; confirm modals that lock **`body`** scroll must clear **`overflow-y-hidden` on Alpine destroy** (teardown), not only on explicit Cancel/close. Notifications universal + easy to attach anywhere: quick-add channel flows near resource UI, reusable modals/components over one-off affordances. Global **console** and **Deploys** drawers stay available in the app shell floating dock (with Feedback), **stack above the feedback slide-over**, group side-by-side, and must **close reliably** (dismiss + overlay). **Deploys** shows active/recent org deploys (**BYO and Edge**) with **server / branch / commit** context; a fresh kickoff must focus the new run, not the previous finished deploy. **Clear finished** dismisses rows from the sidebar UI only — never deletes deploy history from the DB. Opening the Deploys sidebar must stay lean (no multi-second N+1 / over-fetch on open).
-- **`dply` CLI** — seamless **device-flow `dply login`** (opens browser; after auth **drop into interactive shell**). Bare **`dply`** = command mode w/ **autocomplete, shortcuts, smart empty states**; **`menu`** / Enter for **interactive browse** (menus accept **numbers or typed commands**); paste **`dply …`** in shell — prefix stripped. **`dply auth refresh`** / **`r`** re-approves scopes. **Settings → CLI** (`/profile/cli`) manages CLI sessions. **BYO hero workflow** = **site deploy loop** (`dply site` list/deploy/status, bare **`dply deploy --follow`**, repo link via **`.dply/site.json`**); also **`dply project`**, **`dply server`** (show/health/run, firewall), **`dply edge status --wait`**. **`dply site`** = BYO VM; **`dply sites`** = Edge shorthand.
-- Keep **site workspace** sidebar **structure** (sections + order) **aligned w/** **server workspace** sidebar — parallel tools in same pattern — and apply the **same merged chrome** (one outer card, sand identity header, hairline strips, compact stats, Overview-matching loaders) on site **General / Settings** and sibling sections (**Setup, Repository, Environment, Caching, CDN, Certificates, Deployments, Errors, Platform, Workers, Schedule**, …). The **Deploy / Console / Sync / `.env` / Documentation** breadcrumb toolbar stays on **every** site workspace leaf (incl. lazy **Deployments**) — pass `site`/`server` into those children so Livewire remount does not hide them. Densify those leaves the same way — hairline strips, tighter selects/filters, no stacked promo cards above the primary action — keep Environment (and siblings) **cohesive + a little more open**, but **do not over-shrink the workspace sidebar** (nav readability > extreme compact). **Hide the Database tab** when the site has no active/local engine **unless** a remote/hosted database is attached (then show it so that remote DB can be configured). **Hide git-dependent** site workspace tabs/sections until a **repo is linked** (empty state, not dead tabs). **Runtime** should **combine stack + engine** (e.g. Laravel under one surface, not scattered `runtime` + `runtime-php` tabs); **workers/schedulers** live in **Daemons/Cron/Schedule** — Runtime web row is informational for PHP/Laravel only. Dedicated **Worker Servers** (worker-role replica VMs) are managed from the **site** — customer copy is **Worker Servers**, never “fleet”; a worker host must read as a worker, not a pending app site with Deploy/Sync on a replica.
-- **Settings** + **organization** + public marketing inner pages + authed product indexes/create forms share the same **merged chrome**: one outer `dply-card … p-0`, sand identity header (icon + title + short description), hairline strips — not floating `x-hero-card` stacks. Prefer **`x-profile-shell`** (props title/description/icon; slots actions/stats/tabs/footer) for profile/settings (hub, security, API keys, SSH keys, source control, CLI, notifications, referrals, …), product-line indexes (**sites/servers/projects/edge/cloud/serverless**, plus **scripts/marketplace/status-pages/dashboard/networking/backups**), and create/form pages (e.g. **organizations/create**). Organization workspace pages use **`x-organization-shell`** the same way (overview/settings/members/teams/activity/automation/billing/credentials/secrets/realtime/…). When migrating list pages into a shell: keep **one primary Add CTA** (empty-state owns it when the list is empty; shell `<x-slot:actions>` only when items exist — never header + section + empty-state triples), drop redundant inner identity strips that repeat the page title, avoid busy stats cockpits on empty pages, and never put developer seed/artisan instructions in product empty states (e.g. no `MarketplaceItemSeeder` / `php artisan db:seed` copy in Marketplace UI). **Cloud / Edge / Serverless** empty indexes should be polished **onboarding splash** pages (hero + primary Deploy/Create CTA + capability tiles) inside the same profile-shell chrome — not a lone icon + button. Public **Changelog / Features / Roadmap / Blog** use the same one-card sand-header hairline presentation (align changelog width with roadmap, typically `max-w-6xl`; prefer quiet filter strips over pill clouds). Auth screens pair form w/ supporting layout: short value props, icons, context—not bare form. Prefer **dedicated inner routes** for heavy surfaces (e.g. **Teams**, **Members**) when **org overview** would overload. Surface links to relevant **`/docs/...`** pages from matching feature surfaces via **`x-docs-link`** — opens right **slide-over** panel (~420px) w/ **`ContextualDocResolver`** page/section-specific doc + product-scoped guide list + **Open full page**; same markdown pipeline as `/docs/{slug}`; doc breadcrumbs **don't wrap** awkwardly. For repeated outline-style docs + secondary nav anchors, use shared **`x-outline-link`** vs duplicating long Tailwind class strings. Its **`size="xxs"`** (`h-6 gap-1 rounded-md px-2 text-xs font-semibold`) is the **shell-header action** size used beside a page title (Billing & plan, Invoices, Members, Teams) — reach for the token instead of re-deriving it as `size="sm"` + a stack of `!important` overrides, which is how it was hand-rolled on 3 pages before it existed. Note the token names the **control, not the type**: labels stay `text-xs` (12px floor), `text-xxs` is for micro badges only. When a component composes a shared base + per-size classes, keep `gap`/`font-weight` **in the size arms only** — leaving them in both emits competing utilities and lets stylesheet order decide. The **Infrastructure Operations** pages likewise share one design system — **`x-infrastructure-shell`** (width/breadcrumbs/sand identity header/tabs) + body primitives **`x-infrastructure-stat`** / **`x-infrastructure-pill`** / **`x-infrastructure-empty`** across all of them (Health/Deploys/Previews/Domains/Env/Intelligence/Blast-radius/Copilot/Contracts) with the same merged-chrome rules (no detached hero, hairline strips, flush tabs). The separate **Fleet** section was **dropped 2026-08-15**: these pages now live at **`/infrastructure/*`** under the existing hub (`/fleet/*` 302s to them), the `surface.fleet` flag is gone, and the hub itself is **no longer gated on `multi_surface_active()`** because the ops views are org-wide and matter to VM-only orgs.
-- **Lazy-load placeholders are part of the view — change them together.** Every `#[Lazy]` workspace tab has a hand-written skeleton (`resources/views/livewire/servers/partials/workspace-*-placeholder.blade.php`) that duplicates the real view's `:title`, `:note`, sub-tab labels and row shapes. Nothing keeps them in sync, so **whenever you edit a workspace view's header copy, tab strip, or section visibility, update its placeholder in the same change** — and mirror the same conditionals (`server_role`, `@feature`, entitlements). A skeleton that predicts a shape the real render won't produce is worse than no skeleton: the page paints one layout, then visibly rearranges into another, which reads as loading twice. Reference fix: `workspace-tools-placeholder.blade.php` painted an app-server note, a Runtimes tab and five tool rows on database/cache/load-balancer hosts that have none.
+### Chrome — the one layout rule
+
+Every authed product surface, settings page, org page and public marketing
+inner page shares one **merged chrome**:
+
+- **one outer `dply-card … p-0`** — not a detached floating hero above a stack
+  of cards
+- **sand identity header** (`bg-brand-sand/20`, icon + title + short description)
+- nested sections as **hairline strips** (`border-b border-brand-ink/10`), not
+  stacked nested cards with large `space-y-6` gaps
+- **flush** sub-tabs when present
+- **Overview-matching skeletons**, not bare spinners
+- prefer **compact combined** header/stat strips over stacked duplicate cards
+
+Reach for the shells rather than re-deriving this:
+
+- **`x-profile-shell`** (props title/description/icon; slots
+  actions/stats/tabs/footer) — profile and settings pages (hub, security, API
+  keys, SSH keys, source control, CLI, notifications), the Edge index,
+  status-pages, and create/form pages.
+- **`x-organization-shell`** — org workspace pages (overview, settings,
+  members, teams, activity, billing, credentials, secrets).
+
+When moving a list page into a shell: keep **one primary Add CTA** (the empty
+state owns it when the list is empty; `<x-slot:actions>` only when items
+exist — never header + section + empty-state triples), drop inner identity
+strips that repeat the page title, and skip busy stats cockpits on empty pages.
+Never put developer seed/artisan instructions in a product empty state.
+
+An **empty Edge index** should be a polished onboarding splash — hero + primary
+Deploy/Create CTA + capability tiles — inside the same shell chrome, not a lone
+icon and a button.
+
+### Type, tokens, spacing
+
+- Tailwind **v4, CSS-first config** (`@import "tailwindcss"`, `@theme`) for new
+  and updated styling.
+- **12px floor** for readable UI type. Avoid `text-[11px]` and similar sub-12
+  arbitrary sizes for body or labels. `text-xxs` (8px) is a **named micro
+  scale for true micro badges only**. Prefer tokens over one-off `text-[Npx]`.
+- **`x-outline-link`** for repeated outline-style links and secondary nav
+  anchors, instead of duplicating long Tailwind class strings. Its
+  **`size="xxs"`** (`h-6 gap-1 rounded-md px-2 text-xs font-semibold`) is the
+  **shell-header action size** used beside a page title (Billing & plan,
+  Invoices, Members, Teams) — reach for the token rather than `size="sm"` plus
+  a stack of `!important` overrides, which is how it was hand-rolled on three
+  pages before the token existed. Note the token names the **control, not the
+  type**: labels stay `text-xs`.
+- When a component composes a shared base plus per-size classes, keep `gap` and
+  `font-weight` **in the size arms only** — leaving them in both emits
+  competing utilities and lets stylesheet order decide.
+- Keep sibling controls (including Copy) a **consistent size** within a
+  surface. Do not clip or truncate workspace action labels.
+
+### Header, footer, theme
+
+- **One shared site header** across marketing and authed layouts; only the nav
+  differs guest vs signed-in. Prefer
+  [Blade UI Kit Blade Icons](https://blade-ui-kit.com/blade-icons) for header
+  and primary nav icons, keep the logo prominent, and move overflow links into
+  dropdowns rather than crowding the top bar.
+- **Shared global footer** (`x-marketing-footer` or equivalent) on app,
+  settings and public status layouts — matching marketing/guest, anchored on
+  short pages.
+- **Dark mode is first-class** across authed surfaces, not isolated pages. The
+  theme resolves in `resources/views/partials/theme-head.blade.php` before
+  first paint — there must be no light flash before the stored preference
+  settles.
+
+### Feedback and dialogs
+
+- **Toasts** for routine success/error feedback. Avoid
+  `session()->flash('success')` + Blade-only `$flash_*` patterns for this.
+- **Copy-to-clipboard** shows an explicit *copied* confirmation (inline state
+  or toast).
+- Never `alert()` or a browser dialog — use **site-styled modals** for
+  confirmations. A confirm modal that locks `body` scroll must clear
+  `overflow-y-hidden` **on Alpine destroy**, not only on explicit Cancel.
+- A confirm modal must live in the **Livewire view**. A layout `modals` slot is
+  first-paint only and never opens.
+- App **500** pages expose the exception in a **collapsed disclosure** an
+  operator can open — not opaque-only.
+- The floating **Deploys** drawer shows active and recent org deploys with
+  branch and commit context; a fresh kickoff focuses the new run, not the
+  previous finished one. **Clear finished** dismisses rows from the UI only —
+  it never deletes deploy history from the DB. Opening the drawer stays lean
+  (no multi-second N+1).
+
+### Progressive disclosure
+
+- Basics first: one primary workflow leads, advanced tools are secondary.
+- **Gated / not-yet-shipped features stay visible** — show them in nav, menus
+  and lists with an explicit **"Coming soon"** badge and a teaser preview,
+  never silently hidden. Count and insight badges still gate on the *real* live
+  flag, not the preview flag. Give coming-soon blocks comfortable spacing.
+- Multi-step setup flows **number from 1**, and the journey stays one
+  sequential list — do not insert a later step that resets the queue to 0.
+- The **features** page should explain how capabilities connect, not list them
+  in isolation. Surface subscription and plan limits in the product UI, aligned
+  with the billing model below.
+
+### Edge create flow
+
+- **Form-first and lean.** Maximise auto-detect over teaching copy — no
+  duplicate how-it-works walls in both the form and the sidebar.
+- Two-column layout (`max-w-7xl`): form in **`x-profile-shell`** plus a sticky
+  live summary sidebar (`lg:sticky lg:top-24` +
+  `lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto` — below the site header,
+  scrolls with the page then pins, internal scroll when tall).
+- Summary cards tied to form fields use **`wire:model.live`** so name and
+  header previews update per keystroke (plain `wire:model` only syncs on blur).
+- **Git repo pickers must not auto-select the first repo** when the list loads.
+  Leave it unselected until the operator picks.
+- Auto-detect build command and output dir on a complete repo paste
+  (debounced), with **Detect runtime** for manual retry. Filter out
+  framework/tooling monorepo roots that will not emit a site `dist/` — prefer
+  real app packages and examples. Re-detect when `repo_root` changes.
+- A short **what Edge accepts** hint is enough. **Omit empty status/stat bars**
+  when detection has nothing to show.
+- Prefer **illustrated tile pickers** with capability badges for high-impact
+  choices, not plain dropdowns.
+- On local / fake-Edge, offer **Load sample app** to prefill a known public
+  template and run detection.
+- **Empty Cloudflare credential state** = guidance plus an in-modal token add
+  (the `AddProviderCredentialModal` pattern) — never an empty dropdown, never a
+  forced trip to `/credentials`.
+- **Edge customer copy hides Cloudflare internals** — the UI label is
+  **Bindings**, not "Cloudflare bindings".
+
+### Edge workspace IA
+
+- **Overview** = status + URL + actions + shortcuts into dedicated leaves. Not
+  a dump of delivery/domains/bindings/traffic/billing, and **no overlapping
+  copies** of Traffic, Deploys or other leaf content.
+- **Build** splits build/repo config from preview protection, monorepo root and
+  deploy hooks — not one overloaded page.
+- **Networking** = domains / DNS / routing / edge-routing only. Managed add-ons
+  (Bot protection, Rate limits, Forms, Jobs, Waiting room, Snippets, Cache
+  tags, Alerts) belong under Access/Site-style groups, not Networking.
+- Every section page carries short **what it does / how to use** guidance as a
+  **collapsible** "how it works" block. Long examples and `dply.yaml` samples go
+  **under Advanced or in modals** so the page stays slim — not bare forms, not
+  walls of text.
+- **Gate Worker-only nav** (Jobs, Crons, and similar) until the site has
+  SSR/worker capability. Do not show those leaves on pure static sites.
+- **Alerts** = notification **channel** routing (event subscriptions per
+  channel plus thresholds), not thresholds-only.
+- **Bot protection** lets operators **generate Turnstile keys in-context** on
+  that section — same spirit as in-modal credential add.
+- **Hide git-dependent** tabs and sections until a repo is linked — empty
+  state, not dead tabs.
+- The **shared collapsible sand CLI footer** (`bg-brand-sand/25`) goes on every
+  CLI-help surface, never a one-off command block.
+- **Coming-soon teasers stay standalone** — do not nest them inside the outer
+  card.
+
+### Livewire
+
+- Prefer **Form objects** for forms with roughly 4+ fields over many separate
+  `wire:model` props.
+- **`stream()`** only during Livewire requests (`Livewire::isLivewireRequest()`),
+  never full-page navs — otherwise full-document HTML corrupts the stream.
+- For pages tracking unsaved changes, avoid Livewire actions for
+  **non-persisting** UI (a preview toggle, say) — that refreshes the snapshot
+  and clears dirty state. Use client-side dispatch, and prefer the floating
+  **unsaved-changes save bar** (`InteractsWithUnsavedChangesBar`) for
+  multi-section settings forms over scattered per-card Save buttons.
+- **`#[Computed]`** accessors used as `$this->property` need a
+  **`@property-read`** on the component or trait for static analysis and IDEs.
+- **Large multi-tab workspaces:** lazy-render the active panel with
+  `@if ($tab === '…')`, not `:hidden=` CSS-only. Split blades under
+  `partials/{area}/`, move preamble into a `*ViewData` helper merged in
+  `render()`, and gate heavy `render()` work by active tab.
+- **Edge workspace** = the `Sites/EdgeSettings` shell lazy-mounting per-section
+  child components under **`app/Livewire/Sites/Edge/Workspace/*`**, with traits
+  in **`app/Livewire/Concerns/Edge/*`**. Mount Form objects (e.g.
+  `EdgeBuildSettingsForm`) **only on the active section**; use `wire:init` for
+  heavy overview cards (traffic, billing).
+- **Do not hydrate the same inventory in both `mount()` and `render()`** —
+  `render()` already hydrates per active tab on every request including the
+  initial load, so duplicating it in `mount()` doubles every query. Keep only
+  session-based hydration (banner dismissal and the like) in `mount()`.
+- **Request-memo hot lookups** reused across a single render (billing scans,
+  `AssignableNotificationChannels`) so Debugbar does not show the same query
+  dozens of times.
+- View-data helpers must be **merged in `render()`** so shared blade vars
+  (breadcrumbs) reach the view.
+- **Lazy-load placeholders are part of the view — change them together.** A
+  `#[Lazy]` tab's hand-written skeleton duplicates the real view's title, note,
+  sub-tab labels and row shapes, and nothing keeps them in sync. Whenever you
+  edit a view's header copy, tab strip or section visibility, update its
+  placeholder in the same change, mirroring the same conditionals. A skeleton
+  that predicts a shape the real render will not produce is worse than none:
+  the page paints one layout then visibly rearranges, which reads as loading
+  twice.
+
+### JavaScript
+
+- Avoid shipping huge unsplit bundles — code-split, or serve heavy vendor libs
+  from a CDN. Laravel Debug Bar for local profiling.
+- **Page-scoped Vite entries** for heavy JS (CodeMirror, passkeys): dedicated
+  `*-lazy.js` inputs with `@vite([...])` only on the blades that need them —
+  **not** a dynamic `import()` from `app.js`, which puts a global prefetch on
+  every page.
+
+---
 
 ## Learned Workspace Facts
 
-### Enablement layers (what to flip, and where)
+### Enablement layers — what to flip, and where
 
-`config/features.php` is **only** the Pennant registry: **"Should this org get this product capability?"** It is not every toggle in the app. Match the question to the layer:
+`config/features.php` is **only** the Pennant registry: *"should this org get
+this product capability?"* It is not every toggle in the app. Match the
+question to the layer:
 
 | Question | Layer | Flip via |
-|----------|--------|----------|
-| Org sees Cloud / Edge / a workspace tab? | **`features.php`** → Pennant (`surface.*`, `workspace.*`, `launch.*`) | `FEATURE_*` env; per-org override on admin org detail; `global.*` kill switches read config only |
-| Org can install Valkey / MariaDB? | **`cache.*` / `database.*`** in features + `*EngineAvailability` helpers | Same Pennant pattern; Redis/Varnish and MySQL/Postgres/SQLite are never gated |
-| Provider exists in the app build? | **`config/server_providers.php`** | `DPLY_SERVER_PROVIDER_*` |
-| Org can connect provider / create server? | **`ServerProviderGate`** | Catalog **and** `provider.*` when in `PENNANT_FLAGS` (Hetzner/custom: catalog only) |
-| Webserver/proxy engine UI globally "Soon"? | **`server_workspace.php`** `webserver_coming_soon` / `edge_proxy_coming_soon` | Remove engine from array + `config:clear` — **not** Pennant |
-| Sidebar row for this server? | **`server_workspace.php` nav** | `requires_any_tags`, `except_host_kinds`, `requires_min_sites` — not Pennant |
-| Org can add another site/app on plan? | **Subscription** | `Organization::canCreateOnSurface(QuotaSurface)` (`canCreateSite()` = the `Site` surface), `SubscriptionPlanResolver` |
-| Retry deploys / bill Edge usage / digest hours? | **Ops config** (`dply.php`, `edge.php`, …) | `DPLY_*` env — not product rollout |
+|---|---|---|
+| Org sees Edge / a workspace tab? | **`features.php`** → Pennant (`surface.*`, `workspace.*`) | platform override on the admin flag pages; per-org override on admin org detail |
+| Org can add another Edge app on plan? | **Subscription** | `Organization::canCreateOnSurface(QuotaSurface)`, `SubscriptionPlanResolver` |
+| Retry deploys / bill Edge usage / digest hours? | **Ops config** (`config/product/dply.php`, `edge.php`) | `DPLY_*` env — not product rollout |
 
-**Core BYO server workspace** (Overview, Sites, Metrics, Logs, Manage, Firewall, Cron, Webserver tab, …) has **no** `workspace.*` flag — only roadmap/advanced areas and `*_preview` teasers use Pennant. See the layer table in `config/features.php` header.
+**Feature flag precedence** is three layers, highest first: an explicit
+**per-org value** in the `features` table → a **platform override** in
+`feature_platform_overrides` (written from the admin flag pages) → the
+**config default** in `config/features.php`. `FeatureServiceProvider` consults
+the override table, and Pennant also **persists resolved defaults** into
+`features` — so `config([...])` plus `Feature::flushCache()` can still leave a
+stored value in effect. When a persisted resolution has to go, use
+`Feature::purge()` / `php artisan pennant:purge`. The per-org override is the
+admin org detail page's `toggleOrgFeatureFlag`.
 
-- All product lines (BYO, Serverless, **Cloud**, **Edge**, future WordPress) ship from **single Laravel app at repo root** w/ **one database** (PostgreSQL). Local dev, CI, PHPUnit use **`pgsql`**; **SQLite not used** for app testing. Boolean flags from `.env` in PHP config: avoid `(bool) env(...)` (non-empty strings incl. `"false"` are truthy); use **`filter_var(env(...), FILTER_VALIDATE_BOOLEAN)`** (or equiv) so `false`/`true` parse correctly. **App config layout:** Laravel defaults stay at `config/` root; Dply product keys live under **`config/product/*`** (dply, edge, subscription, testing_domains, …) and server keys under **`config/servers/*`** — **`ConfigDirectoryAliases`** maps them back to the old top-level keys (`config('dply')`, `config('server_logs')`, …) so callers don't change. Earlier multi-app `apps/dply-{cloud,wordpress,edge,auth}` + per-product-database direction retired 2026-04-28 (`apps/` folder, `config/dply_auth.php`, central-auth controller, `users.dply_auth_id` column removed). Storage isolation, if reintroduced, uses **named Laravel DB connections** within same app vs separate Laravel installs. Multiple brands/domains use **host-based routing** in this one app. Identity stays in root app (Fortify + OAuth providers); no separate identity service. Public marketing waitlist gate = **`COMING_SOON`** → **`config('dply.coming_soon')`** (**`RedirectGuestsToComingSoon`**; default **off** — site live; IP allow-list via env + **`coming_soon_allowed_ips`**); for the control-plane site, persist the flag in site **`env_file_content`** so deploys don't restore a stale `.env`. Example domains in `docs/MULTI_PRODUCT_PLATFORM_PLAN.md` remain provisional. **Infrastructure hub** at **`/infrastructure`** = org inventory overview for typed compute **plus the cross-product Operations views** (`/infrastructure/{health,deploys,domains,env-search,env-drift,intelligence,blast-radius,previews,deploy-contracts,copilot}`); **Launchpad** = creation counterpart. Product buckets (**Servers**, **Cloud apps**, **Serverless**, **Edge**) are **peer product lines** — indexes and create/deploy flows must **not** breadcrumb under Infrastructure (e.g. Cloud create is `Dashboard / Cloud apps / Deploy`, not `… / Infrastructure / Cloud apps / …`). **Servers** = SSH-managed VMs / IaaS incl. Hetzner Cloud (not dply Cloud apps); **Cloud apps** = managed containers (DO App Platform, App Runner); **Serverless**; **Edge** (static/SSG). Non-BYO **`surface.*`** routes (Cloud, Edge, Serverless, marketplace, etc.) default **off** in `config/features.php`; turn on via **`FEATURE_SURFACE_*`** in `.env` and run **`php artisan pennant:purge`** if orgs cached old values — **Edge** nav link stays reachable (`edge.index`, coming-soon when **`surface.edge`** off). **Platform admin panel** at **`/admin`** (gate **`can:viewPlatformAdmin`**, **`App\Support\Admin\AdminFeatureFlags`**) = **`Admin\Flags\GlobalFlags`** + **`Admin\Flags\ProductLineFlags`**, plus **`Admin\Organizations`** index/show, **`AuditLog`**, **`Operations`**, **`Overview`**, **`Admin\Connections`** (`/admin/connections` — Slack / Discord / Telegram **platform** app credentials so org UIs get Add-to-Slack/Discord/Telegram; DB overlays `.env`, never writes it; secrets write-never after save), **`Admin\Roadmap`** (**`/admin/roadmap`** — items CRUD, release trains `{YYYY-MM}` + quarters, cross-column kanban DnD Planned/In progress/Shipped, private suggestion review). Public **`/roadmap`** = read-only kanban + anonymous suggestion form (rate-limited; suggestions admin-only in v1). Admin is **reorganized into separate sub-pages**: per-product-line **feature-flag** pages (servers/sites/VM, serverless, edge, console, …) split from **Organizations**. **Feature flags are config-first** (2026-05-29 refactor): global defaults live entirely in **`config/features.php`** (each flag reads an env var), registered via **`FeatureServiceProvider`** whose resolver reads config **at check time** (`Feature::define($n, fn () => (bool) config("features.{$ns}.{$leaf}", false))`); the **`features` DB table holds only explicit per-org overrides**. **No code writes null-scope "platform default" / `global.*` DB rows anymore** — the admin global/platform-default toggle methods were removed (this DB churn was resetting test DBs). To flip a global default: set the env var (or edit `config/features.php`) + `php artisan config:clear` (tests: `config([...])` + `Feature::flushCache()`). **Per-org override** = org detail page **`toggleOrgFeatureFlag`** (DB row beating config); **`/admin/flags/...`** product-line pages now **show the config default read-only** (**`x-admin-flag-state`** pill) and only **clear org overrides**. **`ProductLineKillSwitches`** reads config directly (avoids Pennant persisting a null-scope row). **Per-product-line global enable flags** — e.g. **`global.vm_enabled`** (hard stop, default true) and **`global.edge_delivery_enabled`** (distinct from **`surface.edge`** = emergency pause of the Edge delivery pipeline) — are now config-only too. A reusable **"coming soon"** preview pattern is **admin-gated** (toggle a preview/coming-soon sub-option); new **Console** product line is surfaced coming-soon in the sidebar this way. **Preferred wiring = Files-style canonical-route teaser**: the real page URL itself renders the teaser when the full flag is off but a sibling **`workspace.*_preview`** flag (in `config/features.php`, default true) is on — per page add the preview flag, a **`workspace_*_preview_active()`** helper in `app/helpers.php`, point the nav item's **`preview_route`** back to the **canonical** route + set **`preview_feature`**, **remove the `feature:` middleware** (the component decides via **`$comingSoonPreview`** / **`bootedRequiresFeature`**), a legacy **`*-preview`** alias component that **redirects to canonical**, a **`*-preview-panel`** Blade teaser, an admin group + **`feature_preview_pairs`** entry in `config/admin_feature_flags.php`, and a per-namespace Pest test. (Console-style separate `*-preview` route + dedicated component is the alternative.) To preview locally: set the full feature flag false in `.env` then **`config:clear` + `pennant:purge`**. Applied across gated server-workspace tabs (**Run, Console, Files, Backups, Docker, Maintenance, Deploy windows, Access graph, Blueprint, Insights, Release hygiene, Security digest**); webserver engine tabs (**Caddy/Apache/OLS**) use engine-level coming-soon panels controlled by the plain **`webserver_coming_soon`** config array in **`config/server_workspace.php`** (NOT a Pennant flag) — no admin/`/admin/flags` toggle, global-only; enable an engine by removing it from the array + **`config:clear`**. **Edge proxy** (Traefik/HAProxy/Envoy) = optional L7 add-on via **`AddEdgeProxyJob`** / **`meta.edge_proxy`**, **not** a webserver switch target (**`SwitchServerWebserverJob`** / **`WebserverSwitchPreflight::KNOWN_WEBSERVERS`** exclude them) — **`client → Traefik/HAProxy :80 → Caddy on per-site high ports → app/static`**; primary webserver preference preserved in **`meta.webserver`** for remove/restore. Traefik/HAProxy live in dedicated **Edge proxy** sidebar **`WorkspaceEdgeProxy`** at **`servers/{server}/edge-proxy`** (Overview/Change + per-engine tabs), **not** the webserver tab strip or **Switch to …** copy; catalog also lists **Envoy** + **OpenResty** (coming-soon via **`edge_proxy_coming_soon`** alongside HAProxy). **Traefik in-app dashboard** = auth-gated **`TraefikDashboardProxy`** at **`servers/{server}/traefik/dashboard/{path?}`** (SSH curl to **`127.0.0.1:9094`**, same pattern as Caddy admin API); Traefik ≤3.1 webui Vite `_init`/`_hacks` chunks always 404 upstream (`go:embed` excludes `_*`) — proxy serves noop boot stubs on 404. **Cache engines** use per-engine **`cache.*`** Pennant flags (`cache.valkey`/`cache.memcached`/`cache.keydb`/`cache.dragonfly`, default off = coming soon; **Redis/Varnish never gated**) with a central **`App\Support\Servers\CacheEngineAvailability`** helper — coming-soon engines get a **"Soon"** badge + install guard; **create wizard** shows Pennant-gated engines as disabled **Soon tiles** (visible, not hidden) via **`dedicatedCacheEngineOptions()`** / **`_dedicated-cache-options.blade.php`**. **Dedicated cache hosts** apply remote bind/requirepass + UFW at provision via **`DedicatedCacheServerProvisionConfig`**. **Database engines** mirror via **`database.*`** + **`DatabaseEngineAvailability`**: **MariaDB/MongoDB/ClickHouse** default off (Soon badge + preview); **MySQL/PostgreSQL/SQLite** always available.
-- Implementation priority after BYO: **Serverless** → **Cloud** → **WordPress** → **Edge** (Cloud + Edge now active in app). **dply Cloud** = long-running **PHP + Rails** hosting on **managed container** backends via shared **`CloudBackend`/`CloudRouter`** (**DigitalOcean App Platform** full path; **AWS App Runner** HTTP containers with CloudWatch metrics/logs — workers, deploy-tasks, and managed DBs stay DO-only; AWS App Runner credentials need **GitHub connection ARN** + optional **ECR access role ARN**); **dply Edge** = first-party Netlify-style **JavaScript frameworks + static/SSG** sites (git, previews, CDN via R2/Worker) — **not** “any Node app” and **not** PHP/Laravel/Rails/WordPress or long-running APIs (Express/Nest/etc.); those go **Cloud / BYO / Serverless**. Edge create enforces this via **`EdgeEligibility`** after detection (hard-block ineligible stacks w/ redirect to Cloud/BYO; **unknown/empty** detection stays eligible for manual static). Framework/tooling monorepo roots (e.g. `withastro/astro`, `vercel/next.js` — workspaces/turbo/`--filter=` without a versioned site framework dep) are rejected via **`EdgeSitePackageHeuristics`** / `not_a_site` — operators must pick an app package (`examples/…`, `apps/…`); re-detect when **`repo_root`** changes. **Edge v1** delivery is **static/SSG-first**; **databases + customer Workers/functions** → **Cloud/Serverless**. **SSR** = **hybrid origin-fetch** (Worker static + Cloud/URL origin, Edge fee stays $2 + Cloud bills separately) or **Worker-native SSR** when platform CF supports it (**$7** managed fee). **Hybrid SSR create** = SSR detect auto-selects hybrid; **Deploy hybrid stack** provisions **Cloud** origin via **`CreateHybridEdgeStack`** → **`ProvisionHybridEdgeStackJob`** or links existing Cloud app by same Git repo — manual origin URL only for external/existing pick; Cloud workspace **`hybrid-edge-stack-panel`**. **Edge deploy** = **`BuildEdgeSiteJob`** → **`PublishEdgeDeploymentJob`** (clone/build in temp dir → R2 or fake backend) — **not** BYO **`ProvisionSiteJob`** / nginx/SSH. Build Journey must stream rich runner output (not a sparse step list) — **render ANSI** colors (don’t leave raw `[33m` escapes) and **keep the live log panel mounted** across stream updates; on split web/worker hosts mirror logs via **`EdgeLiveBuildLog`** (Redis/Cache) because local `build.log` lives on the worker. Control-plane Edge build workers run as the **`dply` deploy user** on dply-managed hosts (**not Forge**); Docker sandbox install (`DPLY_PROVISION_EDGE_BUILD_DOCKER` / edge build Docker bootstrap) must succeed for that user, and a Docker failure must not present as a successful build. **Edge build settings** post-create editable: build command, output dir, SPA fallback, deploy-on-push; repo/branch/delivery backend read-only in v1. **Edge delivery** stays **Cloudflare-only** (DO has no Workers/KV/R2-style plane; AWS S3/CloudFront/Lambda@Edge is possible but heavier) — **managed `dply_edge`** (platform Cloudflare via **`.env` + Artisan** — **`dply:edge:infra:bootstrap`**, **`edge:worker:deploy`**, **not app UI**) **or** **BYO `org_cloudflare`** (org **`/credentials`** or in-create modal, pick at Edge create). **Edge delivery hostnames** = flat `{slug}.on-dply.site` on **`on-dply.*`** (**`on-dply.site`** preferred via **`config/product/testing_domains.php`** / **`EdgeTestingDomains`**) — **not** nested `*.on-dply.dply.host/*` (wildcard SSL on `*.dply.host` won't cover `*.*.dply.host`) **nor** `on-dply.cloud` as primary. **Custom Hostnames (SSL for SaaS / Phase 3b)** = managed **`dply_edge`** custom domains via Cloudflare Custom Hostnames (**`EdgeCloudflareClient`** + **`EdgeCustomDomainProvisioner`**; poll pending TLS; Domains UI TLS badges + ownership TXT); toggle **`DPLY_EDGE_CUSTOM_HOSTNAMES`** / **`edge.custom_hostnames`** (default on); BYO **`org_cloudflare`** keeps customer-zone TLS and skips the SaaS path; needs zone Custom Hostnames entitlement + API token **Custom Hostnames Edit**. **BYO VM testing hostnames** mint on **`on-dply.cc`** (`TestingDomains::vmApex()`); the rest of the `testing_domains.vm` pool is fallback / legacy. **`dply.host`** stays in that pool (legacy Serverless/Edge hostnames — still routed, nothing new minted there) — **separate** from the Edge product apex; legacy Edge hostnames migrate via **`dply:edge:migrate-hostnames`**. **Cloud** keeps provider URLs; **hybrid SSR** origin-fetch → linked **Cloud `live_url`**. **`edge:worker:deploy`** skips routes for zones not active on Cloudflare; **per-route zone** from route pattern. **`dply:edge:doctor`** flags nested on-dply routes + zone alignment + usage analytics creds. **Edge billing** (managed **`dply_edge` only** — BYO **`org_cloudflare`** pays Cloudflare directly; no Dply platform fee / usage meter today) = **$2/mo** per live **static/hybrid** site · **$7/mo** per Worker-native **SSR** site (`subscription.standard.edge_ssr_cents` / Stripe `edge_ssr`; never “sites free”) + metered **overage** when usage billing is on (`DPLY_EDGE_USAGE_BILLING_ENABLED`, `edge_usage_snapshots`, **`dply:edge:collect-usage`**); each live site includes **5M requests / 100 GB egress / 5 GB R2 storage** (plus R2 ops allowances); overage via **`EdgeUsageCostCalculator`** = billable units × cost-floor rates × **`edge.usage_billing.markup_percent`** (~**40%**, same idea as Cloud) into Stripe `edge_usage`; hybrid Cloud origin bills Cloud separately; **previews stay free**. **Edge observability** = **Traffic & analytics** (CDN requests/bandwidth via **`EdgeUsageCollector`** on **`Site::edgeUsageHostnames()`** w/ per-host **`analytics_zone`**, Cloudflare GraphQL **`count`**) + **Build & deploy logs** (CI/build only, not visitor HTTP); worker **Analytics Engine** + HMAC log/vitals ingest (**`DPLY_EDGE_LOG_INGEST_*`**, **`DPLY_EDGE_CF_ANALYTICS_DATASET`**), optional **Logpush** (**`dply:edge:ensure-logpush`**, **`DPLY_EDGE_LOGPUSH_*`**), **AE SQL rollup** (**`dply:edge:rollup-analytics-engine`**), **R2** in usage snapshots, **Core Web Vitals** RUM, **`dply:edge:prune-analytics`** retention — stats only count **Worker-routed Edge hostnames**, not the Laravel app URL. **Edge site workspace** = **`EdgeSettings`** shell (not BYO **`Show`/`Settings`**) lazy-mounting per-section **Livewire child components** under **`Sites/Edge/Workspace/*`** w/ traits in **`Concerns/Edge/*`** — **not** BYO nginx/runtime/cert sections or **`provisioning-journey`**; same merged chrome as BYO; Overview stays lean (status + shortcuts). Managed-delivery add-ons (Bot protection/Turnstile, Rate limits, Forms, Jobs, Waiting room, Snippets, Cache tags, Alerts) ship as workspace sections + worker host-map via **`EdgeHostMapAddons`** — **`dply_edge` only** (BYO shows managed-only banner); keep them out of the **Networking** sidebar group. **Waiting room** queues visitors on the **same Edge URL** (in-line “You’re in line” page + session cookie when a slot opens — not a separate lobby domain). **Alerts** wire **`edge.*`** events through the same site notification-channel / subscription matrix as BYO. **Core Web Vitals** need browser RUM beacons to `/hooks/edge/{site}/vitals` (CDN “live requests” alone leave the vitals panel empty). **Edge Routing** lives at **`/edge-routing`** (redirects/rewrites/headers); **Serverless** proxy routing uses **`/proxy-routing`** so it does not steal the Edge path (legacy `/routing` on Edge redirects to `/edge-routing`). **Build** splits sub-areas (build command/output, preview protection, monorepo **`repo_root`**, deploy hooks); **`EdgeBuildSettingsForm`** mounted only on Build. **Deploys** = rollback/promote via **`RollbackEdgeDeployment`** / **`PromoteEdgePreview`**; stable aliases on **`edge_deployments.aliases`** + deployment **Aliases** tab (`{slug}--{sha7|d-*}.{on-dply apex}`). **Preview protection** = **`edge_site_access_rules`** + **`EdgeAccessGate`** (off/password/dply-account; non-production only). **Monorepo** = **`edge_sites.repo_root`**, create picker, webhook scoped to **`repo_root/**`**. Image optimization, hybrid SSR origin, cache purge, GitHub auto-deploy remain under build. Local Edge dev needs **`DPLY_FAKE_EDGE=true`** + **`queue:work`**; preview hostnames via **Valet + dnsmasq** — **`docs/edge-local-development.md`**. **Edge cancel** = **`EdgeSiteCanceller`** / **`TeardownEdgeSiteJob`**, not **`SiteProvisioningCanceller`**. **dply WordPress** = **hosted-only managed WordPress** in v1 on **dply-controlled infra**, not customer VMs/SSH.
-- **dply Serverless** product framing = **full apps/sites** (**Laravel-first**), not FaaS-only “functions” copy — **customer copy hides OpenWhisk and DigitalOcean/provider hosting** (operators don’t need to know where it’s hosted). A function is **not** a BYO server: exclude synthetic Serverless/function hosts from the **Servers** inventory (and similar server pickers/widgets—same spirit as Edge/Cloud host exclusion); they belong on **`/serverless`**. User-facing workspace IA should use **Serverless** routes/breadcrumbs (`/serverless/{site}/…`, Dashboard / Serverless / {name} / {section})—not Dashboard / Servers / …—even when an internal `Server`+`Site` row still exists for storage; redirect legacy `/servers/{server}/sites/{site}/…` function URLs when feasible. Reusable **serverless engine** lives in **root app** under `app/Services/Deploy` + related contracts/support classes, w/ provider adapters for **AWS Lambda**, **DigitalOcean Functions**, **Cloudflare Workers**, **Netlify**, **Vercel** + roadmap stubs; serverless site creation + deployment stay in main BYO app. **Serverless create** mirrors **Cloud/Edge** Git UX (shared repo browser / `ConfiguresGitRepository`, connected-account persistence for private repos, ref picker, auto-detect) and the same **compact two-column provision chrome** (width + density matching other create screens). A **failed create/deploy must not leave a successful-looking site** — tear down or clearly fail the record rather than orphaning a half-provisioned app the operator can open as if live; Journey must offer **Cancel** (in-product modal, not `wire:confirm`) for in-progress **or stuck** provision (lying spinner / no live site). A **successful first deploy redirects to the workspace** (do not leave the operator on the Journey progress page). **Deployments** should match **BYO** (sync, quick deploy, history) and Journey must stream **live specific progress** (checkout / composer / npm / pack / push / health)—not a coarse stage bar. Serverless **runtime detection** should prefer the **primary app language** (PHP/Laravel) over incidental Node/`package.json`. Builds should **detect whether frontend compile is needed** and be smart about **npm** (and similar). **Build hosts** must have **Composer** available before `composer install` (detect + install if missing) with **`HOME` / `COMPOSER_HOME`** set, and **npm** when a compile step runs. Workspace URL surfaces should show **both the invocation URL and the friendly URL**. **Friendly testing hostnames** (`{slug}.dply-serverless.cloud`) must be **unique across orgs** (name-only slugs collide—include site id or an equivalent disambiguator). **DigitalOcean Functions** uses OpenWhisk entrypoint **`main`** (from **`exec.main`**, not **`index`**) + supports **Laravel** via PHP runtime. **DO App Platform** caps **`workers.instance_count`** at **1** for **`basic-xxs`** instance size (update fails HTTP 400 otherwise). Keep **`dply-core`** **small, stable surface**; root app consumes **`shaferllc/dply-core`** via **Composer path** repo pointing at **`packages/dply-core`**, expand boundaries via ADRs when needed.
-- Control-plane schema lives in single root DB. **`projects`** + migration from **`sites`** (ADR-003) target this shared DB; future product lines add tables here, optionally w/ `product`/`line` discriminator. User-facing **Projects** = grouping container for multiple servers + sites, backed today by **`Workspace`** — stay separate from deployment-oriented **`Project`** model. Reduce **engine leakage** (e.g. SSH-shaped code in non-BYO engines) w/ **separate queues / worker pools per product line in same app**, **adapter-only provider code under `app/Services/Deploy/`**, review discipline (see ADR-004 scope update).
-- BYO **server workspace** uses **separate routes** per sub-area (sidebar groups in **`config/server_workspace.php`**, not primary tab nav). **Stacks → Runtime** cluster = **PHP | Configuration | Tools** (leaf nav label **Runtime**, not a separate “PHP” top-level). **Blueprint** and **CLI** are **standalone admin leaves** — CLI is the dply terminal client (coming soon), not nested under Blueprint. **Cron jobs** + **Supervisor programs** (incl. queue workers/Horizon/Sidekiq presets) configurable **per site** + **per server** — **queue workers consolidated into Daemons** (no separate Queue workers nav; **`sites.queue-workers`** / **`servers.queue-workers`** redirect to **`daemons`**). **Cron, Daemons, Schedule, Firewall, SSH keys** in-page sections share **`x-server-workspace-tablist`** (**centered** tab row), **`x-server-workspace-tab`**, **`x-server-workspace-tab-panel`**, **`livewire/servers/partials/workspace-ops-not-ready`** for consistent sub-tabs + shared "Provisioning and SSH must be ready…" empty state — sub-tab rows stay on one horizontal line w/ overflow scroll, not wrap. **Schedule** mirrors **Daemons** layout (stats card, explainer, scoped list rows, site filter, tab partials under **`partials/schedule/`**, URL **`?tab=`**). **Provision journey** keeps users in same page shell, supports reconnect + resume install on same server, surfaces live + persisted **per-step output/status**, redirects to site when setup finishes. Site **provisioning journey** (`SiteShowViewData::byoStatusSteps`) is the same sequential list throughout — **wildcard TLS** (`waiting_for_wildcard_tls`) sits in line with testing-hostname + write-config from queued onward so the step count does not reset. In server workspace: **Run** = saved commands + ad-hoc shell; **Scripts**/**Marketplace** = org-wide automation imports. **VM roadmap** (Pennant **`workspace.*`** in **`config/features.php`**, mostly default on): **Health** cockpit (tabs: overview/capacity/releases/reliability, `?tab=`), **Patches** (overview/packages/actions/settings), **Hygiene**, **Shared Host Radar** (`workspace.shared_host` — multi-site load attribution, shared stack map, soft budgets), **Logs** (viewer/overview/sources/related), **Workers** (daemon SLO), **Certificates** inventory + bulk renew, **Cost** + right-size nudge (`ServerCostCard` + **`OrganizationCostObservatory`**), **Security** digest (auth.log SSH scan — de-noise routine failed-password / invalid-user volume so it does not flood High-volume alerts), **Blueprint** capture/apply on create, **Maintenance** (server-wide visitor suspend), **Deploy windows**, **Access graph** + time-boxed **SSH sessions** (`server_ssh_sessions`, **`dply:revoke-expired-ssh-sessions`**), **Site promote** to standby server. **`Create server`** stays **BYO-only** host flow w/ provider-based provisioning; **Step 2** **`server_role`** purpose picker before region/size + **`RecommendServerCreateSizes`** role-aware plan labels (redis/valkey → **`redis_server`/`valkey_server`** profiles); **worker-role** hosts (`isWorkerHost`) are **Worker Servers** — site-attached pool with the full provision path/progress (not a Sites list of pending fleet replicas); replica deploys must use the **parent site’s exact PHP**; customer copy is **Worker Servers**, never “fleet”; provider catalogs use structured **`memory_mb`/`vcpus`/`disk_gb`/`price_monthly`** (not label-string parsing); credential cards show **server + site counts**; **`GetProviderCredentialsForServerType`** + **`CacheServiceNetworkExposure`** use **request-scoped memo** (flush on credential save + **`TestCase::tearDown`**); provider accounts on **`/credentials`**, not duplicated in create. Remote **system logs** + **manage/inventory** prefer **root** SSH w/ deploy-user fallback (`config/server_system_logs.php`, etc.). BYO **site workspace** `sites.show` → **`SiteSettings`** sections; primary hostname renames via **Routing → Domains**; webserver apply toasts say **"Webserver config queued."** (async). **Quick deploy** (feature name — not “Webhook”) auto-deploys on new commits: modes **Webhook** (provider push) and **Poll** (control-plane tip-SHA check ~every 2 min + rolling **poll log** / Check now under `meta.repository`); keep webhook URL/secret as a transport under Quick deploy. Enablement stays **per site** — **no bulk-enable across linked/repo-matched sites**; coordinated push deploys use a **deploy sync group** (enable on the **leader**, peers fan out). **Deploy Pipeline** = **`WorkspacePipeline`** at **`sites.pipeline`** (`/deploy` redirects); per-site **`site_deploy_pipelines`** + **`site_deploy_steps`** + **`site_deploy_hooks`** (editable **clone/activate** anchor scripts); runner **`SiteDeployPipelineRunner`**; catalog/palette/hook presets in **`config/site_deploy_pipeline.php`** via **`DeployPipelinePalette`** (runtime-filtered palette + full Reference catalog); pre-deploy review **`DeployPipelineAdvisor`** + **`DeployPipelineIssueFixResolver`** (check-key → contextual fix links like preflight — pipeline/rollout/server databases); a **runtime blocker** (Composer “PHP too old”) is the **only** suggestion until it is fixed — hide migrate/optimize and later checks; **Upgrade PHP** (`UpgradePhpAction` / `PhpVersionUpgradePlanner`) installs that version via the Manage PHP path, switches the site, and re-applies the webserver. Deploy hub **fixes** each get their **own card** (`DeployHubFixes`); live output is the **top Deployments console banner**, not a second amber panel. Overview/header counts use **editing** pipeline, not only active deploy pipeline; **`SiteDeployPipelineManager::primeSiteForPipelineWorkspace()`** eager-loads pipelines+steps+hooks — after starter/mutations use **`mergePrimedPipeline()`** / **`syncEditingPipelineSnapshot()`** instead of cascading **`fresh()`**/**`refresh()`**; seed defaults are **idempotent** (do not add a second Composer install if that step type already exists); timeline renders hooks inside drop zones, release row **`flex-nowrap`** + horizontal scroll, **`after_activate`** in a separate tail; named pipelines + **`DeployPipelineTemplateCatalog`** templates; tabs **Overview / Pipeline / Reference**. Remote server control runs through the **`app/TaskRunner/`** module (tasks + **callbacks/webhooks** + key-pair generation tasks) resolved via **`SshConnectionFactory`**, not ad-hoc SSH. Servers provision with **dual keys** — **root** key + **`dply`** deploy key — so connection **repair/reconnect** can SSH as **root** to re-sync (**`ServerAuthorizedKeysSynchronizer`** / **`SyncAuthorizedKeysJob`** + **`ServerSshKeyAuditEvent`**); surface **friendly SSH-failure copy** + loading states, not raw exceptions. **Docker** server-workspace tab = **remote Docker inspector over SSH** (**`ServerDockerRemoteInspector`**, **`ServerManageRemoteSshJob`**) w/ containers/images/volumes/networks/compose/maintenance sub-tabs — in-workspace install/upgrade, **`?tab=`** deep-links, per-container **Run command** (`docker exec`); Docker runtime named **local/remote docker** (not OrbStack/orbit). **VM + Docker engine** (not **`host_kind=docker`**) can host **container sites** via **`usesVmDockerRuntime()`** / **`VmDockerSiteConfigSupport`** — webserver reverse-proxies to published container port (distinct from dedicated Docker-host servers). Laravel Docker sites auto-run **`key:generate`** to avoid 500s. **Laravel Octane** is the live runtime only when the operator saved an **`octane_port`** under Runtime / Laravel settings (**`Site::usesOctaneRuntime()`**); **`resolvedLaravelPackageFlag('octane')` / `shouldShowOctaneRuntimeUi()`** is composer-package detection for settings UI + pipeline-advisor suggestions only — managed deploy restart (**`SiteDeployPipelineRunner`**, **`DeployScript`**) must use **`usesOctaneRuntime()`**, not composer package alone. Server **`manage/tools`** = **mise**-based runtime manager (install / **enable (activate via `mise use`)** / uninstall / upgrade / **reprobe**) — installed-but-not-activated runtimes need an explicit **Enable**; **composer + git + redis** auto-installed on provision; **git control panel** appears when git is present. **PHP version install** (Manage → PHP and the Upgrade PHP fix) adds **packages.sury.org** when the distro cache lacks that `php{ver}-cli`, and **requires phpredis** (`php{ver}-redis` + `phpenmod` + FPM restart; fail if Redis is not loaded) — do not leave “Install php-redis” as a later recommended fix. **Docker engine, Redis CLI, WordPress CLI** reuse the same install/upgrade/manage treatment as mise runtimes. Site **webserver config editor** = **hybrid layered + advanced** per engine (**Nginx/Apache/Caddy/OpenLiteSpeed/Traefik** `WebserverConfig` engines, **`SiteWebserverConfigEditorService`**) — loads **live config from server** (**`RemoteWebserverConfigService`**) incl. **before/after snippets**, **side-by-side diff** (**`WebserverConfigDiffRenderer`**), **drift detection** (**`WebserverConfigDriftDetector`**), apply **lock + audit**; local validation **ignores logs**. Org/server-scoped **default webserver config templates** via **`WebserverTemplate`** + **`Settings\WebserverTemplates`**. The webserver engine **Config** tab is a link into the full allowlisted **Configuration** editor (not a real webserver sub-tab) — it passes **`from=webserver`** + **`scope={engine}`** + **`return_sub={sub-tab}`** so the editor shows a contextual banner + **Back to {engine}** link and filters the file list to that stack; deep-linking **`?sub=config`** on the webserver page redirects to Configuration. **Webserver workspace** top tabs = **Overview / Health / Change** (engine panels under Change); webserver **switch** opens confirm modal immediately w/ loading skeleton, preflight async (**`openSwitchWebserver()`** → **`loadSwitchPlan()`**) — never block on SSH preflight before visible feedback. **Databases workspace** (**`WorkspaceDatabases`**) mirrors webserver sub-tabs — per engine (**MySQL/MariaDB/PostgreSQL/SQLite/MongoDB/ClickHouse**): Overview/Connections/Backups/Info/Danger; PostgreSQL **Extensions** sub-tab (PostGIS/pgvector/TimescaleDB); **Basics** cross-links **Caches → Redis**; engine install/uninstall streams **`db_engine_install`** console actions; cred forms use **`x-password-field`**. **Database backups** default to **on-server** storage (**`SERVER_DATABASE_REMOTE_BACKUP_ROOT`**, not control-plane bytes); optional org S3 destination via presigned upload **from the VM**; control-plane disk only w/ **`SERVER_DATABASE_ALLOW_CONTROL_PLANE_STORAGE=true`** (dev/tests). Unified **Configuration** editor (**`WorkspaceConfiguration`**) defers remote catalog via **`wire:init`**, persists selected file in **`?file=`**, short-TTL content cache w/ **Cached** badge, and **`ConfigFileDescriptionResolver`** role pills + one-line hints on picker rows. **Nginx Modules** sub-tab (**`NginxModulesConfig`**) installs **`libnginx-mod-*`** via apt + toggles **`modules-enabled`** symlinks (**`nginx -t`** before reload). **Nginx/Apache/OLS** engine Change tabs also expose **Cache** + **Modules** subtabs (RunCloud-style engine cache zones/purge + LSCache on OLS). **OpenLiteSpeed** emits native **`virtualhost { configFile … }`** + **`listener map`** in `httpd_config.conf` (legacy **`vhTemplate`** still parsed by **`OpenLiteSpeedVhostsConfig`**). **Caddy** adds **Modules** (**`CaddyModulesManager`**), **Custom routes** (**`CaddyCustomRoutesConfig`**), admin API via **`CaddyAdminApiProxy`**/**`CaddyAdminUrl`**, log-dir ownership via **`CaddyRuntimeOwnership`**. Blade filter labels: **`__('Auth')` and `__('AUTH')` resolve to lang arrays** — use **`__('Authentication')`** or literal **AUTH** for UI strings. **Dedicated DB-server create** (Step 3, when **Database server** role picked) takes **DB name / username / password** + **network access** (remote → bind all interfaces + `pg_hba`/MySQL grants + UFW for a VPC CIDR, or localhost-only), provisions the DB + app user at setup, and seeds a **`server_databases`** row + firewall rule; dedicated **cache (redis/valkey/…)** + **database** servers install the **engine only** (skip generic app webserver/PHP software), and "redis" is treated as a **generic cache term** (Valkey/KeyDB/etc selectable). **Site environment resource bindings** (BYO site **Settings → Environment**, `resources.blade.php` modal) inject + own per-type **`.env`** keys via **`SiteBindingManager`** — split into per-type **`Manages*Bindings`** traits under **`app/Services/Deploy/Concerns/`** (+ shared **`ResolvesSitePublicUrl`** helper). Each binding = a **`SiteBinding::TYPES`** entry + an org-scoped **encrypted, reusable `*Credential` model** + migration + a **`Manages*Bindings`** trait wired into `SiteBindingManager` dispatch + **`ownedEnvKeys`** (switching driver/provider cleans the previous keys; `.env` adoption works); **`SiteResourceBindingResolver`** derives status from env; **`SiteBindingCatalog`** lists entries under categories (**Data**, **Integrations**, …) with heroicons; Livewire modal has default forms, saved-credential list/delete, prefill-on-select, provider-switch field resets, + per-type **`partials/environment/*-credential-fields.blade.php`**. Types include Mail, Logging, **Broadcasting**, Captcha, AI/LLM, SMS/push, **Search** (Laravel Scout: **Algolia** BYO keys / **Meilisearch** + **Typesense** BYO endpoint → inject `SCOUT_DRIVER`; on-server Meili/Typesense install deferred "coming soon"), **Payments** (Stripe/Paddle via Cashier → keys + `VITE_` public-key mirror + **computed `webhook_url`** from primary hostname shown in modal), **OAuth login** (Socialite GitHub/Google/Facebook/GitLab/LinkedIn → **auto-filled `https://{site}/auth/{provider}/callback`** redirect from primary hostname, refuses blank callback, one provider per binding in v1), Error-tracking/APM (Sentry/Bugsnag/Flare), **Connected apps** (`connected_app` — Slack / Discord / Telegram / Google Drive / Dropbox keys the **site app** reads, inject at deploy, stay out of the Variables editor; **not** notification-channel OAuth). An attached **mail** binding **owns** leftover SMTP keys (`MAIL_USERNAME` / `MAIL_PASSWORD` / `MAIL_SCHEME`) so the code scanner does not mark them missing. Bindings are **framework-gated** (e.g. Scout → Laravel). The **Broadcasting** managed **dply Realtime relay** (billed, dply-hosted; `config/realtime.php`) is gated behind **`surface.realtime`** — when **off**, the modal offers **only BYO** (Pusher/Reverb/Ably), no managed/BYO toggle (nothing deleted, just flag-gated). Environment placement can **attach a managed Redis server** and **provision a dedicated Redis-only VM** in-place (existing redis-server recipes / `CreateDedicatedRedisVm`) and **install Docker from the binding modal** without leaving the page. **Upstash** Redis is Pennant-gated (`database.upstash`, default off = Coming soon card, no connect fields); **Neon** / **Supabase** the same (`database.neon` / `database.supabase`); **PlanetScale** is deferred. Redis/Valkey belong under **Cache**, not Database. Redis/database placement options stay **disabled** when the matching engine is not installed (offer in-context install); do not list a driver the site cannot use. Serverless vendor pickers show **size after a vendor is chosen** (not before), offer **connect existing**, and do **not list regions before a vendor**; catalog fetch failure **falls back to the global catalog** and surfaces the error. A failed dedicated-VM provision **auto-removes and notifies**. DigitalOcean **managed Redis is discontinued** — new clusters use **Valkey** (`engine: valkey`); the binding type stays **`redis`** and still injects **`REDIS_*`**. Managed Redis/Valkey is **TLS-only** — inject `rediss://` / `REDIS_SCHEME=tls` (plain `REDIS_HOST`+port to `:25061` fails the handshake and the site 500s). Managed-cluster **trusted sources** lock to the **app droplet** (a laptop cannot connect unless that IP is added). **Edit** on an existing binding is **manage** (not the provision wizard); **resize** is in-place (DigitalOcean PUT + poll job); **Detach** drops the binding only; **Detach & delete** tears down the cluster Dply provisioned. Managed **size catalog** collapses Intel/AMD twin slugs onto one **`db-s-*`** row and shows official Valkey monthly estimates; pull live catalogs (they change often). Binding suite = ~29 Pest tests; run on an **isolated DB** (shared `dply_testing` migration contention is the documented intermittent failure, not logic).
-- All **`tests/Feature`** tests apply **`FakesRemoteServerAccess`** via **`tests/Pest.php`**: global **`Queue::fake()`**, **`FakeSshConnectionFactory`** bound to **`SshConnectionFactory`**, **`DB::disconnect`** on app teardown to avoid **`dply_testing`** lock cascades. Parallel PHPUnit on shared **`dply_testing`** can contend on migrations/locks — prefer **isolated per-worker test DBs** (or run provider-rollout suites sequentially) for heavy provider feature tests. When sync dispatch must run (e.g. **`RunSiteDeploymentJob`**, **`ExecuteSiteCertificateJob`**, **`ProvisionSiteJob`**, **`SendQueuedNotifications`**), opt out w/ **`Queue::getFacadeRoot()->except([JobClass::class])`**. Resolve remote SSH via **`SshConnectionFactory`**, not **`new SshConnection()`**; stub per-test output w/ **`FakeRemoteShell`** on factory binding; interactive Artisan tests use **`$this->artisan()->expectsConfirmation()`**, not bare **`Artisan::call()`**. Procedural Pest tests behind Pennant gates need **`usesFeatures()`** in root **`tests/Pest.php`** — **`WithFeatures`** only works when PHPUnit class sets **`$features`**; match workspace flag (e.g. **`workspace.caches`**, **`workspace.services`**, **`provider.fly_io`**). For **`SiteSettings`** routing sub-tabs, HTTP GET w/ **`?tab=preview|domains|aliases|redirects`** doesn't activate tab panel on full-page Livewire — use **`Livewire::withQueryParams(['tab' => '...'])`**. Lazy-tab Livewire tests may need tab setters like **`setWorkspaceTab`** or **`setMonitorWorkspaceTab`** before asserting panel content. On very large views, assign via **`$component->instance()->property`** vs **`->set()`** when full re-render unnecessary (avoids PHPUnit OOM). **`SiteShowViewData::for()`** + similar view-data helpers must be **merged in `render()`** so shared blade vars (e.g. breadcrumbs) reach view. Pest helpers use **`app()->bind()`**, not **`$this->app`**. Reset **`set_time_limit(0)`** in **`TestCase::setUp()`**, **`memory_limit=1G`** in **`phpunit.xml`**, and **`gc_collect_cycles()`** in **`TestCase::tearDown`** — batch Pest runs OOM at 512MB after many Livewire bootstraps. Dply-owned testing / preview zones live in **`config/product/testing_domains.php`** (`TestingDomains`) — **not** a `.env` list; adding a zone is a code change. VM apex **`on-dply.cc`**, Edge **`on-dply.site`**, Serverless **`dply-serverless.cloud`**; tests (`APP_ENV=testing`) use local **`*.test`** apexes so the suite never talks to a public zone. Platform VM DNS is **Cloudflare** (`testing_domains.provider`) with **Namecheap** as fallback (`NamecheapDnsService`). Serverless subdomain proxy tests must use a **routable** apex — the serverless apex or the legacy VM pool — routes register at boot from **`ServerlessTestingDomains::routable()`**. The serverless apex is a **Cloudflare** zone (`CloudflareDnsService`); Edge delivery stays **`EdgeTestingDomains`** (falls back to `TestingDomains::edge()`).
-- BYO exposes **`/settings`** as **hub w/ shared settings layout** (profile, two-factor, orgs, billing, docs links). **Source control** (`/profile/source-control`) = **Git providers only** (OAuth to GitHub, GitLab, Bitbucket). Git OAuth redirect = `{APP_URL}/auth/{provider}/callback` (`config/services.php`) — register **exact** callback URL on provider OAuth app; **`DPLY_PUBLIC_APP_URL`** (tunnel) is for inbound webhooks/TaskRunner/metrics only, **not** OAuth — keep **`APP_URL`** aligned w/ browser URL used for sign-in. **Server provider** API tokens for provisioning infra live under org **`/credentials`** route (settings sidebar: **Server providers**), not mixed w/ Git. Prefer reusable **`AddProviderCredentialModal`** + **`x-add-provider-credential-link`** to connect providers **in-context** (server create, DO import, etc.) vs settings-only redirects. Provider API **auth failures** (e.g. DigitalOcean “Unable to authenticate you”) must be **prominent** and force **reauth / a new token** — same for all providers. Health-check stored tokens **continuously** (not only on save); surface **Can’t connect** up front and **block provision** (Add worker / create) instead of failing mid-job. Secret-reveal surfaces (Realtime integration snippets, Docker inspect/logs env) require **update**, not view. **Pennant-gating a VM provider = 3 coordinated changes**: `config/features.php` default (**`FEATURE_PROVIDER_*`**), the **`ServerProviderGate::PENNANT_FLAGS`** mapping (so `enabled()` also checks the org-scoped flag), **and** the admin toggle in `config/admin_feature_flags.php`; the provider must also exist in `config/server_providers.php` (first-class rollout: Hetzner, Vultr, Linode, Scaleway, UpCloud, AWS EC2, GCP, Azure, Oracle). **DigitalOcean** is also flagged via **`provider.digitalocean`** but **defaults true** (flagship MVP provider; flag exists for per-org pause / emergency cutoff). **Hyperscale** credentials group = AWS/GCP/Azure/Oracle. VM providers except **DigitalOcean OAuth** use **API tokens/keys** (Hetzner/GCP/Azure/Oracle/AWS have no third-party OAuth) — credentials panels link to provider consoles. **Deleting** a shared org **provider credential** requires **`hasAdminAccess`** (`ProviderCredentialPolicy::delete`) — ordinary members can view/use, not Remove. Org **Secrets** today is **key custody + external stores** (Vault / AWS SM / Doppler), plus **site-linked write-never secrets** operators paste (single key or bulk `.env`, comments/headers/`${VAR}` fine) that inject on the **next deploy** — still not a full Laravel-Cloud shared-secret store. On the site Environment step, **Paste or link secrets** previews key names only, skips already-linked keys, and the **Linked secrets** list matches env-variable rows (mono key, masked value, Unlink) and is **collapsible**, grouped by note. Environment **variables** editors also accept pasted `.env` blocks and auto-render rows. **Env Time Machine** (`docs/SECRETS_UI.md`) is site `.env` backup/restore, not a shared store. **Residency** is the org **age** key for secrets moved out of `.env` (not vault rows): **dply-managed** stores both halves (`dply_identity` wrapped with `APP_KEY`; UI never shows the private identity); **customer-held** means dply cannot decrypt. Operators can **Rotate key** (new customer-held, identity shown once) or **Revert to dply-managed**; both use a confirm modal that must live in the Livewire view (a layout `modals` slot is first-paint only and never opens). Escrowed site secrets stay locked to the old recipient until re-moved; shared vault secrets use the platform key and are unaffected. **Per-org deploy-finish email** disable-able w/o affecting **outbound integration webhooks** (separate controls).
-- **Tier B differentiators** (Pennant-gated; see **`docs/TIER_B_WORKFLOW.md`**) — **Full-stack launch wizard** at **`/launches/full-stack`** (`launch.full_stack_wizard`, needs **`surface.cloud`** + **`surface.edge`**) via **`FullStackArchitecturePlanner`** → handoffs to Edge/Cloud/BYO create w/ query prefills; **`dply.yaml` BYO sync** (`global.byo_repo_config`) after each VM deploy applies **`redirects`/`rewrites`**, site **`crons`**, **`deploy_hooks`**, server-wide **`server_crons`**, read-only **`env`** declarations, and **`processes:`** via **`SiteManifestCodeShapeSync::reconcileProcesses`** (**upsert** by `(site_id, name)` — never blind insert) → **`SiteProcess`** → **`WorkerDaemonBackend`** / Supervisor **`dply-sv-*`** (control-plane self-deploy can drive workers the same way and ensure **`DPLY_ROOT`/`ENV_DPLY_ROOT`** in supervisord env); **Edge shadow replay** (`global.edge_deploy_replay`) samples prod **`edge_access_logs`** GET/HEAD paths + replays against preview URLs before promote/split; **Cost observatory** on org **Billing analytics** (`global.billing_enabled`) combines Dply platform + provider infra estimates; **Preview review hub** on preview child sites — threaded **`edge_preview_comments`**, **`edge_preview_review_approvals`**, PR links, optional promote gate (`DPLY_EDGE_PREVIEW_REVIEW_*`); **Deploy contract** Edge promote-gate (`global.deploy_contract`, default on, **`FEATURE_GLOBAL_DEPLOY_CONTRACT`**) — **`DeployContractEvaluator`** runs policy checks (**`app/Services/DeployContract/Checks/*`**, e.g. origin/edge health, env-keys subset, shadow-replay pass, review-ready) recorded in **`deploy_contract_runs`**, surfaced on the Edge site **Previews** section (Deploy contract card: **Run checks** + **Record waiver**), the preview review hub, and the **Infrastructure → Contracts** tab (**`/infrastructure/deploy-contracts`**); **Promote to prod** is blocked until the contract passes (plus review rules); **Runbook marketplace** at **`/marketplace`** (`surface.marketplace`) imports **`workspace_runbook`** recipes into project Operations; **Ephemeral deploy credentials** (`workspace.ephemeral_credentials`, BYO VM opt-in per site) — per-deploy ed25519 key provision/revoke via **`EphemeralDeployCredentialManager`** + **`RunSiteDeploymentJob`** scoped SSH override; **Ops Copilot** (`global.ops_copilot`) — org-wide deploy-failure triage at `/infrastructure/copilot`.
-- **Profile → SSH keys** (`/profile/ssh-keys`) + **HTTP API keys** (`/profile/api-keys`): **user**, **org**, **team** **SSH** public keys (where enabled) support optional **provision on new servers** + **deploy** to existing servers via same **`server_authorized_keys`** sync as server pages. Adding **personal SSH key** uses one shared modal flow across **server create**, **profile SSH keys**, **server workspace SSH keys**. **API** tokens = **org-scoped** w/ granular abilities from `config/api_token_permissions.php`; optional **`DPLY_API_TOKENS_REQUIRE_PAID_PLAN`** gates **creating** new tokens on **Pro**; **deployer** org members get reduced ability set when creating tokens. HTTP API + MCP **site list/deploy/logs** still honor **project membership** via **`SiteApiAccess`** (org-scoped tokens are not enough — match UI workspace roles; org admins bypass). Control-plane outbound GETs (Edge hybrid origin healthchecks, etc.) go through **`PublicOutboundUrl`** — block private/loopback/link-local/metadata and do not follow redirects onto internal targets.
-- **Notification channels** + event routing configurable at **organization**, **user**, **team** levels (w/ **bulk assignment** where UI supports). Types live as `TYPE_*` consts on **`NotificationChannel`** w/ `match` arms in **`sendTest()`** + **`sendOperationalMessage()`** — adding a type means BOTH arms (a test-only arm silently never delivers, which is what `mobile_app` still does) plus the **three** Livewire surfaces (`ManagesNotificationChannels`, `CreatesNotificationChannelInline`, `BulkNotificationAssignments`) — share the per-type field logic via a `Builds<Provider>ChannelInput` concern rather than a 4th copy. **Intercom / PagerDuty / Microsoft Teams** (2026-08-14) are **reimplemented in-repo**, not the `laravel-notification-channels/*` packages (Intercom caps at Laravel 9, PagerDuty at 12; Teams' package targets the **retired** Office 365 connector) — public APIs mirror the packages so their docs still apply. Credentials are **per-channel** in the encrypted `config` blob, never app-level, so each org reaches its own workspace/service; `services.*` keys exist only as a fallback for `$user->notify()` with no channel row. **PagerDuty pages humans**: `DeliversToPagerDuty` defaults to **silence** (`pagerDutySeverity()` returns null) and only 9 incident-shaped notifications opt in — do NOT blanket-apply it like the chat-shaped `DeliversToIntercom` / `DeliversToMicrosoftTeams`; alerts carry a **derived dedup key** (resource + event, never the event id) so a flapping resource updates one incident, and webserver-health recovery sends a **resolve**. **Teams = Power Automate Workflows + Adaptive Cards**, NOT the Incoming Webhook connector Microsoft retired 18–22 May 2026 — `MicrosoftTeamsClient` refuses `*.webhook.office.com` URLs at type-time, save-time, and send-time. **`UniversalEventNotification` deliberately has no provider leg** — the routing resolver already fanned its event out to subscribed channels, so a leg there double-delivers. **BYO pricing** (2026-05-29 rewrite) = **flat plans metered by server + site count** (NOT per-server-size XS–XL tiers, NOT seat-based; team seats always unlimited): **Free $0** (1 server / 1 site) · **Starter $9** (≤3 servers / 10 sites) · **Pro $19** (≤10 servers / 30 sites) · **Business $39** (unlimited) · ~**20% annual** discount. **Ceilings are per product surface, not one shared pool** (2026-08-18, **`App\Enums\QuotaSurface`**: `Site` = VM + Docker/K8s sites, `Cloud`, `Edge`, `Serverless`; `max_sites` / `max_cloud_apps` / `max_edge_apps` / `max_functions` per plan, plus a beta envelope each). They used to share ONE org-wide ceiling, so a Free org with two Edge sites and a function read **"3 / 1"** and was hard-blocked from its first VM site on a server showing "No sites yet". Each create gate now asks its own surface — `QuotaSurface::forServer()` in **`SiteCreateAccess`** / the clone validator, an explicit case in the Cloud / Edge / Serverless create components — and previews still consume nothing. Managed-surface ceilings are **abuse bounds, not revenue levers** (those surfaces bill per app anyway), so they are set generously and every value is ≥ the old shared ceiling: the split can never newly block an org. Plan resolved by whichever dimension (servers **or** sites) needs the higher tier via new **`SubscriptionPlanResolver`** (count → plan → Stripe price); creating a site past the plan cap is **hard-blocked** through **`Organization::canCreateSite()`** (styled upgrade modal/toast, never a browser alert). **No org base fee.** **Managed products** (**Edge**, **Cloud apps**, **Serverless**) bill **à la carte on top of any plan (incl. Free), from unit 1** (Dply-hosted infra at real cost; usage-metered managed products surface **"from $X"** starting prices since real usage varies): **Edge** (managed **`dply_edge` only**) **$2/site** static/hybrid · **$7/site** Worker SSR (not free) + included allowance then **cost-plus overage** (~**40%** markup; **`DPLY_EDGE_USAGE_BILLING_ENABLED`**); **Serverless** $2/fn base + **cost-plus provider usage** (**`serverless_markup_percent`** ~40%, since big apps consume real resources) with an optional **dply-owned/hosted serverless** backend; **Cloud** is now **cost-plus** (not flat $5) = **$5 platform fee + metered DO provider resources × 1.4 markup** (`cloud_markup_percent`=40, `cloud_container_cents`/`cloud_database_cents`/`cloud_bucket_cents`, `cloud_usage` Stripe price). New **`CloudResourceCostCalculator`** sums container (× instances) + workers + attached DBs (billed once even when shared) + buckets; surfaced via **`DesiredBillingState.cloudResourceSubtotalCents`** + a metered "dply Cloud resources" Stripe line (quantity = cents, monthly-only, mirrors Edge usage). **BYO VMs** = customer pays **provider directly** + the plan fee. **dply-hosted (managed) servers** (**`Server::HOSTING_BACKEND_DPLY`** = `dply_managed`, **`surface.managed_servers`**, create at `servers/create/managed`) instead provision **Hetzner** VMs on dply's **platform token** (not a customer credential, via **`ServerHostingPlatformContext`** mirroring `ServerlessPlatformContext`) reusing the full VM provisioning/SSH/workspace stack, and **replace the per-server plan-tier fee with all-in cost-plus** billing (**`ServerResourceCostCalculator`** = Hetzner size → provider cents × **~60% markup**, `managed_server_markup_percent`), metered separately via **`managedServerSubtotalCents`** + **`STRIPE_PRICE_STANDARD_MANAGED_SERVER`** and **excluded from the plan-tier server scan**; **cancellation destroys the dply-owned VM** (platform token) to stop the meter. **Lifecycle**: a Stripe subscription **exists only when the bill > $0** (Stripe rejects $0 subs) — free-zone orgs need no card + are never paused; **`onStandardSubscription()`** matches **any** standard price (not the removed base). Model lives in **`config/subscription.php`**, computed via **`OrganizationBillingStateComputer`** → **`DesiredBillingState`**. The legacy size-tier concept is **fully removed** (2026-08-12): `ServerTier`, `ServerTierClassifier`, `Server::billingTier()`, `subscription.standard.tiers`/`base_cents`/`included_credit_cents`/`per_server_cap_cents`, and the `stripe.tiers*`/`base_*` price IDs are all gone — **server size is not a billing input anywhere**; `DesiredBillingState` carries a plain `billableServerCount`. **Profile, 2FA, OAuth-linked accounts** stay **user-scoped**; users always have org, w/ auto-created defaults **`"<name>'s Workspace"`** + legacy backfill as needed. On **org registration** a **first team auto-creates**; **server + site creation both require an org**. **Referrals** built in (**`app/Services/Referrals/*`**, **`CaptureReferralCode`** middleware, **`ReferralReward`**, **`Profile\Referrals`**, Stripe credit). Notification + preference settings configurable at **org, team, and user** levels. **Billing analytics is customer-facing** (`authorize('update', $organization)`), so it must be written from the **payer's** side: the **vs-Forge cost comparison** and the **MRR / ARR "Recurring revenue"** tiles were **removed 2026-08-14** — the same figure is our revenue and their spend, and a competitor baseline is not a customer metric. What remains is **Cost forecast** (projected month-end + Δ vs 30 days), which answers "what will I be charged". `subscription.observatory.forge_per_server_cents` + `SUBSCRIPTION_FORGE_PER_SERVER_CENTS` are gone; `BillingForecastCalculator` still computes `mrr_cents`/`arr_cents` w/ **no readers** (move to a platform-admin dashboard or delete).
-- BYO **site settings → DNS** lets operators pick **org server-provider credential** for DNS automation (**DigitalOcean**, **Hetzner**, **Linode**, **Vultr**, **AWS Route53**, **GCP Cloud DNS**, **Azure DNS**, **Cloudflare**, or **Namecheap** via **`SiteDnsProviderFactory`** / **`ServerProvider::supportsDns()`**), optional **DNS zone (apex)** validated for that account, uses that choice for **preview/testing hostnames** (falling back to app **testing-domain** pool) + aligned **DNS-01** / cert flows. **Oracle** compute has no DNS automation. Full arbitrary DNS record editing not in scope yet; **Certificates** form still exposes DNS challenge fields when needed. Deploying root app behind nginx: set **`root`** to app's **`public/`** (e.g. `/var/www/dply/public` in release tree). For BYO VM sites, **no-downtime** releases use **`deploy_strategy = atomic`** (release dirs + `current` symlink), toggled from site **Settings → Deploy** as **Zero downtime deployment**; **`simple`** updates live checkout in place. VM sites w/ **managed web server** config can be **suspended** — HTTP serves static page from **`.dply/suspended/`** until resumed (**serverless, Docker, Kubernetes** runtimes excluded).
-- **`dply` CLI** in **`packages/dply-cli/`**, **hosted** at **`/cli/install.sh`**, **`/cli/dply-cli.tgz`**, **`/cli/version.json`** (**`DPLY_CLI_INSTALL_METHOD=tarball`** until **`@dply/cli`** npm). Tarball via **`CliPackageTarballBuilder`**. **`install.sh` must work locally** even when a prebuilt tarball 404s (build-on-demand / npm fallback) — never leave operators blocked on a missing `dply-cli.tgz`. Default origin from **`config/cli.php`** `default_base_url` (**`APP_URL`** / **`DPLY_CLI_DEFAULT_BASE_URL`**; keep install host + device-login API host aligned — local often **`https://dply.test`**, not a divergent `dplyi.test` unless intentional). Device-flow scopes in **`config/cli.php`**: **`sites.*`**, **`commands.run`**, **`insights.read`**, **`network.read/write`**, **`projects.*`**, **`system_users.*`**. Server workspace **CLI** leaf should expose a **searchable, organized command catalog**. **Naming**: **`dply site`** → BYO VM (**`/api/v1/sites/*`**); **`dply sites`** → Edge (**`/edge/sites`**). **Projects CLI** → **`/api/v1/projects`**, backed by **`Workspace`** model. **Link file**: **`.dply/site.json`** for **`dply link`** / **`dply deploy`**.
+**`surface.edge` is the UI/route gate**, not a delivery switch: it drives the
+`feature:surface.edge` middleware, and the index 404s with the nav hidden when
+it is off. It is currently **hardcoded `false`** in `config/features.php` — the
+comment block directly above it still shows a `FEATURE_SURFACE_EDGE` env read
+that the array does not actually perform, so setting that env var changes
+nothing. Override it through Pennant.
+
+**`global.edge_delivery_enabled` is the delivery kill switch** — the flag the
+build, publish, deploy-hook and webhook paths actually check.
+
+**Coming-soon preview pattern** (preferred wiring, canonical-route style): the
+real page URL renders the teaser when the full flag is off but a sibling
+`workspace.*_preview` flag (default true) is on. Per page: add the preview
+flag, a `workspace_*_preview_active()` helper in `app/helpers.php`, point the
+nav item's `preview_route` at the **canonical** route and set
+`preview_feature`, **remove the `feature:` middleware** (the component decides
+via `$comingSoonPreview` / `bootedRequiresFeature`), add a `*-preview-panel`
+Blade teaser, an admin group plus `feature_preview_pairs` entry in
+`config/admin_feature_flags.php`, and a per-namespace Pest test. To preview
+locally: set the full flag false in `.env`, then `config:clear` +
+`pennant:purge`.
+
+### App shape
+
+- One Laravel app at the repo root, **one PostgreSQL database**. Local dev, CI
+  and PHPUnit all use `pgsql`; **SQLite is not used** for app testing.
+- **Config layout:** Laravel defaults stay at `config/` root; dply product keys
+  live under **`config/product/*`** (dply, edge, subscription, testing_domains,
+  cli, …). **`ConfigDirectoryAliases`** maps them back to the old top-level
+  keys, so `config('dply')` and friends keep working and callers do not change.
+  Watch the nesting when quoting a key: the Edge usage block is reached as
+  `dply.edge.*`, not `edge.*`.
+- Boolean flags from `.env` in PHP config: avoid `(bool) env(...)` — any
+  non-empty string including `"false"` is truthy. Use
+  **`filter_var(env(...), FILTER_VALIDATE_BOOLEAN)`**.
+- Identity stays in this app (Fortify + OAuth providers); there is no separate
+  identity service. Multiple brands/domains use host-based routing here.
+- Public marketing waitlist gate = `COMING_SOON` → `config('dply.coming_soon')`
+  via `RedirectGuestsToComingSoon`; default off, IP allow-list through
+  `coming_soon_allowed_ips`.
+- **Platform admin** at `/admin` (gate `can:viewPlatformAdmin`,
+  `App\Support\Admin\AdminFeatureFlags`): global and product-line flag pages,
+  organizations index/show, audit log, operations, overview, and
+  `/admin/connections` for Slack / Discord / Telegram **platform** app
+  credentials (DB overlays `.env`, never writes it; secrets are write-never
+  after save).
+- **`Server` is a vestigial owner row** — see `CLAUDE.md`. Workspace URLs keep
+  the `/servers/{server}/sites/{site}/…` shape they were built on.
+
+### Edge delivery
+
+- **Cloudflare-only.** Either **managed `dply_edge`** (the platform's own
+  Cloudflare, configured through `.env` + Artisan —
+  `dply:edge:infra:bootstrap`, `edge:worker:deploy`, **not the app UI**) or
+  **BYO `org_cloudflare`** (an org credential, picked at Edge create).
+- **Delivery hostnames** are flat `{slug}.on-dply.site` on the `on-dply.*`
+  apex (`on-dply.site` preferred, via `config/product/testing_domains.php` /
+  `EdgeTestingDomains`) — **not** nested `*.on-dply.dply.host/*`, since
+  wildcard SSL on `*.dply.host` does not cover `*.*.dply.host`. `dply.host`
+  stays in the pool for legacy hostnames — still routed, nothing new minted
+  there. Legacy hostnames migrate via `dply:edge:migrate-hostnames`.
+- **Custom Hostnames (SSL for SaaS)** handle managed-delivery custom domains:
+  `EdgeCloudflareClient` + `EdgeCustomDomainProvisioner`, polling pending TLS,
+  with TLS badges and ownership TXT in the Domains UI. The toggle is
+  **`edge.custom_hostnames.enabled`** (default true) — `edge.custom_hostnames`
+  itself is the array, not the boolean. BYO `org_cloudflare` keeps
+  customer-zone TLS and skips the SaaS path. Needs the zone entitlement plus an
+  API token with **Custom Hostnames Edit**.
+- `edge:worker:deploy` skips routes for zones not active on Cloudflare; the
+  per-route zone comes from the route pattern. `dply:edge:doctor` flags nested
+  on-dply routes, zone misalignment and missing usage-analytics credentials.
+- **Eligibility** is decided by `EdgeEligibility` after detection, and it is
+  **looser than the marketing copy**: alongside the framework presets, its
+  `EXTRA_ALLOWED_FRAMEWORKS` explicitly admits **`node_generic` and a bare
+  `node` runtime**, and tests assert both stay eligible. So a generic Node repo
+  that produces build output is accepted — do not write UI copy promising that
+  "any Node app" is rejected. What *is* rejected: PHP/Laravel/Rails/WordPress
+  and other non-`node`/`static` runtimes (hard-blocked), and framework/tooling
+  monorepo roots (`withastro/astro`, `vercel/next.js`) via
+  `EdgeSitePackageHeuristics` with `not_a_site` — there the operator picks an
+  app package. Unknown or empty detection stays eligible for a manual static
+  site.
+- **SSR** is either **hybrid origin-fetch** (Worker static + an external origin
+  URL) or **Worker-native SSR** where the platform Cloudflare account supports
+  it. `EdgeSsrAvailability::isAvailable()` does **not** validate the API token —
+  it only checks that account ID, token and dispatch namespace name are
+  non-empty, then leans on a cached failure from a later namespace API call. A
+  bad-but-present token therefore reads as available until something actually
+  tries the namespace.
+
+### Edge deploy pipeline
+
+- **`BuildEdgeSiteJob` → `PublishEdgeDeploymentJob`** — clone and build in a
+  temp dir, then R2 or the fake backend.
+- The Build Journey must stream **rich runner output**, not a sparse step list.
+  **Render ANSI colors** (never leave raw `[33m` escapes) and keep the live log
+  panel **mounted across stream updates**. On split web/worker hosts, mirror
+  logs via `EdgeLiveBuildLog` (Redis/Cache), because the local `build.log`
+  lives on the worker.
+- Build workers run as the **`dply` deploy user**. The Docker sandbox install
+  (`DPLY_PROVISION_EDGE_BUILD_DOCKER`) must succeed for that user, and a Docker
+  failure must **not** present as a successful build.
+- **Post-create editable:** build command, output dir, SPA fallback,
+  deploy-on-push. Repo, branch and delivery backend are read-only in v1.
+- **Deploys** = `RollbackEdgeDeployment` / `PromoteEdgePreview`. Stable aliases
+  live on `edge_deployments.aliases` with a deployment **Aliases** tab
+  (`{slug}--{sha7|d-*}.{on-dply apex}`).
+- **Preview protection** = `edge_site_access_rules` + `EdgeAccessGate`
+  (off / password / dply-account), non-production hostnames only.
+- **Monorepo** = `repo_root` on the site, a create-flow picker, and a GitHub
+  webhook scoped to `repo_root/**`.
+- **Edge Routing** lives at `/edge-routing` (redirects, rewrites, headers);
+  legacy `/routing` redirects there.
+- Managed-delivery add-ons ship as workspace sections plus a worker host-map
+  entry via `EdgeHostMapAddons` — **`dply_edge` only** (BYO shows a
+  managed-only banner). That payload carries exactly **turnstile, rate_limit,
+  forms, waiting_room, snippets, tags and jobs**. **Alerts is not in it** — it
+  is a control-plane notification feature routed through the channel matrix,
+  not something the Worker reads. **Waiting room** queues visitors on the
+  *same* Edge URL (in-line "You're in line" page plus a session cookie), not a
+  separate lobby domain.
+- **Promotion is gated**, and the gates are live across the UI, the API and
+  direct action entry points — do not add a fourth path that skips them:
+  - **Shadow replay** (`global.edge_deploy_replay`) samples production
+    `edge_access_logs` GET/HEAD paths and replays them against the preview URL
+    before promote or split.
+  - **Preview review** — threaded `edge_preview_comments` plus
+    `edge_preview_review_approvals`, PR links, and an optional promote gate
+    (`DPLY_EDGE_PREVIEW_REVIEW_*`).
+  - **Deploy contract** (`global.deploy_contract`, default on) —
+    `DeployContractEvaluator` runs the policy checks under
+    `app/Services/DeployContract/Checks/*` (origin/edge health, env-keys
+    subset, shadow-replay pass, review-ready), recorded in
+    `deploy_contract_runs` and surfaced on the Edge **Previews** section as a
+    Deploy contract card with **Run checks** and **Record waiver**. Promote to
+    prod is blocked until it passes.
+- **Cancel** = `EdgeSiteCanceller` / `TeardownEdgeSiteJob`.
+- **Local Edge dev** needs `DPLY_FAKE_EDGE=true` plus a running `queue:work`;
+  preview hostnames via Valet + dnsmasq. See `docs/edge-local-development.md`.
+
+### Edge observability
+
+- **Traffic & analytics** = CDN requests and bandwidth via `EdgeUsageCollector`
+  over `Site::edgeUsageHostnames()` with a per-host `analytics_zone`, through
+  the Cloudflare GraphQL API. **Build & deploy logs** are CI/build output only,
+  not visitor HTTP.
+- Worker **Analytics Engine** plus HMAC log/vitals ingest
+  (`DPLY_EDGE_LOG_INGEST_*`, `DPLY_EDGE_CF_ANALYTICS_DATASET`), optional
+  **Logpush** (`dply:edge:ensure-logpush`), AE SQL rollup
+  (`dply:edge:rollup-analytics-engine`), R2 in usage snapshots, Core Web Vitals
+  RUM, and `dply:edge:prune-analytics` for retention.
+- Stats count **Worker-routed Edge hostnames only**, never the Laravel app URL.
+- **Core Web Vitals need browser RUM beacons** to `/hooks/edge/{site}/vitals`.
+  CDN "live requests" alone leave the vitals panel empty.
+
+### Billing
+
+- **Plans are flat, metered by app count**, never seat-based — team seats are
+  always unlimited. There is **no org base fee**.
+- **Ceilings are per product surface, not one shared pool**
+  (`App\Enums\QuotaSurface`), with its own beta envelope per surface. They used
+  to share one org-wide ceiling, which is how a Free org with two Edge sites
+  read "3 / 1" and was hard-blocked from creating anything else. Each create
+  gate asks its own surface; previews consume nothing.
+- Managed-surface ceilings are **abuse bounds, not revenue levers** — the
+  surface bills per app anyway — so they are set generously.
+- **Edge** (managed `dply_edge` only) = **$2/mo** per live static or hybrid
+  site, **$7/mo** per Worker-native SSR site
+  (`subscription.standard.edge_ssr_cents`, Stripe `edge_ssr`) — never "sites
+  free". BYO `org_cloudflare` pays Cloudflare directly: no platform fee and no
+  usage meter today.
+- Each live site includes **1M requests / 100 GB egress / 5 GB R2 storage**
+  plus R2 op allowances (`dply.edge.usage_billing.included_requests_per_site`,
+  reduced from an earlier 5M — the config comment explains why), then metered
+  **overage** when usage billing is on (`DPLY_EDGE_USAGE_BILLING_ENABLED`,
+  `edge_usage_snapshots`, `dply:edge:collect-usage`). Overage = billable units
+  × cost-floor rates × **`dply.edge.usage_billing.markup_percent`** (~40%, read
+  by `EdgeUsageCostCalculator`) into the Stripe `edge_usage` price. **Previews
+  stay free.**
+- **Lifecycle:** `StandardSubscriptionCreator` **will not create** a
+  subscription for a zero-dollar bill — Stripe rejects $0 subs, so free-zone
+  orgs need no card. Note the asymmetry: there is **no automatic cancellation**
+  when an existing subscriber's desired state drops back to free, so an org can
+  keep a subscription it no longer needs. `onStandardSubscription()` matches
+  **any** standard price.
+- The model lives in `config/product/subscription.php`, computed by
+  `OrganizationBillingStateComputer` → `DesiredBillingState`. Creating past a
+  plan cap is **hard-blocked** with a styled upgrade modal or toast, never a
+  browser alert.
+- **Billing analytics is customer-facing** (`authorize('update', $organization)`),
+  so write it from the **payer's** side. The MRR/ARR "recurring revenue" tiles
+  and the competitor cost comparison were removed 2026-08-14 — the same figure
+  is our revenue and their spend, and a competitor baseline is not a customer
+  metric. What remains is **Cost forecast** (projected month-end plus Δ vs 30
+  days), which answers "what will I be charged".
+
+### Settings, credentials, secrets
+
+- `/settings` is a **hub with a shared settings layout** (profile, two-factor,
+  orgs, billing).
+- **Source control** (`/profile/source-control`) is **Git providers only** —
+  OAuth to GitHub, GitLab, Bitbucket. The OAuth redirect is
+  `{APP_URL}/auth/{provider}/callback` (`config/services.php`) and the exact
+  callback must be registered on the provider's OAuth app. **`DPLY_PUBLIC_APP_URL`
+  (a tunnel) is for inbound webhooks only, never OAuth** — keep `APP_URL`
+  aligned with the browser URL used to sign in.
+- Cloudflare and other provider API credentials live under the org
+  `/credentials` route. Prefer the reusable **`AddProviderCredentialModal`** /
+  `x-add-provider-credential-link` to connect a provider **in-context** rather
+  than redirecting to settings.
+- **Deleting a shared org provider credential requires org admin access**
+  (`ProviderCredentialPolicy::delete` / `hasAdminAccess`). Ordinary members may
+  view and use it, but must not see Remove.
+- Provider **auth failures** must be prominent and force reauth or a new token.
+  Health-check stored tokens **continuously**, not only on save; surface
+  *Can't connect* up front and block the action rather than failing mid-job.
+- **API tokens** are org-scoped with granular abilities from
+  `config/product/api_token_permissions.php`. `DPLY_API_TOKENS_REQUIRE_PAID_PLAN`
+  optionally gates **creating** tokens on Pro; deployer members get a reduced
+  ability set.
+- **Programmatic access must mirror site membership, not just the org.** MCP
+  site list/deploy/logs still enforce it through **`SiteApiAccess`** — org
+  admins bypass, everyone else must match their UI workspace role. Known drift:
+  the Edge REST base controller currently scopes by **organization only**, so
+  `/api/v1/edge/*` is more permissive than the UI it mirrors. Do not widen it
+  further, and prefer `SiteApiAccess` when touching that path.
+- Control-plane **outbound GETs** (hybrid origin healthchecks and the like) go
+  through **`PublicOutboundUrl`**, which blocks private/loopback/link-local/metadata
+  targets and does not follow redirects onto internal ones.
+- **Secret-reveal** surfaces require **update**, not view.
+- Org **Secrets** is key custody plus external stores (Vault, AWS SM, Doppler)
+  and site-linked write-never secrets an operator pastes (single key or a bulk
+  `.env`; comments, headers and `${VAR}` are fine) that inject on the next
+  deploy. On the Environment step, **Paste or link secrets** previews key names
+  only, skips already-linked keys, and the **Linked secrets** list matches
+  env-variable rows (mono key, masked value, Unlink), collapsible and grouped
+  by note. Environment editors also accept pasted `.env` blocks and
+  auto-render rows.
+- **Residency** is the org **age** key for secrets moved out of `.env`:
+  *dply-managed* stores both halves (`dply_identity` wrapped with `APP_KEY`;
+  the UI never shows the private identity), *customer-held* means dply cannot
+  decrypt. Operators can **Rotate key** (new customer-held, identity shown
+  once) or **Revert to dply-managed**. Escrowed site secrets stay locked to the
+  old recipient until re-moved; shared vault secrets use the platform key and
+  are unaffected.
+- **Profile, 2FA and OAuth-linked accounts** stay user-scoped. Every user has
+  an org, auto-created as `"<name>'s Workspace"`; a first team auto-creates on
+  org registration; **site creation requires an org**.
+
+### Notifications
+
+- Channels and event routing are configurable at **organization**, **user** and
+  **team** level, with bulk assignment where the UI supports it.
+- Types are `TYPE_*` consts on **`NotificationChannel`** with `match` arms in
+  **both** `sendTest()` and `sendOperationalMessage()`. Adding a type means
+  both arms — a test-only arm silently never delivers, which is what
+  `mobile_app` still does — plus the three Livewire surfaces
+  (`ManagesNotificationChannels`, `CreatesNotificationChannelInline`,
+  `BulkNotificationAssignments`). Share per-type field logic through a
+  `Builds<Provider>ChannelInput` concern rather than writing a fourth copy.
+- **Intercom / PagerDuty / Microsoft Teams are reimplemented in-repo**
+  (2026-08-14), not the `laravel-notification-channels/*` packages — Intercom
+  caps at Laravel 9, PagerDuty at 12, and Teams' package targets the retired
+  Office 365 connector. The public APIs mirror the packages so their docs still
+  apply. They live under `app/Modules/Notifications/Channels/<Provider>/`.
+- Credentials are **per-channel** in the encrypted `config` blob, never
+  app-level, so each org reaches its own workspace. `services.*` keys exist only
+  as a fallback for `$user->notify()` with no channel row.
+- **PagerDuty pages humans.** `DeliversToPagerDuty` defaults to **silence**
+  (`pagerDutySeverity()` returns null) and only incident-shaped notifications
+  opt in — do not blanket-apply it the way the chat-shaped
+  `DeliversToIntercom` / `DeliversToMicrosoftTeams` are applied. Alerts carry a
+  **derived dedup key** (resource + event, never the event id) so a flapping
+  resource updates one incident rather than opening many.
+- **Teams = Power Automate Workflows + Adaptive Cards**, *not* the Incoming
+  Webhook connector Microsoft retired in May 2026. `MicrosoftTeamsClient`
+  refuses `*.webhook.office.com` URLs at type-time, save-time and send-time.
+- **`UniversalEventNotification` deliberately has no provider leg** — the
+  routing resolver already fanned the event out to subscribed channels, so a
+  leg there double-delivers.
+- Alerts wire `edge.*` events through the same site notification-channel and
+  subscription matrix.
+
+### CLI
+
+- **`packages/dply-cli/`**, published as `@dply/cli`, hosted at
+  `/cli/install.sh`, `/cli/dply-cli.tgz`, `/cli/version.json`
+  (`DPLY_CLI_INSTALL_METHOD=tarball` until the npm package). Tarball built by
+  `CliPackageTarballBuilder`. **`install.sh` must work locally** even when a
+  prebuilt tarball 404s (build-on-demand or npm fallback) — never leave an
+  operator blocked on a missing `dply-cli.tgz`.
+- Default origin from `config/product/cli.php` `default_base_url`
+  (`APP_URL` / `DPLY_CLI_DEFAULT_BASE_URL`). Keep the install host and the
+  device-login API host aligned.
+- **Device-flow `dply login`** opens a browser and drops into an interactive
+  shell after auth. Bare `dply` is command mode with autocomplete, shortcuts
+  and smart empty states; `menu` or Enter opens interactive browse (menus
+  accept numbers or typed commands); pasting `dply …` inside the shell strips
+  the prefix. `dply auth refresh` re-approves scopes. **Settings → CLI**
+  (`/profile/cli`) manages CLI sessions.
+- Link file is **`.dply/site.json`** for `dply link` / `dply deploy`.
+
+### Testing
+
+- Dply-owned testing and preview zones live in
+  `config/product/testing_domains.php` (`TestingDomains`), **not** a `.env`
+  list — adding a zone is a code change. Edge uses the **`on-dply.site`** apex;
+  tests (`APP_ENV=testing`) use local `*.test` apexes so the suite never talks
+  to a public zone. Edge delivery resolves through `EdgeTestingDomains`, which
+  falls back to `TestingDomains::edge()`.
+- Procedural Pest tests behind Pennant gates need **`usesFeatures()`** in
+  `tests/Pest.php` — `WithFeatures` only works when the PHPUnit class sets
+  `$features`.
+- For routing sub-tabs, an HTTP GET with `?tab=…` does not activate the panel
+  on a full-page Livewire component — use
+  `Livewire::withQueryParams(['tab' => '…'])`. Lazy-tab tests may need the tab
+  setter called before asserting panel content.
+- On very large views, assign via `$component->instance()->property` instead of
+  `->set()` when a full re-render is unnecessary — it avoids PHPUnit OOM.
+- Pest helpers use `app()->bind()`, not `$this->app`. `TestCase::setUp()`
+  resets `set_time_limit(0)`, `phpunit.xml` sets `memory_limit=1G`, and
+  `TestCase::tearDown` calls `gc_collect_cycles()` — batch Pest runs OOM at
+  512MB after many Livewire bootstraps.
+- When a sync dispatch must actually run, opt out of the global `Queue::fake()`
+  with `Queue::getFacadeRoot()->except([JobClass::class])`.
+
+### Known leftovers from the cut
+
+Not conventions — traps. These are places where the code still carries the old
+shape, tracked as tickets rather than fixed here:
+
+- `App\Enums\QuotaSurface` still has a `Serverless` case, and
+  `config/features.php` still registers `cache.*`, `database.*`, `provider.*`
+  and `launch.*` namespaces for products that no longer exist.
+- The upgrade path still tells operators to "add a server to move up to the
+  next plan". There are no servers to add.
+- `app/Actions/*` is **not** dead code, despite what `CLAUDE.md` says — ten
+  files outside it import from it, including `Livewire/Auth/Login` and
+  `Auth/Register`.
+- Migrations still create the removed products' tables on a fresh database.
+- `docs/edge-roadmap.md` and `docs/edge-roadmap-next.md` are **completed
+  history** through 2026-07-09, and they predate the cut. They carry their own
+  doc-drift warning. Do not read them as a forward plan.
