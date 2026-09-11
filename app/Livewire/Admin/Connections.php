@@ -24,14 +24,19 @@ class Connections extends Component
     use AuthorizesPlatformAdmin;
     use DispatchesToastNotifications;
 
-    /** @var array{client_id: string, client_secret: string, redirect: string} */
+    /**
+     * Client-controlled Livewire state — a tampered payload can drop keys, so
+     * readers use `?? ''` and the shape marks every key optional.
+     *
+     * @var array{client_id?: string, client_secret?: string, redirect?: string}
+     */
     public array $slack = [
         'client_id' => '',
         'client_secret' => '',
         'redirect' => '',
     ];
 
-    /** @var array{client_id: string, client_secret: string, bot_token: string, redirect: string} */
+    /** @var array{client_id?: string, client_secret?: string, bot_token?: string, redirect?: string} */
     public array $discord = [
         'client_id' => '',
         'client_secret' => '',

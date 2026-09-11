@@ -320,7 +320,7 @@ class Hub extends Component
         // is whatever the org has stored — possibly nothing. Layer it over the
         // defaults rather than indexing keys that may not be there.
         $m = array_replace($this->defaultInsightsState(), $org->mergedInsightsPreferences());
-        $freq = ($m['digest_frequency'] ?? 'daily') === 'weekly' ? 'weekly' : 'daily';
+        $freq = $m['digest_frequency'] === 'weekly' ? 'weekly' : 'daily';
 
         return [
             'digest_non_critical' => (bool) $m['digest_non_critical'],
@@ -328,7 +328,7 @@ class Hub extends Component
             'quiet_hours_enabled' => (bool) $m['quiet_hours_enabled'],
             'quiet_hours_start' => (int) $m['quiet_hours_start'],
             'quiet_hours_end' => (int) $m['quiet_hours_end'],
-            'allow_config_mutation' => (bool) ($m['allow_config_mutation'] ?? true),
+            'allow_config_mutation' => (bool) $m['allow_config_mutation'],
         ];
     }
 

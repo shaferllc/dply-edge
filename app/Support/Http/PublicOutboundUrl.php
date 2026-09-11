@@ -51,7 +51,9 @@ final readonly class PublicOutboundUrl
         }
 
         $port = isset($parts['port']) ? (int) $parts['port'] : ($scheme === 'https' ? 443 : 80);
-        if ($port < 1 || $port > 65535) {
+        // parse_url() already fails on ports above 65535, so only the low end
+        // can reach here; port 0 is still rejected.
+        if ($port < 1) {
             throw new UnsafeOutboundUrlException('Port is not allowed.');
         }
 
