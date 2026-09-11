@@ -8,34 +8,12 @@
         "framework"
     ],
     "license": "MIT",
-    "repositories": [
-        {
-            "type": "vcs",
-            "url": "https://github.com/shaferllc/dply-php-lambda.git"
-        },
-        {
-            "type": "path",
-            "url": "packages/log-parser",
-            "options": {
-                "symlink": true
-            }
-        },
-        {
-            "type": "path",
-            "url": "packages/nginx-config",
-            "options": {
-                "symlink": true
-            }
-        }
-    ],
     "require": {
         "php": "^8.4",
         "aws/aws-sdk-php": "^3.373",
         "bacon/bacon-qr-code": "^3.0",
         "blade-ui-kit/blade-heroicons": "^2.7",
         "blade-ui-kit/blade-icons": "^1.9",
-        "dply/log-parser": "@dev",
-        "dply/nginx-config": "@dev",
         "laravel/cashier": "^16.5",
         "laravel/framework": "^13.0",
         "laravel/horizon": "^5.45",
@@ -55,7 +33,6 @@
         "phpseclib/phpseclib": "^3.0",
         "pragmarx/google2fa": "^9.0",
         "sebastian/diff": "^9.0",
-        "shaferllc/dply-php-lambda": "@dev",
         "spatie/temporary-directory": "^2.3",
         "symfony/http-client": "^8.1",
         "symfony/yaml": "^8.0",
@@ -86,11 +63,6 @@
             "Database\\Factories\\": "database/factories/",
             "Database\\Seeders\\": "database/seeders/"
         },
-        "exclude-from-classmap": [
-            "app/Actions/Attributes/tests/",
-            "app/Actions/Concerns/tests/",
-            "app/Actions/Decorators/tests/"
-        ],
         "files": [
             "app/helpers.php"
         ]
@@ -126,6 +98,7 @@
             "npx concurrently -c \"#93c5fd,#c4b5fd,#fb7185,#fdba74,#34d399\" \"php artisan serve\" \"php artisan horizon:listen\" \"php artisan pail --timeout=0\" \"php artisan reverb:start\" --names=horizon,logs,reverb --kill-others"
         ],
         "test": [
+            "Composer\\Config::disableProcessTimeout",
             "@php artisan config:clear --ansi",
             "@php artisan test --exclude-group=arch"
         ],
@@ -135,14 +108,12 @@
         "test:feature": [
             "@php artisan test --testsuite=Feature"
         ],
-        "test:app": [
-            "@php artisan test --testsuite=App"
-        ],
         "test:arch": [
             "@php artisan test --testsuite=Arch"
         ],
         "test:all": [
-            "@php artisan test --testsuite=Unit,Feature,App,Arch"
+            "Composer\\Config::disableProcessTimeout",
+            "@php artisan test --testsuite=Unit,Feature,Arch"
         ],
         "test:parallel": [
             "@php artisan config:clear --ansi",
