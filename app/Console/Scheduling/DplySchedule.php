@@ -17,8 +17,6 @@ use App\Console\Commands\PruneSiteUptimeCheckResultsCommand;
 use App\Console\Commands\PruneTestingHostnameRecordsCommand;
 use App\Console\Commands\ReapStuckConsoleActionsCommand;
 use App\Console\Commands\SyncErrorEventsCommand;
-use App\Modules\Billing\Console\PurgeSuspendedBundleEntitlementsCommand;
-use App\Modules\Billing\Console\ReconcileBundleEntitlementsCommand;
 use App\Modules\Billing\Console\SnapshotOrganizationBillingCommand;
 use App\Modules\Billing\Console\SyncAllOrganizationBillingCommand;
 use App\Modules\Edge\Console\CheckEdgeRumAlertsCommand;
@@ -95,18 +93,6 @@ final class DplySchedule
         $schedule->command(CheckEdgeRumAlertsCommand::class)->hourly()->withoutOverlapping();
 
         $schedule->job(new VerifyEdgeCustomDomainsJob)->everyFifteenMinutes();
-
-        // Bundled products (free tracely + Lookout): nightly pull-reconcile heals
-        // any missed bundle.* webhook; the daily purge tears down workspaces
-        // suspended past retention. Both no-op while BUNDLE_PRODUCTS_ENABLED is off.
-        $schedule->command(ReconcileBundleEntitlementsCommand::class)
-            ->dailyAt('02:50')
-            ->name('bundle-entitlements-reconcile')
-            ->withoutOverlapping();
-        $schedule->command(PurgeSuspendedBundleEntitlementsCommand::class)
-            ->dailyAt('03:05')
-            ->name('bundle-entitlements-purge')
-            ->withoutOverlapping();
 
         // Capture failed operations into the dedicated error stream, then cap
         // its growth nightly. The sweeper polls the source tables (failures are

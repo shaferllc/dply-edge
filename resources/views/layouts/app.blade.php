@@ -49,18 +49,12 @@
                     data-user-id="{{ auth()->id() }}"
                 ></div>
 
-                {{-- Trial / pause state is app-wide, so it belongs here rather than
-                     in the shells. It used to live in server-workspace-shell,
-                     organization-shell and project-workspace-shell — which meant
-                     the site workspace pages (Files, Logs, Monitor, Notifications,
-                     Schedule…) never showed it at all, because they hand-roll
-                     their chrome instead of using a shell. A fully paused org has
-                     its agents disconnected; that has to be visible everywhere,
-                     not only on the pages that happen to use a shell.
+                {{-- Billing state (a canceled subscription in its grace period) is
+                     app-wide, so it lives here rather than in the shells.
 
                      No wrapper: the component renders its own full-bleed band with
-                     an inner max-w-7xl container, so a healthy org (every branch
-                     false, nothing emitted) leaves no blank strip here. --}}
+                     an inner max-w-7xl container, so an org with nothing to show
+                     leaves no blank strip here. --}}
                 <x-trial-pause-banner :organization="auth()->user()->currentOrganization()" />
             @endauth
 

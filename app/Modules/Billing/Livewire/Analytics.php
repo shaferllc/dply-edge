@@ -34,8 +34,6 @@ class Analytics extends Component
             'syncEvents' => $analytics['sync_events'] ?? [],
             'invoiceHistory' => $analytics['invoice_history'] ?? [],
             'managedProducts' => $analytics['managed_products'] ?? [],
-            'billableServers' => $analytics['billable_servers'] ?? [],
-            'excludedServers' => $analytics['excluded_servers'] ?? [],
             'subscription' => $analytics['subscription'] ?? [],
         ]);
     }

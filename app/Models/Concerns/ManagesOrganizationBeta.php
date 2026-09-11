@@ -37,22 +37,4 @@ trait ManagesOrganizationBeta
     {
         return $this->isBeta() && ! $this->onAnyPaidPlan();
     }
-
-    /**
-     * BYO server ceiling for a beta org — generous enough to feel unlimited for
-     * a solo dev / small team, bounded so a leaked invite can't provision
-     * hundreds of boxes on a stolen cloud key via dply.
-     */
-    public function betaByoServerLimit(): int
-    {
-        return max(1, (int) config('subscription.standard.beta.byo_servers', 5));
-    }
-
-    /**
-     * Free dply-managed server ceiling for a beta org — the single free CX22.
-     */
-    public function betaManagedServerLimit(): int
-    {
-        return max(0, (int) config('subscription.standard.beta.managed_servers', 1));
-    }
 }

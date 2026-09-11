@@ -47,7 +47,7 @@ test('billing analytics page renders for org admin', function () {
         ->assertSee('Stripe sync events')
         ->assertSee('Edge sites')
         ->assertSee('Managed products')
-        ->assertSee('BYO server fleet')
+        ->assertDontSee('BYO server fleet')
         ->assertSee('Invoice history');
 });
 

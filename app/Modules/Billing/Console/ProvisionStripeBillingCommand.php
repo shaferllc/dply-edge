@@ -12,7 +12,7 @@ use Stripe\StripeClient;
 
 /**
  * One-shot provisioning command that creates the Stripe products and prices
- * backing the flat plan model (Starter / Pro / Business + managed products).
+ * backing Edge billing (per-site Edge fees, Edge delivery usage, Enterprise).
  * Idempotent — re-running after a partial failure picks up where it left off,
  * and re-running after success is a no-op (looks up existing objects by
  * `metadata.dply_role` before creating).
@@ -30,7 +30,7 @@ class ProvisionStripeBillingCommand extends Command
     protected $signature = 'dply:billing:provision-stripe
                             {--dry-run : Inspect what would be created without calling Stripe}';
 
-    protected $description = 'Create the Stripe products and prices for the flat plan model (idempotent).';
+    protected $description = 'Create the Stripe products and prices for Edge billing (idempotent).';
 
     public function handle(): int
     {
@@ -82,46 +82,10 @@ class ProvisionStripeBillingCommand extends Command
     {
         $standard = (array) config('subscription.standard', []);
         $annualPct = (int) ($standard['annual_discount_pct'] ?? 0);
-        $plans = (array) ($standard['plans'] ?? []);
         $yearlyOf = fn (int $cents): int => (int) round($cents * 12 * (100 - $annualPct) / 100);
 
         $this->info('Dry-run — these objects would be created or matched in Stripe:');
         $this->newLine();
-        $this->line('  Plans (metered by BYO server count):');
-        foreach ($plans as $key => $plan) {
-            $amount = (int) ($plan['price_cents'] ?? 0);
-            $label = (string) ($plan['label'] ?? ucfirst((string) $key));
-            if ($amount <= 0) {
-                $this->line(sprintf('    %-9s free, no Stripe object', $label));
-
-                continue;
-            }
-            $this->line(sprintf(
-                '    %-9s $%s/mo   $%s/yr (%s%% off)',
-                $label,
-                number_format($amount / 100, 2),
-                number_format($yearlyOf($amount) / 100, 2),
-                $annualPct,
-            ));
-        }
-        $serverless = (int) ($standard['serverless_cents'] ?? 0);
-        if ($serverless > 0) {
-            $this->line('  Product: dply serverless function');
-            $this->line(sprintf(
-                '    Per function $%s/mo   $%s/yr',
-                number_format($serverless / 100, 2),
-                number_format($yearlyOf($serverless) / 100, 2),
-            ));
-        }
-        $cloud = (int) ($standard['cloud_cents'] ?? 0);
-        if ($cloud > 0) {
-            $this->line('  Product: dply Cloud app');
-            $this->line(sprintf(
-                '    Per app $%s/mo   $%s/yr',
-                number_format($cloud / 100, 2),
-                number_format($yearlyOf($cloud) / 100, 2),
-            ));
-        }
         $edge = (int) ($standard['edge_cents'] ?? 0);
         if ($edge > 0) {
             $this->line('  Product: dply Edge site (static / hybrid)');
@@ -147,22 +111,6 @@ class ProvisionStripeBillingCommand extends Command
                 '    Metered $%s/unit (monthly, quantity = cents)',
                 number_format($edgeUsageUnit / 100, 2),
             ));
-        }
-        $realtimeTiers = (array) config('realtime.tiers', []);
-        if ($realtimeTiers !== []) {
-            $this->line('  Product: dply Realtime app (per connection-tier)');
-            foreach ($realtimeTiers as $slug => $tier) {
-                $tierCents = (int) ($tier['price_cents'] ?? 0);
-                if ($tierCents <= 0) {
-                    continue;
-                }
-                $this->line(sprintf(
-                    '    %s ($%s/mo   $%s/yr)',
-                    (string) ($tier['label'] ?? ucfirst((string) $slug)),
-                    number_format($tierCents / 100, 2),
-                    number_format($yearlyOf($tierCents) / 100, 2),
-                ));
-            }
         }
         $this->line('  Product: dply Enterprise (no prices — sales-led)');
         $this->newLine();

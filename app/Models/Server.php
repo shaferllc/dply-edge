@@ -205,20 +205,6 @@ class Server extends Model
         return true;
     }
 
-    /**
-     * Every host in dply-edge is a managed delivery record, never a machine
-     * the operator pays a cloud provider for.
-     */
-    public function isManagedProductHost(): bool
-    {
-        return true;
-    }
-
-    public function usesManagedHosting(): bool
-    {
-        return $this->hosting_backend === self::HOSTING_BACKEND_DPLY;
-    }
-
     public function isReady(): bool
     {
         return $this->status === self::STATUS_READY;

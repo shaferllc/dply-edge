@@ -34,10 +34,8 @@ test('snapshot writer persists daily organization billing snapshot', function ()
     expect($snapshot->monthly_total_cents)->toBeGreaterThan(0)
         ->and($snapshot->edge_usage_cents)->toBeInt()
         ->and($snapshot->category_breakdown)->toBeArray()
-        // BYO servers are structurally zero on dply-edge; the fleet that
-        // bills is the Edge site count.
-        ->and($snapshot->fleet_counts)->toMatchArray([
-            'servers' => 0,
+        // The fleet that bills is the Edge site count — nothing else.
+        ->and($snapshot->fleet_counts)->toBe([
             'edge' => 1,
         ]);
 });

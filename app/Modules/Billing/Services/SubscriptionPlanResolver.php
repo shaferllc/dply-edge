@@ -3,113 +3,85 @@
 namespace App\Modules\Billing\Services;
 
 use InvalidArgumentException;
+use Laravel\Cashier\Subscription as CashierSubscription;
 
 /**
- * Resolves the flat subscription plan for an organization from its billable
- * BYO server count, and maps plans to their Stripe price IDs.
+ * Reads a plan record from config `subscription.standard.plans`. dply-edge has
+ * no paid plan tiers — the only record is `free`, whose per-surface ceilings
+ * are the "no card to start" allowance ({@see \App\Enums\QuotaSurface}).
  *
- * The plan model (config `subscription.standard.plans`) meters by server
- * *count*, not size: customers pay their provider for size, and dply's fee
- * scales with how many servers it manages. The resolver picks the cheapest
- * plan whose `max_servers` ceiling covers the count (null ceiling = unlimited).
- *
- * Managed products (serverless, Cloud, Edge) are billed a la carte on top of
- * the plan and are intentionally NOT part of plan resolution.
+ * Also the one place that answers "is this subscription yearly?" and "which
+ * prices are retired?", so every caller agrees.
  */
 class SubscriptionPlanResolver
 {
-    public const INTERVAL_MONTH = 'month';
-
-    public const INTERVAL_YEAR = 'year';
-
     /**
-     * Resolve the plan that covers the given billable server count.
+     * Configured yearly Edge site prices — static/hybrid and SSR. A
+     * subscription carrying either is billed yearly.
      *
-     * @return array{key: string, label: string, price_cents: int, max_servers: ?int, max_sites: ?int, max_cloud_apps: ?int, max_edge_apps: ?int, max_functions: ?int}
+     * @return list<string>
      */
-    public function resolveForServerCount(int $serverCount): array
+    public static function yearlyPriceIds(): array
     {
-        $serverCount = max(0, $serverCount);
-        $plans = $this->plans();
+        return self::configuredPrices([
+            config('subscription.standard.stripe.edge_yearly'),
+            config('subscription.standard.stripe.edge_ssr_yearly'),
+        ]);
+    }
 
-        foreach ($plans as $key => $plan) {
-            $max = $plan['max_servers'] ?? null;
-            if ($max === null || $serverCount <= (int) $max) {
-                return $this->normalize($key, $plan);
+    public static function isYearly(CashierSubscription $subscription): bool
+    {
+        foreach (self::yearlyPriceIds() as $priceId) {
+            if ($subscription->hasPrice($priceId)) {
+                return true;
             }
         }
 
-        // No ceiling matched (config has no unlimited plan) — fall back to the
-        // most expensive plan so an oversized fleet is never under-billed.
-        $lastKey = array_key_last($plans);
-
-        return $this->normalize((string) $lastKey, $plans[$lastKey]);
+        return false;
     }
 
     /**
-     * Resolve a plan by its key (e.g. 'free', 'pro').
+     * Prices of retired product lines (old plan tiers, serverless, Cloud,
+     * managed servers, Realtime, Lookout, Queue, server logs). The syncer
+     * removes them from subscriptions so customers stop paying for them.
      *
-     * @return array{key: string, label: string, price_cents: int, max_servers: ?int, max_sites: ?int, max_cloud_apps: ?int, max_edge_apps: ?int, max_functions: ?int}
+     * @return list<string>
+     */
+    public static function retiredPriceIds(): array
+    {
+        return self::configuredPrices((array) config('subscription.standard.stripe.retired', []));
+    }
+
+    /**
+     * @param  array<mixed>  $ids
+     * @return list<string>
+     */
+    private static function configuredPrices(array $ids): array
+    {
+        return array_values(array_filter(
+            array_map(static fn (mixed $id): string => is_string($id) ? $id : '', $ids),
+            static fn (string $id): bool => $id !== '',
+        ));
+    }
+
+    /**
+     * Resolve a plan by its key (e.g. 'free').
+     *
+     * @return array{key: string, label: string, price_cents: int, max_sites: ?int, max_edge_apps: ?int, max_functions: ?int}
      */
     public function resolveByKey(string $key): array
     {
-        $plans = $this->plans();
+        $plans = (array) config('subscription.standard.plans', []);
         if (! array_key_exists($key, $plans)) {
             throw new InvalidArgumentException("Unknown subscription plan: {$key}");
         }
 
-        return $this->normalize($key, $plans[$key]);
-    }
-
-    /**
-     * The Stripe price ID for a paid plan at the given interval. Returns '' for
-     * the free plan (no price) or when the price is not configured.
-     */
-    public function stripePriceId(string $planKey, string $interval): string
-    {
-        $bucket = match ($interval) {
-            self::INTERVAL_MONTH => 'plans',
-            self::INTERVAL_YEAR => 'plans_yearly',
-            default => throw new InvalidArgumentException("Unknown billing interval: {$interval}"),
-        };
-
-        return (string) (config("subscription.standard.stripe.{$bucket}.{$planKey}") ?? '');
-    }
-
-    /**
-     * True when a plan carries a recurring charge (everything but free).
-     */
-    public function isPaidPlan(string $planKey): bool
-    {
-        return $this->resolveByKey($planKey)['price_cents'] > 0;
-    }
-
-    /**
-     * All configured plans, normalized, cheapest first.
-     *
-     * @return list<array{key: string, label: string, price_cents: int, max_servers: ?int, max_sites: ?int, max_cloud_apps: ?int, max_edge_apps: ?int, max_functions: ?int}>
-     */
-    public function all(): array
-    {
-        $normalized = [];
-        foreach ($this->plans() as $key => $plan) {
-            $normalized[] = $this->normalize($key, $plan);
-        }
-
-        return $normalized;
-    }
-
-    /**
-     * @return array<string, array<string, mixed>>
-     */
-    private function plans(): array
-    {
-        return (array) config('subscription.standard.plans', []);
+        return $this->normalize($key, (array) $plans[$key]);
     }
 
     /**
      * @param  array<string, mixed>  $plan
-     * @return array{key: string, label: string, price_cents: int, max_servers: ?int, max_sites: ?int, max_cloud_apps: ?int, max_edge_apps: ?int, max_functions: ?int}
+     * @return array{key: string, label: string, price_cents: int, max_sites: ?int, max_edge_apps: ?int, max_functions: ?int}
      */
     private function normalize(string $key, array $plan): array
     {
@@ -121,12 +93,9 @@ class SubscriptionPlanResolver
             'key' => $key,
             'label' => (string) ($plan['label'] ?? ucfirst($key)),
             'price_cents' => (int) ($plan['price_cents'] ?? 0),
-            'max_servers' => $ceiling($plan['max_servers'] ?? null),
             // Per-surface app ceilings ({@see \App\Enums\QuotaSurface}). A key
-            // absent from config means unlimited for that surface, which is the
-            // right default for a plan authored before the split.
+            // absent from config means unlimited for that surface.
             'max_sites' => $ceiling($plan['max_sites'] ?? null),
-            'max_cloud_apps' => $ceiling($plan['max_cloud_apps'] ?? null),
             'max_edge_apps' => $ceiling($plan['max_edge_apps'] ?? null),
             'max_functions' => $ceiling($plan['max_functions'] ?? null),
         ];

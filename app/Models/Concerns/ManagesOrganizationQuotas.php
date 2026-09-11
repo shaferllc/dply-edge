@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Models\Concerns;
 
 use App\Enums\QuotaSurface;
-use App\Models\Server;
 use Illuminate\Support\Collection;
 
 /**
@@ -26,8 +25,10 @@ trait ManagesOrganizationQuotas
      * The org's ceiling for one product surface, or null when unlimited.
      * Beta orgs use the beta envelope instead of the plan tier.
      *
-     * Each surface has its own ceiling — see {@see QuotaSurface}. Filling up on
-     * Edge apps must not block a VM site.
+     * Paying orgs are uncapped: Edge bills per site plus usage, so the Free
+     * plan's ceiling is only the "no card to start" allowance. The plan tier
+     * itself is resolved from a BYO server count that is always 0 since the
+     * Edge cut, so without this every org read as Free forever.
      */
     public function quotaLimit(QuotaSurface $surface): ?int
     {
@@ -36,6 +37,10 @@ trait ManagesOrganizationQuotas
                 'subscription.standard.beta.'.$surface->betaConfigKey(),
                 $surface->betaDefault(),
             ));
+        }
+
+        if ($this->onAnyPaidPlan()) {
+            return null;
         }
 
         return $this->currentSubscriptionPlan()[$surface->planConfigKey()];
@@ -129,13 +134,9 @@ trait ManagesOrganizationQuotas
             );
         }
 
-        // "Add a server to move up to the next plan" outlived the VM platform: the
-        // 2026-08-25 Edge cut removed provisioning entirely, and a Server row is now
-        // minted automatically per Edge site, so there is no add-server flow for a
-        // user to follow. The upgrade path is the organization's subscription page.
+        // Only unsubscribed orgs reach here — quotaLimit() is null once paying.
         return sprintf(
-            'Your %s plan includes %d %s. Upgrade the organization plan to raise this limit, or contact us.',
-            $this->currentSubscriptionPlan()['label'],
+            'You can run %d %s without a card. Subscribe on the organization billing page to remove the limit — each site is billed monthly plus usage.',
             $limit,
             trans_choice($surface->nounKey(), $limit),
         );
@@ -151,22 +152,6 @@ trait ManagesOrganizationQuotas
     public function planSiteLimit(): ?int
     {
         return $this->quotaLimit(QuotaSurface::Site);
-    }
-
-    /**
-     * The org's current plan-tier server ceiling, or null when unlimited
-     * (Business). This is the per-tier ALLOTMENT shown in the UI — distinct from
-     * {@see maxServers()}, which is the creation gate and is intentionally
-     * uncapped because adding a server simply bumps the usage-based tier.
-     */
-    public function planServerLimit(): ?int
-    {
-        // Beta orgs are bounded by the BYO envelope, not the plan tier.
-        if ($this->isBeta()) {
-            return $this->betaByoServerLimit();
-        }
-
-        return $this->currentSubscriptionPlan()['max_servers'];
     }
 
     /**
@@ -204,53 +189,12 @@ trait ManagesOrganizationQuotas
     }
 
     /**
-     * BYO VMs that count against the beta BYO ceiling (excludes the free managed
-     * box and managed-product logical hosts).
-     */
-    public function byoServerCount(): int
-    {
-        return $this->servers()
-            ->where('hosting_backend', Server::HOSTING_BACKEND_BYO)
-            ->get()
-            ->reject(fn (Server $server) => $server->isManagedProductHost())
-            ->count();
-    }
-
-    /**
-     * dply-managed VMs the org currently holds (the free-CX22 grant counter).
-     */
-    public function managedServerCount(): int
-    {
-        return $this->servers()
-            ->where('hosting_backend', Server::HOSTING_BACKEND_DPLY)
-            ->get()
-            ->filter(fn (Server $server) => $server->isManagedVm())
-            ->count();
-    }
-
-    /**
-     * Whether the org can provision another free dply-managed server. During
-     * beta this enforces the single-CX22 grant; outside beta managed servers
-     * aren't capped here (availability is gated by the surface flag + platform
-     * config at the create flow).
-     */
-    public function canCreateManagedServer(): bool
-    {
-        if (! $this->isBeta()) {
-            return true;
-        }
-
-        return $this->managedServerCount() < $this->betaManagedServerLimit();
-    }
-
-    /**
-     * Maximum number of BYO servers allowed. Unlimited under the Standard model
-     * — trial-state gating handles the cash-burning abuse case — but bounded for
-     * beta orgs by the beta envelope.
+     * Maximum number of servers allowed — unlimited. dply-edge has no BYO
+     * servers; the only Server rows are the owner records minted per Edge site.
      */
     public function maxServers(): int
     {
-        return $this->isBeta() ? $this->betaByoServerLimit() : PHP_INT_MAX;
+        return PHP_INT_MAX;
     }
 
     /**
@@ -261,20 +205,6 @@ trait ManagesOrganizationQuotas
     public function maxSites(): int
     {
         return $this->planSiteLimit() ?? PHP_INT_MAX;
-    }
-
-    /**
-     * Whether the organization can create another server (under limit).
-     */
-    public function canCreateServer(): bool
-    {
-        // Beta orgs are bounded by the BYO envelope (the free managed box is
-        // counted separately via canCreateManagedServer); otherwise unlimited.
-        if ($this->isBeta()) {
-            return $this->byoServerCount() < $this->maxServers();
-        }
-
-        return $this->servers()->count() < $this->maxServers();
     }
 
     /**

@@ -290,8 +290,7 @@ return [
     | daily).
     |
     | Unit rates are ~Cloudflare list (cost floor). `markup_percent` is applied
-    | on the metered subtotal (same pattern as Cloud/Serverless — default 40%)
-    | so overage is profitable. Per-site included allowances keep quiet sites
+    | on the metered subtotal (default 40%) so overage is profitable. Per-site included allowances keep quiet sites
     | on the flat platform fee only ($2 static/hybrid, $7 Worker SSR).
     |
     | Approx CF list (2026): Workers requests ~$0.30/M, R2 storage ~$0.015/GB-mo,
@@ -300,7 +299,7 @@ return [
     'edge' => [
         'usage_billing' => [
             'enabled' => filter_var(env('DPLY_EDGE_USAGE_BILLING_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
-            // Blanket margin on overage (aligned with cloud_markup_percent).
+            // Blanket margin on overage.
             'markup_percent' => (int) env('DPLY_EDGE_USAGE_MARKUP_PERCENT', 40),
             // Cost-floor unit rates (cents). Customer pays rate × (1 + markup%).
             'requests_cents_per_million' => (int) env('DPLY_EDGE_USAGE_REQUESTS_CENTS_PER_MILLION', 50),
@@ -331,72 +330,6 @@ return [
             // a month writes 20k objects.
             'included_r2_class_a_ops_per_site' => (int) env('DPLY_EDGE_USAGE_INCLUDED_R2_CLASS_A_OPS_PER_SITE', 20_000),
             'included_r2_class_b_ops_per_site' => (int) env('DPLY_EDGE_USAGE_INCLUDED_R2_CLASS_B_OPS_PER_SITE', 1_000_000),
-        ],
-    ],
-
-    /*
-    |--------------------------------------------------------------------------
-    | Serverless: usage-based billing for dply-managed functions
-    |--------------------------------------------------------------------------
-    |
-    | Managed functions run on dply's own FaaS account (dply pays the provider),
-    | so they keep the flat per-function fee (serverless_cents in
-    | config/subscription.php) plus metered usage on top. BYO functions — where
-    | the customer pays their own provider — are NOT metered here.
-    |
-    | DigitalOcean Functions has no usable per-function usage API, so v1 meters
-    | INVOCATIONS rolled up from the operational function_invocations log by
-    | `dply:serverless:collect-usage`. The per-function included allowance keeps
-    | low-traffic functions covered by the flat fee. Two meters run: GiB-seconds
-    | (provider compute, derived from the invocation log) and invocations
-    | (dply's own log-ingest cost) — see the notes on each rate below.
-    |
-    | Unit rates are customer-facing and embed margin over provider list
-    | pricing; `markup_percent` applies an additional blanket markup.
-    */
-    'serverless' => [
-        'usage_billing' => [
-            // On by default: the $2 flat fee covers roughly 108,000 GiB-seconds
-            // of DigitalOcean compute (200c / $0.0000185), so an unmetered
-            // managed function goes upside-down the moment it gets real
-            // traffic. Set the env to false to stage the meter per environment.
-            'enabled' => filter_var(env('DPLY_SERVERLESS_USAGE_BILLING_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
-            // Blanket margin on overage, aligned with edge/cloud_markup_percent.
-            'markup_percent' => (int) env('DPLY_SERVERLESS_USAGE_MARKUP_PERCENT', 40),
-            // Invocation meter — NOT provider compute (DO bills GiB-seconds
-            // only). This prices dply's own per-request cost: every web request
-            // POSTs a log record to the ingest endpoint, which dply handles and
-            // stores. Generous allowance, so only chatty functions pay it.
-            'invocations_cents_per_million' => (int) env('DPLY_SERVERLESS_USAGE_INVOCATIONS_CENTS_PER_MILLION', 40),
-            // 185c / 100k GiB-s == $0.0000185/GB-s — DigitalOcean Functions list
-            // price at cost, with markup_percent applied on top. Metered from
-            // dply's own invocation log (duration_ms x action memory), since DO
-            // exposes no per-function compute API.
-            'gib_seconds_cents_per_100k' => (int) env('DPLY_SERVERLESS_USAGE_GIB_SECONDS_CENTS_PER_100K', 185),
-            'included_invocations_per_function' => (int) env('DPLY_SERVERLESS_USAGE_INCLUDED_INVOCATIONS_PER_FUNCTION', 1_000_000),
-            // Mirrors DigitalOcean's own free tier (90,000 GiB-s/month). Note
-            // that free tier is per *account*, so on managed it is consumed
-            // once across all customers — this allowance is dply's gift, not a
-            // pass-through, and is what the flat fee is buying.
-            'included_gib_seconds_per_function' => (int) env('DPLY_SERVERLESS_USAGE_INCLUDED_GIB_SECONDS_PER_FUNCTION', 90_000),
-
-            // Published front-end assets. Cost floor is DigitalOcean Spaces
-            // list price — $0.02/GiB/mo stored, $0.01/GiB out — with
-            // markup_percent applied on top like every other rate here, so the
-            // rates below must stay at cost or margin compounds.
-            //
-            // There is deliberately no operations rate: Spaces bills no
-            // per-request fee, unlike Cloudflare R2 behind Edge. asset_requests
-            // is metered and shown, never charged.
-            'asset_storage_cents_per_gb_month' => (int) env('DPLY_SERVERLESS_ASSET_STORAGE_CENTS_PER_GB_MONTH', 2),
-            'asset_egress_cents_per_gb' => (int) env('DPLY_SERVERLESS_ASSET_EGRESS_CENTS_PER_GB', 1),
-            // A Vite public/build is single-digit MB, so 1 GiB is ~100x
-            // headroom and the egress allowance matches Edge's per-site one.
-            // These exist so an honest site never sees a cent — the meter is
-            // here for the tail (a large binary committed under public/), not
-            // to sell a storage tier.
-            'included_asset_storage_gb_per_function' => (int) env('DPLY_SERVERLESS_INCLUDED_ASSET_STORAGE_GB_PER_FUNCTION', 1),
-            'included_asset_egress_gb_per_function' => (int) env('DPLY_SERVERLESS_INCLUDED_ASSET_EGRESS_GB_PER_FUNCTION', 100),
         ],
     ],
 

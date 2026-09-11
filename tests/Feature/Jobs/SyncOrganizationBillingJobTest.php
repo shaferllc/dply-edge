@@ -6,7 +6,6 @@ use App\Modules\Billing\Jobs\SyncOrganizationBillingJob;
 use App\Models\Organization;
 use App\Modules\Billing\Models\Subscription;
 use App\Modules\Billing\Services\BillingSubscriptionSyncEventRecorder;
-use App\Modules\Billing\Services\BundleEntitlementSynchronizer;
 use App\Modules\Billing\Services\DesiredBillingState;
 use App\Modules\Billing\Services\OrganizationBillingStateComputer;
 use App\Modules\Billing\Services\StripeSubscriptionSyncer;
@@ -17,10 +16,10 @@ use Illuminate\Support\Facades\Config;
 uses(RefreshDatabase::class);
 
 beforeEach(function () {
-    // A configured paid-plan price is what marks an org as on a Standard
-    // subscription under the plan model.
-    $this->planPriceId = 'price_test_starter_monthly';
-    Config::set('subscription.standard.stripe.plans.starter', $this->planPriceId);
+    // A configured Edge site price is what marks an org as on a Standard
+    // subscription.
+    $this->planPriceId = 'price_test_edge_monthly';
+    Config::set('subscription.standard.stripe.edge', $this->planPriceId);
 });
 
 test('handle is a no op when organization does not exist', function () {

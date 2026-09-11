@@ -18,8 +18,7 @@ use Throwable;
  * page's dply-specific chrome (app name, base path, reference, Lookout link).
  *
  * Guarded by class_exists so dply keeps booting even before the lookout/tracing
- * version that ships the debug page is installed (mirrors the Passport guard in
- * {@see BundleSsoServiceProvider}). The page also stays dark until
+ * version that ships the debug page is installed. The page also stays dark until
  * LOOKOUT_DEBUG_PAGE=true — prod-only.
  */
 class LookoutDebugPageServiceProvider extends ServiceProvider

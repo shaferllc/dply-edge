@@ -5,105 +5,11 @@ declare(strict_types=1);
 namespace App\Modules\Billing\Services;
 
 /**
- * Surfaces dply's flat monthly fees for first-party managed products
- * (Cloud, Edge) in create flows — mirrors ServerlessCostEstimator.
+ * Surfaces dply's Edge per-site fees and usage rates in create flows, site
+ * settings and the pricing page — read from the same config the biller uses.
  */
 class ManagedProductCostEstimator
 {
-    public function cloudFee(): float
-    {
-        return ((int) config('subscription.standard.cloud_cents', 0)) / 100;
-    }
-
-    /**
-     * Customer-facing Cloud pricing terms, derived from the same config the
-     * biller reads so the empty-index splash can never quote a price the
-     * invoice contradicts. Container and database rates already have
-     * `cloud_markup_percent` applied.
-     *
-     * @return array{
-     *     flat_cents: int,
-     *     markup_percent: int,
-     *     small_container_cents: int,
-     *     small_database_cents: int,
-     * }
-     */
-    public function cloudPricingSummary(): array
-    {
-        $containerRates = (array) config('subscription.standard.cloud_container_cents', []);
-        $databaseRates = (array) config('subscription.standard.cloud_database_cents', []);
-
-        return [
-            'flat_cents' => (int) config('subscription.standard.cloud_cents', 0),
-            'markup_percent' => max(0, (int) config('subscription.standard.cloud_markup_percent', 0)),
-            'small_container_cents' => $this->withCloudMarkup((int) ($containerRates['small'] ?? 0)),
-            'small_database_cents' => $this->withCloudMarkup((int) ($databaseRates['small'] ?? 0)),
-        ];
-    }
-
-    /**
-     * Customer-facing (marked-up) monthly price in USD for a Cloud container
-     * size tier, per instance. Used to preview the metered resource cost in
-     * the create flow next to the flat platform fee.
-     */
-    public function cloudContainerPrice(string $sizeTier): float
-    {
-        $rates = (array) config('subscription.standard.cloud_container_cents', []);
-        $raw = (int) ($rates[$sizeTier] ?? $rates['small'] ?? 0);
-
-        return $this->withCloudMarkup($raw) / 100;
-    }
-
-    /**
-     * Estimated monthly AWS App Runner compute (USD) for a size tier ×
-     * instance count. Customer pays AWS directly — not dply-metered.
-     *
-     * Floor assumes always-on provisioned compute for the instance count
-     * (use autoscaling min when the form has autoscaling enabled).
-     *
-     * Tier → vCPU/GB mirrors AwsAppRunnerBackend::computeForSizeTier
-     * (kept local so Billing does not depend on the Cloud module).
-     */
-    public function appRunnerMonthlyUsd(string $sizeTier, int $instances = 1): float
-    {
-        [$vcpu, $memoryGb] = match ($sizeTier) {
-            'medium', 'medium-pro' => [0.5, 1.0],
-            'large', 'large-pro' => [1.0, 2.0],
-            'xlarge', 'xlarge-pro' => [2.0, 4.0],
-            default => [0.25, 0.5],
-        };
-        $hours = max(1, (int) config('subscription.standard.app_runner_hours_per_month', 730));
-        $vcpuRate = max(0.0, (float) config('subscription.standard.app_runner_vcpu_usd_per_hour', 0.064));
-        $memoryRate = max(0.0, (float) config('subscription.standard.app_runner_memory_gb_usd_per_hour', 0.007));
-        $perInstance = ($vcpu * $vcpuRate + $memoryGb * $memoryRate) * $hours;
-
-        return round($perInstance * max(1, $instances), 2);
-    }
-
-    /**
-     * Customer-facing (marked-up) monthly price in USD for a Cloud managed
-     * database size tier.
-     */
-    public function cloudDatabasePrice(string $sizeTier): float
-    {
-        $rates = (array) config('subscription.standard.cloud_database_cents', []);
-        $raw = (int) ($rates[$sizeTier] ?? $rates['small'] ?? 0);
-
-        return $this->withCloudMarkup($raw) / 100;
-    }
-
-    public function cloudBucketPrice(): float
-    {
-        return $this->withCloudMarkup((int) config('subscription.standard.cloud_bucket_cents', 0)) / 100;
-    }
-
-    private function withCloudMarkup(int $rawCents): int
-    {
-        $markup = max(0, (int) config('subscription.standard.cloud_markup_percent', 0));
-
-        return (int) round($rawCents * (100 + $markup) / 100);
-    }
-
     public function edgeFee(): float
     {
         return ((int) config('subscription.standard.edge_cents', 0)) / 100;
@@ -123,24 +29,6 @@ class ManagedProductCostEstimator
         return strtolower($runtimeMode) === 'ssr'
             ? $this->edgeSsrFee()
             : $this->edgeFee();
-    }
-
-    /**
-     * Monthly fee (dollars) for a managed Realtime app on the default tier.
-     */
-    public function realtimeFee(): float
-    {
-        return $this->realtimeTierFee((string) config('realtime.default_tier', 'starter'));
-    }
-
-    /**
-     * Monthly fee (dollars) for a managed Realtime app on a specific tier.
-     */
-    public function realtimeTierFee(string $tier): float
-    {
-        $tiers = (array) config('realtime.tiers', []);
-
-        return ((int) ($tiers[$tier]['price_cents'] ?? config('subscription.standard.realtime_cents', 0))) / 100;
     }
 
     /**

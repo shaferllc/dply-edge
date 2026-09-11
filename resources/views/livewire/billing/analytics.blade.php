@@ -13,37 +13,23 @@
             $maxEdgeRequests = max(1, collect($edgeUsageDaily)->max('requests') ?? 1);
             $maxInvoiceCents = max(1, collect($invoiceHistory)->max('total_cents') ?? 1);
 
-            // Surface flags — hide Edge / Cloud / Serverless lines and sections when
-            // those surfaces aren't enabled for this org. The numbers come from the
-            // controller (which doesn't know about flags), so we filter at render time
-            // and only show what's actually a product for this account.
+            // Surface flag — hide Edge lines and sections when the surface isn't
+            // enabled for this org. The numbers come from the controller (which
+            // doesn't know about flags), so we filter at render time.
             $edgeOn = \Laravel\Pennant\Feature::active('surface.edge');
-            $cloudOn = \Laravel\Pennant\Feature::active('surface.cloud');
-            $serverlessOn = \Laravel\Pennant\Feature::active('surface.serverless');
-            $hasManagedSurfaces = $edgeOn || $cloudOn || $serverlessOn;
 
             // Matches on labels rather than slugs because the controller emits plain
-            // labels — "Edge", "Cloud", "Serverless".
-            $offSurface = function (array $row) use ($edgeOn, $cloudOn, $serverlessOn): bool {
-                $label = strtolower((string) ($row['label'] ?? ''));
-
-                return (! $edgeOn && str_contains($label, 'edge'))
-                    || (! $cloudOn && str_contains($label, 'cloud'))
-                    || (! $serverlessOn && str_contains($label, 'serverless'));
+            // labels — "Edge …".
+            $offSurface = function (array $row) use ($edgeOn): bool {
+                return ! $edgeOn && str_contains(strtolower((string) ($row['label'] ?? '')), 'edge');
             };
 
             $categoryBreakdown = collect($categoryBreakdown)->reject($offSurface)->values()->all();
             $lineItems = collect($lineItems)->reject($offSurface)->values()->all();
             $totalBreakdownCents = max(1, collect($categoryBreakdown)->sum('cents'));
 
-            // Resource-count parts the hero stat shows — only surfaces the org has.
-            $resourceParts = collect([
-                ['count' => $summary['server_count'] ?? 0, 'label' => __('VM'), 'visible' => true],
-                ['count' => $summary['edge_count'] ?? 0, 'label' => __('Apps'), 'visible' => $edgeOn],
-                ['count' => $summary['cloud_count'] ?? 0, 'label' => __('Cloud'), 'visible' => $cloudOn],
-                ['count' => $summary['serverless_count'] ?? 0, 'label' => __('Fn'), 'visible' => $serverlessOn],
-            ])->filter(fn (array $p) => $p['visible'])->values();
-            $billableResources = $resourceParts->sum('count');
+            // Billable resources — live Edge sites are the only billed unit.
+            $billableResources = (int) ($summary['edge_count'] ?? 0);
 
             // Status palette mirrors billing.show — same dot tokens so an admin reading
             // both pages sees a consistent visual vocabulary.
@@ -53,11 +39,6 @@
                 $statusSub = ! empty($summary['next_invoice_at'])
                     ? __('Next invoice :date', ['date' => \Illuminate\Support\Carbon::parse($summary['next_invoice_at'])->toFormattedDateString()])
                     : ($interval === 'year' ? __('Billed annually') : __('Billed monthly'));
-            } elseif (! empty($summary['on_trial'])) {
-                $statusDot = 'bg-sky-500';
-                $statusLabel = __('Trial');
-                $days = (int) ($summary['trial_days_left'] ?? 0);
-                $statusSub = trans_choice(':days day left|:days days left', $days, ['days' => $days]);
             } else {
                 $statusDot = 'bg-brand-ink/15';
                 $statusLabel = __('Not subscribed');
@@ -121,7 +102,7 @@
                             <span class="font-mono text-lg font-semibold tabular-nums text-brand-ink">{{ $billableResources }}</span>
                             <span class="text-xs text-brand-moss">{{ __('billable') }}</span>
                         </dd>
-                        <p class="{{ $cellNote }}">{{ $resourceParts->map(fn (array $p) => $p['count'].' '.$p['label'])->implode(' · ') }}</p>
+                        <p class="{{ $cellNote }}">{{ trans_choice('{0} No live Edge sites|{1} :count live Edge site|[2,*] :count live Edge sites', $billableResources, ['count' => $billableResources]) }}</p>
                     </div>
                 </dl>
             </x-slot:stats>
@@ -146,7 +127,7 @@
                     <div class="{{ $cell }}">
                         <dt class="{{ $cellLabel }}">{{ __('Projected this month') }}</dt>
                         <dd class="{{ $cellValue }}">${{ number_format($forecastProjectedMonthEndCents / 100, 2) }}</dd>
-                        <p class="{{ $cellNote }}">{{ __('Plan and add-ons, plus Edge usage so far extrapolated to month end') }}</p>
+                        <p class="{{ $cellNote }}">{{ __('Per-site fees, plus Edge usage so far extrapolated to month end') }}</p>
                     </div>
                     <div class="{{ $cell }}">
                         <dt class="{{ $cellLabel }}">{{ __('Δ vs 30 days') }}</dt>
@@ -236,7 +217,7 @@
                     class="border-b border-brand-ink/10"
                     icon="heroicon-o-chart-pie"
                     :title="__('Spend by category')"
-                    :note="__('Current-cycle estimate — updates when your fleet changes.')"
+                    :note="__('Current-cycle estimate — updates when your live sites change.')"
                 />
 
                 <div class="space-y-2 px-3 py-3 sm:px-4">
@@ -339,94 +320,39 @@
                 </section>
             @endif
 
-            @if ($hasManagedSurfaces)
+            @if ($edgeOn)
                 {{-- Managed products --}}
-                @php
-                    $managedCatalog = array_filter([
-                        'edge' => $edgeOn ? ['title' => __('Apps'), 'icon' => 'heroicon-o-globe-alt'] : null,
-                        'cloud' => $cloudOn ? ['title' => __('Cloud apps'), 'icon' => 'heroicon-o-cube'] : null,
-                        'serverless' => $serverlessOn ? ['title' => __('Serverless apps'), 'icon' => 'heroicon-o-bolt'] : null,
-                    ]);
-                @endphp
+                @php $rows = $managedProducts['edge'] ?? []; @endphp
                 <section class="border-b border-brand-ink/10 last:border-b-0">
                     <x-workspace-panel-head
                         dense
                         class="border-b border-brand-ink/10"
                         icon="heroicon-o-cube"
                         :title="__('Managed products')"
-                        :note="__('Live Cloud, Edge, and Serverless sites billed per unit — separate from BYO VM tiers.')"
+                        :note="__('Live Edge sites billed per site.')"
                     />
 
-                    <div class="grid gap-px bg-brand-ink/5 lg:grid-cols-3">
-                        @foreach ($managedCatalog as $key => $meta)
-                            @php $rows = $managedProducts[$key] ?? []; @endphp
-                            <div class="bg-white px-3 py-2">
-                                <div class="flex items-center gap-1.5">
-                                    <x-dynamic-component :component="$meta['icon']" class="h-4 w-4 shrink-0 text-brand-sage" aria-hidden="true" />
-                                    <h4 class="text-sm font-semibold text-brand-ink">{{ $meta['title'] }}</h4>
-                                    <span class="text-xs text-brand-mist">{{ count($rows) }}</span>
-                                </div>
-                                @if ($rows === [])
-                                    <p class="mt-1 text-xs text-brand-mist">{{ __('None active') }}</p>
-                                @else
-                                    <ul class="mt-1 space-y-0.5 text-sm">
-                                        @foreach ($rows as $row)
-                                            <li class="flex items-start justify-between gap-2">
-                                                <span class="truncate text-brand-ink" title="{{ $row['name'] }}">{{ $row['name'] }}</span>
-                                                <span class="shrink-0 font-mono tabular-nums text-brand-moss">${{ number_format(($row['unit_cents'] ?? 0) / 100, 2) }}</span>
-                                            </li>
-                                        @endforeach
-                                    </ul>
-                                @endif
-                            </div>
-                        @endforeach
+                    <div class="bg-white px-3 py-2">
+                        <div class="flex items-center gap-1.5">
+                            <x-heroicon-o-globe-alt class="h-4 w-4 shrink-0 text-brand-sage" aria-hidden="true" />
+                            <h4 class="text-sm font-semibold text-brand-ink">{{ __('Apps') }}</h4>
+                            <span class="text-xs text-brand-mist">{{ count($rows) }}</span>
+                        </div>
+                        @if ($rows === [])
+                            <p class="mt-1 text-xs text-brand-mist">{{ __('None active') }}</p>
+                        @else
+                            <ul class="mt-1 space-y-0.5 text-sm">
+                                @foreach ($rows as $row)
+                                    <li class="flex items-start justify-between gap-2">
+                                        <span class="truncate text-brand-ink" title="{{ $row['name'] }}">{{ $row['name'] }}</span>
+                                        <span class="shrink-0 font-mono tabular-nums text-brand-moss">${{ number_format(($row['unit_cents'] ?? 0) / 100, 2) }}</span>
+                                    </li>
+                                @endforeach
+                            </ul>
+                        @endif
                     </div>
                 </section>
             @endif
-
-            {{-- BYO fleet --}}
-            <section class="border-b border-brand-ink/10 last:border-b-0">
-                <x-workspace-panel-head
-                    dense
-                    class="border-b border-brand-ink/10"
-                    icon="heroicon-o-server-stack"
-                    :title="__('BYO server fleet')"
-                    :count="count($billableServers) ?: null"
-                    :note="__('Spec-tiered VMs you SSH into — counted separately from managed products.')"
-                />
-
-                @if ($billableServers === [] && $excludedServers === [])
-                    <div class="px-3 py-6 text-center sm:px-4">
-                        <p class="text-sm text-brand-moss">{{ __('No servers in this organization.') }}</p>
-                    </div>
-                @else
-                    <table class="w-full text-sm">
-                        <thead class="bg-brand-sand/35 text-2xs font-semibold uppercase tracking-wide text-brand-moss">
-                            <tr>
-                                <th class="{{ $th }} text-left">{{ __('Server') }}</th>
-                                <th class="{{ $th }} text-left">{{ __('Status') }}</th>
-                                <th class="{{ $th }} text-right">{{ __('Monthly') }}</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-brand-ink/5">
-                            @foreach ($billableServers as $server)
-                                <tr class="transition-colors hover:bg-brand-sand/15">
-                                    <td class="{{ $td }} font-medium text-brand-ink">{{ $server['name'] }}</td>
-                                    <td class="{{ $td }} text-brand-moss">{{ __('Billable') }}</td>
-                                    <td class="{{ $td }} text-right font-mono tabular-nums text-brand-ink">${{ number_format($server['monthly_cents'] / 100, 2) }}</td>
-                                </tr>
-                            @endforeach
-                            @foreach ($excludedServers as $row)
-                                <tr class="opacity-70 transition-colors hover:bg-brand-sand/15">
-                                    <td class="{{ $td }} text-brand-ink">{{ $row['name'] }}</td>
-                                    <td class="{{ $td }} text-brand-moss">{{ $row['reason'] }}</td>
-                                    <td class="{{ $td }} text-right text-brand-mist">—</td>
-                                </tr>
-                            @endforeach
-                        </tbody>
-                    </table>
-                @endif
-            </section>
 
             {{-- Stripe sync events --}}
             <section class="border-b border-brand-ink/10 last:border-b-0">
