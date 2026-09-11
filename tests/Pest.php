@@ -65,17 +65,13 @@ pest()->extend(TestCase::class)
     ->in('Feature');
 
 /*
-| Tests that live next to the code they cover — the Actions framework
-| (app/Actions/**\/{Tests,tests}) and each module's own suite
-| (app/Modules/<Domain>/Tests), wired into the `App` / `Modules` testsuites
-| in phpunit.xml.
+| Tests that live next to the code they cover — each module's own suite
+| (app/Modules/<Domain>/Tests).
 |
 | Only tagged here, not extended: those files declare their own
 | `uses(TestCase::class)` (or extend it as classes), and a second binding
 | from this file throws TestCaseAlreadyInUse.
 */
-
-pest()->group('app')->in('../app/Actions');
 
 pest()->group('modules')->in('../app/Modules');
 
