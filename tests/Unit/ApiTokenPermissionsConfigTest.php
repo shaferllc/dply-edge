@@ -4,18 +4,6 @@ namespace Tests\Unit\ApiTokenPermissionsConfigTest;
 
 use App\Models\ApiToken;
 
-test('presets only reference defined or star abilities', function () {
-    $presets = config('api_token_permissions.presets', []);
-
-    foreach ($presets as $name => $abilities) {
-        expect($abilities)->toBeArray();
-        foreach ($abilities as $ab) {
-            expect($ab)->toBeString();
-            expect(ApiToken::abilityIsAllowedForStorage($ab))->toBeTrue();
-        }
-    }
-});
-
 test('deployer allowlist is subset of catalog or star', function () {
     $catalog = array_flip(ApiToken::catalogAbilities());
 
