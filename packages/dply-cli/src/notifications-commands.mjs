@@ -2,13 +2,11 @@
  * `dply notifications` — channels, event routing, and test sends.
  *
  * dply's notification model is one matrix: a **channel** (Slack, email, webhook,
- * PagerDuty…) × an **event key** × the **subject** it fires for (a site or a
- * server). The workspace splits that across tabs — Errors has its own
- * notifications tab, Monitor has Alerts, Settings has the full grid — so this
- * command shows every group that applies to a subject in one place.
+ * PagerDuty…) × an **event key** × the **site** it fires for. This command
+ * shows every group that applies to a site in one place.
  *
- * Backed by /v1/notifications/* and /v1/{sites,servers}/{id}/notifications,
- * which write through the same matrix the browser does.
+ * Backed by /v1/notifications/* and /v1/sites/{id}/notifications, which write
+ * through the same matrix the browser does.
  */
 import { requireClient } from './server-context.mjs';
 import { resolveAnySiteId } from './site-context.mjs';
@@ -45,7 +43,7 @@ export async function notificationsCommand(args, flags) {
   }
 
   // `dply notifications [site]` — anything that is not a subcommand is the
-  // subject selector, the same shape `dply errors [site]` uses.
+  // site selector.
   const positional = sub === 'show' ? args[1] : args[0];
 
   return showSubscriptions(positional, flags);
@@ -111,7 +109,7 @@ async function listEvents(flags) {
   }
 
   info('');
-  info(c.dim('Narrow: --subject site · --subject server'));
+  info(c.dim('Narrow: --subject site'));
 
   return 0;
 }
@@ -214,24 +212,11 @@ async function testChannel(args, flags) {
 }
 
 /**
- * A subject is a site (default) or a server (`--server <id>`).
- *
  * @param {string|undefined} positional
  * @param {Record<string, unknown>} flags
  */
 async function resolveSubject(positional, flags) {
   const client = await requireClient(flags);
-
-  if (flags.server) {
-    const server = String(flags.server);
-
-    return {
-      client,
-      path: `/servers/${encodeURIComponent(server)}/notifications`,
-      label: `server ${server}`,
-    };
-  }
-
   const siteId = await resolveAnySiteId(client, flags, positional);
 
   return {
@@ -286,14 +271,12 @@ function printNotificationsHelp() {
   info(`${c.bold('dply notifications')} — channels and event routing`);
   info('');
   info(`  ${'notifications [site]'.padEnd(34)} ${c.dim('What fires for a site, and where it goes')}`);
-  info(`  ${'notifications --server <id>'.padEnd(34)} ${c.dim('Same, for a server')}`);
   info(`  ${'notifications channels'.padEnd(34)} ${c.dim('Channels this token can route to')}`);
   info(`  ${'notifications events [--subject site]'.padEnd(34)} ${c.dim('The event catalog')}`);
   info(`  ${'notifications subscribe <event…>'.padEnd(34)} ${c.dim('Route events to --channel <id> (notifications.write)')}`);
   info(`  ${'notifications unsubscribe <event…>'.padEnd(34)} ${c.dim('Stop routing them')}`);
   info(`  ${'notifications test <channel>'.padEnd(34)} ${c.dim('Send the channel a test message')}`);
   info('');
-  info(c.dim('Works for every kind of site — vm, cloud, edge, serverless — plus servers.'));
   info(c.dim('Reading needs notifications.read; changing routing or testing needs notifications.write.'));
 
   return 0;

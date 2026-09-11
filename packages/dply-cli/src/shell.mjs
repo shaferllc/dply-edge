@@ -71,16 +71,14 @@ export async function enterInteractiveShell() {
           await run(['account', 'help']);
         } else if (topic === 'billing') {
           await run(['billing', 'help']);
-        } else if (topic === 'server') {
-          await run(['server', 'help']);
         } else if (topic === 'edge') {
           await run(['edge', '--help']);
-        } else if (topic === 'project' || topic === 'projects') {
-          await run(['project', 'help']);
+        } else if (topic === 'notifications') {
+          await run(['notifications', 'help']);
         } else if (topic === 'shortcuts') {
           await run(['ls', 'shortcuts']);
         } else {
-          warn(`No help topic "${topic}". Try: help account · help projects · help shortcuts`);
+          warn(`No help topic "${topic}". Try: help account · help edge · help shortcuts`);
         }
 
         continue;
@@ -106,11 +104,11 @@ export async function printShellGuide() {
   info(c.dim('  Enter / menu   browse actions — type numbers or commands in menus'));
   info(c.dim('  Tab            complete commands'));
   info(c.dim('  ls             command index'));
-  info(c.dim('  help           detailed help · help account/server/edge'));
+  info(c.dim('  help           detailed help · help account/edge/notifications'));
   info(c.dim('  guide          show this screen again'));
   info(c.dim('  exit           leave interactive mode'));
   info(c.dim('  Paste `dply …` commands — the leading `dply` is ignored here'));
-  info(c.dim('  Shortcuts: projects · servers · me · r · ls shortcuts'));
+  info(c.dim('  Shortcuts: sites · deploy · me · r · ls shortcuts'));
   info('');
 
   if (!cfg?.token) {
@@ -126,14 +124,11 @@ export async function printShellGuide() {
     info(c.bold('Browse or type'));
     info(`  ${c.cyan('menu')} / ${c.cyan('Enter')}   ${c.dim('numbered menus — no memorization')}`);
     info(c.bold('Shortcuts'));
-    info(`  ${c.cyan('deploy')}             ${c.dim('deploy linked repo (BYO or Edge)')}`);
-    info(`  ${c.cyan('site')} / ${c.cyan('site list')}   ${c.dim('BYO VM sites')}`);
-    info(`  ${c.cyan('create')} / ${c.cyan('new')}     ${c.dim('create a project (prompts for name)')}`);
-    info(`  ${c.cyan('projects')} / ${c.cyan('p')}     ${c.dim('list projects (create if none)')}`);
-    info(`  ${c.cyan('servers')} / ${c.cyan('sv')}    ${c.dim('list VM servers')}`);
+    info(`  ${c.cyan('sites')}              ${c.dim('Edge sites')}`);
+    info(`  ${c.cyan('link')}               ${c.dim('link this folder to a site')}`);
+    info(`  ${c.cyan('deploy')}             ${c.dim('deploy the linked site')}`);
     info(`  ${c.cyan('me')} / ${c.cyan('who')}        ${c.dim('account profile')}`);
     info(`  ${c.cyan('r')}                 ${c.dim('refresh CLI permissions')}`);
-    info(`  ${c.cyan('sites')}              ${c.dim('Edge sites')}`);
     info('');
     info(c.dim('Type the start of a command and press Tab to complete.'));
   }

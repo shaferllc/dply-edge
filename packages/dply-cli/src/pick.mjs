@@ -2,8 +2,8 @@
  * The shared "which one?" prompt.
  *
  * Any site-scoped command that cannot work out its target falls through to
- * this instead of erroring: `dply errors`, `dply serverless errors`,
- * `dply site logs` all become list → pick a number → run. Non-TTY (CI, pipes)
+ * this instead of erroring: `dply notifications` becomes list → pick a
+ * number → run. Non-TTY (CI, pipes)
  * returns null so the caller throws its usual message and exit code — a
  * prompt that blocks a pipeline would be worse than the error.
  */

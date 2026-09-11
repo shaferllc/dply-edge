@@ -1,13 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { deployFollowRequested, nextLogChunk } from '../src/deploy-follow.mjs';
-
-test('nextLogChunk streams only new log bytes', () => {
-  assert.equal(nextLogChunk('hello', 0), 'hello');
-  assert.equal(nextLogChunk('hello', 3), 'lo');
-  assert.equal(nextLogChunk('hello', 5), '');
-  assert.equal(nextLogChunk('', 0), '');
-});
+import { deployFollowRequested } from '../src/deploy-follow.mjs';
 
 test('deployFollowRequested accepts follow and wait aliases', () => {
   assert.equal(deployFollowRequested({ follow: true }), true);

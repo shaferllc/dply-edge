@@ -3,7 +3,7 @@ import { stdin as input, stdout as output } from 'node:process';
 import { ApiClient } from './api.mjs';
 import { readGlobalConfig, resolveContext } from './config.mjs';
 import { requireClient } from './server-context.mjs';
-import { fetchByoSitesSafe, fetchEdgeSitesSafe, fetchProjectsSafe, fetchServersSafe, fetchServerlessSitesSafe, offerEmptyProjects, runSmartShellCommand } from './smart-shell.mjs';
+import { fetchEdgeSitesSafe, runSmartShellCommand } from './smart-shell.mjs';
 import { expandArgv } from './shortcuts.mjs';
 import { c, info, warn } from './print.mjs';
 
@@ -130,7 +130,7 @@ export async function promptMenu(rl, options) {
 
     info(`  ${c.dim(' q')}  ${c.dim('Quit menu')}`);
     info('');
-    info(c.dim('  Or type a name/shortcut (projects, refresh, me…) or any dply command'));
+    info(c.dim('  Or type a name/shortcut (sites, refresh, me…) or any dply command'));
     info('');
 
     let answer;
@@ -165,7 +165,7 @@ export async function promptMenu(rl, options) {
       continue;
     }
 
-    warn(`Enter 1–${items.length}, a shortcut like "projects", or b/q.`);
+    warn(`Enter 1–${items.length}, a shortcut like "sites", or b/q.`);
   }
 }
 
@@ -329,19 +329,11 @@ async function buildMenu(menuId, ctx) {
     case 'root':
       return await buildRootMenu(loggedIn, cfg, ctx);
     case 'account':
-      return await buildAccountMenu(ctx);
-    case 'projects':
-      return await buildProjectsMenu(ctx);
+      return buildAccountMenu(ctx);
     case 'billing':
-      return buildBillingMenu(ctx);
-    case 'servers':
-      return await buildServersMenu(ctx);
-    case 'site':
-      return await buildSiteMenu(ctx);
+      return buildBillingMenu();
     case 'edge':
       return await buildEdgeMenu(ctx);
-    case 'serverless':
-      return await buildServerlessMenu(ctx);
     default:
       return null;
   }
@@ -357,25 +349,10 @@ async function buildRootMenu(loggedIn, cfg, ctx) {
   const items = [];
 
   if (loggedIn) {
-    const projectRows = await fetchProjectsSafe();
-
-    if (projectRows.length === 0) {
-      items.push({
-        label: 'Create your first project',
-        hint: 'none yet · start here',
-        keywords: ['create', 'new', 'add'],
-        action: async () => createProjectMenu(ctx),
-      });
-    }
-
     items.push(
+      { label: 'Edge', hint: 'sites, deploy, logs', submenu: 'edge', keywords: ['sites'] },
       { label: 'Account', hint: 'profile, orgs, sessions', submenu: 'account' },
-      { label: 'Projects', hint: projectRows.length === 0 ? 'create + manage' : 'grouped servers + sites', submenu: 'projects', keywords: ['projects'] },
       { label: 'Billing', hint: 'plan, breakdown, invoices', submenu: 'billing' },
-      { label: 'Servers', hint: 'VM list, Linux system users', submenu: 'servers' },
-      { label: 'Sites (BYO)', hint: 'VM site deploys', submenu: 'site', keywords: ['site', 'bysites'] },
-      { label: 'Edge', hint: 'sites, deploy, logs', submenu: 'edge' },
-      { label: 'Serverless', hint: 'functions, errors, logs', submenu: 'serverless', keywords: ['functions', 'faas'] },
       { label: 'Command index', hint: 'full list of commands', argv: ['ls'], keywords: ['ls', 'commands'] },
       { label: 'Help', hint: 'detailed command reference', argv: ['help'], keywords: ['help', '?'] },
       {
@@ -424,42 +401,11 @@ async function buildRootMenu(loggedIn, cfg, ctx) {
 /**
  * @param {{ rl: import('node:readline/promises').Interface, run: (argv: string[]) => Promise<number | void> }} ctx
  */
-async function buildAccountMenu(ctx) {
-  const rows = await fetchProjectsSafe();
+function buildAccountMenu(ctx) {
   /** @type {MenuItem[]} */
   const items = [
     { label: 'Show profile', hint: 'user, org, token, abilities', argv: ['account', 'show'], keywords: ['profile', 'me', 'who', 'whoami', 'show'] },
     { label: 'Organizations', hint: 'orgs you belong to', argv: ['account', 'orgs'], keywords: ['orgs', 'organizations'] },
-  ];
-
-  if (rows.length === 0) {
-    items.push({
-      label: 'Create your first project',
-      hint: 'none yet · start here',
-      keywords: ['create', 'new', 'add'],
-      action: async () => createProjectMenu(ctx),
-    });
-  }
-
-  items.push(
-    {
-      label: 'Projects',
-      hint: rows.length === 0 ? 'create + manage' : `${rows.length} in org`,
-      submenu: 'projects',
-      keywords: ['projects'],
-    },
-  );
-
-  if (rows.length > 0) {
-    items.push({
-      label: 'Create project',
-      hint: 'add another',
-      keywords: ['create', 'new', 'add'],
-      action: async () => createProjectMenu(ctx),
-    });
-  }
-
-  items.push(
     { label: 'CLI sessions', hint: 'active tokens in this org', argv: ['account', 'sessions'], keywords: ['sessions', 'tokens'] },
     {
       label: 'Revoke a session',
@@ -470,221 +416,13 @@ async function buildAccountMenu(ctx) {
     { label: 'Refresh permissions', hint: 're-approve scopes in browser', argv: ['auth', 'refresh'], keywords: ['refresh', 'r', 'auth'] },
     { label: 'Sign out', hint: 'remove token from this machine', argv: ['logout'], keywords: ['logout', 'signout', 'sign-out'] },
     { label: 'Account help', argv: ['account', 'help'], keywords: ['help'] },
-  );
+  ];
 
   return {
     title: 'Account',
-    subtitle: rows.length === 0 ? 'No projects yet — create one to group servers and sites' : 'Profile, organizations, and CLI sessions',
+    subtitle: 'Profile, organizations, and CLI sessions',
     items,
   };
-}
-
-/**
- * @param {{ rl: import('node:readline/promises').Interface, run: (argv: string[]) => Promise<number | void> }} ctx
- */
-async function buildProjectsMenu(ctx) {
-  const rows = await fetchProjectsSafe();
-  /** @type {MenuItem[]} */
-  const items = [];
-
-  if (rows.length === 0) {
-    items.push({
-      label: 'Create your first project',
-      hint: 'none yet · recommended',
-      keywords: ['create', 'new', 'add'],
-      action: async () => createProjectMenu(ctx),
-    });
-    items.push({
-      label: 'Refresh permissions',
-      hint: 'need projects.read or projects.write?',
-      argv: ['auth', 'refresh'],
-      keywords: ['refresh', 'r'],
-    });
-  } else {
-    items.push({
-      label: 'List projects',
-      hint: `${rows.length} visible`,
-      argv: ['projects'],
-    });
-    items.push({
-      label: 'Show project',
-      hint: 'pick from list',
-      action: async () => runWithProject(ctx, ['project', 'show']),
-    });
-    items.push({ label: 'Project health', hint: 'pick project', action: async () => runWithProject(ctx, ['project', 'health']) });
-    items.push({ label: 'Deploy project', hint: 'queue site deploys', action: async () => runWithProject(ctx, ['project', 'deploy']) });
-    items.push({ label: 'Recent deploy runs', hint: 'pick project', action: async () => runWithProject(ctx, ['project', 'deploys']) });
-    items.push({ label: 'Create project', hint: 'prompts for name', keywords: ['create', 'new', 'add'], action: async () => createProjectMenu(ctx) });
-  }
-
-  items.push({ label: 'Project help', argv: ['project', 'help'] });
-
-  return {
-    title: 'Projects',
-    subtitle: rows.length === 0 ? 'No projects yet — create one to group servers and sites' : 'Group servers and sites · deploy together',
-    items,
-  };
-}
-
-/**
- * @param {{ rl: import('node:readline/promises').Interface, run: (argv: string[]) => Promise<number | void> }} ctx
- */
-async function buildSiteMenu(ctx) {
-  const rows = await fetchByoSitesSafe();
-  /** @type {MenuItem[]} */
-  const items = [];
-
-  if (rows.length === 0) {
-    items.push({
-      label: 'No BYO sites yet',
-      hint: 'create on a VM in the web app',
-      argv: ['site', 'list'],
-    });
-    items.push({
-      label: 'Link this repo',
-      hint: 'after creating a site',
-      argv: ['link'],
-    });
-    items.push({
-      label: 'Refresh permissions',
-      hint: 'need sites.read / sites.deploy?',
-      argv: ['auth', 'refresh'],
-      keywords: ['refresh', 'r'],
-    });
-  } else {
-    items.push({ label: 'List BYO sites', hint: `${rows.length} visible`, argv: ['site', 'list'] });
-    items.push({
-      label: 'Site status',
-      hint: 'linked or pick a site',
-      action: async () => runWithByoSite(ctx, ['site', 'status']),
-    });
-    items.push({
-      label: 'Deploy linked repo',
-      hint: 'uses .dply/site.json when linked',
-      argv: ['deploy'],
-      keywords: ['deploy'],
-    });
-    items.push({
-      label: 'Tail deploy logs',
-      hint: 'latest BYO deployment',
-      action: async () => runWithByoSite(ctx, ['site', 'logs', '--follow']),
-    });
-    items.push({
-      label: 'Deploy a site',
-      hint: 'pick from list',
-      action: async () => runWithByoSite(ctx, ['site', 'deploy']),
-    });
-    items.push({
-      label: 'Recent deployments',
-      hint: 'pick a site',
-      action: async () => runWithByoSite(ctx, ['site', 'deployments']),
-    });
-    items.push({
-      label: 'Link this repo to a site',
-      hint: 'write .dply/site.json',
-      argv: ['link'],
-    });
-  }
-
-  items.push({ label: 'Site help', argv: ['site', 'help'] });
-
-  return {
-    title: 'Sites (BYO)',
-    subtitle: rows.length === 0 ? 'Deploy apps on your VM servers' : 'List, link, and deploy BYO sites',
-    items,
-  };
-}
-
-/**
- * @param {{ rl: import('node:readline/promises').Interface, run: (argv: string[]) => Promise<number | void> }} ctx
- * @param {string[]} commandPrefix
- */
-async function runWithByoSite(ctx, commandPrefix) {
-  const siteId = await pickByoSite(ctx.rl);
-
-  if (!siteId) {
-    return;
-  }
-
-  await ctx.run([...commandPrefix, '--site', siteId]);
-}
-
-/**
- * @param {import('node:readline/promises').Interface} rl
- * @returns {Promise<string | null>}
- */
-async function pickByoSite(rl) {
-  const rows = await fetchByoSitesSafe();
-
-  if (rows.length === 0) {
-    warn('No BYO sites visible to this token.');
-
-    return null;
-  }
-
-  const choice = await promptMenu(rl, {
-    title: 'Select a BYO site',
-    items: rows.map((row) => ({
-      label: row.name,
-      hint: [row.server_name, row.status].filter(Boolean).join(' · '),
-      value: row.id,
-    })),
-  });
-
-  return choice?.value ?? null;
-}
-
-/**
- * @param {{ rl: import('node:readline/promises').Interface, run: (argv: string[]) => Promise<number | void> }} ctx
- * @param {string[]} commandPrefix
- */
-async function runWithProject(ctx, commandPrefix) {
-  const projectId = await pickProject(ctx.rl, ctx.run);
-
-  if (!projectId) {
-    return;
-  }
-
-  await ctx.run([...commandPrefix, '--project', projectId]);
-}
-
-/**
- * @param {{ rl: import('node:readline/promises').Interface, run: (argv: string[]) => Promise<number | void> }} ctx
- */
-async function createProjectMenu(ctx) {
-  const { promptCreateProjectInteractive } = await import('./project-prompts.mjs');
-
-  await promptCreateProjectInteractive({ rl: ctx.rl, run: ctx.run, skipConfirm: true });
-}
-
-/**
- * @param {import('node:readline/promises').Interface} rl
- * @param {(argv: string[]) => Promise<number | void>} [run]
- * @returns {Promise<string | null>}
- */
-async function pickProject(rl, run) {
-  const rows = await fetchProjectsSafe();
-
-  if (rows.length === 0) {
-    if (run) {
-      await offerEmptyProjects(rl, run);
-    } else {
-      warn('No projects visible to this token.');
-    }
-
-    return null;
-  }
-
-  const choice = await promptMenu(rl, {
-    title: 'Select a project',
-    items: rows.map((row) => ({
-      label: row.name,
-      hint: [row.slug, `${row.servers_count ?? 0} servers`, `${row.sites_count ?? 0} sites`].filter(Boolean).join(' · '),
-      value: row.id,
-    })),
-  });
-
-  return choice?.value ?? null;
 }
 
 /**
@@ -701,156 +439,6 @@ function buildBillingMenu(ctx) {
       { label: 'Billing help', argv: ['billing', 'help'] },
     ],
   };
-}
-
-/**
- * @param {{ rl: import('node:readline/promises').Interface, run: (argv: string[]) => Promise<number | void> }} ctx
- */
-async function buildServersMenu(ctx) {
-  const rows = await fetchServersSafe();
-  /** @type {MenuItem[]} */
-  const items = [];
-
-  if (rows.length === 0) {
-    items.push({
-      label: 'No servers yet',
-      hint: 'add a VM in the dply web app',
-      argv: ['server', 'list'],
-    });
-    items.push({
-      label: 'Refresh permissions',
-      hint: 'need servers.read?',
-      argv: ['auth', 'refresh'],
-    });
-  } else {
-    items.push({ label: 'List servers', hint: `${rows.length} visible`, argv: ['servers'] });
-    items.push({
-      label: 'Show server',
-      hint: 'pick from list',
-      action: async () => runWithServer(ctx, ['server', 'show']),
-    });
-    items.push({
-      label: 'Server health',
-      hint: 'status + insights',
-      action: async () => runWithServer(ctx, ['server', 'health']),
-    });
-    items.push({
-      label: 'Run SSH command',
-      hint: 'pick server · ad-hoc',
-      action: async () => runServerCommandMenu(ctx),
-    });
-    items.push({
-      label: 'Firewall — show rules',
-      hint: 'UFW snapshot in dply',
-      action: async () => runWithServer(ctx, ['server', 'firewall', 'show']),
-    });
-    items.push({
-      label: 'Firewall — apply bundled template',
-      hint: 'laravel_web, web_full_stack, …',
-      action: async () => runFirewallBundledMenu(ctx),
-    });
-    items.push({
-      label: 'System users — list',
-      hint: 'pick a server first',
-      action: async () => runWithServer(ctx, ['server', 'system-users', 'list']),
-    });
-    items.push({
-      label: 'System users — sync from server',
-      hint: 'refresh dply snapshot',
-      action: async () => runWithServer(ctx, ['server', 'system-users', 'sync']),
-    });
-    items.push({ label: 'System users help', argv: ['server', 'system-users', 'help'] });
-    items.push({ label: 'Firewall help', argv: ['server', 'firewall', 'help'] });
-  }
-
-  items.push({ label: 'Server help', argv: ['server', 'help'] });
-
-  return {
-    title: 'Servers',
-    subtitle: rows.length === 0 ? 'No VM servers in this org yet' : 'BYO VM servers in your organization',
-    items,
-  };
-}
-
-/**
- * @param {{ rl: import('node:readline/promises').Interface, run: (argv: string[]) => Promise<number | void> }} ctx
- */
-async function buildServerlessMenu(ctx) {
-  const rows = await fetchServerlessSitesSafe();
-  /** @type {MenuItem[]} */
-  const items = [];
-
-  if (rows.length === 0) {
-    items.push({
-      label: 'No functions visible',
-      hint: 'create one in the web app',
-      argv: ['serverless', 'list'],
-    });
-    items.push({
-      label: 'Refresh permissions',
-      hint: 'need the serverless.read scope?',
-      argv: ['auth', 'refresh'],
-    });
-  } else {
-    items.push({ label: 'List all functions', hint: `${rows.length} visible`, argv: ['serverless', 'list'] });
-    items.push({
-      label: 'Function status',
-      hint: 'limits + 24h health',
-      action: async () => runWithServerlessSite(ctx, ['serverless', 'status']),
-    });
-    items.push({
-      label: 'Failed invocations',
-      hint: 'why the function is broken',
-      keywords: ['errors', 'failures'],
-      action: async () => runWithServerlessSite(ctx, ['serverless', 'errors']),
-    });
-    items.push({
-      label: 'Recent invocations',
-      action: async () => runWithServerlessSite(ctx, ['serverless', 'invocations']),
-    });
-    items.push({
-      label: 'Application logs',
-      hint: 'last hour · --follow in shell',
-      action: async () => runWithServerlessSite(ctx, ['serverless', 'logs']),
-    });
-  }
-
-  items.push({ label: 'Serverless command help', argv: ['serverless', 'help'] });
-
-  return {
-    title: 'Serverless',
-    subtitle: rows.length === 0 ? 'No functions visible to this token' : 'Functions, failures, and logs',
-    items,
-  };
-}
-
-/**
- * @param {{ rl: import('node:readline/promises').Interface, run: (argv: string[]) => Promise<number | void> }} ctx
- * @param {string[]} commandPrefix
- */
-async function runWithServerlessSite(ctx, commandPrefix) {
-  const rows = await fetchServerlessSitesSafe();
-
-  if (rows.length === 0) {
-    warn('No functions visible to this token.');
-
-    return;
-  }
-
-  const choice = await promptMenu(ctx.rl, {
-    title: 'Select a function',
-    items: rows.map((row) => ({
-      label: row.name,
-      hint: [row.runtime, row.is_live ? 'live' : row.status].filter(Boolean).join(' \u00b7 '),
-      value: row.id,
-    })),
-  });
-
-  if (!choice?.value) {
-    return;
-  }
-
-  await ctx.run([...commandPrefix, '--site', choice.value]);
 }
 
 async function buildEdgeMenu(ctx) {
@@ -911,119 +499,6 @@ async function buildEdgeMenu(ctx) {
 
 /**
  * @param {{ rl: import('node:readline/promises').Interface, run: (argv: string[]) => Promise<number | void> }} ctx
- */
-async function runFirewallBundledMenu(ctx) {
-  const serverId = await pickServer(ctx.rl);
-
-  if (!serverId) {
-    return;
-  }
-
-  let keys = [];
-  try {
-    const client = await requireClient({});
-    const payload = (await client.get(`/servers/${encodeURIComponent(serverId)}/firewall`))?.data ?? {};
-    keys = payload.bundled_template_keys ?? [];
-  } catch (err) {
-    if (err?.status === 403) {
-      warn('Firewall unavailable — token may need network.read. Try `dply auth refresh`.');
-
-      return;
-    }
-
-    throw err;
-  }
-
-  if (keys.length === 0) {
-    warn('No bundled firewall templates available.');
-
-    return;
-  }
-
-  info('');
-  info(c.bold('Bundled firewall template'));
-  for (let i = 0; i < keys.length; i += 1) {
-    info(`  ${c.cyan(String(i + 1))}  ${keys[i]}`);
-  }
-
-  let choice;
-  try {
-    choice = (await ctx.rl.question(`${c.bold('Pick template')}› `)).trim();
-  } catch {
-    return;
-  }
-
-  const index = Number.parseInt(choice, 10);
-  const key = Number.isFinite(index) && index >= 1 && index <= keys.length ? keys[index - 1] : choice;
-
-  if (!keys.includes(key)) {
-    warn(`Unknown template "${key}".`);
-
-    return;
-  }
-
-  await ctx.run(['server', 'firewall', 'apply-bundled', key, '--server', serverId]);
-}
-
-/**
- * @param {{ rl: import('node:readline/promises').Interface, run: (argv: string[]) => Promise<number | void> }} ctx
- */
-async function runServerCommandMenu(ctx) {
-  const serverId = await pickServer(ctx.rl);
-
-  if (!serverId) {
-    return;
-  }
-
-  info('');
-  info(c.bold('Run command on server'));
-  let command;
-  try {
-    command = (await ctx.rl.question(`${c.bold('Command')}› `)).trim();
-  } catch {
-    return;
-  }
-
-  if (!command) {
-    warn('Command is required.');
-
-    return;
-  }
-
-  await ctx.run(['server', 'run', '--server', serverId, ...tokenizeMenuCommand(command)]);
-}
-
-/**
- * @param {string} line
- * @returns {string[]}
- */
-function tokenizeMenuCommand(line) {
-  const tokens = [];
-  const re = /"([^"\\]*(?:\\.[^"\\]*)*)"|'([^'\\]*(?:\\.[^'\\]*)*)'|(\S+)/g;
-  let match;
-  while ((match = re.exec(line)) !== null) {
-    tokens.push(match[1] ?? match[2] ?? match[3]);
-  }
-
-  return tokens;
-}
-
-/**
- * @param {{ rl: import('node:readline/promises').Interface, run: (argv: string[]) => Promise<number | void> }} ctx
- * @param {string[]} commandPrefix
- */
-async function runWithServer(ctx, commandPrefix) {
-  const serverId = await pickServer(ctx.rl);
-
-  if (!serverId) {
-    return;
-  }
-
-  await ctx.run([...commandPrefix, '--server', serverId]);
-}
-
-/**
- * @param {{ rl: import('node:readline/promises').Interface, run: (argv: string[]) => Promise<number | void> }} ctx
  * @param {string[]} commandPrefix
  */
 async function runWithEdgeSite(ctx, commandPrefix) {
@@ -1055,42 +530,6 @@ async function tryLinkedSite() {
   } catch {
     return null;
   }
-}
-
-/**
- * @param {import('node:readline/promises').Interface} rl
- * @returns {Promise<string | null>}
- */
-async function pickServer(rl) {
-  /** @type {Array<{ id: string, name: string, provider?: string, ip_address?: string }>} */
-  let rows;
-
-  try {
-    const client = await requireClient({});
-    const response = await client.get('/servers');
-    rows = response?.data ?? [];
-  } catch (err) {
-    warn(err?.message ?? String(err));
-
-    return null;
-  }
-
-  if (rows.length === 0) {
-    warn('No servers visible to this token.');
-
-    return null;
-  }
-
-  const choice = await promptMenu(rl, {
-    title: 'Select a server',
-    items: rows.map((row) => ({
-      label: row.name,
-      hint: [row.provider, row.ip_address ?? row.id].filter(Boolean).join(' · '),
-      value: row.id,
-    })),
-  });
-
-  return choice?.value ?? null;
 }
 
 /**

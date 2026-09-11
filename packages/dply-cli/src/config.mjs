@@ -268,7 +268,7 @@ export async function deleteGlobalConfig() {
  * parsed link plus the directory it was found in, or null when this
  * is not a linked repo.
  *
- * @returns {Promise<{ link: { siteId: string, baseUrl?: string, siteName?: string, organizationId?: string, product?: 'byo' | 'edge', serverId?: string, serverName?: string }, rootDir: string } | null>}
+ * @returns {Promise<{ link: { siteId: string, baseUrl?: string, siteName?: string, organizationId?: string, product?: string, kind?: string }, rootDir: string } | null>}
  */
 export async function readSiteLink(startDir = process.cwd()) {
   let current = resolve(startDir);
@@ -292,7 +292,7 @@ export async function readSiteLink(startDir = process.cwd()) {
 }
 
 /**
- * @param {{ siteId: string, baseUrl?: string, siteName?: string, organizationId?: string, product?: 'byo' | 'edge', serverId?: string, serverName?: string }} link
+ * @param {{ siteId: string, baseUrl?: string, siteName?: string, organizationId?: string, product?: string, kind?: string }} link
  */
 export async function writeSiteLink(link, rootDir = process.cwd()) {
   const path = join(rootDir, LOCAL_LINK_FILE);
