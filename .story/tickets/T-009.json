@@ -2,11 +2,12 @@
   "blockedBy": [],
   "completedDate": null,
   "createdDate": "2026-09-04",
-  "description": "The upgrade path still speaks in VM terms. The free-plan notice reads \"Your Free plan includes 3 Edge apps. Add a server to move up to the next plan, or contact us to raise your limit\" — but there is no VM platform to add a server to, and Server is now a vestigial owner row minted per edge site.\n\nTouches app/Enums/QuotaSurface.php, app/Models/Concerns/ManagesOrganizationQuotas.php, app/Models/Concerns/Site/ManagesEdgeHosting.php and app/Modules/Edge/Livewire/Index.php, all of which have uncommitted edits already. tests/Unit/QuotaSurfaceEdgeTest.php was added for this.\n\nFinish it against the real Edge billing model so the upgrade call to action points somewhere that exists.\n",
+  "description": "Root cause found 2026-09-11: the plan tier resolved from a BYO server count that is always 0, so every org was Free (3 Edge apps) forever, even paying ones. Fixed: quotaLimit() returns null for onAnyPaidPlan(); quota message + subscribe copy rewritten; tests/Feature/EdgeQuotaCapTest.php. Trial dropped (ruling). Remaining: server-count bill-preview stepper and tier UI on the billing page — tracked in T-014.",
+  "displayId": "T-009",
   "id": "T-009",
   "order": 10,
   "phase": "edge-polish",
-  "status": "open",
+  "status": "inprogress",
   "title": "Fix the quota and plan surface for Edge-only",
   "type": "task"
 }

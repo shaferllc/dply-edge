@@ -1,0 +1,15 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-11",
+  "id": "r-nzt5y84qabxxj9my",
+  "recordedBy": {
+    "client": "claude",
+    "id": "5074b3ad-52da-4ffb-b8a2-ffbe5b4f969f"
+  },
+  "scopeTags": [
+    "bundle",
+    "migrations"
+  ],
+  "supersedes": null,
+  "text": "Drop the organization_bundle_entitlements table (new migration after the squash) now that the bundle code is deleted. Deletes those rows on every install including production; the feature was off by default."
+}

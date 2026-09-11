@@ -1,0 +1,15 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-11",
+  "id": "r-jwbn9knms9ze21v3",
+  "recordedBy": {
+    "client": "claude",
+    "id": "5074b3ad-52da-4ffb-b8a2-ffbe5b4f969f"
+  },
+  "scopeTags": [
+    "docs",
+    "T-003"
+  ],
+  "supersedes": null,
+  "text": "Delete dead docs (git history keeps them). For mixed docs: delete OSS_EXTRACTION_SPEC, PRICING_AND_REVENUE, SELF_DEPLOY, TIER_B/C_WORKFLOW, DIFFERENTIATION_IDEAS, CREDENTIALS_OVERVIEW; rewrite BILLING_AND_PLANS now; rewrite ACCOUNT_CLI and HTTP_API with the CLI cut. ADRs are kept as decision records."
+}

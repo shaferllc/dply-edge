@@ -1,0 +1,15 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-11",
+  "id": "r-wh469x1bnsfnhj5r",
+  "recordedBy": {
+    "client": "claude",
+    "id": "5074b3ad-52da-4ffb-b8a2-ffbe5b4f969f"
+  },
+  "scopeTags": [
+    "cli",
+    "T-011"
+  ],
+  "supersedes": null,
+  "text": "CLI scope: cut to the Edge core. Keep login/auth/account/use/link/billing/notifications/update and all edge * commands; `dply deploy` = edge deploy. Delete server/serverless/project/site/errors/uptime/init. No new server-side API (no create-site endpoint)."
+}

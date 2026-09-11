@@ -65,7 +65,7 @@ unrelated WIP commit three days earlier, so the boundary was silently unchecked.
 | Module | What it owns |
 |--------|--------------|
 | **Edge** | The product. First-party Netlify-style static/SSG/SSR platform (Cloudflare R2/Workers): build + publish jobs, edge workspace UI, previews, custom domains, access rules, RUM/analytics roll-ups, and repo runtime detection (`Services/RuntimeDetection`, `Services/Manifest` — re-homed from the old Deploy module). |
-| **Billing** | Revenue engine — subscriptions, Stripe sync, Edge metering + usage cost calculators, bundled-product entitlements. |
+| **Billing** | Revenue engine — subscriptions, Stripe sync, Edge metering + usage cost calculators. |
 | **Notifications** | Notification channels + event dispatch. Also owns the **Laravel notification drivers** under `Channels/<Provider>/` (Intercom, PagerDuty, MicrosoftTeams) registered by `NotificationsServiceProvider`. |
 | **Secrets** | Secret vault — residency, escrow, age encryption. |
 | **SourceControl** | Git provider OAuth/integration (GitHub/GitLab/Bitbucket). |
@@ -86,7 +86,7 @@ unrelated WIP commit three days earlier, so the boundary was silently unchecked.
 >   site (`meta.host_kind = dply_edge_delivery`) so the workspace URLs keep the
 >   `/servers/{server}/sites/{site}/…` shape they were built on. The model is a
 >   thin record — every SSH/provisioning method left with the VM platform.
-> - **`/dashboard` is a 302 to `/edge`.** One product surface, so the edge site
+> - **`/dashboard` is a 302 to `/apps`** (route `edge.index`). One product surface, so the edge site
 >   list *is* the dashboard. The route name survives so `route('dashboard')`
 >   call sites still resolve.
 > - **Insights was deleted, not retargeted.** Every runner in it SSH'd into a
@@ -94,13 +94,29 @@ unrelated WIP commit three days earlier, so the boundary was silently unchecked.
 >   `SiteUptimeMonitor` URL checks.
 > - **The MCP surface kept only `ListSites` / `GetSite` / `ListServers`** — the
 >   env-push, deploy, database and log-shipping tools were all VM-shaped.
-> - **Migrations were kept, not deleted.** They still create the removed
->   products' tables on a fresh DB. Dropping them is a data decision (existing
->   installs), so it was left out; the three data migrations that rewrote rows
->   through now-deleted models are no-ops with a comment saying why.
-> - **`app/Actions/*` (the generic Actions framework, ~330 files) is untouched
->   and unreferenced by the app.** It is dead weight, but it is not VM code —
->   deleting it is a separate call.
+> - **Migrations are squashed (2026-09-11).** `database/schema/pgsql-schema.sql`
+>   is the baseline; the old 197 migration files were pruned. Two migrations
+>   follow the dump: `2026_09_11_000000_drop_removed_product_tables` (61 tables
+>   no live code referenced, `DROP … CASCADE`) and
+>   `2026_09_11_000001_drop_organization_bundle_entitlements_table`. Existing
+>   installs run both on their next `migrate` — **irreversible; back up
+>   production first.** Rebuild the dump with `schema:dump` against
+>   `dply_edge_testing` using a pg_dump matching the server (16).
+> - **`app/Actions` holds five plain classes and nothing else** —
+>   `Auth/EnsureLocalDevAdminUser`, `Auth/UnlinkSocialAccount`,
+>   `Organizations/EnsureUserHasWorkspaceOrganization`,
+>   `Organizations/DeleteOrganizationAction`, `DeployContract/WaiveDeployContractRun`.
+>   The generic Actions framework (~375 files) was deleted 2026-09-11; Login,
+>   Register, Security, SourceControl and org settings use the five survivors.
+> - **Billing is per live site plus metered usage.** No plan tiers: an org with
+>   no subscription gets three Edge sites without a card, and any paid
+>   subscription lifts the cap (`ManagesOrganizationQuotas::quotaLimit`). The
+>   14-day trial and the bundled products (Tracely/Lookout) were removed.
+> - **The CLI (`packages/dply-cli`) and API-token catalog are Edge-only.** Token
+>   abilities live in `config/product/api_token_permissions.php`; the deployer
+>   allowlist must cover `cli.device_flow_role_caps.deployer` (a test guards it).
+> - **Owner decisions are recorded as storybloq rulings** (`.story/`). Check
+>   them before reopening a settled question.
 
 ## Where do I put / find X?
 
@@ -113,7 +129,8 @@ unrelated WIP commit three days earlier, so the boundary was silently unchecked.
   ServiceProvider (`$this->commands([...])` guarded by `runningInConsole()`).
 - **A hub model** (Site/Server/Organization/User/SiteBinding) → stays in
   `app/Models` (kernel). A leaf model used ~only by one module *may* move into it
-  (some still pending — see the ADR).
+  under the ADR rule (≥90% of its references inside that module) — none
+  qualified in the 2026-09-11 inventory, because the shell UI references them.
 - **A Livewire alias** for a moved full-page/embedded component → register it in the
   module ServiceProvider's `boot()` (`Livewire::component('alias', Class::class)`).
   Guard tests in `tests/Feature/LivewireAliasGuardTest.php` enforce resolution.
@@ -134,21 +151,22 @@ bare `artisan test` runs exactly those two.
 
 ```
 composer test:unit / test:feature      # one suite
-composer test:app                      # app/Actions/**/tests  — NOT green yet
 composer test:arch                     # tests/Arch — Pest arch rules (~45s)
-composer test:all                      # all four
+composer test:all                      # all three
 composer test:parallel / test:coverage / test:profile
 ```
 
-The `Modules` suite is gone with the Edge cut — every module-local test file
-was TaskRunner's. `App` still covers the Actions framework's own tests, which
-went uncollected for a long time and rotted (see the comment in `phpunit.xml`);
-it is registered so it can be run and paid down, but stays out of the default
-run until green.
+The `Modules` suite went with the Edge cut (every module-local test file was
+TaskRunner's) and the `App` suite with the Actions framework.
 
-**The suite has not been run since the cut.** 761 test files that referenced
-removed classes were deleted (1068 → 305); the survivors compile but are
-unverified.
+**The suite is green as of 2026-09-11** (~1140 tests, 5–7 min). `composer test`
+disables Composer's 300s process timeout for that reason — without it the run
+is killed midway and looks like a failure.
+
+**Tests use their own database, `dply_edge_testing`** (phpunit.xml, and the
+`TestCase` guard refuses anything else). It used to share `dply_testing` with
+the sibling `dply/` and `dply-serverless/` apps, so each project's
+`RefreshDatabase` wiped the other's schema.
 
 ### Fast local runs (Pest TIA)
 
@@ -176,9 +194,9 @@ must keep running the suite in full.
 
 ### Measuring coverage
 
-The last measured number (**43.5%** of statements, 2026-08-16) predates the
-Edge cut and is meaningless now — two thirds of both `app/` and `tests/` are
-gone. Re-measure before quoting a figure.
+Last measured **41.6%** of statements (18,417 / 44,232) on 2026-09-11, after the
+Edge-only cleanup, with `composer test:coverage:clover`. The older 43.5% figure
+predates the cut and is not comparable.
 
 ```
 composer test:coverage:clover   # ~7min, writes coverage.xml (gitignored)

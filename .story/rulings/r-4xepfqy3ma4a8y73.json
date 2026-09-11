@@ -1,0 +1,15 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-11",
+  "id": "r-4xepfqy3ma4a8y73",
+  "recordedBy": {
+    "client": "claude",
+    "id": "5074b3ad-52da-4ffb-b8a2-ffbe5b4f969f"
+  },
+  "scopeTags": [
+    "models",
+    "T-008"
+  ],
+  "supersedes": null,
+  "text": "T-008: move the qualifying leaf models into their modules (per the modular-monolith ADR rule), updating every caller, verified by the suite. Hub models (Site, Server, Organization, User, SiteBinding) stay in app/Models; EdgeDeployment gets its own pass, not a bulk move."
+}

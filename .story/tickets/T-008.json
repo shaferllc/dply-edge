@@ -2,14 +2,14 @@
   "blockedBy": [
     "T-004"
   ],
-  "completedDate": null,
+  "completedDate": "2026-09-11",
   "createdDate": "2026-09-04",
-  "description": "72 models sit in the app/Models kernel; the modular-monolith ADR says some belong inside the module that owns them.\n\nScope by the ADR's own rule rather than by count: a model qualifies when it is used almost entirely by one module and by fewer than a handful of consumers overall. Hub models — Site, Server, Organization, User, SiteBinding — stay in the kernel permanently. EdgeDeployment is central rather than a leaf and needs its own pass, not a bulk move.\n\nNote that tests/Unit/ModuleBoundaryTest.php does not validate model placement. It only rejects Module-to-presentation-shell dependencies, so it will not catch a bad move here.\n",
+  "description": "Closed 2026-09-11 — no model qualifies. Inventory (token refs in app/, routes/, views, factories, seeders; tests excluded) against the ADR rule (>=90% of refs inside one module, <5 other modules): best candidates are ExternalSecretStore 84% Secrets, OrganizationBillingSnapshot 79% Billing, BillingSubscriptionSyncEvent 77% Billing, EdgeAccessLog 77% Edge, EdgeSiteAccessRule 76% Edge, OrgSecretKey 76% Secrets; ~60 others are mostly/entirely shell/kernel. They miss because the workspace UI lives in the shell by design. Owner chose to close rather than lower the bar. Re-run the inventory before reopening.",
   "displayId": "T-008",
   "id": "T-008",
   "order": 30,
   "phase": "dead-weight",
-  "status": "open",
+  "status": "complete",
   "title": "Move qualifying leaf models into their modules",
   "type": "task"
 }

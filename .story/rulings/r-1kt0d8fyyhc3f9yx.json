@@ -1,0 +1,15 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-11",
+  "id": "r-1kt0d8fyyhc3f9yx",
+  "recordedBy": {
+    "client": "claude",
+    "id": "5074b3ad-52da-4ffb-b8a2-ffbe5b4f969f"
+  },
+  "scopeTags": [
+    "models",
+    "T-008"
+  ],
+  "supersedes": null,
+  "text": "T-008 closed: under the ADR model-move rule (>=90% refs in one module, <5 other modules) no leaf model qualifies — the shell UI references them by design. Do not lower the bar; models stay in app/Models. Supersedes r-4xepfqy3ma4a8y73 (\"move the qualifying models\"), which assumed some would qualify."
+}

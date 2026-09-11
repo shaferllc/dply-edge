@@ -1,0 +1,13 @@
+{
+  "blockedBy": [],
+  "completedDate": "2026-09-11",
+  "createdDate": "2026-09-11",
+  "description": "Done 2026-09-11. Billing engine, Stripe sync/provisioning, billing page and analytics are Edge-only (static/hybrid, SSR, usage, Enterprise); server stepper/plan catalog/Servers tile removed; dead tier/price config removed; Lookout billing (model, observer, config) deleted. Follow-ups from the agent's report: retired Stripe prices are stripped on sync via subscription.standard.stripe.retired (ruling); SSR-only subs count as paid and SSR yearly counts as yearly (ruling) — tests/Feature/Billing/RetiredAndSsrPricesTest.php. Left: Stripe Enterprise product description still says \"per-server fees\" (changing it edits the live Stripe product on next provision); Server::isManagedVm unused.",
+  "displayId": "T-014",
+  "id": "T-014",
+  "order": 30,
+  "phase": "edge-polish",
+  "status": "complete",
+  "title": "Strip removed products from billing UI, nav and subscription config",
+  "type": "task"
+}

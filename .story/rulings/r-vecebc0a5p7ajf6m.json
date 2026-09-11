@@ -1,0 +1,16 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-11",
+  "id": "r-vecebc0a5p7ajf6m",
+  "recordedBy": {
+    "client": "claude",
+    "id": "5074b3ad-52da-4ffb-b8a2-ffbe5b4f969f"
+  },
+  "scopeTags": [
+    "billing",
+    "stripe",
+    "ssr"
+  ],
+  "supersedes": null,
+  "text": "Fix both Edge SSR billing bugs with tests: SSR-only subscriptions count as paid (add edge_ssr/edge_ssr_yearly to the paid-price list), and SSR yearly prices count for yearly-interval detection."
+}

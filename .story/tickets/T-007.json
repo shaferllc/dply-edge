@@ -1,12 +1,13 @@
 {
   "blockedBy": [],
-  "completedDate": null,
+  "completedDate": "2026-09-11",
   "createdDate": "2026-09-04",
-  "description": "197 migrations remain, and they still create the removed products' tables on a fresh database. They were kept deliberately at the cut because dropping them affects existing installs, so this is a data decision rather than a cleanup.\n\nThree data migrations that rewrote rows through now-deleted models are already no-ops with a comment explaining why.\n\nDecide: squash to a post-cut baseline, delete the dead ones and accept that existing installs keep orphan tables, or keep them and document the choice. Whichever way it goes, record it so the next session does not reopen the question.\n",
+  "description": "Done 2026-09-11 (ruling r-p0s3g6yfxr7v1mnf): drop + squash. 61 dead tables dropped by 2026_09_11_000000_drop_removed_product_tables (CASCADE; removes 4 FKs, leaves the columns). schema:dump --prune regenerated database/schema/pgsql-schema.sql (188 tables, 0 dead) and removed the 197 old migration files; the drop migration was restored so existing installs still run it. sqlite-schema.sql removed (no sqlite connection). Full suite green on the new dump (1178 passed). BACK UP PRODUCTION BEFORE DEPLOYING.",
+  "displayId": "T-007",
   "id": "T-007",
   "order": 20,
   "phase": "dead-weight",
-  "status": "open",
+  "status": "complete",
   "title": "Decide the retained removed-product migrations",
   "type": "task"
 }

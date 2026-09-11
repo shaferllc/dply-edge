@@ -1,0 +1,15 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-11",
+  "id": "r-hh3gm2pwn6ddq8pd",
+  "recordedBy": {
+    "client": "claude",
+    "id": "5074b3ad-52da-4ffb-b8a2-ffbe5b4f969f"
+  },
+  "scopeTags": [
+    "bundle",
+    "billing"
+  ],
+  "supersedes": null,
+  "text": "Delete the bundled products feature (free Tracely + Lookout workspaces: listener, jobs, SSO, entitlements API, LookoutBundleProvisioner, config). It is off by default and its qualifying plan (Business-yearly) no longer exists. planTierLabel's 'Trial' becomes 'Free' since no external contract reads it. The app's own lookout/tracing debug tooling is NOT part of this and stays."
+}

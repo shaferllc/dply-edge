@@ -1,0 +1,13 @@
+{
+  "blockedBy": [],
+  "completedDate": "2026-09-11",
+  "createdDate": "2026-09-11",
+  "description": "Done 2026-09-11. RepositoryWebhookProvisioner cut to disable(); Site::deployHookUrl removed; Server::isManagedProductHost/usesManagedHosting and their dead server-count branches removed by the T-014 billing cleanup.",
+  "displayId": "T-013",
+  "id": "T-013",
+  "order": 60,
+  "phase": "cut-cleanup",
+  "status": "complete",
+  "title": "Remove dead VM branches: deployHookUrl + isManagedProductHost",
+  "type": "chore"
+}

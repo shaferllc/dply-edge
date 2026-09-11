@@ -1,0 +1,13 @@
+{
+  "blockedBy": [],
+  "completedDate": "2026-09-11",
+  "createdDate": "2026-09-11",
+  "description": "Done 2026-09-11. composer remove dply/log-parser, dply/nginx-config, shaferllc/dply-php-lambda (bref/bref went with it); path + vcs repositories dropped from composer.json; lock refreshed; packages/log-parser, packages/nginx-config and resources/serverless (dead DO Functions handler) git rm'd. packages/realtime-worker KEPT: app/Support/EchoClientConfig.php points production broadcasting (Echo/Pusher protocol, live log tail) at it. lookout/tracing kept: the app's own debug/tracing (LookoutDebugPageServiceProvider, DebugReference) uses it.",
+  "displayId": "T-012",
+  "id": "T-012",
+  "order": 50,
+  "phase": "cut-cleanup",
+  "status": "complete",
+  "title": "Drop dead composer packages (log-parser, nginx-config) and realtime-worker",
+  "type": "chore"
+}
