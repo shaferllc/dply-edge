@@ -23,7 +23,7 @@ test('empty state when no edge sites', function () {
     $this->actingAs($user)
         ->get(route('edge.index'))
         ->assertOk()
-        ->assertSee('Edge sites')
+        ->assertSee('Apps')
         ->assertSee('Launch your first Edge site')
         ->assertSee('What Edge gives you')
         ->assertSee('Deploy an edge app')

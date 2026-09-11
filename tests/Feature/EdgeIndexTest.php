@@ -47,7 +47,7 @@ test('authenticated user sees edge sites index when surface edge active', functi
     $this->actingAs($user)
         ->get(route('edge.index'))
         ->assertOk()
-        ->assertSee('Edge sites')
+        ->assertSee('Apps')
         ->assertSee('Launch your first Edge site');
 });
 
@@ -74,7 +74,7 @@ test('redesigned index renders richer edge site metadata', function () {
     $this->actingAs($user)
         ->get(route('edge.index'))
         ->assertOk()
-        ->assertSee('Edge sites')
+        ->assertSee('Apps')
         ->assertSee('Hybrid')
         ->assertSee('Nextjs')
         ->assertSee('edge-portal.on-dply.site');

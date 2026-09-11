@@ -46,6 +46,10 @@ test('save preview protection persists password mode and republishes host map', 
 });
 
 test('preview access route redirects signed in user to worker complete url', function () {
+    // The token embeds a second-resolution `exp`; the test and the controller
+    // each issue one, so an unfrozen clock crossing a second makes them differ.
+    $this->freezeTime();
+
     [$user, , $site] = makeEdgePreviewProtectionSite();
 
     $rule = EdgeSiteAccessRule::query()->create([
