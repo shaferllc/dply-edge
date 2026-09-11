@@ -259,22 +259,7 @@ class Server extends Model
         return false;
     }
 
-    public function isServerlessHost(): bool
-    {
-        return false;
-    }
-
-    public function isDplyCloudHost(): bool
-    {
-        return false;
-    }
-
     public function isWorkerHost(): bool
-    {
-        return false;
-    }
-
-    public function isManagedVm(): bool
     {
         return false;
     }

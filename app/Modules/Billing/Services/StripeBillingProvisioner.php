@@ -127,7 +127,7 @@ class StripeBillingProvisioner
 
         $enterpriseProduct = $this->upsertProduct(
             name: 'dply Enterprise',
-            description: 'dply for larger fleets and procurement-led rollouts. Includes everything in Standard, plus volume pricing on per-server fees, SSO, audit log access, a custom MSA, dedicated support, and rollout planning. Pricing is negotiated per deal.',
+            description: 'dply Edge for larger teams and procurement-led rollouts. Includes everything in Standard, plus volume pricing on per-site fees, SSO, audit log access, a custom MSA, dedicated support, and rollout planning. Pricing is negotiated per deal.',
             role: self::ROLE_ENTERPRISE_PRODUCT,
         );
         $result[self::ROLE_ENTERPRISE_PRODUCT] = $enterpriseProduct->id;
