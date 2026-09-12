@@ -212,7 +212,7 @@ trait BuildsCommandPaletteGroups
         if ($org === null) {
             return [];
         }
-        $items = $this->maybeIndexLink($query, 'all sites index', __('All sites'), __('Open the sites index'), 'edge.index', 'globe-alt');
+        $items = $this->maybeIndexLink($query, 'all applications index', __('All applications'), __('Open the applications index'), 'edge.index', 'globe-alt');
 
         $serverIds = $org->serverIds();
         foreach (

@@ -18,7 +18,7 @@
             <div class="mt-4 flex flex-wrap items-center justify-center gap-2 text-sm">
                 <span class="text-brand-moss">{{ __('Quick links:') }}</span>
                 <a href="{{ route('edge.index') }}" class="text-brand-ink underline decoration-brand-ink/30 underline-offset-2 hover:text-brand-forest">
-                    {{ __('Apps') }}
+                    {{ __('Applications') }}
                 </a>
                 <span class="text-brand-moss/50">|</span>
                 <a href="{{ route('status-pages.index') }}" class="text-brand-ink underline decoration-brand-ink/30 underline-offset-2 hover:text-brand-forest">

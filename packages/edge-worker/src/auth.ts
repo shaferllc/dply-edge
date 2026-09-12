@@ -189,7 +189,7 @@ function escapeHtml(value: string): string {
 }
 
 function buildAccountLoginUrl(gate: AccessGateConfig, hostname: string): string {
-  const base = gate.account_login_url ?? `${gate.app_url ?? ''}/edge/sites/${gate.site_id}/preview-access`;
+  const base = gate.account_login_url ?? `${gate.app_url ?? ''}/applications/sites/${gate.site_id}/preview-access`;
   const url = new URL(base);
   url.searchParams.set('hostname', hostname);
   url.searchParams.set('return', `https://${hostname}/`);

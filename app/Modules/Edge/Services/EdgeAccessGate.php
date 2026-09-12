@@ -119,7 +119,7 @@ final class EdgeAccessGate
                 $payload['allowed_emails'] = $emails;
             }
             if ($appUrl !== '') {
-                $payload['account_login_url'] = $appUrl.'/edge/sites/'.$parent->id.'/preview-access';
+                $payload['account_login_url'] = $appUrl.'/applications/sites/'.$parent->id.'/preview-access';
             }
         }
 

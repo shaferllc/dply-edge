@@ -40,12 +40,12 @@ trait ResolvesCommandPaletteItems
     {
         return [
             'create' => [
-                ['New edge app', 'create edge worker site', 'edge.create', 'globe-alt', [], 'surface.edge'],
+                ['New application', 'create edge worker site application', 'edge.create', 'globe-alt', [], 'surface.edge'],
                 ['New organization', 'create organization team', 'organizations.create', 'building-office-2'],
             ],
             'go' => [
                 ['Dashboard', 'home overview', 'dashboard', 'squares-2x2'],
-                ['Edge', 'workers cdn edge sites apps', 'edge.index', 'globe-alt', [], 'surface.edge'],
+                ['Applications', 'workers cdn edge sites apps applications', 'edge.index', 'globe-alt', [], 'surface.edge'],
                 ['Status pages', 'status incident uptime', 'status-pages.index', 'document-text', [], 'surface.status_pages'],
                 ['Notifications', 'inbox alerts', 'notifications.index', 'bell'],
             ],

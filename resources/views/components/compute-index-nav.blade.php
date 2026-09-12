@@ -2,14 +2,14 @@
     $items = [
         // Projects is deliberately absent: this row is labelled Compute and
         // Projects is a grouping container, not compute. It keeps its header
-        // entry point under Apps. Don't re-add it here without renaming the
+        // entry point under Applications. Don't re-add it here without renaming the
         // row. Cross-product ops views live under /infrastructure.
         // Backups moved to the Services row — it is a managed capability,
         // not compute (docs/adr/managed-services-tier.md, decision 1).
         // These carry a `feature` key because their routes stay registered
         // while the surface is parked — only the feature middleware rejects
         // — so Route::has() alone would keep linking them into a 400.
-        ['route' => 'edge.index', 'match' => 'edge.*', 'label' => __('Apps'), 'icon' => 'bolt', 'feature' => 'surface.edge'],
+        ['route' => 'edge.index', 'match' => 'edge.*', 'label' => __('Applications'), 'icon' => 'bolt', 'feature' => 'surface.edge'],
         ['route' => 'serverless.index', 'match' => 'serverless.*', 'label' => __('Serverless'), 'icon' => 'cpu-chip', 'feature' => 'surface.serverless'],
     ];
 @endphp

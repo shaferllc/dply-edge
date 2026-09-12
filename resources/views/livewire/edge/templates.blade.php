@@ -1,7 +1,7 @@
 <div class="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
     <x-breadcrumb-trail :items="[
         ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
-        ['label' => __('Apps'), 'href' => route('edge.index'), 'icon' => 'globe-alt'],
+        ['label' => __('Applications'), 'href' => route('edge.index'), 'icon' => 'globe-alt'],
         ['label' => __('Templates'), 'icon' => 'sparkles'],
     ]" />
 
@@ -14,7 +14,7 @@
         <x-slot:actions>
             <x-outline-link href="{{ route('edge.index') }}" wire:navigate size="sm">
                 <x-heroicon-o-arrow-left class="h-4 w-4 shrink-0 opacity-90" aria-hidden="true" />
-                {{ __('Back to Edge sites') }}
+                {{ __('Back to applications') }}
             </x-outline-link>
             <x-outline-link href="{{ route('edge.import') }}" wire:navigate size="sm">
                 <x-heroicon-o-arrow-down-tray class="h-4 w-4 shrink-0 opacity-90" aria-hidden="true" />

@@ -182,16 +182,19 @@ Route::livewire('invitations/accept/{token}', InvitationsAccept::class)
     ->name('invitations.accept');
 
 Route::middleware(['auth', 'verified', 'org'])->group(function () {
-    // dply-edge has one product surface — the edge site list is the dashboard.
+    // dply-edge has one product surface — the applications list is the dashboard.
     // Kept as a named route so every route('dashboard') call site still resolves.
-    Route::redirect('/dashboard', '/apps')->name('dashboard');
+    // /applications (not /apps): Reverb/Pusher owns /app and /apps/ on the
+    // public vhost, so that prefix never reaches Laravel.
+    Route::redirect('/dashboard', '/applications')->name('dashboard');
     // OAuth-style device-flow approval page for the dply CLI. The CLI
     // prints a short code; user lands here (deep link or paste),
     // confirms scopes + org, and we mint an ApiToken that the polling
     // CLI picks up exactly once via /api/v1/auth/device/poll.
     Route::livewire('/auth/device', AuthDeviceApproval::class)->name('auth.device.show');
-    Route::get('/apps/sites/{site}/preview-access', EdgePreviewAccessController::class)
+    Route::get('/applications/sites/{site}/preview-access', EdgePreviewAccessController::class)
         ->name('edge.preview-access');
+    Route::permanentRedirect('/apps/sites/{site}/preview-access', '/applications/sites/{site}/preview-access');
 
     Route::prefix('admin')
         ->middleware('can:viewPlatformAdmin')
@@ -273,21 +276,23 @@ Route::middleware(['auth', 'verified', 'org'])->group(function () {
     Route::livewire('organizations/{organization}/secrets', OrganizationsSecrets::class)->name('organizations.secrets');
 
     Route::middleware('feature:surface.edge')->group(function (): void {
-        Route::livewire('apps', EdgeIndex::class)->name('edge.index');
-        Route::livewire('apps/create', EdgeCreate::class)->name('edge.create');
-        Route::livewire('apps/import', Import::class)->name('edge.import');
-        Route::livewire('apps/templates', Templates::class)->name('edge.templates');
-        Route::livewire('apps/usage', Usage::class)->name('edge.usage');
+        Route::livewire('applications', EdgeIndex::class)->name('edge.index');
+        Route::livewire('applications/create', EdgeCreate::class)->name('edge.create');
+        Route::livewire('applications/import', Import::class)->name('edge.import');
+        Route::livewire('applications/templates', Templates::class)->name('edge.templates');
+        Route::livewire('applications/usage', Usage::class)->name('edge.usage');
 
         /*
-         * Legacy /edge/* URLs. The section was renamed to "Apps" — /edge named
-         * where the code runs (Cloudflare's edge) rather than what the user has.
-         * Route NAMES stay edge.* on purpose: they are internal, match the Edge
-         * module, and renaming 41 call sites buys nothing a user can see.
-         * Permanent so bookmarks and any external links move over for good.
+         * Legacy /edge/* and /apps/* URLs. The section is "Applications" —
+         * /edge named where the code runs; /apps collided with Reverb's
+         * Pusher HTTP prefix. Route NAMES stay edge.* on purpose: they are
+         * internal, match the Edge module, and renaming call sites buys
+         * nothing a user can see. Permanent so bookmarks move over.
          */
-        Route::permanentRedirect('edge', 'apps');
-        Route::permanentRedirect('edge/{path}', 'apps/{path}')->where('path', '.*');
+        Route::permanentRedirect('/edge', '/applications');
+        Route::permanentRedirect('/edge/{path}', '/applications/{path}')->where('path', '.*');
+        Route::permanentRedirect('/apps', '/applications');
+        Route::permanentRedirect('/apps/{path}', '/applications/{path}')->where('path', '.*');
     });
 
     Route::middleware('feature:surface.status_pages')->group(function (): void {

@@ -52,7 +52,7 @@
                 <a href="{{ route('edge.index') }}" wire:navigate
                     class="-ms-1 mb-3 inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs font-medium text-brand-moss transition-colors hover:bg-brand-sand/50 hover:text-brand-ink">
                     <x-heroicon-o-arrow-left class="h-4 w-4 shrink-0" aria-hidden="true" />
-                    {{ __('Back to Edge sites') }}
+                    {{ __('Back to applications') }}
                 </a>
             @endfeature
             <div class="flex items-start gap-3">
@@ -323,7 +323,7 @@
                     class="flex items-center gap-2 text-xs font-medium text-brand-moss hover:text-brand-ink"
                 >
                     <x-heroicon-o-arrow-left class="h-4 w-4 shrink-0" />
-                    {{ __('Back to Edge sites') }}
+                    {{ __('Back to applications') }}
                 </a>
             @endif
         </div>

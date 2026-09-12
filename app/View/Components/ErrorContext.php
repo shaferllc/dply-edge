@@ -45,14 +45,14 @@ class ErrorContext
             if ($server && $this->canViewServer($server)) {
                 $context['server'] = $server;
                 $context['suggestions'][] = [
-                    'label' => 'Edge sites',
+                    'label' => 'Applications',
                     'url' => route('edge.index'),
                     'primary' => true,
                 ];
             } elseif ($server) {
                 // Server exists but user can't view it
                 $context['suggestions'][] = [
-                    'label' => 'Edge sites',
+                    'label' => 'Applications',
                     'url' => route('edge.index'),
                 ];
             }
@@ -77,7 +77,7 @@ class ErrorContext
             } elseif ($site) {
                 // Site exists but user can't view it
                 $context['suggestions'][] = [
-                    'label' => 'Edge sites',
+                    'label' => 'Applications',
                     'url' => route('edge.index'),
                 ];
             }
@@ -137,7 +137,7 @@ class ErrorContext
                 'primary' => true,
             ];
             $suggestions[] = [
-                'label' => 'Edge sites',
+                'label' => 'Applications',
                 'url' => route('edge.index'),
             ];
         } else {
