@@ -136,24 +136,11 @@ class Organization extends Model
 
     protected static function booted(): void
     {
-        static::creating(function (Organization $organization): void {
-            // 14-day no-card trial — committed pricing model. Skip if explicitly
-            // set by the caller (factories, imports, fixtures) so they keep control.
-            if (data_get($organization->getAttributes(), 'trial_ends_at') === null) {
-                $days = (int) config('subscription.standard.trial_days', 14);
-                $organization->trial_ends_at = now()->addDays($days);
-            }
-        });
-
         static::created(function (Organization $organization): void {
             $organization->createDefaultTeamIfMissing();
         });
     }
 
-    /**
-     * Per-request memo for {@see owesNothingThisCycle}.
-     */
-    private ?bool $owesNothingMemo = null;
 
     /** @return BelongsToMany<User, $this> */
     public function users(): BelongsToMany
@@ -211,12 +198,6 @@ class Organization extends Model
         return $this->hasOne(OrgSecretKey::class);
     }
 
-
-    /** @return HasMany<LookoutProject, $this> */
-    public function lookoutProjects(): HasMany
-    {
-        return $this->hasMany(LookoutProject::class);
-    }
 
 
     /** @return HasMany<OrganizationBillingSnapshot, $this> */

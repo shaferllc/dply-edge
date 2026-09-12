@@ -38,19 +38,11 @@ arch('no debug or shell-escape functions ship')
         'dd', 'dump', 'var_dump', 'ray', 'print_r',
         'shell_exec', 'passthru', 'system', 'proc_open', 'popen', 'eval',
     ])
-    ->not->toBeUsed()
-    ->ignoring([
-        // Opt-in debug decorator; its dump() calls are guarded by function_exists().
-        'App\Actions\Decorators\DebuggableDecorator',
-    ]);
+    ->not->toBeUsed();
 
 arch('enums are enums')
     ->expect('App\Enums')
     ->toBeEnums();
-
-arch('action concerns are traits')
-    ->expect('App\Actions\Concerns')
-    ->toBeTraits();
 
 arch('livewire concerns are traits')
     ->expect('App\Livewire\Concerns')

@@ -17,8 +17,8 @@ if ((getenv('APP_ENV') ?: $_ENV['APP_ENV'] ?? null) === 'testing') {
 | Laravel's parallel testing only rewrites the *default* connection's database
 | name (Illuminate\Testing\Concerns\TestDatabases::switchToDatabase). The
 | `dply_queue` connection defaults to DB_DATABASE (config/database.php), so
-| every worker kept pointing at the shared `dply_testing` while its primary
-| connection moved to `dply_testing_test_<token>`. Each worker's migrate:fresh
+| every worker kept pointing at the shared `dply_edge_testing` while its primary
+| connection moved to `dply_edge_testing_test_<token>`. Each worker's migrate:fresh
 | then re-ran the queue migrations against that one shared database and the
 | second worker to arrive died on:
 |
@@ -33,7 +33,7 @@ if ((getenv('APP_ENV') ?: $_ENV['APP_ENV'] ?? null) === 'testing') {
 $parallelToken = getenv('TEST_TOKEN') ?: ($_ENV['TEST_TOKEN'] ?? null);
 
 if ($parallelToken && ! (getenv('DPLY_QUEUE_DB_DATABASE') ?: $_ENV['DPLY_QUEUE_DB_DATABASE'] ?? null)) {
-    $primaryDatabase = (string) (getenv('DB_DATABASE') ?: $_ENV['DB_DATABASE'] ?? 'dply_testing');
+    $primaryDatabase = (string) (getenv('DB_DATABASE') ?: $_ENV['DB_DATABASE'] ?? 'dply_edge_testing');
     $queueDatabase = $primaryDatabase.'_test_'.$parallelToken;
 
     putenv('DPLY_QUEUE_DB_DATABASE='.$queueDatabase);

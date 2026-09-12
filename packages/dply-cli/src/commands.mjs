@@ -130,13 +130,9 @@ async function loginWithToken({ baseUrl, token, enterShell = true }) {
   const probe = new ApiClient({ baseUrl, token });
 
   try {
-    await probe.get('/servers');
-  } catch {
-    try {
-      await probe.get('/edge/sites');
-    } catch (err) {
-      throw fail(`Token verification failed: ${err.message}`, err.status ?? 1);
-    }
+    await probe.get('/edge/sites');
+  } catch (err) {
+    throw fail(`Token verification failed: ${err.message}`, err.status ?? 1);
   }
 
   await writeGlobalConfig({ token, baseUrl });
@@ -335,38 +331,18 @@ async function finalizeLogin({ baseUrl, enterShell = true }) {
  */
 async function printLoginSummary(baseUrl, token) {
   const client = new ApiClient({ baseUrl, token });
-  const hints = [];
 
   info('');
 
   try {
-    const servers = (await client.get('/servers'))?.data ?? [];
-    info(`${c.bold(String(servers.length))} server(s) visible`);
-    if (servers.length > 0) {
-      hints.push('server list');
-      hints.push('server system-users list --server <id>');
-    }
-  } catch {
-    // token may not include servers.read
-  }
-
-  try {
     const sites = (await client.get('/edge/sites'))?.data ?? [];
-    if (sites.length > 0) {
-      info(`${c.bold(String(sites.length))} edge site(s) visible`);
-      hints.push('sites', 'edge deploy');
-    }
+    info(`${c.bold(String(sites.length))} edge site(s) visible`);
   } catch {
     // token may not include edge.read
   }
 
-  if (hints.length > 0) {
-    info('');
-    info(c.dim(`Try: ${hints.slice(0, 3).join(' · ')} · account show`));
-  } else {
-    info('');
-    info(c.dim('Try: account show · account sessions · server list'));
-  }
+  info('');
+  info(c.dim('Try: sites · link · deploy · account show'));
 }
 
 export async function shell() {
@@ -415,115 +391,39 @@ export async function logout() {
 }
 
 /**
- * `dply link [--byo|--edge] <site-id>` — write .dply/site.json so future
- * commands (including bare `dply deploy`) default to that site.
+ * `dply link [<site-id>]` — write .dply/site.json so future commands
+ * (including bare `dply deploy`) default to that Edge site.
  */
-export async function link(args, flags) {
+export async function link(args, _flags) {
   const ctx = await resolveContext();
   const api = new ApiClient(ctx);
-  const productFlag = flags.byo === true ? 'byo' : flags.edge === true ? 'edge' : null;
+  const { interactiveLinkSite, writeLinkRecord } = await import('./link-interactive.mjs');
 
   if (args.length === 0) {
-    const { interactiveLinkSite } = await import('./link-interactive.mjs');
-    const handled = await interactiveLinkSite(api, ctx, productFlag);
-
-    if (handled) {
+    if (await interactiveLinkSite(api, ctx)) {
       return 0;
     }
 
-    const [byoSites, edgeSites] = await Promise.all([
-      productFlag === 'edge' ? Promise.resolve([]) : api.get('/sites').then((r) => r?.data ?? []).catch(() => []),
-      productFlag === 'byo' ? Promise.resolve([]) : api.get('/edge/sites').then((r) => r?.data ?? []).catch(() => []),
-    ]);
-
-    info(c.bold('BYO VM sites'));
-    if (byoSites.length === 0) {
-      info(c.dim('  (none visible)'));
-    } else {
-      printTable(['id', 'name', 'server', 'status'], byoSites.map((s) => ({
-        id: s.id,
-        name: s.name,
-        server: s.server_name ?? s.server_id,
-        status: s.status,
-      })));
-    }
-
-    info('');
-    info(c.bold('Edge sites'));
-    if (edgeSites.length === 0) {
-      info(c.dim('  (none visible)'));
-    } else {
-      printTable(['id', 'name', 'hostname', 'status'], edgeSites.map((s) => ({
-        id: s.id,
-        name: s.name,
-        hostname: s.hostname,
-        status: s.status,
-      })));
-    }
-
-    info('');
-    info(c.dim('Link: `dply link --byo <id>` · `dply link --edge <id>` · then bare `dply deploy --follow`'));
-
-    return 0;
+    return sites([], {});
   }
 
-  const siteId = args[0];
-  let product = productFlag;
-
-  if (!product) {
-    product = await detectSiteProduct(api, siteId);
-  }
-
-  const { writeLinkRecord } = await import('./link-interactive.mjs');
-
-  if (product === 'byo') {
-    const rows = (await api.get('/sites'))?.data ?? [];
-    const site = rows.find((row) => row.id === siteId);
-
-    if (!site) {
-      throw fail(`BYO site ${siteId} not found. Run \`dply link\` to list sites.`, 2);
+  try {
+    const response = await api.get(`/edge/sites/${encodeURIComponent(args[0])}`);
+    await writeLinkRecord(ctx, response.data);
+  } catch (err) {
+    if (err?.status === 404) {
+      throw fail(`Edge site ${args[0]} not found. Run \`dply link\` to list sites.`, 2);
     }
 
-    await writeLinkRecord(ctx, 'byo', site);
-
-    return 0;
+    throw err;
   }
-
-  const response = await api.get(`/edge/sites/${encodeURIComponent(siteId)}`);
-  await writeLinkRecord(ctx, 'edge', response.data);
 
   return 0;
 }
 
 /**
- * @param {ApiClient} api
- * @param {string} siteId
- * @returns {Promise<'byo' | 'edge'>}
- */
-async function detectSiteProduct(api, siteId) {
-  const byoRows = (await api.get('/sites'))?.data ?? [];
-  if (byoRows.some((row) => row.id === siteId)) {
-    return 'byo';
-  }
-
-  try {
-    await api.get(`/edge/sites/${encodeURIComponent(siteId)}`);
-
-    return 'edge';
-  } catch (err) {
-    if (err?.status === 404) {
-      throw fail(`Site ${siteId} not found. Run \`dply link\` to list BYO and Edge sites.`, 2);
-    }
-
-    throw err;
-  }
-}
-
-/**
- * `dply sites [needle] [--kind vm|edge|serverless]`
- *
- * Every site the token can see, of every kind — one table, because the platform
- * has one Site model. `--kind` narrows it; a positional filters by name.
+ * `dply sites [needle]` — the Edge sites this token can see; a positional
+ * filters by name.
  *
  * @param {string[]} [args]
  * @param {Record<string, unknown>} [flags]
@@ -533,7 +433,7 @@ export async function sites(args = [], flags = {}) {
   const api = new ApiClient(ctx);
   const { fetchAllSites, matchSites } = await import('./site-index.mjs');
 
-  let rows = await fetchAllSites(api, { kind: flags.kind });
+  let rows = await fetchAllSites(api);
   const needle = args[0];
 
   if (needle) {
@@ -548,41 +448,26 @@ export async function sites(args = [], flags = {}) {
 
   if (rows.length === 0) {
     warn(needle ? `No site matched "${needle}".` : 'No sites visible to this token.');
-    info(c.dim('Missing permissions? Try `dply auth refresh`. Filter with --kind vm|cloud|edge|serverless.'));
+    info(c.dim('Missing permissions? Try `dply auth refresh`.'));
 
     return 0;
   }
 
   printTable(
-    ['kind', 'name', 'status', 'url', 'where'],
+    ['id', 'name', 'status', 'url', 'runtime'],
     rows.map((row) => ({
-      kind: kindCell(row.kind),
+      id: row.id,
       name: row.name,
       status: row.status,
       url: truncateCell(row.url, 44),
-      where: row.hint || '—',
+      runtime: row.hint || '—',
     })),
   );
 
   info('');
-  info(c.dim('Errors: `dply sites:errors <name>` (any kind) · deploy: `dply site:deploy <name>` · filter: --kind vm|cloud|edge|serverless'));
+  info(c.dim('Link one: `dply link <id>` · per-site: `dply edge status --site <id>`'));
 
   return 0;
-}
-
-/**
- * @param {'vm'|'cloud'|'edge'|'serverless'} kind
- */
-function kindCell(kind) {
-  if (kind === 'edge') {
-    return c.magenta('edge');
-  }
-
-  if (kind === 'serverless') {
-    return c.yellow('serverless');
-  }
-
-  return kind === 'cloud' ? c.green('cloud') : c.cyan('vm');
 }
 
 /**

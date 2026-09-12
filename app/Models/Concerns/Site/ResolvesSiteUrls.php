@@ -225,11 +225,6 @@ trait ResolvesSiteUrls
         };
     }
 
-    public function deployHookUrl(): string
-    {
-        return route('hooks.site.deploy', ['site' => $this->id]);
-    }
-
 
 
     /**

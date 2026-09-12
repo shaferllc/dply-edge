@@ -1,0 +1,16 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-11",
+  "id": "r-f6dq42jw0h1r0h87",
+  "recordedBy": {
+    "client": "claude",
+    "id": "5074b3ad-52da-4ffb-b8a2-ffbe5b4f969f"
+  },
+  "scopeTags": [
+    "actions",
+    "T-006",
+    "ISS-001"
+  ],
+  "supersedes": null,
+  "text": "app/Actions: keep the 5 plain classes the app uses (Auth/EnsureLocalDevAdminUser, Organizations/EnsureUserHasWorkspaceOrganization, DeployContract/WaiveDeployContractRun, Organizations/DeleteOrganizationAction, Auth/UnlinkSocialAccount) at their current paths; delete the rest of the Actions framework (~374 files, unreferenced, provider never registered), the ExecuteDebouncedAction job, phpunit.xml's App suite, composer test:app, and ArchTest rules for it. Fix CLAUDE.md (ISS-001)."
+}

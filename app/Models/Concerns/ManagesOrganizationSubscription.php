@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Models\Concerns;
 
-use App\Modules\Billing\Services\OrganizationBillingStateComputer;
 use App\Modules\Billing\Services\SubscriptionPlanResolver;
 use Laravel\Cashier\Billable;
 
@@ -16,28 +15,15 @@ use Laravel\Cashier\Billable;
 trait ManagesOrganizationSubscription
 {
     /**
-     * The flat plan the org is currently on, resolved from its billable BYO
-     * server count — the same basis the bill uses. Carries the plan's site
-     * ceiling (`max_sites`).
+     * The plan record the org's quota ceilings are read from. dply-edge has no
+     * paid plan tiers, so this is always the Free allowance — paying orgs are
+     * uncapped upstream ({@see ManagesOrganizationQuotas::quotaLimit()}).
      *
-     * @return array{key: string, label: string, price_cents: int, max_servers: ?int, max_sites: ?int}
+     * @return array{key: string, label: string, price_cents: int, max_sites: ?int, max_edge_apps: ?int, max_functions: ?int}
      */
     public function currentSubscriptionPlan(): array
     {
-        return app(SubscriptionPlanResolver::class)
-            ->resolveForServerCount($this->billablePlanServerCount());
-    }
-
-    /**
-     * Billable BYO server count used to pick the plan. Delegates to
-     * {@see OrganizationBillingStateComputer::billableByoServerCount()} so the
-     * ready-server SELECT (and metric eager-load) is shared with bill compute
-     * / analytics in the same request.
-     */
-    private function billablePlanServerCount(): int
-    {
-        return app(OrganizationBillingStateComputer::class)
-            ->billableByoServerCount($this);
+        return app(SubscriptionPlanResolver::class)->resolveByKey('free');
     }
 
     public function planTierLabel(): string
@@ -49,7 +35,7 @@ trait ManagesOrganizationSubscription
             return 'Standard';
         }
 
-        return 'Trial';
+        return 'Free';
     }
 
     /**
@@ -63,10 +49,9 @@ trait ManagesOrganizationSubscription
 
     /**
      * True when the org has an active dply Standard subscription — i.e. it
-     * carries any price dply owns under the plan model: a flat plan price
-     * (Starter/Pro/Business, monthly or yearly) or any a-la-carte managed
-     * product / Edge-usage price. A Free-plan org with no managed products has
-     * no Stripe subscription at all and returns false here.
+     * carries an Edge site price (static/hybrid or SSR, monthly or yearly) or
+     * the Edge usage price. A free org with no live Edge sites has no Stripe
+     * subscription at all and returns false here.
      */
     public function onStandardSubscription(): bool
     {
@@ -74,8 +59,8 @@ trait ManagesOrganizationSubscription
     }
 
     /**
-     * Every Stripe price ID dply owns under the Standard plan model, across
-     * both billing intervals.
+     * The Edge Stripe price IDs that mark a Standard subscription, across both
+     * billing intervals.
      *
      * @return list<?string>
      */
@@ -83,19 +68,15 @@ trait ManagesOrganizationSubscription
     {
         $stripe = (array) config('subscription.standard.stripe', []);
 
-        $ids = array_merge(
-            array_values((array) ($stripe['plans'] ?? [])),
-            array_values((array) ($stripe['plans_yearly'] ?? [])),
-            [
-                $stripe['serverless'] ?? null,
-                $stripe['serverless_yearly'] ?? null,
-                $stripe['cloud'] ?? null,
-                $stripe['cloud_yearly'] ?? null,
-                $stripe['edge'] ?? null,
-                $stripe['edge_yearly'] ?? null,
-                $stripe['edge_usage'] ?? null,
-            ],
-        );
+        $ids = [
+            $stripe['edge'] ?? null,
+            $stripe['edge_yearly'] ?? null,
+            // An SSR-only subscription is paying too — without these it was
+            // never synced and stayed capped at the free allowance.
+            $stripe['edge_ssr'] ?? null,
+            $stripe['edge_ssr_yearly'] ?? null,
+            $stripe['edge_usage'] ?? null,
+        ];
 
         return array_map(
             static fn ($id): ?string => is_string($id) ? $id : null,
@@ -111,42 +92,6 @@ trait ManagesOrganizationSubscription
         return $this->subscriptionMatchesAnyPrice([
             config('subscription.enterprise.stripe_price_id'),
         ]);
-    }
-
-    /**
-     * The single source of truth for the bundled-products perk (free tracely +
-     * Lookout): the org is on the most expensive plan, committed for a year.
-     *
-     * "Most expensive, for a year" resolves to a valid subscription carrying the
-     * BUSINESS yearly plan price OR the (sales-led, annual) Enterprise price.
-     * Business-*monthly* deliberately does not qualify — the annual commitment is
-     * what funds giving two products away. Because {@see subscriptionMatchesAnyPrice}
-     * gates on `subscription('default')->valid()`, this is only ever true for an
-     * active/paid subscription — a trialing/past-due/cancelled org returns false.
-     *
-     * Every consumer (the OIDC entitlement claim, the provisioning emitter, the
-     * nightly reconcile) reads THIS method so the perk can never drift between
-     * surfaces. See docs/adr/bundled-products-sso.md.
-     */
-    public function qualifiesForBundledProducts(): bool
-    {
-        return $this->subscriptionMatchesAnyPrice($this->bundleQualifyingStripePriceIds());
-    }
-
-    /**
-     * The Stripe prices that grant the bundle: business-yearly and Enterprise.
-     *
-     * @return list<?string>
-     */
-    private function bundleQualifyingStripePriceIds(): array
-    {
-        $stripe = (array) config('subscription.standard.stripe', []);
-        $businessYearly = ((array) ($stripe['plans_yearly'] ?? []))['business'] ?? null;
-
-        return [
-            is_string($businessYearly) ? $businessYearly : null,
-            config('subscription.enterprise.stripe_price_id'),
-        ];
     }
 
     /**

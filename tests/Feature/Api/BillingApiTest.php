@@ -43,7 +43,7 @@ test('billing show returns plan summary for org admins', function (): void {
                 'summary',
                 'plan' => ['key', 'label', 'price_cents'],
                 'monthly_total_cents',
-                'counts' => ['servers', 'serverless', 'cloud', 'edge'],
+                'counts' => ['edge'],
                 'subscription',
             ],
         ]);

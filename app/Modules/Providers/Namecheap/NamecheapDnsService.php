@@ -54,7 +54,7 @@ class NamecheapDnsService
 
     public static function fromCredential(ProviderCredential $credential): self
     {
-        $creds = is_array($credential->credentials) ? $credential->credentials : [];
+        $creds = $credential->credentials;
 
         return new self(
             apiUser: trim((string) ($creds['api_user'] ?? '')),
@@ -202,7 +202,7 @@ class NamecheapDnsService
         $params = $this->splitZone($zoneName);
         $params['EmailType'] = $emailType !== '' ? $emailType : 'FWD';
 
-        foreach (array_values($hosts) as $index => $host) {
+        foreach ($hosts as $index => $host) {
             $n = $index + 1;
             $params['HostName'.$n] = $host['name'] !== '' ? $host['name'] : '@';
             $params['RecordType'.$n] = $host['type'];

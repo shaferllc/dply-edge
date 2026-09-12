@@ -1,0 +1,15 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-11",
+  "id": "r-0fy2kh6p9kt0jnmg",
+  "recordedBy": {
+    "client": "claude",
+    "id": "5074b3ad-52da-4ffb-b8a2-ffbe5b4f969f"
+  },
+  "scopeTags": [
+    "api-tokens",
+    "T-015"
+  ],
+  "supersedes": null,
+  "text": "API token abilities: Edge-only catalog. Pickers offer Edge, Edge env vars, Notifications, Billing, Account, plus sites.read/servers.read for the surviving MCP tools. Deployer allowlist gets edge.read/deploy/env.read. Dead route-ability keys and unused presets removed; existing tokens keep working (dead abilities are no-ops)."
+}

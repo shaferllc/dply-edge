@@ -19,7 +19,7 @@ parameters:
     excludePaths:
         - app/*/Tests/*
         - app/**/Tests/*
-        # Same intent, lowercase dir name: app/Actions/{Concerns,Decorators,Attributes}/tests
+        # Same intent, lowercase dir name.
         - app/*/tests/*
         - app/**/tests/*
 
@@ -35,22 +35,10 @@ parameters:
         # under app/Modules/, and because they were marked `(?)` (optional) they
         # silently stopped matching — which is why a full run aborted with
         # "Result is incomplete" and reported 0 errors.
-        #
-        # Optional Action concerns — opt-in markers, not composed into AsAction.
-        - app/Actions/Concerns/AsABTestable.php
-        - app/Actions/Concerns/AsFeatureFlagged.php
-        - app/Actions/Concerns/WithAttributes.php
 
         # Edge action facade — workspace sections compose the leaf traits
         # directly; nothing uses this bundle today.
         - app/Livewire/Concerns/ManagesEdgeSite.php
-
-        # Demo/example scripts that extend base classes which don't exist in the
-        # codebase (BaseTask, EnhancedTask, Dply\Tasks\BaseTask) — non-runnable
-        # samples. Paths corrected for the modular-monolith move: these used to
-        # read app/TaskRunner/*, which stopped matching anything.
-        - app/Modules/TaskRunner/Examples/*
-        - app/Modules/TaskRunner/config/*
 
     # phpstan-baseline.neon is empty and must stay that way: the whole codebase
     # is clean at level 5, so a new violation fails `composer analyse` instead of

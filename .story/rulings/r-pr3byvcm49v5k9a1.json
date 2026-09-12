@@ -1,0 +1,16 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-11",
+  "id": "r-pr3byvcm49v5k9a1",
+  "recordedBy": {
+    "client": "claude",
+    "id": "5074b3ad-52da-4ffb-b8a2-ffbe5b4f969f"
+  },
+  "scopeTags": [
+    "billing",
+    "T-009",
+    "T-014"
+  ],
+  "supersedes": null,
+  "text": "Billing model: keep per-site pricing (per-site platform fee + metered usage, as on the public pricing page). Orgs with no subscription get 3 Edge sites without a card; any paid subscription removes the cap. No plan tiers. (Initially picked \"tiers you choose\", reversed after the conflict with the live pricing page was surfaced.)"
+}

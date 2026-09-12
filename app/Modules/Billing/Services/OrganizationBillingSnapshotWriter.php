@@ -28,19 +28,7 @@ final class OrganizationBillingSnapshotWriter
                 'monthly_total_cents' => $state->monthlyTotalCents,
                 'category_breakdown' => $this->categoryBreakdown($state),
                 'fleet_counts' => [
-                    'servers' => $state->serverCount(),
-                    'serverless' => $state->serverlessCount,
-                    'cloud' => $state->cloudCount,
                     'edge' => $state->edgeCount,
-                    'realtime' => $state->realtimeCount,
-                    'queue' => $state->queueCount,
-                    // Not a count: the identities behind it. dply Queue derives
-                    // billability from the site a namespace serves rather than
-                    // stamping it, so this is the only record of WHICH
-                    // namespaces we charged for in a cycle — both the audit
-                    // trail and the thing the flip notifier diffs against.
-                    // See docs/adr/managed-services-tier.md, decisions 5 and 7.
-                    'queue_billable_namespace_ids' => $state->queueBillableNamespaceIds,
                 ],
                 'edge_usage_cents' => $state->edgeUsageSubtotalCents,
                 'subscription_interval' => $this->subscriptionInterval($organization),
@@ -55,15 +43,8 @@ final class OrganizationBillingSnapshotWriter
     {
         return [
             'plan_cents' => $state->planPriceCents,
-            'serverless_cents' => $state->serverlessSubtotalCents,
-            'serverless_usage_cents' => $state->serverlessUsageSubtotalCents,
-            'managed_server_cents' => $state->managedServerSubtotalCents,
-            'cloud_cents' => $state->cloudSubtotalCents,
-            'cloud_resource_cents' => $state->cloudResourceSubtotalCents,
             'edge_cents' => $state->edgeSubtotalCents,
             'edge_usage_cents' => $state->edgeUsageSubtotalCents,
-            'realtime_cents' => $state->realtimeSubtotalCents,
-            'queue_cents' => $state->queueSubtotalCents,
         ];
     }
 
@@ -74,26 +55,6 @@ final class OrganizationBillingSnapshotWriter
             return null;
         }
 
-        // Any yearly plan or managed-product price means the subscription is
-        // billed annually. Mirrors BillingAnalytics::subscriptionInterval.
-        $yearlyIds = array_merge(
-            array_values((array) config('subscription.standard.stripe.plans_yearly', [])),
-            array_values((array) config('subscription.standard.stripe.realtime_tiers_yearly', [])),
-            [
-                (string) (config('subscription.standard.stripe.serverless_yearly') ?? ''),
-                (string) (config('subscription.standard.stripe.cloud_yearly') ?? ''),
-                (string) (config('subscription.standard.stripe.edge_yearly') ?? ''),
-                (string) (config('subscription.standard.stripe.realtime_yearly') ?? ''),
-            ],
-        );
-
-        foreach ($yearlyIds as $priceId) {
-            $priceId = (string) $priceId;
-            if ($priceId !== '' && $subscription->hasPrice($priceId)) {
-                return 'year';
-            }
-        }
-
-        return 'month';
+        return SubscriptionPlanResolver::isYearly($subscription) ? 'year' : 'month';
     }
 }

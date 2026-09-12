@@ -113,4 +113,4 @@ elevate; otherwise `dply:runtime:check` keeps failing until the one-shot above.
 - Provider disk snapshots on a schedule
 - Nightly `pg_dump` to off-box object storage
 
-See also: [BYO local setup](BYO_LOCAL_SETUP.md) for single-machine queue/Horizon dev.
+See also: [Edge local development](edge-local-development.md) for single-machine dev.

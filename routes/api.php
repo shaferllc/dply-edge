@@ -2,7 +2,6 @@
 
 use App\Http\Controllers\Api\AccountApiController;
 use App\Http\Controllers\Api\Auth\DeviceAuthorizationController;
-use App\Http\Controllers\Api\BundleEntitlementsController;
 use App\Http\Controllers\Api\CapabilitiesApiController;
 use App\Http\Controllers\Api\NotificationApiController;
 use App\Modules\Billing\Http\Controllers\Api\BillingApiController;
@@ -29,13 +28,6 @@ Route::prefix('v1')->group(function (): void {
         ->middleware(['throttle:30,1']);
     Route::post('/auth/device/poll', [DeviceAuthorizationController::class, 'poll'])
         ->middleware(['throttle:60,1']);
-
-    // Bundled-products entitlement pull (reconcile backstop) — service-token auth,
-    // called by tracely/Lookout. Dark until BUNDLE_ENTITLEMENTS_API_TOKEN is set.
-    Route::middleware('bundle.service')->group(function (): void {
-        Route::get('/orgs/{organization}/entitlements', [BundleEntitlementsController::class, 'show'])
-            ->middleware('throttle:120,1');
-    });
 
     $apiAbilities = config('api_token_permissions.http_route_abilities', []);
 

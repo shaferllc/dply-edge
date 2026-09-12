@@ -7,7 +7,6 @@ use App\Http\Middleware\EnsureApiTokenAbility;
 use App\Http\Middleware\RedirectGuestsToComingSoon;
 use App\Http\Middleware\SetCurrentOrganization;
 use App\Http\Middleware\StampDebugReference;
-use App\Http\Middleware\ValidateBundleServiceToken;
 use App\Modules\Edge\Http\Middleware\ResolveEdgeCustomDomain;
 use App\Support\Debug\DebugExceptionDetail;
 use App\Support\DplyRuntime;
@@ -53,7 +52,6 @@ return Application::configure(basePath: dirname(__DIR__))
             'org' => SetCurrentOrganization::class,
             'auth.api' => AuthenticateApiToken::class,
             'ability' => EnsureApiTokenAbility::class,
-            'bundle.service' => ValidateBundleServiceToken::class,
             'feature' => EnsureFeaturesAreActive::class,
         ]);
         // Machine/external callback paths come from the single canonical list

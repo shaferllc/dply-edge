@@ -12,224 +12,57 @@ return [
     |   STRIPE_SECRET=sk_...
     |   STRIPE_WEBHOOK_SECRET=whsec_...
     |
-    | Pricing — the committed model in project_pricing_model memo:
-    |   $15/mo organization base + per-server tier fee. No coupon — tier prices
-    |   are the only adjustment beyond the base. Stripe Checkout requires every
-    |   line item to share a billing interval, so each tier has both a monthly
-    |   and a yearly price; the yearly variant is 20% off the monthly × 12.
+    | Pricing — dply-edge sells one product (docs/BILLING_AND_PLANS.md): a flat
+    | fee per live production Edge site plus metered Edge delivery usage. No
+    | plan tiers. Stripe Checkout requires every line item to share a billing
+    | interval, so each per-site price has a monthly and a yearly variant; the
+    | yearly variant is `annual_discount_pct` off the monthly × 12.
     |
-    |   STRIPE_PRICE_STANDARD_SERVERLESS=price_...         (flat per-function fee, monthly)
-    |   STRIPE_PRICE_STANDARD_SERVERLESS_YEARLY=price_...  (flat per-function fee, yearly)
-    |   STRIPE_PRICE_STANDARD_CLOUD=price_...              (flat dply Cloud platform fee, monthly)
-    |   STRIPE_PRICE_STANDARD_CLOUD_YEARLY=price_...
-    |   STRIPE_PRICE_STANDARD_CLOUD_USAGE=price_...         (metered Cloud resources, per-cent unit)
     |   STRIPE_PRICE_STANDARD_EDGE=price_...               (flat per static/hybrid Edge site, monthly)
     |   STRIPE_PRICE_STANDARD_EDGE_YEARLY=price_...
     |   STRIPE_PRICE_STANDARD_EDGE_SSR=price_...           (Worker-native SSR Edge site, monthly)
     |   STRIPE_PRICE_STANDARD_EDGE_SSR_YEARLY=price_...
+    |   STRIPE_PRICE_STANDARD_EDGE_USAGE=price_...         (metered Edge delivery, per-cent unit)
     |
     |   STRIPE_PRICE_ENTERPRISE=price_...              (manual Stripe sub for sales-led deals)
     */
 
     'standard' => [
-        // Flat plans metered by BYO server COUNT (not size). Customers pay
-        // their own provider for server size; dply's fee scales with how many
-        // servers it manages. Mirrors the proven Ploi/Forge/RunCloud model and
-        // sits inside the $8–39 market cluster. Managed products (serverless,
-        // Cloud, Edge) bill a la carte per unit on top of any plan — including
-        // Free — because they run on dply-owned infra. See
-        // docs/PRICING_AND_REVENUE.md.
         'annual_discount_pct' => 20,
-        'trial_days' => (int) env('SUBSCRIPTION_TRIAL_DAYS', 14),
-        'soft_pause_days' => (int) env('SUBSCRIPTION_SOFT_PAUSE_DAYS', 30),
-        // Servers younger than this are excluded from the count. Absorbs the
+        // Edge sites younger than this are excluded from the bill. Absorbs the
         // "spin up + test + kill in five minutes" case so customers aren't
-        // nickel-and-dimed for transient infrastructure.
+        // nickel-and-dimed for transient sites.
         'min_billable_age_days' => (int) env('SUBSCRIPTION_MIN_BILLABLE_AGE_DAYS', 1),
-        // Ordered cheapest → most expensive. `max_servers` is the inclusive
-        // server-count ceiling for the plan; null means unlimited. The resolver
-        // picks the cheapest plan whose ceiling covers the org's server count.
-        //
-        // The four `max_*` app ceilings are PER SURFACE and independent — see
-        // App\Enums\QuotaSurface. Each is the inclusive ceiling on how many of
-        // that thing an org on this plan may run (null = unlimited), enforced as
-        // a hard block at creation. The plan tier itself is still chosen by
-        // server count alone.
-        //
-        //   max_sites       sites on real machines (VM + Docker/Kubernetes)
-        //   max_cloud_apps  dply Cloud container apps
-        //   max_edge_apps   dply Edge static/SSG/hybrid sites
-        //   max_functions   serverless functions
-        //
-        // These were ONE shared ceiling until 2026-08-18, which meant a Free org
-        // with two Edge sites and a function was locked out of its first VM site
-        // ("3 / 1" on an empty server). The managed surfaces are billed a la
-        // carte per app anyway (edge_cents / cloud_cents / serverless_cents), so
-        // their ceilings are abuse bounds rather than revenue levers and are set
-        // generously. Every value here is >= the old shared ceiling, so the split
-        // cannot newly block an org that was previously within its limit.
+        // No paid plan tiers. The one record is `free`: its per-surface
+        // ceilings (App\Enums\QuotaSurface) are the "no card to start"
+        // allowance — `max_edge_apps` is the three free Edge sites. Any paid
+        // subscription lifts the cap (ManagesOrganizationQuotas::quotaLimit()).
         'plans' => [
             'free' => ['label' => 'Free', 'price_cents' => 0, 'max_servers' => 1, 'max_sites' => 1, 'max_cloud_apps' => 1, 'max_edge_apps' => 3, 'max_functions' => 3],
-            'starter' => ['label' => 'Starter', 'price_cents' => 900, 'max_servers' => 3, 'max_sites' => 10, 'max_cloud_apps' => 10, 'max_edge_apps' => 25, 'max_functions' => 25],
-            'pro' => ['label' => 'Pro', 'price_cents' => 1900, 'max_servers' => 10, 'max_sites' => 30, 'max_cloud_apps' => 30, 'max_edge_apps' => 100, 'max_functions' => 100],
-            'business' => ['label' => 'Business', 'price_cents' => 3900, 'max_servers' => null, 'max_sites' => null, 'max_cloud_apps' => null, 'max_edge_apps' => null, 'max_functions' => null],
         ],
-        // Flat per-function fee for serverless (FaaS) targets. A serverless
-        // function has no vCPU/RAM, so it isn't spec-tiered — it's its own
-        // billable unit. See project_serverless_v1 memo. For BYO functions
-        // (customer's own provider account) this is the entire dply charge; for
-        // dply-managed functions it's the platform fee and metered usage +
-        // managed DB/cache resources are billed on top (see dply.serverless).
-        'serverless_cents' => 200,
-        // Metered managed-serverless usage + resources billed in 1-cent Stripe
-        // units (quantity = cents), like Edge/Cloud usage. Monthly only.
-        'serverless_usage_unit_cents' => 1,
-        // Markup applied to raw DO managed database/cache list prices when a
-        // dply-managed function provisions them on dply's own account (dply pays
-        // DO, so it must bill back with margin — same idea as cloud_markup_percent).
-        'serverless_markup_percent' => (int) env('SUBSCRIPTION_SERVERLESS_MARKUP_PERCENT', 40),
-
-        /*
-        |----------------------------------------------------------------------
-        | dply-managed servers — all-in cost-plus (replaces the tier fee)
-        |----------------------------------------------------------------------
-        |
-        | Managed VMs run on dply-owned Hetzner infrastructure (dply pays
-        | Hetzner), so they're billed provider-cost × markup as a single all-in
-        | monthly price and do NOT count toward the per-server plan tier. Raw
-        | values are approximate Hetzner monthly list prices in cents (USD,
-        | verified 2026-05) keyed by the same server_type slug offered in
-        | config/managed_servers.php. Billed via a metered Stripe line
-        | (quantity = cents), like Cloud/Edge usage.
-        */
-        'managed_server_markup_percent' => (int) env('SUBSCRIPTION_MANAGED_SERVER_MARKUP_PERCENT', 60),
-        'managed_server_cents' => [
-            // Hetzner server_type slugs (raw monthly provider cost, cents).
-            'cx22' => 450,
-            'cx32' => 740,
-            'cx42' => 1790,
-            'cx52' => 3330,
-            // Vultr plan slugs (raw monthly provider cost, cents). Same
-            // managed_server_markup_percent applies, keyed by slug.
-            'vc2-1c-2gb' => 1000,
-            'vc2-2c-4gb' => 2000,
-            'vc2-4c-8gb' => 4000,
-            'vc2-6c-16gb' => 8000,
-        ],
-        // Metered managed-server cost is billed in 1-cent Stripe units (quantity = cents).
-        'managed_server_usage_unit_cents' => 1,
         // Closed-beta envelope. An org with organizations.beta_joined_at set is a
-        // beta participant: the platform fee is waived, trial/soft-pause is
-        // suppressed, and these caps replace the plan ceilings until the global
-        // cutover. `byo_servers` is generous-but-bounded (a leaked invite can't
-        // provision hundreds of boxes on a stolen cloud key via dply);
-        // `managed_servers` is the single free CX22 grant; the four app caps are
-        // roomy and mirror the per-surface plan ceilings (see `plans` above).
-        // `cutover_at` is the global beta end date (Y-m-d or full datetime, null
-        // = no end set yet). At cutover beta orgs fall to the normal trial and
-        // the free CX22's comped_until expires. `managed_size` pins the free box.
+        // beta participant: the platform fee is waived and these caps replace
+        // the free allowance until the global cutover. `cutover_at` is the
+        // global beta end date (Y-m-d or full datetime, null = no end set yet);
+        // at cutover beta orgs fall to the free allowance.
         'beta' => [
-            'byo_servers' => (int) env('SUBSCRIPTION_BETA_BYO_SERVERS', 5),
-            'managed_servers' => (int) env('SUBSCRIPTION_BETA_MANAGED_SERVERS', 1),
             'sites' => (int) env('SUBSCRIPTION_BETA_SITES', 25),
             'cloud_apps' => (int) env('SUBSCRIPTION_BETA_CLOUD_APPS', 10),
             'edge_apps' => (int) env('SUBSCRIPTION_BETA_EDGE_APPS', 25),
             'functions' => (int) env('SUBSCRIPTION_BETA_FUNCTIONS', 25),
-            'managed_size' => env('SUBSCRIPTION_BETA_MANAGED_SIZE', 'cx22'),
             'cutover_at' => env('SUBSCRIPTION_BETA_CUTOVER_AT'),
             'invite_expiry_days' => (int) env('SUBSCRIPTION_BETA_INVITE_EXPIRY_DAYS', 30),
         ],
-        // dply Cloud **platform fee** per live app — covers builds, deploys,
-        // scaling, TLS, dashboards, and orchestration. This is NOT the whole
-        // bill: Cloud apps run on dply-owned DigitalOcean infra (containers,
-        // managed databases, buckets), so the metered provider resources below
-        // are billed *on top* of this fee. A flat $5 alone loses money the
-        // moment an app attaches a database (DO Postgres is $15+/mo). See the
-        // managed-product billing investigation memo.
-        'cloud_cents' => 500,
         // Flat per-site fee for first-party dply Edge (static/SSG + hybrid).
         // Edge static is genuinely flat-eligible: Cloudflare Workers Paid is
         // $5/mo per *account* (amortized across the whole fleet) and R2/Pages
         // egress is free, so the marginal cost of another static site is ~$0.
-        // Hybrid stays on this fee — the Cloud origin bills separately.
         'edge_cents' => 200,
         // Worker-native SSR Edge sites (dispatch namespace / Workers for
-        // Platforms). Higher platform fee than static/hybrid; hybrid remains
-        // on edge_cents because Cloud already covers the origin compute.
+        // Platforms). Higher platform fee than static/hybrid.
         'edge_ssr_cents' => 700,
         // Edge delivery usage is billed in 1-cent Stripe units (quantity = cents).
         'edge_usage_unit_cents' => 1,
-        // LEGACY fallback only. Managed Realtime now bills per connection-tier;
-        // prices live in config('realtime.tiers') and are charged via the
-        // per-tier Stripe prices below. This flat value is retained for callers
-        // not yet migrated and for any subscription still on the old flat line.
-        'realtime_cents' => (int) env('SUBSCRIPTION_REALTIME_CENTS', 900),
-
-        /*
-        |----------------------------------------------------------------------
-        | dply Cloud — metered provider resources (cost-plus)
-        |----------------------------------------------------------------------
-        |
-        | Cloud apps run on dply-owned DigitalOcean infrastructure, so dply pays
-        | DO for every container, worker, and managed database and must bill it
-        | back with margin. Raw values below are DO list prices (cents/month,
-        | verified 2026-05); `cloud_markup_percent` is applied on top to produce
-        | the customer rate. Billed alongside the flat `cloud_cents` platform fee
-        | via a metered Stripe line (quantity = cents, like Edge usage).
-        |
-        | Container/worker tiers map to App Platform instance_size_slugs
-        | (see DigitalOceanAppPlatformBackend / CloudWorker::SIZE_TIERS):
-        |   small=basic-xxs $5, medium=basic-xs $10, large=basic-s $20,
-        |   xlarge=basic-m $40, *-pro=apps-d-* dedicated ($29 → $78).
-        | Database tiers map to DO Managed DB sizes (CloudDatabase::SIZE_TIERS):
-        |   small=db-s-1vcpu-1gb $15, medium=db-s-1vcpu-2gb $30,
-        |   large=db-s-2vcpu-4gb $60.
-        | Buckets map to a DO Spaces subscription ($5 / 250 GiB).
-        */
-        'cloud_markup_percent' => (int) env('SUBSCRIPTION_CLOUD_MARKUP_PERCENT', 40),
-        // Raw DO container cost (cents/mo) per portable size tier, per instance.
-        'cloud_container_cents' => [
-            'small' => 500,
-            'medium' => 1000,
-            'large' => 2000,
-            'xlarge' => 4000,
-            'small-pro' => 2900,
-            'medium-pro' => 3400,
-            'large-pro' => 3900,
-            'xlarge-pro' => 7800,
-        ],
-        // Raw DO managed-database cost (cents/mo) per portable size tier.
-        'cloud_database_cents' => [
-            'small' => 1500,
-            'medium' => 3000,
-            'large' => 6000,
-        ],
-        // Raw DO Spaces cost (cents/mo) per attached bucket subscription.
-        'cloud_bucket_cents' => 500,
-        // Metered Cloud resources are billed in 1-cent Stripe units (quantity = cents).
-        'cloud_usage_unit_cents' => 1,
-
-        /*
-        |----------------------------------------------------------------------
-        | AWS App Runner — create-flow cost estimate (customer-paid AWS)
-        |----------------------------------------------------------------------
-        |
-        | App Runner runs on the customer's AWS account (BYO credential), so
-        | these rates are for the Cloud create sidebar estimate only — they
-        | are NOT pushed into CloudResourceCostCalculator / Stripe cloud_usage.
-        | dply still bills the flat `cloud_cents` platform fee.
-        |
-        | Defaults are us-east-1 provisioned-compute list rates (USD/hour).
-        | Monthly floor ≈ (vCPU×rate + GB×rate) × hours × instances.
-        */
-        'app_runner_hours_per_month' => (int) env('SUBSCRIPTION_APP_RUNNER_HOURS_PER_MONTH', 730),
-        'app_runner_vcpu_usd_per_hour' => (float) env('SUBSCRIPTION_APP_RUNNER_VCPU_USD_PER_HOUR', 0.064),
-        'app_runner_memory_gb_usd_per_hour' => (float) env('SUBSCRIPTION_APP_RUNNER_MEMORY_GB_USD_PER_HOUR', 0.007),
-        // The legacy size-tier keys (base_cents, included_credit_cents,
-        // per_server_cap_cents, tiers) lived here. All four are gone: the first
-        // three had zero readers, and `tiers` fed only ServerTier::priceCents(),
-        // which priced servers per size — something the flat-plan model does not
-        // do. Server size is no longer a billing input anywhere.
         /*
         | Cost observatory — reference rates for billing analytics.
         */
@@ -258,83 +91,35 @@ return [
             'display_currencies' => ['USD', 'EUR', 'GBP', 'CAD', 'AUD'],
         ],
         'stripe' => [
-            // One recurring price per paid plan, per interval. Free has no price
-            // (a $0 plan never creates a Stripe subscription).
-            'plans' => [
-                'starter' => env('STRIPE_PRICE_STANDARD_STARTER', ''),
-                'pro' => env('STRIPE_PRICE_STANDARD_PRO', ''),
-                'business' => env('STRIPE_PRICE_STANDARD_BUSINESS', ''),
-            ],
-            'plans_yearly' => [
-                'starter' => env('STRIPE_PRICE_STANDARD_STARTER_YEARLY', ''),
-                'pro' => env('STRIPE_PRICE_STANDARD_PRO_YEARLY', ''),
-                'business' => env('STRIPE_PRICE_STANDARD_BUSINESS_YEARLY', ''),
-            ],
-            'serverless' => env('STRIPE_PRICE_STANDARD_SERVERLESS', ''),
-            'serverless_yearly' => env('STRIPE_PRICE_STANDARD_SERVERLESS_YEARLY', ''),
-            // Metered managed-serverless usage + resources line (per-cent unit), monthly only.
-            'serverless_usage' => env('STRIPE_PRICE_STANDARD_SERVERLESS_USAGE', ''),
-            // Metered managed-server (all-in cost-plus) line (per-cent unit), monthly only.
-            'managed_server' => env('STRIPE_PRICE_STANDARD_MANAGED_SERVER', ''),
-            'cloud' => env('STRIPE_PRICE_STANDARD_CLOUD', ''),
-            'cloud_yearly' => env('STRIPE_PRICE_STANDARD_CLOUD_YEARLY', ''),
-            // Metered Cloud provider-resource line (per-cent unit), monthly only.
-            'cloud_usage' => env('STRIPE_PRICE_STANDARD_CLOUD_USAGE', ''),
             'edge' => env('STRIPE_PRICE_STANDARD_EDGE', ''),
             'edge_yearly' => env('STRIPE_PRICE_STANDARD_EDGE_YEARLY', ''),
             'edge_ssr' => env('STRIPE_PRICE_STANDARD_EDGE_SSR', ''),
             'edge_ssr_yearly' => env('STRIPE_PRICE_STANDARD_EDGE_SSR_YEARLY', ''),
             'edge_usage' => env('STRIPE_PRICE_STANDARD_EDGE_USAGE', ''),
-            // dply Logs ingest overage — metered per-cent quantity, monthly only.
-            // Unset by default: the usage line never reconciles until a price id
-            // exists, so the metering/estimate path lands dark (PR C).
-            'server_log_usage' => env('STRIPE_PRICE_STANDARD_SERVER_LOG_USAGE', ''),
-            // Managed Realtime — per connection-tier, monthly + yearly. One line
-            // item per tier in use (quantity = active apps on that tier). The flat
-            // 'realtime'/'realtime_yearly' keys are retained ONLY so the syncer can
-            // strip the old flat line off subscriptions migrated from the v1 model.
-            'realtime' => env('STRIPE_PRICE_STANDARD_REALTIME', ''),
-            'realtime_yearly' => env('STRIPE_PRICE_STANDARD_REALTIME_YEARLY', ''),
-            'realtime_tiers' => [
-                'starter' => env('STRIPE_PRICE_STANDARD_REALTIME_STARTER', ''),
-                'growth' => env('STRIPE_PRICE_STANDARD_REALTIME_GROWTH', ''),
-                'scale' => env('STRIPE_PRICE_STANDARD_REALTIME_SCALE', ''),
+            // Prices of retired product lines (plan tiers, serverless, Cloud,
+            // managed servers, Realtime, Lookout, Queue, server logs). Nothing
+            // bills them any more; StripeSubscriptionSyncer removes any it
+            // finds on a subscription so customers stop paying for them.
+            'retired' => [
+                env('STRIPE_PRICE_STANDARD_STARTER'), env('STRIPE_PRICE_STANDARD_STARTER_YEARLY'),
+                env('STRIPE_PRICE_STANDARD_PRO'), env('STRIPE_PRICE_STANDARD_PRO_YEARLY'),
+                env('STRIPE_PRICE_STANDARD_BUSINESS'), env('STRIPE_PRICE_STANDARD_BUSINESS_YEARLY'),
+                env('STRIPE_PRICE_STANDARD_SERVERLESS'), env('STRIPE_PRICE_STANDARD_SERVERLESS_YEARLY'),
+                env('STRIPE_PRICE_STANDARD_SERVERLESS_USAGE'),
+                env('STRIPE_PRICE_STANDARD_CLOUD'), env('STRIPE_PRICE_STANDARD_CLOUD_YEARLY'),
+                env('STRIPE_PRICE_STANDARD_CLOUD_USAGE'),
+                env('STRIPE_PRICE_STANDARD_MANAGED_SERVER'),
+                env('STRIPE_PRICE_STANDARD_REALTIME'), env('STRIPE_PRICE_STANDARD_REALTIME_YEARLY'),
+                env('STRIPE_PRICE_STANDARD_REALTIME_STARTER'), env('STRIPE_PRICE_STANDARD_REALTIME_STARTER_YEARLY'),
+                env('STRIPE_PRICE_STANDARD_REALTIME_GROWTH'), env('STRIPE_PRICE_STANDARD_REALTIME_GROWTH_YEARLY'),
+                env('STRIPE_PRICE_STANDARD_REALTIME_SCALE'), env('STRIPE_PRICE_STANDARD_REALTIME_SCALE_YEARLY'),
+                env('STRIPE_PRICE_STANDARD_LOOKOUT_STARTER'), env('STRIPE_PRICE_STANDARD_LOOKOUT_STARTER_YEARLY'),
+                env('STRIPE_PRICE_STANDARD_LOOKOUT_GROWTH'), env('STRIPE_PRICE_STANDARD_LOOKOUT_GROWTH_YEARLY'),
+                env('STRIPE_PRICE_STANDARD_LOOKOUT_SCALE'), env('STRIPE_PRICE_STANDARD_LOOKOUT_SCALE_YEARLY'),
+                env('STRIPE_PRICE_STANDARD_QUEUE_STANDARD'), env('STRIPE_PRICE_STANDARD_QUEUE_STANDARD_YEARLY'),
+                env('STRIPE_PRICE_STANDARD_QUEUE_PRO'), env('STRIPE_PRICE_STANDARD_QUEUE_PRO_YEARLY'),
+                env('STRIPE_PRICE_STANDARD_SERVER_LOG_USAGE'),
             ],
-            'realtime_tiers_yearly' => [
-                'starter' => env('STRIPE_PRICE_STANDARD_REALTIME_STARTER_YEARLY', ''),
-                'growth' => env('STRIPE_PRICE_STANDARD_REALTIME_GROWTH_YEARLY', ''),
-                'scale' => env('STRIPE_PRICE_STANDARD_REALTIME_SCALE_YEARLY', ''),
-            ],
-            // Managed Lookout error-tracking — one metered line per project tier.
-            // Tier definitions/prices live in config('lookout.tiers'); these are
-            // the Stripe price IDs the syncer drives to the active project count.
-            'lookout_tiers' => [
-                'starter' => env('STRIPE_PRICE_STANDARD_LOOKOUT_STARTER', ''),
-                'growth' => env('STRIPE_PRICE_STANDARD_LOOKOUT_GROWTH', ''),
-                'scale' => env('STRIPE_PRICE_STANDARD_LOOKOUT_SCALE', ''),
-            ],
-            'lookout_tiers_yearly' => [
-                'starter' => env('STRIPE_PRICE_STANDARD_LOOKOUT_STARTER_YEARLY', ''),
-                'growth' => env('STRIPE_PRICE_STANDARD_LOOKOUT_GROWTH_YEARLY', ''),
-                'scale' => env('STRIPE_PRICE_STANDARD_LOOKOUT_SCALE_YEARLY', ''),
-            ],
-            // dply Queue — one line per namespace capacity tier. Tier
-            // definitions/prices live in config('queue_service.tiers'); these are
-            // the Stripe price IDs the syncer drives to the BILLABLE namespace
-            // count. Namespaces serving a dply Serverless site are free and never
-            // reach a line here (docs/adr/managed-services-tier.md, decision 4).
-            'queue_tiers' => [
-                'standard' => env('STRIPE_PRICE_STANDARD_QUEUE_STANDARD', ''),
-                'pro' => env('STRIPE_PRICE_STANDARD_QUEUE_PRO', ''),
-            ],
-            'queue_tiers_yearly' => [
-                'standard' => env('STRIPE_PRICE_STANDARD_QUEUE_STANDARD_YEARLY', ''),
-                'pro' => env('STRIPE_PRICE_STANDARD_QUEUE_PRO_YEARLY', ''),
-            ],
-            // The legacy size-tier Stripe prices (base_monthly/base_yearly,
-            // tiers, tiers_yearly) lived here. Nothing read them — the syncer
-            // drives prices through SubscriptionPlanResolver — and the XS-XL
-            // concept they priced no longer exists.
         ],
     ],
 

@@ -30,8 +30,7 @@ test('edge site workspace route renders full app layout shell', function () {
     $this->actingAs($user)
         ->get(route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'edge-deploys']))
         ->assertOk()
-        ->assertSee('Deploy history', false)
-        ->assertSee('Infrastructure control for teams that ship', false);
+        ->assertSee('Deploy history', false);
 });
 
 test('edge site settings sidebar shows edge sections not byo runtime', function () {

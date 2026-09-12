@@ -3,28 +3,16 @@
     $monthlyDollars = $state->monthlyTotalCents / 100;
     $yearlyDollars = $this->yearlyTotalCents / 100;
     $interval = $this->subscriptionInterval;
-    $billableCount = $this->billableServers->count();
+    $edgeSiteCount = $state->edgeCount;
 
-    // Colors for the stacked-breakdown bar: plan first, then each managed
-    // product, then metered Edge usage.
+    // Colors for the stacked-breakdown bar: per-site fees, then metered usage.
     $tierBarColors = [
-        'plan' => 'bg-brand-ink/80',
-        'serverless' => 'bg-violet-500/70',
-        'cloud' => 'bg-sky-500/70',
         'edge' => 'bg-emerald-500/70',
         'edge_usage' => 'bg-brand-sage/50',
     ];
 
     $totalCents = max(1, $state->monthlyTotalCents);
-    $segments = [
-        ['key' => 'plan', 'label' => $state->planLabel, 'cents' => $state->planPriceCents],
-    ];
-    if ($state->serverlessSubtotalCents > 0) {
-        $segments[] = ['key' => 'serverless', 'label' => __('Serverless').' × '.$state->serverlessCount, 'cents' => $state->serverlessSubtotalCents];
-    }
-    if ($state->cloudSubtotalCents > 0) {
-        $segments[] = ['key' => 'cloud', 'label' => __('Cloud').' × '.$state->cloudCount, 'cents' => $state->cloudSubtotalCents];
-    }
+    $segments = [];
     if ($state->edgeSubtotalCents > 0) {
         $segments[] = ['key' => 'edge', 'label' => __('Apps').' × '.$state->edgeCount, 'cents' => $state->edgeSubtotalCents];
     }
@@ -43,8 +31,6 @@
             <p class="text-xs font-semibold uppercase tracking-wider text-brand-gold/90">
                 @if ($this->subscription)
                     {{ __('Current billing') }}
-                @elseif ($this->onDplyTrial)
-                    {{ __('Estimated — trial in progress') }}
                 @else
                     {{ __('What you\'d pay today') }}
                 @endif
@@ -53,11 +39,9 @@
             <p class="mt-2 text-sm text-brand-moss leading-relaxed">
                 @if ($this->subscription && $this->nextInvoiceAt)
                     {{ __('Next invoice :date', ['date' => $this->nextInvoiceAt->toFormattedDateString()]) }}.
-                    {{ __('Bill updates automatically when your fleet changes.') }}
-                @elseif ($this->onDplyTrial)
-                    {{ __('Based on your current fleet. We won\'t bill you until your trial ends and you add a card.') }}
+                    {{ __('Bill updates automatically when your live sites change.') }}
                 @else
-                    {{ __('Based on your current fleet. Subscribe to lock this in.') }}
+                    {{ __('Based on your live Edge sites. Subscribe to lock this in.') }}
                 @endif
             </p>
 
@@ -92,11 +76,9 @@
                 {{-- Usage run-rate — derived from the monthly total, no history. --}}
                 <div class="mt-4 rounded-xl border border-brand-ink/10 bg-brand-cream/35 px-4 py-3">
                     <p class="text-sm text-brand-ink">
-                        {{ __('Your plan') }}
-                        <span class="font-bold">{{ $state->planLabel }}</span>
-                        {{ trans_choice('{0} — no servers yet, free forever|{1} — :count server|[2,*] — :count servers', $billableCount, ['count' => $billableCount]) }}.
+                        {{ trans_choice('{0} No live Edge sites yet|{1} :count live Edge site|[2,*] :count live Edge sites', $edgeSiteCount, ['count' => $edgeSiteCount]) }}.
                     </p>
-                    <p class="mt-0.5 text-xs text-brand-moss">{{ __('One flat price by server count. Your first server is free; managed products bill per unit on top.') }}</p>
+                    <p class="mt-0.5 text-xs text-brand-moss">{{ __(':static/mo per static or hybrid site, :ssr/mo per Worker SSR site, plus delivery usage beyond each site\'s allowance.', ['static' => '$'.number_format(((int) config('subscription.standard.edge_cents', 200)) / 100, 2), 'ssr' => '$'.number_format(((int) config('subscription.standard.edge_ssr_cents', 700)) / 100, 2)]) }}</p>
                 </div>
 
                 {{-- Primary Subscribe CTA — the most important action on the
@@ -123,8 +105,8 @@
         </div>
 
         <div class="lg:col-span-7 space-y-4">
-            {{-- Stacked breakdown bar — visual representation of how the
-                 total decomposes across base + each tier. --}}
+            {{-- Stacked breakdown bar — how the total decomposes across
+                 per-site fees and metered usage. --}}
             <div>
                 <div class="flex h-3 w-full rounded-full overflow-hidden bg-brand-ink/5">
                     @foreach ($segments as $segment)
@@ -147,7 +129,7 @@
             <div class="rounded-xl border border-brand-ink/10 bg-brand-cream/50 overflow-hidden">
                 <div class="px-3 py-2 border-b border-brand-ink/10 bg-white/60">
                     <p class="text-xs font-semibold uppercase tracking-wider text-brand-ink/70">
-                        {{ __('Breakdown') }} — {{ trans_choice('{0} no billable servers|{1} :count server|[2,*] :count servers', $billableCount, ['count' => $billableCount]) }}
+                        {{ __('Breakdown') }} — {{ trans_choice('{0} no billable sites|{1} :count site|[2,*] :count sites', $edgeSiteCount, ['count' => $edgeSiteCount]) }}
                     </p>
                 </div>
                 <ul class="divide-y divide-brand-ink/5 text-sm">

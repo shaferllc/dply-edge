@@ -1,6 +1,6 @@
 import { requireClient } from './server-context.mjs';
 import { expandArgv } from './shortcuts.mjs';
-import { c, info, ok, warn } from './print.mjs';
+import { c, info, warn } from './print.mjs';
 
 /**
  * @param {import('node:readline/promises').Interface} rl
@@ -28,66 +28,15 @@ export async function runSmartShellCommand(rl, run, argv) {
  * @returns {Promise<boolean>}
  */
 async function maybeSmartPreflight(rl, run, argv) {
-  const [cmd, sub] = argv;
+  const [cmd] = argv;
 
-  if (cmd === 'project' && (sub === 'list' || sub === 'ls' || argv.length === 1)) {
-    const rows = await fetchProjectsSafe();
-
-    if (rows.length === 0) {
-      await offerEmptyProjects(rl, run);
-
-      return true;
-    }
-  }
-
-  if (cmd === 'account' && sub === 'projects') {
-    const rows = await fetchProjectsSafe();
-
-    if (rows.length === 0) {
-      await offerEmptyProjects(rl, run);
-
-      return true;
-    }
-  }
-
-  if (cmd === 'site' && (sub === 'list' || sub === 'ls' || argv.length === 1)) {
-    const rows = await fetchByoSitesSafe();
-
-    if (rows.length === 0) {
-      warn('No BYO sites visible to this token.');
-      info(c.dim('Create a site on a VM in the web app · `dply link --byo <id>` to link this repo'));
-      info(c.dim('Then deploy with bare `dply deploy`'));
-
-      if (await confirm(rl, 'Refresh CLI permissions now?')) {
-        await run(['auth', 'refresh']);
-      }
-
-      return true;
-    }
-  }
-
-  if (cmd === 'deploy') {
+  if (cmd === 'deploy' && argv.length === 1) {
     const { linkedSiteProduct } = await import('./site-context.mjs');
     const product = await linkedSiteProduct();
 
     if (!product) {
       warn('No linked site in this repo.');
-      info(c.dim('Run `dply link --byo <id>` or `dply link --edge <id>` from your project root'));
-
-      return true;
-    }
-  }
-
-  if (cmd === 'server' && (sub === 'list' || argv.length === 1)) {
-    const rows = await fetchServersSafe();
-
-    if (rows.length === 0) {
-      warn('No servers visible to this token.');
-      info(c.dim('Add a server in the dply web app, or run `auth refresh` if you need servers.read.'));
-
-      if (await confirm(rl, 'Refresh CLI permissions now?')) {
-        await run(['auth', 'refresh']);
-      }
+      info(c.dim('Create the site in the dashboard, then run `dply link` from your project root'));
 
       return true;
     }
@@ -114,22 +63,6 @@ async function maybeSmartPreflight(rl, run, argv) {
 /**
  * @param {import('node:readline/promises').Interface} rl
  * @param {(argv: string[]) => Promise<number | void>} run
- */
-export async function offerEmptyProjects(rl, run) {
-  const { promptCreateProjectInteractive } = await import('./project-prompts.mjs');
-
-  warn('No projects yet.');
-
-  const created = await promptCreateProjectInteractive({ rl, run });
-
-  if (!created) {
-    info(c.dim('Tip: `projects create --name "…"` · menu: type `create` · `r` to refresh permissions'));
-  }
-}
-
-/**
- * @param {import('node:readline/promises').Interface} rl
- * @param {(argv: string[]) => Promise<number | void>} run
  * @param {Error & { status?: number, exitCode?: number, message?: string }} err
  * @param {string[]} argv
  */
@@ -151,12 +84,6 @@ async function handleSmartShellError(rl, run, err, argv) {
     if (await confirm(rl, 'Refresh permissions now?')) {
       await run(['auth', 'refresh']);
     }
-
-    return;
-  }
-
-  if (argv[0] === 'project' && /Pass --project|No project matched/i.test(message)) {
-    info(c.dim('Try `projects` to list · `projects create --name "…"` to add one'));
 
     return;
   }
@@ -193,12 +120,8 @@ function printCommandHint(command) {
     auth: 'auth refresh · r',
     refresh: 'auth refresh · r',
     r: 'auth refresh',
-    projects: 'projects · project create --name "…"',
-    project: 'projects · project show <slug>',
-    servers: 'servers · server system-users help',
-    server: 'servers',
     sites: 'sites · edge deploy',
-    account: 'me · account projects',
+    account: 'me · account orgs',
     billing: 'bill · billing breakdown',
     edge: 'edge deploy · edge --help',
   };
@@ -210,41 +133,12 @@ function printCommandHint(command) {
 }
 
 /**
- * @returns {Promise<Array<Record<string, unknown>>>}
+ * Edge sites visible to this token; errors (no scope, not logged in) read as
+ * none, so menus render with a "refresh permissions" nudge instead of throwing.
+ *
+ * @returns {Promise<Array<Record<string, any>>>}
  */
-export async function fetchProjectsSafe() {
-  try {
-    const client = await requireClient({});
-
-    return (await client.get('/projects'))?.data ?? [];
-  } catch {
-    return [];
-  }
-}
-
-export async function fetchByoSitesSafe() {
-  try {
-    const client = await requireClient({});
-
-    return (await client.get('/sites'))?.data ?? [];
-  } catch {
-    return [];
-  }
-}
-
-async function fetchServersSafe() {
-  try {
-    const client = await requireClient({});
-
-    return (await client.get('/servers'))?.data ?? [];
-  } catch {
-    return [];
-  }
-}
-
-export { fetchServersSafe };
-
-async function fetchEdgeSitesSafe() {
+export async function fetchEdgeSitesSafe() {
   try {
     const client = await requireClient({});
 
@@ -253,22 +147,3 @@ async function fetchEdgeSitesSafe() {
     return [];
   }
 }
-
-export { fetchEdgeSitesSafe };
-
-/**
- * Serverless functions visible to this token. Swallows errors the same way the
- * Edge fetch does — a token without `serverless.read` should render an empty
- * menu with a "refresh permissions" nudge, not blow up the shell.
- */
-async function fetchServerlessSitesSafe() {
-  try {
-    const client = await requireClient({});
-
-    return (await client.get('/serverless/sites'))?.data ?? [];
-  } catch {
-    return [];
-  }
-}
-
-export { fetchServerlessSitesSafe };

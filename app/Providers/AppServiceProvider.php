@@ -4,7 +4,6 @@ namespace App\Providers;
 
 use App\Listeners\SyncBillingOnSubscriptionWebhook;
 use App\Models\Incident;
-use App\Models\LookoutProject;
 use App\Models\NotificationChannel;
 use App\Models\Organization;
 use App\Models\ProviderCredential;
@@ -33,7 +32,6 @@ use App\Modules\Edge\Services\RuntimeDetection\StaticRuntimeDetector;
 use App\Modules\Edge\Support\EdgeFilesystemRegistrar;
 use App\Modules\Edge\Support\EdgePlatformCredentials;
 use App\Modules\SourceControl\Services\GitIdentityResolver;
-use App\Observers\LookoutProjectBillingObserver;
 use App\Policies\IncidentPolicy;
 use App\Policies\NotificationChannelPolicy;
 use App\Policies\OrganizationPolicy;
@@ -219,7 +217,6 @@ class AppServiceProvider extends ServiceProvider
         });
 
         Site::observe(SiteBillingObserver::class);
-        LookoutProject::observe(LookoutProjectBillingObserver::class);
 
         Site::created(function (Site $site): void {
             rescue(

@@ -9,14 +9,10 @@ use RuntimeException;
 
 /**
  * Provisions a fresh Standard Stripe subscription for an organization,
- * seeded with line items derived from the org's current fleet.
+ * seeded with line items derived from its live Edge sites:
  *
- * Line items under the plan model:
- * - One **flat plan** price (Starter / Pro / Business), chosen by billable
- *   server count. The Free plan has no Stripe price, so a Free-plan org never
- *   contributes a plan line.
- * - One line per **managed product** in use (serverless / Cloud / Edge), each
- *   billed a la carte per unit on top of the plan — including for Free orgs.
+ * - One line per Edge site kind in use (static/hybrid `edge`, Worker SSR
+ *   `edge_ssr`).
  * - A metered **Edge usage** line (monthly only).
  *
  * Stripe Checkout requires every line item in a subscription to share a
@@ -31,45 +27,14 @@ class StandardSubscriptionCreator
 
     public function __construct(
         private OrganizationBillingStateComputer $computer,
-        private SubscriptionPlanResolver $planResolver,
     ) {}
 
     /**
      * @return array<int, array{price: string, quantity: int}>
-     *
-     * @throws RuntimeException when a paid plan's Stripe price is not configured.
      */
     public function buildPriceList(DesiredBillingState $desired, string $interval = self::INTERVAL_MONTH): array
     {
         $items = [];
-
-        // Flat plan line. The Free plan ($0) carries no Stripe price, so it
-        // contributes no line — managed-product lines below keep the
-        // subscription non-empty when a Free org still owes for managed units.
-        if ($desired->planPriceCents > 0) {
-            $planPriceId = $this->planResolver->stripePriceId($desired->planKey, $interval);
-            if ($planPriceId === '') {
-                throw new RuntimeException(
-                    "Standard plan '{$desired->planKey}' price for interval '{$interval}' is not configured."
-                );
-            }
-
-            $items[] = ['price' => $planPriceId, 'quantity' => 1];
-        }
-
-        if ($desired->serverlessCount > 0) {
-            $serverlessPriceId = $this->managedProductPriceIdForInterval('serverless', $interval);
-            if ($serverlessPriceId !== '') {
-                $items[] = ['price' => $serverlessPriceId, 'quantity' => $desired->serverlessCount];
-            }
-        }
-
-        if ($desired->cloudCount > 0) {
-            $cloudPriceId = $this->managedProductPriceIdForInterval('cloud', $interval);
-            if ($cloudPriceId !== '') {
-                $items[] = ['price' => $cloudPriceId, 'quantity' => $desired->cloudCount];
-            }
-        }
 
         $edgeBaseCount = $desired->edgeBaseCount();
         if ($edgeBaseCount > 0) {
@@ -86,49 +51,6 @@ class StandardSubscriptionCreator
             }
         }
 
-        // Managed Realtime — one line per connection-tier in use.
-        foreach ($desired->realtimeTierQuantities as $tier => $quantity) {
-            if ($quantity <= 0) {
-                continue;
-            }
-            $realtimePriceId = $this->realtimeTierPriceIdForInterval((string) $tier, $interval);
-            if ($realtimePriceId !== '') {
-                $items[] = ['price' => $realtimePriceId, 'quantity' => $quantity];
-            }
-        }
-
-        // Managed Lookout — one line per project tier in use.
-        foreach ($desired->lookoutTierQuantities as $tier => $quantity) {
-            if ($quantity <= 0) {
-                continue;
-            }
-            $lookoutPriceId = $this->lookoutTierPriceIdForInterval((string) $tier, $interval);
-            if ($lookoutPriceId !== '') {
-                $items[] = ['price' => $lookoutPriceId, 'quantity' => $quantity];
-            }
-        }
-
-        if ($interval === self::INTERVAL_MONTH && $desired->cloudResourceSubtotalCents > 0) {
-            $cloudUsagePriceId = $this->cloudUsagePriceId();
-            if ($cloudUsagePriceId !== '') {
-                $items[] = ['price' => $cloudUsagePriceId, 'quantity' => $desired->cloudResourceSubtotalCents];
-            }
-        }
-
-        if ($interval === self::INTERVAL_MONTH && $desired->serverlessUsageSubtotalCents > 0) {
-            $serverlessUsagePriceId = $this->serverlessUsagePriceId();
-            if ($serverlessUsagePriceId !== '') {
-                $items[] = ['price' => $serverlessUsagePriceId, 'quantity' => $desired->serverlessUsageSubtotalCents];
-            }
-        }
-
-        if ($interval === self::INTERVAL_MONTH && $desired->managedServerSubtotalCents > 0) {
-            $managedServerPriceId = $this->managedServerPriceId();
-            if ($managedServerPriceId !== '') {
-                $items[] = ['price' => $managedServerPriceId, 'quantity' => $desired->managedServerSubtotalCents];
-            }
-        }
-
         if ($interval === self::INTERVAL_MONTH && $desired->edgeUsageSubtotalCents > 0) {
             $usagePriceId = $this->edgeUsagePriceId();
             if ($usagePriceId !== '') {
@@ -137,16 +59,6 @@ class StandardSubscriptionCreator
         }
 
         return $items;
-    }
-
-    public function serverlessPriceIdForInterval(string $interval): string
-    {
-        return $this->managedProductPriceIdForInterval('serverless', $interval);
-    }
-
-    public function cloudPriceIdForInterval(string $interval): string
-    {
-        return $this->managedProductPriceIdForInterval('cloud', $interval);
     }
 
     public function edgePriceIdForInterval(string $interval): string
@@ -159,51 +71,9 @@ class StandardSubscriptionCreator
         return $this->managedProductPriceIdForInterval('edge_ssr', $interval);
     }
 
-    public function realtimePriceIdForInterval(string $interval): string
-    {
-        return $this->managedProductPriceIdForInterval('realtime', $interval);
-    }
-
-    public function realtimeTierPriceIdForInterval(string $tier, string $interval): string
-    {
-        $bucket = match ($interval) {
-            self::INTERVAL_MONTH => 'realtime_tiers',
-            self::INTERVAL_YEAR => 'realtime_tiers_yearly',
-            default => throw new InvalidArgumentException("Unknown billing interval: {$interval}"),
-        };
-
-        return (string) (config('subscription.standard.stripe.'.$bucket.'.'.$tier) ?? '');
-    }
-
-    public function lookoutTierPriceIdForInterval(string $tier, string $interval): string
-    {
-        $bucket = match ($interval) {
-            self::INTERVAL_MONTH => 'lookout_tiers',
-            self::INTERVAL_YEAR => 'lookout_tiers_yearly',
-            default => throw new InvalidArgumentException("Unknown billing interval: {$interval}"),
-        };
-
-        return (string) (config('subscription.standard.stripe.'.$bucket.'.'.$tier) ?? '');
-    }
-
     public function edgeUsagePriceId(): string
     {
         return (string) (config('subscription.standard.stripe.edge_usage') ?? '');
-    }
-
-    public function cloudUsagePriceId(): string
-    {
-        return (string) (config('subscription.standard.stripe.cloud_usage') ?? '');
-    }
-
-    public function serverlessUsagePriceId(): string
-    {
-        return (string) (config('subscription.standard.stripe.serverless_usage') ?? '');
-    }
-
-    public function managedServerPriceId(): string
-    {
-        return (string) (config('subscription.standard.stripe.managed_server') ?? '');
     }
 
     private function managedProductPriceIdForInterval(string $product, string $interval): string
@@ -234,8 +104,8 @@ class StandardSubscriptionCreator
         $items = $this->buildPriceList($desired, $interval);
 
         if ($items === []) {
-            // A Free-plan org with no managed products owes nothing — Stripe
-            // rejects empty subscriptions, so there is nothing to create.
+            // No live Edge sites owes nothing — Stripe rejects empty
+            // subscriptions, so there is nothing to create.
             throw new RuntimeException(
                 "Organization {$organization->id} has no billable units; no subscription to create."
             );

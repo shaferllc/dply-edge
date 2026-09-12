@@ -51,16 +51,11 @@ export async function billingShow(flags) {
     ['Subscribed', summary.subscribed ? 'yes' : 'no'],
     ['Stripe status', summary.stripe_status ?? subscription.status ?? '—'],
     ['Next invoice', summary.next_invoice_at ?? '—'],
-    ['On trial', summary.on_trial ? `yes (${summary.trial_days_left ?? 0} days left)` : 'no'],
   ]);
 
   info('');
   info(c.bold('Fleet counts (billable)'));
   printKeyValues([
-    ['BYO servers', String(counts.servers ?? 0)],
-    ['Serverless', String(counts.serverless ?? 0)],
-    ['Managed servers', String(counts.managed_servers ?? 0)],
-    ['Cloud apps', String(counts.cloud ?? 0)],
     ['Edge sites', String(counts.edge ?? 0)],
   ]);
 

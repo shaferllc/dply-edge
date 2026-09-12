@@ -1,0 +1,15 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-11",
+  "id": "r-bgcrs5xnay7dk71a",
+  "recordedBy": {
+    "client": "claude",
+    "id": "5074b3ad-52da-4ffb-b8a2-ffbe5b4f969f"
+  },
+  "scopeTags": [
+    "billing",
+    "trial"
+  ],
+  "supersedes": null,
+  "text": "Drop the 14-day trial. The 3-site free allowance replaces it; the app-wide banner keeps only the canceled-subscription grace reminder. Unused trial/pause gates are deleted."
+}

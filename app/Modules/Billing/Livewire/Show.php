@@ -4,8 +4,6 @@ namespace App\Modules\Billing\Livewire;
 
 use App\Livewire\Concerns\DispatchesToastNotifications;
 use App\Models\Organization;
-use App\Models\OrganizationBundleEntitlement;
-use App\Models\Server;
 use App\Modules\Billing\Services\DesiredBillingState;
 use App\Modules\Billing\Services\OrganizationBillingStateComputer;
 use App\Modules\Billing\Services\StandardSubscriptionCreator;
@@ -30,7 +28,6 @@ use Throwable;
  *
  * @property-read \Laravel\Cashier\Subscription|null $subscription
  * @property-read string|null $subscriptionInterval
- * @property-read \Illuminate\Support\Collection<int, \App\Models\Server> $billableServers
  * @property-read \App\Modules\Billing\Services\DesiredBillingState $billingState
  */
 #[Layout('layouts.app')]
@@ -190,7 +187,7 @@ class Show extends Component
 
     /**
      * Start a Stripe Checkout session for the Standard plan. Line items are
-     * seeded from the org's current server fleet, so the customer's first bill
+     * seeded from the org's live Edge sites, so the customer's first bill
      * reflects what they're actually running.
      */
     public function subscribeStandard(string $interval = StandardSubscriptionCreator::INTERVAL_MONTH): mixed
@@ -221,9 +218,9 @@ class Show extends Component
         }
 
         if ($items === []) {
-            // Free plan, no managed products — nothing for Stripe to bill, so
-            // there's no subscription to start. The org keeps using dply free.
-            $this->addError('billing', __('Your fleet is on the free plan — there\'s nothing to subscribe to yet. Add another server or a managed product to move onto a paid plan.'));
+            // No live Edge sites — nothing for Stripe to bill, so there's no
+            // subscription to start. The org keeps using dply free.
+            $this->addError('billing', __('There\'s nothing to bill yet. Subscribe once you have a live Edge site.'));
 
             return null;
         }
@@ -255,8 +252,8 @@ class Show extends Component
 
     /**
      * Switch an existing subscription between monthly and yearly billing.
-     * Swaps every line item (base + each tier) to the target interval's price
-     * set and invoices the prorated difference immediately.
+     * Swaps every Edge line item to the target interval's price set and
+     * invoices the prorated difference immediately.
      */
     public function switchInterval(): mixed
     {
@@ -387,56 +384,15 @@ class Show extends Component
         return $this->subscription?->getAttribute('ends_at');
     }
 
-    public function getOnDplyTrialProperty(): bool
-    {
-        return $this->organization->onDplyTrial();
-    }
-
-    /**
-     * Bundled-products (free tracely + Lookout) state for this org's billing
-     * page. Null — so the card is hidden — while the perk is dark, or for orgs
-     * that neither qualify nor have a provisioned workspace. See
-     * docs/adr/bundled-products-sso.md.
-     *
-     * @return array{entitled: bool, status: ?string}|null
-     */
-    public function getBundleProperty(): ?array
-    {
-        if (! config('bundle.enabled', false)) {
-            return null;
-        }
-
-        $entitled = $this->organization->qualifiesForBundledProducts();
-        $status = OrganizationBundleEntitlement::query()
-            ->where('organization_id', $this->organization->id)
-            ->value('status');
-
-        if (! $entitled && $status === null) {
-            return null;
-        }
-
-        return ['entitled' => $entitled, 'status' => $status !== null ? (string) $status : null];
-    }
-
-    public function getDplyTrialDaysLeftProperty(): int
-    {
-        $endsAt = $this->organization->trial_ends_at;
-        if (! $endsAt) {
-            return 0;
-        }
-
-        return max(0, (int) ceil(now()->diffInDays($endsAt, false)));
-    }
-
     public function getStandardPricingAvailableProperty(): bool
     {
-        // Standard pricing is "available" as soon as any paid plan price (at
-        // either interval) is configured in Stripe. The Free plan never needs
-        // a price, so its absence doesn't gate the subscribe UI.
-        $configured = array_merge(
-            array_values((array) config('subscription.standard.stripe.plans', [])),
-            array_values((array) config('subscription.standard.stripe.plans_yearly', [])),
-        );
+        // Standard pricing is "available" as soon as an Edge site price (at
+        // either interval) is configured in Stripe — those are the lines a
+        // first subscription is built from.
+        $configured = [
+            config('subscription.standard.stripe.edge'),
+            config('subscription.standard.stripe.edge_yearly'),
+        ];
 
         foreach ($configured as $priceId) {
             if ((string) $priceId !== '') {
@@ -448,9 +404,8 @@ class Show extends Component
     }
 
     /**
-     * The bill dply *would* charge based on the current fleet — true
-     * whether the org is on trial (estimate), subscribed (current invoice
-     * basis), or paused (what subscribing would resume to).
+     * The bill dply *would* charge based on the org's live Edge sites — the
+     * estimate before subscribing, the current invoice basis after.
      *
      * Request-memoised via {@see Computed} and
      * {@see OrganizationBillingStateComputer::compute()} so hero / preview /
@@ -463,132 +418,16 @@ class Show extends Component
     }
 
     /**
-     * Servers that currently count toward the bill: status=ready and older
-     * than the min-billable-age threshold. Eager-loaded with a server tier
-     * so the view can render specs without N+1 queries.
+     * Structured line items for the "Your bill" hero — one per Edge site kind
+     * in use plus metered Edge usage. Cents preserved so the view can choose
+     * monthly/yearly presentation.
      *
-     * @return Collection<int, Server>
-     */
-    public function getBillableServersProperty(): Collection
-    {
-        $minAge = max(0, (int) config('subscription.standard.min_billable_age_days', 1));
-
-        return $this->organization->servers()
-            ->where('status', Server::STATUS_READY)
-            ->where('created_at', '<=', now()->subDays($minAge))
-            ->orderBy('name')
-            ->get()
-            ->reject(fn (Server $server): bool => $server->isManagedProductHost())
-            ->values();
-    }
-
-    /**
-     * Servers excluded from billing with a human-readable reason — surfaces
-     * the "why isn't this server on my bill?" question right in the table.
-     *
-     */
-    public function getExcludedServersProperty(): Collection
-    {
-        $minAge = max(0, (int) config('subscription.standard.min_billable_age_days', 1));
-        $cutoff = now()->subDays($minAge);
-        $billableIds = $this->billableServers->pluck('id')->all();
-
-        return $this->organization->servers()
-            ->orderBy('name')
-            ->get()
-            ->reject(fn (Server $s) => in_array($s->id, $billableIds, true))
-            ->map(function (Server $server) use ($cutoff, $minAge): array {
-                $reason = match (true) {
-                    $server->isManagedProductHost() => match (true) {
-                        $server->isDplyCloudHost() => __('Billed as dply Cloud app'),
-                        $server->isDplyEdgeHost() => __('Billed as dply Edge site'),
-                        $server->isServerlessHost() => __('Billed as serverless function'),
-                        default => __('Billed as managed product'),
-                    },
-                    $server->status !== Server::STATUS_READY => __('Status: :status', ['status' => $server->status]),
-                    $server->created_at !== null && $server->created_at->gt($cutoff) => __('Under the :days-day billable threshold', ['days' => $minAge]),
-                    default => __('Excluded'),
-                };
-
-                return ['server' => $server, 'reason' => $reason];
-            })
-            ->values();
-    }
-
-    /**
-     * Structured line items for the "Your bill" hero. One entry for the flat
-     * plan (chosen by server count) plus one per managed product in use. Cents
-     * preserved so the view can choose monthly/yearly presentation.
-     *
-     * @return list<array{label: string, quantity: int, unit_cents: int, line_cents: int}>
+     * @return list<array{label: string, quantity: int, unit_cents: int, line_cents: int, detail?: ?string}>
      */
     public function getTierLineItemsProperty(): array
     {
         $state = $this->billingState;
-
-        $items = [
-            [
-                'label' => __('dply plan — :plan', ['plan' => $state->planLabel]),
-                'quantity' => 1,
-                'unit_cents' => $state->planPriceCents,
-                'line_cents' => $state->planPriceCents,
-                'detail' => $state->serverCount() > 0
-                    ? trans_choice(':count server|:count servers', $state->serverCount(), ['count' => $state->serverCount()])
-                    : null,
-            ],
-        ];
-
-        if ($state->serverlessCount > 0) {
-            $unit = (int) config('subscription.standard.serverless_cents', 200);
-            $items[] = [
-                'label' => __('dply serverless function'),
-                'quantity' => $state->serverlessCount,
-                'unit_cents' => $unit,
-                'line_cents' => $state->serverlessSubtotalCents,
-            ];
-        }
-
-        if ($state->serverlessUsageSubtotalCents > 0) {
-            $items[] = [
-                'label' => __('dply serverless usage'),
-                'quantity' => 1,
-                'unit_cents' => $state->serverlessUsageSubtotalCents,
-                'line_cents' => $state->serverlessUsageSubtotalCents,
-                'detail' => __('Metered invocations, managed databases & caches'),
-            ];
-        }
-
-        if ($state->managedServerSubtotalCents > 0) {
-            $items[] = [
-                'label' => __('dply managed server'),
-                'quantity' => $state->managedServerCount,
-                'unit_cents' => $state->managedServerCount > 0
-                    ? (int) round($state->managedServerSubtotalCents / $state->managedServerCount)
-                    : $state->managedServerSubtotalCents,
-                'line_cents' => $state->managedServerSubtotalCents,
-                'detail' => __('All-in cost-plus — dply-hosted VM (provider cost + margin)'),
-            ];
-        }
-
-        if ($state->cloudCount > 0) {
-            $unit = (int) config('subscription.standard.cloud_cents', 500);
-            $items[] = [
-                'label' => __('dply Cloud app'),
-                'quantity' => $state->cloudCount,
-                'unit_cents' => $unit,
-                'line_cents' => $state->cloudSubtotalCents,
-            ];
-        }
-
-        if ($state->cloudResourceSubtotalCents > 0) {
-            $items[] = [
-                'label' => __('dply Cloud resources'),
-                'quantity' => 1,
-                'unit_cents' => $state->cloudResourceSubtotalCents,
-                'line_cents' => $state->cloudResourceSubtotalCents,
-                'detail' => __('Metered compute, workers & databases'),
-            ];
-        }
+        $items = [];
 
         $edgeBaseCount = $state->edgeBaseCount();
         if ($edgeBaseCount > 0) {
@@ -653,27 +492,6 @@ class Show extends Component
         return implode(' · ', $parts);
     }
 
-    /**
-     * Plan catalog for the interactive "what would it cost?" calculator,
-     * ordered cheapest → most expensive. Prices in dollars; `max` is the
-     * inclusive server-count ceiling (null = unlimited) so the Alpine widget
-     * can resolve a plan from a hypothetical fleet size.
-     *
-     * @return list<array{key: string, label: string, price: float, max: ?int}>
-     */
-    public function getPlanCatalogProperty(): array
-    {
-        return array_map(
-            fn (array $plan): array => [
-                'key' => $plan['key'],
-                'label' => $plan['label'],
-                'price' => $plan['price_cents'] / 100,
-                'max' => $plan['max_servers'],
-            ],
-            app(SubscriptionPlanResolver::class)->all(),
-        );
-    }
-
     public function getYearlyTotalCentsProperty(): int
     {
         $pct = (int) config('subscription.standard.annual_discount_pct', 20);
@@ -691,30 +509,9 @@ class Show extends Component
         return $this->subscriptionIsYearly($sub) ? 'year' : 'month';
     }
 
-    /**
-     * Detect a yearly subscription from any yearly plan or managed-product
-     * price on it. A Free-plan org can carry only a yearly managed line (no
-     * plan line), so we can't key off a single price.
-     */
     private function subscriptionIsYearly(Subscription $sub): bool
     {
-        $yearlyIds = array_merge(
-            array_values((array) config('subscription.standard.stripe.plans_yearly', [])),
-            [
-                (string) (config('subscription.standard.stripe.serverless_yearly') ?? ''),
-                (string) (config('subscription.standard.stripe.cloud_yearly') ?? ''),
-                (string) (config('subscription.standard.stripe.edge_yearly') ?? ''),
-            ],
-        );
-
-        foreach ($yearlyIds as $priceId) {
-            $priceId = (string) $priceId;
-            if ($priceId !== '' && $sub->hasPrice($priceId)) {
-                return true;
-            }
-        }
-
-        return false;
+        return SubscriptionPlanResolver::isYearly($sub);
     }
 
     public function getNextInvoiceAtProperty(): ?CarbonInterface

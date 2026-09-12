@@ -1,0 +1,16 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-11",
+  "id": "r-xcw1qct3x8n6yjez",
+  "recordedBy": {
+    "client": "claude",
+    "id": "5074b3ad-52da-4ffb-b8a2-ffbe5b4f969f"
+  },
+  "scopeTags": [
+    "billing",
+    "stripe",
+    "T-014"
+  ],
+  "supersedes": null,
+  "text": "Stripe legacy items: keep stripping retired prices. The syncer keeps a retired-price-ID list (old tier/serverless/cloud/managed-server/realtime/lookout/queue/server-log prices, read from their old env vars) and removes those subscription items on sync, as before the billing cleanup, so customers stop paying for removed products automatically."
+}

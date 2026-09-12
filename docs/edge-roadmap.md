@@ -1,6 +1,6 @@
 # dply Edge roadmap
 
-Status: in progress (2026-05-23)
+Status: **History.** Phases 0–4 shipped; the plan continued in [edge-roadmap-next.md](edge-roadmap-next.md) (also closed). Kept as a record — check the code, not this file, for current behaviour.
 
 First-party Netlify-style platform: git-connected builds, branch previews, CDN delivery via Cloudflare R2 + Workers.
 

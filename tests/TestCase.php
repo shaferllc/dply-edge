@@ -116,23 +116,23 @@ abstract class TestCase extends BaseTestCase
         $database = (string) (getenv('DB_DATABASE') ?: $_ENV['DB_DATABASE'] ?? '');
 
         if ($database === '' && $connection === 'pgsql') {
-            $database = 'dply_testing';
+            $database = 'dply_edge_testing';
         }
 
         $allowed = array_values(array_filter(array_map(
             trim(...),
-            explode(',', (string) (getenv('DPLY_TESTING_DATABASES') ?: $_ENV['DPLY_TESTING_DATABASES'] ?? 'dply_testing')),
+            explode(',', (string) (getenv('DPLY_TESTING_DATABASES') ?: $_ENV['DPLY_TESTING_DATABASES'] ?? 'dply_edge_testing')),
         )));
 
         if ($allowed === []) {
-            $allowed = ['dply_testing'];
+            $allowed = ['dply_edge_testing'];
         }
 
         if (! in_array($database, $allowed, true)) {
             throw new \RuntimeException(sprintf(
                 'Refusing to run RefreshDatabase tests against [%s] on connection [%s]. '
-                .'Use a dedicated test database (default: dply_testing). '
-                .'phpunit.xml sets DB_DATABASE=dply_testing — check .env DB_URL / DB_DATABASE overrides.',
+                .'Use a dedicated test database (default: dply_edge_testing). '
+                .'phpunit.xml sets DB_DATABASE=dply_edge_testing — check .env DB_URL / DB_DATABASE overrides.',
                 $database,
                 $connection,
             ));

@@ -4,6 +4,8 @@ namespace Tests\Feature\Livewire\Billing\StandardSubscribeTest;
 
 use App\Modules\Billing\Livewire\Show as BillingShow;
 use App\Models\Organization;
+use App\Models\Server;
+use App\Models\Site;
 use App\Modules\Billing\Models\Subscription;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -17,26 +19,29 @@ beforeEach(function () {
     $this->org = Organization::factory()->create();
     $this->org->users()->attach($this->admin->id, ['role' => 'admin']);
 
-    Config::set('subscription.standard.stripe.base_monthly', 'price_test_base_monthly');
-    Config::set('subscription.standard.stripe.base_yearly', 'price_test_base_yearly');
+    Config::set('subscription.standard.stripe.edge', 'price_test_edge_monthly');
+    Config::set('subscription.standard.stripe.edge_yearly', 'price_test_edge_yearly');
 });
 
-test('on dply trial property reflects trial window', function () {
-    $this->org->update(['trial_ends_at' => now()->addDays(7)]);
+test('billing page renders edge-site billing with no server plan residue', function () {
+    $server = Server::factory()->for($this->org)->create(['status' => Server::STATUS_READY]);
+    Site::factory()->for($this->org)->for($server)->create([
+        'status' => Site::STATUS_EDGE_ACTIVE,
+        'edge_backend' => 'dply_edge',
+        'created_at' => now()->subDays(5),
+    ]);
 
     Livewire::actingAs($this->admin)
         ->test(BillingShow::class, ['organization' => $this->org])
-        ->assertSet('onDplyTrial', true);
-});
-
-test('trial days left is zero after trial expires', function () {
-    $org = Organization::factory()->create(['trial_ends_at' => now()->subDay()]);
-    $org->users()->attach($this->admin->id, ['role' => 'admin']);
-
-    Livewire::actingAs($this->admin)
-        ->test(BillingShow::class, ['organization' => $org])
-        ->assertSet('onDplyTrial', false)
-        ->assertSet('dplyTrialDaysLeft', 0);
+        ->assertOk()
+        ->assertSee('Edge sites')
+        ->assertSee('dply Edge site')
+        ->assertSee('How billing works')
+        // An Edge price is configured, so the Subscribe CTA is offered.
+        ->assertSee('Pay yearly')
+        ->assertDontSee('Any size, any provider')
+        ->assertDontSee('One flat plan')
+        ->assertDontSee('dply plan');
 });
 
 test('subscribe rejects invalid intervals', function () {
@@ -48,7 +53,7 @@ test('subscribe rejects invalid intervals', function () {
 
 test('subscribe rejects when already subscribed', function () {
     Subscription::factory()
-        ->withPrice('price_test_base_monthly')
+        ->withPrice('price_test_edge_monthly')
         ->active()
         ->create(['organization_id' => $this->org->id]);
 
@@ -59,8 +64,8 @@ test('subscribe rejects when already subscribed', function () {
 });
 
 test('subscribe fails gracefully when pricing not configured', function () {
-    Config::set('subscription.standard.stripe.base_monthly', '');
-    Config::set('subscription.standard.stripe.base_yearly', '');
+    Config::set('subscription.standard.stripe.edge', '');
+    Config::set('subscription.standard.stripe.edge_yearly', '');
 
     Livewire::actingAs($this->admin)
         ->test(BillingShow::class, ['organization' => $this->org])
@@ -88,12 +93,12 @@ test('switch interval rejects when no subscription', function () {
 
 test('switch interval rejects when target prices unconfigured', function () {
     Subscription::factory()
-        ->withPrice('price_test_base_monthly')
+        ->withPrice('price_test_edge_monthly')
         ->active()
         ->create(['organization_id' => $this->org->id]);
 
     // Current interval resolves to monthly → target is yearly → unconfigure it.
-    Config::set('subscription.standard.stripe.base_yearly', '');
+    Config::set('subscription.standard.stripe.edge_yearly', '');
 
     Livewire::actingAs($this->admin)
         ->test(BillingShow::class, ['organization' => $this->org])
@@ -114,7 +119,7 @@ test('cancel rejects when no active subscription', function () {
 
 test('cancel rejects when already canceled', function () {
     Subscription::factory()
-        ->withPrice('price_test_base_monthly')
+        ->withPrice('price_test_edge_monthly')
         ->create([
             'organization_id' => $this->org->id,
             'stripe_status' => 'canceled',
@@ -132,7 +137,7 @@ test('cancel rejects when already canceled', function () {
 
 test('resume rejects when not in grace period', function () {
     Subscription::factory()
-        ->withPrice('price_test_base_monthly')
+        ->withPrice('price_test_edge_monthly')
         ->active()
         ->create(['organization_id' => $this->org->id]);
 

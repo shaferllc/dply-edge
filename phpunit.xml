@@ -16,16 +16,10 @@
             <directory>tests/Feature</directory>
         </testsuite>
 
-        <!-- Tests that live beside the code they cover. The Modules suite went
-             with the VM platform (every module-local test file was TaskRunner's),
-             so only the Actions framework's own tests remain here.
-
-             Registered so it is runnable and visible (`composer test:app`), but
-             kept OUT of defaultTestSuite above until the rot is paid down. -->
-        <!-- @see composer.json scripts: test, test:app, test:all -->
-        <testsuite name="App">
-            <directory suffix="Test.php">app/Actions</directory>
-        </testsuite>
+        <!-- The Modules suite went with the VM platform (every module-local
+             test file was TaskRunner's), and the App suite went with the unused
+             Actions framework (2026-09-11). -->
+        <!-- @see composer.json scripts: test, test:all -->
 
         <!-- Pest arch tests: structural invariants checked by parsing app/.
              The whole-app scan costs ~45s and needs 2G (the file raises
@@ -48,10 +42,6 @@
         <!-- Test files live under app/ too; they are not production code and
              would otherwise inflate/skew coverage of the real classes. -->
         <exclude>
-            <directory>app/Actions/Attributes/tests</directory>
-            <directory>app/Actions/Concerns/tests</directory>
-            <directory>app/Actions/Decorators/tests</directory>
-            <directory>app/Actions/Tests</directory>
             <directory>app/Modules/*/Tests</directory>
         </exclude>
     </source>
@@ -67,7 +57,7 @@
         <env name="DB_CONNECTION" value="pgsql"/>
         <env name="DB_HOST" value="127.0.0.1"/>
         <env name="DB_PORT" value="5432"/>
-        <env name="DB_DATABASE" value="dply_testing"/>
+        <env name="DB_DATABASE" value="dply_edge_testing"/>
         <env name="DB_USERNAME" value="postgres"/>
         <env name="DB_PASSWORD" value=""/>
         <env name="DB_URL" value=""/>

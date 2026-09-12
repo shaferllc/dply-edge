@@ -10,25 +10,14 @@ use App\Models\Site;
 /**
  * The product surfaces that carry their own plan ceiling.
  *
- * Every managed thing dply runs is a `Site` row, but they are not
- * interchangeable units of value: a VM site consumes a machine the customer
- * already pays a plan tier for, while Edge apps and functions are
- * billed a la carte per app (see `edge_cents` /
- * `serverless_cents` in config/product/subscription.php).
- *
- * They used to share ONE org-wide ceiling, so a Free org with two Edge static
- * sites and one function was locked out of its first VM site and read a
- * "3 / 1" limit on a server showing "No sites yet". Each surface now counts and
- * blocks independently.
- *
- * `Site` deliberately covers container (Docker/Kubernetes) apps too — those
- * live on a real machine host, so they belong to the machine-site ceiling.
+ * dply-edge only mints Edge sites, so `Edge` is the ceiling that matters (Free
+ * orgs: `plans.free.max_edge_apps`; any paid subscription is uncapped). `Site`
+ * is the fallback for a row whose host is not an Edge delivery host.
  */
 enum QuotaSurface: string
 {
     case Site = 'site';
     case Edge = 'edge';
-    case Serverless = 'serverless';
 
     /**
      * Which surface a site's usage counts against, decided by the host row.
@@ -99,7 +88,6 @@ enum QuotaSurface: string
         return match ($this) {
             self::Site => 'max_sites',
             self::Edge => 'max_edge_apps',
-            self::Serverless => 'max_functions',
         };
     }
 
@@ -112,7 +100,6 @@ enum QuotaSurface: string
         return match ($this) {
             self::Site => 'sites',
             self::Edge => 'edge_apps',
-            self::Serverless => 'functions',
         };
     }
 
@@ -124,7 +111,6 @@ enum QuotaSurface: string
         return match ($this) {
             self::Site => 25,
             self::Edge => 25,
-            self::Serverless => 25,
         };
     }
 
@@ -136,7 +122,6 @@ enum QuotaSurface: string
         return match ($this) {
             self::Site => 'site|sites',
             self::Edge => 'Edge app|Edge apps',
-            self::Serverless => 'function|functions',
         };
     }
 
@@ -153,32 +138,8 @@ enum QuotaSurface: string
         return match ($this) {
             self::Site => 'site',
             self::Edge => 'Edge app',
-            self::Serverless => 'function',
         };
     }
-
-    /**
-     * Where the org reviews what is already consuming this ceiling.
-     */
-    public function indexRouteName(): string
-    {
-        return match ($this) {
-            self::Site => 'sites.index',
-            self::Edge => 'edge.index',
-            self::Serverless => 'serverless.index',
-        };
-    }
-
-    /**
-     * Ceilings in the order they are shown to customers.
-     *
-     * @return list<self>
-     */
-    public static function ordered(): array
-    {
-        return [self::Site, self::Edge, self::Serverless];
-    }
-
 
     /**
      * Host kinds a surface's quota counts, or null when it doesn't count hosts.

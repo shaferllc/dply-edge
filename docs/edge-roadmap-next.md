@@ -1,6 +1,6 @@
 # dply Edge roadmap — next phases
 
-Status: **Waves A–E all complete ✅** (Wave E closed 2026-07-09).
+Status: **History.** Waves A–E all complete ✅ (Wave E closed 2026-07-09). Kept as a record; remaining work is tracked in `.story/`, not here.
 
 Continuation of [edge-roadmap.md](edge-roadmap.md). Phases 0–4 shipped the core deploy loop, custom domains, and hybrid SSR. The phases below take Edge from "works" to "feels finished" and competitive with Vercel / Netlify / Cloudflare Pages.
 

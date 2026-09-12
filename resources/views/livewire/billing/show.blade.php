@@ -1,7 +1,7 @@
 @php
     // At-a-glance figures for the hero stat strip. The "status" tile is the
     // big one — color-coded so it doubles as a banner.
-    $billableCount = $this->billableServers->count();
+    $edgeSiteCount = $this->billingState->edgeCount;
     $monthlyCents = (int) ($this->billingState->monthlyTotalCents ?? 0);
     $intervalLabel = $this->subscriptionInterval === 'year' ? __('billed annually') : __('billed monthly');
 
@@ -19,10 +19,6 @@
         $statusTone = 'success';
         $statusLabel = __('Active');
         $statusSub = $intervalLabel;
-    } elseif ($this->onDplyTrial) {
-        $statusTone = 'info';
-        $statusLabel = __('Trial');
-        $statusSub = trans_choice(':n day left|:n days left', $this->dplyTrialDaysLeft, ['n' => $this->dplyTrialDaysLeft]);
     } else {
         $statusTone = 'neutral';
         $statusLabel = __('No plan');
@@ -46,36 +42,12 @@
 @endphp
 
 <div>
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"
-         x-data="{
-             billingPreviewAnnual: @js($this->subscriptionInterval === 'year'),
-             {{-- One number, because the plan is chosen by total server count.
-                  This was five xs/s/m/l/xl counters that only ever got summed. --}}
-             previewServerCount: @js($this->billingState->serverCount()),
-             previewPlans: @js($this->planCatalog),
-             previewAnnualPct: @js((int) config('subscription.standard.annual_discount_pct', 20)),
-             get previewPlan() {
-                 const count = this.previewServerCount;
-                 for (const plan of this.previewPlans) {
-                     if (plan.max === null || count <= plan.max) return plan;
-                 }
-                 return this.previewPlans[this.previewPlans.length - 1];
-             },
-             get previewMonthlyTotal() {
-                 return Math.max(0, this.previewPlan ? this.previewPlan.price : 0);
-             },
-             get previewBilledTotal() {
-                 return this.billingPreviewAnnual
-                     ? Math.round(this.previewMonthlyTotal * 12 * (1 - this.previewAnnualPct / 100))
-                     : this.previewMonthlyTotal;
-             },
-             fmt(n) { return '$' + (Math.round(n * 100) / 100).toFixed(2); }
-         }">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <x-organization-shell
             :organization="$organization"
             section="billing"
             :title="__('Billing & plan')"
-            :description="__('Simple pricing for :org. One flat plan chosen by server count — your first server is free, any size on any cloud. Managed products bill per unit on top.', ['org' => $organization->name])"
+            :description="__('Simple pricing for :org. A flat monthly fee per live production Edge site, plus metered delivery usage — previews are free.', ['org' => $organization->name])"
             icon="heroicon-o-credit-card"
             :breadcrumb="[
                 ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
@@ -110,12 +82,10 @@
                         </dd>
                     </div>
                     <div class="bg-white px-3 py-2">
-                        <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Servers') }}</dt>
+                        <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Edge sites') }}</dt>
                         <dd class="mt-0.5 flex items-baseline gap-1.5">
-                            <span class="font-mono text-base font-semibold tabular-nums text-brand-ink">{{ $billableCount }}</span>
-                            <span class="truncate text-xs text-brand-moss">
-                                {{ __('billable') }}@if ($this->excludedServers->isNotEmpty()) · {{ __('+:n excluded', ['n' => $this->excludedServers->count()]) }}@endif
-                            </span>
+                            <span class="font-mono text-base font-semibold tabular-nums text-brand-ink">{{ $edgeSiteCount }}</span>
+                            <span class="truncate text-xs text-brand-moss">{{ __('live · billable') }}</span>
                         </dd>
                     </div>
                     <div class="bg-white px-3 py-2">
@@ -149,7 +119,7 @@
                                 {{ __('You’re in the dply beta — $0, nothing due') }}
                             </p>
                             <p class="mt-1 text-sm text-brand-moss">
-                                {{ __('Your platform fee is waived and your dply-managed server is on us during the beta. Connect your own cloud servers free. Need more servers, or want to lock in early? Subscribe any time below — your free managed server stays free.') }}
+                                {{ __('Your Edge site fees are waived during the beta. Want to lock in early? Subscribe any time below.') }}
                             </p>
                         </div>
                         <button type="button" wire:click="subscribeStandard('month')" wire:loading.attr="disabled" wire:target="subscribeStandard"
@@ -193,40 +163,6 @@
             </div>
 
             @include('livewire.billing.partials.bill-hero')
-            @include('livewire.billing.partials.bill-preview')
-
-            {{-- Bundled products (free tracely + Lookout). Hidden while the perk
-                 is dark or for orgs that don't participate — see getBundleProperty(). --}}
-            @if ($this->bundle !== null)
-                @php
-                    $bundle = $this->bundle;
-                    $bundleActive = ($bundle['status'] ?? null) === \App\Models\OrganizationBundleEntitlement::STATUS_ACTIVE;
-                @endphp
-                <section class="border-b border-brand-ink/10">
-                    <x-workspace-panel-head dense icon="heroicon-o-gift" :title="__('Bundled products')" :note="__('Included with your plan')">
-                        <x-slot:actions>
-                            <span @class([
-                                'shrink-0 rounded px-1.5 py-px text-2xs font-semibold uppercase tracking-wide',
-                                'bg-brand-forest/10 text-brand-forest' => $bundleActive,
-                                'bg-amber-100 text-amber-800' => ! $bundleActive,
-                            ])>{{ $bundleActive ? __('Active') : ($bundle['entitled'] ? __('Provisioning') : __('Paused')) }}</span>
-                        </x-slot:actions>
-                    </x-workspace-panel-head>
-                    <div class="px-3 py-3 sm:px-4">
-                        <p class="text-sm leading-relaxed text-brand-moss">
-                            @if ($bundle['entitled'])
-                                {{ __('Your annual plan includes free access to tracely (analytics) and Lookout (error tracking). Sign in to each with your dply account.') }}
-                            @else
-                                {{ __('These were included with your annual plan. Access is paused now that the plan no longer qualifies — your data is retained and restored if you re-subscribe.') }}
-                            @endif
-                        </p>
-                        <div class="mt-3 flex flex-wrap gap-4 text-sm font-medium">
-                            <span class="inline-flex items-center gap-1.5 text-brand-ink"><span class="h-1.5 w-1.5 rounded-full {{ $bundleActive ? 'bg-brand-forest' : 'bg-brand-mist' }}"></span>tracely</span>
-                            <span class="inline-flex items-center gap-1.5 text-brand-ink"><span class="h-1.5 w-1.5 rounded-full {{ $bundleActive ? 'bg-brand-forest' : 'bg-brand-mist' }}"></span>Lookout</span>
-                        </div>
-                    </div>
-                </section>
-            @endif
 
             {{-- Payment method --}}
             <section class="border-b border-brand-ink/10">
@@ -351,7 +287,7 @@
                         dense
                         :icon="$this->onGracePeriod ? 'heroicon-o-clock' : 'heroicon-o-arrow-path'"
                         :title="__('Cancel or resume')"
-                        :note="__('Cancel keeps your data and servers — billing just stops at the end of the period.')"
+                        :note="__('Cancel keeps your sites and data — billing just stops at the end of the period.')"
                     />
                     <div class="px-3 py-3 sm:px-4">
                         @if ($this->onGracePeriod)
@@ -470,7 +406,7 @@
                             @endif
                         </p>
                         <p class="mt-2 text-sm text-brand-moss leading-relaxed">
-                            {{ __('Your servers, sites, and data stay intact. After the period ends, deploys pause; agents disconnect 30 days later. You can resume anytime before the period ends.') }}
+                            {{ __('Your sites and data stay intact. You can resume anytime before the period ends.') }}
                         </p>
                         <div class="mt-6 flex justify-end gap-3">
                             <x-secondary-button type="button" x-on:click="$dispatch('close-modal', 'cancel-subscription')">

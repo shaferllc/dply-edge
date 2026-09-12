@@ -1,0 +1,13 @@
+{
+  "blockedBy": [],
+  "completedDate": "2026-09-11",
+  "createdDate": "2026-09-11",
+  "description": "Done 2026-09-11 (ruling: CLI cut to Edge core). Deleted server/serverless/project/site/errors/uptime/init modules + tests; shared site lookups now use GET edge/sites; deploy is edge-only with a re-link error for old non-edge links. node --test: 32/32. README rewritten.",
+  "displayId": "T-011",
+  "id": "T-011",
+  "order": 40,
+  "phase": "cut-cleanup",
+  "status": "complete",
+  "title": "Cut the VM-era CLI commands",
+  "type": "chore"
+}

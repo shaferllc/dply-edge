@@ -74,7 +74,7 @@ class AuditLog extends Model
      * resolves to null. The raw column is untouched — {@see subjectSummary()}
      * still labels the row from it.
      *
-     * @return Attribute<?string, ?string>
+     * @return Attribute<class-string|null, never>
      */
     protected function subjectType(): Attribute
     {

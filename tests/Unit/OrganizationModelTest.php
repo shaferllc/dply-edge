@@ -71,10 +71,10 @@ test('user is deployer', function () {
     expect($org->hasAdminAccess($user))->toBeFalse();
 });
 
-test('plan tier label defaults to trial without a pro subscription', function () {
+test('plan tier label defaults to free without a paid subscription', function () {
     $org = new Organization;
 
-    expect($org->planTierLabel())->toBe('Trial');
+    expect($org->planTierLabel())->toBe('Free');
 });
 
 test('plan tier label returns standard when org is on standard', function () {
@@ -167,7 +167,7 @@ test('max servers is unlimited for all orgs', function () {
 
 test('unlimited plans never block site creation', function () {
     config(['subscription.standard.plans' => [
-        'business' => ['label' => 'Business', 'price_cents' => 3900, 'max_servers' => null, 'max_sites' => null],
+        'free' => ['label' => 'Free', 'price_cents' => 0, 'max_sites' => null],
     ]]);
 
     $org = Organization::factory()->create();
@@ -179,30 +179,6 @@ test('unlimited plans never block site creation', function () {
     expect($org->siteLimitMessage())->toBe('');
 });
 
-test('org creation starts a 14 day trial', function () {
-    config(['subscription.standard.trial_days' => 14]);
-    $org = Organization::factory()->create();
-
-    expect($org->trial_ends_at)->not->toBeNull();
-    expect($org->trial_ends_at->isFuture())->toBeTrue();
-    expect(now()->diffInSeconds($org->trial_ends_at, false))->toEqualWithDelta(14 * 86400, 5);
-});
-
-test('org creation respects explicitly set trial', function () {
-    $explicit = now()->addDays(30);
-    $org = Organization::factory()->create(['trial_ends_at' => $explicit]);
-
-    expect($org->trial_ends_at->timestamp)->toEqualWithDelta($explicit->timestamp, 2);
-});
-
-test('on dply trial is true while trial is future', function () {
-    $org = Organization::factory()->create(['trial_ends_at' => now()->addDay()]);
-
-    expect($org->onDplyTrial())->toBeTrue();
-});
-
-test('on dply trial is false after trial expires', function () {
-    $org = Organization::factory()->create(['trial_ends_at' => now()->subDay()]);
-
-    expect($org->onDplyTrial())->toBeFalse();
+test('org creation no longer starts a trial', function () {
+    expect(Organization::factory()->create()->trial_ends_at)->toBeNull();
 });

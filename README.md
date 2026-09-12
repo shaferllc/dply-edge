@@ -1,84 +1,58 @@
-# Dply
+# dply Edge
 
-Single Laravel application that runs the dply platform: connect providers, provision or attach servers, manage sites, and deploy across BYO (SSH), Serverless (OpenWhisk / Lambda / DigitalOcean Functions), managed Cloud containers (DigitalOcean App Platform, AWS App Runner), and Edge static / hybrid (Cloudflare Workers + R2). All product lines share one org, one vault, one billing surface.
+Single Laravel application that runs **dply Edge**: first-party Netlify-style static, hybrid and SSR hosting on Cloudflare Workers + R2. Connect a Git repo, get a build, a production URL, a preview per push, custom domains and edge analytics.
 
-> **Start here:** [docs/BYO_LOCAL_SETUP.md](docs/BYO_LOCAL_SETUP.md) — step-by-step local setup.
+> **Start here:** [docs/edge-local-development.md](docs/edge-local-development.md) for local setup, [docs/edge-production-setup.md](docs/edge-production-setup.md) for production, and [docs/EDGE_OVERVIEW.md](docs/EDGE_OVERVIEW.md) for the product.
 
-**Repository:** the Laravel app lives at the repository root. The only other tracked piece is **`packages/dply-core`**, a small shared PHP library consumed via a Composer path repository. There are no `apps/*` Laravel installs and no separate identity service. See **[docs/MONOREPO_AND_APPS.md](docs/MONOREPO_AND_APPS.md)**.
+This is the Edge-only cut of dply — the VM platform (BYO servers, SSH), Cloud apps, Serverless and the other product lines were removed on 2026-08-25. See [CLAUDE.md](CLAUDE.md) for the codebase map.
 
-## Product lines
+## What you get
 
-All product lines ship from this one app and one Postgres database. New surfaces are gated behind Pennant flags (`surface.*`) so internal dogfooders and design partners can opt in without a redeploy.
+- Git-connected builds with framework presets (Next, Astro, SvelteKit, Remix, Nuxt, Hono, Vite, Eleventy, Hugo, Jekyll, Gatsby, static)
+- Preview deploys per push, password / account-gated previews, preview comments
+- Per-deploy aliases, rollback and promote, split traffic (A/B)
+- `dply.yaml` in-repo config: build, redirects, rewrites, headers, bindings, crons
+- Edge middleware, KV / R2 / D1 / Queues bindings, cron triggers, deploy hooks
+- Custom domains with managed TLS, firewall, rate limits, bot protection, waiting room
+- Live request logs, RUM / Web Vitals, deploy notifications, audit log
+- Import from Vercel, Netlify and Cloudflare Pages (`/edge/import`), template gallery (`/edge/templates`)
 
-| Surface | Status | Flag | What it is |
-|---------|--------|------|------------|
-| **BYO servers** | Shipped, on by default | — | Provision / attach VMs (DO, Hetzner, Linode, Vultr, UpCloud, Scaleway, AWS EC2, Equinix Metal, Fly.io). Nginx, TLS, PHP-FPM, Node, static, databases, cron, daemons, firewall over SSH. |
-| **Cloud apps** | Shipped, gated | `surface.cloud` | App-first managed PaaS (Laravel-Cloud-style). Cloud apps run as containers on DigitalOcean App Platform or AWS App Runner via the `EdgeBackend` interface. |
-| **Edge** | Shipped, gated | `surface.edge` | First-party Netlify-style static + hybrid SSR on Cloudflare Workers + R2. Git previews, custom domains, deploy hooks, build logs, traffic analytics. |
-| **Serverless** | Shipped, gated | `surface.serverless` | FaaS via DigitalOcean Functions / OpenWhisk + AWS Lambda. Per-function flat fee, web functions, invocation logs. |
-| **WordPress** | Planned | — | Managed WordPress on dply-controlled infra. Not yet implemented. |
+## Pricing model
 
-Long-term product roadmap: [docs/MULTI_PRODUCT_PLATFORM_PLAN.md](docs/MULTI_PRODUCT_PLATFORM_PLAN.md). Edge phase plan: [docs/edge-roadmap-next.md](docs/edge-roadmap-next.md).
+A flat per-site platform fee (SSR sites cost more) plus metered CDN requests and bandwidth. Previews are free. Orgs can run up to three sites without a card; subscribing removes the cap. See [docs/EDGE_BILLING.md](docs/EDGE_BILLING.md).
 
-Across every surface you get one org-scoped vault, one billing relationship, one audit trail, one notification fabric (Slack / Discord / Telegram / Teams / webhooks at org / team / user scope).
-
-## Quick start (summary)
+## Quick start
 
 ```bash
-composer install
-cp .env.example .env
-php artisan key:generate
-# Create an empty PostgreSQL database matching DB_DATABASE in .env (see docs/BYO_LOCAL_SETUP.md).
-php artisan migrate
-npm install && npm run build
-php artisan queue:work           # second terminal — provisioning / deploy jobs (required)
-php artisan serve
+composer setup                # install, .env, key, migrate, npm build
+composer dev                  # serve + queues + logs + reverb + scheduler
 ```
 
-Or run **`composer dev`** (server + queue + Vite + Reverb + logs together), or **`php artisan solo`** for panes (Queue, Reverb, optional Jetty when `JETTY_START_COMMAND` is set).
-
-Then open the app URL, register, and use **Credentials** / **Servers** as needed. Full detail (DigitalOcean from localhost, tunnels, `DPLY_PUBLIC_APP_URL`, Jetty) is in **[docs/BYO_LOCAL_SETUP.md](docs/BYO_LOCAL_SETUP.md)**.
-
-## Migrating from incumbents
-
-dply ships import wizards for the obvious moves:
-
-- **Forge** → `/imports/forge` (server + site inventory, env, deploy hooks)
-- **Ploi** → `/imports/ploi` (servers, sites, migration progress)
-- **Vercel** (Edge) → `/edge/import` (projects, env, framework presets)
-
-After import you keep an ongoing parity view — see the [differentiation backlog](docs/DIFFERENTIATION_IDEAS.md) for where this is headed.
+PostgreSQL is required (`DB_DATABASE` in `.env`). Builds and publishes run on the queue, so `composer dev` (or `php artisan queue:work`) must be running for deploys to progress.
 
 ## API + CLI
 
-Everything the dashboard does is scriptable.
-
-- **Edge public REST API** (Wave A): OpenAPI spec at [`public/openapi/edge.json`](public/openapi/edge.json). Bearer-auth with org-scoped tokens (Settings → API tokens). Covers sites, deployments, previews, domains, aliases, cache purge, usage, logs, and lint.
-- **`dply` CLI** ([`packages/dply-cli/`](packages/dply-cli/), published as `@dply/cli`): zero-dependency Node CLI for the Edge API. `dply login` uses OAuth device flow (GitHub-CLI-style); `dply deploy`, `dply promote`, `dply rollback`, `dply domains`, `dply usage`.
-- **Fleet operator API** (internal): see below.
+- **Edge REST API** under `/api/v1/edge/*` — OpenAPI spec at [`public/openapi/edge.json`](public/openapi/edge.json). Bearer tokens from Settings → API tokens.
+- **`dply` CLI** in [`packages/dply-cli/`](packages/dply-cli/): `dply login` (device flow), `dply link`, `dply edge deploy --prod`, `logs --tail`, `env`, `rollback`, `promote`, `domains`, `purge`.
+- **Edge Worker** in [`packages/edge-worker/`](packages/edge-worker/) — the Cloudflare Worker that serves every site.
 
 ## Stack
 
-- **Laravel 13**, **Livewire 4**, **Laravel Cashier**
-- **PostgreSQL** (single control-plane DB; SQLite is not used)
-- Encrypted storage for provider tokens and SSH private keys (`APP_KEY` required)
+- Laravel 13, Livewire 4, Laravel Cashier (Stripe), Reverb
+- PostgreSQL (single control-plane DB)
+- Cloudflare Workers, R2, KV, dispatch namespaces
+
+## Tests
+
+```bash
+composer test                 # Unit + Feature suites
+composer test:arch            # Pest arch rules
+```
 
 ## Security
 
-- Protect `APP_KEY` and use HTTPS in production.
-- Do not commit `.env` or real keys.
+Protect `APP_KEY` and use HTTPS in production. Do not commit `.env` or real keys.
 
 ## License
 
 MIT.
-
-## Fleet operator API
-
-Internal JSON endpoints for fleet-wide dashboards (e.g. Fleet Console). Set **`FLEET_OPERATOR_TOKEN`** in `.env` here and on the console. Use **`Authorization: Bearer <token>`** or **`X-Fleet-Operator-Token`**. Unconfigured token → **503**.
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/operator/summary` | Snapshot counts / metrics |
-| GET | `/api/v1/operator/readme` | Root `README.md` as JSON (`format`, `content`, `title`) |
-
-Public product APIs are versioned under **`/api/v1/`** (see `routes/api.php`). Webhooks and UI routes are in `routes/web.php`.

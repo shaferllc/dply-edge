@@ -2,14 +2,14 @@
   "blockedBy": [
     "T-004"
   ],
-  "completedDate": null,
+  "completedDate": "2026-09-11",
   "createdDate": "2026-09-04",
-  "description": "CLAUDE.md calls app/Actions/* \"untouched and unreferenced by the app\" and sizes it at ~330 files. Both claims are wrong and the doc needs fixing as part of this ticket.\n\nIt is 380 files, and 10 files outside the directory import from it: app/Livewire/Auth/Login.php, Auth/Register.php, Settings/Security.php, Settings/SourceControl.php, Organizations/Settings.php, Concerns/ManagesDeployContract.php, app/Jobs/ExecuteDebouncedAction.php, database/seeders/DatabaseSeeder.php, and two exception classes. The Pest arch tests and phpunit.xml's App suite reference it too. A wholesale delete breaks login and registration.\n\nBuild the real consumer inventory first. Keep or relocate the classes that are actually used (including the debounce decorator path behind ExecuteDebouncedAction), then delete the demonstrably dead remainder. Retiring the App test suite from phpunit.xml — documented as not green — is part of the same decision.\n",
+  "description": "Done 2026-09-11 (ruling r-f6dq42jw0h1r0h87). Deleted 375 Actions-framework files + ExecuteDebouncedAction job/test; kept the 5 plain classes (Auth/EnsureLocalDevAdminUser, Auth/UnlinkSocialAccount, Organizations/EnsureUserHasWorkspaceOrganization, Organizations/DeleteOrganizationAction, DeployContract/WaiveDeployContractRun). Removed phpunit.xml App suite + coverage excludes, composer test:app + exclude-from-classmap, Pest 'app' group, phpstan excludes, ArchTest rules for the framework. SecretReencryptCoverageTest entry for AsEncrypted removed. Arch 8/8; full suite green (one unrelated timing flake in EdgePreviewProtectionTest fixed with freezeTime).",
   "displayId": "T-006",
   "id": "T-006",
   "order": 10,
   "phase": "dead-weight",
-  "status": "open",
+  "status": "complete",
   "title": "Inventory app/Actions/* and retire only the dead part",
   "type": "task"
 }

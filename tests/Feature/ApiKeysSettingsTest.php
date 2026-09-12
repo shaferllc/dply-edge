@@ -38,7 +38,7 @@ test('org admin can create token with granular permissions', function () {
         ->test(ApiKeys::class)
         ->set('organization_id', $org->id)
         ->set('token_name', 'CI')
-        ->set('selected_abilities', ['servers.read', 'sites.deploy'])
+        ->set('selected_abilities', ['servers.read', 'edge.deploy'])
         ->call('createToken')
         ->assertHasNoErrors();
 
@@ -50,7 +50,7 @@ test('org admin can create token with granular permissions', function () {
 
     $token = ApiToken::query()->where('name', 'CI')->first();
     expect($token)->not->toBeNull();
-    expect($token->abilities ?? [])->toEqualCanonicalizing(['servers.read', 'sites.deploy']);
+    expect($token->abilities ?? [])->toEqualCanonicalizing(['servers.read', 'edge.deploy']);
 });
 
 test('create requires at least one permission', function () {

@@ -407,13 +407,10 @@ locally: set the full flag false in `.env`, then `config:clear` +
 
 - **Plans are flat, metered by app count**, never seat-based — team seats are
   always unlimited. There is **no org base fee**.
-- **Ceilings are per product surface, not one shared pool**
-  (`App\Enums\QuotaSurface`), with its own beta envelope per surface. They used
-  to share one org-wide ceiling, which is how a Free org with two Edge sites
-  read "3 / 1" and was hard-blocked from creating anything else. Each create
-  gate asks its own surface; previews consume nothing.
-- Managed-surface ceilings are **abuse bounds, not revenue levers** — the
-  surface bills per app anyway — so they are set generously.
+- **Free = 3 live Edge sites without a card** (`plans.free.max_edge_apps`).
+  **Any paid subscription removes the cap** (`quotaLimit()` returns null) — the
+  sites bill per app anyway, so a cap on payers is no revenue lever. There are
+  no plan tiers and no trial. Previews consume nothing.
 - **Edge** (managed `dply_edge` only) = **$2/mo** per live static or hybrid
   site, **$7/mo** per Worker-native SSR site
   (`subscription.standard.edge_ssr_cents`, Stripe `edge_ssr`) — never "sites
@@ -579,15 +576,8 @@ locally: set the full flag false in `.env`, then `config:clear` +
 Not conventions — traps. These are places where the code still carries the old
 shape, tracked as tickets rather than fixed here:
 
-- `App\Enums\QuotaSurface` still has a `Serverless` case, and
-  `config/features.php` still registers `cache.*`, `database.*`, `provider.*`
-  and `launch.*` namespaces for products that no longer exist.
-- The upgrade path still tells operators to "add a server to move up to the
-  next plan". There are no servers to add.
-- `app/Actions/*` is **not** dead code, despite what `CLAUDE.md` says — ten
-  files outside it import from it, including `Livewire/Auth/Login` and
-  `Auth/Register`.
-- Migrations still create the removed products' tables on a fresh database.
+- `App\Enums\QuotaSurface` still has a `Site` case. Nothing but an orphaned
+  non-Edge row can land on it.
 - `docs/edge-roadmap.md` and `docs/edge-roadmap-next.md` are **completed
   history** through 2026-07-09, and they predate the cut. They carry their own
   doc-drift warning. Do not read them as a forward plan.

@@ -2,14 +2,14 @@
   "blockedBy": [
     "T-004"
   ],
-  "completedDate": null,
+  "completedDate": "2026-09-11",
   "createdDate": "2026-09-04",
-  "description": "The last measured figure, 43.5% of statements on 2026-08-16, predates the cut and is meaningless — two thirds of both app/ and tests/ are gone.\n\nRun composer test:coverage:clover (about 7 minutes). Do not combine it with TIA: a replay-measured percentage reports whatever TIA chose to re-execute, not a property of the codebase. Record the new baseline in CLAUDE.md, replacing the stale number.\n",
+  "description": "Measured 2026-09-11 after the Edge-only cleanup: 41.6% of statements (18,417 / 44,232) via `composer test:coverage:clover` (pcov, full run, no TIA). The old 43.5% predates the cut and is not comparable. CLAUDE.md's \"Measuring coverage\" section should quote this figure.",
   "displayId": "T-005",
   "id": "T-005",
   "order": 20,
   "phase": "suite-recovery",
-  "status": "open",
+  "status": "complete",
   "title": "Re-measure coverage post-cut",
   "type": "chore"
 }

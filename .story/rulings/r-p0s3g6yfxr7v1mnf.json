@@ -1,0 +1,15 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-11",
+  "id": "r-p0s3g6yfxr7v1mnf",
+  "recordedBy": {
+    "client": "claude",
+    "id": "5074b3ad-52da-4ffb-b8a2-ffbe5b4f969f"
+  },
+  "scopeTags": [
+    "migrations",
+    "T-007"
+  ],
+  "supersedes": null,
+  "text": "Removed-product migrations: drop + squash. Drop the 61 tables no live code references (migration 2026_09_11_000000_drop_removed_product_tables, DROP ... CASCADE, irreversible), then schema:dump --prune. Owner confirmed with full knowledge that it deletes that data on every existing install including production (\"All of it, go\"), and permitted migrate:fresh on dply_testing only. Back up production before deploying."
+}

@@ -1,0 +1,13 @@
+{
+  "blockedBy": [],
+  "completedDate": "2026-09-11",
+  "createdDate": "2026-09-11",
+  "description": "Fixed 2026-09-11 (ruling: Edge-only token catalog). deployer_api_allowlist now mirrors cli.device_flow_role_caps.deployer (account.read/write, edge.read/deploy/env.read, sites.read, servers.read). Catalog trimmed to Edge, Edge env, Notifications, Billing, Account, MCP (sites/servers read); dead http_route_abilities keys and unused presets removed. Regression: tests/Unit/ApiTokenDeployerTest.php (incl. a guard that the device-flow deployer cap stays inside the allowlist). DplyCliCommandCatalog (Profile → CLI page) rewritten to the Edge CLI; dead palette entries removed. Full suite green.",
+  "displayId": "T-015",
+  "id": "T-015",
+  "order": 40,
+  "phase": "edge-polish",
+  "status": "complete",
+  "title": "Deployer-role tokens are refused on every Edge API call",
+  "type": "task"
+}

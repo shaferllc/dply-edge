@@ -66,7 +66,6 @@ test('every encrypt() write site is classified for rotation coverage', function 
         'app/Livewire/TwoFactor/Page.php' => 'raw_crypt: users.two_factor_secret/recovery_codes',
 
         // --- not APP_KEY at-rest data (no registry entry needed) ---
-        'app/Actions/Concerns/AsEncrypted.php' => 'trait definition; not used to persist in-app',
         'app/Modules/Secrets/Console/SecretsReencryptCommand.php' => 'the rotation engine itself',
         'app/Modules/Secrets/Services/AgeEncryptor.php' => 'age encryption, not APP_KEY',
         'app/Modules/Secrets/Services/SecretVault.php' => 'delegates to age, not APP_KEY',
