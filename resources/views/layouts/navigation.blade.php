@@ -15,11 +15,9 @@
                     <x-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
                         {{ __('Dashboard') }}
                     </x-nav-link>
-                    @feature('surface.edge')
-                        <x-nav-link :href="route('edge.index')" :active="request()->routeIs('edge.*')">
-                            {{ __('Projects') }}
-                        </x-nav-link>
-                    @endfeature
+                    <x-nav-link :href="route('edge.index')" :active="request()->routeIs('edge.*')">
+                        {{ __('Projects') }}
+                    </x-nav-link>
                     @can('viewAny', App\Models\ProviderCredential::class)
                         <x-nav-link :href="route('credentials.index')" :active="request()->routeIs('credentials.*')">
                             {{ __('Credentials') }}
@@ -86,11 +84,9 @@
             <x-responsive-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
                 {{ __('Dashboard') }}
             </x-responsive-nav-link>
-            @feature('surface.edge')
-                <x-responsive-nav-link :href="route('edge.index')" :active="request()->routeIs('edge.*')">
-                    {{ __('Projects') }}
-                </x-responsive-nav-link>
-            @endfeature
+            <x-responsive-nav-link :href="route('edge.index')" :active="request()->routeIs('edge.*')">
+                {{ __('Projects') }}
+            </x-responsive-nav-link>
             @can('viewAny', App\Models\ProviderCredential::class)
                 <x-responsive-nav-link :href="route('credentials.index')" :active="request()->routeIs('credentials.*')">
                     {{ __('Credentials') }}

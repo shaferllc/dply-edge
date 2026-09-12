@@ -7,7 +7,6 @@ namespace App\Livewire\Concerns;
 use App\Models\Site;
 use App\Services\DeployContract\DeployContractEvaluator;
 use App\Services\DeployContract\DeployContractState;
-use Laravel\Pennant\Feature;
 use Livewire\Component;
 use App\Actions\DeployContract\WaiveDeployContractRun;
 use App\Models\DeployContractRun;
@@ -34,12 +33,6 @@ trait ManagesDeployContract
 
     public function runDeployContract(string $previewSiteId): void
     {
-        if (! Feature::active('global.deploy_contract')) {
-            $this->toastError(__('Deploy contract is not enabled for this organization.'));
-
-            return;
-        }
-
         $parent = $this->contractParentSite();
 
         if (! $parent->usesEdgeRuntime() || $parent->isEdgePreview()) {
@@ -81,10 +74,6 @@ trait ManagesDeployContract
 
     public function confirmWaiveDeployContract(string $previewSiteId): void
     {
-        if (! Feature::active('global.deploy_contract')) {
-            return;
-        }
-
         if (! (bool) config('deploy_contract.allow_waivers', true)) {
             $this->toastError(__('Deploy contract waivers are disabled.'));
 
@@ -111,10 +100,6 @@ trait ManagesDeployContract
 
     public function waiveDeployContract(string $previewSiteId): void
     {
-        if (! Feature::active('global.deploy_contract')) {
-            return;
-        }
-
         $parent = $this->contractParentSite();
 
         if (! $parent->usesEdgeRuntime() || $parent->isEdgePreview()) {
@@ -163,10 +148,6 @@ trait ManagesDeployContract
      */
     protected function deployContractReviewForPreview(Site $preview): ?array
     {
-        if (! Feature::active('global.deploy_contract')) {
-            return null;
-        }
-
         return app(DeployContractState::class)->forPreview($this->contractParentSite(), $preview);
     }
 

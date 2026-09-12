@@ -7,7 +7,6 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Laravel\Pennant\Feature;
 
 /**
  * What this dply instance can actually do — read by `dply init` before it
@@ -39,7 +38,7 @@ class CapabilitiesApiController extends Controller
             // wizard instead. dply-edge ships exactly one kind.
             'kinds' => [
                 'edge' => [
-                    'enabled' => Feature::active('surface.edge'),
+                    'enabled' => true,
                     'cli_create_supported' => false,
                     'cli_create' => false,
                     'create_url' => route('edge.create'),

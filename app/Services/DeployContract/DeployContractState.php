@@ -6,7 +6,6 @@ namespace App\Services\DeployContract;
 
 use App\Models\EdgeDeployment;
 use App\Models\Site;
-use Laravel\Pennant\Feature;
 use App\Models\DeployContractRun;
 
 /**
@@ -16,8 +15,7 @@ final class DeployContractState
 {
     public function enabled(): bool
     {
-        return Feature::active('global.deploy_contract')
-            && (bool) config('deploy_contract.require_for_promote', true);
+        return (bool) config('deploy_contract.require_for_promote', true);
     }
 
     public function latestRunForPreview(Site $parent, Site $preview): ?DeployContractRun

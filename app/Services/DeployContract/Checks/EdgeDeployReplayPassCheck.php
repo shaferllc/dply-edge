@@ -8,7 +8,6 @@ use App\Models\EdgeDeployReplay;
 use App\Services\DeployContract\Contracts\DeployContractCheck;
 use App\Services\DeployContract\DeployContractCheckResult;
 use App\Services\DeployContract\DeployContractContext;
-use Laravel\Pennant\Feature;
 
 final class EdgeDeployReplayPassCheck implements DeployContractCheck
 {
@@ -33,13 +32,6 @@ final class EdgeDeployReplayPassCheck implements DeployContractCheck
             return new DeployContractCheckResult(
                 DeployContractCheckResult::STATUS_SKIP,
                 (string) __('Not required by repo deploy contract.'),
-            );
-        }
-
-        if (! Feature::active('global.edge_deploy_replay')) {
-            return new DeployContractCheckResult(
-                DeployContractCheckResult::STATUS_SKIP,
-                (string) __('Shadow replay is not enabled for this organization.'),
             );
         }
 

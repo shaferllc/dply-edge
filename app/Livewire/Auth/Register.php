@@ -13,7 +13,6 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules;
-use Laravel\Pennant\Feature;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 
@@ -58,20 +57,6 @@ class Register extends Component
         if ($orgInvitation !== null) {
             $this->form->email = $orgInvitation->email;
             $this->emailLocked = true;
-        }
-
-        // A valid, unredeemed invite bypasses the closed-signups gate. Without
-        // one, closed signups send the visitor to the waitlist as before.
-        if ($invitation === null && $orgInvitation === null && ! Feature::active('global.signups_open')) {
-            // A token that's present but no longer valid is a warm lead — funnel
-            // them to the waitlist with a friendly note rather than a dead end.
-            if (filled($this->invite)) {
-                session()->flash('status', __('That beta invite is no longer valid. Join the waitlist and we’ll send a fresh one.'));
-            }
-
-            $this->redirect(route('coming-soon'), navigate: true);
-
-            return;
         }
 
         if ($invitation !== null) {
@@ -148,12 +133,6 @@ class Register extends Component
 
         if ($invitation !== null) {
             $this->form->email = $invitation->email;
-        } elseif ($orgInvitation === null && ! Feature::active('global.signups_open')) {
-            // Token went stale between mount and submit (expired/redeemed/revoked)
-            // and signups are still closed — don't mint an account.
-            session()->flash('status', __('That beta invite is no longer valid. Join the waitlist and we’ll send a fresh one.'));
-
-            return $this->redirect(route('coming-soon'), navigate: true);
         }
 
         $this->form->validate([

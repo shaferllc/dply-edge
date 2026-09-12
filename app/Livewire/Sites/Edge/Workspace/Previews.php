@@ -21,7 +21,6 @@ use App\Services\DeployContract\DeployContractState;
 use App\Modules\Edge\Support\EdgePreviewPolicy;
 use App\Support\Sites\EdgeSiteViewData;
 use Illuminate\Contracts\View\View;
-use Laravel\Pennant\Feature;
 use Livewire\Component;
 
 class Previews extends Component
@@ -73,13 +72,11 @@ class Previews extends Component
 
         $contractState = app(DeployContractState::class);
         $deployContracts = collect();
-        if (Feature::active('global.deploy_contract')) {
-            foreach (CreateEdgePreviewSite::listForParent($this->site) as $previewSite) {
-                $deployContracts->put(
-                    (string) $previewSite->id,
-                    $contractState->forPreview($this->site, $previewSite),
-                );
-            }
+        foreach (CreateEdgePreviewSite::listForParent($this->site) as $previewSite) {
+            $deployContracts->put(
+                (string) $previewSite->id,
+                $contractState->forPreview($this->site, $previewSite),
+            );
         }
 
         return view('livewire.sites.edge.workspace.previews', array_merge(
@@ -92,8 +89,8 @@ class Previews extends Component
                 'previewPolicy' => EdgePreviewPolicy::for($this->site),
                 'sourcePath' => $sourcePath,
                 'latestReplays' => $latestReplays,
-                'deployReplayEnabled' => Feature::active('global.edge_deploy_replay'),
-                'deployContractEnabled' => Feature::active('global.deploy_contract'),
+                'deployReplayEnabled' => true,
+                'deployContractEnabled' => true,
                 'deployContracts' => $deployContracts,
             ],
         ));

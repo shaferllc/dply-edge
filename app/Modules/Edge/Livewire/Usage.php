@@ -9,7 +9,6 @@ use App\Models\Site;
 use App\Modules\Billing\Services\EdgeOrganizationUsageReader;
 use App\Modules\Billing\Services\EdgeSiteBillingAnalytics;
 use Illuminate\Contracts\View\View;
-use Laravel\Pennant\Feature;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
 

@@ -7,18 +7,6 @@
     $authed = auth()->check();
     $req = request();
 
-    // Resolve every nav surface flag in one query. Without this each
-    // @feature directive below issues its own SELECT against `features`.
-    if ($authed && auth()->user()->currentOrganization()) {
-        \Laravel\Pennant\Feature::loadMissing([
-            'surface.cloud',
-            'surface.edge',
-            'surface.serverless',
-            'surface.projects',
-            'surface.status_pages',
-        ]);
-    }
-
     $featuresActive  = $active === 'features'  || $req->routeIs('features');
     $pricingActive   = $active === 'pricing'   || $req->routeIs('pricing');
     $homeActive      = $active === 'home'      || ($req->is('/') && ! $req->routeIs('dashboard'));
@@ -214,21 +202,12 @@
                     {{ __('Dashboard') }}
                 </x-responsive-nav-link>
                 <p class="px-4 pt-2 pb-1 text-xs font-semibold uppercase tracking-wider text-brand-mist">{{ __('Compute') }}</p>
-                @feature('surface.edge')
-                    <x-responsive-nav-link :href="route('edge.index')" :active="request()->routeIs('edge.*')">
-                        <x-slot name="icon">
-                            <x-heroicon-o-globe-alt class="{{ $hi }}" />
-                        </x-slot>
-                        {{ __('Projects') }}
-                    </x-responsive-nav-link>
-                @else
-                    <x-coming-soon-responsive-nav-link>
-                        <x-slot name="icon">
-                            <x-heroicon-o-globe-alt class="{{ $hi }}" />
-                        </x-slot>
-                        {{ __('Projects') }}
-                    </x-coming-soon-responsive-nav-link>
-                @endfeature
+                <x-responsive-nav-link :href="route('edge.index')" :active="request()->routeIs('edge.*')">
+                    <x-slot name="icon">
+                        <x-heroicon-o-globe-alt class="{{ $hi }}" />
+                    </x-slot>
+                    {{ __('Projects') }}
+                </x-responsive-nav-link>
                 <p class="px-4 pt-2 pb-1 text-xs font-semibold uppercase tracking-wider text-brand-mist">{{ __('Org') }}</p>
                 <x-responsive-nav-link :href="route('organizations.index')" :active="request()->routeIs('organizations.*')">
                     <x-slot name="icon">
@@ -236,14 +215,12 @@
                     </x-slot>
                     {{ __('Organizations') }}
                 </x-responsive-nav-link>
-                @feature('surface.status_pages')
-                    <x-responsive-nav-link :href="route('status-pages.index')" :active="request()->routeIs('status-pages.*')">
-                        <x-slot name="icon">
-                            <x-heroicon-o-check-circle class="{{ $hi }}" />
-                        </x-slot>
-                        {{ __('Status') }}
-                    </x-responsive-nav-link>
-                @endfeature
+                <x-responsive-nav-link :href="route('status-pages.index')" :active="request()->routeIs('status-pages.*')">
+                    <x-slot name="icon">
+                        <x-heroicon-o-check-circle class="{{ $hi }}" />
+                    </x-slot>
+                    {{ __('Status') }}
+                </x-responsive-nav-link>
                 @can('viewPlatformAdmin')
                     <div class="border-t border-brand-ink/10 pt-2 mt-2">
                         <p class="px-4 pb-1 text-xs font-semibold uppercase tracking-wider text-brand-mist">{{ __('Admin') }}</p>

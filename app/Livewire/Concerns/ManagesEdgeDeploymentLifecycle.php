@@ -15,7 +15,6 @@ use App\Models\Site;
 use App\Services\DeployContract\DeployContractState;
 use App\Modules\Edge\Services\EdgePreviewReviewState;
 use App\Modules\Edge\Support\EdgeDeploymentConfirmSummary;
-use Laravel\Pennant\Feature;
 use Livewire\Component;
 
 /**
@@ -228,12 +227,6 @@ trait ManagesEdgeDeploymentLifecycle
      */
     public function queueEdgeDeployReplay(string $previewSiteId): void
     {
-        if (! Feature::active('global.edge_deploy_replay')) {
-            $this->toastError(__('Deploy replay is not enabled for this organization.'));
-
-            return;
-        }
-
         if (! $this->site->usesEdgeRuntime() || $this->site->isEdgePreview()) {
             return;
         }

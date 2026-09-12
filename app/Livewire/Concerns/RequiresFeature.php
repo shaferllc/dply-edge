@@ -2,7 +2,6 @@
 
 namespace App\Livewire\Concerns;
 
-use Laravel\Pennant\Feature;
 use Livewire\Component;
 
 /**
@@ -16,9 +15,6 @@ trait RequiresFeature
 {
     public function bootedRequiresFeature(): void
     {
-        $flag = $this->requiredFeature;
-        if ($flag !== '' && ! Feature::active($flag)) {
-            abort(404);
-        }
+        // Product flags are retired — surfaces are always on.
     }
 }

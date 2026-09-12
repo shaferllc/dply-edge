@@ -13,7 +13,6 @@ use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
-use Laravel\Pennant\Feature;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
 use Livewire\Features\SupportFileUploads\WithFileUploads;
@@ -51,10 +50,6 @@ class Settings extends Component
     public string $delete_confirm = '';
 
     public bool $deploy_email_notifications_enabled = true;
-
-    public bool $email_server_credentials_enabled = false;
-
-    public bool $email_database_credentials_enabled = false;
 
     public string $edge_data_region = 'default';
 
@@ -97,8 +92,6 @@ class Settings extends Component
         $this->organization->load(['apiTokens']);
 
         $this->deploy_email_notifications_enabled = (bool) $this->organization->deploy_email_notifications_enabled;
-        $this->email_server_credentials_enabled = (bool) $this->organization->email_server_credentials_enabled;
-        $this->email_database_credentials_enabled = (bool) $this->organization->email_database_credentials_enabled;
         $this->edge_data_region = (string) ($this->organization->edge_data_region ?: 'default');
         $this->alert_slack_webhook_url = (string) ($this->organization->alert_slack_webhook_url ?: '');
         $emails = (array) ($this->organization->alert_extra_emails ?? []);
@@ -199,40 +192,9 @@ class Settings extends Component
         $this->toastSuccess(__('Deploy email preferences updated.'));
     }
 
-    public function updatedEmailServerCredentialsEnabled(): void
-    {
-        $this->authorize('update', $this->organization);
-
-        $this->organization->update([
-            'email_server_credentials_enabled' => $this->email_server_credentials_enabled,
-        ]);
-        audit_log($this->organization, auth()->user(), 'organization.email_server_credentials_updated', null, null, [
-            'enabled' => $this->email_server_credentials_enabled,
-        ]);
-        $this->refreshOrganization();
-        $this->toastSuccess(__('Server credentials email preference updated.'));
-    }
-
-    public function updatedEmailDatabaseCredentialsEnabled(): void
-    {
-        $this->authorize('update', $this->organization);
-
-        $this->organization->update([
-            'email_database_credentials_enabled' => $this->email_database_credentials_enabled,
-        ]);
-        audit_log($this->organization, auth()->user(), 'organization.email_database_credentials_updated', null, null, [
-            'enabled' => $this->email_database_credentials_enabled,
-        ]);
-        $this->refreshOrganization();
-        $this->toastSuccess(__('Database credentials email preference updated.'));
-    }
-
     public function updatedEdgeDataRegion(): void
     {
         $this->authorize('update', $this->organization);
-        // Data residency only applies when the Edge surface is on (the UI is
-        // gated the same way) — block a stale/forged client from writing it.
-        abort_unless(Feature::active('surface.edge'), 404);
 
         $allowed = ['default', 'eu', 'weur', 'eeur', 'wnam', 'enam', 'apac', 'oc'];
         if (! in_array($this->edge_data_region, $allowed, true)) {
@@ -258,9 +220,6 @@ class Settings extends Component
     public function saveAlertDestinations(): void
     {
         $this->authorize('update', $this->organization);
-        // Cloud alerts only exist when the Cloud surface is on (the UI is gated
-        // the same way) — block a stale/forged client from writing them anyway.
-        abort_unless(Feature::active('surface.cloud'), 404);
 
         $this->validate([
             'alert_slack_webhook_url' => ['nullable', 'url', 'max:500', 'starts_with:https://'],

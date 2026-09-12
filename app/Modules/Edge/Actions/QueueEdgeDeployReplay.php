@@ -10,7 +10,6 @@ use App\Models\EdgeDeployReplay;
 use App\Models\Site;
 use App\Models\User;
 use App\Modules\Edge\Services\EdgeDeployReplaySampler;
-use Laravel\Pennant\Feature;
 use RuntimeException;
 
 class QueueEdgeDeployReplay
@@ -21,10 +20,6 @@ class QueueEdgeDeployReplay
 
     public function handle(User $user, Site $parent, string $previewSiteId, int $sampleLimit = 20, int $windowMinutes = 60): EdgeDeployReplay
     {
-        if (! Feature::active('global.edge_deploy_replay')) {
-            throw new RuntimeException('Deploy replay is not enabled.');
-        }
-
         if (! $parent->usesEdgeRuntime() || $parent->isEdgePreview()) {
             throw new RuntimeException('Deploy replay runs from the production Edge site against a preview.');
         }

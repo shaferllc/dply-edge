@@ -5,7 +5,6 @@ namespace App\Support;
 use App\Models\Server;
 use App\Models\Site;
 use App\Modules\Edge\Support\EdgeSiteHasWorker;
-use Laravel\Pennant\Feature;
 
 /**
  * Sidebar nav items for the site workspace (Settings, Web server config, etc.).
@@ -368,18 +367,7 @@ final class SiteSettingsSidebar
      */
     private static function sidebarItemVisible(array $item): bool
     {
-        $feature = $item['feature'] ?? null;
-        if (! is_string($feature) || $feature === '') {
-            return true;
-        }
-
-        $previewFeature = $item['preview_feature'] ?? null;
-        $featureActive = Feature::active($feature);
-        $previewActive = is_string($previewFeature) && $previewFeature !== ''
-            && Feature::active($previewFeature)
-            && ! $featureActive;
-
-        return $featureActive || $previewActive;
+        return true;
     }
 
     /**
@@ -388,16 +376,6 @@ final class SiteSettingsSidebar
      */
     private static function markPreviewOnly(array $item): array
     {
-        $feature = $item['feature'] ?? null;
-        if (! is_string($feature) || $feature === '' || Feature::active($feature)) {
-            return $item;
-        }
-
-        $previewFeature = $item['preview_feature'] ?? null;
-        if (is_string($previewFeature) && $previewFeature !== '' && Feature::active($previewFeature)) {
-            $item['preview_only'] = true;
-        }
-
         return $item;
     }
 

@@ -17,7 +17,6 @@ use App\Services\DeployContract\DeployContractState;
 use App\Modules\Edge\Services\EdgePreviewReviewState;
 use App\Modules\Edge\Support\EdgeDeploymentConfirmSummary;
 use Illuminate\Contracts\View\View;
-use Laravel\Pennant\Feature;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
 
@@ -347,7 +346,7 @@ class EdgePreviewComments extends Component
             'threads' => $threads,
             'review' => $review,
             'contract' => $contract,
-            'deployContractEnabled' => Feature::active('global.deploy_contract'),
+            'deployContractEnabled' => true,
             'parentSite' => $parent,
             'userHasApproved' => $userApproval !== null,
         ]);
