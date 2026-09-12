@@ -28,7 +28,6 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Laravel\Pennant\Feature;
 use Livewire\Attributes\On;
 use Livewire\Component;
 
@@ -127,8 +126,6 @@ class Create extends Component
 
     public function mount(SourceControlRepositoryBrowser $repositoryBrowser): void
     {
-        abort_unless(Feature::active('surface.edge'), 404);
-
         $org = auth()->user()?->currentOrganization();
         if ($org === null) {
             $this->toastError(__('Select or create an organization first.'));

@@ -29,16 +29,6 @@ class Usage extends Component
         $org = auth()->user()?->currentOrganization();
         abort_if($org === null, 403);
 
-        if (! Feature::active('surface.edge')) {
-            return view('livewire.edge.usage', [
-                'org' => $org,
-                'edgeEnabled' => false,
-                'rows' => [],
-                'totals' => null,
-                'window' => null,
-            ]);
-        }
-
         // EdgeSiteBillingAnalytics::sitesForOrganization is strict
         // (active + dply_edge + age >= 1d + not preview). For the usage
         // dashboard we want EVERY edge site so the operator can see

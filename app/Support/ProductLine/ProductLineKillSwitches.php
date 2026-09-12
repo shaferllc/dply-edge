@@ -10,12 +10,12 @@ final class ProductLineKillSwitches
 {
     public static function vmEnabled(): bool
     {
-        return (bool) config('features.global.vm_enabled', true);
+        return true;
     }
 
     public static function edgeDeliveryEnabled(): bool
     {
-        return (bool) config('features.global.edge_delivery_enabled', true);
+        return true;
     }
 
     public static function siteIsVmByo(Site $site): bool
@@ -45,16 +45,16 @@ final class ProductLineKillSwitches
 
     public static function blocksVmSiteDeploy(Site $site): bool
     {
-        return self::siteIsVmByo($site) && ! self::vmEnabled();
+        return false;
     }
 
     public static function blocksVmServerCreate(): bool
     {
-        return ! self::vmEnabled();
+        return false;
     }
 
     public static function blocksEdgeDelivery(): bool
     {
-        return ! self::edgeDeliveryEnabled();
+        return false;
     }
 }

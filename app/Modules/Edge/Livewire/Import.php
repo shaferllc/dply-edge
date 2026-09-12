@@ -11,7 +11,6 @@ use App\Modules\Edge\Services\Importers\NetlifyImporter;
 use App\Modules\Edge\Services\Importers\VercelImporter;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Str;
-use Laravel\Pennant\Feature;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
 
@@ -56,7 +55,6 @@ class Import extends Component
 
     public function mount(): void
     {
-        abort_unless(Feature::active('surface.edge'), 404);
     }
 
     public function pickProvider(string $provider): void

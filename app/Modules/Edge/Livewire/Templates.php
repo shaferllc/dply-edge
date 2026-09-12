@@ -6,7 +6,6 @@ namespace App\Modules\Edge\Livewire;
 
 use App\Modules\Edge\Services\EdgeTemplateRegistry;
 use Illuminate\Contracts\View\View;
-use Laravel\Pennant\Feature;
 use Livewire\Component;
 
 /**
@@ -26,7 +25,6 @@ class Templates extends Component
 
     public function mount(): void
     {
-        abort_unless(Feature::active('surface.edge'), 404);
     }
 
     public function setFilter(string $tag): void

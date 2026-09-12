@@ -277,31 +277,27 @@ Route::middleware(['auth', 'verified', 'org'])->group(function () {
     })->name('credentials.index');
     Route::livewire('organizations/{organization}/secrets', OrganizationsSecrets::class)->name('organizations.secrets');
 
-    Route::middleware('feature:surface.edge')->group(function (): void {
-        Route::livewire('projects', EdgeIndex::class)->name('edge.index');
-        Route::livewire('projects/create', EdgeCreate::class)->name('edge.create');
-        Route::livewire('projects/import', Import::class)->name('edge.import');
-        Route::livewire('projects/templates', Templates::class)->name('edge.templates');
-        Route::livewire('projects/usage', Usage::class)->name('edge.usage');
+    Route::livewire('projects', EdgeIndex::class)->name('edge.index');
+    Route::livewire('projects/create', EdgeCreate::class)->name('edge.create');
+    Route::livewire('projects/import', Import::class)->name('edge.import');
+    Route::livewire('projects/templates', Templates::class)->name('edge.templates');
+    Route::livewire('projects/usage', Usage::class)->name('edge.usage');
 
-        /*
-         * Legacy /edge/*, /apps/*, /applications/* URLs. The section is
-         * "Projects". /edge named where the code runs; /apps and
-         * /applications collide with Reverb (`^~ /app`). Route NAMES stay
-         * edge.* on purpose. Permanent so bookmarks move over.
-         */
-        Route::permanentRedirect('/edge', '/projects');
-        Route::permanentRedirect('/edge/{path}', '/projects/{path}')->where('path', '.*');
-        Route::permanentRedirect('/apps', '/projects');
-        Route::permanentRedirect('/apps/{path}', '/projects/{path}')->where('path', '.*');
-        Route::permanentRedirect('/applications', '/projects');
-        Route::permanentRedirect('/applications/{path}', '/projects/{path}')->where('path', '.*');
-    });
+    /*
+     * Legacy /edge/*, /apps/*, /applications/* URLs. The section is
+     * "Projects". /edge named where the code runs; /apps and
+     * /applications collide with Reverb (`^~ /app`). Route NAMES stay
+     * edge.* on purpose. Permanent so bookmarks move over.
+     */
+    Route::permanentRedirect('/edge', '/projects');
+    Route::permanentRedirect('/edge/{path}', '/projects/{path}')->where('path', '.*');
+    Route::permanentRedirect('/apps', '/projects');
+    Route::permanentRedirect('/apps/{path}', '/projects/{path}')->where('path', '.*');
+    Route::permanentRedirect('/applications', '/projects');
+    Route::permanentRedirect('/applications/{path}', '/projects/{path}')->where('path', '.*');
 
-    Route::middleware('feature:surface.status_pages')->group(function (): void {
-        Route::livewire('status-pages', StatusPagesIndex::class)->name('status-pages.index');
-        Route::livewire('status-pages/{statusPage}', StatusPagesManage::class)->name('status-pages.manage');
-    });
+    Route::livewire('status-pages', StatusPagesIndex::class)->name('status-pages.index');
+    Route::livewire('status-pages/{statusPage}', StatusPagesManage::class)->name('status-pages.manage');
 
     // Edge site workspace. Every edge site hangs off a placeholder `Server`
     // row (host_kind=dply_edge) created with it, so the URLs keep the
