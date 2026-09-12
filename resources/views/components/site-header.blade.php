@@ -219,14 +219,14 @@
                         <x-slot name="icon">
                             <x-heroicon-o-globe-alt class="{{ $hi }}" />
                         </x-slot>
-                        {{ __('Applications') }}
+                        {{ __('Projects') }}
                     </x-responsive-nav-link>
                 @else
                     <x-coming-soon-responsive-nav-link>
                         <x-slot name="icon">
                             <x-heroicon-o-globe-alt class="{{ $hi }}" />
                         </x-slot>
-                        {{ __('Applications') }}
+                        {{ __('Projects') }}
                     </x-coming-soon-responsive-nav-link>
                 @endfeature
                 <p class="px-4 pt-2 pb-1 text-xs font-semibold uppercase tracking-wider text-brand-mist">{{ __('Org') }}</p>

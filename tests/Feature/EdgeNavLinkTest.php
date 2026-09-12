@@ -24,7 +24,7 @@ test('edge surface carries the compute nav row when surface edge is active', fun
         ->get(route('edge.index'))
         ->assertOk()
         ->assertSee('Compute')
-        ->assertSee('Applications')
+        ->assertSee('Projects')
         ->assertSee(route('edge.index'), false);
 });
 

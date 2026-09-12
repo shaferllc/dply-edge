@@ -1,7 +1,7 @@
 <div class="max-w-5xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
     <x-breadcrumb-trail :site="$site" :items="[
         ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
-        ['label' => __('Applications'), 'href' => route('edge.index'), 'icon' => 'globe-alt'],
+        ['label' => __('Projects'), 'href' => route('edge.index'), 'icon' => 'globe-alt'],
         ['label' => $site->name, 'href' => route('sites.show', ['server' => $server, 'site' => $site]), 'icon' => 'globe-alt'],
         ['label' => __('Review hub'), 'icon' => 'chat-bubble-left-right'],
     ]" />

@@ -192,7 +192,7 @@
                                     <tr>
                                         <th class="{{ $th }} text-left">{{ __('Date') }}</th>
                                         <th class="{{ $th }} text-right">{{ __('Total') }}</th>
-                                        <th class="{{ $th }} text-right">{{ __('Applications usage') }}</th>
+                                        <th class="{{ $th }} text-right">{{ __('Projects usage') }}</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-brand-ink/5">
@@ -285,7 +285,7 @@
                         dense
                         class="border-b border-brand-ink/10"
                         icon="heroicon-o-bolt"
-                        :title="__('Applications')"
+                        :title="__('Projects')"
                         :count="count($edgeSites) ?: null"
                         :note="__('Per-site platform fee, delivery usage (MTD), and daily request trends.')"
                     />
@@ -335,7 +335,7 @@
                     <div class="bg-white px-3 py-2">
                         <div class="flex items-center gap-1.5">
                             <x-heroicon-o-globe-alt class="h-4 w-4 shrink-0 text-brand-sage" aria-hidden="true" />
-                            <h4 class="text-sm font-semibold text-brand-ink">{{ __('Applications') }}</h4>
+                            <h4 class="text-sm font-semibold text-brand-ink">{{ __('Projects') }}</h4>
                             <span class="text-xs text-brand-mist">{{ count($rows) }}</span>
                         </div>
                         @if ($rows === [])

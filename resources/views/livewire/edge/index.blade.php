@@ -13,7 +13,7 @@
         empty-state="local"
         :breadcrumbs="[
             ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
-            ['label' => __('Applications'), 'icon' => 'globe-alt'],
+            ['label' => __('Projects'), 'icon' => 'globe-alt'],
         ]"
     >
         <x-slot:modals>

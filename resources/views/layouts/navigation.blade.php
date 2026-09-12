@@ -17,7 +17,7 @@
                     </x-nav-link>
                     @feature('surface.edge')
                         <x-nav-link :href="route('edge.index')" :active="request()->routeIs('edge.*')">
-                            {{ __('Applications') }}
+                            {{ __('Projects') }}
                         </x-nav-link>
                     @endfeature
                     @can('viewAny', App\Models\ProviderCredential::class)
@@ -88,7 +88,7 @@
             </x-responsive-nav-link>
             @feature('surface.edge')
                 <x-responsive-nav-link :href="route('edge.index')" :active="request()->routeIs('edge.*')">
-                    {{ __('Applications') }}
+                    {{ __('Projects') }}
                 </x-responsive-nav-link>
             @endfeature
             @can('viewAny', App\Models\ProviderCredential::class)

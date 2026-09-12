@@ -14,12 +14,12 @@
     $totalCents = max(1, $state->monthlyTotalCents);
     $segments = [];
     if ($state->edgeSubtotalCents > 0) {
-        $segments[] = ['key' => 'edge', 'label' => __('Applications').' × '.$state->edgeCount, 'cents' => $state->edgeSubtotalCents];
+        $segments[] = ['key' => 'edge', 'label' => __('Projects').' × '.$state->edgeCount, 'cents' => $state->edgeSubtotalCents];
     }
     if ($state->edgeUsageSubtotalCents > 0) {
         $segments[] = [
             'key' => 'edge_usage',
-            'label' => __('Applications usage'),
+            'label' => __('Projects usage'),
             'cents' => $state->edgeUsageSubtotalCents,
         ];
     }

@@ -21,7 +21,7 @@
             <x-slot:actions>
                 <x-outline-link size="sm" :href="route('edge.index')" wire:navigate>
                     <x-heroicon-o-globe-alt class="h-4 w-4 shrink-0 opacity-90" aria-hidden="true" />
-                    {{ __('All applications') }}
+                    {{ __('All projects') }}
                 </x-outline-link>
             </x-slot:actions>
 

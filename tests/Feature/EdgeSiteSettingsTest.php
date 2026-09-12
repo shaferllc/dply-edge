@@ -48,7 +48,7 @@ test('edge site settings sidebar shows edge sections not byo runtime', function 
         ->assertSee('Billing & usage')
         ->assertSee('Traffic & analytics')
         ->assertSee('Build & deploy logs')
-        ->assertSee('Back to applications')
+        ->assertSee('Back to projects')
         ->assertDontSee('System user')
         ->assertDontSee('Certificates');
 });

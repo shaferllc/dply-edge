@@ -86,9 +86,10 @@ unrelated WIP commit three days earlier, so the boundary was silently unchecked.
 >   site (`meta.host_kind = dply_edge_delivery`) so the workspace URLs keep the
 >   `/servers/{server}/sites/{site}/…` shape they were built on. The model is a
 >   thin record — every SSH/provisioning method left with the VM platform.
-> - **`/dashboard` is a 302 to `/applications`** (route `edge.index`). One product surface, so the
->   applications list *is* the dashboard. The route name survives so `route('dashboard')`
->   call sites still resolve. `/apps` is reserved for Reverb/Pusher on the vhost.
+> - **`/dashboard` is a 302 to `/projects`** (route `edge.index`). One product surface, so the
+>   projects list *is* the dashboard. The route name survives so `route('dashboard')`
+>   call sites still resolve. `/apps` and `/applications` are reserved for Reverb/Pusher
+>   on the vhost (`location ^~ /app`).
 > - **Insights was deleted, not retargeted.** Every runner in it SSH'd into a
 >   box; none applied to an edge site. Health that survives is StatusPages +
 >   `SiteUptimeMonitor` URL checks.

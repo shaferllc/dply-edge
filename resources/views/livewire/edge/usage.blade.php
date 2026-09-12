@@ -14,19 +14,19 @@
 <div class="dply-page-shell space-y-4 pt-6">
     <x-breadcrumb-trail :items="[
         ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
-        ['label' => __('Applications'), 'href' => route('edge.index'), 'icon' => 'globe-alt'],
+        ['label' => __('Projects'), 'href' => route('edge.index'), 'icon' => 'globe-alt'],
         ['label' => __('Usage'), 'icon' => 'chart-bar'],
     ]" />
 
     <x-profile-shell
-        :title="__('Applications usage')"
+        :title="__('Projects usage')"
         :description="__('Cross-site view of requests, bandwidth, storage, and estimated cost for the current calendar month.')"
         icon="heroicon-o-chart-bar"
     >
         <x-slot:actions>
             <x-outline-link href="{{ route('edge.index') }}" wire:navigate size="sm">
                 <x-heroicon-o-arrow-left class="h-4 w-4 shrink-0 opacity-90" aria-hidden="true" />
-                {{ __('Back to applications') }}
+                {{ __('Back to projects') }}
             </x-outline-link>
         </x-slot:actions>
 
@@ -37,7 +37,7 @@
                     <div class="rounded-xl border border-brand-ink/10 bg-white/80 px-3 py-2">
                         <dt class="flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wide text-brand-mist">
                             <x-heroicon-o-globe-alt class="h-3.5 w-3.5 shrink-0 text-brand-sage" aria-hidden="true" />
-                            <span class="truncate">{{ __('Applications') }}</span>
+                            <span class="truncate">{{ __('Projects') }}</span>
                         </dt>
                         <dd class="mt-0.5 font-mono text-lg font-semibold tabular-nums leading-none text-brand-ink">{{ number_format($totals['all_sites']) }}</dd>
                         <p class="mt-1 text-2xs text-brand-mist">{{ __(':n billable', ['n' => number_format($totals['sites'])]) }}</p>
@@ -82,7 +82,7 @@
 
         @unless ($edgeEnabled)
             <div class="border-b border-brand-ink/10 bg-amber-50/70 px-3 py-3 text-sm text-amber-900 sm:px-4">
-                {{ __('Applications are not enabled for this organization.') }}
+                {{ __('Projects are not enabled for this organization.') }}
             </div>
         @else
             @if (empty($rows))
@@ -92,7 +92,7 @@
                     </span>
                     <p class="mt-2 text-sm text-brand-moss">{{ __('No billable Edge sites with usage in this window yet.') }}</p>
                     <a href="{{ route('edge.index') }}" wire:navigate class="text-xs font-semibold text-brand-forest hover:underline dark:text-brand-sage">
-                        {{ __('Go to applications →') }}
+                        {{ __('Go to projects →') }}
                     </a>
                 </div>
             @else

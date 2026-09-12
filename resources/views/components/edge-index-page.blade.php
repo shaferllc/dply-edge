@@ -79,7 +79,7 @@
             <span class="mx-auto inline-flex h-14 w-14 items-center justify-center rounded-xl border border-brand-ink/10 bg-white text-brand-ink shadow-sm">
                 <x-heroicon-o-globe-alt class="h-8 w-8 shrink-0" aria-hidden="true" />
             </span>
-            <p class="mt-5 text-lg font-semibold text-brand-ink">{{ __('Applications') }}</p>
+            <p class="mt-5 text-lg font-semibold text-brand-ink">{{ __('Projects') }}</p>
             <p class="mx-auto mt-2 max-w-xl text-sm leading-6 text-brand-moss">
                 {{ __('JavaScript frameworks, static sites, previews, and CDN-style delivery.') }}
             </p>
@@ -87,7 +87,7 @@
         </div>
     @else
         <x-profile-shell
-            :title="__('Applications')"
+            :title="__('Projects')"
             :description="$isProductionSurface
                 ? __('Live Edge sites from the connected control plane — Open materializes into the real workspace with Production data.')
                 : __('Static and SSG apps on the dply Edge platform — git-connected builds, previews, and delivery.')"

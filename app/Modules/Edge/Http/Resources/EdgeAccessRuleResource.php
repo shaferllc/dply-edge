@@ -47,7 +47,7 @@ final class EdgeAccessRuleResource extends JsonResource
         ];
 
         if ($enabled && $mode === EdgeSiteAccessRule::MODE_DPLY_ACCOUNT && $appUrl !== '') {
-            $payload['account_login_url'] = $appUrl.'/applications/sites/'.$this->site->id.'/preview-access';
+            $payload['account_login_url'] = $appUrl.'/projects/sites/'.$this->site->id.'/preview-access';
         }
 
         return $payload;

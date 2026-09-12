@@ -182,19 +182,21 @@ Route::livewire('invitations/accept/{token}', InvitationsAccept::class)
     ->name('invitations.accept');
 
 Route::middleware(['auth', 'verified', 'org'])->group(function () {
-    // dply-edge has one product surface — the applications list is the dashboard.
+    // dply-edge has one product surface — the projects list is the dashboard.
     // Kept as a named route so every route('dashboard') call site still resolves.
-    // /applications (not /apps): Reverb/Pusher owns /app and /apps/ on the
-    // public vhost, so that prefix never reaches Laravel.
-    Route::redirect('/dashboard', '/applications')->name('dashboard');
+    // /projects (not /apps or /applications): Reverb/Pusher owns /app and
+    // /apps/ on the public vhost, and nginx `^~ /app` also swallows
+    // /applications. Route names stay edge.*.
+    Route::redirect('/dashboard', '/projects')->name('dashboard');
     // OAuth-style device-flow approval page for the dply CLI. The CLI
     // prints a short code; user lands here (deep link or paste),
     // confirms scopes + org, and we mint an ApiToken that the polling
     // CLI picks up exactly once via /api/v1/auth/device/poll.
     Route::livewire('/auth/device', AuthDeviceApproval::class)->name('auth.device.show');
-    Route::get('/applications/sites/{site}/preview-access', EdgePreviewAccessController::class)
+    Route::get('/projects/sites/{site}/preview-access', EdgePreviewAccessController::class)
         ->name('edge.preview-access');
-    Route::permanentRedirect('/apps/sites/{site}/preview-access', '/applications/sites/{site}/preview-access');
+    Route::permanentRedirect('/apps/sites/{site}/preview-access', '/projects/sites/{site}/preview-access');
+    Route::permanentRedirect('/applications/sites/{site}/preview-access', '/projects/sites/{site}/preview-access');
 
     Route::prefix('admin')
         ->middleware('can:viewPlatformAdmin')
@@ -276,23 +278,24 @@ Route::middleware(['auth', 'verified', 'org'])->group(function () {
     Route::livewire('organizations/{organization}/secrets', OrganizationsSecrets::class)->name('organizations.secrets');
 
     Route::middleware('feature:surface.edge')->group(function (): void {
-        Route::livewire('applications', EdgeIndex::class)->name('edge.index');
-        Route::livewire('applications/create', EdgeCreate::class)->name('edge.create');
-        Route::livewire('applications/import', Import::class)->name('edge.import');
-        Route::livewire('applications/templates', Templates::class)->name('edge.templates');
-        Route::livewire('applications/usage', Usage::class)->name('edge.usage');
+        Route::livewire('projects', EdgeIndex::class)->name('edge.index');
+        Route::livewire('projects/create', EdgeCreate::class)->name('edge.create');
+        Route::livewire('projects/import', Import::class)->name('edge.import');
+        Route::livewire('projects/templates', Templates::class)->name('edge.templates');
+        Route::livewire('projects/usage', Usage::class)->name('edge.usage');
 
         /*
-         * Legacy /edge/* and /apps/* URLs. The section is "Applications" —
-         * /edge named where the code runs; /apps collided with Reverb's
-         * Pusher HTTP prefix. Route NAMES stay edge.* on purpose: they are
-         * internal, match the Edge module, and renaming call sites buys
-         * nothing a user can see. Permanent so bookmarks move over.
+         * Legacy /edge/*, /apps/*, /applications/* URLs. The section is
+         * "Projects". /edge named where the code runs; /apps and
+         * /applications collide with Reverb (`^~ /app`). Route NAMES stay
+         * edge.* on purpose. Permanent so bookmarks move over.
          */
-        Route::permanentRedirect('/edge', '/applications');
-        Route::permanentRedirect('/edge/{path}', '/applications/{path}')->where('path', '.*');
-        Route::permanentRedirect('/apps', '/applications');
-        Route::permanentRedirect('/apps/{path}', '/applications/{path}')->where('path', '.*');
+        Route::permanentRedirect('/edge', '/projects');
+        Route::permanentRedirect('/edge/{path}', '/projects/{path}')->where('path', '.*');
+        Route::permanentRedirect('/apps', '/projects');
+        Route::permanentRedirect('/apps/{path}', '/projects/{path}')->where('path', '.*');
+        Route::permanentRedirect('/applications', '/projects');
+        Route::permanentRedirect('/applications/{path}', '/projects/{path}')->where('path', '.*');
     });
 
     Route::middleware('feature:surface.status_pages')->group(function (): void {
