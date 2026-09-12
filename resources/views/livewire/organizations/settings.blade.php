@@ -187,7 +187,7 @@
                     dense
                     icon="heroicon-o-bell"
                     :title="__('Email defaults')"
-                    :note="__('What dply emails about for sites and servers in this organization. Notification routing for channels lives on a separate page.')"
+                    :note="__('What dply emails about for projects in this organization. Notification routing for channels lives on a separate page.')"
                 >
                     <x-slot:actions>
                         @can('viewNotificationChannels', $organization)
@@ -206,72 +206,10 @@
                             <span class="mt-1 block text-xs leading-relaxed text-brand-moss">{{ __('Notify the deployer when a site\'s deploy completes or fails.') }}</span>
                         </span>
                     </label>
-                    <label class="flex cursor-pointer items-start gap-3 px-3 py-2 transition-colors hover:bg-brand-sand/15 sm:px-4">
-                        <input type="checkbox" wire:model.live="email_server_credentials_enabled" class="mt-0.5 h-4 w-4 rounded border-brand-ink/30 text-brand-forest focus:ring-brand-forest" />
-                        <span class="min-w-0 flex-1">
-                            <span class="text-sm font-medium text-brand-ink">{{ __('Email SSH details when a server finishes provisioning') }}</span>
-                            <span class="mt-1 block text-xs leading-relaxed text-brand-moss">{{ __('Host, port, and username go to the server creator. The SSH private key stays gated behind the dashboard.') }}</span>
-                        </span>
-                    </label>
-                    <label class="flex cursor-pointer items-start gap-3 px-3 py-2 transition-colors hover:bg-brand-sand/15 sm:px-4">
-                        <input type="checkbox" wire:model.live="email_database_credentials_enabled" class="mt-0.5 h-4 w-4 rounded border-brand-ink/30 text-brand-forest focus:ring-brand-forest" />
-                        <span class="min-w-0 flex-1">
-                            <span class="text-sm font-medium text-brand-ink">{{ __('Email database credentials when created') }}</span>
-                            <span class="mt-1 block text-xs leading-relaxed text-brand-moss">{{ __('Includes a plain-text database password when a site is scaffolded or a server database is created in the workspace. Off by default — credentials in mailboxes are an attack surface.') }}</span>
-                        </span>
-                    </label>
                 </div>
             </section>
 
-            {{-- Cloud alerts.
-                 Gated on the org actually HAVING Cloud apps, not just on the
-                 product flag: surface.cloud defaults true, so the old gate showed
-                 this form to every org whether or not it had a single app.
-
-                 dply does not send these — it hands the webhook + emails to
-                 DigitalOcean's App Platform alert API and DO sends them. That is
-                 also why there are only two fields: DO's API accepts nothing but
-                 slack_webhooks[].url and emails[], so dply channels (Discord,
-                 PagerDuty, Teams, …) cannot receive these alerts. --}}
-            @feature('surface.cloud')
-            @if ($organization->hasCloudApps())
-            <section class="border-b border-brand-ink/10" id="alerts">
-                <x-workspace-panel-head
-                    dense
-                    tone="amber"
-                    icon="heroicon-o-exclamation-triangle"
-                    :title="__('Cloud alert destinations')"
-                    :note="__('Deploy-failed, restart, CPU, and memory alerts for your Cloud apps. These are sent by DigitalOcean, not by dply — separate from your notification channels. Org owners are always included; these fields add extra recipients.')"
-                />
-                <form wire:submit="saveAlertDestinations" class="space-y-3 px-3 py-3 sm:px-4">
-                    <div>
-                        <x-input-label for="alert_slack_webhook_url" :value="__('Slack webhook URL')" />
-                        <x-text-input id="alert_slack_webhook_url" wire:model="alert_slack_webhook_url" type="url" class="mt-1 block w-full font-mono text-xs" placeholder="https://hooks.slack.com/services/T.../B.../..." />
-                        <p class="mt-1 text-xs text-brand-mist">{{ __('Create an Incoming Webhook in your Slack workspace; paste the URL here.') }}</p>
-                        <x-input-error :messages="$errors->get('alert_slack_webhook_url')" class="mt-2" />
-                    </div>
-                    <div>
-                        <x-input-label for="alert_extra_emails_input" :value="__('Additional recipient emails')" />
-                        <textarea id="alert_extra_emails_input" wire:model="alert_extra_emails_input" rows="3" class="mt-1 block w-full rounded-xl border-brand-ink/15 bg-white font-mono text-xs shadow-sm" placeholder="oncall@example.com&#10;ops@example.com"></textarea>
-                        <p class="mt-1 text-xs text-brand-mist">{{ __('One email per line (or comma-separated). Org owners are already included automatically.') }}</p>
-                        <x-input-error :messages="$errors->get('alert_extra_emails_input')" class="mt-2" />
-                    </div>
-                    <div class="flex items-center justify-end">
-                        <x-primary-button type="submit" wire:loading.attr="disabled" wire:target="saveAlertDestinations">
-                            <span wire:loading.remove wire:target="saveAlertDestinations">{{ __('Save destinations') }}</span>
-                            <span wire:loading wire:target="saveAlertDestinations" class="inline-flex items-center gap-2">
-                                <x-spinner size="sm" variant="cream" />
-                                {{ __('Saving…') }}
-                            </span>
-                        </x-primary-button>
-                    </div>
-                </form>
-            </section>
-            @endif
-            @endfeature
-
             {{-- Edge data region --}}
-            @feature('surface.edge')
             <section class="border-b border-brand-ink/10" id="data-region">
                 <x-workspace-panel-head
                     dense
@@ -293,7 +231,6 @@
                     <p class="text-xs text-brand-mist">{{ __('Selecting "EU" creates buckets in Cloudflare\'s EU jurisdiction — data is stored in the EU and the EU jurisdiction header is set on every request.') }}</p>
                 </div>
             </section>
-            @endfeature
 
             {{-- API tokens — inventory only.
                  Issuing used to happen on the old Automation tab, from a
