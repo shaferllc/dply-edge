@@ -10,14 +10,17 @@ uses(RefreshDatabase::class);
 
 /*
  * The plan tier resolves from a BYO server count that is always 0 since the
- * Edge cut, so every org read as Free (3 Edge apps) even while paying. A paying
+ * Edge cut, so every org read as Free (1 Edge app) even while paying. A paying
  * org must be uncapped; the Free ceiling is only the "no card to start" allowance.
+ *
+ * Callers: Organization::quotaLimit(QuotaSurface::Edge). No schema change.
+ * User: "we are allowd 1 free site until we have to pay"
  */
 
 test('an org without a subscription is capped at the free allowance', function () {
     $org = Organization::factory()->create();
 
-    expect($org->quotaLimit(QuotaSurface::Edge))->toBe(3)
+    expect($org->quotaLimit(QuotaSurface::Edge))->toBe(1)
         ->and($org->quotaLimitMessage(QuotaSurface::Edge))->toContain('without a card');
 });
 

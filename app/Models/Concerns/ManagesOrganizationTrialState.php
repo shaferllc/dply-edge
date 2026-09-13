@@ -13,7 +13,7 @@ use Carbon\CarbonInterface;
  * The 14-day trial and its soft/hard pause ladder were dropped on 2026-09-11.
  * Nothing enforced the pause (canDeploy() and friends had no callers), the
  * banner told free orgs their deploys were paused and "agents" disconnected,
- * and Edge's free allowance — three sites, no card — replaced the trial.
+ * and Edge's free allowance — one site, no card — replaced the trial.
  */
 trait ManagesOrganizationTrialState
 {

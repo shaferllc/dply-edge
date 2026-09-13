@@ -110,7 +110,7 @@ unrelated WIP commit three days earlier, so the boundary was silently unchecked.
 >   The generic Actions framework (~375 files) was deleted 2026-09-11; Login,
 >   Register, Security, SourceControl and org settings use the five survivors.
 > - **Billing is per live site plus metered usage.** No plan tiers: an org with
->   no subscription gets three Edge sites without a card, and any paid
+>   no subscription gets one Edge site without a card, and any paid
 >   subscription lifts the cap (`ManagesOrganizationQuotas::quotaLimit`). The
 >   14-day trial and the bundled products (Tracely/Lookout) were removed.
 > - **The CLI (`packages/dply-cli`) and API-token catalog are Edge-only.** Token

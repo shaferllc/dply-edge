@@ -1,6 +1,6 @@
 @php
     $minAgeDays = (int) config('subscription.standard.min_billable_age_days', 1);
-    $freeEdgeSites = (int) config('subscription.standard.plans.free.max_edge_apps', 3);
+    $freeEdgeSites = (int) config('subscription.standard.plans.free.max_edge_apps', 1);
     $annualPct = (int) config('subscription.standard.annual_discount_pct', 20);
 @endphp
 <section class="border-b border-brand-ink/10 last:border-b-0">
@@ -27,7 +27,7 @@
             <div>
                 <dt class="font-semibold text-brand-ink">{{ trans_choice('{1} One site free without a card|[2,*] :count sites free without a card', $freeEdgeSites, ['count' => $freeEdgeSites]) }}</dt>
                 <dd class="mt-1 text-brand-moss">
-                    {{ __('You can run up to :count production Edge sites without a card. Adding a card removes the cap — sites then bill per use.', ['count' => $freeEdgeSites]) }}
+                    {{ trans_choice('{1} You can run one production Edge site without a card. Adding a card removes the cap — sites then bill per use.|[2,*] You can run up to :count production Edge sites without a card. Adding a card removes the cap — sites then bill per use.', $freeEdgeSites, ['count' => $freeEdgeSites]) }}
                 </dd>
             </div>
             <div>

@@ -195,7 +195,7 @@
                                     {{ __('Launch your first Edge site') }}
                                 </h2>
                                 <p class="mt-2 text-sm leading-relaxed text-brand-moss">
-                                    {{ __('dply Edge is for JavaScript frameworks and static sites — git builds, preview URLs, and global delivery. Long-running PHP and Rails apps belong on Cloud.') }}
+                                    {{ __('dply Edge is for JavaScript frameworks and static sites — git builds, preview URLs, and global delivery. Your first live site is free; add a card when you ship a second. Long-running PHP and Rails apps belong on Cloud.') }}
                                 </p>
                             </div>
                             <div class="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-center">

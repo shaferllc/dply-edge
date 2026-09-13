@@ -27,23 +27,64 @@ final class EdgeBuildDockerBootstrap
         return 'www-data';
     }
 
+    /**
+     * Absolute docker CLI path. Queue workers often have a stripped PATH
+     * (`/usr/bin:/bin`) so a bare `docker` misses OrbStack at /usr/local/bin.
+     *
+     * Callers: daemonReachable(), probeDetail(), EdgeBuildRunner,
+     * WarmEdgeBuildImagesCommand. No schema change.
+     * User: "docker CLI not found on PATH we need docker on the server"
+     */
+    public static function binary(): string
+    {
+        $configured = trim((string) config('edge.build.docker_binary', ''));
+        if ($configured !== '' && is_file($configured) && is_executable($configured)) {
+            return $configured;
+        }
+
+        foreach (['/usr/bin/docker', '/usr/local/bin/docker', '/opt/homebrew/bin/docker'] as $candidate) {
+            if (is_file($candidate) && is_executable($candidate)) {
+                return $candidate;
+            }
+        }
+
+        $which = Process::timeout(5)
+            ->env(['PATH' => self::searchPath()])
+            ->run(['bash', '-lc', 'command -v docker || true']);
+        $cli = trim($which->output());
+
+        return $cli !== '' ? $cli : 'docker';
+    }
+
+    public static function searchPath(): string
+    {
+        $extra = '/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin';
+        $current = (string) getenv('PATH');
+
+        return $current !== '' ? $extra.':'.$current : $extra;
+    }
+
     /** @phpstan-impure */
     public static function daemonReachable(): bool
     {
         return Process::timeout(10)
-            ->run(['docker', 'version', '--format', '{{.Server.Version}}'])
+            ->env(['PATH' => self::searchPath()])
+            ->run([self::binary(), 'version', '--format', '{{.Server.Version}}'])
             ->successful();
     }
 
     public static function probeDetail(): string
     {
-        $which = Process::timeout(5)->run(['bash', '-lc', 'command -v docker || true']);
-        $cli = trim($which->output());
-        if ($cli === '') {
-            return 'docker CLI not found on PATH';
+        $cli = self::binary();
+        if ($cli === 'docker') {
+            $which = trim(Process::timeout(5)->env(['PATH' => self::searchPath()])->run(['bash', '-lc', 'command -v docker || true'])->output());
+            if ($which === '') {
+                return 'docker CLI not found on PATH';
+            }
+            $cli = $which;
         }
 
-        $version = Process::timeout(10)->run(['docker', 'version', '--format', '{{.Server.Version}}']);
+        $version = Process::timeout(10)->env(['PATH' => self::searchPath()])->run([$cli, 'version', '--format', '{{.Server.Version}}']);
         if ($version->successful()) {
             return 'server '.trim($version->output());
         }
@@ -54,10 +95,17 @@ final class EdgeBuildDockerBootstrap
         return 'CLI at '.$cli.'; '.$err;
     }
 
+    /**
+     * get.docker.com + systemctl only apply on Linux. A Linux worker with
+     * APP_ENV=local used to take the OrbStack hint and skip install — that is
+     * how production showed "docker CLI not found on PATH" / "start OrbStack".
+     *
+     * Callers: EdgeBuildRunner::assertDockerAvailable. No schema change.
+     * User: "docker CLI not found on PATH we need docker on the server"
+     */
     public static function isLocalDesktopEnvironment(): bool
     {
-        return PHP_OS_FAMILY === 'Darwin'
-            || app()->environment(['local', 'development']);
+        return PHP_OS_FAMILY === 'Darwin';
     }
 
     /**

@@ -12,10 +12,10 @@ test('probe detail mentions missing cli or daemon error', function () {
     expect($detail)->toBeString()->not->toBeEmpty();
 });
 
-test('local desktop environment detects testing/local app env', function () {
+test('local desktop environment is macOS only so Linux workers can install Docker', function () {
     config(['app.env' => 'local']);
 
-    expect(EdgeBuildDockerBootstrap::isLocalDesktopEnvironment())->toBeTrue();
+    expect(EdgeBuildDockerBootstrap::isLocalDesktopEnvironment())->toBe(PHP_OS_FAMILY === 'Darwin');
 });
 
 test('queue user defaults to www-data for control-plane Horizon', function () {

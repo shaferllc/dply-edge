@@ -7,13 +7,13 @@ namespace Tests\Unit\Services\Billing;
 use App\Modules\Billing\Services\SubscriptionPlanResolver;
 use InvalidArgumentException;
 
-test('the shipped config carries only the free plan, with a three edge site allowance', function () {
+test('the shipped config carries only the free plan, with a one edge site allowance', function () {
     $free = (new SubscriptionPlanResolver)->resolveByKey('free');
 
     expect(array_keys((array) config('subscription.standard.plans')))->toBe(['free'])
         ->and($free['key'])->toBe('free')
         ->and($free['price_cents'])->toBe(0)
-        ->and($free['max_edge_apps'])->toBe(3);
+        ->and($free['max_edge_apps'])->toBe(1);
 });
 
 test('a surface ceiling absent from config is unlimited', function () {

@@ -35,10 +35,14 @@ return [
         'min_billable_age_days' => (int) env('SUBSCRIPTION_MIN_BILLABLE_AGE_DAYS', 1),
         // No paid plan tiers. The one record is `free`: its per-surface
         // ceilings (App\Enums\QuotaSurface) are the "no card to start"
-        // allowance — `max_edge_apps` is the three free Edge sites. Any paid
+        // allowance — `max_edge_apps` is the one free Edge site. Any paid
         // subscription lifts the cap (ManagesOrganizationQuotas::quotaLimit()).
+        //
+        // Callers: ManagesOrganizationQuotas::quotaLimit, SubscriptionPlanResolver,
+        // how-billing-works, EdgeQuotaCapTest. No schema change — config only.
+        // User: "we are allowd 1 free site until we have to pay"
         'plans' => [
-            'free' => ['label' => 'Free', 'price_cents' => 0, 'max_servers' => 1, 'max_sites' => 1, 'max_cloud_apps' => 1, 'max_edge_apps' => 3, 'max_functions' => 3],
+            'free' => ['label' => 'Free', 'price_cents' => 0, 'max_servers' => 1, 'max_sites' => 1, 'max_cloud_apps' => 1, 'max_edge_apps' => 1, 'max_functions' => 3],
         ],
         // Closed-beta envelope. An org with organizations.beta_joined_at set is a
         // beta participant: the platform fee is waived and these caps replace

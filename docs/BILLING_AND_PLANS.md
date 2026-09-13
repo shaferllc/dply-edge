@@ -12,7 +12,7 @@ dply Edge bills **per live production site plus metered delivery usage**. There 
 
 ## Free allowance
 
-An organization can run **up to three production Edge sites without a card**. Subscribing removes the cap. The allowance is `plans.free.max_edge_apps` in `config/product/subscription.php`.
+An organization can run **one production Edge site without a card**. Subscribing removes the cap. The allowance is `plans.free.max_edge_apps` in `config/product/subscription.php`.
 
 ## Platform fee
 

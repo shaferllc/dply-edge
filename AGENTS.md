@@ -228,47 +228,19 @@ icon and a button.
 
 ### Enablement layers — what to flip, and where
 
-`config/features.php` is **only** the Pennant registry: *"should this org get
-this product capability?"* It is not every toggle in the app. Match the
-question to the layer:
+Product rollout flags are **retired**. `config/features.php` is an **empty
+map** so `FeatureServiceProvider` registers nothing. Edge, status pages,
+billing, signups, delivery, deploy contract, and shadow replay are **always
+on**. Do not reintroduce Pennant gates for product surfaces. Persisted rows
+in `features` / `feature_platform_overrides` from the old catalog are inert
+until a flag is registered again.
+
+Match remaining questions to the layer that still exists:
 
 | Question | Layer | Flip via |
 |---|---|---|
-| Org sees Edge / a workspace tab? | **`features.php`** → Pennant (`surface.*`, `workspace.*`) | platform override on the admin flag pages; per-org override on admin org detail |
 | Org can add another Edge app on plan? | **Subscription** | `Organization::canCreateOnSurface(QuotaSurface)`, `SubscriptionPlanResolver` |
 | Retry deploys / bill Edge usage / digest hours? | **Ops config** (`config/product/dply.php`, `edge.php`) | `DPLY_*` env — not product rollout |
-
-**Feature flag precedence** is three layers, highest first: an explicit
-**per-org value** in the `features` table → a **platform override** in
-`feature_platform_overrides` (written from the admin flag pages) → the
-**config default** in `config/features.php`. `FeatureServiceProvider` consults
-the override table, and Pennant also **persists resolved defaults** into
-`features` — so `config([...])` plus `Feature::flushCache()` can still leave a
-stored value in effect. When a persisted resolution has to go, use
-`Feature::purge()` / `php artisan pennant:purge`. The per-org override is the
-admin org detail page's `toggleOrgFeatureFlag`.
-
-**`surface.edge` is the UI/route gate**, not a delivery switch: it drives the
-`feature:surface.edge` middleware, and the index 404s with the nav hidden when
-it is off. It is currently **hardcoded `false`** in `config/features.php` — the
-comment block directly above it still shows a `FEATURE_SURFACE_EDGE` env read
-that the array does not actually perform, so setting that env var changes
-nothing. Override it through Pennant.
-
-**`global.edge_delivery_enabled` is the delivery kill switch** — the flag the
-build, publish, deploy-hook and webhook paths actually check.
-
-**Coming-soon preview pattern** (preferred wiring, canonical-route style): the
-real page URL renders the teaser when the full flag is off but a sibling
-`workspace.*_preview` flag (default true) is on. Per page: add the preview
-flag, a `workspace_*_preview_active()` helper in `app/helpers.php`, point the
-nav item's `preview_route` at the **canonical** route and set
-`preview_feature`, **remove the `feature:` middleware** (the component decides
-via `$comingSoonPreview` / `bootedRequiresFeature`), add a `*-preview-panel`
-Blade teaser, an admin group plus `feature_preview_pairs` entry in
-`config/admin_feature_flags.php`, and a per-namespace Pest test. To preview
-locally: set the full flag false in `.env`, then `config:clear` +
-`pennant:purge`.
 
 ### App shape
 
@@ -294,6 +266,11 @@ locally: set the full flag false in `.env`, then `config:clear` +
   `/admin/connections` for Slack / Discord / Telegram **platform** app
   credentials (DB overlays `.env`, never writes it; secrets are write-never
   after save).
+- The product list is **`/projects`** (`edge.index`). `/dashboard` 302s there.
+  Never put the index at `/apps` or `/applications` — nginx `location ^~ /app`
+  on the public vhost proxies those prefixes to Reverb/Pusher (`Not found.`),
+  so Laravel never sees them. Legacy `/edge`, `/apps`, and `/applications`
+  permanently redirect to `/projects`.
 - **`Server` is a vestigial owner row** — see `CLAUDE.md`. Workspace URLs keep
   the `/servers/{server}/sites/{site}/…` shape they were built on.
 
@@ -347,9 +324,12 @@ locally: set the full flag false in `.env`, then `config:clear` +
   panel **mounted across stream updates**. On split web/worker hosts, mirror
   logs via `EdgeLiveBuildLog` (Redis/Cache), because the local `build.log`
   lives on the worker.
-- Build workers run as the **`dply` deploy user**. The Docker sandbox install
-  (`DPLY_PROVISION_EDGE_BUILD_DOCKER`) must succeed for that user, and a Docker
-  failure must **not** present as a successful build.
+- Horizon on build workers runs as **`www-data`** (`edge.build.docker_user`).
+  `EdgeBuildDockerBootstrap::isLocalDesktopEnvironment()` is **Darwin only** —
+  Linux workers must install/start Docker (`dply:edge:ensure-build-docker`),
+  not show the OrbStack/Desktop hint (that used to fire whenever
+  `APP_ENV=local`). A Docker failure must **not** present as a successful
+  build.
 - **Post-create editable:** build command, output dir, SPA fallback,
   deploy-on-push. Repo, branch and delivery backend are read-only in v1.
 - **Deploys** = `RollbackEdgeDeployment` / `PromoteEdgePreview`. Stable aliases
@@ -407,7 +387,7 @@ locally: set the full flag false in `.env`, then `config:clear` +
 
 - **Plans are flat, metered by app count**, never seat-based — team seats are
   always unlimited. There is **no org base fee**.
-- **Free = 3 live Edge sites without a card** (`plans.free.max_edge_apps`).
+- **Free = 1 live Edge site without a card** (`plans.free.max_edge_apps`).
   **Any paid subscription removes the cap** (`quotaLimit()` returns null) — the
   sites bill per app anyway, so a cap on payers is no revenue lever. There are
   no plan tiers and no trial. Previews consume nothing.
@@ -434,12 +414,14 @@ locally: set the full flag false in `.env`, then `config:clear` +
   `OrganizationBillingStateComputer` → `DesiredBillingState`. Creating past a
   plan cap is **hard-blocked** with a styled upgrade modal or toast, never a
   browser alert.
-- **Billing analytics is customer-facing** (`authorize('update', $organization)`),
-  so write it from the **payer's** side. The MRR/ARR "recurring revenue" tiles
-  and the competitor cost comparison were removed 2026-08-14 — the same figure
-  is our revenue and their spend, and a competitor baseline is not a customer
-  metric. What remains is **Cost forecast** (projected month-end plus Δ vs 30
-  days), which answers "what will I be charged".
+- Org billing is **one page** (`billing.show`). `/billing/analytics` and
+  `/invoices` redirect there. Forecast and invoices live on that page — no
+  separate analytics/invoices nav. Copy is pay-per-use (no plan-tier
+  language). The **payment method** (add/manage card) is the primary CTA;
+  forecast and invoices sit below.
+- Billing numbers are customer-facing (`authorize('update', $organization)`),
+  so write them from the **payer's** side. The MRR/ARR tiles and competitor
+  cost comparison were removed — what remains is **Cost forecast**.
 
 ### Settings, credentials, secrets
 
@@ -451,10 +433,12 @@ locally: set the full flag false in `.env`, then `config:clear` +
   callback must be registered on the provider's OAuth app. **`DPLY_PUBLIC_APP_URL`
   (a tunnel) is for inbound webhooks only, never OAuth** — keep `APP_URL`
   aligned with the browser URL used to sign in.
-- Cloudflare and other provider API credentials live under the org
-  `/credentials` route. Prefer the reusable **`AddProviderCredentialModal`** /
+- Org **Credentials** is DNS-only today: Cloudflare, Gandi, Namecheap, and
+  Vercel DNS. Prefer the reusable **`AddProviderCredentialModal`** /
   `x-add-provider-credential-link` to connect a provider **in-context** rather
   than redirecting to settings.
+- Org settings have **no SSH or database-credential email toggles** (VM
+  leftovers). Do not add them back.
 - **Deleting a shared org provider credential requires org admin access**
   (`ProviderCredentialPolicy::delete` / `hasAdminAccess`). Ordinary members may
   view and use it, but must not see Remove.
@@ -581,3 +565,5 @@ shape, tracked as tickets rather than fixed here:
 - `docs/edge-roadmap.md` and `docs/edge-roadmap-next.md` are **completed
   history** through 2026-07-09, and they predate the cut. They carry their own
   doc-drift warning. Do not read them as a forward plan.
+- `organizations.email_database_credentials_enabled` (and similar SSH-email
+  leftovers) may still exist on the model; the org-settings toggles are gone.
