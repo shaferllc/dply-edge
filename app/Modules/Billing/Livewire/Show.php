@@ -4,6 +4,7 @@ namespace App\Modules\Billing\Livewire;
 
 use App\Livewire\Concerns\DispatchesToastNotifications;
 use App\Models\Organization;
+use App\Modules\Billing\Services\BillingAnalytics;
 use App\Modules\Billing\Services\DesiredBillingState;
 use App\Modules\Billing\Services\OrganizationBillingStateComputer;
 use App\Modules\Billing\Services\StandardSubscriptionCreator;
@@ -29,6 +30,7 @@ use Throwable;
  * @property-read \Laravel\Cashier\Subscription|null $subscription
  * @property-read string|null $subscriptionInterval
  * @property-read \App\Modules\Billing\Services\DesiredBillingState $billingState
+ * @property-read array<string, int|null|string> $costForecast
  */
 #[Layout('layouts.app')]
 class Show extends Component
@@ -415,6 +417,18 @@ class Show extends Component
     public function billingState(): DesiredBillingState
     {
         return app(OrganizationBillingStateComputer::class)->compute($this->organization);
+    }
+
+    /**
+     * Compact cost forecast for the merged billing page — projected
+     * month-end plus Δ vs 30 days. Charts stay off this page.
+     *
+     * @return array<string, int|null|string>
+     */
+    #[Computed]
+    public function costForecast(): array
+    {
+        return app(BillingAnalytics::class)->forecastFor($this->organization);
     }
 
     /**

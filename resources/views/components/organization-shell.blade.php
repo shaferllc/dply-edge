@@ -92,14 +92,6 @@
                         <x-heroicon-o-credit-card class="{{ $ni }}" aria-hidden="true" />
                         {{ __('Billing') }}
                     </a>
-                    <a
-                        href="{{ route('billing.analytics', $org) }}"
-                        wire:navigate
-                        @class([$navBase, $link('billing-analytics')])
-                    >
-                        <x-heroicon-o-chart-bar class="{{ $ni }}" aria-hidden="true" />
-                        {{ __('Billing analytics') }}
-                    </a>
                 @endcan
                 {{-- Realtime and Queues moved to the Services nav row (/realtime,
                      /queues). They are products, not organization settings — see
@@ -123,14 +115,6 @@
                     >
                         <x-heroicon-o-cog-6-tooth class="{{ $ni }}" aria-hidden="true" />
                         {{ __('General') }}
-                    </a>
-                    <a
-                        href="{{ route('billing.invoices', $org) }}"
-                        wire:navigate
-                        @class([$navBase, $link('invoices')])
-                    >
-                        <x-heroicon-o-document-text class="{{ $ni }}" aria-hidden="true" />
-                        {{ __('Invoices') }}
                     </a>
                 @endcan
                 <a

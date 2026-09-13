@@ -31,6 +31,27 @@ final class BillingAnalytics
     ) {}
 
     /**
+     * Month-end projection plus Δ vs 30 days — the only analytics the
+     * merged billing page needs. Skips spend charts, category pie, and
+     * invoice history so Show does not pull the full observatory payload.
+     *
+     * Callers: Billing\Livewire\Show (merged org billing page). Existing
+     * forOrganization() stays for Billing\Livewire\Analytics (legacy) and
+     * BillingApiController show/breakdown/invoices. No schema change.
+     *
+     * User: "we can probably merge …/billing and …/billing/analytics and
+     * …/invoices to simplify billing, it shlu,ld be real easy to read"
+     *
+     * @return array<string, int|null|string>
+     */
+    public function forecastFor(Organization $organization): array
+    {
+        $state = $this->billingStateComputer->compute($organization);
+
+        return $this->forecast($organization, $state, $this->snapshotThirtyDaysAgo($organization));
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function forOrganization(Organization $organization): array

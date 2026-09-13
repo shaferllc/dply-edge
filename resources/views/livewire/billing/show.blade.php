@@ -55,18 +55,6 @@
                 ['label' => __('Billing'), 'icon' => 'credit-card'],
             ]"
         >
-            <x-slot:actions>
-                <x-outline-link size="xxs" href="{{ route('billing.analytics', $organization) }}" wire:navigate>
-                    <x-heroicon-o-chart-bar class="h-3.5 w-3.5 shrink-0 opacity-90" aria-hidden="true" />
-                    {{ __('Analytics') }}
-                </x-outline-link>
-                @if ($this->canManageBilling)
-                    <x-outline-link size="xxs" href="{{ route('billing.invoices', $organization) }}" wire:navigate>
-                        <x-heroicon-o-document class="h-3.5 w-3.5 shrink-0 opacity-90" aria-hidden="true" />
-                        {{ __('All invoices') }}
-                    </x-outline-link>
-                @endif
-            </x-slot:actions>
 
             {{-- Hairline strip, matching invoices / org settings / notification
                  channels. The status tile keeps its tone tint — it doubles as the
@@ -163,6 +151,8 @@
             </div>
 
             @include('livewire.billing.partials.bill-hero')
+
+            @include('livewire.billing.partials.cost-forecast')
 
             {{-- Payment method --}}
             <section class="border-b border-brand-ink/10">
@@ -280,9 +270,49 @@
                 </section>
             @endif
 
-            {{-- Subscription — cancel / resume --}}
+            {{-- Invoices --}}
+            <section id="invoices" class="border-b border-brand-ink/10">
+                <x-workspace-panel-head dense icon="heroicon-o-document" :title="__('Invoices')" :note="__('Recent invoices from Stripe.')" />
+                    @if ($this->invoices->isEmpty())
+                        <div class="px-3 py-8 text-center sm:px-4">
+                            <span class="mx-auto inline-flex h-9 w-9 items-center justify-center rounded-xl bg-brand-sand/45 text-brand-mist ring-1 ring-brand-ink/10">
+                                <x-heroicon-o-document class="h-4 w-4" aria-hidden="true" />
+                            </span>
+                            <x-empty-state
+                                borderless
+                                compact
+                                icon="heroicon-o-document-text"
+                                :title="__('No invoices yet')"
+                                :description="__('Invoices appear here once a live site is billed.')"
+                            />
+                        </div>
+                    @else
+                        <ul class="divide-y divide-brand-ink/10">
+                            @foreach ($this->invoices as $invoice)
+                                @php $hosted = $invoice->asStripeInvoice()->hosted_invoice_url ?? null; @endphp
+                                <li class="flex items-center justify-between gap-4 px-3 py-2 transition-colors hover:bg-brand-sand/15 sm:px-4">
+                                    <div class="min-w-0">
+                                        <p class="text-sm font-semibold text-brand-ink">{{ $invoice->date()->toFormattedDateString() }}</p>
+                                        <p class="mt-0.5 font-mono text-xs text-brand-moss tabular-nums">{{ $invoice->total() }}</p>
+                                    </div>
+                                    @if ($hosted)
+                                        <a href="{{ $hosted }}" target="_blank" rel="noopener noreferrer" class="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-brand-sage hover:text-brand-ink">
+                                            <x-heroicon-o-arrow-top-right-on-square class="h-4 w-4 shrink-0" aria-hidden="true" />
+                                            {{ __('Open in Stripe') }}
+                                        </a>
+                                    @endif
+                                </li>
+                            @endforeach
+                        </ul>
+                    @endif
+            </section>
+
+            @include('livewire.billing.partials.how-billing-works')
+
+            {{-- Subscription — cancel / resume. Last so the page reads
+                 amount → forecast → pay → invoices → leave. --}}
             @if ($this->canManageBilling)
-                <section class="border-b border-brand-ink/10">
+                <section class="border-b border-brand-ink/10 last:border-b-0">
                     <x-workspace-panel-head
                         dense
                         :icon="$this->onGracePeriod ? 'heroicon-o-clock' : 'heroicon-o-arrow-path'"
@@ -319,51 +349,6 @@
                     </div>
                 </section>
             @endif
-
-            {{-- Invoices --}}
-            @if ($this->canManageBilling)
-                <section class="border-b border-brand-ink/10">
-                    <x-workspace-panel-head dense icon="heroicon-o-document" :title="__('Invoices')" :note="__('Recent invoices from Stripe.')">
-                        <x-slot:actions>
-                            <a href="{{ route('billing.invoices', $organization) }}" wire:navigate class="shrink-0 text-xs font-semibold text-brand-sage hover:text-brand-ink">{{ __('View all') }} →</a>
-                        </x-slot:actions>
-                    </x-workspace-panel-head>
-                    @if ($this->invoices->isEmpty())
-                        <div class="px-3 py-8 text-center sm:px-4">
-                            <span class="mx-auto inline-flex h-9 w-9 items-center justify-center rounded-xl bg-brand-sand/45 text-brand-mist ring-1 ring-brand-ink/10">
-                                <x-heroicon-o-document class="h-4 w-4" aria-hidden="true" />
-                            </span>
-                            <x-empty-state
-                                borderless
-                                compact
-                                icon="heroicon-o-document-text"
-                                :title="__('No invoices yet')"
-                                :description="__('Invoices appear here once a live site is billed.')"
-                            />
-                        </div>
-                    @else
-                        <ul class="divide-y divide-brand-ink/10">
-                            @foreach ($this->invoices as $invoice)
-                                @php $hosted = $invoice->asStripeInvoice()->hosted_invoice_url ?? null; @endphp
-                                <li class="flex items-center justify-between gap-4 px-3 py-2 transition-colors hover:bg-brand-sand/15 sm:px-4">
-                                    <div class="min-w-0">
-                                        <p class="text-sm font-semibold text-brand-ink">{{ $invoice->date()->toFormattedDateString() }}</p>
-                                        <p class="mt-0.5 font-mono text-xs text-brand-moss tabular-nums">{{ $invoice->total() }}</p>
-                                    </div>
-                                    @if ($hosted)
-                                        <a href="{{ $hosted }}" target="_blank" rel="noopener noreferrer" class="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-brand-sage hover:text-brand-ink">
-                                            <x-heroicon-o-arrow-top-right-on-square class="h-4 w-4 shrink-0" aria-hidden="true" />
-                                            {{ __('Open in Stripe') }}
-                                        </a>
-                                    @endif
-                                </li>
-                            @endforeach
-                        </ul>
-                    @endif
-                </section>
-            @endif
-
-            @include('livewire.billing.partials.how-billing-works')
 
             {{-- Confirmation modals --}}
             @if ($this->subscription)

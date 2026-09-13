@@ -48,8 +48,6 @@ use App\Livewire\StatusPages\Index as StatusPagesIndex;
 use App\Livewire\StatusPages\Manage as StatusPagesManage;
 use App\Livewire\Teams\NotificationChannels as TeamsNotificationChannels;
 use App\Livewire\TwoFactor\Page as TwoFactorPage;
-use App\Modules\Billing\Livewire\Analytics as BillingAnalytics;
-use App\Modules\Billing\Livewire\Invoices as BillingInvoices;
 use App\Modules\Billing\Livewire\Show as BillingShow;
 use App\Modules\Edge\Http\Controllers\EdgeAuditLogExportController;
 use App\Modules\Edge\Http\Controllers\EdgeDeployHookController;
@@ -262,9 +260,11 @@ Route::middleware(['auth', 'verified', 'org'])->group(function () {
     Route::livewire('organizations/{organization}/notification-channels', OrganizationsNotificationChannels::class)->name('organizations.notification-channels');
     Route::livewire('organizations/{organization}/teams/{team}/notification-channels', TeamsNotificationChannels::class)->name('teams.notification-channels');
     Route::livewire('organizations/{organization}/billing', BillingShow::class)->name('billing.show');
-    Route::livewire('organizations/{organization}/billing/analytics', BillingAnalytics::class)->name('billing.analytics');
+    Route::redirect('organizations/{organization}/billing/analytics', 'organizations/{organization}/billing')
+        ->name('billing.analytics');
     Route::livewire('organizations/{organization}/subscription', BillingShow::class)->name('subscription.show');
-    Route::livewire('organizations/{organization}/invoices', BillingInvoices::class)->name('billing.invoices');
+    Route::redirect('organizations/{organization}/invoices', 'organizations/{organization}/billing')
+        ->name('billing.invoices');
     Route::livewire('organizations/{organization}/credentials', CredentialsIndex::class)->name('organizations.credentials');
     // Session-scoped shortcut into the current org's credentials page. Kept as
     // its own name because the OAuth callbacks and the CLI land here without an
