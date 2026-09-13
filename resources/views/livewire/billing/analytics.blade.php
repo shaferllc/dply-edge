@@ -16,7 +16,7 @@
             // Surface flag — hide Edge lines and sections when the surface isn't
             // enabled for this org. The numbers come from the controller (which
             // doesn't know about flags), so we filter at render time.
-            $edgeOn = \Laravel\Pennant\Feature::active('surface.edge');
+            $edgeOn = true;
 
             // Matches on labels rather than slugs because the controller emits plain
             // labels — "Edge …".
@@ -41,8 +41,8 @@
                     : ($interval === 'year' ? __('Billed annually') : __('Billed monthly'));
             } else {
                 $statusDot = 'bg-brand-ink/15';
-                $statusLabel = __('Not subscribed');
-                $statusSub = __('Estimate only until you add a plan');
+                $statusLabel = __('Pay as you go');
+                $statusSub = __('Estimate only until you add a card');
             }
 
             // One cell of a hairline stat/metric strip. Every number on this page is
@@ -70,7 +70,7 @@
             <x-slot:actions>
                 <x-outline-link size="xxs" href="{{ route('billing.show', $organization) }}" wire:navigate>
                     <x-heroicon-o-credit-card class="h-3.5 w-3.5 shrink-0 opacity-90" aria-hidden="true" />
-                    {{ __('Billing & plan') }}
+                    {{ __('Billing') }}
                 </x-outline-link>
                 <x-outline-link size="xxs" href="{{ route('billing.invoices', $organization) }}" wire:navigate>
                     <x-heroicon-o-document class="h-3.5 w-3.5 shrink-0 opacity-90" aria-hidden="true" />

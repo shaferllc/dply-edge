@@ -82,8 +82,8 @@
         //     'show' => auth()->user()?->can('view', $organization) ?? false,
         // ],
         [
-            'label' => __('Billing & plan'),
-            'description' => __('Usage, payment, invoices.'),
+            'label' => __('Billing'),
+            'description' => __('Pay-per-use, payment, invoices.'),
             'href' => route('billing.show', $organization),
             'icon' => 'heroicon-o-credit-card',
             'tone' => 'sage',
@@ -98,7 +98,7 @@
             :organization="$organization"
             section="overview"
             :title="$organization->name"
-            :description="__('Plan, people, and everything dply automates on your behalf.')"
+            :description="__('People and everything dply automates on your behalf.')"
             icon="heroicon-o-building-office-2"
             :breadcrumb="[
                 ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
@@ -117,7 +117,7 @@
                 @if ($isAdmin)
                     <a href="{{ route('billing.show', $organization) }}" wire:navigate class="inline-flex h-6 items-center gap-1 rounded-lg bg-brand-ink px-2.5 text-xs font-semibold text-brand-cream shadow-sm transition-colors hover:bg-brand-forest">
                         <x-heroicon-o-credit-card class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                        {{ __('Billing & plan') }}
+                        {{ __('Billing') }}
                     </a>
                 @endif
             </x-slot:actions>

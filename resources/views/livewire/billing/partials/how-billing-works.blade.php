@@ -27,7 +27,7 @@
             <div>
                 <dt class="font-semibold text-brand-ink">{{ trans_choice('{1} One site free without a card|[2,*] :count sites free without a card', $freeEdgeSites, ['count' => $freeEdgeSites]) }}</dt>
                 <dd class="mt-1 text-brand-moss">
-                    {{ __('You can run up to :count production Edge sites before subscribing. Subscribing removes the cap.', ['count' => $freeEdgeSites]) }}
+                    {{ __('You can run up to :count production Edge sites without a card. Adding a card removes the cap — sites then bill per use.', ['count' => $freeEdgeSites]) }}
                 </dd>
             </div>
             <div>

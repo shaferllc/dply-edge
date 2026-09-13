@@ -90,7 +90,7 @@
                         @class([$navBase, $link('billing')])
                     >
                         <x-heroicon-o-credit-card class="{{ $ni }}" aria-hidden="true" />
-                        {{ __('Billing & plan') }}
+                        {{ __('Billing') }}
                     </a>
                     <a
                         href="{{ route('billing.analytics', $org) }}"

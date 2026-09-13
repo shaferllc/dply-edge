@@ -64,7 +64,7 @@ class AddProviderCredentialModal extends Component
 
         $ids = Index::credentialProviderIds($this->capability);
         if (! is_string($value) || ! in_array($value, $ids, true)) {
-            $this->active_provider = $ids[0] ?? 'digitalocean';
+            $this->active_provider = $ids[0] ?? 'cloudflare';
         }
     }
 

@@ -21,8 +21,8 @@
         $statusSub = $intervalLabel;
     } else {
         $statusTone = 'neutral';
-        $statusLabel = __('No plan');
-        $statusSub = __('Pick a plan below');
+        $statusLabel = __('Pay as you go');
+        $statusSub = __('Add a card to bill live sites');
     }
 
     $statusTiles = [
@@ -46,13 +46,13 @@
         <x-organization-shell
             :organization="$organization"
             section="billing"
-            :title="__('Billing & plan')"
-            :description="__('Simple pricing for :org. A flat monthly fee per live production Edge site, plus metered delivery usage — previews are free.', ['org' => $organization->name])"
+            :title="__('Billing')"
+            :description="__('Pay per live Edge site plus metered delivery usage. Previews stay free.')"
             icon="heroicon-o-credit-card"
             :breadcrumb="[
                 ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
                 ['label' => $organization->name, 'href' => route('organizations.show', $organization), 'icon' => 'building-office-2'],
-                ['label' => __('Billing & plan'), 'icon' => 'credit-card'],
+                ['label' => __('Billing'), 'icon' => 'credit-card'],
             ]"
         >
             <x-slot:actions>
@@ -119,12 +119,12 @@
                                 {{ __('You’re in the dply beta — $0, nothing due') }}
                             </p>
                             <p class="mt-1 text-sm text-brand-moss">
-                                {{ __('Your Edge site fees are waived during the beta. Want to lock in early? Subscribe any time below.') }}
+                                {{ __('Your Edge site fees are waived during the beta. Add a card any time if you want billing running before launch.') }}
                             </p>
                         </div>
                         <button type="button" wire:click="subscribeStandard('month')" wire:loading.attr="disabled" wire:target="subscribeStandard"
                                 class="shrink-0 inline-flex items-center gap-2 rounded-lg border border-brand-ink/15 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:border-brand-sage/40 disabled:opacity-60">
-                            {{ __('Subscribe early') }}
+                            {{ __('Add a card') }}
                         </button>
                     </div>
                 </div>
@@ -140,7 +140,7 @@
             )
                 <div class="space-y-3 border-b border-brand-ink/10 px-3 py-2 sm:px-4">
                     @if (request()->query('checkout') === 'success')
-                        <x-alert tone="success">{{ __('Subscription updated successfully.') }}</x-alert>
+                        <x-alert tone="success">{{ __('Billing updated.') }}</x-alert>
                     @endif
                     @if (session('billing_status'))
                         <x-alert tone="success">{{ session('billing_status') }}</x-alert>
@@ -204,7 +204,7 @@
                             {{ $hasPaymentMethod ? __('Manage in Stripe') : __('Add a card') }}
                         </x-secondary-button>
                     @else
-                        <p class="text-xs font-medium text-amber-900/80">{{ __('Pick a plan above to add a payment method.') }}</p>
+                        <p class="text-xs font-medium text-amber-900/80">{{ __('Add a card above to start billing live sites.') }}</p>
                     @endif
                 </div>
             </section>
@@ -218,7 +218,7 @@
                     $currencies = config('profile_options.currencies', []);
                 @endphp
                 <section class="border-b border-brand-ink/10">
-                    <x-workspace-panel-head dense icon="heroicon-o-identification" :title="__('Billing details')" :note="__('Printed on every Stripe invoice for this organization’s subscription.')" />
+                    <x-workspace-panel-head dense icon="heroicon-o-identification" :title="__('Billing details')" :note="__('Printed on every Stripe invoice for this organization.')" />
                     <form wire:submit="saveBillingDetails" class="space-y-3 px-3 py-3 sm:px-4">
                         <div class="grid gap-3 sm:grid-cols-2">
                             <div>
@@ -338,7 +338,7 @@
                                 compact
                                 icon="heroicon-o-document-text"
                                 :title="__('No invoices yet')"
-                                :description="__('Invoices appear here once this organization moves onto a paid plan.')"
+                                :description="__('Invoices appear here once a live site is billed.')"
                             />
                         </div>
                     @else

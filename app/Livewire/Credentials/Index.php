@@ -26,19 +26,20 @@ class Index extends Component
     use ManagesProviderCredentials;
 
     /**
-     * Valid values for the capability tab (`?tab=`). Used to filter the provider sidebar.
+     * Capability filters the add-credential modal still understands
+     * (`cdn` on Edge create). The index itself is DNS-only.
      *
      * @var list<string>
      */
-    private const TABS = ['all', 'server', 'dns', 'cdn', 'imports', 'storage'];
+    private const TABS = ['dns', 'cdn'];
 
     public ?Organization $organization = null;
 
     /** @var string Provider key from {@see credentialProviderNav()} */
-    public string $active_provider = 'digitalocean';
+    public string $active_provider = 'cloudflare';
 
-    /** @var string One of {@see self::TABS}: filters the provider sidebar by capability. */
-    public string $tab = 'all';
+    /** @var string One of {@see self::TABS}. The index always renders DNS. */
+    public string $tab = 'dns';
 
     /**
      * Explicit setter so the tab strip has a concrete wire:target — `wire:target`
@@ -92,14 +93,14 @@ class Index extends Component
     {
         $ids = self::credentialProviderIds($this->capabilityForTab());
         if (! is_string($value) || ! in_array($value, $ids, true)) {
-            $this->active_provider = $ids[0] ?? 'digitalocean';
+            $this->active_provider = $ids[0] ?? 'cloudflare';
         }
     }
 
     public function updatedTab(mixed $value): void
     {
         if (! is_string($value) || ! in_array($value, self::TABS, true)) {
-            $this->tab = 'all';
+            $this->tab = 'dns';
         }
 
         $ids = self::credentialProviderIds($this->capabilityForTab());
@@ -114,11 +115,8 @@ class Index extends Component
     private function capabilityForTab(): ?string
     {
         return match ($this->tab) {
-            'server' => 'compute',
-            'dns' => 'dns',
             'cdn' => 'cdn',
-            'imports' => 'import',
-            default => null,
+            default => 'dns',
         };
     }
 
@@ -133,51 +131,12 @@ class Index extends Component
     {
         $groups = [
             [
-                'label' => __('VPS & cloud'),
-                'items' => [
-                    ['id' => 'digitalocean', 'label' => 'DigitalOcean'],
-                    ['id' => 'hetzner', 'label' => 'Hetzner'],
-                    ['id' => 'linode', 'label' => 'Linode'],
-                    ['id' => 'vultr', 'label' => 'Vultr'],
-                    ['id' => 'upcloud', 'label' => 'UpCloud'],
-                ],
-            ],
-            [
-                'label' => __('DNS & CDN'),
+                'label' => __('DNS'),
                 'items' => [
                     ['id' => 'cloudflare', 'label' => 'Cloudflare'],
                     ['id' => 'gandi', 'label' => 'Gandi'],
                     ['id' => 'namecheap', 'label' => 'Namecheap'],
                     ['id' => 'vercel_dns', 'label' => __('Vercel DNS')],
-                ],
-            ],
-            [
-                'label' => __('Other providers'),
-                'items' => [
-                    ['id' => 'ovh', 'label' => __('OVH Public Cloud')],
-                ],
-            ],
-            [
-                'label' => __('Platforms'),
-                'items' => [
-                    ['id' => 'aws_app_runner', 'label' => 'AWS App Runner'],
-                    ['id' => 'ghcr', 'label' => __('GitHub Container Registry')],
-                ],
-            ],
-            [
-                'label' => __('Hyperscale'),
-                'items' => [
-                    ['id' => 'aws', 'label' => 'AWS'],
-                    ['id' => 'gcp', 'label' => 'Google Cloud'],
-                    ['id' => 'azure', 'label' => 'Azure'],
-                    ['id' => 'oracle', 'label' => __('Oracle Cloud')],
-                ],
-            ],
-            [
-                'label' => __('Migrate from'),
-                'items' => [
-                    ['id' => 'ploi', 'label' => 'Ploi'],
-                    ['id' => 'forge', 'label' => 'Laravel Forge'],
                 ],
             ],
         ];
@@ -301,9 +260,7 @@ class Index extends Component
 
         return view('livewire.credentials.index', [
             'credentials' => $credentials,
-            'providerNav' => $this->tab === 'storage'
-                ? []
-                : self::credentialProviderNav($this->capabilityForTab()),
+            'providerNav' => self::credentialProviderNav($this->capabilityForTab()),
             'storageNav' => [],
             'storageCount' => 0,
             'activeProviderLabel' => $this->resolveActiveProviderLabel(),

@@ -535,7 +535,7 @@ class Show extends Component
         $this->authorize('update', $this->organization);
 
         if (! $this->organization->hasStripeId()) {
-            $this->addError('billing', 'No billing account yet. Subscribe to a plan first.');
+            $this->addError('billing', 'No billing account yet. Add a card first.');
 
             return null;
         }

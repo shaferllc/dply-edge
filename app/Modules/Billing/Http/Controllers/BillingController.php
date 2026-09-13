@@ -104,7 +104,7 @@ class BillingController extends Controller
 
         if (! $organization->hasStripeId()) {
             return redirect()->route('subscription.show', $organization)
-                ->with('error', 'No billing account yet. Subscribe to a plan first.');
+                ->with('error', 'No billing account yet. Add a card first.');
         }
 
         audit_log($organization, $request->user(), 'billing.portal_accessed');

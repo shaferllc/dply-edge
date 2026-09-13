@@ -109,7 +109,7 @@
                                     {{ __('Storage is separate') }}
                                 </dt>
                                 <dd class="mt-1 text-xs leading-relaxed text-brand-moss">
-                                    {{ __('A backup destination is a named bucket, so one provider can hold several. Without one, dumps stay on the server that made them.') }}
+                                    {{ __('Used when you add a custom domain so we can write the records that point it at your Edge site.') }}
                                 </dd>
                             </div>
                         </dl>
