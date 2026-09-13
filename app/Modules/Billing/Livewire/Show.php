@@ -31,6 +31,8 @@ use Throwable;
  * @property-read string|null $subscriptionInterval
  * @property-read \App\Modules\Billing\Services\DesiredBillingState $billingState
  * @property-read array<string, int|null|string> $costForecast
+ * @property-read bool $standardPricingAvailable
+ * @property-read string $paymentSummary
  */
 #[Layout('layouts.app')]
 class Show extends Component

@@ -37,7 +37,9 @@ test('billing page renders edge-site billing with no server plan residue', funct
         ->assertSee('Edge sites')
         ->assertSee('dply Edge site')
         ->assertSee('How billing works')
-        // An Edge price is configured, so the Subscribe CTA is offered.
+        ->assertSee('Cost forecast')
+        ->assertSee('Invoices')
+        ->assertSee('Add a credit card')
         ->assertSee('Pay yearly')
         ->assertDontSee('Any size, any provider')
         ->assertDontSee('One flat plan')

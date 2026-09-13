@@ -81,26 +81,7 @@
                     <p class="mt-0.5 text-xs text-brand-moss">{{ __(':static/mo per static or hybrid site, :ssr/mo per Worker SSR site, plus delivery usage beyond each site\'s allowance.', ['static' => '$'.number_format(((int) config('subscription.standard.edge_cents', 200)) / 100, 2), 'ssr' => '$'.number_format(((int) config('subscription.standard.edge_ssr_cents', 700)) / 100, 2)]) }}</p>
                 </div>
 
-                {{-- Primary Subscribe CTA — the most important action on the
-                     page for an unsubscribed org, so it sits right under the
-                     price rather than buried in the Payment method section. --}}
-                @if (! $this->subscription && $this->standardPricingAvailable)
-                    <div class="mt-5">
-                        <div class="flex flex-col sm:flex-row gap-2">
-                            <button type="button" wire:click="subscribeStandard('month')"
-                                    class="inline-flex items-center justify-center rounded-lg bg-brand-ink px-3 py-2 text-xs font-semibold text-brand-cream shadow-md hover:bg-brand-forest transition-colors">
-                                {{ __('Add a card — :amount/mo', ['amount' => '$'.number_format($monthlyDollars, 2)]) }}
-                            </button>
-                            <button type="button" wire:click="subscribeStandard('year')"
-                                    class="inline-flex items-center justify-center rounded-lg border-2 border-brand-ink/15 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:border-brand-gold/40 transition-colors">
-                                {{ __('Pay yearly — save 20%') }}
-                            </button>
-                        </div>
-                        <p class="mt-2 text-xs text-brand-moss">{{ __('Secure checkout via Stripe. Cancel anytime.') }}</p>
-                    </div>
-                @elseif (! $this->subscription && ! $this->standardPricingAvailable)
-                    <p class="mt-5 text-sm text-brand-moss">{{ __('Billing isn\'t configured for this install yet.') }}</p>
-                @endif
+                {{-- Card CTA is the payment-method strip at the top of the page. --}}
             </div>
         </div>
 

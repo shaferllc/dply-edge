@@ -159,12 +159,12 @@ test('edge billing section shows usage stats and org analytics link', function (
         ->assertSee('Billing & usage')
         ->assertSee('Platform fee')
         ->assertSee('42,000')
-        ->assertSee('Open billing analytics');
+        ->assertSee('Open org billing');
 
     $this->actingAs($user)
         ->get(route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'edge-billing']))
         ->assertOk()
-        ->assertSee(route('billing.analytics', $site->organization_id), false);
+        ->assertSee(route('billing.show', $site->organization_id), false);
 });
 
 test('edge traffic section shows request and bandwidth stats', function () {

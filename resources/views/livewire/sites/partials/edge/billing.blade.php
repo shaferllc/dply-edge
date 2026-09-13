@@ -152,13 +152,19 @@
         @endif
 
         <div class="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5 sm:px-6">
+            {{--
+              Callers: Edge workspace Billing tab (sites/partials/edge/billing).
+              Points at merged org billing.show — analytics + invoices live there.
+              User: "we can probably merge …/billing and …/billing/analytics and
+              …/invoices to simplify billing, it shlu,ld be real easy to read"
+            --}}
             <p class="text-xs text-brand-moss">{{ __('Compare all Edge sites and invoices for the workspace.') }}</p>
             <a
-                href="{{ route('billing.analytics', $site->organization_id) }}"
+                href="{{ route('billing.show', $site->organization_id) }}"
                 wire:navigate
                 class="inline-flex items-center gap-1 text-xs font-medium text-brand-sage hover:underline"
             >
-                {{ __('Open billing analytics') }}
+                {{ __('Open org billing') }}
                 <x-heroicon-o-arrow-right class="h-3.5 w-3.5" />
             </a>
         </div>

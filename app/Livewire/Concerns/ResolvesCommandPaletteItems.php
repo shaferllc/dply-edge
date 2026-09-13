@@ -58,8 +58,7 @@ trait ResolvesCommandPaletteItems
                 ['Source control', 'github gitlab source control git', 'profile.source-control', 'code-bracket'],
                 ['Notification channels', 'slack email webhook channels', 'profile.notification-channels', 'bell'],
                 // ['Referrals', 'referral invite friends', 'profile.referrals', 'user'], // hidden for now
-                ['Billing', 'billing invoices payment plan', 'billing.show', 'credit-card', ['org' => true]],
-                ['Invoices', 'invoices billing receipts', 'billing.invoices', 'credit-card', ['org' => true]],
+                ['Billing', 'billing invoices payment receipts forecast', 'billing.show', 'credit-card', ['org' => true]],
                 ['Org members', 'organization members invite', 'organizations.members', 'building-office-2', ['org' => true]],
                 ['Org teams', 'organization teams', 'organizations.teams', 'building-office-2', ['org' => true]],
             ],

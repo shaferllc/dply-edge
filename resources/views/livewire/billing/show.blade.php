@@ -100,21 +100,13 @@
 
             @if ($betaFeeWaived)
                 <div class="border-b border-brand-ink/10 bg-brand-gold/8 px-3 py-2 sm:px-4">
-                    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div class="min-w-0">
-                            <p class="flex items-center gap-2 text-sm font-semibold text-brand-ink">
-                                <x-heroicon-o-sparkles class="h-4 w-4 shrink-0 text-brand-gold" aria-hidden="true" />
-                                {{ __('You’re in the dply beta — $0, nothing due') }}
-                            </p>
-                            <p class="mt-1 text-sm text-brand-moss">
-                                {{ __('Your Edge site fees are waived during the beta. Add a card any time if you want billing running before launch.') }}
-                            </p>
-                        </div>
-                        <button type="button" wire:click="subscribeStandard('month')" wire:loading.attr="disabled" wire:target="subscribeStandard"
-                                class="shrink-0 inline-flex items-center gap-2 rounded-lg border border-brand-ink/15 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:border-brand-sage/40 disabled:opacity-60">
-                            {{ __('Add a card') }}
-                        </button>
-                    </div>
+                    <p class="flex items-center gap-2 text-sm font-semibold text-brand-ink">
+                        <x-heroicon-o-sparkles class="h-4 w-4 shrink-0 text-brand-gold" aria-hidden="true" />
+                        {{ __('You’re in the dply beta — $0, nothing due') }}
+                    </p>
+                    <p class="mt-1 text-sm text-brand-moss">
+                        {{ __('Your Edge site fees are waived during the beta. Add a card any time if you want billing running before launch.') }}
+                    </p>
                 </div>
             @endif
 
@@ -144,60 +136,17 @@
                 </div>
             @endif
 
-            <div wire:loading.flex wire:target="switchInterval,cancelSubscription,resumeSubscription"
+            <div wire:loading.flex wire:target="subscribeStandard,portal,switchInterval,cancelSubscription,resumeSubscription"
                  class="hidden items-center gap-3 border-b border-brand-ink/10 bg-brand-gold/10 px-3 py-2 sm:px-4">
                 <x-spinner variant="ink" size="sm" />
                 <span class="text-sm font-medium text-brand-ink">{{ __('Updating your subscription with Stripe…') }}</span>
             </div>
 
+            @include('livewire.billing.partials.payment-method')
+
             @include('livewire.billing.partials.bill-hero')
 
             @include('livewire.billing.partials.cost-forecast')
-
-            {{-- Payment method --}}
-            <section class="border-b border-brand-ink/10">
-                <x-workspace-panel-head dense icon="heroicon-o-credit-card" :title="__('Payment method')" :note="__('Default card on file. Update from the Stripe portal.')" />
-                {{-- "No payment method" is a blocking gap, not a neutral value:
-                     nothing can be charged until it's fixed. Compacting the page
-                     had flattened it into grey body text that read as disabled,
-                     so the empty state gets amber chrome + an icon while a card
-                     on file stays quiet. --}}
-                @php
-                    // Deliberately the block form, not the inline parenthesised one.
-                    // Blade pairs raw php blocks with a text regex, so an inline
-                    // opener inside a file that also uses block form swallows
-                    // everything up to the next terminator — which here ate the
-                    // canManageBilling conditional below and orphaned its close.
-                    // Directive names stay spelled out in prose: writing the literal
-                    // tokens in this comment would terminate this very block.
-                    $hasPaymentMethod = $this->paymentSummary !== 'No payment method';
-                @endphp
-                <div @class([
-                    'flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 sm:px-4',
-                    'bg-amber-50/60' => ! $hasPaymentMethod,
-                ])>
-                    @if ($hasPaymentMethod)
-                        <p class="inline-flex items-center gap-1.5 font-mono text-sm tabular-nums text-brand-ink">
-                            <x-heroicon-o-credit-card class="h-3.5 w-3.5 shrink-0 text-brand-moss" aria-hidden="true" />
-                            {{ $this->paymentSummary }}
-                        </p>
-                    @else
-                        <p class="inline-flex items-center gap-1.5 text-sm font-semibold text-amber-900">
-                            <x-heroicon-m-exclamation-triangle class="h-4 w-4 shrink-0 text-amber-600" aria-hidden="true" />
-                            {{ __('No payment method') }}
-                        </p>
-                    @endif
-
-                    @if ($this->canManageBilling)
-                        <x-secondary-button size="xs" type="button" wire:click="portal">
-                            <x-heroicon-o-arrow-top-right-on-square class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                            {{ $hasPaymentMethod ? __('Manage in Stripe') : __('Add a card') }}
-                        </x-secondary-button>
-                    @else
-                        <p class="text-xs font-medium text-amber-900/80">{{ __('Add a card above to start billing live sites.') }}</p>
-                    @endif
-                </div>
-            </section>
 
             {{-- Billing details. Org-scoped invoice email, VAT, currency,
                  legal details — printed on Stripe invoices for this org's
