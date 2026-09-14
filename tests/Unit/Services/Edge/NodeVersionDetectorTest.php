@@ -57,9 +57,18 @@ test('picks engines.node major over other sources', function () {
         ->and($result['image'])->toBe('node:22-bookworm');
 });
 
-test('engines.node >=18 picks the lowest satisfying LTS', function () {
+test('open-ended engines.node >=18 never drops below the default LTS', function () {
+    // eleventy-base-blog ships ">=18" while sharp needs >=20.9 — Node 18 broke the build.
     $result = detect([
         'package.json' => json_encode(['engines' => ['node' => '>=18']]),
+    ]);
+
+    expect($result['major'])->toBe(22);
+});
+
+test('capped engines.node range picks the lowest satisfying LTS', function () {
+    $result = detect([
+        'package.json' => json_encode(['engines' => ['node' => '>=16 <19']]),
     ]);
 
     expect($result['major'])->toBe(18);

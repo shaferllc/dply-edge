@@ -149,12 +149,18 @@ final class NodeVersionDetector
             return null;
         }
 
-        // Comparator-only floor: ">=18", ">18", "20 <= x" → LOWEST supported
-        // satisfying major. Prefer LTS-safe (don't jump to bleeding edge
-        // just because the repo allows it).
+        // Comparator floor: ">=18", ">18", "20 <= x".
         if (preg_match('/>=?\s*(\d+)/', $normalized, $m) === 1) {
             $floor = (int) $m[1];
 
+            // Open-ended (no `<` cap): the floor is a minimum, not a pin —
+            // starter templates ship ">=18" while their deps need newer Node
+            // (sharp wants >=20.9). Never go below the default LTS.
+            if (! str_contains($normalized, '<') && $floor <= self::DEFAULT_MAJOR) {
+                return self::DEFAULT_MAJOR;
+            }
+
+            // Capped range ("<=" / "<") → LOWEST supported satisfying major.
             foreach (self::SUPPORTED_MAJORS as $candidate) {
                 if ($candidate >= $floor) {
                     return $candidate;
