@@ -18,7 +18,7 @@ if [[ "$(id -u)" -ne 0 ]]; then
   exit 1
 fi
 
-USER_NAME="${DPLY_EDGE_BUILD_DOCKER_USER:-www-data}"
+USER_NAME="${DPLY_EDGE_BUILD_DOCKER_USER:-${SUDO_USER:-www-data}}"
 
 php artisan dply:edge:ensure-build-docker --user="$USER_NAME"
 echo

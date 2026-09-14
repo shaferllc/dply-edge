@@ -21,7 +21,7 @@ use Illuminate\Console\Command;
 class EdgeEnsureBuildDockerCommand extends Command
 {
     protected $signature = 'dply:edge:ensure-build-docker
-                            {--user= : Linux user that runs Horizon (default: edge.build.docker_user / www-data)}
+                            {--user= : Linux user that runs Horizon (default: edge.build.docker_user, else the sudo-invoking user)}
                             {--check : Only probe the daemon; do not install}';
 
     protected $description = 'Install/start Docker Engine on this host for Edge builds (run as root on control-plane workers)';

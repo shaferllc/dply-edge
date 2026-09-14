@@ -60,8 +60,8 @@ icon and a button.
 - **`x-outline-link`** for repeated outline-style links and secondary nav
   anchors, instead of duplicating long Tailwind class strings. Its
   **`size="xxs"`** (`h-6 gap-1 rounded-md px-2 text-xs font-semibold`) is the
-  **shell-header action size** used beside a page title (Billing & plan,
-  Invoices, Members, Teams) — reach for the token rather than `size="sm"` plus
+  **shell-header action size** used beside a page title (Members, Teams) —
+  reach for the token rather than `size="sm"` plus
   a stack of `!important` overrides, which is how it was hand-rolled on three
   pages before the token existed. Note the token names the **control, not the
   type**: labels stay `text-xs`.
@@ -351,13 +351,12 @@ Match remaining questions to the layer that still exists:
   separate lobby domain.
 - **Promotion is gated**, and the gates are live across the UI, the API and
   direct action entry points — do not add a fourth path that skips them:
-  - **Shadow replay** (`global.edge_deploy_replay`) samples production
-    `edge_access_logs` GET/HEAD paths and replays them against the preview URL
-    before promote or split.
+  - **Shadow replay** samples production `edge_access_logs` GET/HEAD paths
+    and replays them against the preview URL before promote or split.
   - **Preview review** — threaded `edge_preview_comments` plus
     `edge_preview_review_approvals`, PR links, and an optional promote gate
     (`DPLY_EDGE_PREVIEW_REVIEW_*`).
-  - **Deploy contract** (`global.deploy_contract`, default on) —
+  - **Deploy contract** (always on) —
     `DeployContractEvaluator` runs the policy checks under
     `app/Services/DeployContract/Checks/*` (origin/edge health, env-keys
     subset, shadow-replay pass, review-ready), recorded in

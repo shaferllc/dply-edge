@@ -145,10 +145,10 @@ return [
         // root). Set false to fail fast with an install hint instead.
         'docker_autoinstall' => filter_var(env('DPLY_EDGE_BUILD_DOCKER_AUTOINSTALL', true), FILTER_VALIDATE_BOOLEAN),
         'docker_install_timeout_seconds' => (int) env('DPLY_EDGE_BUILD_DOCKER_INSTALL_TIMEOUT', 600),
-        // Linux user that runs Horizon on control-plane workers
-        // (deploy/supervisor/dply-worker*.conf → user=www-data). Not the SSH
-        // deploy account (dply) and not Forge's forge.
-        'docker_user' => env('DPLY_EDGE_BUILD_DOCKER_USER', 'www-data'),
+        // Linux user that runs Horizon (and so must reach the Docker socket).
+        // Unset → detected at runtime: the worker's own user, or SUDO_USER
+        // under `sudo artisan` ({@see EdgeBuildDockerBootstrap::queueUser}).
+        'docker_user' => env('DPLY_EDGE_BUILD_DOCKER_USER'),
         /*
          * Where the per-deploy checkout lives before it is bind-mounted
          * into the build container. This MUST be a path the Docker daemon

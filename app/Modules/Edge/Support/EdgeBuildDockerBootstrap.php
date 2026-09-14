@@ -15,13 +15,34 @@ final class EdgeBuildDockerBootstrap
 {
     /**
      * User that must reach the Docker socket (Horizon / warm-images).
-     * Defaults to www-data — see deploy/supervisor/dply-worker*.conf.
+     *
+     * Unset → whoever runs this: the Horizon worker's own user during an
+     * inline self-heal, or SUDO_USER under `sudo php artisan …`. A hardcoded
+     * www-data default granted the wrong account on dply-provisioned boxes,
+     * where Horizon runs as `dply`.
      */
     public static function queueUser(): string
     {
-        $configured = trim((string) config('edge.build.docker_user', 'www-data'));
-        if ($configured !== '' && preg_match('/^[a-z_][a-z0-9_-]*\$?$/i', $configured) === 1) {
+        $valid = static fn (mixed $user): bool => is_string($user)
+            && preg_match('/^[a-z_][a-z0-9_-]*\$?$/i', $user) === 1;
+
+        $configured = trim((string) config('edge.build.docker_user', ''));
+        if ($valid($configured)) {
             return $configured;
+        }
+
+        if (function_exists('posix_geteuid')) {
+            if (posix_geteuid() === 0) {
+                $sudoUser = getenv('SUDO_USER');
+                if ($valid($sudoUser) && $sudoUser !== 'root') {
+                    return $sudoUser;
+                }
+            } else {
+                $name = posix_getpwuid(posix_geteuid())['name'] ?? null;
+                if ($valid($name)) {
+                    return $name;
+                }
+            }
         }
 
         return 'www-data';
@@ -230,6 +251,16 @@ if id "\$TARGET_USER" >/dev/null 2>&1; then
   echo "[dply:docker] Added \$TARGET_USER to docker group (recycle Horizon/queue workers to pick up the group)."
 else
   echo "[dply:docker] WARNING: user \$TARGET_USER does not exist — skipping usermod." >&2
+fi
+
+# The ACL is what lets the *running* worker reach the socket now — the docker
+# group from usermod only applies after Horizon restarts. Ubuntu images often
+# ship without setfacl.
+if ! command -v setfacl >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then
+  echo "[dply:docker] Installing acl (setfacl) so socket access applies without a worker restart…"
+  \$SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq acl >/dev/null 2>&1 \
+    || { \$SUDO apt-get update -qq >/dev/null 2>&1 && \$SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq acl >/dev/null 2>&1; } \
+    || echo "[dply:docker] WARNING: could not install acl — restart Horizon after this build." >&2
 fi
 
 if [ -S /var/run/docker.sock ]; then

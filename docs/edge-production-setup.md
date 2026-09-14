@@ -127,16 +127,19 @@ Custom domains attach per-site via the Edge dashboard; Laravel writes KV entries
 ## 6. Build workers (Docker on the control plane)
 
 Edge builds (`BuildEdgeSiteJob`) run on dply's **control-plane worker** VMs
-(`DPLY_RUNTIME=worker`, queue `dply-provision`) — not customer VMs. Horizon and
-warm-images run as **`www-data`** (`deploy/supervisor/dply-worker*.conf`). The
-SSH deploy account is usually `dply`; Docker access must be granted to
-**www-data**.
+(`DPLY_RUNTIME=worker`, queue `dply-provision`) — not customer VMs. Docker
+access must be granted to the user that **runs Horizon** — `dply` on
+dply-provisioned boxes, `www-data` under `deploy/supervisor/dply-worker*.conf`.
+Leave `DPLY_EDGE_BUILD_DOCKER_USER` unset and it is detected: a build job
+self-heals as its own worker user (needs passwordless sudo), and
+`sudo artisan` grants the invoking user (`SUDO_USER`). Set it only when those
+differ from the Horizon user.
 
 If deploys fail with *passwordless sudo* / *daemon unreachable*, bootstrap once
 as root on each worker:
 
 ```bash
-sudo php artisan dply:edge:ensure-build-docker          # defaults to www-data
+sudo php artisan dply:edge:ensure-build-docker          # grants the sudo-invoking user; --user=… to override
 php artisan horizon:terminate
 php artisan dply:edge:ensure-build-docker --check
 php artisan dply:edge:warm-build-images                   # optional

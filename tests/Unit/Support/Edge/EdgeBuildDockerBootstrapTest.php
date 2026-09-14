@@ -18,14 +18,18 @@ test('local desktop environment is macOS only so Linux workers can install Docke
     expect(EdgeBuildDockerBootstrap::isLocalDesktopEnvironment())->toBe(PHP_OS_FAMILY === 'Darwin');
 });
 
-test('queue user defaults to www-data for control-plane Horizon', function () {
+test('queue user honours a configured user', function () {
     config(['edge.build.docker_user' => 'www-data']);
 
     expect(EdgeBuildDockerBootstrap::queueUser())->toBe('www-data');
 });
 
-test('queue user rejects invalid names', function () {
-    config(['edge.build.docker_user' => 'www-data;rm']);
+test('queue user falls back to the process user when unset or invalid', function () {
+    $me = posix_getpwuid(posix_geteuid())['name'];
 
-    expect(EdgeBuildDockerBootstrap::queueUser())->toBe('www-data');
+    config(['edge.build.docker_user' => null]);
+    expect(EdgeBuildDockerBootstrap::queueUser())->toBe($me);
+
+    config(['edge.build.docker_user' => 'www-data;rm']);
+    expect(EdgeBuildDockerBootstrap::queueUser())->toBe($me);
 });
