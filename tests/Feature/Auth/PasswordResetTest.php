@@ -6,6 +6,7 @@ use App\Livewire\Auth\ForgotPassword;
 use App\Livewire\Auth\ResetPassword as ResetPasswordPage;
 use App\Models\User;
 use Illuminate\Auth\Notifications\ResetPassword;
+use Illuminate\Contracts\Notifications\Dispatcher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
 use Livewire\Livewire;
@@ -70,4 +71,29 @@ test('password can be reset with valid token', function () {
         ->set('password_confirmation', 'password')
         ->call('submit')
         ->assertRedirect(route('login'));
+});
+
+test('a failed reset email send shows an error on the form', function () {
+    $user = User::factory()->create();
+    $this->mock(Dispatcher::class)
+        ->shouldReceive('send')->andThrow(new \RuntimeException('email.sending.error.email.invalid'));
+
+    Livewire::test(ForgotPassword::class)
+        ->set('email', $user->email)
+        ->call('submit')
+        ->assertHasErrors('email');
+});
+
+test('the cloudflare mailer prefers the email sending token over the dns token', function () {
+    putenv('CLOUDFLARE_KEY=email-sending-token');
+    putenv('CLOUDFLARE_API_KEY=dns-token');
+
+    try {
+        $config = require base_path('config/mail.php');
+    } finally {
+        putenv('CLOUDFLARE_KEY');
+        putenv('CLOUDFLARE_API_KEY');
+    }
+
+    expect($config['mailers']['cloudflare']['key'])->toBe('email-sending-token');
 });

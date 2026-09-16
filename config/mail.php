@@ -49,8 +49,14 @@ return [
             'local_domain' => env('MAIL_EHLO_DOMAIN', parse_url((string) env('APP_URL', 'http://localhost'), PHP_URL_HOST)),
         ],
 
+        // Its own token, not services.cloudflare.key: that one prefers
+        // CLOUDFLARE_API_KEY (the DNS token for testing domains), so with both set
+        // mail went out on a token without Email Sending access. dply's mail binding
+        // injects the Email Sending token as CLOUDFLARE_KEY.
         'cloudflare' => [
             'transport' => 'cloudflare',
+            'account_id' => env('CLOUDFLARE_ACCOUNT_ID'),
+            'key' => env('CLOUDFLARE_KEY', env('CLOUDFLARE_API_KEY')),
         ],
 
         'ses' => [
