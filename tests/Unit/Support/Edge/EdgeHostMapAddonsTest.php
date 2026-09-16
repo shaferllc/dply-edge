@@ -189,3 +189,28 @@ test('dashboard tags override repo tags when edgeMeta has the section', function
 
     expect($payload['tags']['tools'][0]['src'])->toBe('https://example.com/dash.js');
 });
+
+test('vendor tags publish valid ids and drop malformed ones', function () {
+    $site = new Site([
+        'edge_backend' => 'dply_edge',
+        'meta' => [
+            'edge' => [
+                'tags' => [
+                    'enabled' => true,
+                    'tools' => [
+                        ['vendor' => 'ga4', 'id' => 'g-abc123', 'path' => '/blog/*'],
+                        ['vendor' => 'ga4', 'id' => "G-1');alert(1)//"],
+                        ['vendor' => 'meta', 'id' => 'not-digits'],
+                        ['vendor' => 'nope', 'id' => '123456'],
+                    ],
+                ],
+            ],
+        ],
+    ]);
+    $site->id = '55555555-5555-5555-5555-555555555555';
+
+    $tools = EdgeHostMapAddons::payload($site)['tags']['tools'];
+
+    expect($tools)->toHaveCount(1)
+        ->and($tools[0])->toMatchArray(['vendor' => 'ga4', 'id' => 'G-ABC123', 'src' => '', 'purpose' => 'analytics', 'path' => '/blog/*']);
+});

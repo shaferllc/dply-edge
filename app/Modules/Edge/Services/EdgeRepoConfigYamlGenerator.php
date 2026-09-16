@@ -14,6 +14,7 @@ use App\Modules\Edge\Support\EdgeEffectiveImages;
 use App\Modules\Edge\Support\EdgeEffectiveOrigin;
 use App\Modules\Edge\Support\EdgeEffectiveProductAddons;
 use App\Modules\Edge\Support\EdgeEffectiveRouting;
+use App\Modules\Edge\Support\EdgeTagVendors;
 
 /**
  * Generates a `dply.yaml` snippet from a site's most recent live
@@ -240,12 +241,20 @@ final class EdgeRepoConfigYamlGenerator
         if ($tools !== []) {
             $lines[] = '  tools:';
             foreach ($tools as $tool) {
-                if (! is_array($tool)) {
+                $tool = is_array($tool) ? EdgeTagVendors::normalize($tool) : null;
+                if ($tool === null) {
                     continue;
                 }
-                $lines[] = '    - name: '.$this->quote((string) ($tool['name'] ?? 'tag'));
-                $lines[] = '      src: '.$this->quote((string) ($tool['src'] ?? ''));
-                $lines[] = '      async: '.(((bool) ($tool['async'] ?? true)) ? 'true' : 'false');
+                $lines[] = '    - name: '.$this->quote($tool['name']);
+                if ($tool['vendor'] === 'custom') {
+                    $lines[] = '      src: '.$this->quote($tool['src']);
+                    $lines[] = '      async: '.($tool['async'] ? 'true' : 'false');
+                } else {
+                    $lines[] = '      vendor: '.$tool['vendor'];
+                    $lines[] = '      id: '.$this->quote($tool['id']);
+                }
+                $lines[] = '      purpose: '.$tool['purpose'];
+                $lines[] = '      path: '.$this->quote($tool['path']);
             }
         }
 

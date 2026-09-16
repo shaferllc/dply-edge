@@ -69,53 +69,6 @@ HTML,
                 'hint' => __('Simple top-of-body notice. Narrow the path if you only want it on marketing pages.'),
             ],
             [
-                'key' => 'consent',
-                'name' => 'Consent flag helper',
-                'label' => 'Consent',
-                'phase' => 'head',
-                'path' => '/*',
-                'html' => <<<'HTML'
-<script>
-  // Pair with Tags → Consent helper. Your CMP can call grant() / revoke().
-  window.__dplyTags = window.__dplyTags || {};
-  window.__dplyTags.grant = function () {
-    localStorage.setItem('dply_tag_consent', '1');
-    window.__dplyTags.consent = true;
-  };
-  window.__dplyTags.revoke = function () {
-    localStorage.removeItem('dply_tag_consent');
-    window.__dplyTags.consent = false;
-  };
-</script>
-HTML,
-                'hint' => __('Exposes grant/revoke helpers for your CMP alongside Tags consent.'),
-            ],
-            [
-                'key' => 'ga4',
-                'name' => 'GA4 config',
-                'label' => 'GA4',
-                'phase' => 'head',
-                'path' => '/*',
-                'html' => <<<'HTML'
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', 'G-XXXXXXXXXX');
-</script>
-HTML,
-                'hint' => __('Use with Tags → GA4 loader. Replace G-XXXXXXXXXX.'),
-            ],
-            [
-                'key' => 'plausible',
-                'name' => 'Plausible',
-                'label' => 'Plausible',
-                'phase' => 'head',
-                'path' => '/*',
-                'html' => '<script defer data-domain="your-domain.com" src="https://plausible.io/js/script.js"></script>',
-                'hint' => __('Replace your-domain.com. Prefer this over Tags when you need data-domain.'),
-            ],
-            [
                 'key' => 'jsonld',
                 'name' => 'JSON-LD Organization',
                 'label' => 'JSON-LD',

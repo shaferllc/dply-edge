@@ -137,15 +137,10 @@ final class EdgeHostMapAddons
         if ((bool) ($tags['enabled'] ?? false)) {
             $tools = [];
             foreach (is_array($tags['tools'] ?? null) ? $tags['tools'] : [] as $tool) {
-                $src = trim((string) ($tool['src'] ?? ''));
-                if ($src === '' || ! str_starts_with($src, 'https://')) {
-                    continue;
+                $normalized = is_array($tool) ? EdgeTagVendors::normalize($tool) : null;
+                if ($normalized !== null) {
+                    $tools[] = $normalized;
                 }
-                $tools[] = [
-                    'name' => trim((string) ($tool['name'] ?? 'tag')),
-                    'src' => $src,
-                    'async' => (bool) ($tool['async'] ?? true),
-                ];
             }
             $consentRequired = (bool) ($tags['consent_required'] ?? false);
             // Consent helper can publish without any script URLs yet — otherwise

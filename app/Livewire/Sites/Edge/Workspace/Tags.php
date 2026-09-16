@@ -9,8 +9,10 @@ use App\Livewire\Concerns\Edge\MountsEdgeWorkspaceSection;
 use App\Livewire\Concerns\Edge\PublishesEdgeHostMap;
 use App\Models\Server;
 use App\Models\Site;
+use App\Modules\Edge\Support\EdgeTagVendors;
 use App\Support\Sites\EdgeSiteViewData;
 use Illuminate\Contracts\View\View;
+use Illuminate\Validation\Rule;
 use Livewire\Component;
 
 /**
@@ -26,63 +28,8 @@ class Tags extends Component
 
     public bool $consent_required = false;
 
-    /** @var list<array{name: string, src: string, async: bool}> */
+    /** @var list<array{name: string, vendor: string, id: string, src: string, async: bool, purpose: string, path: string}> */
     public array $tools = [];
-
-    /**
-     * Starter script URLs operators can one-click add. Placeholders in the URL
-     * (G-XXXXXXXX, etc.) must be replaced before Save — Tags only injects
-     * `<script src>` loaders, not vendor config snippets.
-     *
-     * @return list<array{key: string, name: string, label: string, src: string, hint: string}>
-     */
-    public static function exampleCatalog(): array
-    {
-        return [
-            [
-                'key' => 'ga4',
-                'name' => 'Google Analytics',
-                'label' => 'GA4',
-                'src' => 'https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX',
-                'hint' => __('Replace G-XXXXXXXXXX with your Measurement ID.'),
-            ],
-            [
-                'key' => 'gtm',
-                'name' => 'Google Tag Manager',
-                'label' => 'GTM',
-                'src' => 'https://www.googletagmanager.com/gtm.js?id=GTM-XXXXXXX',
-                'hint' => __('Replace GTM-XXXXXXX with your container ID.'),
-            ],
-            [
-                'key' => 'meta',
-                'name' => 'Meta Pixel',
-                'label' => 'Meta',
-                'src' => 'https://connect.facebook.net/en_US/fbevents.js',
-                'hint' => __('Loader only — set your Pixel ID via Snippets or your CMP if needed.'),
-            ],
-            [
-                'key' => 'clarity',
-                'name' => 'Microsoft Clarity',
-                'label' => 'Clarity',
-                'src' => 'https://www.clarity.ms/tag/XXXXXXXXXX',
-                'hint' => __('Replace XXXXXXXXXX with your Clarity project ID.'),
-            ],
-            [
-                'key' => 'hotjar',
-                'name' => 'Hotjar',
-                'label' => 'Hotjar',
-                'src' => 'https://static.hotjar.com/c/hotjar-XXXXXXX.js?sv=6',
-                'hint' => __('Replace XXXXXXX with your Hotjar site ID.'),
-            ],
-            [
-                'key' => 'plausible',
-                'name' => 'Plausible',
-                'label' => 'Plausible',
-                'src' => 'https://plausible.io/js/script.js',
-                'hint' => __('Add data-domain via Snippets if your Plausible setup requires it.'),
-            ],
-        ];
-    }
 
     public function mount(Server $server, Site $site): void
     {
@@ -90,48 +37,25 @@ class Tags extends Component
         $cfg = is_array($site->edgeMeta()['tags'] ?? null) ? $site->edgeMeta()['tags'] : [];
         $this->enabled = (bool) ($cfg['enabled'] ?? false);
         $this->consent_required = (bool) ($cfg['consent_required'] ?? false);
-        $tools = is_array($cfg['tools'] ?? null) ? $cfg['tools'] : [];
-        $this->tools = $tools !== [] ? array_values(array_map(fn ($t) => [
-            'name' => (string) ($t['name'] ?? 'tag'),
-            'src' => (string) ($t['src'] ?? ''),
-            'async' => (bool) ($t['async'] ?? true),
-        ], $tools)) : [[
-            'name' => 'analytics',
-            'src' => '',
-            'async' => true,
-        ]];
+        $this->tools = array_values(array_filter(array_map(
+            static fn ($t) => is_array($t) ? EdgeTagVendors::normalize($t) : null,
+            is_array($cfg['tools'] ?? null) ? $cfg['tools'] : [],
+        )));
     }
 
     public function addTool(): void
     {
-        $this->tools[] = ['name' => 'tag', 'src' => '', 'async' => true];
+        $this->tools[] = ['name' => 'tag', 'vendor' => 'custom', 'id' => '', 'src' => '', 'async' => true, 'purpose' => 'analytics', 'path' => '/*'];
     }
 
-    public function addExample(string $key): void
+    public function addVendor(string $vendor): void
     {
-        $example = collect(self::exampleCatalog())->firstWhere('key', $key);
-        if (! is_array($example)) {
+        $def = EdgeTagVendors::all()[$vendor] ?? null;
+        if ($def === null) {
             return;
         }
 
-        $row = [
-            'name' => (string) $example['name'],
-            'src' => (string) $example['src'],
-            'async' => true,
-        ];
-
-        // Replace the empty default placeholder row so the first click doesn't
-        // leave a useless blank "analytics" entry behind.
-        $onlyBlankPlaceholder = count($this->tools) === 1
-            && trim((string) $this->tools[0]['src']) === ''
-            && in_array(trim((string) $this->tools[0]['name']), ['', 'analytics', 'tag'], true);
-
-        if ($onlyBlankPlaceholder) {
-            $this->tools = [$row];
-        } else {
-            $this->tools[] = $row;
-        }
-
+        $this->tools[] = ['name' => $def['name'], 'vendor' => $vendor, 'id' => '', 'src' => '', 'async' => true, 'purpose' => $def['purpose'], 'path' => '/*'];
         $this->enabled = true;
     }
 
@@ -152,7 +76,16 @@ class Tags extends Component
 
         $this->validate([
             'tools.*.name' => ['required', 'string', 'max:64'],
-            'tools.*.src' => ['nullable', 'url', 'starts_with:https://', 'max:500'],
+            'tools.*.vendor' => ['required', Rule::in(['custom', ...array_keys(EdgeTagVendors::all())])],
+            'tools.*.src' => ['exclude_unless:tools.*.vendor,custom', 'required', 'url', 'starts_with:https://', 'max:500'],
+            'tools.*.id' => ['exclude_if:tools.*.vendor,custom', 'required', function (string $attribute, mixed $value, \Closure $fail): void {
+                $vendor = (string) ($this->tools[(int) explode('.', $attribute)[1]]['vendor'] ?? '');
+                if (! EdgeTagVendors::validId($vendor, in_array($vendor, ['ga4', 'gtm'], true) ? strtoupper(trim((string) $value)) : trim((string) $value))) {
+                    $fail(__('Expected an ID like :example.', ['example' => EdgeTagVendors::all()[$vendor]['placeholder'] ?? '']));
+                }
+            }],
+            'tools.*.purpose' => ['required', Rule::in(EdgeTagVendors::PURPOSES)],
+            'tools.*.path' => ['nullable', 'string', 'max:200', 'regex:#^(\*|/.*)$#'],
         ]);
 
         // Consent helper needs the tag manager on — otherwise KV never receives
@@ -165,10 +98,7 @@ class Tags extends Component
             'tags' => [
                 'enabled' => $this->enabled,
                 'consent_required' => $this->consent_required,
-                'tools' => array_values(array_filter(
-                    $this->tools,
-                    static fn (array $t): bool => trim((string) $t['src']) !== '',
-                )),
+                'tools' => array_values(array_filter(array_map(EdgeTagVendors::normalize(...), $this->tools))),
             ],
         ]);
         $this->site->save();
@@ -186,7 +116,7 @@ class Tags extends Component
                 'server' => $this->server,
                 'site' => $this->site,
                 'managedDelivery' => $this->isManagedEdgeDelivery(),
-                'examples' => self::exampleCatalog(),
+                'vendors' => EdgeTagVendors::all(),
                 'sourcePath' => $repo['source_path'],
                 'repoTags' => $repo['section'],
             ],

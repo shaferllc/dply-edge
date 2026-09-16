@@ -3,74 +3,83 @@ title: "Edge tags"
 slug: edge-tags
 category: "Edge"
 order: 116
-description: "Load third-party analytics and pixel scripts from the Edge. Optional consent helper for your CMP."
+description: "Load analytics, pixels and third-party scripts from the Edge by ID, with page triggers, consent gating and a track() event API."
 group: edge
 ---
 
 # Edge tags
 
-**Tags** load third-party scripts (analytics, ads, chat) from the Edge so you can add or remove them without a git deploy.
+**Tags** load third-party tools (analytics, ads, chat) from the Edge. Pick a tool, paste its ID, and Edge injects the loader *and* the vendor setup code. No git deploy, no copy-pasted snippets.
 
 Requires **Dply-hosted Edge delivery**.
 
-## What a tag contains
+## Tools
+
+| Tool | ID | Default purpose |
+|------|----|-----------------|
+| Google Analytics (GA4) | Measurement ID `G-XXXXXXXXXX` | analytics |
+| Google Tag Manager | Container ID `GTM-XXXXXXX` | analytics |
+| Meta Pixel | Pixel ID (digits) | marketing |
+| Microsoft Clarity | Project ID | analytics |
+| Hotjar | Site ID (digits) | analytics |
+| Plausible | Domain, e.g. `example.com` | analytics |
+| Custom script | Any `https://` URL | analytics |
+
+IDs are checked against each vendor's format on Save and on deploy. An invalid ID is rejected, never published.
+
+Each tool also has:
 
 | Field | Purpose |
 |-------|---------|
-| **Name** | Label in the dashboard |
-| **Script URL** | `https://` source from the vendor |
-| **Async** | Load without blocking the page when possible |
+| **Fire on path** | Page trigger: `/*` (all pages), `/checkout/*`, or an exact path |
+| **Consent purpose** | `necessary`, `analytics` or `marketing` (see below) |
+| **Async** | Custom scripts only |
 
-## Consent helper
+## Consent
 
-When **Consent helper** is on, Edge exposes `window.__dplyTags.consent` and reads `localStorage` key `dply_tag_consent` so your CMP can gate which scripts run.
+With **Require consent** on, tools whose purpose isn't `necessary` are held back until the visitor consents. Wire your banner to:
 
-Wire your consent UI to set that flag before marketing tags fire.
+```js
+window.__dplyTags.grant();                 // everything
+window.__dplyTags.grant(['analytics']);    // only analytics tools
+window.__dplyTags.revoke();                // forget the choice
+window.__dplyTags.consent;                 // true once anything is granted
+window.__dplyTags.purposes;                // e.g. ['analytics']
+```
 
-## How to use it
+Held tools load the moment their purpose is granted. The choice persists in `localStorage` key `dply_tag_consent`, stored as `'1'` for everything or a JSON list of purposes, so it applies on later page loads without calling `grant()` again. `revoke()` stops tools on later pages, but it can't unload scripts that already ran.
 
-1. Enable tag manager (or turn on Consent helper — that enables it for you).
-2. Add each tool with name + `https://` script URL, or click an **Example** chip (GA4, GTM, Meta, Clarity, Hotjar, Plausible).
-3. Replace any placeholder IDs in the URL (`G-XXXXXXXXXX`, etc.) with your real account values.
-4. Optional: enable Consent helper and connect your CMP.
-5. **Save** — scripts inject on subsequent page loads.
+## Events
 
-## Example loaders
+```js
+window.__dplyTags.track('signup', { plan: 'pro' });
+```
 
-These are starter `<script src>` URLs. Tags inject the loader only — some vendors also need a small config snippet (use **Snippets** for that).
-
-| Example | Starter URL |
-|---------|-------------|
-| Google Analytics (GA4) | `https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX` |
-| Google Tag Manager | `https://www.googletagmanager.com/gtm.js?id=GTM-XXXXXXX` |
-| Meta Pixel | `https://connect.facebook.net/en_US/fbevents.js` |
-| Microsoft Clarity | `https://www.clarity.ms/tag/XXXXXXXXXX` |
-| Hotjar | `https://static.hotjar.com/c/hotjar-XXXXXXX.js?sv=6` |
-| Plausible | `https://plausible.io/js/script.js` |
+`track()` forwards the event to every loaded tool: `gtag('event')`, the GTM `dataLayer`, `fbq('trackCustom')`, `plausible()`, `clarity('event')` and `hj('event')`.
 
 ## `dply.yaml`
 
 ```yaml
 tags:
   enabled: true
-  consent_required: false
+  consent_required: true
   tools:
-    - name: Google Analytics
-      src: "https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"
-      async: true
+    - vendor: ga4
+      id: G-XXXXXXXXXX
+    - vendor: meta
+      id: "123456789012345"
+      purpose: marketing
+      path: /checkout/*
+    - name: Chat widget
+      src: "https://widget.example.com/chat.js"   # no vendor = custom
 ```
 
-Dashboard **Save** overrides the repo for the whole `tags` section. Generate an export from **Build → Generate dply.yaml** when you want the dashboard state as the file baseline.
+Dashboard **Save** replaces the repo's whole `tags` section. Older configs that list only `name` / `src` / `async` still work as custom scripts.
 
-## Tips
+## Not included
 
-- Only `https://` sources are allowed.
-- Empty script URL rows are ignored on Save.
-- Consent helper can publish alone (no script URLs yet).
-- For one-off HTML (not a remote script), use **Snippets**.
-- Prefer async for non-critical pixels.
+Tools run in the visitor's browser. Unlike Cloudflare Zaraz, vendor requests are not proxied server-side through the Edge.
 
 ## Related sections
 
-- **Snippets** — inline HTML inject
-- **Bot protection** / **Forms** — unrelated to tags; do not put secrets in tag scripts
+- **Snippets**: inline HTML inject

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Services\Config;
 
+use App\Modules\Edge\Support\EdgeTagVendors;
 use Symfony\Component\Yaml\Yaml;
 
 /**
@@ -495,12 +496,15 @@ class EdgeRepoConfigLoader
      *     enabled: true
      *     consent_required: false
      *     tools:
-     *       - name: GA4
-     *         src: https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX
-     *         async: true
+     *       - vendor: ga4           # ga4|gtm|meta|clarity|hotjar|plausible|custom
+     *         id: G-XXXXXXXXXX
+     *         purpose: analytics    # necessary|analytics|marketing (consent gate)
+     *         path: /*              # page trigger
+     *       - name: Chat
+     *         src: https://widget.example.com/chat.js   # vendor omitted = custom
      *
      * @param  list<string>  $warnings
-     * @return array{enabled?: bool, consent_required?: bool, tools?: list<array{name: string, src: string, async: bool}>}
+     * @return array{enabled?: bool, consent_required?: bool, tools?: list<array{name: string, vendor: string, id: string, src: string, async: bool, purpose: string, path: string}>}
      */
     private function normalizeTags(mixed $value, array &$warnings): array
     {
@@ -523,22 +527,16 @@ class EdgeRepoConfigLoader
 
                 continue;
             }
-            $src = trim((string) ($tool['src'] ?? ''));
-            if ($src === '' || ! str_starts_with($src, 'https://')) {
-                $warnings[] = "tags.tools[{$i}].src must be an https:// URL.";
+            $normalized = EdgeTagVendors::normalize($tool);
+            if ($normalized === null) {
+                $vendor = (string) ($tool['vendor'] ?? 'custom');
+                $warnings[] = $vendor === 'custom'
+                    ? "tags.tools[{$i}].src must be an https:// URL (max 500 characters)."
+                    : "tags.tools[{$i}].id is not a valid {$vendor} id.";
 
                 continue;
             }
-            if (strlen($src) > 500) {
-                $warnings[] = "tags.tools[{$i}].src exceeds 500 characters.";
-
-                continue;
-            }
-            $tools[] = [
-                'name' => trim((string) ($tool['name'] ?? 'tag')) ?: 'tag',
-                'src' => $src,
-                'async' => (bool) ($tool['async'] ?? true),
-            ];
+            $tools[] = $normalized;
         }
         if ($tools !== []) {
             $out['tools'] = array_slice($tools, 0, 20);

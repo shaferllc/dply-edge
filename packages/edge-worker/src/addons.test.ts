@@ -35,9 +35,56 @@ describe('edge addons html helpers', () => {
       consent_required: true,
       tools: [],
     });
-    expect(out).toContain('window.__dplyTags');
+    expect(out).toContain('__dplyTags');
     expect(out).toContain('dply_tag_consent');
     expect(out).not.toContain('<script src=');
+  });
+
+  it('renders vendor loader and init from an id', () => {
+    const out = injectTags('<html><head></head></html>', {
+      enabled: true,
+      tools: [{ name: 'GA', vendor: 'ga4', id: 'G-ABC123' }],
+    });
+    expect(out).toContain("gtag('config',\"G-ABC123\")");
+    expect(out).toContain('src="https://www.googletagmanager.com/gtag/js?id=G-ABC123" async');
+    expect(out).toContain('__dplyTags');
+  });
+
+  it('holds non-necessary tools until consent', () => {
+    const out = injectTags('<html><head></head></html>', {
+      enabled: true,
+      consent_required: true,
+      tools: [
+        { name: 'px', vendor: 'meta', id: '1234567', purpose: 'marketing' },
+        { name: 'ok', src: 'https://cdn.example/necessary.js', purpose: 'necessary' },
+      ],
+    });
+    expect(out).not.toContain('src="https://connect.facebook.net');
+    expect(out).toContain('"p":"marketing"');
+    expect(out).toContain('src="https://cdn.example/necessary.js"');
+  });
+
+  it('only fires tools whose path matches', () => {
+    const cfg = { enabled: true, tools: [{ name: 'c', src: 'https://cdn.example/c.js', path: '/checkout/*' }] };
+    expect(injectTags('<head></head>', cfg, '/')).toBe('<head></head>');
+    expect(injectTags('<head></head>', cfg, '/checkout/pay')).toContain('cdn.example/c.js');
+  });
+
+  it('cannot break out of the inline script with a bad id', () => {
+    const out = injectTags('<head></head>', {
+      enabled: true,
+      consent_required: true,
+      tools: [{ name: 'x', vendor: 'ga4', id: '</script><script>alert(1)' }],
+    });
+    expect(out.match(/<\/script>/g)?.length).toBe(1);
+  });
+
+  it('tag runtime lands after a legacy snippet consent helper', () => {
+    const out = applyHtmlAddons('<html><head></head><body></body></html>', '/', {
+      snippets: { enabled: true, items: [{ name: 'c', phase: 'head', path: '/*', html: '<script>__legacyGrant</script>' }] },
+      tags: { enabled: true, consent_required: true, tools: [] },
+    });
+    expect(out.indexOf('__legacyGrant')).toBeLessThan(out.indexOf('T.grant=function'));
   });
 
   it('applyHtmlAddons combines tags and snippets', () => {
