@@ -2,10 +2,10 @@
     @php
         $tone = $edgeDeliveryBanner['tone'] ?? 'amber';
         $bannerClass = match ($tone) {
-            'emerald' => 'border-emerald-200 bg-emerald-50/80 text-emerald-950 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200',
-            'rose' => 'border-rose-200 bg-rose-50/80 text-rose-950 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-200',
-            'sky' => 'border-sky-200 bg-sky-50/80 text-sky-950 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-200',
-            default => 'border-amber-200 bg-amber-50/80 text-amber-950 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200',
+            'emerald' => 'border-emerald-200 bg-emerald-50/80 text-emerald-950 dark:border-raw-emerald-900/40 dark:bg-raw-emerald-950/30 dark:text-raw-emerald-200',
+            'rose' => 'border-rose-200 bg-rose-50/80 text-rose-950 dark:border-raw-rose-900/40 dark:bg-rose-950/30 dark:text-raw-rose-200',
+            'sky' => 'border-sky-200 bg-sky-50/80 text-sky-950 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-raw-sky-200',
+            default => 'border-amber-200 bg-amber-50/80 text-amber-950 dark:border-raw-amber-900/40 dark:bg-raw-amber-950/30 dark:text-raw-amber-200',
         };
         $copyButtonClass = match ($tone) {
             'emerald' => 'text-emerald-900/70 hover:text-emerald-700',

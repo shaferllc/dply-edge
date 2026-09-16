@@ -86,7 +86,7 @@
                 </label>
 
                 @if ($probeResult !== null && ! ($probeResult['ok'] ?? false))
-                    <div class="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-900 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-200">
+                    <div class="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-900 dark:border-raw-rose-900/40 dark:bg-rose-950/30 dark:text-raw-rose-200">
                         {{ $probeResult['message'] }}
                     </div>
                 @endif
@@ -124,7 +124,7 @@
             </div>
 
             @if ($loadError)
-                <div class="border-b border-rose-200/60 bg-rose-50 px-6 py-3 text-xs text-rose-900 dark:border-rose-900/30 dark:bg-rose-950/30 dark:text-rose-200">{{ $loadError }}</div>
+                <div class="border-b border-rose-200/60 bg-rose-50 px-6 py-3 text-xs text-rose-900 dark:border-raw-rose-900/30 dark:bg-rose-950/30 dark:text-raw-rose-200">{{ $loadError }}</div>
             @endif
 
             @if ($projects === [])

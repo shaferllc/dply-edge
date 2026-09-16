@@ -38,7 +38,7 @@
     </section>
 
     @unless ($hasWorker)
-        <div class="border-b border-amber-200 bg-amber-50 px-5 py-3 text-xs text-amber-900 sm:px-6 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-100">
+        <div class="border-b border-amber-200 bg-amber-50 px-5 py-3 text-xs text-amber-900 sm:px-6 dark:border-raw-amber-900/40 dark:bg-raw-amber-950/40 dark:text-raw-amber-100">
             {{ __('No worker on this site yet — bindings attach after you add middleware or enable SSR and redeploy.') }}
         </div>
     @endunless

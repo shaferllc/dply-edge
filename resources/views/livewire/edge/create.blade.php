@@ -40,14 +40,14 @@
                     </x-slot:stats>
 
                     @if ($fakeEdgeActive)
-                        <div data-testid="fake-edge-active-notice" class="flex flex-col gap-3 border-b border-brand-ink/10 bg-sky-50/70 px-5 py-3.5 text-sm text-sky-950 sm:flex-row sm:items-center sm:justify-between dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-200 sm:px-6">
+                        <div data-testid="fake-edge-active-notice" class="flex flex-col gap-3 border-b border-brand-ink/10 bg-sky-50/70 px-5 py-3.5 text-sm text-sky-950 sm:flex-row sm:items-center sm:justify-between dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-raw-sky-200 sm:px-6">
                             <div class="flex gap-3">
                                 <span class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300" aria-hidden="true">
                                     <x-heroicon-o-beaker class="h-5 w-5" />
                                 </span>
                                 <div>
                                     <p class="font-semibold">{{ __('Sandbox mode is on — no real edge account needed') }}</p>
-                                    <p class="mt-0.5 text-sky-900/80 dark:text-sky-200/80">{{ __('Builds land on a local sandbox with synthetic hostnames.') }}</p>
+                                    <p class="mt-0.5 text-sky-900/80 dark:text-raw-sky-200/80">{{ __('Builds land on a local sandbox with synthetic hostnames.') }}</p>
                                 </div>
                             </div>
                             @if ($localSampleAppAvailable)
@@ -57,7 +57,7 @@
                                     wire:loading.attr="disabled"
                                     wire:target="loadSampleApp"
                                     data-testid="load-sample-edge-app"
-                                    class="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-sky-900 px-3.5 py-2 text-sm font-semibold text-sky-50 transition-colors hover:bg-sky-800 disabled:opacity-60 dark:bg-sky-200 dark:text-sky-950 dark:hover:bg-sky-100"
+                                    class="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-sky-900 px-3.5 py-2 text-sm font-semibold text-sky-50 transition-colors hover:bg-sky-800 disabled:opacity-60 dark:bg-raw-sky-200 dark:text-sky-950 dark:hover:bg-raw-sky-100"
                                 >
                                     <x-heroicon-o-sparkles wire:loading.remove wire:target="loadSampleApp" class="h-4 w-4" aria-hidden="true" />
                                     <x-spinner wire:loading wire:target="loadSampleApp" size="sm" variant="cream" />
@@ -132,7 +132,7 @@
                                                 @class([
                                                     'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition disabled:opacity-60',
                                                     'bg-brand-ink text-brand-cream hover:bg-brand-forest' => $isKeel,
-                                                    'border border-brand-ink/15 bg-white text-brand-ink shadow-sm hover:bg-brand-sand/40 dark:border-brand-mist/25 dark:bg-zinc-800/60 dark:hover:bg-zinc-700' => ! $isKeel,
+                                                    'border border-brand-ink/15 bg-white text-brand-ink shadow-sm hover:bg-brand-sand/40 dark:border-brand-mist/25 dark:bg-zinc-800/60 dark:hover:bg-raw-zinc-700' => ! $isKeel,
                                                 ])
                                             >
                                                 <span wire:loading.remove wire:target="loadExampleApp">{{ $exampleName }}</span>
@@ -151,7 +151,7 @@
                                             role="radio"
                                             aria-checked="{{ $repo_source === 'connected' ? 'true' : 'false' }}"
                                             wire:click="$set('repo_source', 'connected')"
-                                            class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-semibold transition {{ $repo_source === 'connected' ? 'bg-white text-brand-ink shadow-sm dark:bg-zinc-700' : 'text-brand-moss hover:text-brand-ink' }}"
+                                            class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-semibold transition {{ $repo_source === 'connected' ? 'bg-white text-brand-ink shadow-sm dark:bg-raw-zinc-700' : 'text-brand-moss hover:text-brand-ink' }}"
                                         >
                                             <x-heroicon-m-link class="h-4 w-4" aria-hidden="true" />
                                             {{ __('Pick from connected account') }}
@@ -161,7 +161,7 @@
                                             role="radio"
                                             aria-checked="{{ $repo_source === 'manual' ? 'true' : 'false' }}"
                                             wire:click="$set('repo_source', 'manual')"
-                                            class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-semibold transition {{ $repo_source === 'manual' ? 'bg-white text-brand-ink shadow-sm dark:bg-zinc-700' : 'text-brand-moss hover:text-brand-ink' }}"
+                                            class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-semibold transition {{ $repo_source === 'manual' ? 'bg-white text-brand-ink shadow-sm dark:bg-raw-zinc-700' : 'text-brand-moss hover:text-brand-ink' }}"
                                         >
                                             <x-heroicon-m-pencil-square class="h-4 w-4" aria-hidden="true" />
                                             {{ __('Enter manually') }}
@@ -479,14 +479,14 @@
                             @endif
 
                             @if (! $edgeEligible && filled($edgeIneligibleMessage))
-                                <div class="rounded-xl border border-amber-200/80 bg-amber-50/80 px-4 py-3 text-xs text-amber-950 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100">
+                                <div class="rounded-xl border border-amber-200/80 bg-amber-50/80 px-4 py-3 text-xs text-amber-950 dark:border-raw-amber-900/40 dark:bg-raw-amber-950/30 dark:text-raw-amber-100">
                                     <p class="font-semibold">{{ __('Not an Edge workload') }}</p>
                                     <p class="mt-1 leading-relaxed">{{ $edgeIneligibleMessage }}</p>
                                     @if (filled($edgeAlternativeRoute) && \Illuminate\Support\Facades\Route::has($edgeAlternativeRoute))
                                         <a
                                             href="{{ route($edgeAlternativeRoute) }}"
                                             wire:navigate
-                                            class="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-amber-950 underline decoration-amber-700/40 underline-offset-2 transition-colors hover:text-amber-900 dark:text-amber-50 dark:hover:text-white"
+                                            class="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-amber-950 underline decoration-amber-700/40 underline-offset-2 transition-colors hover:text-amber-900 dark:text-raw-amber-50 dark:hover:text-raw-white"
                                         >
                                             {{ $edgeAlternativeLabel ?: __('Open alternative') }}
                                             <x-heroicon-m-arrow-right class="h-3.5 w-3.5" aria-hidden="true" />

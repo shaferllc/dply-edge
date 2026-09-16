@@ -35,9 +35,9 @@
                     $cnameTarget = is_array($info) ? (string) ($info['cname_target'] ?? $edgeDeliveryHostname ?? $site->edgeHostname()) : ($edgeDeliveryHostname ?? $site->edgeHostname());
                     $ownership = is_array($info) && is_array($info['ownership_verification'] ?? null) ? $info['ownership_verification'] : null;
                     $statusBadge = match ($dnsStatus) {
-                        'ready' => 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300',
+                        'ready' => 'bg-emerald-100 text-emerald-800 dark:bg-raw-emerald-950/40 dark:text-emerald-300',
                         'failed' => 'bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300',
-                        default => 'bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200',
+                        default => 'bg-amber-100 text-amber-900 dark:bg-raw-amber-950/40 dark:text-raw-amber-200',
                     };
                     $statusLabel = match ($dnsStatus) {
                         'ready' => __('Ready'),
@@ -45,9 +45,9 @@
                         default => __('Pending DNS'),
                     };
                     $sslBadge = match ($sslStatus) {
-                        'active' => 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300',
+                        'active' => 'bg-emerald-100 text-emerald-800 dark:bg-raw-emerald-950/40 dark:text-emerald-300',
                         'failed' => 'bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300',
-                        'pending' => 'bg-sky-100 text-sky-900 dark:bg-sky-950/40 dark:text-sky-200',
+                        'pending' => 'bg-sky-100 text-sky-900 dark:bg-sky-950/40 dark:text-raw-sky-200',
                         default => null,
                     };
                     $sslLabel = match ($sslStatus) {

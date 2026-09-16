@@ -1,6 +1,6 @@
 @php
     $depBadge = match ($deployment->status) {
-        \App\Models\EdgeDeployment::STATUS_LIVE => 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300',
+        \App\Models\EdgeDeployment::STATUS_LIVE => 'bg-emerald-100 text-emerald-800 dark:bg-raw-emerald-950/40 dark:text-emerald-300',
         \App\Models\EdgeDeployment::STATUS_FAILED => 'bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300',
         \App\Models\EdgeDeployment::STATUS_BUILDING, \App\Models\EdgeDeployment::STATUS_PUBLISHING => 'bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-300',
         default => 'bg-brand-sand/60 text-brand-moss',
@@ -216,9 +216,9 @@
                                 'deployment' => $deployment,
                             ])
                             @if (! str_contains((string) $deployment->failure_reason, 'dply config lint failed'))
-                                <div class="mt-3 rounded-lg border border-rose-200/60 bg-rose-50/50 px-3 py-2.5 dark:border-rose-900/30 dark:bg-rose-950/20">
+                                <div class="mt-3 rounded-lg border border-rose-200/60 bg-rose-50/50 px-3 py-2.5 dark:border-raw-rose-900/30 dark:bg-rose-950/20">
                                     <p class="text-2xs font-semibold uppercase tracking-[0.14em] text-rose-700 dark:text-rose-300">{{ __('Failure') }}</p>
-                                    <p class="mt-1 break-words font-mono text-xs leading-relaxed text-rose-900 dark:text-rose-200">{{ $deployment->failure_reason }}</p>
+                                    <p class="mt-1 break-words font-mono text-xs leading-relaxed text-rose-900 dark:text-raw-rose-200">{{ $deployment->failure_reason }}</p>
                                 </div>
                             @endif
                         </div>

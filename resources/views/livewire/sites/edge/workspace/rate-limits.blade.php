@@ -55,7 +55,7 @@
                             {{ __('Bot protection is ready') }}
                         </p>
                     @else
-                        <p class="mt-2 text-xs font-medium text-amber-800 dark:text-amber-200">
+                        <p class="mt-2 text-xs font-medium text-amber-800 dark:text-raw-amber-200">
                             {{ __('Bot protection keys missing — Challenge will act like Block until you configure them.') }}
                         </p>
                     @endif

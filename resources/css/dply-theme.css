@@ -65,6 +65,35 @@
     --color-edge-lime: #c3f53c;
     --color-edge-lime-bright: #d9ff7a;
 
+    /* ── Un-remapped Tailwind colours ─────────────────────────────────────
+       html.dark (below) repoints stock tokens like zinc-100 / amber-950 at the
+       Terminal palette so light-mode classes flip on their own. A `dark:`
+       utility naming one of those tokens then flips twice — dark:text-zinc-100
+       rendered near-black, dark:bg-amber-950/40 a cream patch. `dark:` classes
+       use these raw-* copies instead, which keep Tailwind's own values. */
+    --color-raw-amber-100: oklch(96.2% 0.059 95.617);
+    --color-raw-amber-200: oklch(92.4% 0.12 95.746);
+    --color-raw-amber-50: oklch(98.7% 0.022 95.277);
+    --color-raw-amber-700: oklch(55.5% 0.163 48.998);
+    --color-raw-amber-900: oklch(41.4% 0.112 45.904);
+    --color-raw-amber-950: oklch(27.9% 0.077 45.635);
+    --color-raw-emerald-100: oklch(95% 0.052 163.051);
+    --color-raw-emerald-200: oklch(90.5% 0.093 164.15);
+    --color-raw-emerald-800: oklch(43.2% 0.095 166.913);
+    --color-raw-emerald-900: oklch(37.8% 0.077 168.94);
+    --color-raw-emerald-950: oklch(26.2% 0.051 172.552);
+    --color-raw-red-950: oklch(25.8% 0.092 26.042);
+    --color-raw-rose-100: oklch(94.1% 0.03 12.58);
+    --color-raw-rose-200: oklch(89.2% 0.058 10.001);
+    --color-raw-rose-800: oklch(45.5% 0.188 13.697);
+    --color-raw-rose-900: oklch(41% 0.159 10.272);
+    --color-raw-sky-100: oklch(95.1% 0.026 236.824);
+    --color-raw-sky-200: oklch(90.1% 0.058 230.902);
+    --color-raw-sky-800: oklch(44.3% 0.11 240.79);
+    --color-raw-white: #fff;
+    --color-raw-zinc-100: oklch(96.7% 0.001 286.375);
+    --color-raw-zinc-700: oklch(37% 0.013 285.805);
+
     --font-display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
     --font-terminal: 'Space Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 }

@@ -208,7 +208,7 @@
                 </div>
                 <p class="mt-1 text-xs text-brand-mist">{{ __('↑/↓ navigate · Enter add · Backspace remove last') }}</p>
                 @if ($country_mode !== 'off' && count($selected_codes) === 0)
-                    <p class="mt-2 rounded-lg border border-amber-500/25 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+                    <p class="mt-2 rounded-lg border border-amber-500/25 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-raw-amber-950/40 dark:text-raw-amber-100">
                         {{ __('No countries selected — this mode will not enforce until you add at least one code and Save.') }}
                     </p>
                 @endif

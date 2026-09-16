@@ -77,7 +77,7 @@
                     type="button"
                     wire:click="{{ $waiveContractMethod ?? 'confirmWaiveDeployContract' }}('{{ $preview->id }}')"
                     wire:loading.attr="disabled"
-                    class="rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide text-amber-900 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
+                    class="rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide text-amber-900 hover:bg-amber-100 dark:border-raw-amber-700 dark:bg-raw-amber-950/40 dark:text-raw-amber-200"
                 >
                     {{ __('Record waiver') }}
                 </button>

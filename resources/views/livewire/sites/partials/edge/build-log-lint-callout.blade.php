@@ -10,8 +10,8 @@
 @if ($show)
     <div @class([
         'rounded-xl border px-4 py-3 text-sm',
-        'border-rose-300/70 bg-rose-50 text-rose-950 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-100' => ($lint['lint_failed'] ?? false) || ($lint['errors'] ?? []) !== [],
-        'border-amber-300/70 bg-amber-50 text-amber-950 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100' => ! ($lint['lint_failed'] ?? false) && ($lint['errors'] ?? []) === [] && ($lint['warnings'] ?? []) !== [],
+        'border-rose-300/70 bg-rose-50 text-rose-950 dark:border-raw-rose-900/40 dark:bg-rose-950/30 dark:text-raw-rose-100' => ($lint['lint_failed'] ?? false) || ($lint['errors'] ?? []) !== [],
+        'border-amber-300/70 bg-amber-50 text-amber-950 dark:border-raw-amber-900/40 dark:bg-raw-amber-950/30 dark:text-raw-amber-100' => ! ($lint['lint_failed'] ?? false) && ($lint['errors'] ?? []) === [] && ($lint['warnings'] ?? []) !== [],
     ])>
         <div class="flex flex-wrap items-start justify-between gap-3">
             <div>

@@ -22,7 +22,7 @@
                         wire:click="disableEdgeGithubWebhook"
                         wire:loading.attr="disabled"
                         wire:target="disableEdgeGithubWebhook"
-                        class="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-900 shadow-sm hover:bg-rose-50 dark:border-rose-900/40 dark:bg-zinc-900 dark:text-rose-300"
+                        class="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-900 shadow-sm hover:bg-rose-50 dark:border-raw-rose-900/40 dark:bg-zinc-900 dark:text-rose-300"
                     >
                         {{ __('Disable') }}
                     </button>
@@ -72,7 +72,7 @@
         </div>
 
         @if ($edge_just_minted_deploy_hook_url !== null)
-            <div class="border-b border-emerald-300/60 bg-emerald-50 px-5 py-3 text-sm text-emerald-950 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-100 sm:px-6">
+            <div class="border-b border-emerald-300/60 bg-emerald-50 px-5 py-3 text-sm text-emerald-950 dark:border-raw-emerald-900/40 dark:bg-raw-emerald-950/30 dark:text-raw-emerald-100 sm:px-6">
                 <p class="font-semibold">{{ __('Copy this URL now — it won’t be shown again.') }}</p>
                 <div class="mt-2 flex flex-wrap items-center gap-2" x-data="{ copied: false }">
                     <code class="min-w-0 flex-1 break-all rounded-lg bg-white px-3 py-2 font-mono text-xs text-brand-ink shadow-sm dark:bg-zinc-900">{{ $edge_just_minted_deploy_hook_url }}</code>
@@ -84,7 +84,7 @@
                         <span x-show="!copied">{{ __('Copy') }}</span>
                         <span x-show="copied" x-cloak>{{ __('Copied') }}</span>
                     </button>
-                    <button type="button" wire:click="dismissEdgeDeployHookUrl" class="text-xs font-semibold text-emerald-900 hover:underline dark:text-emerald-200">{{ __('Dismiss') }}</button>
+                    <button type="button" wire:click="dismissEdgeDeployHookUrl" class="text-xs font-semibold text-emerald-900 hover:underline dark:text-raw-emerald-200">{{ __('Dismiss') }}</button>
                 </div>
             </div>
         @endif

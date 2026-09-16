@@ -141,7 +141,7 @@
                                         </p>
                                     @endif
                                     @if (\App\Modules\Edge\Support\FakeEdgeProvision::enabled())
-                                        <p class="text-xs text-amber-800 dark:text-amber-200">
+                                        <p class="text-xs text-amber-800 dark:text-raw-amber-200">
                                             {{ __('Local Fake Edge: the preview URL must resolve to this app (e.g. *.edge.test / *.dply.test via Valet). Public on-dply.live hostnames hit Cloudflare and will not see this build.') }}
                                         </p>
                                     @endif
@@ -239,7 +239,7 @@
                         <p class="font-mono text-sm font-medium text-brand-ink">
                             {{ $previewBranch }}
                             @if ($previewRefKind === 'tag')
-                                <span class="ms-1 inline-flex items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide text-amber-900 dark:bg-amber-950/40 dark:text-amber-300">{{ __('Tag') }}</span>
+                                <span class="ms-1 inline-flex items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide text-amber-900 dark:bg-raw-amber-950/40 dark:text-amber-300">{{ __('Tag') }}</span>
                             @elseif ($previewRefKind === 'branch')
                                 <span class="ms-1 inline-flex items-center gap-1 rounded-md bg-sky-100 px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide text-sky-800 dark:bg-sky-950/40 dark:text-sky-300">{{ __('Branch tip') }}</span>
                             @endif
@@ -252,7 +252,7 @@
                             @if ($previewFailed)
                                 <span class="ms-1 inline-flex items-center gap-1 rounded-md bg-rose-100 px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide text-rose-900 dark:bg-rose-950/40 dark:text-rose-300">{{ __('Failed') }}</span>
                             @elseif (! $previewIsLive && ! $rowIsPending)
-                                <span class="ms-1 inline-flex items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide text-amber-900 dark:bg-amber-950/40 dark:text-amber-300">{{ __('Building') }}</span>
+                                <span class="ms-1 inline-flex items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide text-amber-900 dark:bg-raw-amber-950/40 dark:text-amber-300">{{ __('Building') }}</span>
                             @endif
                         </p>
                         @if ($previewCommitSubject !== '')

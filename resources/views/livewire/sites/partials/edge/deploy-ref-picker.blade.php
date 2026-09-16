@@ -83,7 +83,7 @@
                                 'mt-0.5 inline-flex shrink-0 rounded px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide',
                                 'bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-300' => ($ref['kind'] ?? '') === 'commit',
                                 'bg-violet-100 text-violet-800 dark:bg-violet-950/40 dark:text-violet-300' => ($ref['kind'] ?? '') === 'branch',
-                                'bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-300' => ($ref['kind'] ?? '') === 'tag',
+                                'bg-amber-100 text-amber-900 dark:bg-raw-amber-950/40 dark:text-amber-300' => ($ref['kind'] ?? '') === 'tag',
                             ])>
                                 {{ match ($ref['kind'] ?? '') {
                                     'branch' => __('Branch'),

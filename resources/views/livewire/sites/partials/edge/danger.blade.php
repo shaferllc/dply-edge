@@ -19,12 +19,12 @@
         <section class="border-b border-rose-200 last:border-b-0">
             <div class="flex flex-col gap-4 bg-rose-50/60 px-5 py-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6 sm:px-6 dark:bg-rose-950/20">
                 <div class="flex min-w-0 items-start gap-3">
-                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-1 bg-rose-100 text-rose-700 ring-rose-200 dark:bg-rose-950/40 dark:text-rose-200 dark:ring-rose-800">
+                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-1 bg-rose-100 text-rose-700 ring-rose-200 dark:bg-rose-950/40 dark:text-raw-rose-200 dark:ring-raw-rose-800">
                         <x-heroicon-o-trash class="h-5 w-5" aria-hidden="true" />
                     </span>
                     <div class="min-w-0">
                         <p class="text-xs font-semibold uppercase tracking-[0.16em] text-rose-700 dark:text-rose-300">{{ __('Destructive') }}</p>
-                        <h3 class="mt-0.5 text-base font-semibold text-rose-900 dark:text-rose-100">{{ __('Delete Edge site') }}</h3>
+                        <h3 class="mt-0.5 text-base font-semibold text-rose-900 dark:text-raw-rose-100">{{ __('Delete Edge site') }}</h3>
                         <p class="mt-1 max-w-2xl text-sm leading-relaxed text-brand-moss">
                             {{ __('Removes the site from dply Edge. A background job tears down deployments, CDN/storage artifacts, custom domain routing, and preview child sites. Live traffic stops when teardown completes.') }}
                         </p>
@@ -33,7 +33,7 @@
                 <button
                     type="button"
                     wire:click="openEdgeTeardownModal"
-                    class="inline-flex shrink-0 items-center gap-1.5 self-start rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-800 shadow-sm transition hover:bg-rose-100 dark:border-rose-800 dark:bg-zinc-900 dark:text-rose-200 dark:hover:bg-rose-950/40"
+                    class="inline-flex shrink-0 items-center gap-1.5 self-start rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-800 shadow-sm transition hover:bg-rose-100 dark:border-raw-rose-800 dark:bg-zinc-900 dark:text-raw-rose-200 dark:hover:bg-rose-950/40"
                 >
                     <x-heroicon-o-trash class="h-4 w-4" aria-hidden="true" />
                     {{ __('Delete Edge site') }}

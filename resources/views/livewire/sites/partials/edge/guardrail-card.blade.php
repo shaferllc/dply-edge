@@ -12,9 +12,9 @@
             @php
                 $state = $guardrail['state'] ?? 'ok';
                 $stateBadge = match ($state) {
-                    'over' => 'bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300',
-                    'warn' => 'bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300',
-                    default => 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300',
+                    'over' => 'bg-red-100 text-red-800 dark:bg-raw-red-950/40 dark:text-red-300',
+                    'warn' => 'bg-amber-100 text-amber-800 dark:bg-raw-amber-950/40 dark:text-amber-300',
+                    default => 'bg-emerald-100 text-emerald-800 dark:bg-raw-emerald-950/40 dark:text-emerald-300',
                 };
                 $stateLabel = match ($state) {
                     'over' => __('Over'),

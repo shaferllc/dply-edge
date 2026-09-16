@@ -37,7 +37,7 @@
         @include('livewire.sites.partials.edge.environment-settings')
 
         @if ($missingSecrets !== [])
-            <div class="border-b border-rose-200 bg-rose-50 px-5 py-3 text-xs text-rose-900 sm:px-6 dark:bg-rose-950/40 dark:text-rose-200">
+            <div class="border-b border-rose-200 bg-rose-50 px-5 py-3 text-xs text-rose-900 sm:px-6 dark:bg-rose-950/40 dark:text-raw-rose-200">
                 {{ __(':count secret(s) declared in :file still need a dashboard value.', ['count' => count($missingSecrets), 'file' => $sourcePath]) }}
             </div>
         @endif

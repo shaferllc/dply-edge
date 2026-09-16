@@ -68,7 +68,7 @@
                                 'deployment' => $deployment,
                             ])
                             @if (! str_contains($failureReason, 'dply config lint failed'))
-                                <pre class="mt-2 max-h-40 overflow-auto rounded-lg border border-rose-200/60 bg-rose-50/50 p-2.5 font-mono text-xs text-rose-900 dark:border-rose-900/30 dark:bg-rose-950/20 dark:text-rose-200">{{ $failureReason }}</pre>
+                                <pre class="mt-2 max-h-40 overflow-auto rounded-lg border border-rose-200/60 bg-rose-50/50 p-2.5 font-mono text-xs text-rose-900 dark:border-raw-rose-900/30 dark:bg-rose-950/20 dark:text-raw-rose-200">{{ $failureReason }}</pre>
                             @endif
                         @endif
 

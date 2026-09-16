@@ -70,7 +70,7 @@
 @endphp
 
 @if (! empty($suggestions))
-    <div class="rounded-2xl border border-rose-200 bg-rose-50/60 p-5 dark:border-rose-900/40 dark:bg-rose-950/20">
+    <div class="rounded-2xl border border-rose-200 bg-rose-50/60 p-5 dark:border-raw-rose-900/40 dark:bg-rose-950/20">
         <div class="flex items-start gap-3">
             <x-heroicon-o-lifebuoy class="mt-0.5 h-5 w-5 shrink-0 text-rose-700" aria-hidden="true" />
             <div class="min-w-0 flex-1 space-y-3">

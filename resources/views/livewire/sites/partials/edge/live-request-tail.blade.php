@@ -147,7 +147,7 @@
                     </tr>
                 </template>
                 <template x-for="row in filteredRows" :key="row._id">
-                    <tr :class="row._isNew ? 'bg-emerald-50/40 transition-colors duration-700 dark:bg-emerald-950/20' : ''">
+                    <tr :class="row._isNew ? 'bg-emerald-50/40 transition-colors duration-700 dark:bg-raw-emerald-950/20' : ''">
                         <td class="px-4 py-1.5 font-mono text-xs text-brand-moss sm:px-5" x-text="row._timeLabel"></td>
                         <td class="px-2 py-1.5 font-mono text-xs font-semibold" x-text="row.method"></td>
                         <td class="px-2 py-1.5 text-right font-mono text-xs font-semibold"

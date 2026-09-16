@@ -194,7 +194,7 @@
     }
 
     html.dark .dply-tooltip {
-        @apply bg-zinc-800 text-zinc-100 ring-white/15;
+        @apply bg-zinc-800 text-raw-zinc-100 ring-raw-white/15;
     }
 
     /** Shared form control surface — prefer over raw `bg-white` for predictable dark mode */
@@ -562,13 +562,19 @@
 /* Primary actions: the views say `bg-brand-ink text-brand-cream`, which out
    here resolves to a pale button. The product's primary is the acid green the
    login and marketing CTAs use. Opacity variants (bg-brand-ink/95 terminal
-   blocks, /5 chips) are deliberately untouched. */
-html.dark .bg-brand-ink:not([class*='bg-brand-ink/']) {
+   blocks, /5 chips) are deliberately untouched — matched at a class boundary
+   only, so a button's `hover:bg-brand-ink/90` doesn't opt it out too (it did,
+   leaving 28 primaries pale cream). */
+html.dark .bg-brand-ink:not([class^='bg-brand-ink/'], [class*=' bg-brand-ink/']) {
     background-color: var(--color-edge-lime);
     color: var(--color-edge-void);
 }
 
-html.dark .bg-brand-ink:not([class*='bg-brand-ink/']) :is(svg, span, p) {
+html.dark .bg-brand-ink:not([class^='bg-brand-ink/'], [class*=' bg-brand-ink/']):hover {
+    background-color: var(--color-edge-lime-bright);
+}
+
+html.dark .bg-brand-ink:not([class^='bg-brand-ink/'], [class*=' bg-brand-ink/']) :is(svg, span, p) {
     color: inherit;
 }
 

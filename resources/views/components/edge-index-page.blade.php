@@ -214,7 +214,7 @@
                                         <a
                                             href="{{ $templatesUrl }}"
                                             wire:navigate
-                                            class="inline-flex items-center gap-1.5 rounded-xl border border-brand-ink/15 bg-white px-3 py-2.5 font-semibold text-brand-ink shadow-sm transition hover:bg-brand-sand/40 dark:border-brand-mist/25 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+                                            class="inline-flex items-center gap-1.5 rounded-xl border border-brand-ink/15 bg-white px-3 py-2.5 font-semibold text-brand-ink shadow-sm transition hover:bg-brand-sand/40 dark:border-brand-mist/25 dark:bg-zinc-800 dark:hover:bg-raw-zinc-700"
                                         >
                                             <x-heroicon-o-rectangle-stack class="h-4 w-4 shrink-0" aria-hidden="true" />
                                             {{ __('Browse templates') }}
