@@ -31,7 +31,7 @@
         <form method="POST" action="{{ route('logout') }}" class="inline flex justify-center sm:justify-end">
             @csrf
             <button type="submit" class="inline-flex items-center gap-2 px-2 py-1 text-sm font-medium text-edge-mute transition-colors hover:text-edge-lime focus:outline-none focus:ring-2 focus:ring-edge-lime/40">
-                <x-heroicon-o-arrow-left-end-on-rectangle class="h-4 w-4 text-brand-sage" aria-hidden="true" />
+                <x-heroicon-o-arrow-left-end-on-rectangle class="h-4 w-4 shrink-0" aria-hidden="true" />
                 {{ __('Log Out') }}
             </button>
         </form>
