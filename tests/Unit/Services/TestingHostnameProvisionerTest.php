@@ -128,3 +128,18 @@ test('testing hostname prefers primary preview domain over legacy meta', functio
     expect($site->testingHostname())->toBe('preview-app.dply.cc');
     expect($site->testingHostnameStatus())->toBe('ready');
 });
+
+test('testing-domain DNS prefers the DNS token over the mail binding\'s CLOUDFLARE_KEY', function () {
+    putenv('DPLY_TESTING_CF_API_TOKEN');
+    putenv('CLOUDFLARE_KEY=email-sending-token');
+    putenv('CLOUDFLARE_API_KEY=dns-token');
+
+    try {
+        $config = require base_path('config/product/testing_domains.php');
+    } finally {
+        putenv('CLOUDFLARE_KEY');
+        putenv('CLOUDFLARE_API_KEY');
+    }
+
+    expect($config['cloudflare_api_token'])->toBe('dns-token');
+});

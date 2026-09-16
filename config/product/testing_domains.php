@@ -23,9 +23,12 @@ return [
 
     'provider' => 'cloudflare',
 
+    // CLOUDFLARE_KEY comes after CLOUDFLARE_API_KEY: dply's Cloudflare mail
+    // binding sets CLOUDFLARE_KEY to an Email Sending token, which has no DNS
+    // access. It stays as a last resort for boxes where it is still the DNS token.
     'cloudflare_api_token' => env(
         'DPLY_TESTING_CF_API_TOKEN',
-        env('CLOUDFLARE_KEY', env('CLOUDFLARE_API_KEY', env('DPLY_EDGE_CF_API_TOKEN'))),
+        env('CLOUDFLARE_API_KEY', env('CLOUDFLARE_KEY', env('DPLY_EDGE_CF_API_TOKEN'))),
     ),
 
     'vm_apex' => $testing ? 'dply.test' : 'on-dply.cc',
