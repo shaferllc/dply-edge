@@ -152,7 +152,13 @@ class Register extends Component
         // bundle (see BetaInvitation::redeem).
         $invitation?->redeem($user, $organization);
 
-        event(new Registered($user));
+        // The account exists by now — a mail outage must not strand the user on an
+        // error page. They can resend from the verify-email screen.
+        try {
+            event(new Registered($user));
+        } catch (\Throwable $e) {
+            report($e);
+        }
         Auth::login($user);
         session()->regenerate();
         session(['current_organization_id' => $organization->id]);

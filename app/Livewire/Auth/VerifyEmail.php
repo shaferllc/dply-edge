@@ -25,7 +25,16 @@ class VerifyEmail extends Component
 
             return;
         }
-        auth()->user()->sendEmailVerificationNotification();
+
+        try {
+            auth()->user()->sendEmailVerificationNotification();
+        } catch (\Throwable $e) {
+            report($e);
+            session()->flash('error', __('We couldn\'t send the verification email. Please try again in a few minutes.'));
+
+            return;
+        }
+
         session()->flash('status', 'verification-link-sent');
     }
 

@@ -2,11 +2,14 @@
 
 namespace Tests\Feature\Auth\EmailVerificationTest;
 
+use App\Livewire\Auth\VerifyEmail;
 use App\Models\User;
 use Illuminate\Auth\Events\Verified;
+use Illuminate\Contracts\Notifications\Dispatcher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\URL;
+use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
 
@@ -48,4 +51,16 @@ test('email is not verified with invalid hash', function () {
     $this->actingAs($user)->get($verificationUrl);
 
     expect($user->fresh()->hasVerifiedEmail())->toBeFalse();
+});
+
+test('a failed verification send shows an error instead of claiming it was sent', function () {
+    $user = User::factory()->unverified()->create();
+    $this->mock(Dispatcher::class)
+        ->shouldReceive('send')->andThrow(new \RuntimeException('email.sending.error.email.invalid'));
+
+    Livewire::actingAs($user)
+        ->test(VerifyEmail::class)
+        ->call('sendNotification')
+        ->assertSee('couldn&#039;t send the verification email', escape: false)
+        ->assertDontSee('A new verification link has been sent');
 });
