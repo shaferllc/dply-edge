@@ -72,7 +72,7 @@ return [
         'worker_zone_name' => env('DPLY_EDGE_CF_ZONE_NAME'),
         'worker_routes' => array_values(array_filter(array_map(
             'trim',
-            explode(',', (string) env('DPLY_EDGE_CF_WORKER_ROUTES', '*.on-dply.site/*'))
+            explode(',', (string) env('DPLY_EDGE_CF_WORKER_ROUTES', '*.on-dply.live/*'))
         ))),
         'analytics_dataset' => env('DPLY_EDGE_CF_ANALYTICS_DATASET', 'dply_edge_requests'),
     ],
@@ -230,7 +230,7 @@ return [
     /*
     | Edge delivery hostnames — from config/product/testing_domains.php.
     */
-    'testing_domains' => (require __DIR__.'/testing_domains.php')['edge'] ?? ['on-dply.site'],
+    'testing_domains' => (require __DIR__.'/testing_domains.php')['edge'] ?? ['on-dply.live'],
 
     /*
     | DNS target for Edge delivery hostnames on DO-managed on-dply zones when

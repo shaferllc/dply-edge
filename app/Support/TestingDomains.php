@@ -90,9 +90,9 @@ final class TestingDomains
 
     public static function edgeApex(): string
     {
-        $apex = strtolower(trim((string) config('testing_domains.edge_apex', 'on-dply.site')));
+        $apex = strtolower(trim((string) config('testing_domains.edge_apex', 'on-dply.live')));
 
-        return $apex !== '' ? $apex : 'on-dply.site';
+        return $apex !== '' ? $apex : 'on-dply.live';
     }
 
     public static function serverlessApex(): string

@@ -29,7 +29,7 @@ return [
     ),
 
     'vm_apex' => $testing ? 'dply.test' : 'on-dply.cc',
-    'edge_apex' => $testing ? 'edge.test' : 'on-dply.site',
+    'edge_apex' => $testing ? 'edge.test' : 'on-dply.live',
     'serverless_apex' => $testing ? 'dply.test' : 'dply-serverless.cloud',
 
     'vm' => $testing ? ['dply.test'] : [
@@ -51,7 +51,7 @@ return [
     ],
 
     'edge' => $testing ? ['edge.test'] : [
-        'on-dply.site',
+        'on-dply.live',
     ],
 
     'serverless' => $testing ? ['dply.test'] : [

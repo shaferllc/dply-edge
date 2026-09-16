@@ -44,7 +44,7 @@ final class UnifiedPreviewHostname
     }
 
     /**
-     * Preferred managed-preview apex — on-dply.site when present in the pool.
+     * Preferred managed-preview apex — on-dply.live when present in the pool.
      */
     public function preferredApex(): string
     {

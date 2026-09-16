@@ -6,10 +6,10 @@ namespace Tests\Unit\Support\Edge;
 
 use App\Modules\Edge\Support\EdgeTestingDomains;
 
-test('default apex prefers on-dply.site when present', function () {
-    config(['edge.testing_domains' => ['dply.host', 'on-dply.site', 'on-dply.cloud']]);
+test('default apex prefers on-dply.live when present', function () {
+    config(['edge.testing_domains' => ['dply.host', 'on-dply.live', 'on-dply.cloud']]);
 
-    expect(EdgeTestingDomains::defaultApex())->toBe('on-dply.site');
+    expect(EdgeTestingDomains::defaultApex())->toBe('on-dply.live');
 });
 
 test('default apex falls back to on-dply.cloud when site absent', function () {
@@ -33,13 +33,13 @@ test('zone for host matches configured edge testing domains', function () {
 
 test('default from pool filters on-dply domains from config pool when env unset', function () {
     config([
-        'services.digitalocean.testing_domains' => ['dply.host', 'on-dply.site', 'on-dply.cloud'],
+        'services.digitalocean.testing_domains' => ['dply.host', 'on-dply.live', 'on-dply.cloud'],
     ]);
 
     $pool = EdgeTestingDomains::defaultFromPool();
 
-    expect($pool)->toContain('on-dply.site')
-        ->and($pool[0])->toBe('on-dply.site')
+    expect($pool)->toContain('on-dply.live')
+        ->and($pool[0])->toBe('on-dply.live')
         ->and($pool)->not->toContain('dply.host');
 });
 

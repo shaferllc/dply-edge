@@ -221,7 +221,7 @@
                         <li>
                             <span class="font-semibold text-brand-ink">{{ __('2. Attach each domain in the Edge → Domains tab.') }}</span>
                             {{ __('dply shows a CNAME target per domain (your site’s') }}
-                            <code class="font-mono text-brand-ink">{slug}.on-dply.site</code>
+                            <code class="font-mono text-brand-ink">{slug}.on-dply.live</code>
                             {{ __('hostname, or a fallback origin when configured). Copy it from the Domains row.') }}
                         </li>
                         <li>

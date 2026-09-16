@@ -171,7 +171,7 @@ class Forms extends Component
             ? (trim((string) $primary['honeypot']) ?: 'company')
             : 'company';
         $sampleRequireBot = is_array($primary) ? (bool) $primary['require_turnstile'] : false;
-        $sampleAction = $liveUrl !== '' ? $liveUrl.$samplePath : 'https://your-site.on-dply.site'.$samplePath;
+        $sampleAction = $liveUrl !== '' ? $liveUrl.$samplePath : 'https://your-site.on-dply.live'.$samplePath;
 
         $repo = $this->edgeRepoConfigSection('forms');
 

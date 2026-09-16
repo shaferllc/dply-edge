@@ -142,7 +142,7 @@
                                     @endif
                                     @if (\App\Modules\Edge\Support\FakeEdgeProvision::enabled())
                                         <p class="text-xs text-amber-800 dark:text-amber-200">
-                                            {{ __('Local Fake Edge: the preview URL must resolve to this app (e.g. *.edge.test / *.dply.test via Valet). Public on-dply.site hostnames hit Cloudflare and will not see this build.') }}
+                                            {{ __('Local Fake Edge: the preview URL must resolve to this app (e.g. *.edge.test / *.dply.test via Valet). Public on-dply.live hostnames hit Cloudflare and will not see this build.') }}
                                         </p>
                                     @endif
                                 </div>

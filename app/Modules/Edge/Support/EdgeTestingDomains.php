@@ -7,7 +7,7 @@ namespace App\Modules\Edge\Support;
 use App\Support\TestingDomains;
 
 /**
- * Edge delivery hostnames use the on-dply.* pool (e.g. on-dply.site), separate
+ * Edge delivery hostnames use the on-dply.* pool (e.g. on-dply.live), separate
  * from BYO/serverless testing domains and Cloud provider URLs.
  */
 final class EdgeTestingDomains
@@ -25,7 +25,7 @@ final class EdgeTestingDomains
         return $configured !== [] ? $configured : TestingDomains::edge();
     }
 
-    private const PREFERRED_APEX = 'on-dply.site';
+    private const PREFERRED_APEX = 'on-dply.live';
 
     public static function defaultApex(): string
     {

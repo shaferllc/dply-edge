@@ -12,7 +12,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Str;
 
 /**
- * Move legacy Edge delivery hostnames from dply.host to on-dply.site.
+ * Move Edge delivery hostnames off retired apexes onto the current default apex.
  */
 class MigrateEdgeHostnamesCommand extends Command
 {
@@ -20,7 +20,9 @@ class MigrateEdgeHostnamesCommand extends Command
                             {--dry-run : Show planned changes without writing}
                             {--site= : Migrate a single site id}';
 
-    protected $description = 'Migrate legacy Edge sites from dply.host to on-dply.site hostnames.';
+    protected $description = 'Migrate Edge sites from retired apexes (dply.host, on-dply.site) to the default apex.';
+
+    private const LEGACY_APEXES = ['dply.host', 'on-dply.site'];
 
     public function handle(EdgeHostMapPublisher $hostMapPublisher): int
     {
@@ -36,21 +38,28 @@ class MigrateEdgeHostnamesCommand extends Command
             $query->where('id', $siteId);
         }
 
-        $sites = $query->get()->filter(function (Site $site): bool {
+        $legacyApexFor = static function (Site $site) use ($targetApex): ?string {
             $host = strtolower($site->edgeHostname());
+            foreach (self::LEGACY_APEXES as $apex) {
+                if ($apex !== $targetApex && str_ends_with($host, '.'.$apex)) {
+                    return $apex;
+                }
+            }
 
-            return str_ends_with($host, '.dply.host') && ! str_contains($host, '.on-dply.');
-        });
+            return null;
+        };
+
+        $sites = $query->get()->filter(fn (Site $site): bool => $legacyApexFor($site) !== null);
 
         if ($sites->isEmpty()) {
-            $this->info('No legacy dply.host Edge hostnames found.');
+            $this->info('No Edge hostnames on retired apexes found.');
 
             return self::SUCCESS;
         }
 
         foreach ($sites as $site) {
             $oldHost = strtolower($site->edgeHostname());
-            $prefix = (string) Str::beforeLast($oldHost, '.dply.host');
+            $prefix = (string) Str::beforeLast($oldHost, '.'.$legacyApexFor($site));
             $newHost = strtolower($prefix.'.'.$targetApex);
 
             $this->line("Site {$site->id} ({$site->name}): {$oldHost} → {$newHost}");

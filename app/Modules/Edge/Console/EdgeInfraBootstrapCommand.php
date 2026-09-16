@@ -232,7 +232,7 @@ class EdgeInfraBootstrapCommand extends Command
         $routes = EdgePlatformCredentials::workerRoutes();
         $zone = trim((string) config('edge.cloudflare.worker_zone_name'));
         if ($zone === '' && $routes !== []) {
-            // Default route "*.on-dply.site/*" → zone "on-dply.site".
+            // Default route "*.on-dply.live/*" → zone "on-dply.site".
             $zone = (string) preg_replace('#^\*\.|/.*$#', '', $routes[0]);
         }
 
