@@ -59,8 +59,15 @@ export interface SnippetsConfig {
 
 export interface TagTool {
   name: string;
-  src: string;
+  /** ga4|gtm|meta|clarity|hotjar|plausible|custom — absent means custom (src only). */
+  vendor?: string;
+  id?: string;
+  src?: string;
   async?: boolean;
+  /** Consent purpose; `necessary` is never held back. */
+  purpose?: string;
+  /** Page trigger, same syntax as snippets. */
+  path?: string;
 }
 
 export interface TagsConfig {
@@ -387,30 +394,106 @@ export function injectSnippets(html: string, pathname: string, config: SnippetsC
   return out;
 }
 
-export function injectTags(html: string, config: TagsConfig | undefined): string {
+interface TagLoad {
+  inline?: string;
+  src?: string;
+  attrs?: Record<string, string>;
+}
+
+/** JSON string literal safe inside an inline <script>. */
+function jsString(value: string): string {
+  return JSON.stringify(value).replace(/</g, '\\u003c');
+}
+
+// ids are pattern-checked by EdgeTagVendors (PHP) before publish; jsString /
+// encodeURIComponent keep a bad KV entry from breaking out anyway.
+const TAG_VENDORS: Partial<Record<string, (id: string) => TagLoad>> = {
+  ga4: (id) => ({
+    inline: `window.dataLayer=window.dataLayer||[];window.gtag=window.gtag||function(){dataLayer.push(arguments)};gtag('js',new Date());gtag('config',${jsString(id)});`,
+    src: `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(id)}`,
+  }),
+  gtm: (id) => ({
+    inline: `window.dataLayer=window.dataLayer||[];dataLayer.push({'gtm.start':Date.now(),event:'gtm.js'});`,
+    src: `https://www.googletagmanager.com/gtm.js?id=${encodeURIComponent(id)}`,
+  }),
+  meta: (id) => ({
+    inline: `!function(f){if(f.fbq)return;var n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[]}(window);fbq('init',${jsString(id)});fbq('track','PageView');`,
+    src: 'https://connect.facebook.net/en_US/fbevents.js',
+  }),
+  clarity: (id) => ({
+    inline: `window.clarity=window.clarity||function(){(clarity.q=clarity.q||[]).push(arguments)};`,
+    src: `https://www.clarity.ms/tag/${encodeURIComponent(id)}`,
+  }),
+  hotjar: (id) => ({
+    inline: `window.hj=window.hj||function(){(hj.q=hj.q||[]).push(arguments)};window._hjSettings={hjid:Number(${jsString(id)}),hjsv:6};`,
+    src: `https://static.hotjar.com/c/hotjar-${encodeURIComponent(id)}.js?sv=6`,
+  }),
+  plausible: (id) => ({
+    inline: `window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)};`,
+    src: 'https://plausible.io/js/script.js',
+    attrs: { 'data-domain': id },
+  }),
+};
+
+function tagLoad(tool: TagTool): TagLoad | null {
+  const vendor = tool.vendor || 'custom';
+  if (vendor === 'custom') {
+    return typeof tool.src === 'string' && tool.src.startsWith('https://') ? { src: tool.src } : null;
+  }
+  const build = TAG_VENDORS[vendor];
+  return build && typeof tool.id === 'string' && tool.id !== '' ? build(tool.id) : null;
+}
+
+function renderTagLoad(load: TagLoad, async: boolean): string {
+  let out = load.inline ? `<script>${load.inline}</script>` : '';
+  if (load.src) {
+    const attrs = Object.entries(load.attrs ?? {})
+      .map(([k, v]) => ` ${k}="${escapeAttr(v)}"`)
+      .join('');
+    out += `<script src="${escapeAttr(load.src)}"${async ? ' async' : ''}${attrs}></script>`;
+  }
+  return out;
+}
+
+// window.__dplyTags: consent (bool), purposes, grant(purposes?), revoke(), track(event, props).
+// Held tools load as soon as their purpose is granted. localStorage
+// dply_tag_consent is '1' (everything) or a JSON list of purposes.
+const TAG_RUNTIME = `(function(w,d,H){var T=w.__dplyTags=w.__dplyTags||{},mem=null;
+function read(){if(mem)return mem;try{var v=localStorage.getItem('dply_tag_consent');return v==='1'?['analytics','marketing']:v?JSON.parse(v):[]}catch(e){return[]}}
+function load(t){if(t.i){var x=d.createElement('script');x.text=t.i;d.head.appendChild(x)}if(t.s){var s=d.createElement('script');s.src=t.s;s.async=true;for(var k in t.a||{})s.setAttribute(k,t.a[k]);d.head.appendChild(s)}}
+function flush(){var g=read();T.purposes=g;T.consent=g.length>0;H=H.filter(function(t){if(g.indexOf(t.p)<0)return true;load(t);return false})}
+T.grant=function(p){mem=p||['analytics','marketing'];try{localStorage.setItem('dply_tag_consent',p?JSON.stringify(p):'1')}catch(e){}flush()};
+T.revoke=function(){mem=[];try{localStorage.removeItem('dply_tag_consent')}catch(e){}flush()};
+T.track=function(n,p){p=p||{};if(w.gtag)gtag('event',n,p);if(w.dataLayer)dataLayer.push(Object.assign({event:n},p));if(w.fbq)fbq('trackCustom',n,p);if(w.plausible)plausible(n,{props:p});if(w.clarity)clarity('event',n);if(w.hj)hj('event',n)};
+flush()})(window,document,`;
+
+export function injectTags(html: string, config: TagsConfig | undefined, pathname = '/'): string {
   if (!config?.enabled || !html) return html;
 
   const tools = Array.isArray(config.tools) ? config.tools : [];
-  const scripts = tools
-    .filter((t) => typeof t.src === 'string' && t.src.startsWith('https://'))
-    .map((t) => {
-      const asyncAttr = t.async === false ? '' : ' async';
-      return `<script src="${escapeAttr(t.src)}"${asyncAttr}></script>`;
-    })
-    .join('');
-
-  let consent = '';
-  if (config.consent_required) {
-    consent = `<script>window.__dplyTags=window.__dplyTags||{consent:localStorage.getItem('dply_tag_consent')==='1'};</script>`;
+  const held: Array<{ p: string; i?: string; s?: string; a?: Record<string, string> }> = [];
+  let scripts = '';
+  for (const tool of tools) {
+    if (!pathMatches(tool.path || '/*', pathname)) continue;
+    const load = tagLoad(tool);
+    if (!load) continue;
+    const purpose = tool.purpose || 'analytics';
+    if (config.consent_required && purpose !== 'necessary') {
+      held.push({ p: purpose, i: load.inline, s: load.src, a: load.attrs });
+    } else {
+      scripts += renderTagLoad(load, tool.async !== false);
+    }
   }
 
-  // Consent helper can ship alone (no script URLs yet). Skip only when
-  // there's nothing to inject.
-  const block = consent + scripts;
+  // Runtime ships first so track()/grant() exist before any tool runs. With
+  // consent off and nothing held it still provides track().
+  const runtime = `<script>${TAG_RUNTIME}${JSON.stringify(held).replace(/</g, '\\u003c')});</script>`;
+  const block = config.consent_required || scripts !== '' ? runtime + scripts : '';
   if (block === '') return html;
 
   if (html.includes('</head>')) {
-    return html.replace(/<\/head>/i, `${block}</head>`);
+    // Function replacer: `$&`-style sequences in a tag URL must stay literal.
+    return html.replace(/<\/head>/i, () => `${block}</head>`);
   }
   return html + block;
 }
@@ -435,7 +518,7 @@ export async function runEarlyAddons(
 export function applyHtmlAddons(html: string, pathname: string, host: EdgeAddonsHostEntry): string {
   let out = html;
   out = injectSnippets(out, pathname, host.snippets);
-  out = injectTags(out, host.tags);
+  out = injectTags(out, host.tags, pathname);
   if (host.turnstile?.enabled && host.turnstile.mode === 'all' && host.turnstile.site_key) {
     out = injectTurnstileWidget(out, host.turnstile.site_key);
   } else if (

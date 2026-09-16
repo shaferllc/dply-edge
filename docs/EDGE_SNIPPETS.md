@@ -36,9 +36,6 @@ Requires **Dply-hosted Edge delivery**.
 | Meta | `</head>` | Description + Open Graph tags |
 | Noindex | `</head>` | `noindex, nofollow` for staging-like hosts |
 | Banner | `</body>` | Simple announcement bar |
-| Consent | `</head>` | `grant` / `revoke` helpers for Tags consent |
-| GA4 | `</head>` | `gtag('config', …)` — pair with Tags → GA4 |
-| Plausible | `</head>` | Script with `data-domain` |
 | JSON-LD | `</head>` | Organization structured data |
 
 ## `dply.yaml`
@@ -57,12 +54,12 @@ Dashboard **Save** overrides the repo for the whole `snippets` section.
 
 ## Tips
 
-- Prefer **Tags** for third-party `https://` script URLs; use Snippets for inline markup or attributes Tags can’t set (`data-domain`).
+- Prefer **Tags** for analytics, pixels and third-party scripts (it writes the vendor setup code and handles consent); use Snippets for other inline markup.
 - Empty HTML rows are ignored on Save.
 - Narrow paths keep marketing scripts off app routes.
 - Only inject HTML you trust — this runs in every matching visitor’s page.
 
 ## Related sections
 
-- **Tags** — remote analytics / pixel script URLs
+- **Tags** — analytics, pixels and third-party scripts by vendor ID, with consent gating
 - **Build** — for HTML that should ship with the app repo instead
