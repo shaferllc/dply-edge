@@ -9,31 +9,39 @@ use App\Modules\Edge\Support\EdgePlatformCredentials;
 use Illuminate\Console\Command;
 
 /**
- * Bootstrap Cloudflare R2 bucket + Workers KV namespace for dply Edge.
+ * Bootstrap everything dply Edge needs on Cloudflare from ONE API token:
+ * account id (looked up), R2 bucket, KV namespaces, SSR dispatch namespace,
+ * and R2 S3 credentials — Cloudflare derives those from an API token
+ * (access key = token id, secret = sha256(token value)), so no dashboard
+ * trip to "Manage R2 API tokens".
  *
- * Creates resources via the Cloudflare API when they do not exist yet.
- * R2 S3 access keys must still be created in the Cloudflare dashboard
- * (Account → R2 → Manage R2 API tokens).
+ *   php artisan dply:edge:infra:bootstrap --token=<cloudflare API token> --write
+ *   php artisan config:cache && php artisan horizon:terminate
  */
 class EdgeInfraBootstrapCommand extends Command
 {
     protected $signature = 'dply:edge:infra:bootstrap
+                            {--token= : Cloudflare user API token (default: DPLY_EDGE_CF_API_TOKEN)}
+                            {--account= : Cloudflare account id (default: DPLY_EDGE_CF_ACCOUNT_ID, else looked up from the token)}
                             {--bucket= : R2 bucket name (default: dply-edge-artifacts)}
                             {--kv-title=dply-edge-host-map : KV namespace title for host map}
                             {--cache-kv-title=dply-edge-cache : KV namespace title for hybrid origin cache}
                             {--dispatch-name=dply-edge-ssr : Workers for Platforms dispatch namespace for SSR scripts}
                             {--skip-dispatch : Skip creating the dispatch namespace (SSR sites won\'t work)}
+                            {--write : Write the resolved values into .env (backs it up to .env.bak first)}
                             {--dry-run : Print planned actions without calling Cloudflare}';
 
-    protected $description = 'Create Edge R2 bucket and KV namespace via Cloudflare API';
+    protected $description = 'Create Edge R2 bucket, KV + dispatch namespaces and R2 keys via the Cloudflare API';
+
+    private const SECRET_KEYS = ['DPLY_EDGE_CF_API_TOKEN', 'DPLY_EDGE_R2_SECRET'];
 
     public function handle(): int
     {
-        $accountId = trim((string) config('edge.cloudflare.account_id'));
-        $token = trim((string) config('edge.cloudflare.api_token'));
+        $token = trim((string) ($this->option('token') ?: config('edge.cloudflare.api_token')));
+        $accountId = trim((string) ($this->option('account') ?: config('edge.cloudflare.account_id')));
 
-        if ($accountId === '' || $token === '') {
-            $this->error('Set DPLY_EDGE_CF_ACCOUNT_ID and DPLY_EDGE_CF_API_TOKEN before bootstrapping.');
+        if ($token === '') {
+            $this->error('Pass --token=<Cloudflare API token> or set DPLY_EDGE_CF_API_TOKEN before bootstrapping.');
 
             return self::FAILURE;
         }
@@ -43,9 +51,14 @@ class EdgeInfraBootstrapCommand extends Command
         $cacheKvTitle = (string) $this->option('cache-kv-title');
         $dispatchName = (string) $this->option('dispatch-name');
         $skipDispatch = (bool) $this->option('skip-dispatch');
+        $r2Key = trim((string) config('edge.r2.key'));
+        $r2Secret = trim((string) config('edge.r2.secret'));
 
         if ($this->option('dry-run')) {
             $this->info('[dry-run] Would verify Cloudflare token');
+            if ($accountId === '') {
+                $this->line('[dry-run] Would look up the account id from the token');
+            }
             $this->line('[dry-run] R2 bucket: '.$bucket);
             $this->line('[dry-run] KV namespace title (host map): '.$kvTitle);
             $this->line('[dry-run] KV namespace title (origin cache): '.$cacheKvTitle);
@@ -54,20 +67,30 @@ class EdgeInfraBootstrapCommand extends Command
             } else {
                 $this->line('[dry-run] Dispatch namespace (Phase 4b SSR): '.$dispatchName);
             }
-            $this->printEnvTemplate(
+            $this->printEnv($this->envValues(
                 $bucket,
-                (string) config('edge.cloudflare.kv_namespace_id'),
                 $accountId,
+                $token,
+                (string) config('edge.cloudflare.kv_namespace_id'),
                 (string) config('edge.cloudflare.cache_kv_namespace_id'),
                 $skipDispatch ? '' : $dispatchName,
                 (string) config('edge.cloudflare.dispatch_namespace_id'),
-            );
+                $r2Key,
+                $r2Secret,
+            ), mask: true);
 
             return self::SUCCESS;
         }
 
         try {
-            $client = EdgeCloudflareClient::fromConfig();
+            if ($accountId === '') {
+                $accountId = $this->resolveAccountId($token);
+                if ($accountId === null) {
+                    return self::FAILURE;
+                }
+            }
+
+            $client = new EdgeCloudflareClient($accountId, $token);
             $verify = $client->verifyToken();
             $this->info('Cloudflare token verified ('.(string) ($verify['status'] ?? 'ok').').');
 
@@ -133,11 +156,27 @@ class EdgeInfraBootstrapCommand extends Command
                 $this->line('Skipped dispatch namespace (--skip-dispatch). SSR sites disabled.');
             }
 
+            // R2 S3 credentials from the API token itself. Only valid when the
+            // token carries "Workers R2 Storage: Edit".
+            if ($r2Key === '' || $r2Secret === '') {
+                $tokenId = is_string($verify['id'] ?? null) ? $verify['id'] : '';
+                if ($tokenId !== '') {
+                    $r2Key = $tokenId;
+                    $r2Secret = hash('sha256', $token);
+                    $this->info('Derived R2 S3 credentials from the API token (needs Workers R2 Storage: Edit).');
+                }
+            }
+
+            $env = $this->envValues($bucket, $accountId, $token, $kvId, $cacheKvId, $resolvedDispatchName, $dispatchId, $r2Key, $r2Secret);
+
             $this->newLine();
-            $this->printEnvTemplate($bucket, $kvId, $accountId, $cacheKvId, $resolvedDispatchName, $dispatchId);
+            $this->printEnv($env, mask: (bool) $this->option('write'));
+            if ($this->option('write')) {
+                $this->writeEnv($env);
+            }
             $this->newLine();
-            $this->warn('Create an R2 API token in Cloudflare (R2 → Manage R2 API tokens) with read/write on this bucket.');
-            $this->line('Then run: php artisan dply:edge:doctor --probe');
+            $this->line('Next: php artisan config:cache && php artisan horizon:terminate');
+            $this->line('Then: php artisan dply:edge:doctor --probe');
             $this->line('Ensure delivery features: php artisan dply:edge:ensure-delivery-features');
             $this->line('Deploy worker: php artisan edge:worker:deploy');
 
@@ -149,39 +188,116 @@ class EdgeInfraBootstrapCommand extends Command
         }
     }
 
-    private function printEnvTemplate(string $bucket, string $kvId, string $accountId, string $cacheKvId = '', string $dispatchName = '', string $dispatchId = ''): void
+    private function resolveAccountId(string $token): ?string
     {
-        $endpoint = EdgePlatformCredentials::r2Endpoint() ?: 'https://'.$accountId.'.r2.cloudflarestorage.com';
+        $accounts = array_values(array_filter(
+            (new EdgeCloudflareClient('', $token))->listAccounts(),
+            static fn (mixed $account): bool => is_array($account) && is_string($account['id'] ?? null),
+        ));
+
+        if (count($accounts) === 1) {
+            $this->line('Using Cloudflare account: '.($accounts[0]['name'] ?? '').' ('.$accounts[0]['id'].')');
+
+            return $accounts[0]['id'];
+        }
+
+        if ($accounts === []) {
+            $this->error('This token cannot see any Cloudflare account — give it "Account Settings: Read" or pass --account=<id>.');
+
+            return null;
+        }
+
+        $this->error('This token can see several Cloudflare accounts — re-run with --account=<id>:');
+        foreach ($accounts as $account) {
+            $this->line('  '.$account['id'].'  '.($account['name'] ?? ''));
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array<string, string> only resolved values, in .env order
+     */
+    private function envValues(
+        string $bucket,
+        string $accountId,
+        string $token,
+        string $kvId,
+        string $cacheKvId,
+        string $dispatchName,
+        string $dispatchId,
+        string $r2Key,
+        string $r2Secret,
+    ): array {
         $routes = EdgePlatformCredentials::workerRoutes();
         $zone = trim((string) config('edge.cloudflare.worker_zone_name'));
+        if ($zone === '' && $routes !== []) {
+            // Default route "*.on-dply.site/*" → zone "on-dply.site".
+            $zone = (string) preg_replace('#^\*\.|/.*$#', '', $routes[0]);
+        }
 
+        $endpoint = EdgePlatformCredentials::r2Endpoint()
+            ?: ($accountId !== '' ? 'https://'.$accountId.'.r2.cloudflarestorage.com' : '');
+
+        return array_filter([
+            'DPLY_FAKE_EDGE' => 'false',
+            'FEATURE_SURFACE_EDGE' => 'true',
+            'DPLY_EDGE_R2_BUCKET' => $bucket,
+            'DPLY_EDGE_R2_REGION' => 'auto',
+            'DPLY_EDGE_R2_ENDPOINT' => $endpoint,
+            'DPLY_EDGE_R2_ACCESS_KEY' => $r2Key,
+            'DPLY_EDGE_R2_SECRET' => $r2Secret,
+            'DPLY_EDGE_CF_ACCOUNT_ID' => $accountId,
+            'DPLY_EDGE_CF_API_TOKEN' => $token,
+            'DPLY_EDGE_CF_KV_NAMESPACE_ID' => $kvId,
+            'DPLY_EDGE_CF_CACHE_KV_NAMESPACE_ID' => $cacheKvId,
+            'DPLY_EDGE_CF_DISPATCH_NAMESPACE' => $dispatchName,
+            'DPLY_EDGE_CF_DISPATCH_NAMESPACE_ID' => $dispatchId,
+            'DPLY_EDGE_CF_WORKER_SCRIPT' => (string) config('edge.cloudflare.worker_script_name', 'dply-edge'),
+            'DPLY_EDGE_CF_ZONE_NAME' => $zone,
+            'DPLY_EDGE_CF_WORKER_ROUTES' => $zone !== '' ? implode(',', $routes) : '',
+        ], static fn (string $value): bool => $value !== '');
+    }
+
+    /**
+     * @param  array<string, string>  $env
+     */
+    private function printEnv(array $env, bool $mask): void
+    {
         $this->info('Add to production .env:');
         $this->line('');
-        $this->line('DPLY_FAKE_EDGE=false');
-        $this->line('FEATURE_SURFACE_EDGE=true');
-        $this->line('DPLY_EDGE_R2_BUCKET='.$bucket);
-        $this->line('DPLY_EDGE_R2_REGION=auto');
-        $this->line('DPLY_EDGE_R2_ENDPOINT='.$endpoint);
-        $this->line('DPLY_EDGE_R2_ACCESS_KEY=<from Cloudflare R2 API token>');
-        $this->line('DPLY_EDGE_R2_SECRET=<from Cloudflare R2 API token>');
-        $this->line('DPLY_EDGE_CF_ACCOUNT_ID='.$accountId);
-        $this->line('DPLY_EDGE_CF_API_TOKEN=<same or dedicated Workers/KV token>');
-        if ($kvId !== '') {
-            $this->line('DPLY_EDGE_CF_KV_NAMESPACE_ID='.$kvId);
+        foreach ($env as $key => $value) {
+            $shown = $mask && in_array($key, self::SECRET_KEYS, true) ? '••••'.substr($value, -4) : $value;
+            $this->line($key.'='.$shown);
         }
-        if ($cacheKvId !== '') {
-            $this->line('DPLY_EDGE_CF_CACHE_KV_NAMESPACE_ID='.$cacheKvId);
+        if (! isset($env['DPLY_EDGE_R2_ACCESS_KEY'])) {
+            $this->line('DPLY_EDGE_R2_ACCESS_KEY=<from Cloudflare R2 API token>');
+            $this->line('DPLY_EDGE_R2_SECRET=<from Cloudflare R2 API token>');
         }
-        if ($dispatchName !== '') {
-            $this->line('DPLY_EDGE_CF_DISPATCH_NAMESPACE='.$dispatchName);
+    }
+
+    /**
+     * Replace each KEY= line in place, append the ones that are missing.
+     *
+     * @param  array<string, string>  $env
+     */
+    private function writeEnv(array $env): void
+    {
+        $path = $this->laravel->environmentFilePath();
+        $contents = is_file($path) ? (string) file_get_contents($path) : '';
+        if (is_file($path)) {
+            copy($path, $path.'.bak');
         }
-        if ($dispatchId !== '') {
-            $this->line('DPLY_EDGE_CF_DISPATCH_NAMESPACE_ID='.$dispatchId);
+
+        foreach ($env as $key => $value) {
+            $line = $key.'='.$value;
+            $pattern = '/^'.preg_quote($key, '/').'=.*$/m';
+            $contents = preg_match($pattern, $contents) === 1
+                ? (string) preg_replace_callback($pattern, static fn (): string => $line, $contents)
+                : rtrim($contents, "\n")."\n".$line."\n";
         }
-        $this->line('DPLY_EDGE_CF_WORKER_SCRIPT=dply-edge');
-        if ($zone !== '' && $routes !== []) {
-            $this->line('DPLY_EDGE_CF_ZONE_NAME='.$zone);
-            $this->line('DPLY_EDGE_CF_WORKER_ROUTES='.implode(',', $routes));
-        }
+
+        file_put_contents($path, $contents);
+        $this->info('Wrote '.count($env).' keys to '.$path.' (previous copy: '.$path.'.bak).');
     }
 }
