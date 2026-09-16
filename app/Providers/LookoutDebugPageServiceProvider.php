@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 use Lookout\Tracing\Laravel\Lookout;
+use Lookout\Tracing\Reporting\ErrorReportClient;
 use Throwable;
 
 /**
@@ -50,7 +51,7 @@ class LookoutDebugPageServiceProvider extends ServiceProvider
             return array_filter([
                 'app_name' => 'dply',
                 'base_path' => base_path(),
-                'reference' => \Lookout\Tracing\Reporting\ErrorReportClient::lastOccurrenceUuid(),
+                'reference' => ErrorReportClient::lastOccurrenceUuid(),
             ], static fn ($v) => $v !== null);
         });
     }

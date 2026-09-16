@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Support\Livewire;
 
+use Livewire\Features\SupportPageComponents\HandlesPageComponents;
 use Livewire\Features\SupportPageComponents\PageComponentConfig;
 use Livewire\Features\SupportPageComponents\SupportPageComponents;
 use Livewire\Livewire;
@@ -11,7 +12,7 @@ use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Mount a full-page Livewire component and wrap it in its #[Layout] the same way
- * {@see \Livewire\Features\SupportPageComponents\HandlesPageComponents} does for
+ * {@see HandlesPageComponents} does for
  * Route::livewire — used when a controller must resolve params (e.g. Server from
  * Site) before mounting.
  */

@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Livewire\Concerns;
 
-use App\Modules\Edge\Actions\RedeployEdgeSite;
 use App\Models\EdgeDeployment;
 use App\Models\Site;
+use App\Modules\Edge\Actions\RedeployEdgeSite;
 use App\Modules\Edge\Services\EdgeSiteCanceller;
 use Livewire\Attributes\On;
 

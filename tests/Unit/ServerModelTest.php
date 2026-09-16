@@ -20,8 +20,6 @@ test('is ready returns false when status pending', function () {
     expect($server->isReady())->toBeFalse();
 });
 
-
-
 test('servers table has dual key columns', function () {
     expect(Schema::hasColumn('servers', 'ssh_operational_private_key'))->toBeTrue();
     expect(Schema::hasColumn('servers', 'ssh_recovery_private_key'))->toBeTrue();

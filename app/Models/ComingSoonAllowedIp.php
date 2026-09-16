@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Http\Middleware\RedirectGuestsToComingSoon;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 
 /**
@@ -17,8 +18,8 @@ use Illuminate\Support\Facades\Cache;
  * @property string|null $created_by
  * @property string $ip
  * @property string|null $label
- * @property \Illuminate\Support\Carbon|null $created_at
- * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  */
 class ComingSoonAllowedIp extends Model
 {

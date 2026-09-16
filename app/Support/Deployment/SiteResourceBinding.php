@@ -7,7 +7,7 @@ namespace App\Support\Deployment;
 final readonly class SiteResourceBinding
 {
     /**
-     * @param  array<string, mixed> $config
+     * @param  array<string, mixed>  $config
      */
     public function __construct(
         public string $type,

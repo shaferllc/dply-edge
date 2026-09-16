@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Services\Edge;
 
-use App\Modules\Edge\Actions\CreateEdgePreviewSite;
 use App\Enums\SiteType;
 use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
 use App\Models\SocialAccount;
 use App\Models\User;
+use App\Modules\Edge\Actions\CreateEdgePreviewSite;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;

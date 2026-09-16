@@ -11,6 +11,7 @@ use App\Support\Mail\Guided\GuidedMailProvider;
 use App\Support\Mail\Guided\GuidedMailRecordStatus;
 use App\Support\Mail\Guided\GuidedMailStep;
 use App\Support\Mail\Guided\GuidedMailVerifyResult;
+use App\Support\Mail\MailPlaceholderResolver;
 
 /**
  * Guided + verified email setup on a customer's own domain through their own
@@ -117,7 +118,7 @@ class CloudflareGuidedMailProvider implements GuidedMailProvider
         // Resolve ${APP_NAME}-style placeholders so Cloudflare registers a real
         // sender name rather than a literal "${APP_NAME}" — this is the control
         // plane, not the deployed app, so phpdotenv isn't in play.
-        $fromName = \App\Support\Mail\MailPlaceholderResolver::resolve($site, trim((string) ($credentials['from_name'] ?? '')));
+        $fromName = MailPlaceholderResolver::resolve($site, trim((string) ($credentials['from_name'] ?? '')));
 
         try {
             $email = new CloudflareEmailService($sendingToken);

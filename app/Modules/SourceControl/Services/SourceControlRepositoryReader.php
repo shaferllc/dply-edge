@@ -4,21 +4,15 @@ declare(strict_types=1);
 
 namespace App\Modules\SourceControl\Services;
 
+use App\Models\Site;
+use App\Models\User;
 use App\Modules\SourceControl\Contracts\GitIdentity;
 use App\Modules\SourceControl\Services\Concerns\ParsesGitRemotes;
 use App\Modules\SourceControl\Services\Concerns\ReadsBitbucketRepositories;
 use App\Modules\SourceControl\Services\Concerns\ReadsGitHubRepositories;
 use App\Modules\SourceControl\Services\Concerns\ReadsGitLabRepositories;
-use App\Models\Site;
-use App\Models\User;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Str;
-use League\CommonMark\Environment\Environment;
-use League\CommonMark\Extension\CommonMark\CommonMarkCoreExtension;
-use League\CommonMark\Extension\GithubFlavoredMarkdownExtension;
-use League\CommonMark\MarkdownConverter;
-use Throwable;
 
 /**
  * Read-only browser for a connected git repo across GitHub / GitLab /

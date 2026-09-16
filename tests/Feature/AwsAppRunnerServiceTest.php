@@ -9,6 +9,7 @@ use App\Models\ProviderCredential;
 use App\Models\User;
 use App\Modules\Providers\Services\AwsAppRunnerService;
 use Aws\AppRunner\AppRunnerClient;
+use Aws\CloudWatch\CloudWatchClient;
 use Aws\Result;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Mockery;
@@ -166,7 +167,7 @@ test('stop deployment reports failure without calling the api', function () {
     expect(service($client)->stopDeployment('arn:test', 'op-1'))->toBeFalse();
 });
 test('get service metrics maps cloudwatch series', function () {
-    $cw = Mockery::mock(\Aws\CloudWatch\CloudWatchClient::class);
+    $cw = Mockery::mock(CloudWatchClient::class);
     $cw->shouldReceive('getMetricData')
         ->once()
         ->andReturn(new Result([

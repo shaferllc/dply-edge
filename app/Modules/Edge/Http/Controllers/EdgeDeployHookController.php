@@ -5,9 +5,8 @@ declare(strict_types=1);
 namespace App\Modules\Edge\Http\Controllers;
 
 use App\Http\Controllers\Controller;
-
-use App\Modules\Edge\Actions\RedeployEdgeSite;
 use App\Models\EdgeDeployHook;
+use App\Modules\Edge\Actions\RedeployEdgeSite;
 use App\Support\ProductLine\ProductLineKillSwitches;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;

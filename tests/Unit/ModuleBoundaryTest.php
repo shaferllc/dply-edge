@@ -218,7 +218,7 @@ test('modules never depend on the presentation shell', function (): void {
         "The arrow points UI -> engine -> kernel, never the reverse.\n".
         "See docs/adr/modular-monolith-structure.md.\n\n%d violation(s):\n%s\n\n".
         "Fix by moving the shared piece into the kernel (app/Support, app/Services,\n".
-        "app/Livewire/Concerns) and depending on that from both sides.",
+        'app/Livewire/Concerns) and depending on that from both sides.',
         count($violations),
         implode("\n", $violations)
     ));

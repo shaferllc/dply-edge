@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Http\Controllers\Api;
 
-use App\Modules\Edge\Http\Resources\EdgeSiteResource;
 use App\Models\Site;
+use App\Modules\Edge\Http\Resources\EdgeSiteResource;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;

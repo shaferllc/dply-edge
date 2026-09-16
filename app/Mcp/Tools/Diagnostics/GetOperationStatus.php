@@ -10,6 +10,7 @@ use App\Models\ConsoleAction;
 use App\Models\Organization;
 use App\Models\Site;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
+use Illuminate\JsonSchema\Types\Type;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 
@@ -22,7 +23,7 @@ class GetOperationStatus extends AbstractDplyTool
     protected string $ability = 'sites.read';
 
     /**
-     * @return array<string, \Illuminate\JsonSchema\Types\Type>
+     * @return array<string, Type>
      */
     public function schema(JsonSchema $schema): array
     {

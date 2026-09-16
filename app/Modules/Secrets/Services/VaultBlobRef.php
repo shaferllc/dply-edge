@@ -41,7 +41,7 @@ final class VaultBlobRef
     }
 
     /**
-     * @param  array<string, mixed> $meta
+     * @param  array<string, mixed>  $meta
      * @param  list<string>  $stores
      */
     public static function fromMeta(string $key, array $meta, array $stores = []): self

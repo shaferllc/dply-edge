@@ -11,6 +11,7 @@ use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
 use App\Modules\Edge\Jobs\BuildEdgeSiteJob;
+use App\Modules\Notifications\Services\NotificationPublisher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
@@ -105,7 +106,7 @@ test('a broken notification channel never masks the build error', function () {
     // failed rather than the exception escaping and hiding the real cause.
     [$site, $deployment] = scaffoldEdgeSite();
 
-    app()->bind(\App\Modules\Notifications\Services\NotificationPublisher::class, function () {
+    app()->bind(NotificationPublisher::class, function () {
         throw new \RuntimeException('slack webhook is on fire');
     });
 

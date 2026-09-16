@@ -5,11 +5,10 @@ declare(strict_types=1);
 namespace App\Modules\Edge\Http\Controllers;
 
 use App\Http\Controllers\Controller;
-
+use App\Models\Site;
 use App\Modules\Edge\Actions\CreateEdgePreviewSite;
 use App\Modules\Edge\Actions\RedeployEdgeSite;
 use App\Modules\Edge\Jobs\TeardownEdgeSiteJob;
-use App\Models\Site;
 use App\Modules\Edge\Support\EdgePreviewPolicy;
 use App\Modules\Edge\Support\EdgeRepoRoot;
 use App\Support\ProductLine\ProductLineKillSwitches;

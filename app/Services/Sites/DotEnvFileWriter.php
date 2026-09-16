@@ -21,8 +21,8 @@ namespace App\Services\Sites;
 class DotEnvFileWriter
 {
     /**
-     * @param  array<string, mixed> $variables
-     * @param  array<string, mixed> $comments  KEY => comment text
+     * @param  array<string, mixed>  $variables
+     * @param  array<string, mixed>  $comments  KEY => comment text
      */
     public function render(array $variables, array $comments = []): string
     {

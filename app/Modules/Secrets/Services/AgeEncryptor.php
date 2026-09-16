@@ -77,7 +77,7 @@ final class AgeEncryptor
      * platform DR path ({@see encrypt()}) stays binary because it writes to
      * object storage. `age -d` auto-detects armor, so decryption needs no flag.
      *
-     * @param  array<int, string> $recipients
+     * @param  array<int, string>  $recipients
      */
     public function encryptTo(string $plaintext, array $recipients): string
     {

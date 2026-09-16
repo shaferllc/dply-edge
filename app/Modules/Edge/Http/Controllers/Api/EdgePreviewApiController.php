@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Http\Controllers\Api;
 
+use App\Models\Site;
 use App\Modules\Edge\Actions\CreateEdgePreviewSite;
 use App\Modules\Edge\Actions\PromoteEdgePreview;
 use App\Modules\Edge\Http\Resources\EdgeDeploymentResource;
 use App\Modules\Edge\Http\Resources\EdgeSiteResource;
 use App\Modules\Edge\Jobs\TeardownEdgeSiteJob;
-use App\Models\Site;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;

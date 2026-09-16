@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\Schema;
  * clean; this command (also scheduled as a weekly safety net) catches anything
  * a crashed delete or a non-Eloquent write left dangling.
  *
- * @see \App\Support\Sites\SiteRelationPurger
+ * @see SiteRelationPurger
  */
 class PruneOrphanedSiteDataCommand extends Command
 {

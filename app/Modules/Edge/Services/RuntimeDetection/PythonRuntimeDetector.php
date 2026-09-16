@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Services\RuntimeDetection;
 
-
 /**
  * Detects Python apps from pyproject.toml / requirements.txt / Pipfile / setup.py.
  *
@@ -207,7 +206,7 @@ final class PythonRuntimeDetector implements RuntimeDetector
     }
 
     /**
-     * @param  list<string> $deps
+     * @param  list<string>  $deps
      * @param  list<string>  $detectedFiles
      * @param  list<string>  $reasons
      */
@@ -347,7 +346,7 @@ final class PythonRuntimeDetector implements RuntimeDetector
     }
 
     /**
-     * @param  list<string> $deps
+     * @param  list<string>  $deps
      * @param  list<string>  $reasons
      * @return list<DetectedProcess>
      */

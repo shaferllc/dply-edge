@@ -64,10 +64,6 @@ test('platform admin global flags page renders config-driven flags read-only', f
         ->assertDontSee('requestGlobalFeatureFlagToggle');
 });
 
-
-
-
-
 test('edge product line page shows delivery emergency and surface flags', function () {
     $user = User::factory()->create();
 

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Modules\Edge\Http\Controllers;
 
 use App\Http\Controllers\Controller;
-
 use App\Modules\Edge\Services\EdgeLogpushRecordImporter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;

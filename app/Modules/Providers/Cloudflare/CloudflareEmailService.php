@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Providers\Cloudflare;
 
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -78,7 +79,7 @@ class CloudflareEmailService
         return $this->extractError($response) ?? ('Cloudflare returned HTTP '.$response->status().'.');
     }
 
-    private function extractError(\Illuminate\Http\Client\Response $response): ?string
+    private function extractError(Response $response): ?string
     {
         $message = $response->json('errors.0.message')
             ?? $response->json('message');

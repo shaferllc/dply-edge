@@ -18,7 +18,7 @@ namespace App\Modules\Edge\Services\RuntimeDetection;
 final readonly class RuntimeDetectionResult
 {
     /**
-     * @param  list<\App\Modules\Edge\Services\RuntimeDetection\RuntimeDetection> $all
+     * @param  list<RuntimeDetection>  $all
      */
     public function __construct(
         public ?RuntimeDetection $best,

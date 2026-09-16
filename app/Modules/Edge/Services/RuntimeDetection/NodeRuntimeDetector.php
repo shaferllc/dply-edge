@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Services\RuntimeDetection;
 
-
 /**
  * Detects Node.js apps from package.json and related repo signals.
  *
@@ -69,7 +68,7 @@ final class NodeRuntimeDetector implements RuntimeDetector
     }
 
     /**
-     * @param  array<string, mixed> $packageJson
+     * @param  array<string, mixed>  $packageJson
      * @param  list<string>  $detectedFiles
      * @param  list<string>  $reasons
      */
@@ -115,7 +114,7 @@ final class NodeRuntimeDetector implements RuntimeDetector
     }
 
     /**
-     * @param  list<string> $deps
+     * @param  list<string>  $deps
      * @param  list<string>  $reasons
      */
     private function detectFramework(array $deps, array &$reasons): string
@@ -144,7 +143,7 @@ final class NodeRuntimeDetector implements RuntimeDetector
     }
 
     /**
-     * @param  array<string, mixed> $scripts
+     * @param  array<string, mixed>  $scripts
      * @param  list<string>  $reasons
      */
     private function detectBuildCommand(array $scripts, array &$reasons): ?string
@@ -159,8 +158,8 @@ final class NodeRuntimeDetector implements RuntimeDetector
     }
 
     /**
-     * @param  array<string, mixed> $scripts
-     * @param  array<string, mixed> $packageJson
+     * @param  array<string, mixed>  $scripts
+     * @param  array<string, mixed>  $packageJson
      * @param  list<string>  $reasons
      */
     private function detectStartCommand(
@@ -199,7 +198,7 @@ final class NodeRuntimeDetector implements RuntimeDetector
     }
 
     /**
-     * @param  array<string, mixed> $scripts
+     * @param  array<string, mixed>  $scripts
      * @param  list<string>  $reasons
      */
     private function detectAppPort(array $scripts, ?string $framework, array &$reasons): int
@@ -226,8 +225,8 @@ final class NodeRuntimeDetector implements RuntimeDetector
     }
 
     /**
-     * @param  array<string, mixed> $scripts
-     * @param  list<string> $deps
+     * @param  array<string, mixed>  $scripts
+     * @param  list<string>  $deps
      * @param  list<string>  $reasons
      * @return list<DetectedProcess>
      */
@@ -259,8 +258,8 @@ final class NodeRuntimeDetector implements RuntimeDetector
     }
 
     /**
+     * @param  array<string, mixed>  $packageJson
      * @return list<string>
-     * @param  array<string, mixed> $packageJson
      */
     private function collectDependencyKeys(array $packageJson): array
     {

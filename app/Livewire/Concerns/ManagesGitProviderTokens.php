@@ -3,6 +3,7 @@
 namespace App\Livewire\Concerns;
 
 use App\Models\GitProviderToken;
+use App\Modules\SourceControl\Services\GitProviderTokenHealth;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
@@ -75,7 +76,7 @@ trait ManagesGitProviderTokens
 
         // Capture the provider's REAL expiry right away (GitHub reports it in
         // a response header) so the expiring-soon warning works from day one.
-        app(\App\Modules\SourceControl\Services\GitProviderTokenHealth::class)->refresh($created);
+        app(GitProviderTokenHealth::class)->refresh($created);
 
         $this->cancelAddPat();
         $this->afterGitProviderTokenSaved($provider);

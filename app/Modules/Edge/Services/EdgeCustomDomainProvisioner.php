@@ -11,11 +11,11 @@ use App\Modules\Edge\Http\Middleware\ResolveEdgeCustomDomain;
 use App\Modules\Edge\Support\FakeEdgeProvision;
 use App\Modules\Notifications\Services\NotificationPublisher;
 use App\Modules\Providers\Cloudflare\CloudflareDnsService;
+use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use RuntimeException;
 use Throwable;
-use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 
 /**
  * Provision DNS for custom hostnames on Edge sites — manual CNAME verification

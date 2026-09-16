@@ -37,7 +37,7 @@ class SecretResidencyResolver
     ) {}
 
     /**
-     * @param  array<string, mixed> $vars  the merged env map (loose + bindings)
+     * @param  array<string, mixed>  $vars  the merged env map (loose + bindings)
      * @param  string|null  $ephemeralIdentity  a customer-held age identity supplied
      *                                          for THIS push only and never persisted (Tier 2b). Null for every other tier.
      * @return array<string, string>
@@ -87,7 +87,7 @@ class SecretResidencyResolver
     }
 
     /**
-     * @param  array<string, mixed> $vars
+     * @param  array<string, mixed>  $vars
      */
     private function hasPlaceholder(array $vars): bool
     {

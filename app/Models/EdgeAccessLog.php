@@ -29,7 +29,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $user_agent
  * @property-read ?Site $site
  * @property-read ?Organization $organization
- * @property \Illuminate\Support\Carbon $updated_at
+ * @property Carbon $updated_at
  */
 class EdgeAccessLog extends Model
 {

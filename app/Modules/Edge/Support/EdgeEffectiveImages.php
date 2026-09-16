@@ -48,7 +48,7 @@ final class EdgeEffectiveImages
     }
 
     /**
-     * @param  array<string, mixed> $hosts
+     * @param  array<string, mixed>  $hosts
      * @return list<string>
      */
     private static function cleanHosts(array $hosts): array

@@ -3,6 +3,7 @@
 namespace App\Services\Sites;
 
 use App\Models\Site;
+use App\Modules\Edge\Services\EdgeGithubWebhookProvisioner;
 use App\Modules\SourceControl\Contracts\GitIdentity;
 use App\Modules\SourceControl\Services\GitIdentityResolver;
 use App\Support\GitRemoteRepositoryRef;
@@ -16,7 +17,7 @@ use Illuminate\Support\Facades\Log;
  * The enable/poll/secret-rotation half of this class registered hooks against
  * `hooks.site.deploy`, a VM-era route removed in the Edge cut, and had no
  * callers. Edge sites register their push hooks through
- * {@see \App\Modules\Edge\Services\EdgeGithubWebhookProvisioner}; this only
+ * {@see EdgeGithubWebhookProvisioner}; this only
  * cleans up hooks older sites may still carry in `provider_hook` meta.
  */
 class RepositoryWebhookProvisioner

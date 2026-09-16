@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace App\Modules\Providers\Services;
 
 use App\Models\ProviderCredential;
+use App\Support\Cloud\AzureAccessToken;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
-use App\Support\Cloud\AzureAccessToken;
 
 class AzureComputeService
 {
@@ -145,7 +145,7 @@ class AzureComputeService
      * hid every offset from callers (ProvisionAzureServerJob reads vm_id /
      * nic_id / pip_id straight off this).
      *
-     * @param  array<string, mixed> $tags  Resource tags, e.g. ProviderResourceTags::labels()
+     * @param  array<string, mixed>  $tags  Resource tags, e.g. ProviderResourceTags::labels()
      * @return array{vm_id: string, nic_id: string, pip_id: string}
      */
     public function createLinuxVm(
@@ -305,8 +305,8 @@ class AzureComputeService
     }
 
     /**
-     * @param  array<string, mixed> $body
-     * @param  array<string, mixed> $query
+     * @param  array<string, mixed>  $body
+     * @param  array<string, mixed>  $query
      */
     private function request(string $method, string $path, array $body = [], array $query = []): Response
     {

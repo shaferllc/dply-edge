@@ -9,7 +9,6 @@ use App\Services\Concerns\ManagesDoDroplets;
 use App\Services\Concerns\ManagesDoKubernetes;
 use App\Services\Concerns\ManagesDoSpacesRegistry;
 use Illuminate\Http\Client\Response;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
 class DigitalOceanService
@@ -39,7 +38,6 @@ class DigitalOceanService
         $this->token = $token;
     }
 
-
     /**
      * Catalog GETs stay short so the create wizard cannot burn the 30s PHP
      * request budget. Writes (cluster create/resize) often sit idle for
@@ -54,7 +52,7 @@ class DigitalOceanService
     }
 
     /**
-     * @param  array<string, mixed> $bodyOrQuery
+     * @param  array<string, mixed>  $bodyOrQuery
      */
     protected function request(string $method, string $path, array $bodyOrQuery = []): Response
     {
@@ -81,7 +79,6 @@ class DigitalOceanService
 
         throw new \InvalidArgumentException("Unsupported method: {$method}");
     }
-
 
     protected function assertSuccess(Response $response, string $action): void
     {

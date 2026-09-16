@@ -14,7 +14,6 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -141,7 +140,6 @@ class Organization extends Model
         });
     }
 
-
     /** @return BelongsToMany<User, $this> */
     public function users(): BelongsToMany
     {
@@ -156,13 +154,11 @@ class Organization extends Model
         return $this->hasMany(Team::class);
     }
 
-
     /** @return HasMany<Server, $this> */
     public function servers(): HasMany
     {
         return $this->hasMany(Server::class);
     }
-
 
     /** @return HasMany<Site, $this> */
     public function sites(): HasMany
@@ -198,8 +194,6 @@ class Organization extends Model
         return $this->hasOne(OrgSecretKey::class);
     }
 
-
-
     /** @return HasMany<OrganizationBillingSnapshot, $this> */
     public function billingSnapshots(): HasMany
     {
@@ -211,12 +205,6 @@ class Organization extends Model
     {
         return $this->hasMany(BillingSubscriptionSyncEvent::class);
     }
-
-
-
-
-
-
 
     /** @return HasMany<Project, $this> */
     public function projects(): HasMany
@@ -241,7 +229,6 @@ class Organization extends Model
     {
         return $this->hasMany(ProviderCredential::class);
     }
-
 
     /** @return HasMany<OrganizationInvitation, $this> */
     public function invitations(): HasMany

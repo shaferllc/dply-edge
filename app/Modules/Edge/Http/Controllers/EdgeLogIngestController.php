@@ -4,9 +4,8 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Http\Controllers;
 
-use App\Http\Controllers\Controller;
-
 use App\Events\Edge\EdgeAccessLogReceived;
+use App\Http\Controllers\Controller;
 use App\Models\EdgeAccessLog;
 use App\Models\Site;
 use App\Modules\Edge\Services\EdgePerformanceHourlyRollup;

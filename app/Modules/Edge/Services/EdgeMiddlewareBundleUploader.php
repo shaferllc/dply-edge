@@ -9,9 +9,9 @@ use App\Models\Site;
 use App\Modules\Edge\Support\EdgeDeliveryContext;
 use App\Modules\Edge\Support\EdgeEffectiveCrons;
 use App\Modules\Edge\Support\FakeEdgeProvision;
+use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
-use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 
 /**
  * Ships the per-deployment middleware Worker (produced by

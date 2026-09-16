@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Services\RuntimeDetection;
 
-
 /**
  * A long-running process suggested by a runtime detector.
  *

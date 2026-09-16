@@ -48,15 +48,12 @@ class HetznerService
         return new self($token);
     }
 
-
     // ─── Server actions (snapshot bake) ─────────────────────────────────────────
-
 
     // ─── Load Balancers ───────────────────────────────────────────────────────
 
-
     /**
-     * @param  array<string, mixed> $body
+     * @param  array<string, mixed>  $body
      */
     protected function request(string $method, string $path, array $body = []): Response
     {

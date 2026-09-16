@@ -19,8 +19,8 @@ use Illuminate\Support\Carbon;
  * @property Carbon $snapshot_date
  * @property string|null $subscription_interval
  * @property-read ?Organization $organization
- * @property \Illuminate\Support\Carbon|null $created_at
- * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  */
 class OrganizationBillingSnapshot extends Model
 {

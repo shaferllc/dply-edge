@@ -2,7 +2,6 @@
 
 namespace App\Modules\Notifications\Services;
 
-
 class NotificationEventRegistry
 {
     /**
@@ -39,7 +38,6 @@ class NotificationEventRegistry
                 'supports_webhook' => true,
             ];
         }
-
 
         return [
             'key' => $eventKey,

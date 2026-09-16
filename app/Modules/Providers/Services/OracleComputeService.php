@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace App\Modules\Providers\Services;
 
 use App\Models\ProviderCredential;
+use App\Support\Cloud\OciRequestSigner;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
-use App\Support\Cloud\OciRequestSigner;
 
 class OracleComputeService
 {
@@ -130,7 +130,7 @@ class OracleComputeService
     }
 
     /**
-     * @param  array<string, mixed> $freeformTags  Instance tags, e.g. ProviderResourceTags::labels()
+     * @param  array<string, mixed>  $freeformTags  Instance tags, e.g. ProviderResourceTags::labels()
      */
     public function launchInstance(
         string $displayName,
@@ -263,7 +263,7 @@ class OracleComputeService
     }
 
     /**
-     * @param  array<string, mixed> $query
+     * @param  array<string, mixed>  $query
      * @param  array<string, mixed>|null  $body
      * @return array<string, mixed>|list<array<string, mixed>>
      */

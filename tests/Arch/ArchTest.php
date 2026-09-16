@@ -75,4 +75,3 @@ arch('console commands extend command')
     ->expect('App\Console\Commands')
     ->classes()
     ->toExtend(Command::class);
-

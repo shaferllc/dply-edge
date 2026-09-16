@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace App\Livewire\Concerns\Edge;
 
-use App\Modules\Edge\Actions\DeployEdgeCommit;
 use App\Livewire\Concerns\DispatchesToastNotifications;
 use App\Models\Site;
 use App\Models\User;
+use App\Modules\Edge\Actions\DeployEdgeCommit;
 use App\Modules\SourceControl\Services\GitIdentityResolver;
 use App\Modules\SourceControl\Services\SiteGitCommitsFetcher;
 use App\Modules\SourceControl\Services\SourceControlRepositoryReader;

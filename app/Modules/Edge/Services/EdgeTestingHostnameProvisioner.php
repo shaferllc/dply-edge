@@ -7,11 +7,11 @@ namespace App\Modules\Edge\Services;
 use App\Models\Site;
 use App\Modules\Edge\Support\EdgeTestingDomains;
 use App\Modules\Edge\Support\FakeEdgeProvision;
+use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use App\Modules\Providers\Services\DigitalOceanService;
 use App\Services\Sites\Dns\SiteDnsProviderFactory;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
-use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 
 /**
  * Ensures an Edge site's default delivery hostname resolves when the zone is

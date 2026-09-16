@@ -198,7 +198,7 @@ class SourceControl extends Component
         if ($newToken !== '') {
             // Capture the replacement's real expiry immediately (GitHub sends
             // it in a response header) so the expiring-soon warning stays live.
-            app(\App\Modules\SourceControl\Services\GitProviderTokenHealth::class)->refresh($pat);
+            app(GitProviderTokenHealth::class)->refresh($pat);
         }
 
         $this->cancelEditPat();

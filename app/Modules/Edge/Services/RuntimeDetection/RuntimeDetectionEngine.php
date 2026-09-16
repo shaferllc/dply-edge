@@ -63,7 +63,7 @@ final class RuntimeDetectionEngine
     }
 
     /**
-     * @param  list<\App\Modules\Edge\Services\RuntimeDetection\RuntimeDetection> $detections
+     * @param  list<RuntimeDetection>  $detections
      */
     private function pickBest(array $detections): ?RuntimeDetection
     {

@@ -7,11 +7,10 @@ use App\Livewire\Concerns\DispatchesToastNotifications;
 use App\Livewire\Concerns\ManagesProviderCredentials;
 use App\Models\Organization;
 use App\Models\ProviderCredential;
+use App\Support\ServerProviderGate;
 use Illuminate\Contracts\View\View;
-use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\On;
 use Livewire\Component;
-use App\Support\ServerProviderGate;
 
 /**
  * The organization's Credentials page: every secret this org hands to a third
@@ -20,6 +19,7 @@ use App\Support\ServerProviderGate;
 class Index extends Component
 {
     use DispatchesToastNotifications;
+
     // Brings BOTH create modes — "connect existing" and "provision a new
     // bucket" — so a storage card here can create the bucket, not just record
     // keys for one you made elsewhere.
@@ -58,7 +58,6 @@ class Index extends Component
         // validates the tab and repoints active_provider — call it explicitly.
         $this->updatedTab($value);
     }
-
 
     public function mount(?Organization $organization = null): void
     {
@@ -269,5 +268,4 @@ class Index extends Component
             'activeProviderComingSoon' => ServerProviderGate::comingSoon($this->active_provider),
         ])->layout($org instanceof Organization ? 'layouts.app' : 'layouts.settings');
     }
-
 }

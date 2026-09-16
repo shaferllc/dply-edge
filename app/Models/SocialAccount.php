@@ -2,18 +2,19 @@
 
 namespace App\Models;
 
-use App\Modules\SourceControl\Contracts\GitIdentity;
 use App\Models\Concerns\AvoidsGitIdentityAttributeRecursion;
+use App\Modules\SourceControl\Contracts\GitIdentity;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
 /**
  * @property string $id
  * @property ?string $access_token
- * @property ?\Illuminate\Support\Carbon $expires_at
+ * @property ?Carbon $expires_at
  * @property ?string $label
- * @property ?\Illuminate\Support\Carbon $last_validated_at
+ * @property ?Carbon $last_validated_at
  * @property ?string $nickname
  * @property string $provider
  * @property ?string $provider_id
@@ -21,8 +22,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property ?string $user_id
  * @property ?string $validation_error
  * @property-read ?User $user
- * @property \Illuminate\Support\Carbon|null $created_at
- * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  */
 class SocialAccount extends Model implements GitIdentity
 {

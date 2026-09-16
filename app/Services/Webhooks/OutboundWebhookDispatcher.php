@@ -18,7 +18,7 @@ class OutboundWebhookDispatcher
     /**
      * Build a delivery record and queue the HTTP send (if a URL is configured).
      *
-     * @param  array<string, mixed> $payload
+     * @param  array<string, mixed>  $payload
      */
     public function dispatchForServer(string $eventKey, Server $server, array $payload, ?string $summary = null): OutboundWebhookDelivery
     {
@@ -85,7 +85,7 @@ class OutboundWebhookDispatcher
     }
 
     /**
-     * @param  array<string, mixed> $meta
+     * @param  array<string, mixed>  $meta
      */
     private function resolveSecret(Server $server, array $meta): ?string
     {

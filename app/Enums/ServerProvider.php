@@ -2,7 +2,6 @@
 
 namespace App\Enums;
 
-
 enum ServerProvider: string
 {
     case DigitalOcean = 'digitalocean';

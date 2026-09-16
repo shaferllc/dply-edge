@@ -4,7 +4,6 @@ namespace Tests\Unit\OrganizationModelTest;
 
 use App\Models\Organization;
 use App\Models\Server;
-use App\Models\Site;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
@@ -162,8 +161,6 @@ test('max servers is unlimited for all orgs', function () {
     expect($trialOrg->maxServers())->toBe(PHP_INT_MAX);
     expect($trialOrg->maxServersDisplay())->toBe('Unlimited');
 });
-
-
 
 test('unlimited plans never block site creation', function () {
     config(['subscription.standard.plans' => [

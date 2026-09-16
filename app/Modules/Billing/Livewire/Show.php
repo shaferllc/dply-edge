@@ -27,9 +27,9 @@ use Throwable;
  * methods as $this-><name> in PHP and Blade. PHPStan cannot see that
  * magic, so the contract is stated here.
  *
- * @property-read \Laravel\Cashier\Subscription|null $subscription
+ * @property-read Subscription|null $subscription
  * @property-read string|null $subscriptionInterval
- * @property-read \App\Modules\Billing\Services\DesiredBillingState $billingState
+ * @property-read DesiredBillingState $billingState
  * @property-read array<string, int|null|string> $costForecast
  * @property-read bool $standardPricingAvailable
  * @property-read string $paymentSummary
@@ -463,6 +463,15 @@ class Show extends Component
                 'quantity' => $state->edgeSsrCount,
                 'unit_cents' => $ssrUnit,
                 'line_cents' => $state->edgeSsrCount * $ssrUnit,
+            ];
+        }
+
+        if ($state->edgeLbEndpointCount > 0) {
+            $items[] = [
+                'label' => __('Load balancing endpoint'),
+                'quantity' => $state->edgeLbEndpointCount,
+                'unit_cents' => (int) config('subscription.standard.edge_lb_endpoint_cents', 800),
+                'line_cents' => $state->edgeLbSubtotalCents,
             ];
         }
 

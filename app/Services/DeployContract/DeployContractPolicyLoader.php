@@ -79,7 +79,7 @@ final class DeployContractPolicyLoader
     }
 
     /**
-     * @param  array<string, mixed> $parsed
+     * @param  array<string, mixed>  $parsed
      * @return array<string, mixed>
      */
     private function normalizeRoot(array $parsed): array

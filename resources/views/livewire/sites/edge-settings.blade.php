@@ -79,6 +79,8 @@
                         @livewire('sites.edge.workspace.jobs', ['server' => $server, 'site' => $site], key('edge-section-jobs-'.$site->id))
                     @elseif ($section === 'edge-snippets')
                         @livewire('sites.edge.workspace.snippets', ['server' => $server, 'site' => $site], key('edge-section-snippets-'.$site->id))
+                    @elseif ($section === 'edge-load-balancing')
+                        @livewire('sites.edge.workspace.load-balancing', ['server' => $server, 'site' => $site], key('edge-section-load-balancing-'.$site->id))
                     @elseif ($section === 'edge-tags')
                         @livewire('sites.edge.workspace.tags', ['server' => $server, 'site' => $site], key('edge-section-tags-'.$site->id))
                     @elseif ($section === 'edge-members')

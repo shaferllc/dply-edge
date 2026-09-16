@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Console;
 
-use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use App\Modules\Edge\Support\EdgeTestingDomains;
+use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Console\Command;
 use RuntimeException;
 

@@ -6,7 +6,6 @@ declare(strict_types=1);
  * Adds @property PHPDoc lines to Eloquent models from $fillable + casts().
  * Run: php scripts/add-model-property-phpdoc.php [model class names...]
  */
-
 $root = dirname(__DIR__);
 $propsNeeded = json_decode(file_get_contents('/tmp/phpstan-props.json'), true, 512, JSON_THROW_ON_ERROR);
 
@@ -40,9 +39,9 @@ function resolveModelPath(string $class, string $root): ?string
         return null;
     }
 
-    $relative = 'app/Models/' . str_replace('App\\Models\\', '', $class) . '.php';
+    $relative = 'app/Models/'.str_replace('App\\Models\\', '', $class).'.php';
 
-    $path = $root . '/' . $relative;
+    $path = $root.'/'.$relative;
 
     return is_file($path) ? $path : null;
 }
@@ -126,12 +125,12 @@ function mergePhpDoc(string $contents, array $propertyLines): string
             if (str_contains($doc, $prop)) {
                 continue;
             }
-            $doc = rtrim($doc) . "\n * {$line}\n";
+            $doc = rtrim($doc)."\n * {$line}\n";
         }
 
         $newDoc = "/**{$doc} */\n";
 
-        return substr($contents, 0, $m[0][1]) . $newDoc . substr($contents, $classPos);
+        return substr($contents, 0, $m[0][1]).$newDoc.substr($contents, $classPos);
     }
 
     $newDoc = "/**\n{$propertyBlock} */\n";
@@ -155,6 +154,7 @@ foreach ($classes as $class) {
     $path = resolveModelPath($class, $root);
     if ($path === null) {
         echo "SKIP (no file): {$class}\n";
+
         continue;
     }
 
@@ -163,7 +163,7 @@ foreach ($classes as $class) {
     $casts = parseCasts($contents);
     $propertyLines = buildPropertyLines($fillable, $casts, $castTypeMap);
 
-  // Ensure PHPStan-reported properties are included.
+    // Ensure PHPStan-reported properties are included.
     foreach ($propsNeeded[$class] ?? [] as $prop => $_) {
         if (! isset($propertyLines[$prop])) {
             $field = ltrim($prop, '$');

@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Modules\Billing\Observers;
 
-use App\Modules\Billing\Jobs\SyncOrganizationBillingJob;
 use App\Models\Site;
+use App\Modules\Billing\Jobs\SyncOrganizationBillingJob;
 
 /**
  * Dispatch billing sync when managed-product sites enter or leave billable status.

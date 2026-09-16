@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace Tests\Feature\ConnectProviderModalTest;
 
-use App\Modules\Edge\Livewire\Create;
 use App\Livewire\Settings\ConnectProviderModal;
 use App\Models\GitProviderToken;
 use App\Models\Organization;
 use App\Models\User;
+use App\Modules\Edge\Livewire\Create;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;

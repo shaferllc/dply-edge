@@ -2,11 +2,9 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
@@ -30,8 +28,8 @@ use Illuminate\Support\Carbon;
  * @property string $ssl_status
  * @property ?string $zone
  * @property-read ?Site $site
- * @property \Illuminate\Support\Carbon|null $created_at
- * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  */
 class SitePreviewDomain extends Model
 {
@@ -77,5 +75,4 @@ class SitePreviewDomain extends Model
     {
         return $this->belongsTo(Site::class);
     }
-
 }

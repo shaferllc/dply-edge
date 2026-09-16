@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\ServerProvider;
+use App\Modules\Edge\Actions\CreateEdgeSite;
 use App\Support\Hosts\HostCapabilities;
 use Database\Factories\ServerFactory;
 use Illuminate\Database\Eloquent\Collection;
@@ -18,7 +19,7 @@ use Illuminate\Support\Facades\Storage;
 
 /**
  * The owner record an Edge site hangs off. dply-edge provisions no machines —
- * {@see \App\Modules\Edge\Actions\CreateEdgeSite} mints one of these rows with
+ * {@see CreateEdgeSite} mints one of these rows with
  * `meta.host_kind = dply_edge_delivery` per site so the workspace routes and
  * the org/team scoping keep the shape they were built on. Everything that
  * spoke SSH to a real box left with the VM platform.

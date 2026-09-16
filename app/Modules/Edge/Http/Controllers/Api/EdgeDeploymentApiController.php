@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Http\Controllers\Api;
 
+use App\Models\EdgeDeployment;
 use App\Modules\Edge\Actions\DeployEdgeCommit;
 use App\Modules\Edge\Actions\RedeployEdgeSite;
 use App\Modules\Edge\Actions\RollbackEdgeDeployment;
 use App\Modules\Edge\Http\Resources\EdgeDeploymentResource;
-use App\Models\EdgeDeployment;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;

@@ -2,12 +2,12 @@
 
 namespace Tests\Feature\Livewire\Billing\StandardSubscribeTest;
 
-use App\Modules\Billing\Livewire\Show as BillingShow;
 use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
-use App\Modules\Billing\Models\Subscription;
 use App\Models\User;
+use App\Modules\Billing\Livewire\Show as BillingShow;
+use App\Modules\Billing\Models\Subscription;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
 use Livewire\Livewire;

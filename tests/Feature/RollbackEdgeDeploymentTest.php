@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace Tests\Feature\RollbackEdgeDeploymentTest;
 
-use App\Modules\Edge\Actions\RollbackEdgeDeployment;
 use App\Enums\SiteType;
 use App\Models\EdgeDeployment;
 use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
+use App\Modules\Edge\Actions\RollbackEdgeDeployment;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 

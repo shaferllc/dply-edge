@@ -94,7 +94,7 @@ trait ParsesGitRemotes
     }
 
     /**
-     * @param  list<array<string, mixed>> $entries
+     * @param  list<array<string, mixed>>  $entries
      * @return list<mixed>
      */
     private function sortEntries(array $entries): array
@@ -171,7 +171,7 @@ trait ParsesGitRemotes
     }
 
     /**
-     * @param  array<string, mixed> $remote
+     * @param  array<string, mixed>  $remote
      * @return array<string, mixed>
      */
     private function probeReadmeViaFile(array $remote, Site $site, User $user, string $branch, string $provider): array

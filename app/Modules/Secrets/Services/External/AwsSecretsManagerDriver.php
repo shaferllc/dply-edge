@@ -55,7 +55,7 @@ class AwsSecretsManagerDriver extends AbstractSecretStoreDriver
     /**
      * Isolated for test substitution.
      *
-     * @param  array<string, mixed> $args
+     * @param  array<string, mixed>  $args
      */
     protected function client(array $args): SecretsManagerClient
     {

@@ -61,7 +61,7 @@ final class EdgeRepoRoot
     }
 
     /**
-     * @param  array<string, mixed> $payload
+     * @param  array<string, mixed>  $payload
      * @return list<string>
      */
     public static function changedFilesFromPushPayload(array $payload): array
@@ -103,7 +103,7 @@ final class EdgeRepoRoot
      * When set, only changes under repo_root/** or repo-level dply config
      * files trigger a production redeploy.
      *
-     * @param  list<string> $changedFiles
+     * @param  list<string>  $changedFiles
      */
     public static function pushTouchesSite(string $repoRoot, array $changedFiles): bool
     {

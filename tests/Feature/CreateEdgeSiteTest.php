@@ -4,15 +4,15 @@ declare(strict_types=1);
 
 namespace Tests\Feature\CreateEdgeSiteTest;
 
-use App\Modules\Edge\Actions\CreateEdgeSite;
 use App\Enums\SiteType;
-use App\Modules\Edge\Jobs\BuildEdgeSiteJob;
 use App\Models\EdgeDeployment;
 use App\Models\Organization;
 use App\Models\ProviderCredential;
 use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
+use App\Modules\Edge\Actions\CreateEdgeSite;
+use App\Modules\Edge\Jobs\BuildEdgeSiteJob;
 use App\Modules\Edge\Support\EdgeOrgCredentialConfig;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;

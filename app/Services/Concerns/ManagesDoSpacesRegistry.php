@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\Concerns;
 
-
-
 /**
  * Concern extracted from the host Livewire component to keep it under control.
  * Every public property/method name is unchanged, so Livewire snapshots and
@@ -13,8 +11,6 @@ namespace App\Services\Concerns;
  */
 trait ManagesDoSpacesRegistry
 {
-
-
     /**
      * Create a Spaces access key via the Spaces Keys API. The secret is only
      * ever returned at creation time, so the caller must capture it.
@@ -26,7 +22,7 @@ trait ManagesDoSpacesRegistry
      * (`bucket: ""`, `permission: "fullaccess"`), which is what lets the key
      * create buckets and read/write objects like a console-created key.
      *
-     * @param  list<array{bucket: string, permission: string}> $grants
+     * @param  list<array{bucket: string, permission: string}>  $grants
      * @return array{access_key: string, secret_key: string}
      */
     public function createSpacesKey(string $name, array $grants = []): array

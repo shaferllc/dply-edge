@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace App\Services\DeployContract\Checks;
 
+use App\Modules\Edge\Services\OriginHealthcheckRunner;
 use App\Services\DeployContract\Contracts\DeployContractCheck;
 use App\Services\DeployContract\DeployContractCheckResult;
 use App\Services\DeployContract\DeployContractContext;
-use App\Modules\Edge\Services\OriginHealthcheckRunner;
 
 final class EdgeHybridOriginHealthCheck implements DeployContractCheck
 {

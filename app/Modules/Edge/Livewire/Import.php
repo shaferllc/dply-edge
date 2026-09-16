@@ -53,9 +53,7 @@ class Import extends Component
     #[Locked]
     public bool $loading = false;
 
-    public function mount(): void
-    {
-    }
+    public function mount(): void {}
 
     public function pickProvider(string $provider): void
     {

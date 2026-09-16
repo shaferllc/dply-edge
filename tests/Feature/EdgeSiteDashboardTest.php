@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace Tests\Feature\EdgeSiteDashboardTest;
 
 use App\Enums\SiteType;
-use App\Modules\Edge\Jobs\BuildEdgeSiteJob;
-use App\Modules\Edge\Jobs\TeardownEdgeSiteJob;
 use App\Livewire\Sites\Edge\Workspace\Previews;
 use App\Livewire\Sites\EdgeSettings;
 use App\Models\EdgeDeployment;
@@ -14,6 +12,8 @@ use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
+use App\Modules\Edge\Jobs\BuildEdgeSiteJob;
+use App\Modules\Edge\Jobs\TeardownEdgeSiteJob;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Livewire\Livewire;

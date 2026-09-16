@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Services\DeployContract;
 
+use App\Models\DeployContractRun;
 use App\Models\EdgeDeployment;
 use App\Models\Site;
 use App\Models\User;
+use App\Modules\Edge\Services\EdgeGithubDeployContractCheckService;
 use App\Services\DeployContract\Checks\CloudOriginHealthCheck;
 use App\Services\DeployContract\Checks\EdgeDeployReplayPassCheck;
 use App\Services\DeployContract\Checks\EdgeEnvKeysSubsetCheck;
@@ -14,8 +16,6 @@ use App\Services\DeployContract\Checks\EdgeHybridOriginHealthCheck;
 use App\Services\DeployContract\Checks\EdgePreviewLiveDeploymentCheck;
 use App\Services\DeployContract\Checks\EdgePreviewReviewReadyCheck;
 use App\Services\DeployContract\Contracts\DeployContractCheck;
-use App\Modules\Edge\Services\EdgeGithubDeployContractCheckService;
-use App\Models\DeployContractRun;
 
 final class DeployContractEvaluator
 {

@@ -68,7 +68,7 @@ final class EdgeEffectiveFirewall
     }
 
     /**
-     * @param  array<string, mixed> $value
+     * @param  array<string, mixed>  $value
      * @return array{country_mode?: string, countries?: list<string>}
      */
     private static function sanitize(array $value): array

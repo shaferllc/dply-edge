@@ -2,8 +2,8 @@
 
 namespace Tests\Feature\Console\SyncAllOrganizationBillingCommandTest;
 
-use App\Modules\Billing\Jobs\SyncOrganizationBillingJob;
 use App\Models\Organization;
+use App\Modules\Billing\Jobs\SyncOrganizationBillingJob;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;

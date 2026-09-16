@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace Tests\Feature\EdgeIndexTest;
 
 use App\Enums\SiteType;
-use App\Modules\Edge\Jobs\TeardownEdgeSiteJob;
-use App\Modules\Edge\Livewire\Index as EdgeIndex;
 use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
+use App\Modules\Edge\Jobs\TeardownEdgeSiteJob;
+use App\Modules\Edge\Livewire\Index as EdgeIndex;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;

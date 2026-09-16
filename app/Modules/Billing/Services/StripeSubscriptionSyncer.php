@@ -4,6 +4,7 @@ namespace App\Modules\Billing\Services;
 
 use App\Models\Organization;
 use App\Modules\Billing\Models\Subscription;
+use App\Modules\Billing\Models\SubscriptionItem;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -47,6 +48,7 @@ class StripeSubscriptionSyncer
         $this->reconcileManagedProductLine($subscription, $changes, 'edge', $desired->edgeBaseCount());
         $this->reconcileManagedProductLine($subscription, $changes, 'edge_ssr', $desired->edgeSsrCount);
         $this->reconcileEdgeUsageLine($subscription, $desired, $changes);
+        $this->reconcileLoadBalancerLine($subscription, $desired, $changes);
 
         foreach ($this->retiredPricesToRemove($subscription) as $priceId) {
             $change = $this->applyDelta($subscription, $priceId, $this->currentQuantity($subscription, $priceId), 0);
@@ -115,7 +117,7 @@ class StripeSubscriptionSyncer
 
         $item = $subscription->items->firstWhere('stripe_price', $priceId);
 
-        return $item instanceof \App\Modules\Billing\Models\SubscriptionItem ? (int) $item->quantity : null;
+        return $item instanceof SubscriptionItem ? (int) $item->quantity : null;
     }
 
     /**
@@ -161,6 +163,27 @@ class StripeSubscriptionSyncer
         $change = $this->applyDelta($subscription, $priceId, $current, $desiredQty);
         if ($change !== null) {
             $changes[] = ['tier' => 'edge_usage'] + $change;
+        }
+    }
+
+    /**
+     * Load balancing endpoints — monthly only; yearly subs can't enable it.
+     *
+     * @param  list<array<string, mixed>>  $changes
+     */
+    private function reconcileLoadBalancerLine(
+        Subscription $subscription,
+        DesiredBillingState $desired,
+        array &$changes,
+    ): void {
+        $priceId = (string) (config('subscription.standard.stripe.edge_lb_endpoint') ?? '');
+        if ($priceId === '' || $this->isYearly($subscription)) {
+            return;
+        }
+
+        $change = $this->applyDelta($subscription, $priceId, $this->currentQuantity($subscription, $priceId), $desired->edgeLbEndpointCount);
+        if ($change !== null) {
+            $changes[] = ['tier' => 'edge_lb_endpoint'] + $change;
         }
     }
 

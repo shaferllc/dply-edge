@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\LivewireAliasGuardTest;
 
 use Livewire\Component as LivewireComponent;
+use Livewire\Exceptions\ComponentNotFoundException;
 use Livewire\Livewire;
 use PHPUnit\Framework\Assert;
 use Symfony\Component\Finder\Finder;
@@ -189,7 +190,7 @@ test('every full-page Livewire route component resolves to a registered componen
     foreach ($components as $component => $uri) {
         try {
             $factory->resolveComponentClass($component);
-        } catch (\Livewire\Exceptions\ComponentNotFoundException) {
+        } catch (ComponentNotFoundException) {
             $broken[$component] = $uri;
         }
     }

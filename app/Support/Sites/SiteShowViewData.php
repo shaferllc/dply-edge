@@ -7,7 +7,7 @@ namespace App\Support\Sites;
 use App\Models\EdgeDeployment;
 use App\Models\Server;
 use App\Models\Site;
-use App\Support\Deployment\DeploymentContract;
+use App\Services\Sites\SiteProvisioner;
 use Illuminate\Support\Collection;
 
 /**
@@ -17,7 +17,7 @@ use Illuminate\Support\Collection;
 final class SiteShowViewData
 {
     /**
-     * @param  array<string, mixed> $deploymentPreflight
+     * @param  array<string, mixed>  $deploymentPreflight
      * @return array<string, mixed>
      */
     /**
@@ -203,7 +203,7 @@ final class SiteShowViewData
     /**
      * Ordered BYO provision-journey keys + labels (including failed).
      * Wildcard TLS sits between the testing hostname and writing vhost — the
-     * same place {@see \App\Services\Sites\SiteProvisioner} pauses — so the
+     * same place {@see SiteProvisioner} pauses — so the
      * progress bar does not fall through to 0 when state is
      * `waiting_for_wildcard_tls`.
      *

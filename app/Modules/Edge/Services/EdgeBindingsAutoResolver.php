@@ -6,8 +6,8 @@ namespace App\Modules\Edge\Services;
 
 use App\Models\EdgeDeployment;
 use App\Models\Site;
-use Illuminate\Support\Facades\Log;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Resolves dply.yaml `bindings:` titles to Cloudflare resource IDs,

@@ -13,8 +13,6 @@ use Illuminate\Support\Facades\Cache;
  */
 trait ManagesDoCatalog
 {
-
-
     /**
      * Get available regions.
      *

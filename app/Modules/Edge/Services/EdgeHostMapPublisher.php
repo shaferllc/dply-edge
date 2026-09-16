@@ -13,6 +13,7 @@ use App\Modules\Edge\Support\EdgeEffectiveImages;
 use App\Modules\Edge\Support\EdgeEffectiveOrigin;
 use App\Modules\Edge\Support\EdgeEffectiveRouting;
 use App\Modules\Edge\Support\EdgeHostMapAddons;
+use App\Modules\Edge\Support\EdgeLoadBalancing;
 use App\Modules\Edge\Support\FakeEdgeProvision;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -329,8 +330,11 @@ class EdgeHostMapPublisher
             // EdgeEffectiveOrigin helper. Dashboard wins for url +
             // failover_html (commonly env-specific); routes are unioned.
             $effOrigin = EdgeEffectiveOrigin::for($site, $deployment);
-            if (is_string($effOrigin['url']) && $effOrigin['url'] !== '') {
-                $payload['origin_url'] = $effOrigin['url'];
+            // An active load balancer fronts the origin endpoints; the Worker
+            // proxies to its hostname instead of the single origin URL.
+            $originUrl = EdgeLoadBalancing::originUrl($site) ?? $effOrigin['url'];
+            if (is_string($originUrl) && $originUrl !== '') {
+                $payload['origin_url'] = $originUrl;
                 $payload['origin_routes'] = $effOrigin['routes'];
                 if (is_string($effOrigin['auth_secret']) && $effOrigin['auth_secret'] !== '') {
                     $payload['origin_auth_secret'] = $effOrigin['auth_secret'];

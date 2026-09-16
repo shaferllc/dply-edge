@@ -71,8 +71,7 @@ final class GitCloneUrl
         string $repositoryUrl,
         array $allowedHosts = [],
         bool $allowLocalPaths = false,
-    ): void
-    {
+    ): void {
         $url = self::normalize($repositoryUrl);
 
         if ($url === '') {

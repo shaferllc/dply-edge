@@ -7,12 +7,12 @@ namespace App\Support\Deployment;
 final readonly class DeploymentContract
 {
     /**
-     * @param  array<string, mixed> $target
-     * @param  array<string, mixed> $config
-     * @param  list<\App\Support\Deployment\DeploymentSecret> $secrets
-     * @param  array<string, mixed> $artifacts
-     * @param  array<string, mixed> $status
-     * @param  list<\App\Support\Deployment\SiteResourceBinding> $resourceBindings
+     * @param  array<string, mixed>  $target
+     * @param  array<string, mixed>  $config
+     * @param  list<DeploymentSecret>  $secrets
+     * @param  array<string, mixed>  $artifacts
+     * @param  array<string, mixed>  $status
+     * @param  list<SiteResourceBinding>  $resourceBindings
      */
     public function __construct(
         public array $target,

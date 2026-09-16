@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace App\Modules\Edge\Actions;
 
 use App\Enums\SiteType;
-use App\Modules\Edge\Jobs\BuildEdgeSiteJob;
 use App\Models\EdgeDeployment;
 use App\Models\EdgeSiteAccessRule;
 use App\Models\Server;
 use App\Models\Site;
+use App\Modules\Edge\Jobs\BuildEdgeSiteJob;
 use App\Modules\Edge\Services\EdgeGithubCheckRunService;
 use App\Modules\Edge\Services\EdgeGithubPullRequestCommenter;
 use App\Modules\Edge\Support\EdgeRepoRoot;

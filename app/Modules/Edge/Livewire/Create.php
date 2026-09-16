@@ -8,26 +8,27 @@ use App\Jobs\DetectRepositoryRuntimeJob;
 use App\Livewire\Concerns\DetectsRepositoryRuntime;
 use App\Livewire\Concerns\DispatchesToastNotifications;
 use App\Livewire\Concerns\RefreshesLinkedSourceControlAccounts;
-use App\Modules\Edge\Livewire\Concerns\ManagesEdgeDeploy;
-use App\Modules\Edge\Livewire\Concerns\ManagesEdgeFormPrefills;
-use App\Modules\Edge\Livewire\Concerns\ManagesEdgeRefPicker;
-use App\Modules\Edge\Livewire\Concerns\ManagesEdgeRepoDetection;
 use App\Livewire\Forms\EdgeCreateForm;
 use App\Models\EdgeSiteEnvVar;
 use App\Models\ProviderCredential;
 use App\Models\Site;
 use App\Modules\Billing\Services\ManagedProductCostEstimator;
+use App\Modules\Edge\Livewire\Concerns\ManagesEdgeDeploy;
+use App\Modules\Edge\Livewire\Concerns\ManagesEdgeFormPrefills;
+use App\Modules\Edge\Livewire\Concerns\ManagesEdgeRefPicker;
+use App\Modules\Edge\Livewire\Concerns\ManagesEdgeRepoDetection;
 use App\Modules\Edge\Services\EdgeTemplateRegistry;
 use App\Modules\Edge\Services\Frameworks\EdgeFrameworkPresetRegistry;
-use App\Modules\SourceControl\Services\SourceControlRepositoryBrowser;
 use App\Modules\Edge\Support\EdgeEligibility;
 use App\Modules\Edge\Support\EdgeSsrAvailability;
 use App\Modules\Edge\Support\EdgeSsrDetection;
 use App\Modules\Edge\Support\FakeEdgeProvision;
+use App\Modules\SourceControl\Services\SourceControlRepositoryBrowser;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Livewire\Attributes\On;
 use Livewire\Component;
 
@@ -250,7 +251,7 @@ class Create extends Component
 
         $name = trim((string) ($template['name'] ?? ''));
         if ($name !== '') {
-            return \Illuminate\Support\Str::slug($name);
+            return Str::slug($name);
         }
 
         return $this->extractRepoNameForApp($repo) ?: 'edge-app';

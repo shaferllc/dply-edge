@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace Tests\Feature\FakeEdgeDeployFlowTest;
 
-use App\Modules\Edge\Actions\CreateEdgeSite;
-use App\Modules\Edge\Jobs\BuildEdgeSiteJob;
-use App\Modules\Edge\Jobs\PublishEdgeDeploymentJob;
 use App\Models\EdgeDeployment;
 use App\Models\Organization;
 use App\Models\Site;
 use App\Models\User;
+use App\Modules\Edge\Actions\CreateEdgeSite;
+use App\Modules\Edge\Jobs\BuildEdgeSiteJob;
+use App\Modules\Edge\Jobs\PublishEdgeDeploymentJob;
 use App\Modules\Edge\Services\EdgeRouter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;

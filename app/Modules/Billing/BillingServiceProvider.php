@@ -7,6 +7,9 @@ namespace App\Modules\Billing;
 use App\Modules\Billing\Console\ProvisionStripeBillingCommand;
 use App\Modules\Billing\Console\SnapshotOrganizationBillingCommand;
 use App\Modules\Billing\Console\SyncAllOrganizationBillingCommand;
+use App\Modules\Billing\Livewire\Analytics;
+use App\Modules\Billing\Livewire\Invoices;
+use App\Modules\Billing\Livewire\Show;
 use Illuminate\Support\ServiceProvider;
 use Livewire\Livewire;
 
@@ -39,8 +42,8 @@ class BillingServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        Livewire::component('billing.show', \App\Modules\Billing\Livewire\Show::class);
-        Livewire::component('billing.analytics', \App\Modules\Billing\Livewire\Analytics::class);
-        Livewire::component('billing.invoices', \App\Modules\Billing\Livewire\Invoices::class);
+        Livewire::component('billing.show', Show::class);
+        Livewire::component('billing.analytics', Analytics::class);
+        Livewire::component('billing.invoices', Invoices::class);
     }
 }

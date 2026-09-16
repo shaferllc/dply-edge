@@ -51,6 +51,11 @@ class StandardSubscriptionCreator
             }
         }
 
+        $lbPriceId = (string) (config('subscription.standard.stripe.edge_lb_endpoint') ?? '');
+        if ($interval === self::INTERVAL_MONTH && $desired->edgeLbEndpointCount > 0 && $lbPriceId !== '') {
+            $items[] = ['price' => $lbPriceId, 'quantity' => $desired->edgeLbEndpointCount];
+        }
+
         if ($interval === self::INTERVAL_MONTH && $desired->edgeUsageSubtotalCents > 0) {
             $usagePriceId = $this->edgeUsagePriceId();
             if ($usagePriceId !== '') {

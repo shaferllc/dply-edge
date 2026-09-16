@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Secrets;
 
+use App\Modules\Secrets\Livewire\Secrets;
 use App\Modules\Secrets\Services\AgeEncryptor;
 use App\Modules\Secrets\Services\EphemeralSecretIdentityContext;
 use App\Modules\Secrets\Services\SecretVault;
@@ -74,6 +75,6 @@ class SecretVaultServiceProvider extends ServiceProvider
         // Fully qualified: `Livewire\Secrets::class` resolved against the
         // `use Livewire\Livewire` import above, yielding Livewire\Livewire\Secrets
         // — a class that does not exist, so this alias pointed at nothing.
-        Livewire::component('organizations.secrets', \App\Modules\Secrets\Livewire\Secrets::class);
+        Livewire::component('organizations.secrets', Secrets::class);
     }
 }

@@ -31,7 +31,7 @@ final class EdgeOrgCredentialConfig
     }
 
     /**
-     * @param  array<string, mixed> $values
+     * @param  array<string, mixed>  $values
      */
     public static function merge(ProviderCredential $credential, array $values): ProviderCredential
     {

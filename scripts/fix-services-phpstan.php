@@ -46,11 +46,11 @@ foreach ($byFile as $path => $fileErrors) {
         continue;
     }
 
-        $content = $original;
-        $content = fixShapeArrayTypesInDocblocks($content);
-        $content = fixMissingIterableValue($content, $fileErrors);
-        $content = fixNullCoalesceOffsets($content, $fileErrors);
-        $content = fixNullsafeNeverNull($content, $fileErrors);
+    $content = $original;
+    $content = fixShapeArrayTypesInDocblocks($content);
+    $content = fixMissingIterableValue($content, $fileErrors);
+    $content = fixNullCoalesceOffsets($content, $fileErrors);
+    $content = fixNullsafeNeverNull($content, $fileErrors);
 
     if ($content !== $original) {
         $changedFiles++;

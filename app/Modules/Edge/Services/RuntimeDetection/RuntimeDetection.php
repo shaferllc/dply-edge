@@ -24,9 +24,9 @@ final readonly class RuntimeDetection
      * @param  string  $runtime  one of DplyManifest::ALLOWED_RUNTIMES
      * @param  ?string  $version  detected version string (or null if undetectable)
      * @param  ?string  $framework  detected framework key (e.g. "next", "django", "rails", "laravel")
-     * @param  list<string> $detectedFiles  repo-relative paths of files we read to make the call
-     * @param  list<string> $reasons  human-readable explanations of each inference
-     * @param  list<\App\Modules\Edge\Services\RuntimeDetection\DetectedProcess> $processes  suggested non-web processes (workers, schedulers)
+     * @param  list<string>  $detectedFiles  repo-relative paths of files we read to make the call
+     * @param  list<string>  $reasons  human-readable explanations of each inference
+     * @param  list<DetectedProcess>  $processes  suggested non-web processes (workers, schedulers)
      * @param  string  $confidence  one of "low", "medium", "high"
      * @param  ?string  $outputDirectory  repo-relative folder containing built static assets
      */

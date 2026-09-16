@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Modules\SourceControl\Services;
 
-use App\Modules\SourceControl\Contracts\GitIdentity;
 use App\Models\Site;
 use App\Models\User;
+use App\Modules\SourceControl\Contracts\GitIdentity;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -121,7 +121,8 @@ final class SiteGitCommitsFetcher
      * transient ?repo_ref preview), only while the stored branch is exactly the
      * missing one, and only for a never-deployed site — so we never override a
      * ref the operator deliberately set or one a live deployment depends on.
-     * @param  array<string, mixed> $result
+     *
+     * @param  array<string, mixed>  $result
      */
     private function persistResolvedBranchIfStale(Site $site, ?string $branchOverride, array $result): void
     {
@@ -228,7 +229,7 @@ final class SiteGitCommitsFetcher
     }
 
     /**
-     * @param  array<string, mixed> $remote
+     * @param  array<string, mixed>  $remote
      * @return array<string, mixed>
      */
     private function fetchGithub(array $remote, Site $site, User $user, string $branch, int $limit, int $page = 1): array
@@ -347,7 +348,8 @@ final class SiteGitCommitsFetcher
      * The repo's default branch (e.g. "master") via GET /repos/{owner}/{repo}.
      * Used to recover from a list-commits 404 when the configured branch is
      * stale/missing. Returns null when the repo can't be read.
-     * @param  array<string, mixed> $remote
+     *
+     * @param  array<string, mixed>  $remote
      */
     private function githubDefaultBranch(GitIdentity $identity, array $remote): ?string
     {
@@ -382,7 +384,7 @@ final class SiteGitCommitsFetcher
     }
 
     /**
-     * @param  array<string, mixed> $remote
+     * @param  array<string, mixed>  $remote
      * @return array<string, mixed>
      */
     private function fetchGitlab(array $remote, Site $site, User $user, string $branch, int $limit, int $page = 1): array
@@ -517,7 +519,7 @@ final class SiteGitCommitsFetcher
     }
 
     /**
-     * @param  array<string, mixed> $remote
+     * @param  array<string, mixed>  $remote
      * @return array<string, mixed>
      */
     private function fetchBitbucket(array $remote, Site $site, User $user, string $branch, int $limit, int $page = 1): array
@@ -644,7 +646,7 @@ final class SiteGitCommitsFetcher
     }
 
     /**
-     * @param  array<string, mixed> $remote
+     * @param  array<string, mixed>  $remote
      */
     private function gitlabApiBase(GitIdentity $identity, array $remote): string
     {

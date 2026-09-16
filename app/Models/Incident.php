@@ -21,8 +21,8 @@ use Illuminate\Support\Carbon;
  * @property-read ?StatusPage $statusPage
  * @property-read ?User $user
  * @property-read Collection<int, IncidentUpdate> $incidentUpdates
- * @property \Illuminate\Support\Carbon|null $created_at
- * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  */
 class Incident extends Model
 {

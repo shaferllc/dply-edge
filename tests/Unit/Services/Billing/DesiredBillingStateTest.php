@@ -3,6 +3,7 @@
 namespace Tests\Unit\Services\Billing\DesiredBillingStateTest;
 
 use App\Modules\Billing\Services\DesiredBillingState;
+use App\Modules\Billing\Services\StandardSubscriptionCreator;
 
 const FREE = ['key' => 'free', 'label' => 'Free', 'price_cents' => 0, 'max_servers' => 1];
 
@@ -126,4 +127,33 @@ test('to array round trips for queue payloads', function () {
     // Retired product lines no longer appear in the payload.
     expect($array)->not->toHaveKey('server_count');
     expect($array)->not->toHaveKey('realtime_tier_quantities');
+});
+
+test('load balancer endpoints bill per endpoint and land in the monthly total', function () {
+    // 1 static site ($2) + 3 LB endpoints × $8 = $26
+    $state = DesiredBillingState::fromPlanAndUsage(
+        plan: FREE,
+        edgeCount: 1,
+        edgeUnitCents: 200,
+        edgeLbEndpointCount: 3,
+        edgeLbEndpointUnitCents: 800,
+    );
+
+    expect($state->edgeLbEndpointCount)->toBe(3)
+        ->and($state->edgeLbSubtotalCents)->toBe(2400)
+        ->and($state->monthlyTotalCents)->toBe(2600)
+        ->and($state->toArray()['edge_lb_endpoint_count'])->toBe(3);
+});
+
+test('monthly price list carries the load balancer endpoint line, yearly does not', function () {
+    config([
+        'subscription.standard.stripe.edge' => 'price_edge',
+        'subscription.standard.stripe.edge_yearly' => 'price_edge_y',
+        'subscription.standard.stripe.edge_lb_endpoint' => 'price_lb',
+    ]);
+    $state = DesiredBillingState::fromPlanAndUsage(plan: FREE, edgeCount: 1, edgeUnitCents: 200, edgeLbEndpointCount: 2, edgeLbEndpointUnitCents: 800);
+    $creator = app(StandardSubscriptionCreator::class);
+
+    expect($creator->buildPriceList($state))->toContain(['price' => 'price_lb', 'quantity' => 2])
+        ->and(collect($creator->buildPriceList($state, 'year'))->pluck('price')->all())->not->toContain('price_lb');
 });

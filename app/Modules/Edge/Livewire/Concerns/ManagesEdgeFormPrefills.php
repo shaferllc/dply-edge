@@ -43,7 +43,6 @@ trait ManagesEdgeFormPrefills
         $this->originUrlTouched = true;
     }
 
-
     public function updatedFormBuildCommand(): void
     {
         $this->buildOverridesTouched = true;

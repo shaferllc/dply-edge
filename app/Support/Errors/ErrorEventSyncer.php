@@ -8,7 +8,6 @@ use App\Models\ConsoleAction;
 use App\Models\ErrorEvent;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
-use Throwable;
 
 /**
  * Captures failed sources into {@see ErrorEvent} rows by scanning the source

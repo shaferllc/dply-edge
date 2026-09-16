@@ -951,6 +951,91 @@ class EdgeCloudflareClient
     }
 
     /**
+     * Load Balancing monitor (Account.Load Balancing: Monitors and Pools Edit).
+     * PUT when an id is known, POST when not — or when the stored id 404s
+     * because someone deleted it in the dashboard.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function upsertLbMonitor(?string $monitorId, array $payload): array
+    {
+        return $this->upsertLb('/accounts/'.$this->accountId.'/load_balancers/monitors', $monitorId, $payload);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function upsertLbPool(?string $poolId, array $payload): array
+    {
+        return $this->upsertLb('/accounts/'.$this->accountId.'/load_balancers/pools', $poolId, $payload);
+    }
+
+    /**
+     * Zone load balancer (Zone.Load Balancers Edit on the platform zone).
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function upsertLoadBalancer(string $zoneId, ?string $loadBalancerId, array $payload): array
+    {
+        return $this->upsertLb('/zones/'.$zoneId.'/load_balancers', $loadBalancerId, $payload);
+    }
+
+    public function deleteLoadBalancer(string $zoneId, string $loadBalancerId): void
+    {
+        $this->deleteLb('/zones/'.$zoneId.'/load_balancers/'.$loadBalancerId);
+    }
+
+    public function deleteLbPool(string $poolId): void
+    {
+        $this->deleteLb('/accounts/'.$this->accountId.'/load_balancers/pools/'.$poolId);
+    }
+
+    public function deleteLbMonitor(string $monitorId): void
+    {
+        $this->deleteLb('/accounts/'.$this->accountId.'/load_balancers/monitors/'.$monitorId);
+    }
+
+    /**
+     * Per-PoP origin health for a pool.
+     *
+     * @return array<string, mixed>
+     */
+    public function lbPoolHealth(string $poolId): array
+    {
+        return $this->decode(
+            Http::withToken($this->apiToken)->get(self::BASE.'/accounts/'.$this->accountId.'/load_balancers/pools/'.$poolId.'/health'),
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function upsertLb(string $collectionPath, ?string $id, array $payload): array
+    {
+        if ($id !== null && $id !== '') {
+            $response = Http::withToken($this->apiToken)->put(self::BASE.$collectionPath.'/'.$id, $payload);
+            if ($response->status() !== 404) {
+                return $this->decode($response);
+            }
+        }
+
+        return $this->decode(Http::withToken($this->apiToken)->post(self::BASE.$collectionPath, $payload));
+    }
+
+    /** Already-gone (404) counts as deleted. */
+    private function deleteLb(string $path): void
+    {
+        $response = Http::withToken($this->apiToken)->delete(self::BASE.$path);
+        if ($response->status() !== 404) {
+            $this->decode($response);
+        }
+    }
+
+    /**
      * Create a Turnstile widget (Account.Turnstile Edit).
      *
      * @param  list<string>  $domains

@@ -18,7 +18,7 @@ use Throwable;
 trait ReadsBitbucketRepositories
 {
     /**
-     * @param  array<string, mixed> $remote
+     * @param  array<string, mixed>  $remote
      * @return array<string, mixed>
      */
     private function bitbucketBranches(array $remote, Site $site, User $user): array
@@ -60,7 +60,7 @@ trait ReadsBitbucketRepositories
     }
 
     /**
-     * @param  array<string, mixed> $remote
+     * @param  array<string, mixed>  $remote
      * @return array<string, mixed>
      */
     private function bitbucketTags(array $remote, Site $site, User $user): array
@@ -98,7 +98,7 @@ trait ReadsBitbucketRepositories
     }
 
     /**
-     * @param  array<string, mixed> $remote
+     * @param  array<string, mixed>  $remote
      * @return array<string, mixed>
      */
     private function bitbucketTree(array $remote, Site $site, User $user, string $branch, string $path): array
@@ -141,7 +141,7 @@ trait ReadsBitbucketRepositories
     }
 
     /**
-     * @param  array<string, mixed> $remote
+     * @param  array<string, mixed>  $remote
      * @return array<string, mixed>
      */
     private function bitbucketFile(array $remote, Site $site, User $user, string $branch, string $path): array
@@ -167,7 +167,7 @@ trait ReadsBitbucketRepositories
     }
 
     /**
-     * @param  array<string, mixed> $remote
+     * @param  array<string, mixed>  $remote
      */
     private function bitbucketDefaultBranch(array $remote, GitIdentity $identity): ?string
     {

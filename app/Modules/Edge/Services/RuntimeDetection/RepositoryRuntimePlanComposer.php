@@ -120,7 +120,7 @@ final class RepositoryRuntimePlanComposer
     }
 
     /**
-     * @param  array<string, mixed> $sources
+     * @param  array<string, mixed>  $sources
      * @param  list<string>  $reasons
      */
     private function pickRuntime(
@@ -156,7 +156,7 @@ final class RepositoryRuntimePlanComposer
      *
      * @param  T|null  $manifestValue
      * @param  T|null  $detectionValue
-     * @param  array<string, mixed> $sources
+     * @param  array<string, mixed>  $sources
      * @param  list<string>  $reasons
      * @return T|null
      */
@@ -189,7 +189,7 @@ final class RepositoryRuntimePlanComposer
     }
 
     /**
-     * @param  list<string> $commands
+     * @param  list<string>  $commands
      */
     private function joinCommandList(array $commands): ?string
     {
@@ -232,7 +232,7 @@ final class RepositoryRuntimePlanComposer
     }
 
     /**
-     * @param  array<string, mixed> $sources
+     * @param  array<string, mixed>  $sources
      */
     private function normalizeAppPort(string $runtime, ?int $detectorPort, array &$sources): ?int
     {

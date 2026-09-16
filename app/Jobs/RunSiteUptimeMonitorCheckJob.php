@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Jobs\Concerns\WritesConsoleAction;
 use App\Models\ConsoleAction;
 use App\Models\ErrorEvent;
 use App\Models\Site;
@@ -14,7 +15,6 @@ use App\Services\Sites\SiteUptimeCheckUrlResolver;
 use App\Services\Sites\UptimeProbeWorkerResolver;
 use App\Services\Status\MonitorOperationalState;
 use Carbon\CarbonImmutable;
-use App\Jobs\Concerns\WritesConsoleAction;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Database\Eloquent\Model;

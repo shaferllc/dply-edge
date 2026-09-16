@@ -132,7 +132,7 @@ final class EdgeSiteBillingAnalytics
     }
 
     /**
-     * @param  list<string> $siteIds
+     * @param  list<string>  $siteIds
      * @return array<string, EdgeUsageTotals>
      */
     private function aggregateSnapshots(
@@ -175,7 +175,7 @@ final class EdgeSiteBillingAnalytics
     }
 
     /**
-     * @param  list<string> $siteIds
+     * @param  list<string>  $siteIds
      * @return array<string, list<array<string, mixed>>>
      */
     private function dailySnapshotsBySite(string $organizationId, array $siteIds, int $days): array
@@ -220,7 +220,7 @@ final class EdgeSiteBillingAnalytics
 
     /**
      * @param  list<array<string, mixed>>  $daily
-     * @param  array<string, mixed> $usageEstimate
+     * @param  array<string, mixed>  $usageEstimate
      * @return array<string, mixed>
      */
     private function formatSiteRow(

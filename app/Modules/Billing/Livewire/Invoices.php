@@ -19,7 +19,7 @@ use Throwable;
  * methods as $this-><name> in PHP and Blade. PHPStan cannot see that
  * magic, so the contract is stated here.
  *
- * @property-read \Illuminate\Pagination\LengthAwarePaginator $rowsPaginator
+ * @property-read LengthAwarePaginator $rowsPaginator
  */
 #[Layout('layouts.app')]
 class Invoices extends Component

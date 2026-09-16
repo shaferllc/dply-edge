@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace App\Modules\Edge\Services;
 
 use App\Models\Site;
+use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
-use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 
 /**
  * Pulls hourly performance rollups from Cloudflare Analytics Engine SQL.

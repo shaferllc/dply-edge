@@ -3,14 +3,14 @@
 namespace App\Http\Controllers\Credentials;
 
 use App\Http\Controllers\Controller;
-use App\Models\ProviderCredential;
 use App\Models\Organization;
+use App\Models\ProviderCredential;
 use App\Modules\Providers\Services\DigitalOceanService;
+use App\Support\ServerProviderGate;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
-use App\Support\ServerProviderGate;
 
 class ProviderOAuthController extends Controller
 {

@@ -2,9 +2,9 @@
 
 namespace Tests\Feature\Listeners\SyncBillingOnSubscriptionWebhookTest;
 
-use App\Modules\Billing\Jobs\SyncOrganizationBillingJob;
 use App\Listeners\SyncBillingOnSubscriptionWebhook;
 use App\Models\Organization;
+use App\Modules\Billing\Jobs\SyncOrganizationBillingJob;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 use Laravel\Cashier\Events\WebhookReceived;

@@ -4,6 +4,7 @@ namespace App\Modules\Billing\Services;
 
 use App\Models\Organization;
 use App\Models\Site;
+use App\Modules\Edge\Support\EdgeLoadBalancing;
 
 /**
  * Builds a {@see DesiredBillingState} for an organization by scanning its
@@ -72,11 +73,12 @@ class OrganizationBillingStateComputer
 
         $edgeCount = 0;
         $edgeSsrCount = 0;
+        $edgeLbEndpointCount = 0;
 
         $organization->sites()
             ->where('created_at', '<=', $ageCutoff)
             ->get()
-            ->each(function (Site $site) use (&$edgeCount, &$edgeSsrCount): void {
+            ->each(function (Site $site) use (&$edgeCount, &$edgeSsrCount, &$edgeLbEndpointCount): void {
                 if (
                     $site->status !== Site::STATUS_EDGE_ACTIVE
                     || $site->edge_backend !== 'dply_edge'
@@ -90,6 +92,7 @@ class OrganizationBillingStateComputer
                 if ($runtimeMode === 'ssr') {
                     $edgeSsrCount++;
                 }
+                $edgeLbEndpointCount += EdgeLoadBalancing::billableEndpointCount($site);
             });
 
         [$usagePeriodStart, $usagePeriodEnd] = $this->usageReader->currentMonthWindow();
@@ -113,6 +116,8 @@ class OrganizationBillingStateComputer
             edgeSsrUnitCents: (int) config('subscription.standard.edge_ssr_cents', 700),
             edgeUsageSubtotalCents: (int) $edgeUsageEstimate['subtotal_cents'],
             edgeUsageEstimate: $edgeUsageEstimate,
+            edgeLbEndpointCount: $edgeLbEndpointCount,
+            edgeLbEndpointUnitCents: (int) config('subscription.standard.edge_lb_endpoint_cents', 800),
         );
     }
 }

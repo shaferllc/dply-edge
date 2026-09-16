@@ -15,7 +15,7 @@ final class GcpAccessToken
     private static array $tokenCache = [];
 
     /**
-     * @param  array<string, mixed> $serviceAccount
+     * @param  array<string, mixed>  $serviceAccount
      */
     public function __construct(
         private readonly ProviderCredential $credential,
@@ -73,7 +73,7 @@ final class GcpAccessToken
     }
 
     /**
-     * @param  array<int, string> $scopes
+     * @param  array<int, string>  $scopes
      */
     public function token(array $scopes): string
     {
@@ -155,7 +155,7 @@ final class GcpAccessToken
     }
 
     /**
-     * @param  array<string, mixed> $serviceAccount
+     * @param  array<string, mixed>  $serviceAccount
      */
     private static function assertRequiredFields(array $serviceAccount): void
     {

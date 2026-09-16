@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Support;
 
+use App\Modules\Providers\Cloudflare\CloudflareDnsService;
+
 /**
  * Dply-owned testing / preview zones from config/product/testing_domains.php.
  */
@@ -40,7 +42,7 @@ final class TestingDomains
 
         foreach ($tokens as $token) {
             try {
-                if ((new \App\Modules\Providers\Cloudflare\CloudflareDnsService($token))->zoneExists($zone)) {
+                if ((new CloudflareDnsService($token))->zoneExists($zone)) {
                     return $token;
                 }
             } catch (\Throwable) {

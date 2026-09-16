@@ -65,6 +65,10 @@ return [
         // Worker-native SSR Edge sites (dispatch namespace / Workers for
         // Platforms). Higher platform fee than static/hybrid.
         'edge_ssr_cents' => 700,
+        // Load balancing (Cloudflare Load Balancing on the platform zone), per
+        // origin endpoint across the org's live sites. Monthly only — yearly
+        // subscriptions can't enable it (Stripe can't mix intervals).
+        'edge_lb_endpoint_cents' => 800,
         // Edge delivery usage is billed in 1-cent Stripe units (quantity = cents).
         'edge_usage_unit_cents' => 1,
         /*
@@ -100,6 +104,7 @@ return [
             'edge_ssr' => env('STRIPE_PRICE_STANDARD_EDGE_SSR', ''),
             'edge_ssr_yearly' => env('STRIPE_PRICE_STANDARD_EDGE_SSR_YEARLY', ''),
             'edge_usage' => env('STRIPE_PRICE_STANDARD_EDGE_USAGE', ''),
+            'edge_lb_endpoint' => env('STRIPE_PRICE_STANDARD_EDGE_LB_ENDPOINT', ''),
             // Prices of retired product lines (plan tiers, serverless, Cloud,
             // managed servers, Realtime, Lookout, Queue, server logs). Nothing
             // bills them any more; StripeSubscriptionSyncer removes any it

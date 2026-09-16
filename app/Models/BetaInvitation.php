@@ -28,8 +28,8 @@ use Illuminate\Support\Str;
  * @property-read ?User $inviter
  * @property-read ?User $redeemer
  * @property-read ?Organization $organization
- * @property \Illuminate\Support\Carbon|null $created_at
- * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  */
 class BetaInvitation extends Model
 {

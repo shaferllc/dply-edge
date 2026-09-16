@@ -13,8 +13,6 @@ use Illuminate\Support\Facades\Cache;
  */
 trait ManagesDoKubernetes
 {
-
-
     /**
      * List managed DOKS clusters in this account. Same caching shape as regions/sizes.
      *

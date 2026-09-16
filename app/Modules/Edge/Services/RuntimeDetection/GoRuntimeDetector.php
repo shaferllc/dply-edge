@@ -125,7 +125,7 @@ final class GoRuntimeDetector implements RuntimeDetector
     }
 
     /**
-     * @param  list<string> $imports
+     * @param  list<string>  $imports
      * @param  list<string>  $reasons
      */
     private function detectFramework(array $imports, array &$reasons): string

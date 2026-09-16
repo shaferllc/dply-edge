@@ -24,7 +24,7 @@ use Illuminate\Support\Collection;
 final class SiteSettingsViewData
 {
     /**
-     * @param  array<string, mixed> $deploymentPreflight
+     * @param  array<string, mixed>  $deploymentPreflight
      * @return array<string, mixed>
      */
     /**
@@ -354,7 +354,7 @@ final class SiteSettingsViewData
     }
 
     /**
-     * @param  array<string, mixed> $kinds
+     * @param  array<string, mixed>  $kinds
      */
     private static function consoleActionRun(Site $site, array $kinds): ?ConsoleAction
     {
@@ -370,5 +370,4 @@ final class SiteSettingsViewData
             ->orderByDesc('created_at')
             ->first();
     }
-
 }

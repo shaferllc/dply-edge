@@ -125,5 +125,4 @@ class EdgeSettings extends Component
     {
         return $this->section;
     }
-
 }

@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace App\Modules\Edge\Console;
 
 use App\Models\ProviderCredential;
-use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use App\Modules\Edge\Services\EdgeDeliveryContextResolver;
 use App\Modules\Edge\Support\EdgeDeliveryContext;
 use App\Modules\Edge\Support\EdgePlatformCredentials;
 use App\Modules\Edge\Support\EdgeWranglerConfigGenerator;
 use App\Modules\Edge\Support\FakeEdgeProvision;
+use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Process;
 

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Models\Concerns;
 
 use App\Modules\Billing\Services\SubscriptionPlanResolver;
-use Laravel\Cashier\Billable;
 
 /**
  * Concern extracted from the host Livewire component to keep it under control.
@@ -76,6 +75,7 @@ trait ManagesOrganizationSubscription
             $stripe['edge_ssr'] ?? null,
             $stripe['edge_ssr_yearly'] ?? null,
             $stripe['edge_usage'] ?? null,
+            $stripe['edge_lb_endpoint'] ?? null,
         ];
 
         return array_map(

@@ -24,7 +24,7 @@ abstract class AbstractSecretStoreDriver implements SecretStoreDriver
      * Extract a field from a decoded structured secret, or return the raw value
      * when no field is requested.
      *
-     * @param  array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      */
     protected function pickField(array $data, ?string $field, string $what): string
     {

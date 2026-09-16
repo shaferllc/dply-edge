@@ -71,7 +71,7 @@ final class EdgeEffectiveOrigin
     }
 
     /**
-     * @param  array<string, mixed> $value
+     * @param  array<string, mixed>  $value
      * @return array{url?: string, routes?: list<string>, failover_html?: string}
      */
     private static function sanitize(array $value): array

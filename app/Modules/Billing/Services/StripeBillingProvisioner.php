@@ -41,6 +41,10 @@ class StripeBillingProvisioner
 
     public const ROLE_EDGE_USAGE_MONTHLY = 'standard_edge_usage';
 
+    public const ROLE_EDGE_LB_PRODUCT = 'standard_edge_lb_product';
+
+    public const ROLE_EDGE_LB_MONTHLY = 'standard_edge_lb_endpoint';
+
     public const ROLE_ENTERPRISE_PRODUCT = 'enterprise_product';
 
     public function __construct(private StripeClient $stripe) {}
@@ -125,6 +129,24 @@ class StripeBillingProvisioner
             )->id;
         }
 
+        $edgeLbCents = (int) ($standardConfig['edge_lb_endpoint_cents'] ?? 800);
+        if ($edgeLbCents > 0) {
+            $edgeLbProduct = $this->upsertProduct(
+                name: 'dply Edge load balancing endpoint',
+                description: 'Load balancing for dply Edge hybrid sites — health-checked origin pools with automatic failover. Billed per origin endpoint.',
+                role: self::ROLE_EDGE_LB_PRODUCT,
+            );
+            $result[self::ROLE_EDGE_LB_PRODUCT] = $edgeLbProduct->id;
+
+            $result[self::ROLE_EDGE_LB_MONTHLY] = $this->upsertRecurringPrice(
+                productId: $edgeLbProduct->id,
+                amount: $edgeLbCents,
+                interval: 'month',
+                nickname: 'Edge load balancing endpoint — Monthly',
+                role: self::ROLE_EDGE_LB_MONTHLY,
+            )->id;
+        }
+
         $enterpriseProduct = $this->upsertProduct(
             name: 'dply Enterprise',
             description: 'dply Edge for larger teams and procurement-led rollouts. Includes everything in Standard, plus volume pricing on per-site fees, SSO, audit log access, a custom MSA, dedicated support, and rollout planning. Pricing is negotiated per deal.',
@@ -138,7 +160,7 @@ class StripeBillingProvisioner
     /**
      * Format a provisioning result map into copy-paste-ready .env lines.
      *
-     * @param  array<string, mixed> $result
+     * @param  array<string, mixed>  $result
      */
     public static function formatEnv(array $result): string
     {
@@ -148,6 +170,7 @@ class StripeBillingProvisioner
             self::ROLE_EDGE_SSR_MONTHLY => 'STRIPE_PRICE_STANDARD_EDGE_SSR',
             self::ROLE_EDGE_SSR_YEARLY => 'STRIPE_PRICE_STANDARD_EDGE_SSR_YEARLY',
             self::ROLE_EDGE_USAGE_MONTHLY => 'STRIPE_PRICE_STANDARD_EDGE_USAGE',
+            self::ROLE_EDGE_LB_MONTHLY => 'STRIPE_PRICE_STANDARD_EDGE_LB_ENDPOINT',
         ];
 
         $lines = [];

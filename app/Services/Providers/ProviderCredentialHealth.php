@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Providers;
 
 use App\Models\ProviderCredential;
+use App\Modules\Edge\Support\EdgeOrgCredentialConfig;
 use App\Modules\Providers\Cloudflare\CloudflareDnsService;
 use App\Modules\Providers\Cloudflare\CloudflareEdgeCredentialValidator;
 use App\Modules\Providers\Services\AwsEc2Service;
@@ -17,7 +18,6 @@ use App\Modules\Providers\Services\OracleComputeService;
 use App\Modules\Providers\Services\OvhService;
 use App\Modules\Providers\Services\UpCloudService;
 use App\Modules\Providers\Services\VultrService;
-use App\Modules\Edge\Support\EdgeOrgCredentialConfig;
 use App\Support\Providers\ProviderAuthFailure;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Str;

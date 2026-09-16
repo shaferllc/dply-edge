@@ -246,6 +246,11 @@ final class SiteSettingsHeader
                 'description' => __('Inject HTML into matching pages without rebuilding — banners, meta, small widgets.'),
                 'icon' => 'heroicon-o-code-bracket',
             ],
+            'edge-load-balancing' => [
+                'title' => __('Load balancing'),
+                'description' => __('Spread origin traffic across servers with health checks and automatic failover.'),
+                'icon' => 'heroicon-o-server-stack',
+            ],
             'edge-tags' => [
                 'title' => __('Tags'),
                 'description' => __('Load analytics and pixel scripts from the Edge; optional consent gate via your CMP.'),

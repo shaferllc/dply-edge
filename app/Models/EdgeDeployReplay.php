@@ -28,8 +28,8 @@ use Illuminate\Support\Carbon;
  * @property-read ?Site $parentSite
  * @property-read ?Site $previewSite
  * @property-read ?User $triggeredBy
- * @property \Illuminate\Support\Carbon|null $created_at
- * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  */
 class EdgeDeployReplay extends Model
 {

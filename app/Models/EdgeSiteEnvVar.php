@@ -7,6 +7,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
 /**
  * Per-site Edge environment variable. The plaintext value is persisted in
@@ -23,8 +24,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string $value_encrypted
  * @property-read ?Site $site
  * @property-read ?User $creator
- * @property \Illuminate\Support\Carbon|null $created_at
- * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  */
 class EdgeSiteEnvVar extends Model
 {

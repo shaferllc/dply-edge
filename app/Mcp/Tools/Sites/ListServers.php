@@ -8,6 +8,7 @@ use App\Mcp\Tools\AbstractDplyTool;
 use App\Models\Organization;
 use App\Models\Server;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
+use Illuminate\JsonSchema\Types\Type;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 
@@ -20,7 +21,7 @@ class ListServers extends AbstractDplyTool
     protected string $ability = 'servers.read';
 
     /**
-     * @return array<string, \Illuminate\JsonSchema\Types\Type>
+     * @return array<string, Type>
      */
     public function schema(JsonSchema $schema): array
     {

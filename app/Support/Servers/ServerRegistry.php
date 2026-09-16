@@ -6,11 +6,12 @@ namespace App\Support\Servers;
 
 use App\Models\Server;
 use App\Models\Site;
+use App\Support\Workspaces\WorkspaceRegistry;
 use Illuminate\Support\Collection;
 
 /**
  * Request-scoped memo for a site's {@see Server}, keyed by server id — the
- * `servers` twin of {@see \App\Support\Workspaces\WorkspaceRegistry}.
+ * `servers` twin of {@see WorkspaceRegistry}.
  *
  * A single site-workspace render resolves the same site through several
  * independent paths (the platform panel, sync peers, the command palette), and

@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Support\Admin;
 
 use App\Models\User;
+use App\Providers\AppServiceProvider;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
@@ -17,7 +19,7 @@ use Illuminate\Support\Str;
  * we never blast every local user. Allow-listed emails without an account are
  * silently skipped.
  *
- * @see \App\Providers\AppServiceProvider Gate::define('viewPlatformAdmin')
+ * @see AppServiceProvider Gate::define('viewPlatformAdmin')
  */
 final class PlatformAdmins
 {
@@ -48,7 +50,7 @@ final class PlatformAdmins
         }
 
         return User::query()
-            ->whereIn(\Illuminate\Support\Facades\DB::raw('LOWER(email)'), $emails)
+            ->whereIn(DB::raw('LOWER(email)'), $emails)
             ->get();
     }
 }

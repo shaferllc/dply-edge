@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Support\Sites;
 
 use App\Models\Site;
+use App\Support\Errors\ErrorEventRecorder;
 use Closure;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -26,7 +27,7 @@ use Illuminate\Support\Facades\Schema;
  * table: one failure is logged and the rest still run, so a cleanup hiccup never
  * blocks the site deletion itself.
  *
- * @see \App\Support\Errors\ErrorEventRecorder why error_events has no FK
+ * @see ErrorEventRecorder why error_events has no FK
  */
 final class SiteRelationPurger
 {

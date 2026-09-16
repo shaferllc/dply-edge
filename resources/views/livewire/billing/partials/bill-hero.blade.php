@@ -8,6 +8,7 @@
     // Colors for the stacked-breakdown bar: per-site fees, then metered usage.
     $tierBarColors = [
         'edge' => 'bg-emerald-500/70',
+        'edge_lb' => 'bg-sky-500/60',
         'edge_usage' => 'bg-brand-sage/50',
     ];
 
@@ -15,6 +16,9 @@
     $segments = [];
     if ($state->edgeSubtotalCents > 0) {
         $segments[] = ['key' => 'edge', 'label' => __('Projects').' × '.$state->edgeCount, 'cents' => $state->edgeSubtotalCents];
+    }
+    if ($state->edgeLbSubtotalCents > 0) {
+        $segments[] = ['key' => 'edge_lb', 'label' => __('Load balancing').' × '.$state->edgeLbEndpointCount, 'cents' => $state->edgeLbSubtotalCents];
     }
     if ($state->edgeUsageSubtotalCents > 0) {
         $segments[] = [

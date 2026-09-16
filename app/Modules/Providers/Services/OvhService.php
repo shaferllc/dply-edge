@@ -295,7 +295,7 @@ class OvhService
      * Public IPv4 from an instance payload. OVH exposes addresses under
      * `ipAddresses` as a list of {ip, type, version}.
      *
-     * @param  array<string, mixed> $instance
+     * @param  array<string, mixed>  $instance
      */
     public static function getPublicIp(array $instance): ?string
     {
@@ -317,7 +317,7 @@ class OvhService
     /**
      * Private IPv4 from an instance payload (type `private`, IPv4).
      *
-     * @param  array<string, mixed> $instance
+     * @param  array<string, mixed>  $instance
      */
     public static function getPrivateIp(array $instance): ?string
     {
@@ -352,7 +352,7 @@ class OvhService
     }
 
     /**
-     * @param  array<string, mixed> $body
+     * @param  array<string, mixed>  $body
      */
     protected function request(string $method, string $path, array $body = []): Response
     {

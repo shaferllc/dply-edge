@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Actions;
 
-use App\Modules\Edge\Jobs\BuildEdgeSiteJob;
 use App\Models\EdgeDeployment;
 use App\Models\Site;
+use App\Modules\Edge\Jobs\BuildEdgeSiteJob;
 use App\Support\ProductLine\ProductLineKillSwitches;
 use Illuminate\Support\Str;
 

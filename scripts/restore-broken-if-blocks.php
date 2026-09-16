@@ -41,6 +41,7 @@ foreach ($broken as [$path, $lineNum]) {
     $head = shell_exec('git show HEAD:'.escapeshellarg($rel).' 2>/dev/null');
     if ($head === null || $head === '') {
         fwrite(STDERR, "No HEAD version for {$rel}\n");
+
         continue;
     }
 
@@ -53,11 +54,13 @@ foreach ($broken as [$path, $lineNum]) {
     $headIdx = $lineNum - 1;
     if (! isset($headLines[$headIdx])) {
         fwrite(STDERR, "HEAD line missing for {$rel}:{$lineNum}\n");
+
         continue;
     }
 
     if (! preg_match('/^\s+if \(/', $headLines[$headIdx])) {
         fwrite(STDERR, "HEAD line not an if ( for {$rel}:{$lineNum}: {$headLines[$headIdx]}\n");
+
         continue;
     }
 

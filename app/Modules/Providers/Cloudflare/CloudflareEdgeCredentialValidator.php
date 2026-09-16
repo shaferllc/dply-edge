@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Modules\Providers\Cloudflare;
 
 use App\Models\ProviderCredential;
-use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use RuntimeException;
 
 /**
@@ -51,7 +50,7 @@ class CloudflareEdgeCredentialValidator
 
         $client = new EdgeCloudflareClient('', trim($token));
         foreach ($client->listAccounts() as $account) {
-            $id = (($account['id'] ?? null) );
+            $id = (($account['id'] ?? null));
             if (is_string($id) && $id !== '') {
                 return $id;
             }

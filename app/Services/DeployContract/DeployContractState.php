@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services\DeployContract;
 
+use App\Models\DeployContractRun;
 use App\Models\EdgeDeployment;
 use App\Models\Site;
-use App\Models\DeployContractRun;
 
 /**
  * Aggregates deploy contract status for a preview — latest run, promote gate.
@@ -44,19 +44,19 @@ final class DeployContractState
 
     /**
      * @return array{enabled: bool, require_run: bool, allow_waivers: bool, ready_to_promote: bool, has_run: bool, run_current: bool, status: string|null, passed_count: int, ...}
-     *   enabled: bool,
-     *   require_run: bool,
-     *   allow_waivers: bool,
-     *   ready_to_promote: bool,
-     *   has_run: bool,
-     *   run_current: bool,
-     *   status: ?string,
-     *   passed_count: int,
-     *   failed_count: int,
-     *   checks: list<array<string, mixed>>,
-     *   run_id: ?string,
-     *   finished_at: ?string,
-     * }
+     *                                                                                                                                                                             enabled: bool,
+     *                                                                                                                                                                             require_run: bool,
+     *                                                                                                                                                                             allow_waivers: bool,
+     *                                                                                                                                                                             ready_to_promote: bool,
+     *                                                                                                                                                                             has_run: bool,
+     *                                                                                                                                                                             run_current: bool,
+     *                                                                                                                                                                             status: ?string,
+     *                                                                                                                                                                             passed_count: int,
+     *                                                                                                                                                                             failed_count: int,
+     *                                                                                                                                                                             checks: list<array<string, mixed>>,
+     *                                                                                                                                                                             run_id: ?string,
+     *                                                                                                                                                                             finished_at: ?string,
+     *                                                                                                                                                                             }
      */
     public function forPreview(Site $parent, Site $preview): array
     {
@@ -98,7 +98,7 @@ final class DeployContractState
     }
 
     /**
-     * @param  array<string, mixed> $contract
+     * @param  array<string, mixed>  $contract
      */
     public function promoteBlockedMessage(array $contract): ?string
     {
@@ -126,7 +126,7 @@ final class DeployContractState
     }
 
     /**
-     * @param  array<string, mixed> $contract
+     * @param  array<string, mixed>  $contract
      * @return list<array{label: string, value: string, mono?: bool}>
      */
     public function confirmModalRows(array $contract): array

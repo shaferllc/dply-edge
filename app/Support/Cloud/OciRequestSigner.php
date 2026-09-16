@@ -16,7 +16,7 @@ final class OciRequestSigner
     ) {}
 
     /**
-     * @param  array<string, mixed> $headers
+     * @param  array<string, mixed>  $headers
      * @return array<string, string>
      */
     public function sign(
@@ -93,7 +93,7 @@ final class OciRequestSigner
     }
 
     /**
-     * @param  array<string, mixed> $headers
+     * @param  array<string, mixed>  $headers
      * @return array<string, string>
      */
     private function normalizeHeaders(array $headers): array
@@ -108,7 +108,7 @@ final class OciRequestSigner
     }
 
     /**
-     * @param  array<string, mixed> $headers
+     * @param  array<string, mixed>  $headers
      * @return array<string, string>
      */
     private function toCanonicalHeaderCase(array $headers): array

@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Livewire;
 
-use App\Modules\Edge\Actions\CancelStuckEdgeDeployment;
 use App\Livewire\Concerns\ConfirmsActionWithModal;
 use App\Livewire\Concerns\DispatchesToastNotifications;
 use App\Models\EdgeDeployment;
+use App\Modules\Edge\Actions\CancelStuckEdgeDeployment;
 use App\Modules\Edge\Services\EdgeBuildRunner;
 use App\Support\Sites\SiteShowViewData;
 use Illuminate\Contracts\View\View;

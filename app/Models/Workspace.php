@@ -8,9 +8,9 @@ use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 
 /**
@@ -27,8 +27,8 @@ use Illuminate\Support\Str;
  * @property-read Collection<int, Site> $sites
  * @property-read Collection<int, WorkspaceMember> $members
  * @property-read Collection<int, NotificationSubscription> $notificationSubscriptions
- * @property \Illuminate\Support\Carbon|null $created_at
- * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  */
 class Workspace extends Model
 {
@@ -109,8 +109,6 @@ class Workspace extends Model
     {
         return $this->hasMany(WorkspaceMember::class)->orderBy('created_at');
     }
-
-
 
     /** @return MorphMany<NotificationSubscription, $this> */
     public function notificationSubscriptions(): MorphMany

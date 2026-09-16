@@ -349,7 +349,6 @@ return [
     // uses packages/dply-cli/bin/dply.mjs via Node. Point at a .mjs or binary.
     'cli_binary' => env('DPLY_CLI_BINARY'),
 
-
     'local_workspace_prune' => [
         'enabled' => filter_var(env('DPLY_LOCAL_WORKSPACE_PRUNE_ENABLED', true), FILTER_VALIDATE_BOOL),
         // Built artifact zips are byproducts once uploaded to the provider; keep

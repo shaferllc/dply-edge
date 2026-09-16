@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Console;
 
-use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use App\Modules\Edge\Support\EdgeBuildDockerBootstrap;
 use App\Modules\Edge\Support\EdgeLocalDevDiagnostics;
 use App\Modules\Edge\Support\EdgePlatformCredentials;
 use App\Modules\Edge\Support\EdgeTestingDomains;
 use App\Modules\Edge\Support\FakeEdgeProvision;
+use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;

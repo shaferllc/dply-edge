@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Console\Scheduling\DplySchedule;
 use App\Models\ConsoleAction;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -16,7 +17,7 @@ use Illuminate\Support\Facades\DB;
  * styling; this sweep is deliberately MUCH more conservative so it only reaps the
  * genuinely-dead, never a legitimately long backup/clone/DB-install still running.
  *
- * Scheduled every 15 minutes (see {@see \App\Console\Scheduling\DplySchedule}).
+ * Scheduled every 15 minutes (see {@see DplySchedule}).
  */
 class ReapStuckConsoleActionsCommand extends Command
 {

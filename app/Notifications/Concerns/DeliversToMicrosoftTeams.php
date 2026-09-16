@@ -6,7 +6,6 @@ namespace App\Notifications\Concerns;
 
 use App\Models\NotificationChannel;
 use App\Modules\Notifications\Channels\MicrosoftTeams\MicrosoftTeamsMessage;
-use Illuminate\Notifications\Messages\MailMessage;
 
 /**
  * Gives any Notification a Microsoft Teams leg, derived from its toMail().

@@ -291,6 +291,7 @@ final class SiteSettingsSidebar
 
         if (! $isPreviewChild) {
             $items[] = ['id' => 'edge-delivery', 'label' => __('Delivery'), 'icon' => 'heroicon-o-cloud', 'group' => 'traffic'];
+            $items[] = ['id' => 'edge-load-balancing', 'label' => __('Load balancing'), 'icon' => 'heroicon-o-server-stack', 'group' => 'traffic'];
             $items[] = ['id' => 'edge-traffic', 'label' => __('Traffic & analytics'), 'icon' => 'heroicon-o-signal', 'group' => 'traffic'];
         }
 
@@ -405,5 +406,4 @@ final class SiteSettingsSidebar
 
         return $tabs;
     }
-
 }

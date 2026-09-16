@@ -2,8 +2,8 @@
 
 namespace App\Listeners;
 
-use App\Modules\Billing\Jobs\SyncOrganizationBillingJob;
 use App\Models\Organization;
+use App\Modules\Billing\Jobs\SyncOrganizationBillingJob;
 use Laravel\Cashier\Events\WebhookReceived;
 
 /**

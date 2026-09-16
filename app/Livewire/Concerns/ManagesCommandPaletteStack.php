@@ -13,8 +13,6 @@ use App\Models\RecentResource;
  */
 trait ManagesCommandPaletteStack
 {
-
-
     /**
      * Drill into a context. Category labels come from the static map; a single
      * site/server resolves its label (and is org-scoped) from the record.

@@ -2,12 +2,10 @@
 
 namespace Tests\Feature\Jobs\SyncOrganizationBillingJobTest;
 
-use App\Modules\Billing\Jobs\SyncOrganizationBillingJob;
 use App\Models\Organization;
+use App\Modules\Billing\Jobs\SyncOrganizationBillingJob;
 use App\Modules\Billing\Models\Subscription;
-use App\Modules\Billing\Services\BillingSubscriptionSyncEventRecorder;
 use App\Modules\Billing\Services\DesiredBillingState;
-use App\Modules\Billing\Services\OrganizationBillingStateComputer;
 use App\Modules\Billing\Services\StripeSubscriptionSyncer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;

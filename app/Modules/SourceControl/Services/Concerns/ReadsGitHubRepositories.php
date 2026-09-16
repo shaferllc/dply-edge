@@ -17,7 +17,7 @@ use Throwable;
 trait ReadsGitHubRepositories
 {
     /**
-     * @param  array<string, mixed> $remote
+     * @param  array<string, mixed>  $remote
      * @return array<string, mixed>
      */
     private function githubBranches(array $remote, Site $site, User $user): array
@@ -62,7 +62,7 @@ trait ReadsGitHubRepositories
     }
 
     /**
-     * @param  array<string, mixed> $remote
+     * @param  array<string, mixed>  $remote
      * @return array<string, mixed>
      */
     private function githubTags(array $remote, Site $site, User $user): array
@@ -101,7 +101,7 @@ trait ReadsGitHubRepositories
     }
 
     /**
-     * @param  array<string, mixed> $remote
+     * @param  array<string, mixed>  $remote
      * @return array<string, mixed>
      */
     private function githubTree(array $remote, Site $site, User $user, string $branch, string $path): array
@@ -140,7 +140,7 @@ trait ReadsGitHubRepositories
     }
 
     /**
-     * @param  array<string, mixed> $remote
+     * @param  array<string, mixed>  $remote
      * @return array<string, mixed>
      */
     private function githubFile(array $remote, Site $site, User $user, string $branch, string $path): array
@@ -174,7 +174,7 @@ trait ReadsGitHubRepositories
     }
 
     /**
-     * @param  array<string, mixed> $remote
+     * @param  array<string, mixed>  $remote
      * @return array<string, mixed>
      */
     private function githubReadme(array $remote, Site $site, User $user, string $branch): array
@@ -209,7 +209,7 @@ trait ReadsGitHubRepositories
     }
 
     /**
-     * @param  array<string, mixed> $remote
+     * @param  array<string, mixed>  $remote
      * @return array<string, mixed>
      */
     private function githubRepoMeta(array $remote, GitIdentity $identity): array

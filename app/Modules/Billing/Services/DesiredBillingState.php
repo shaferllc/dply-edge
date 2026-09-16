@@ -10,6 +10,7 @@ namespace App\Modules\Billing\Services;
  * Billing model (dply-edge sells one product):
  * - **Edge sites** — a flat fee per live production site (static/hybrid at
  *   edge_cents, Worker-native SSR at edge_ssr_cents).
+ * - **Load balancing** — per origin endpoint (edge_lb_endpoint_cents), monthly.
  * - **Edge delivery usage** — metered pass-through on top.
  *
  * The plan triple survives only as the Free allowance record ($0): there are
@@ -34,6 +35,8 @@ class DesiredBillingState
         public readonly int $edgeUsageSubtotalCents,
         public readonly array $edgeUsageEstimate,
         public readonly int $monthlyTotalCents,
+        public readonly int $edgeLbEndpointCount = 0,
+        public readonly int $edgeLbSubtotalCents = 0,
     ) {}
 
     /**
@@ -50,6 +53,8 @@ class DesiredBillingState
         int $edgeSsrUnitCents = 0,
         int $edgeUsageSubtotalCents = 0,
         array $edgeUsageEstimate = [],
+        int $edgeLbEndpointCount = 0,
+        int $edgeLbEndpointUnitCents = 0,
     ): self {
         $planPriceCents = max(0, (int) $plan['price_cents']);
 
@@ -60,6 +65,8 @@ class DesiredBillingState
             + ($edgeSsrCount * max(0, $edgeSsrUnitCents));
 
         $edgeUsageSubtotalCents = max(0, $edgeUsageSubtotalCents);
+        $edgeLbEndpointCount = max(0, $edgeLbEndpointCount);
+        $edgeLbSubtotal = $edgeLbEndpointCount * max(0, $edgeLbEndpointUnitCents);
 
         return new self(
             planKey: $plan['key'],
@@ -70,7 +77,9 @@ class DesiredBillingState
             edgeSubtotalCents: $edgeSubtotal,
             edgeUsageSubtotalCents: $edgeUsageSubtotalCents,
             edgeUsageEstimate: $edgeUsageEstimate,
-            monthlyTotalCents: $planPriceCents + $edgeSubtotal + $edgeUsageSubtotalCents,
+            monthlyTotalCents: $planPriceCents + $edgeSubtotal + $edgeUsageSubtotalCents + $edgeLbSubtotal,
+            edgeLbEndpointCount: $edgeLbEndpointCount,
+            edgeLbSubtotalCents: $edgeLbSubtotal,
         );
     }
 
@@ -111,6 +120,8 @@ class DesiredBillingState
             'edge_subtotal_cents' => $this->edgeSubtotalCents,
             'edge_usage_subtotal_cents' => $this->edgeUsageSubtotalCents,
             'edge_usage_estimate' => $this->edgeUsageEstimate,
+            'edge_lb_endpoint_count' => $this->edgeLbEndpointCount,
+            'edge_lb_subtotal_cents' => $this->edgeLbSubtotalCents,
             'monthly_total_cents' => $this->monthlyTotalCents,
         ];
     }

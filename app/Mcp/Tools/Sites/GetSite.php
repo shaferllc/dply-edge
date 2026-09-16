@@ -7,6 +7,7 @@ namespace App\Mcp\Tools\Sites;
 use App\Mcp\Tools\AbstractDplyTool;
 use App\Models\Organization;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
+use Illuminate\JsonSchema\Types\Type;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 
@@ -19,7 +20,7 @@ class GetSite extends AbstractDplyTool
     protected string $ability = 'sites.read';
 
     /**
-     * @return array<string, \Illuminate\JsonSchema\Types\Type>
+     * @return array<string, Type>
      */
     public function schema(JsonSchema $schema): array
     {

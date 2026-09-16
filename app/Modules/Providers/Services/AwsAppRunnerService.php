@@ -69,7 +69,7 @@ class AwsAppRunnerService
      * are App Runner's standard slugs (e.g. 0.25 vCPU / 0.5 GB =
      * "256" / "512").
      *
-     * @param  array<string, mixed> $envVars
+     * @param  array<string, mixed>  $envVars
      * @return array{service_arn: string, service_url: ?string}
      */
     public function createService(
@@ -125,9 +125,9 @@ class AwsAppRunnerService
      * operator authorizes a GitHub App once per AWS account; the
      * connection ARN is what we keep on the ProviderCredential.
      *
-     * @param  array<string, mixed> $envVars
+     * @param  array<string, mixed>  $envVars
+     * @param  array<string, mixed>  $buildEnvVars
      * @return array{service_arn: string, service_url: ?string}
-     * @param  array<string, mixed> $buildEnvVars
      */
     public function createServiceFromSource(
         string $serviceName,
@@ -212,7 +212,6 @@ class AwsAppRunnerService
      * For images on public registries, this re-pulls the tag (so
      * "v1.2.3" → "v1.2.4" requires updateService first; "latest"
      * just re-pulls).
-     *
      */
     public function startDeployment(string $serviceArn): array
     {
@@ -226,7 +225,7 @@ class AwsAppRunnerService
     /**
      * Patch the service's source image (for image tag bumps).
      *
-     * @param  array<string, mixed> $envVars
+     * @param  array<string, mixed>  $envVars
      */
     public function updateImage(string $serviceArn, string $image, int $port, array $envVars = []): void
     {
@@ -315,8 +314,8 @@ class AwsAppRunnerService
      * changing the source repo / branch / Dockerfile path. Used by
      * the source-mode env editor.
      *
-     * @param  array<string, mixed> $envVars
-     * @param  array<string, mixed> $buildEnvVars
+     * @param  array<string, mixed>  $envVars
+     * @param  array<string, mixed>  $buildEnvVars
      */
     public function updateServiceSourceEnv(string $serviceArn, string $repositoryUrl, string $branch, string $connectionArn, int $port, array $envVars, array $buildEnvVars = [], ?string $dockerfilePath = null): void
     {

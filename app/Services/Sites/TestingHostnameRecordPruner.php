@@ -96,7 +96,7 @@ class TestingHostnameRecordPruner
     }
 
     /**
-     * @param  array<string, mixed> $record
+     * @param  array<string, mixed>  $record
      */
     private function hostnameForRecord(string $zone, array $record): ?string
     {
@@ -113,7 +113,7 @@ class TestingHostnameRecordPruner
     }
 
     /**
-     * @param  array<int, string> $zones
+     * @param  array<int, string>  $zones
      */
     private function isTestingHostname(string $hostname, array $zones): bool
     {

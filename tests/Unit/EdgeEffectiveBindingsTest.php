@@ -6,6 +6,7 @@ use App\Models\EdgeDeployment;
 use App\Models\Site;
 use App\Modules\Edge\Services\EdgeBindingsAutoResolver;
 use App\Modules\Edge\Services\EdgeDeliveryContextResolver;
+use App\Modules\Edge\Services\EdgeDplyResourceResolver;
 use App\Modules\Edge\Services\EdgeRepoBindingTranslator;
 use App\Modules\Edge\Services\EnsureDefaultEdgeBindings;
 use App\Modules\Edge\Support\EdgeEffectiveBindings;
@@ -62,7 +63,7 @@ function translator(): EdgeRepoBindingTranslator
     return new EdgeRepoBindingTranslator(
         $resolver,
         $defaults,
-        app(\App\Modules\Edge\Services\EdgeDplyResourceResolver::class),
+        app(EdgeDplyResourceResolver::class),
     );
 }
 

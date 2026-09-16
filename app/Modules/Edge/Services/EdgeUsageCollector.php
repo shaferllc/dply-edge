@@ -7,10 +7,10 @@ namespace App\Modules\Edge\Services;
 use App\Models\EdgeUsageSnapshot;
 use App\Models\Site;
 use App\Modules\Billing\Services\EdgeUsageTotals;
+use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
-use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 
 /**
  * Persists daily Edge usage snapshots per site. v1 pulls from Cloudflare when

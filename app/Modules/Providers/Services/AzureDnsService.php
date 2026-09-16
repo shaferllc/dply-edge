@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace App\Modules\Providers\Services;
 
 use App\Models\ProviderCredential;
+use App\Support\Cloud\AzureAccessToken;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
-use App\Support\Cloud\AzureAccessToken;
 
 class AzureDnsService
 {
@@ -170,8 +170,8 @@ class AzureDnsService
     }
 
     /**
-     * @param  array<string, mixed> $query
-     * @param  array<string, mixed> $body
+     * @param  array<string, mixed>  $query
+     * @param  array<string, mixed>  $body
      */
     private function request(string $method, string $path, array $query = [], array $body = []): Response
     {
@@ -181,8 +181,8 @@ class AzureDnsService
     }
 
     /**
-     * @param  array<string, mixed> $query
-     * @param  array<string, mixed> $body
+     * @param  array<string, mixed>  $query
+     * @param  array<string, mixed>  $body
      */
     private function requestAbsolute(string $method, string $url, array $query = [], array $body = []): Response
     {

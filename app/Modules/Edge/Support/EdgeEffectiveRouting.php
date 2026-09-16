@@ -64,7 +64,7 @@ final class EdgeEffectiveRouting
     }
 
     /**
-     * @param  array<string, mixed> $rules
+     * @param  array<string, mixed>  $rules
      * @return list<array{from: string, to: string, status: int, source: 'repo'|'dashboard'}>
      */
     private static function tagRedirects(array $rules, string $source): array
@@ -90,7 +90,7 @@ final class EdgeEffectiveRouting
     }
 
     /**
-     * @param  array<string, mixed> $rules
+     * @param  array<string, mixed>  $rules
      * @return list<array{from: string, to: string, source: 'repo'|'dashboard'}>
      */
     private static function tagRewrites(array $rules, string $source): array
@@ -112,7 +112,7 @@ final class EdgeEffectiveRouting
     }
 
     /**
-     * @param  array<string, mixed> $rules
+     * @param  array<string, mixed>  $rules
      * @return list<array{for: string, values: array<string, string>, source: 'repo'|'dashboard'}>
      */
     private static function tagHeaders(array $rules, string $source): array

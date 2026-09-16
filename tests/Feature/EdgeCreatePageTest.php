@@ -4,15 +4,13 @@ declare(strict_types=1);
 
 namespace Tests\Feature\EdgeCreatePageTest;
 
-use App\Enums\SiteType;
-use App\Modules\Edge\Livewire\Create;
 use App\Models\Organization;
 use App\Models\Site;
 use App\Models\SocialAccount;
 use App\Models\User;
+use App\Modules\Edge\Livewire\Create;
 use App\Modules\SourceControl\Services\SourceControlRepositoryBrowser;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Queue;
 use Laravel\Pennant\Feature;
 use Livewire\Livewire;
 use ReflectionMethod;

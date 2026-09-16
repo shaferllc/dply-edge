@@ -67,7 +67,7 @@ final class ProcessGitCloner implements GitCloner
     }
 
     /**
-     * @param  array<int, string> $command
+     * @param  array<int, string>  $command
      */
     private function runClone(array $command, string $url): Process
     {

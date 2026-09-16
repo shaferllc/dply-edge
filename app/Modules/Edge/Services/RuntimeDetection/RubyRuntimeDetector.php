@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Services\RuntimeDetection;
 
-
 /**
  * Detects Ruby apps from Gemfile and related repo signals.
  *
@@ -121,7 +120,7 @@ final class RubyRuntimeDetector implements RuntimeDetector
     }
 
     /**
-     * @param  list<string> $gems
+     * @param  list<string>  $gems
      * @param  list<string>  $detectedFiles
      * @param  list<string>  $reasons
      */
@@ -206,7 +205,7 @@ final class RubyRuntimeDetector implements RuntimeDetector
     }
 
     /**
-     * @param  list<string> $gems
+     * @param  list<string>  $gems
      * @param  list<string>  $detectedFiles
      * @param  list<string>  $reasons
      * @return list<DetectedProcess>

@@ -23,9 +23,7 @@ class Templates extends Component
 {
     public string $filterTag = '';
 
-    public function mount(): void
-    {
-    }
+    public function mount(): void {}
 
     public function setFilter(string $tag): void
     {

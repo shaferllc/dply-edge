@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Actions;
 
-use App\Modules\Edge\Jobs\RunEdgeDeployReplayJob;
 use App\Models\EdgeDeployment;
 use App\Models\EdgeDeployReplay;
 use App\Models\Site;
 use App\Models\User;
+use App\Modules\Edge\Jobs\RunEdgeDeployReplayJob;
 use App\Modules\Edge\Services\EdgeDeployReplaySampler;
 use RuntimeException;
 

@@ -148,7 +148,9 @@ final class EdgeDeploymentConfirmSummary
 
     /**
      * @param  list<array{label: string, value: string, mono?: bool}>  $rows
+     *
      * @param-out list<array{label: string, value: string, mono?: bool}>  $rows
+     *
      * @param  array<string, mixed>  $build
      */
     private static function appendBuildConfigRows(array &$rows, array $build, EdgeDeployment $deployment): void

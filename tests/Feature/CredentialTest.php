@@ -76,9 +76,6 @@ test('credentials index forbidden for deployer', function () {
     $response->assertForbidden();
 });
 
-
-
-
 test('credentials can be destroyed by owner', function () {
     $user = userWithOrganization();
     $org = $user->currentOrganization();

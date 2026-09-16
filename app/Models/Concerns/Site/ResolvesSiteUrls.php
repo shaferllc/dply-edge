@@ -225,8 +225,6 @@ trait ResolvesSiteUrls
         };
     }
 
-
-
     /**
      * @return array<string, mixed>
      */

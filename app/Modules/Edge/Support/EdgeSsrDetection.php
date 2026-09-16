@@ -11,7 +11,7 @@ namespace App\Modules\Edge\Support;
 final class EdgeSsrDetection
 {
     /**
-     * @param  array<string, mixed> $plan
+     * @param  array<string, mixed>  $plan
      */
     public static function planLooksLikeSsr(array $plan): bool
     {

@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace App\Modules\Edge\Console;
 
 use App\Models\ProviderCredential;
-use App\Modules\Providers\Cloudflare\CloudflareEdgeCredentialValidator;
 use App\Modules\Edge\Services\EdgeDeliveryFeaturesEnsurer;
 use App\Modules\Edge\Services\EdgeOrgInfraBootstrapper;
 use App\Modules\Edge\Support\EdgeOrgCredentialConfig;
+use App\Modules\Providers\Cloudflare\CloudflareEdgeCredentialValidator;
 use Illuminate\Console\Command;
 
 /**

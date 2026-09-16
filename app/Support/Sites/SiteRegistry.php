@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace App\Support\Sites;
 
 use App\Models\Site;
+use App\Support\Servers\ServerRegistry;
+use App\Support\Workspaces\WorkspaceRegistry;
 
 /**
  * Request-scoped memo for a {@see Site} by id — the `sites` twin of
- * {@see \App\Support\Workspaces\WorkspaceRegistry} and
- * {@see \App\Support\Servers\ServerRegistry}.
+ * {@see WorkspaceRegistry} and
+ * {@see ServerRegistry}.
  *
  * The serverless workspace stacks several sibling Livewire panels (platform,
  * database, cache, background, rollback) on one page, and each resolved its own

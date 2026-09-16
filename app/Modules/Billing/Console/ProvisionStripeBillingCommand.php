@@ -8,7 +8,6 @@ use App\Models\Organization;
 use App\Modules\Billing\Services\StripeBillingProvisioner;
 use Illuminate\Console\Command;
 use Stripe\Exception\ApiErrorException;
-use Stripe\StripeClient;
 
 /**
  * One-shot provisioning command that creates the Stripe products and prices

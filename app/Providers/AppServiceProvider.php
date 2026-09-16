@@ -49,7 +49,6 @@ use App\Support\Sites\SiteRegistry;
 use App\Support\Workspaces\WorkspaceRegistry;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Factories\Factory;
-use Laravel\Pennant\Middleware\EnsureFeaturesAreActive;
 use Illuminate\Foundation\DevCommands;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
@@ -59,6 +58,7 @@ use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
 use Laravel\Cashier\Cashier;
 use Laravel\Cashier\Events\WebhookReceived;
+use Laravel\Pennant\Middleware\EnsureFeaturesAreActive;
 use Livewire\Blaze\Blaze;
 
 class AppServiceProvider extends ServiceProvider

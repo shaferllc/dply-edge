@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Tests\Unit\Support\Edge;
 
 use App\Modules\Edge\Support\EdgeLiveBuildLog;
-use Illuminate\Support\Facades\Redis;
 
 beforeEach(function () {
     EdgeLiveBuildLog::clear('test-deploy-1');

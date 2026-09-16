@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Services\RuntimeDetection;
 
-
 /**
  * Detects PHP apps from composer.json and related repo signals.
  *
@@ -75,7 +74,7 @@ final class PhpRuntimeDetector implements RuntimeDetector
     }
 
     /**
-     * @param  array<string, mixed> $composerJson
+     * @param  array<string, mixed>  $composerJson
      * @param  list<string>  $detectedFiles
      * @param  list<string>  $reasons
      */
@@ -117,7 +116,7 @@ final class PhpRuntimeDetector implements RuntimeDetector
     }
 
     /**
-     * @param  list<(int|string)> $packages
+     * @param  list<(int|string)>  $packages
      * @param  list<string>  $detectedFiles
      * @param  list<string>  $reasons
      */
@@ -152,7 +151,7 @@ final class PhpRuntimeDetector implements RuntimeDetector
     }
 
     /**
-     * @param  list<(int|string)> $packages
+     * @param  list<(int|string)>  $packages
      * @param  list<string>  $detectedFiles
      * @param  list<string>  $reasons
      * @return list<DetectedProcess>

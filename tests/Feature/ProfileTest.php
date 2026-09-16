@@ -4,9 +4,9 @@ namespace Tests\Feature\ProfileTest;
 
 use App\Livewire\Profile\DeleteAccount;
 use App\Livewire\Settings\Hub as SettingsHub;
-use App\Modules\Billing\Livewire\Show as BillingShow;
 use App\Models\Organization;
 use App\Models\User;
+use App\Modules\Billing\Livewire\Show as BillingShow;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;

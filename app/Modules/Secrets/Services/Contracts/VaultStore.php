@@ -19,7 +19,7 @@ interface VaultStore
     /**
      * Persist ciphertext at `$key` plus its sidecar at `$key.meta.json`.
      *
-     * @param  array<string, mixed> $meta
+     * @param  array<string, mixed>  $meta
      */
     public function put(string $key, string $ciphertext, array $meta): void;
 

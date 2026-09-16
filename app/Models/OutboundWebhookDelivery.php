@@ -29,8 +29,8 @@ use Illuminate\Support\Carbon;
  * @property ?string $url
  * @property-read ?Server $server
  * @property-read ?Organization $organization
- * @property \Illuminate\Support\Carbon|null $created_at
- * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  */
 class OutboundWebhookDelivery extends Model
 {

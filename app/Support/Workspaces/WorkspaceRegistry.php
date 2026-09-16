@@ -6,11 +6,12 @@ namespace App\Support\Workspaces;
 
 use App\Models\Site;
 use App\Models\Workspace;
+use App\Policies\SitePolicy;
 
 /**
  * Request-scoped memo for a site's {@see Workspace}, keyed by workspace id.
  *
- * Site authorization ({@see \App\Policies\SitePolicy::update()}) lazy-loads
+ * Site authorization ({@see SitePolicy::update()}) lazy-loads
  * `$site->workspace` and then `$workspace->organization` for every Site
  * instance it checks — and a single render authorizes the same site as several
  * distinct model instances (the page site, the deploy sidebar, sync peers, the

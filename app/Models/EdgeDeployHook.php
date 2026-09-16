@@ -25,8 +25,8 @@ use Illuminate\Support\Str;
  * @property string $token_hash
  * @property string $token_prefix
  * @property-read ?Site $site
- * @property \Illuminate\Support\Carbon|null $created_at
- * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  */
 class EdgeDeployHook extends Model
 {

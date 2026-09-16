@@ -8,6 +8,7 @@ use App\Models\Site;
 use App\Modules\Edge\Support\EdgeRepoRoot;
 use App\Modules\Edge\Support\EdgeTestingDomains;
 use App\Support\Preview\UnifiedPreviewHostname;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
@@ -284,11 +285,11 @@ trait ManagesEdgeHosting
     /**
      * Query form of {@see countsAsEdgeApp()}.
      *
-     * @param  \Illuminate\Database\Eloquent\Builder<Site>  $query
+     * @param  Builder<Site>  $query
      */
-    public function scopeEdgeListed(\Illuminate\Database\Eloquent\Builder $query): void
+    public function scopeEdgeListed(Builder $query): void
     {
-        $query->where(function (\Illuminate\Database\Eloquent\Builder $q): void {
+        $query->where(function (Builder $q): void {
             $q->whereNotNull('edge_backend')
                 ->orWhere('meta->runtime_profile', 'edge_web');
         });

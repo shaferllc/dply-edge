@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services\Concerns;
 
-
-
 /**
  * Concern extracted from the host Livewire component to keep it under control.
  * Every public property/method name is unchanged, so Livewire snapshots and
@@ -13,8 +11,6 @@ namespace App\Services\Concerns;
  */
 trait ManagesDoDomainsSshKeys
 {
-
-
     /**
      * List account SSH keys.
      *

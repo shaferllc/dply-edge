@@ -28,8 +28,8 @@ use Illuminate\Support\Carbon;
  * @property-read ?Site $previewSite
  * @property-read ?User $triggeredBy
  * @property-read ?User $waivedBy
- * @property \Illuminate\Support\Carbon|null $created_at
- * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  */
 class DeployContractRun extends Model
 {

@@ -7,9 +7,9 @@ namespace App\Livewire\Concerns;
 use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
+use App\Support\Servers\ServerRegistry;
 use Illuminate\Support\Facades\Gate;
 use Laravel\Pennant\Feature;
-use App\Support\Servers\ServerRegistry;
 
 /**
  * Concern extracted from the host Livewire component to keep it under control.
@@ -18,10 +18,6 @@ use App\Support\Servers\ServerRegistry;
  */
 trait ResolvesCommandPaletteItems
 {
-
-
-
-
     /**
      * @return list<array{label: string, items: list<array<string, mixed>>}>
      */

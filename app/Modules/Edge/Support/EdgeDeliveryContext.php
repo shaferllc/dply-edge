@@ -14,8 +14,8 @@ use RuntimeException;
 final readonly class EdgeDeliveryContext
 {
     /**
-     * @param  list<string> $workerRoutes
-     * @param  list<string> $ssrCompatibilityFlags
+     * @param  list<string>  $workerRoutes
+     * @param  list<string>  $ssrCompatibilityFlags
      */
     public function __construct(
         public string $backendKey,
@@ -170,7 +170,7 @@ final readonly class EdgeDeliveryContext
     }
 
     /**
-     * @param  list<string> $workerRoutes
+     * @param  list<string>  $workerRoutes
      */
     public function withWorkerRoutes(array $workerRoutes): self
     {

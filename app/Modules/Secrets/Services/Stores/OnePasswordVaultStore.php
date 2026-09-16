@@ -18,7 +18,7 @@ use RuntimeException;
 final class OnePasswordVaultStore implements VaultStore
 {
     /**
-     * @param  array<string, mixed> $config
+     * @param  array<string, mixed>  $config
      */
     public function __construct(private readonly array $config) {}
 
@@ -34,7 +34,7 @@ final class OnePasswordVaultStore implements VaultStore
     }
 
     /**
-     * @param  array<string, mixed> $meta
+     * @param  array<string, mixed>  $meta
      */
     public function put(string $key, string $ciphertext, array $meta): void
     {
@@ -106,7 +106,7 @@ final class OnePasswordVaultStore implements VaultStore
     }
 
     /**
-     * @param  array<int, string> $args
+     * @param  array<int, string>  $args
      */
     private function op(array $args): ProcessResult
     {

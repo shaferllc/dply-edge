@@ -59,7 +59,6 @@ class ErrorEventRecorder
         ]);
     }
 
-
     /**
      * Record one HTTP 5xx hit swept from a site's PHP-FPM access log (Tier-2 of
      * the server-error-reference feature). Idempotent on the reference: a later
@@ -113,7 +112,6 @@ class ErrorEventRecorder
             ],
         );
     }
-
 
     /**
      * Resolve [organization_id, server_id, site_id, link_url] from a
@@ -187,7 +185,6 @@ class ErrorEventRecorder
 
         return Str::headline(str_replace([':', '.'], ' ', $kind)) ?: __('Operation failed');
     }
-
 
     /** Newest error-level line from a ConsoleAction's output, if any. */
     private function lastErrorLine(ConsoleAction $action): string

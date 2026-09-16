@@ -26,7 +26,7 @@ use Illuminate\Support\Carbon;
  * @property string $source
  * @property string|null $ttfb_ms
  * @property-read ?Site $site
- * @property \Illuminate\Support\Carbon $updated_at
+ * @property Carbon $updated_at
  */
 class EdgeWebVital extends Model
 {

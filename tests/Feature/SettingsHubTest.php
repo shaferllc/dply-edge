@@ -27,7 +27,6 @@ test('settings hub shows breadcrumb dashboard settings profile', function () {
         ->assertSee('aria-current="page"', false);
 });
 
-
 test('settings shell uses horizontal nav when navigation layout is top', function () {
     $user = User::factory()->create([
         'ui_preferences' => ['navigation_layout' => 'top'],

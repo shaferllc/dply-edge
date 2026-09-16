@@ -120,7 +120,6 @@ class Team extends Model
         return $this->userCanManageSshKeys($user);
     }
 
-
     /** @return MorphMany<NotificationChannel, $this> */
     public function notificationChannels(): MorphMany
     {

@@ -38,8 +38,8 @@ use Illuminate\Support\Facades\Cache;
  * @property-read ?Server $server
  * @property-read ?Site $site
  * @property-read ?User $dismisser
- * @property \Illuminate\Support\Carbon|null $created_at
- * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  */
 class ErrorEvent extends Model
 {
@@ -150,7 +150,7 @@ class ErrorEvent extends Model
 
     /**
      * How long the nav badge may serve a stale count. Matched to the sites-count
-     * cache on {@see \App\Models\Server::cachedSitesCount} — shorter than this
+     * cache on {@see Server::cachedSitesCount} — shorter than this
      * and the entry keeps lapsing between page loads, so it stops earning its
      * keep as a cache.
      */
@@ -230,5 +230,4 @@ class ErrorEvent extends Model
     {
         return app(ErrorRetryRegistry::class)->isRetryable((string) $this->category);
     }
-
 }

@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Models;
 
-use App\Modules\SourceControl\Contracts\GitIdentity;
 use App\Models\Concerns\AvoidsGitIdentityAttributeRecursion;
+use App\Modules\SourceControl\Contracts\GitIdentity;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;
@@ -28,8 +28,8 @@ use Illuminate\Support\Carbon;
  * @property ?string $provider_id
  * @property ?string $user_id
  * @property-read ?User $user
- * @property \Illuminate\Support\Carbon|null $created_at
- * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
  */
 class GitProviderToken extends Model implements GitIdentity
 {

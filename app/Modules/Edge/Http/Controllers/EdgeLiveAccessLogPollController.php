@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Http\Controllers;
 
+use App\Events\Edge\EdgeAccessLogReceived;
 use App\Http\Controllers\Controller;
 use App\Models\EdgeAccessLog;
 use App\Models\Server;
@@ -18,7 +19,7 @@ use Illuminate\Support\Facades\Gate;
  *
  * Echo/Reverb is the primary push path; this endpoint seeds the table and
  * catches rows when broadcast is down or Logpush wrote to the DB without
- * firing {@see \App\Events\Edge\EdgeAccessLogReceived}.
+ * firing {@see EdgeAccessLogReceived}.
  */
 class EdgeLiveAccessLogPollController extends Controller
 {

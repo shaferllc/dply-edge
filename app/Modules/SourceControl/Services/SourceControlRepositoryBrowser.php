@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Modules\SourceControl\Services;
 
-use App\Modules\SourceControl\Contracts\GitIdentity;
 use App\Models\User;
+use App\Modules\SourceControl\Contracts\GitIdentity;
 use Illuminate\Support\Facades\Http;
 
 class SourceControlRepositoryBrowser

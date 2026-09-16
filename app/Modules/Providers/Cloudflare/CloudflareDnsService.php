@@ -310,7 +310,7 @@ class CloudflareDnsService
     }
 
     /**
-     * @param  array<string, mixed> $queryOrBody
+     * @param  array<string, mixed>  $queryOrBody
      */
     private function request(string $method, string $path, array $queryOrBody = []): Response
     {

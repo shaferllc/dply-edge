@@ -75,6 +75,7 @@ trait ResolvesSiteHostnames
         }
 
         $meta = $this->meta ?? [];
+
         return (string) ($meta['testing_hostname']['hostname'] ?? '');
     }
 
@@ -279,5 +280,4 @@ trait ResolvesSiteHostnames
             ->values()
             ->all();
     }
-
 }

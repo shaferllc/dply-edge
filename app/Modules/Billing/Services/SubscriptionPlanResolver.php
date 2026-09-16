@@ -2,13 +2,14 @@
 
 namespace App\Modules\Billing\Services;
 
+use App\Enums\QuotaSurface;
 use InvalidArgumentException;
 use Laravel\Cashier\Subscription as CashierSubscription;
 
 /**
  * Reads a plan record from config `subscription.standard.plans`. dply-edge has
  * no paid plan tiers — the only record is `free`, whose per-surface ceilings
- * are the "no card to start" allowance ({@see \App\Enums\QuotaSurface}).
+ * are the "no card to start" allowance ({@see QuotaSurface}).
  *
  * Also the one place that answers "is this subscription yearly?" and "which
  * prices are retired?", so every caller agrees.

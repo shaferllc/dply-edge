@@ -6,12 +6,13 @@ namespace App\Support\Notifications;
 
 use App\Models\Server;
 use App\Models\Site;
+use App\Support\SiteUptimeNotificationKeys;
 
 /**
  * Which notification events belong to which subject.
  *
  * The web UI answers this implicitly — each workspace tab hardcodes the key set
- * it manages ({@see \App\Support\SiteUptimeNotificationKeys} and friends), which
+ * it manages ({@see SiteUptimeNotificationKeys} and friends), which
  * works when a human is looking at one tab. A client asking "what can I
  * subscribe this site to?" needs the whole answer in one place, so this derives
  * it from `config('notification_events')` and the subject itself.

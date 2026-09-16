@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Modules\Edge\Http\Controllers;
 
 use App\Http\Controllers\Controller;
-
 use App\Models\EdgeDeployment;
 use App\Modules\Edge\Services\FakeEdgeBackend;
 use App\Modules\Edge\Support\FakeEdgeProvision;

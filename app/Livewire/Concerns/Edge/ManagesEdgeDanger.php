@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Livewire\Concerns\Edge;
 
-use App\Modules\Edge\Jobs\TeardownEdgeSiteJob;
 use App\Livewire\Concerns\DispatchesToastNotifications;
 use App\Models\Site;
+use App\Modules\Edge\Jobs\TeardownEdgeSiteJob;
 use Livewire\Component;
 
 /**

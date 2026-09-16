@@ -3,7 +3,6 @@
 namespace App\Modules\Billing\Http\Controllers;
 
 use App\Http\Controllers\Controller;
-
 use App\Models\Organization;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;

@@ -17,7 +17,7 @@ use Throwable;
 trait ReadsGitLabRepositories
 {
     /**
-     * @param  array<string, mixed> $remote
+     * @param  array<string, mixed>  $remote
      * @return array<string, mixed>
      */
     private function gitlabBranches(array $remote, Site $site, User $user): array
@@ -61,7 +61,7 @@ trait ReadsGitLabRepositories
     }
 
     /**
-     * @param  array<string, mixed> $remote
+     * @param  array<string, mixed>  $remote
      * @return array<string, mixed>
      */
     private function gitlabTags(array $remote, Site $site, User $user): array
@@ -99,7 +99,7 @@ trait ReadsGitLabRepositories
     }
 
     /**
-     * @param  array<string, mixed> $remote
+     * @param  array<string, mixed>  $remote
      * @return array<string, mixed>
      */
     private function gitlabTree(array $remote, Site $site, User $user, string $branch, string $path): array
@@ -140,7 +140,7 @@ trait ReadsGitLabRepositories
     }
 
     /**
-     * @param  array<string, mixed> $remote
+     * @param  array<string, mixed>  $remote
      * @return array<string, mixed>
      */
     private function gitlabFile(array $remote, Site $site, User $user, string $branch, string $path): array
@@ -176,7 +176,7 @@ trait ReadsGitLabRepositories
     }
 
     /**
-     * @param  array<string, mixed> $remote
+     * @param  array<string, mixed>  $remote
      * @return array<string, mixed>
      */
     private function gitlabProjectMeta(array $remote, GitIdentity $identity): array
@@ -203,7 +203,8 @@ trait ReadsGitLabRepositories
      * gitlab.com repo with no PAT yet, or a self-hosted PAT pointed at a
      * different host). Prefer the identity's configured base; fall back
      * to the host parsed from the repo URL.
-     * @param  array<string, mixed> $remote
+     *
+     * @param  array<string, mixed>  $remote
      */
     private function gitlabApiBase(GitIdentity $identity, array $remote): string
     {

@@ -23,8 +23,8 @@ use Illuminate\Support\Carbon;
  * @property ?string $user_id
  * @property ?Carbon $visited_at
  * @property-read ?User $user
- * @property \Illuminate\Support\Carbon $created_at
- * @property \Illuminate\Support\Carbon $updated_at
+ * @property Carbon $created_at
+ * @property Carbon $updated_at
  */
 class RecentResource extends Model
 {

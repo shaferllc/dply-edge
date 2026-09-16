@@ -130,7 +130,6 @@ final class DplySchedule
             ->name('secrets-restore-drill')
             ->when(fn (): bool => (bool) config('secret_vault.drill.enabled'));
 
-
         if (DplyRuntime::isSplitDeployment()) {
             foreach ($schedule->events() as $event) {
                 $event->onOneServer();

@@ -11,7 +11,7 @@ final class BillingSubscriptionSyncEventRecorder
 {
     /**
      * @param  array<int, array<string, mixed>>  $changes
-     * @param  array<string, mixed> $desiredState
+     * @param  array<string, mixed>  $desiredState
      */
     public function record(
         Organization $organization,

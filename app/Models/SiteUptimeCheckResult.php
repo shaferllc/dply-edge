@@ -21,8 +21,8 @@ use Illuminate\Support\Carbon;
  * @property ?string $site_uptime_monitor_id
  * @property string $state
  * @property-read ?SiteUptimeMonitor $monitor
- * @property \Illuminate\Support\Carbon $created_at
- * @property \Illuminate\Support\Carbon $updated_at
+ * @property Carbon $created_at
+ * @property Carbon $updated_at
  */
 class SiteUptimeCheckResult extends Model
 {
