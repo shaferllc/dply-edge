@@ -27,14 +27,43 @@ trait ManagesOrganizationSubscription
 
     public function planTierLabel(): string
     {
+        return (string) $this->tierAllowances()['label'];
+    }
+
+    /**
+     * The tier whose price is on the subscription: `pro`, `team`,
+     * `enterprise`, or null (no subscription, or a pre-tier per-site one the
+     * next billing sync moves onto a tier).
+     */
+    public function subscribedTier(): ?string
+    {
         if ($this->onEnterpriseSubscription()) {
-            return 'Enterprise';
+            return 'enterprise';
         }
-        if ($this->onStandardSubscription()) {
-            return 'Standard';
+        foreach (['team', 'pro'] as $tier) {
+            if ($this->subscriptionMatchesAnyPrice([config('subscription.standard.stripe.tier_'.$tier)])) {
+                return $tier;
+            }
         }
 
-        return 'Free';
+        return null;
+    }
+
+    /**
+     * Tier used for allowances and feature gates. A pre-tier per-site
+     * subscription reads as Pro until the sync moves it.
+     */
+    public function billingTier(): string
+    {
+        return $this->subscribedTier() ?? ($this->onStandardSubscription() ? 'pro' : 'free');
+    }
+
+    /**
+     * @return array<string, mixed> One `subscription.standard.tiers.*` record.
+     */
+    public function tierAllowances(): array
+    {
+        return (array) config('subscription.standard.tiers.'.$this->billingTier());
     }
 
     /**
@@ -76,6 +105,9 @@ trait ManagesOrganizationSubscription
             $stripe['edge_ssr_yearly'] ?? null,
             $stripe['edge_usage'] ?? null,
             $stripe['edge_lb_endpoint'] ?? null,
+            $stripe['tier_pro'] ?? null,
+            $stripe['tier_team'] ?? null,
+            $stripe['team_seat'] ?? null,
         ];
 
         return array_map(
@@ -114,13 +146,21 @@ trait ManagesOrganizationSubscription
     }
 
     /**
-     * Seat cap from Stripe is not part of the Standard pricing story — every
-     * paid plan gets unlimited team members. Kept as a stub returning null so
-     * {@see effectiveMemberSeatCap} can fall through to the env-level cap.
+     * Tier seat cap: hard on tiers without a per-seat price (Free, Pro), none
+     * where extra seats are billed (Team) or unlimited (Enterprise). Beta orgs
+     * without a subscription aren't seat-capped.
      */
     public function seatCapFromSubscription(): ?int
     {
-        return null;
+        $tier = $this->tierAllowances();
+        if (($tier['extra_seat_cents'] ?? null) !== null || ($tier['seats'] ?? null) === null) {
+            return null;
+        }
+        if ($this->isBeta() && ! $this->onAnyPaidPlan()) {
+            return null;
+        }
+
+        return (int) $tier['seats'];
     }
 
     /**

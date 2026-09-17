@@ -1,0 +1,14 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-16",
+  "id": "r-zdescb7y05vp1bxx",
+  "recordedBy": {
+    "client": "claude",
+    "id": "3724a513-6f07-4128-b763-49789f4166f4"
+  },
+  "scopeTags": [
+    "billing"
+  ],
+  "supersedes": "r-pr3byvcm49v5k9a1",
+  "text": "Billing model: move from per-site pricing to tiers + usage (Primcloud-shaped). Free $0 (1 site, 1 seat, 300 build min, 1 concurrent, 20-min timeout, 1M requests, 10 GB egress, no paid add-ons), Pro $20/mo (10 sites, 3 seats, 1,000 build min, 2 concurrent, 45-min timeout, 10M requests, 500 GB egress, add-ons), Team $49/mo (50 sites, 5 seats +$5/seat, 3,000 build min, 5 concurrent, 60-min timeout, 50M requests, 2 TB egress, add-ons, audit log). Extra sites $2, SSR sites stay $7 each. Over-allowance usage billed monthly at existing rates; build-minute overage $0.006 (Pro) / $0.005 (Team). Tiers are monthly-only for now (no yearly). Existing per-site subscribers are auto-moved to the cheapest tier that fits (not grandfathered). Load balancing stays $8/endpoint, Pro/Team only. Owner: \"just build it and ask questions along the way\" (2026-09-16)."
+}

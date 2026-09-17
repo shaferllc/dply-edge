@@ -13,43 +13,28 @@ beforeEach(function () {
     Feature::flushCache();
 });
 
-test('pricing page renders the per-site platform fee for each delivery mode', function () {
+test('pricing page lists the free, pro and team plans from config', function () {
     $response = $this->withoutMiddleware()->get(route('pricing'));
 
     $response->assertOk()
-        ->assertSee('One product. Two numbers.')
-        ->assertSee('Static / SSG')
-        ->assertSee('Hybrid')
-        ->assertSee('Worker SSR')
-        ->assertSee('$2.00')
-        ->assertSee('$7.00');
+        ->assertSee('Pick a plan. Pay for what you outgrow.')
+        ->assertSee('Free')
+        ->assertSee('Pro')
+        ->assertSee('Team')
+        ->assertSee('$20')
+        ->assertSee('$49')
+        ->assertSee('What each plan includes');
 });
 
-test('platform fees come from the billing config, not the markup', function () {
-    Config::set('subscription.standard.edge_cents', 300);
-    Config::set('subscription.standard.edge_ssr_cents', 900);
+test('plan prices and allowances come from the billing config, not the markup', function () {
+    Config::set('subscription.standard.tiers.pro.price_cents', 2500);
+    Config::set('subscription.standard.tiers.team.build_minutes', 4_000);
 
     $response = $this->withoutMiddleware()->get(route('pricing'));
 
     $response->assertOk()
-        ->assertSee('$3.00')
-        ->assertSee('$9.00');
-});
-
-test('included allowances are read from config so the page cannot drift from the invoice', function () {
-    Config::set('dply.edge.usage_billing.included_requests_per_site', 2_000_000);
-    Config::set('dply.edge.usage_billing.included_egress_gb_per_site', 250);
-    Config::set('dply.edge.usage_billing.included_r2_class_a_ops_per_site', 50_000);
-
-    $response = $this->withoutMiddleware()->get(route('pricing'));
-
-    $response->assertOk()
-        ->assertSee('Included with every site')
-        ->assertSee('2M')
-        ->assertSee('250 GB')
-        ->assertSee('50k')
-        // the overage table quotes the same allowance it charges past
-        ->assertSee('per million, past 2M');
+        ->assertSee('$25')
+        ->assertSee('4,000');
 });
 
 test('overage rates carry the configured markup', function () {
@@ -88,5 +73,6 @@ test('pricing page sells one product — no server plans or other product lines'
         ->assertDontSee('priced by server count')
         ->assertDontSee('Up to 3 servers')
         ->assertDontSee('dply Cloud')
-        ->assertDontSee('Serverless functions');
+        ->assertDontSee('Serverless functions')
+        ->assertDontSee('/site/mo');
 });

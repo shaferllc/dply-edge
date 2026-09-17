@@ -3,6 +3,7 @@
 namespace Tests\Unit\Services\Billing\DesiredBillingStateTest;
 
 use App\Modules\Billing\Services\DesiredBillingState;
+use App\Modules\Billing\Services\OrganizationBillingStateComputer;
 use App\Modules\Billing\Services\StandardSubscriptionCreator;
 
 const FREE = ['key' => 'free', 'label' => 'Free', 'price_cents' => 0, 'max_servers' => 1];
@@ -145,15 +146,60 @@ test('load balancer endpoints bill per endpoint and land in the monthly total', 
         ->and($state->toArray()['edge_lb_endpoint_count'])->toBe(3);
 });
 
-test('monthly price list carries the load balancer endpoint line, yearly does not', function () {
+test('tier state bills the fee, extra sites past the allowance, ssr, seats and build overage', function () {
+    // Team: $49 + 52 static (2 extra × $2) + 1 SSR ($7) + 7 seats (2 extra × $5) + $3 build overage
+    $state = DesiredBillingState::fromPlanAndUsage(
+        plan: ['key' => 'team', 'label' => 'Team', 'price_cents' => 4900],
+        edgeCount: 53,
+        edgeUnitCents: 200,
+        edgeSsrCount: 1,
+        edgeSsrUnitCents: 700,
+        includedSites: 50,
+        seatCount: 7,
+        includedSeats: 5,
+        extraSeatUnitCents: 500,
+        buildMinutes: 3600,
+        buildMinuteOverageCents: 300,
+    );
+
+    expect($state->extraSiteCount)->toBe(2)
+        ->and($state->edgeSubtotalCents)->toBe(1100)
+        ->and($state->extraSeatCount)->toBe(2)
+        ->and($state->usageLineCents())->toBe(300)
+        ->and($state->monthlyTotalCents)->toBe(4900 + 1100 + 1000 + 300);
+});
+
+test('price list is the tier line plus every non-zero add-on line, monthly only', function () {
     config([
+        'subscription.standard.stripe.tier_team' => 'price_team',
         'subscription.standard.stripe.edge' => 'price_edge',
-        'subscription.standard.stripe.edge_yearly' => 'price_edge_y',
+        'subscription.standard.stripe.edge_ssr' => 'price_ssr',
+        'subscription.standard.stripe.team_seat' => 'price_seat',
         'subscription.standard.stripe.edge_lb_endpoint' => 'price_lb',
+        'subscription.standard.stripe.edge_usage' => 'price_usage',
     ]);
-    $state = DesiredBillingState::fromPlanAndUsage(plan: FREE, edgeCount: 1, edgeUnitCents: 200, edgeLbEndpointCount: 2, edgeLbEndpointUnitCents: 800);
+    $state = DesiredBillingState::fromPlanAndUsage(
+        plan: ['key' => 'team', 'label' => 'Team', 'price_cents' => 4900],
+        edgeCount: 51, edgeUnitCents: 200, includedSites: 50,
+        edgeLbEndpointCount: 2, edgeLbEndpointUnitCents: 800,
+        seatCount: 5, includedSeats: 5, extraSeatUnitCents: 500,
+    );
     $creator = app(StandardSubscriptionCreator::class);
 
-    expect($creator->buildPriceList($state))->toContain(['price' => 'price_lb', 'quantity' => 2])
-        ->and(collect($creator->buildPriceList($state, 'year'))->pluck('price')->all())->not->toContain('price_lb');
+    expect($creator->buildPriceList($state))->toBe([
+        ['price' => 'price_team', 'quantity' => 1],
+        ['price' => 'price_edge', 'quantity' => 1],
+        ['price' => 'price_lb', 'quantity' => 2],
+    ])
+        ->and(fn () => $creator->buildPriceList($state, 'year'))->toThrow(\InvalidArgumentException::class)
+        ->and($creator->buildPriceList(DesiredBillingState::fromPlanAndUsage(plan: FREE, edgeCount: 1)))->toBe([]);
+});
+
+test('cheapest paid tier moves small fleets to pro and big or busy ones to team', function () {
+    $pick = fn (int $sites, int $seats) => OrganizationBillingStateComputer::cheapestPaidTier($sites, $seats);
+
+    expect($pick(3, 1))->toBe('pro')
+        ->and($pick(24, 3))->toBe('pro')   // $20 + 14 × $2 = $48 < $49
+        ->and($pick(25, 3))->toBe('team')  // $50 > $49
+        ->and($pick(2, 4))->toBe('team');  // Pro seats are a hard cap
 });

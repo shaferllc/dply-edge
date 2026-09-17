@@ -57,6 +57,53 @@ return [
             'cutover_at' => env('SUBSCRIPTION_BETA_CUTOVER_AT'),
             'invite_expiry_days' => (int) env('SUBSCRIPTION_BETA_INVITE_EXPIRY_DAYS', 30),
         ],
+        /*
+        | Plan tiers (ruling r-zdescb7y05vp1bxx, 2026-09-16). Monthly only.
+        | Allowances are org-wide per month. Over them:
+        |   sites          extra static/hybrid sites at edge_cents each
+        |   SSR sites      every SSR site at edge_ssr_cents (never included)
+        |   seats          extra_seat_cents each, or a hard cap when null
+        |   build minutes  build_minute_overage_millicents (1/1000 ¢) each, or builds stop when null
+        |   requests/egress  billed at dply.edge.usage_billing rates
+        | Free needs no card; paid add-ons (load balancing) and the audit log
+        | are tier features.
+        */
+        'tiers' => [
+            'free' => [
+                'label' => 'Free', 'price_cents' => 0,
+                'sites' => 1, 'ssr' => false, 'seats' => 1, 'extra_seat_cents' => null,
+                'build_minutes' => 300, 'build_minute_overage_millicents' => null,
+                'concurrent_builds' => 1, 'build_timeout_minutes' => 20,
+                'requests' => 1_000_000, 'egress_gb' => 10,
+                'custom_domains_per_site' => 1, 'addons' => false, 'audit_log' => false, 'containers' => false,
+            ],
+            'pro' => [
+                'label' => 'Pro', 'price_cents' => 2000,
+                'sites' => 10, 'ssr' => true, 'seats' => 3, 'extra_seat_cents' => null,
+                'build_minutes' => 1_000, 'build_minute_overage_millicents' => 600,
+                'concurrent_builds' => 2, 'build_timeout_minutes' => 45,
+                'requests' => 10_000_000, 'egress_gb' => 500,
+                'custom_domains_per_site' => 100, 'addons' => true, 'audit_log' => false, 'containers' => true,
+            ],
+            'team' => [
+                'label' => 'Team', 'price_cents' => 4900,
+                'sites' => 50, 'ssr' => true, 'seats' => 5, 'extra_seat_cents' => 500,
+                'build_minutes' => 3_000, 'build_minute_overage_millicents' => 500,
+                'concurrent_builds' => 5, 'build_timeout_minutes' => 60,
+                'requests' => 50_000_000, 'egress_gb' => 2_000,
+                'custom_domains_per_site' => 100, 'addons' => true, 'audit_log' => true, 'containers' => true,
+            ],
+            // Sales-led: billed by hand in Stripe (subscription.enterprise), so
+            // no fee or overage here — null allowances mean unlimited.
+            'enterprise' => [
+                'label' => 'Enterprise', 'price_cents' => 0,
+                'sites' => null, 'ssr' => true, 'seats' => null, 'extra_seat_cents' => null,
+                'build_minutes' => null, 'build_minute_overage_millicents' => null,
+                'concurrent_builds' => 10, 'build_timeout_minutes' => 120,
+                'requests' => null, 'egress_gb' => null,
+                'custom_domains_per_site' => null, 'addons' => true, 'audit_log' => true, 'containers' => true,
+            ],
+        ],
         // Flat per-site fee for first-party dply Edge (static/SSG + hybrid).
         // Edge static is genuinely flat-eligible: Cloudflare Workers Paid is
         // $5/mo per *account* (amortized across the whole fleet) and R2/Pages
@@ -105,6 +152,9 @@ return [
             'edge_ssr_yearly' => env('STRIPE_PRICE_STANDARD_EDGE_SSR_YEARLY', ''),
             'edge_usage' => env('STRIPE_PRICE_STANDARD_EDGE_USAGE', ''),
             'edge_lb_endpoint' => env('STRIPE_PRICE_STANDARD_EDGE_LB_ENDPOINT', ''),
+            'tier_pro' => env('STRIPE_PRICE_TIER_PRO', ''),
+            'tier_team' => env('STRIPE_PRICE_TIER_TEAM', ''),
+            'team_seat' => env('STRIPE_PRICE_TEAM_SEAT', ''),
             // Prices of retired product lines (plan tiers, serverless, Cloud,
             // managed servers, Realtime, Lookout, Queue, server logs). Nothing
             // bills them any more; StripeSubscriptionSyncer removes any it

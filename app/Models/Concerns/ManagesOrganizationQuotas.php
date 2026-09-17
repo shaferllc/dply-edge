@@ -23,24 +23,23 @@ trait ManagesOrganizationQuotas
 
     /**
      * The org's ceiling for one product surface, or null when unlimited.
-     * Beta orgs use the beta envelope instead of the plan tier.
      *
-     * Paying orgs are uncapped: Edge bills per site plus usage, so the Free
-     * plan's ceiling is only the "no card to start" allowance. The plan tier
-     * itself is resolved from a BYO server count that is always 0 since the
-     * Edge cut, so without this every org read as Free forever.
+     * Pro/Team/Enterprise are uncapped: sites beyond the tier's included count
+     * bill as extra sites. Unsubscribed beta orgs get the beta envelope;
+     * everyone else unsubscribed gets the Free allowance.
      */
     public function quotaLimit(QuotaSurface $surface): ?int
     {
+        // A tier subscription overrides the beta envelope (extra sites bill).
+        if ($this->onAnyPaidPlan()) {
+            return null;
+        }
+
         if ($this->isBeta()) {
             return max(1, (int) config(
                 'subscription.standard.beta.'.$surface->betaConfigKey(),
                 $surface->betaDefault(),
             ));
-        }
-
-        if ($this->onAnyPaidPlan()) {
-            return null;
         }
 
         return $this->currentSubscriptionPlan()[$surface->planConfigKey()];
@@ -136,7 +135,7 @@ trait ManagesOrganizationQuotas
 
         // Only unsubscribed orgs reach here — quotaLimit() is null once paying.
         return sprintf(
-            'You can run %d %s without a card. Subscribe on the organization billing page to remove the limit — each site is billed monthly plus usage.',
+            'The Free plan includes %d %s. Upgrade to Pro on the organization billing page for 10 sites, plus $2 for each site after that.',
             $limit,
             trans_choice($surface->nounKey(), $limit),
         );

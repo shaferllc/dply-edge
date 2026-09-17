@@ -2,96 +2,90 @@
 
 @php
     /*
-     | Edge-only estimator. Inputs are the two things that can move a bill: how
-     | many live sites of each kind you run, and how much delivery they do.
-     | Allowances are per site, so they scale with the site count — the same way
-     | EdgeUsageCostCalculator applies them when the invoice is built.
+     | Tier estimator. Prices the same inputs on Pro and Team and points at the
+     | cheaper one — the arithmetic OrganizationBillingStateComputer runs:
+     | fee + extra sites + SSR sites + extra seats + build-minute and delivery
+     | overage past the plan's org-wide allowance.
      */
+    $plan = static fn (array $t): array => [
+        'label' => $t['label'],
+        'price' => $t['price_cents'] / 100,
+        'sites' => $t['sites'],
+        'seats' => $t['seats'],
+        'seatPrice' => $t['extra_seat_cents'] === null ? null : $t['extra_seat_cents'] / 100,
+        'minutes' => $t['build_minutes'],
+        'minutePrice' => ($t['build_minute_overage_millicents'] ?? 0) / 100_000,
+        'requestsM' => $t['requests'] / 1_000_000,
+        'egressGb' => $t['egress_gb'],
+    ];
     $calc = [
         'sitePrice' => $sitePrice,
         'ssrPrice' => $ssrPrice,
-        'annualPct' => $annualPct,
         'requestsPerMillion' => (float) $rates['requests_per_million'],
         'egressPerGb' => (float) $rates['egress_per_gb'],
-        'storagePerGb' => (float) $rates['storage_per_gb'],
-        'includedRequestsM' => $includedRequests / 1_000_000,
-        'includedEgressGb' => $includedEgress,
-        'includedStorageGb' => $includedStorage,
+        'plans' => ['pro' => $plan($tiers['pro']), 'team' => $plan($tiers['team'])],
     ];
 
     $presets = [
-        ['label' => __('Personal site'), 'hint' => __('1 static site, light traffic'), 'static' => 1, 'ssr' => 0, 'requests' => 1, 'egress' => 20, 'storage' => 1],
-        ['label' => __('Agency'), 'hint' => __('8 client sites'), 'static' => 8, 'ssr' => 0, 'requests' => 20, 'egress' => 400, 'storage' => 12],
-        ['label' => __('SaaS marketing'), 'hint' => __('2 static + 1 SSR app'), 'static' => 2, 'ssr' => 1, 'requests' => 25, 'egress' => 500, 'storage' => 10],
-        ['label' => __('High traffic'), 'hint' => __('1 SSR app, 60M requests'), 'static' => 0, 'ssr' => 1, 'requests' => 60, 'egress' => 1200, 'storage' => 20],
+        ['label' => __('Side project'), 'hint' => __('3 sites, just you'), 'static' => 3, 'ssr' => 0, 'seats' => 1, 'minutes' => 200, 'requests' => 2, 'egress' => 40],
+        ['label' => __('Agency'), 'hint' => __('20 client sites, 3 people'), 'static' => 20, 'ssr' => 0, 'seats' => 3, 'minutes' => 900, 'requests' => 30, 'egress' => 400],
+        ['label' => __('SaaS'), 'hint' => __('2 static + 2 SSR, 8 people'), 'static' => 2, 'ssr' => 2, 'seats' => 8, 'minutes' => 2500, 'requests' => 40, 'egress' => 900],
     ];
 @endphp
 
 <div
     x-data="{
-        annual: false,
-        staticSites: 2,
+        staticSites: 3,
         ssrSites: 0,
-        requestsM: 8,
-        egressGb: 150,
-        storageGb: 6,
+        seats: 1,
+        minutes: 300,
+        requestsM: 5,
+        egressGb: 100,
         c: @js($calc),
 
-        clamp(v, min) { const n = Number(v); return Number.isFinite(n) && n > min ? n : min; },
-        get sites() { return this.clamp(this.staticSites, 0) + this.clamp(this.ssrSites, 0); },
-        get platform() {
-            return this.clamp(this.staticSites, 0) * this.c.sitePrice
-                + this.clamp(this.ssrSites, 0) * this.c.ssrPrice;
+        n(v) { const x = Number(v); return Number.isFinite(x) && x > 0 ? x : 0; },
+        cost(p) {
+            if (p.seatPrice === null && this.n(this.seats) > p.seats) return null;
+            const extraSites = Math.max(0, this.n(this.staticSites) - p.sites) * this.c.sitePrice;
+            const ssr = this.n(this.ssrSites) * this.c.ssrPrice;
+            const seats = p.seatPrice === null ? 0 : Math.max(0, this.n(this.seats) - p.seats) * p.seatPrice;
+            const minutes = Math.ceil(Math.max(0, this.n(this.minutes) - p.minutes) * p.minutePrice * 100) / 100;
+            const requests = Math.max(0, this.n(this.requestsM) - p.requestsM) * this.c.requestsPerMillion;
+            const egress = Math.max(0, this.n(this.egressGb) - p.egressGb) * this.c.egressPerGb;
+            return { fee: p.price, sites: extraSites + ssr, seats, usage: minutes + requests + egress, total: p.price + extraSites + ssr + seats + minutes + requests + egress };
         },
-        get platformBilled() {
-            return this.annual ? this.platform * (1 - this.c.annualPct / 100) : this.platform;
-        },
-        over(used, includedPerSite) {
-            const allowance = includedPerSite * this.sites;
-            return Math.max(0, this.clamp(used, 0) - allowance);
-        },
-        get requestsCost() { return this.over(this.requestsM, this.c.includedRequestsM) * this.c.requestsPerMillion; },
-        get egressCost() { return this.over(this.egressGb, this.c.includedEgressGb) * this.c.egressPerGb; },
-        get storageCost() { return this.over(this.storageGb, this.c.includedStorageGb) * this.c.storagePerGb; },
-        get usage() { return this.requestsCost + this.egressCost + this.storageCost; },
-        get total() { return this.platformBilled + this.usage; },
+        get pro() { return this.cost(this.c.plans.pro); },
+        get team() { return this.cost(this.c.plans.team); },
+        get best() { return this.pro === null || (this.team && this.team.total < this.pro.total) ? 'team' : 'pro'; },
+        get pick() { return this[this.best]; },
         money(v) { return '$' + (Math.round(v * 100) / 100).toFixed(2); },
-        apply(p) {
-            this.staticSites = p.static; this.ssrSites = p.ssr;
-            this.requestsM = p.requests; this.egressGb = p.egress; this.storageGb = p.storage;
-        },
+        apply(p) { Object.assign(this, { staticSites: p.static, ssrSites: p.ssr, seats: p.seats, minutes: p.minutes, requestsM: p.requests, egressGb: p.egress }); },
     }"
     class="mt-8 border border-edge-line bg-edge-panel"
 >
-    {{-- Presets --}}
     <div class="flex flex-wrap items-center gap-2 border-b border-edge-line px-5 py-3">
         <span class="font-terminal text-[11px] uppercase tracking-[0.16em] text-edge-faint">{{ __('Start from') }}</span>
         @foreach ($presets as $preset)
             <button
                 type="button"
-                x-on:click="apply(@js(['static' => $preset['static'], 'ssr' => $preset['ssr'], 'requests' => $preset['requests'], 'egress' => $preset['egress'], 'storage' => $preset['storage']]))"
+                x-on:click="apply(@js($preset))"
                 class="border border-edge-line px-3 py-1.5 text-left transition-colors hover:border-edge-lime/50 hover:bg-edge-lime/5"
             >
                 <span class="block text-xs font-semibold text-edge-text">{{ $preset['label'] }}</span>
                 <span class="block text-[11px] text-edge-mute">{{ $preset['hint'] }}</span>
             </button>
         @endforeach
-
-        <div class="ms-auto inline-flex border border-edge-line">
-            <button type="button" x-on:click="annual = false" class="font-terminal px-3 py-1.5 text-xs transition-colors" :class="!annual ? 'bg-edge-lime text-edge-void font-bold' : 'text-edge-mute hover:text-edge-text'">{{ __('Monthly') }}</button>
-            <button type="button" x-on:click="annual = true" class="font-terminal px-3 py-1.5 text-xs transition-colors" :class="annual ? 'bg-edge-lime text-edge-void font-bold' : 'text-edge-mute hover:text-edge-text'">{{ __('Annual −:pct%', ['pct' => $annualPct]) }}</button>
-        </div>
     </div>
 
     <div class="grid gap-px bg-edge-line lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
-        {{-- Inputs --}}
         <div class="space-y-px bg-edge-line">
             @foreach ([
-                ['model' => 'staticSites', 'label' => __('Static / hybrid sites'), 'hint' => __('$:price per live site / mo', ['price' => number_format($sitePrice, 2)]), 'step' => 1, 'suffix' => __('sites')],
-                ['model' => 'ssrSites', 'label' => __('Worker SSR sites'), 'hint' => __('$:price per live site / mo', ['price' => number_format($ssrPrice, 2)]), 'step' => 1, 'suffix' => __('sites')],
-                ['model' => 'requestsM', 'label' => __('Requests'), 'hint' => __(':n M included per site', ['n' => (int) ($includedRequests / 1_000_000)]), 'step' => 1, 'suffix' => __('million / mo')],
-                ['model' => 'egressGb', 'label' => __('Egress'), 'hint' => __(':n GB included per site', ['n' => $includedEgress]), 'step' => 10, 'suffix' => __('GB / mo')],
-                ['model' => 'storageGb', 'label' => __('Stored output'), 'hint' => __(':n GB included per site', ['n' => $includedStorage]), 'step' => 1, 'suffix' => __('GB')],
+                ['model' => 'staticSites', 'label' => __('Static / hybrid sites'), 'hint' => __('$:price each past your plan', ['price' => number_format($sitePrice, 2)]), 'step' => 1, 'suffix' => __('sites')],
+                ['model' => 'ssrSites', 'label' => __('Worker SSR sites'), 'hint' => __('$:price each', ['price' => number_format($ssrPrice, 2)]), 'step' => 1, 'suffix' => __('sites')],
+                ['model' => 'seats', 'label' => __('Seats'), 'hint' => __('People in the organization'), 'step' => 1, 'suffix' => __('people')],
+                ['model' => 'minutes', 'label' => __('Build minutes'), 'hint' => __('Per month, rounded up per build'), 'step' => 100, 'suffix' => __('min / mo')],
+                ['model' => 'requestsM', 'label' => __('Requests'), 'hint' => __('All sites together'), 'step' => 1, 'suffix' => __('million / mo')],
+                ['model' => 'egressGb', 'label' => __('Egress'), 'hint' => __('All sites together'), 'step' => 10, 'suffix' => __('GB / mo')],
             ] as $field)
                 <div class="flex flex-wrap items-center justify-between gap-4 bg-edge-panel px-5 py-3.5">
                     <div class="min-w-0">
@@ -100,14 +94,9 @@
                     </div>
                     <div class="flex shrink-0 items-center gap-2">
                         <button type="button" x-on:click="{{ $field['model'] }} = Math.max(0, Number({{ $field['model'] }}) - {{ $field['step'] }})" class="font-terminal flex h-8 w-8 items-center justify-center border border-edge-line text-edge-mute transition-colors hover:border-edge-lime/50 hover:text-edge-text" aria-label="{{ __('Decrease') }}">−</button>
-                        <input
-                            type="number"
-                            min="0"
-                            step="{{ $field['step'] }}"
-                            x-model.number="{{ $field['model'] }}"
-                            class="font-terminal h-8 w-20 border border-edge-line bg-edge-void px-2 text-center text-sm text-edge-text focus:border-edge-lime focus:outline-none focus:ring-0"
-                            aria-label="{{ $field['label'] }}"
-                        />
+                        <input type="number" min="0" step="{{ $field['step'] }}" x-model.number="{{ $field['model'] }}"
+                               class="font-terminal h-8 w-20 border border-edge-line bg-edge-void px-2 text-center text-sm text-edge-text focus:border-edge-lime focus:outline-none focus:ring-0"
+                               aria-label="{{ $field['label'] }}" />
                         <button type="button" x-on:click="{{ $field['model'] }} = Number({{ $field['model'] }}) + {{ $field['step'] }}" class="font-terminal flex h-8 w-8 items-center justify-center border border-edge-line text-edge-mute transition-colors hover:border-edge-lime/50 hover:text-edge-text" aria-label="{{ __('Increase') }}">+</button>
                         <span class="w-24 shrink-0 text-xs text-edge-mute">{{ $field['suffix'] }}</span>
                     </div>
@@ -115,39 +104,37 @@
             @endforeach
         </div>
 
-        {{-- Total --}}
         <div class="bg-edge-panel px-5 py-5">
-            <p class="font-terminal text-[11px] uppercase tracking-[0.16em] text-edge-faint">{{ __('Estimated month') }}</p>
-            <p class="font-terminal mt-3 text-4xl font-bold text-edge-lime" x-text="money(total)">$0.00</p>
-            <p class="mt-1 text-xs text-edge-mute" x-show="annual" x-cloak>
-                {{ __('Platform fee shown with the annual discount applied; delivery is always billed monthly.') }}
-            </p>
+            <p class="font-terminal text-[11px] uppercase tracking-[0.16em] text-edge-faint">{{ __('Best fit') }} · <span x-text="c.plans[best].label"></span></p>
+            <p class="font-terminal mt-3 text-4xl font-bold text-edge-lime" x-text="money(pick.total)">$0.00</p>
 
             <dl class="mt-6 space-y-2 text-sm">
-                <div class="flex items-baseline justify-between gap-3 border-b border-edge-line pb-2">
-                    <dt class="text-edge-mute"><span x-text="sites"></span> {{ __('live sites — platform fee') }}</dt>
-                    <dd class="font-terminal text-edge-text" x-text="money(platformBilled)"></dd>
+                <div class="flex items-baseline justify-between gap-3">
+                    <dt class="text-edge-mute"><span x-text="c.plans[best].label"></span> {{ __('plan') }}</dt>
+                    <dd class="font-terminal text-edge-text" x-text="money(pick.fee)"></dd>
                 </div>
                 <div class="flex items-baseline justify-between gap-3">
-                    <dt class="text-edge-mute">{{ __('Requests over allowance') }}</dt>
-                    <dd class="font-terminal text-edge-text" x-text="money(requestsCost)"></dd>
+                    <dt class="text-edge-mute">{{ __('Extra and SSR sites') }}</dt>
+                    <dd class="font-terminal text-edge-text" x-text="money(pick.sites)"></dd>
                 </div>
                 <div class="flex items-baseline justify-between gap-3">
-                    <dt class="text-edge-mute">{{ __('Egress over allowance') }}</dt>
-                    <dd class="font-terminal text-edge-text" x-text="money(egressCost)"></dd>
+                    <dt class="text-edge-mute">{{ __('Extra seats') }}</dt>
+                    <dd class="font-terminal text-edge-text" x-text="money(pick.seats)"></dd>
                 </div>
                 <div class="flex items-baseline justify-between gap-3 border-b border-edge-line pb-2">
-                    <dt class="text-edge-mute">{{ __('Storage over allowance') }}</dt>
-                    <dd class="font-terminal text-edge-text" x-text="money(storageCost)"></dd>
+                    <dt class="text-edge-mute">{{ __('Usage past the plan') }}</dt>
+                    <dd class="font-terminal text-edge-text" x-text="money(pick.usage)"></dd>
                 </div>
                 <div class="flex items-baseline justify-between gap-3 pt-1">
                     <dt class="font-semibold text-edge-text">{{ __('Total') }}</dt>
-                    <dd class="font-terminal font-bold text-edge-lime" x-text="money(total) + '/mo'"></dd>
+                    <dd class="font-terminal font-bold text-edge-lime" x-text="money(pick.total) + '/mo'"></dd>
                 </div>
             </dl>
 
             <p class="mt-5 text-xs leading-relaxed text-edge-mute">
-                {{ __('Allowances are per site, so they grow as you add sites. Preview deployments are free and are not counted here.') }}
+                <template x-if="pro && team"><span>{{ __('Pro') }} <span x-text="money(pro.total)"></span> · {{ __('Team') }} <span x-text="money(team.total)"></span>. </span></template>
+                <template x-if="pro === null"><span>{{ __('Pro includes :n seats, so this needs Team.', ['n' => $tiers['pro']['seats']]) }} </span></template>
+                {{ __('Free covers 1 site and 1 seat with no card. Previews are free and not counted.') }}
             </p>
         </div>
     </div>

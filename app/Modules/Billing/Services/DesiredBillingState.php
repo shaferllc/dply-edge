@@ -3,18 +3,16 @@
 namespace App\Modules\Billing\Services;
 
 /**
- * Snapshot of what an organization *should* be billed this cycle, derived
- * purely from its live Edge sites. The sync layer reconciles a Stripe
- * subscription against this shape.
+ * Snapshot of what an organization *should* be billed this cycle. The sync
+ * layer reconciles a Stripe subscription against this shape.
  *
- * Billing model (dply-edge sells one product):
- * - **Edge sites** — a flat fee per live production site (static/hybrid at
- *   edge_cents, Worker-native SSR at edge_ssr_cents).
- * - **Load balancing** — per origin endpoint (edge_lb_endpoint_cents), monthly.
- * - **Edge delivery usage** — metered pass-through on top.
- *
- * The plan triple survives only as the Free allowance record ($0): there are
- * no paid plan tiers.
+ * Billing model — plan tiers + usage (ruling r-zdescb7y05vp1bxx, monthly only):
+ * - **Tier fee** — Free $0 / Pro / Team (planKey, planPriceCents).
+ * - **Extra sites** — static/hybrid sites beyond the tier's included count.
+ * - **SSR sites** — every Worker-native SSR site, never included.
+ * - **Extra seats** — members beyond the tier's seats (Team only).
+ * - **Load balancing** — per origin endpoint.
+ * - **Usage** — delivery overage + build-minute overage, billed as cents.
  *
  * Always pre-tax; expressed in cents and plain counts so it survives JSON
  * round-trips through queue payloads.
@@ -37,10 +35,18 @@ class DesiredBillingState
         public readonly int $monthlyTotalCents,
         public readonly int $edgeLbEndpointCount = 0,
         public readonly int $edgeLbSubtotalCents = 0,
+        /** Static/hybrid sites beyond the tier's included count (Stripe `edge` quantity). */
+        public readonly int $extraSiteCount = 0,
+        public readonly int $seatCount = 0,
+        public readonly int $extraSeatCount = 0,
+        public readonly int $extraSeatSubtotalCents = 0,
+        public readonly int $buildMinutes = 0,
+        public readonly int $buildMinuteOverageCents = 0,
     ) {}
 
     /**
-     * Build a state from the plan record plus Edge usage.
+     * Build a state from the plan record plus Edge usage. `includedSites`
+     * null means every static/hybrid site is billable (the pre-tier shape).
      *
      * @param  array{key: string, label: string, price_cents: int}  $plan
      * @param  array<string, mixed>  $edgeUsageEstimate
@@ -55,18 +61,30 @@ class DesiredBillingState
         array $edgeUsageEstimate = [],
         int $edgeLbEndpointCount = 0,
         int $edgeLbEndpointUnitCents = 0,
+        ?int $includedSites = null,
+        int $seatCount = 0,
+        ?int $includedSeats = null,
+        int $extraSeatUnitCents = 0,
+        int $buildMinutes = 0,
+        int $buildMinuteOverageCents = 0,
     ): self {
         $planPriceCents = max(0, (int) $plan['price_cents']);
 
         $edgeCount = max(0, $edgeCount);
         $edgeSsrCount = min($edgeCount, max(0, $edgeSsrCount));
         $edgeBaseCount = $edgeCount - $edgeSsrCount;
-        $edgeSubtotal = ($edgeBaseCount * max(0, $edgeUnitCents))
+        $extraSites = $includedSites === null ? $edgeBaseCount : max(0, $edgeBaseCount - $includedSites);
+        $edgeSubtotal = ($extraSites * max(0, $edgeUnitCents))
             + ($edgeSsrCount * max(0, $edgeSsrUnitCents));
 
         $edgeUsageSubtotalCents = max(0, $edgeUsageSubtotalCents);
         $edgeLbEndpointCount = max(0, $edgeLbEndpointCount);
         $edgeLbSubtotal = $edgeLbEndpointCount * max(0, $edgeLbEndpointUnitCents);
+
+        $seatCount = max(0, $seatCount);
+        $extraSeats = $includedSeats === null || $extraSeatUnitCents <= 0 ? 0 : max(0, $seatCount - $includedSeats);
+        $extraSeatSubtotal = $extraSeats * $extraSeatUnitCents;
+        $buildMinuteOverageCents = max(0, $buildMinuteOverageCents);
 
         return new self(
             planKey: $plan['key'],
@@ -77,29 +95,43 @@ class DesiredBillingState
             edgeSubtotalCents: $edgeSubtotal,
             edgeUsageSubtotalCents: $edgeUsageSubtotalCents,
             edgeUsageEstimate: $edgeUsageEstimate,
-            monthlyTotalCents: $planPriceCents + $edgeSubtotal + $edgeUsageSubtotalCents + $edgeLbSubtotal,
+            monthlyTotalCents: $planPriceCents + $edgeSubtotal + $edgeUsageSubtotalCents + $edgeLbSubtotal
+                + $extraSeatSubtotal + $buildMinuteOverageCents,
             edgeLbEndpointCount: $edgeLbEndpointCount,
             edgeLbSubtotalCents: $edgeLbSubtotal,
+            extraSiteCount: $extraSites,
+            seatCount: $seatCount,
+            extraSeatCount: $extraSeats,
+            extraSeatSubtotalCents: $extraSeatSubtotal,
+            buildMinutes: max(0, $buildMinutes),
+            buildMinuteOverageCents: $buildMinuteOverageCents,
         );
     }
 
-    /** Static / hybrid Edge sites (Stripe `edge` line quantity). */
+    /** Static / hybrid Edge sites. */
     public function edgeBaseCount(): int
     {
         return max(0, $this->edgeCount - $this->edgeSsrCount);
     }
 
-    /**
-     * Flat per-site subtotal (excludes Edge delivery usage).
-     */
-    public function managedSubtotalCents(): int
+    /** Stripe `edge_usage` quantity: delivery overage plus build-minute overage, in cents. */
+    public function usageLineCents(): int
     {
-        return $this->edgeSubtotalCents;
+        return $this->edgeUsageSubtotalCents + $this->buildMinuteOverageCents;
     }
 
     /**
-     * True when the org owes nothing this cycle — no live Edge sites and no
-     * Edge usage. Drives "no subscription / never paused" lifecycle decisions.
+     * Flat subtotal: tier fee, extra/SSR sites and extra seats (excludes usage
+     * and add-ons).
+     */
+    public function managedSubtotalCents(): int
+    {
+        return $this->planPriceCents + $this->edgeSubtotalCents + $this->extraSeatSubtotalCents;
+    }
+
+    /**
+     * True when the org owes nothing this cycle. Drives "no subscription /
+     * never paused" lifecycle decisions.
      */
     public function isFree(): bool
     {
@@ -117,7 +149,13 @@ class DesiredBillingState
             'plan_price_cents' => $this->planPriceCents,
             'edge_count' => $this->edgeCount,
             'edge_ssr_count' => $this->edgeSsrCount,
+            'extra_site_count' => $this->extraSiteCount,
             'edge_subtotal_cents' => $this->edgeSubtotalCents,
+            'seat_count' => $this->seatCount,
+            'extra_seat_count' => $this->extraSeatCount,
+            'extra_seat_subtotal_cents' => $this->extraSeatSubtotalCents,
+            'build_minutes' => $this->buildMinutes,
+            'build_minute_overage_cents' => $this->buildMinuteOverageCents,
             'edge_usage_subtotal_cents' => $this->edgeUsageSubtotalCents,
             'edge_usage_estimate' => $this->edgeUsageEstimate,
             'edge_lb_endpoint_count' => $this->edgeLbEndpointCount,

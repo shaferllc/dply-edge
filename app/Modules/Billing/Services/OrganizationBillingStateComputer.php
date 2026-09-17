@@ -4,13 +4,14 @@ namespace App\Modules\Billing\Services;
 
 use App\Models\Organization;
 use App\Models\Site;
+use App\Modules\Edge\Support\EdgeBuildMinutes;
 use App\Modules\Edge\Support\EdgeLoadBalancing;
 
 /**
- * Builds a {@see DesiredBillingState} for an organization by scanning its
- * currently *billable* units. dply-edge bills exactly one kind — **Edge
- * sites**: edge_active sites with `edge_backend = dply_edge`, excluding branch
- * previews, plus their metered usage (requests / egress / R2 storage).
+ * Builds a {@see DesiredBillingState} for an organization: its tier (from the
+ * subscription, or the cheapest fit for a pre-tier per-site one), live Edge
+ * sites (edge_active, `edge_backend = dply_edge`, not previews), seats, build
+ * minutes, load balancer endpoints and metered delivery usage.
  *
  * Age filter: units younger than min_billable_age_days are excluded.
  */
@@ -19,7 +20,6 @@ class OrganizationBillingStateComputer
     public function __construct(
         private EdgeOrganizationUsageReader $usageReader,
         private EdgeUsageCostCalculator $usageCostCalculator,
-        private SubscriptionPlanResolver $planResolver,
     ) {}
 
     /**
@@ -66,7 +66,16 @@ class OrganizationBillingStateComputer
         return $this->compute($organization)->isFree();
     }
 
-    private function computeFresh(Organization $organization): DesiredBillingState
+    /**
+     * What the org would owe on a given tier — the checkout / plan-change
+     * preview and price list. Not memoized.
+     */
+    public function computeForTier(Organization $organization, string $tierKey): DesiredBillingState
+    {
+        return $this->computeFresh($organization, $tierKey);
+    }
+
+    private function computeFresh(Organization $organization, ?string $forceTier = null): DesiredBillingState
     {
         $minAgeDays = max(0, (int) config('subscription.standard.min_billable_age_days', 1));
         $ageCutoff = now()->subDays($minAgeDays);
@@ -105,19 +114,49 @@ class OrganizationBillingStateComputer
             'bytes_egress' => $usageTotals->bytesEgress,
             'r2_storage_bytes' => $usageTotals->r2StorageBytes,
         ]);
+        $buildMinutes = EdgeBuildMinutes::usedThisMonth($organization);
 
-        // No plan tiers: the Free record ($0) carries the plan triple, and every
-        // charge rides on the per-site + metered lines below.
         return DesiredBillingState::fromPlanAndUsage(
-            plan: $this->planResolver->resolveByKey('free'),
+            plan: ['key' => $tierKey, 'label' => (string) $tier['label'], 'price_cents' => (int) $tier['price_cents']],
             edgeCount: $edgeCount,
-            edgeUnitCents: (int) config('subscription.standard.edge_cents', 200),
+            edgeUnitCents: $billable ? (int) config('subscription.standard.edge_cents', 200) : 0,
             edgeSsrCount: $edgeSsrCount,
-            edgeSsrUnitCents: (int) config('subscription.standard.edge_ssr_cents', 700),
-            edgeUsageSubtotalCents: (int) $edgeUsageEstimate['subtotal_cents'],
+            edgeSsrUnitCents: $billable ? (int) config('subscription.standard.edge_ssr_cents', 700) : 0,
+            edgeUsageSubtotalCents: $billable ? (int) $edgeUsageEstimate['subtotal_cents'] : 0,
             edgeUsageEstimate: $edgeUsageEstimate,
             edgeLbEndpointCount: $edgeLbEndpointCount,
-            edgeLbEndpointUnitCents: (int) config('subscription.standard.edge_lb_endpoint_cents', 800),
+            edgeLbEndpointUnitCents: $billable ? (int) config('subscription.standard.edge_lb_endpoint_cents', 800) : 0,
+            includedSites: $tier['sites'] ?? PHP_INT_MAX,
+            seatCount: $seatCount,
+            includedSeats: $tier['seats'] ?? null,
+            extraSeatUnitCents: $billable ? (int) ($tier['extra_seat_cents'] ?? 0) : 0,
+            buildMinutes: $buildMinutes,
+            buildMinuteOverageCents: $billable ? EdgeBuildMinutes::overageCents($buildMinutes, $tier) : 0,
         );
+    }
+
+    /**
+     * The cheapest Pro/Team tier for a fleet: tier fee + extra sites + extra
+     * seats, skipping tiers whose hard seat cap the org is over. Used to move
+     * a pre-tier per-site subscription onto a tier.
+     */
+    public static function cheapestPaidTier(int $baseSites, int $seats): string
+    {
+        $best = null;
+        $bestCents = PHP_INT_MAX;
+        foreach (['pro', 'team'] as $key) {
+            $tier = (array) config('subscription.standard.tiers.'.$key);
+            if ($tier['extra_seat_cents'] === null && $seats > (int) $tier['seats']) {
+                continue;
+            }
+            $cents = (int) $tier['price_cents']
+                + max(0, $baseSites - (int) $tier['sites']) * (int) config('subscription.standard.edge_cents', 200)
+                + ($tier['extra_seat_cents'] === null ? 0 : max(0, $seats - (int) $tier['seats']) * (int) $tier['extra_seat_cents']);
+            if ($cents < $bestCents) {
+                [$best, $bestCents] = [$key, $cents];
+            }
+        }
+
+        return $best ?? 'team';
     }
 }

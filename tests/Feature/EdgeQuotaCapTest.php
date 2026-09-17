@@ -21,7 +21,7 @@ test('an org without a subscription is capped at the free allowance', function (
     $org = Organization::factory()->create();
 
     expect($org->quotaLimit(QuotaSurface::Edge))->toBe(1)
-        ->and($org->quotaLimitMessage(QuotaSurface::Edge))->toContain('without a card');
+        ->and($org->quotaLimitMessage(QuotaSurface::Edge))->toContain('Upgrade to Pro');
 });
 
 test('a paying org has no edge ceiling', function () {

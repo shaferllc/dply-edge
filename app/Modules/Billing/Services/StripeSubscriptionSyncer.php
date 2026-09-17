@@ -12,9 +12,11 @@ use Throwable;
  * Reconciles an organization's Stripe subscription line items against a
  * {@see DesiredBillingState}:
  *
- * - One line per Edge site kind (static/hybrid `edge`, Worker SSR `edge_ssr`),
- *   quantity = live site count.
- * - A metered **Edge usage** line (monthly only).
+ * - A subscription without its tier price (pre-tier per-site, monthly or
+ *   yearly) is swapped wholesale onto the tier's line items.
+ * - Otherwise each line converges on its quantity: extra sites (`edge`), SSR
+ *   sites (`edge_ssr`), extra seats (`team_seat`), load balancer endpoints and
+ *   usage cents (`edge_usage`). Changing tier is the billing page's job.
  *
  * - Items on a **retired** price (old plan tiers, serverless, Cloud, … — see
  *   `subscription.standard.stripe.retired`) are removed, so customers stop
@@ -29,6 +31,8 @@ use Throwable;
  */
 class StripeSubscriptionSyncer
 {
+    public function __construct(private ?StandardSubscriptionCreator $creator = null) {}
+
     /**
      * @return list<array<string, mixed>>
      */
@@ -44,11 +48,34 @@ class StripeSubscriptionSyncer
 
         $changes = [];
 
-        // Edge — flat per live site (static/hybrid vs Worker-native SSR).
-        $this->reconcileManagedProductLine($subscription, $changes, 'edge', $desired->edgeBaseCount());
-        $this->reconcileManagedProductLine($subscription, $changes, 'edge_ssr', $desired->edgeSsrCount);
-        $this->reconcileEdgeUsageLine($subscription, $desired, $changes);
-        $this->reconcileLoadBalancerLine($subscription, $desired, $changes);
+        if ($desired->planKey === 'enterprise') {
+            return []; // hand-invoiced in Stripe
+        }
+
+        $tierPriceId = (string) (config('subscription.standard.stripe.tier_'.$desired->planKey) ?? '');
+        if ($tierPriceId === '') {
+            // Tier prices not provisioned yet: reconciling lines against a
+            // tier state would strip per-site lines from a pre-tier sub.
+            Log::warning('billing.stripe.tier_price_missing', ['organization_id' => $organization->id, 'tier' => $desired->planKey]);
+
+            return [];
+        }
+
+        if (! $subscription->hasPrice($tierPriceId)) {
+            // Pre-tier per-site subscription (possibly yearly): move it onto
+            // the tier in one swap, invoiced now (owner: auto-move, 2026-09-16).
+            $changes[] = $this->moveToTier($subscription, $desired);
+        } else {
+            foreach ([
+                'edge' => $desired->extraSiteCount,
+                'edge_ssr' => $desired->edgeSsrCount,
+                'team_seat' => $desired->extraSeatCount,
+                'edge_lb_endpoint' => $desired->edgeLbEndpointCount,
+                'edge_usage' => $desired->usageLineCents(),
+            ] as $product => $quantity) {
+                $this->reconcileLine($subscription, $changes, $product, $quantity);
+            }
+        }
 
         foreach ($this->retiredPricesToRemove($subscription) as $priceId) {
             $change = $this->applyDelta($subscription, $priceId, $this->currentQuantity($subscription, $priceId), 0);
@@ -66,6 +93,30 @@ class StripeSubscriptionSyncer
         }
 
         return $changes;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function moveToTier(Subscription $subscription, DesiredBillingState $desired): array
+    {
+        $items = ($this->creator ?? app(StandardSubscriptionCreator::class))->buildPriceList($desired);
+        $from = $subscription->items->pluck('stripe_price')->all();
+
+        try {
+            $subscription->swapAndInvoice(collect($items)->mapWithKeys(
+                static fn (array $item): array => [$item['price'] => ['quantity' => $item['quantity']]],
+            )->all());
+        } catch (Throwable $e) {
+            Log::warning('billing.stripe.move_to_tier_failed', [
+                'subscription_id' => $subscription->id,
+                'tier' => $desired->planKey,
+                'error' => $e->getMessage(),
+            ]);
+            throw $e;
+        }
+
+        return ['tier' => 'plan', 'action' => 'move', 'from' => $from, 'to' => $desired->planKey];
     }
 
     /**
@@ -123,75 +174,17 @@ class StripeSubscriptionSyncer
     /**
      * @param  list<array<string, mixed>>  $changes
      */
-    private function reconcileManagedProductLine(
-        Subscription $subscription,
-        array &$changes,
-        string $product,
-        int $desiredQty,
-    ): void {
-        $priceId = $this->managedProductPriceIdForSubscription($subscription, $product);
+    private function reconcileLine(Subscription $subscription, array &$changes, string $product, int $desiredQty): void
+    {
+        $priceId = (string) (config('subscription.standard.stripe.'.$product) ?? '');
         if ($priceId === '') {
             return;
         }
 
-        $current = $this->currentQuantity($subscription, $priceId);
-        $change = $this->applyDelta($subscription, $priceId, $current, $desiredQty);
+        $change = $this->applyDelta($subscription, $priceId, $this->currentQuantity($subscription, $priceId), $desiredQty);
         if ($change !== null) {
             $changes[] = ['tier' => $product] + $change;
         }
-    }
-
-    /**
-     * @param  list<array<string, mixed>>  $changes
-     */
-    private function reconcileEdgeUsageLine(
-        Subscription $subscription,
-        DesiredBillingState $desired,
-        array &$changes,
-    ): void {
-        if ($this->isYearly($subscription)) {
-            return;
-        }
-
-        $priceId = (string) (config('subscription.standard.stripe.edge_usage') ?? '');
-        if ($priceId === '') {
-            return;
-        }
-
-        $desiredQty = max(0, $desired->edgeUsageSubtotalCents);
-        $current = $this->currentQuantity($subscription, $priceId);
-        $change = $this->applyDelta($subscription, $priceId, $current, $desiredQty);
-        if ($change !== null) {
-            $changes[] = ['tier' => 'edge_usage'] + $change;
-        }
-    }
-
-    /**
-     * Load balancing endpoints — monthly only; yearly subs can't enable it.
-     *
-     * @param  list<array<string, mixed>>  $changes
-     */
-    private function reconcileLoadBalancerLine(
-        Subscription $subscription,
-        DesiredBillingState $desired,
-        array &$changes,
-    ): void {
-        $priceId = (string) (config('subscription.standard.stripe.edge_lb_endpoint') ?? '');
-        if ($priceId === '' || $this->isYearly($subscription)) {
-            return;
-        }
-
-        $change = $this->applyDelta($subscription, $priceId, $this->currentQuantity($subscription, $priceId), $desired->edgeLbEndpointCount);
-        if ($change !== null) {
-            $changes[] = ['tier' => 'edge_lb_endpoint'] + $change;
-        }
-    }
-
-    private function managedProductPriceIdForSubscription(Subscription $subscription, string $product): string
-    {
-        $key = $this->isYearly($subscription) ? $product.'_yearly' : $product;
-
-        return (string) (config('subscription.standard.stripe.'.$key) ?? '');
     }
 
     /**
@@ -220,10 +213,5 @@ class StripeSubscriptionSyncer
         }
 
         return $present;
-    }
-
-    private function isYearly(Subscription $subscription): bool
-    {
-        return SubscriptionPlanResolver::isYearly($subscription);
     }
 }

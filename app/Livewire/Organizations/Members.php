@@ -70,7 +70,7 @@ class Members extends Component
             $pending = $this->organization->invitations()->where('expires_at', '>', now())->count();
             if ($current + $pending >= $maxMembers) {
                 throw ValidationException::withMessages([
-                    'invite_email' => 'This organization has reached its member limit ('.$maxMembers.').',
+                    'invite_email' => __('Your :plan plan includes :max seats (members plus pending invites). Upgrade on the billing page to add more.', ['plan' => $this->organization->planTierLabel(), 'max' => $maxMembers]),
                 ]);
             }
         }

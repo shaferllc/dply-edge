@@ -209,6 +209,11 @@ class Activity extends Component
 
     public function render(): View
     {
+        // Audit log viewing is a Team feature; events are recorded on every plan.
+        if (! ($this->organization->tierAllowances()['audit_log'] ?? false)) {
+            return view('livewire.organizations.activity-locked');
+        }
+
         return view('livewire.organizations.activity', [
             'families' => AuditActionMeta::FAMILIES,
         ]);

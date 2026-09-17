@@ -102,69 +102,56 @@ final class BillingAnalytics
     /**
      * @return list<array{key: string, label: string, cents: int, color: string}>
      */
-    private function categoryBreakdown(DesiredBillingState $state): array
+    public function categoryBreakdown(DesiredBillingState $state): array
     {
         $segments = [];
-
-        if ($state->edgeSubtotalCents > 0) {
-            $segments[] = [
-                'key' => 'edge',
-                'label' => __('Edge').' × '.$state->edgeCount,
-                'cents' => $state->edgeSubtotalCents,
-                'color' => 'bg-emerald-500/70',
-            ];
-        }
-
-        if ($state->edgeUsageSubtotalCents > 0) {
-            $segments[] = [
-                'key' => 'edge_usage',
-                'label' => __('Edge delivery usage'),
-                'cents' => $state->edgeUsageSubtotalCents,
-                'color' => 'bg-brand-sage/50',
-            ];
+        foreach ([
+            ['plan', $state->planLabel, $state->planPriceCents, 'bg-brand-forest/70'],
+            ['edge', __('Extra & SSR sites'), $state->edgeSubtotalCents, 'bg-emerald-500/70'],
+            ['seats', __('Extra seats'), $state->extraSeatSubtotalCents, 'bg-amber-500/60'],
+            ['edge_lb', __('Load balancing'), $state->edgeLbSubtotalCents, 'bg-sky-500/60'],
+            ['edge_usage', __('Usage'), $state->usageLineCents(), 'bg-brand-sage/50'],
+        ] as [$key, $label, $cents, $color]) {
+            if ($cents > 0) {
+                $segments[] = ['key' => $key, 'label' => $label, 'cents' => $cents, 'color' => $color];
+            }
         }
 
         return $segments;
     }
 
     /**
+     * Bill lines for a state — shared by the billing page and the API.
+     *
      * @return list<array{label: string, quantity: int, unit_cents: int, line_cents: int, detail: ?string}>
      */
-    private function lineItems(DesiredBillingState $state): array
+    public function lineItems(DesiredBillingState $state): array
     {
+        $line = static fn (string $label, int $qty, int $unit, ?string $detail = null): array => [
+            'label' => $label, 'quantity' => $qty, 'unit_cents' => $unit, 'line_cents' => $qty * $unit, 'detail' => $detail,
+        ];
+
         $items = [];
-
-        $edgeBaseCount = $state->edgeBaseCount();
-        if ($edgeBaseCount > 0) {
-            $unit = (int) config('subscription.standard.edge_cents', 200);
-            $items[] = [
-                'label' => __('dply Edge site'),
-                'quantity' => $edgeBaseCount,
-                'unit_cents' => $unit,
-                'line_cents' => $edgeBaseCount * $unit,
-                'detail' => null,
-            ];
+        if ($state->planPriceCents > 0) {
+            $items[] = $line(__(':plan plan', ['plan' => $state->planLabel]), 1, $state->planPriceCents);
         }
-
-        if ($state->edgeSsrCount > 0) {
-            $ssrUnit = (int) config('subscription.standard.edge_ssr_cents', 700);
-            $items[] = [
-                'label' => __('dply Edge SSR site'),
-                'quantity' => $state->edgeSsrCount,
-                'unit_cents' => $ssrUnit,
-                'line_cents' => $state->edgeSsrCount * $ssrUnit,
-                'detail' => null,
-            ];
+        if ($state->extraSiteCount > 0) {
+            $items[] = $line(__('Extra site'), $state->extraSiteCount, (int) config('subscription.standard.edge_cents', 200));
         }
-
+        if ($state->edgeSsrCount > 0 && $state->edgeSubtotalCents > 0) {
+            $items[] = $line(__('SSR site'), $state->edgeSsrCount, (int) config('subscription.standard.edge_ssr_cents', 700));
+        }
+        if ($state->extraSeatCount > 0) {
+            $items[] = $line(__('Extra seat'), $state->extraSeatCount, intdiv($state->extraSeatSubtotalCents, $state->extraSeatCount));
+        }
+        if ($state->edgeLbSubtotalCents > 0) {
+            $items[] = $line(__('Load balancing endpoint'), $state->edgeLbEndpointCount, intdiv($state->edgeLbSubtotalCents, $state->edgeLbEndpointCount));
+        }
+        if ($state->buildMinuteOverageCents > 0) {
+            $items[] = $line(__('Build minutes over allowance'), 1, $state->buildMinuteOverageCents, __(':minutes minutes used this month', ['minutes' => number_format($state->buildMinutes)]));
+        }
         if ($state->edgeUsageSubtotalCents > 0) {
-            $items[] = [
-                'label' => __('dply Edge delivery usage'),
-                'quantity' => 1,
-                'unit_cents' => $state->edgeUsageSubtotalCents,
-                'line_cents' => $state->edgeUsageSubtotalCents,
-                'detail' => $this->formatEdgeUsageDetail($state->edgeUsageEstimate),
-            ];
+            $items[] = $line(__('Delivery usage over allowance'), 1, $state->edgeUsageSubtotalCents, $this->formatEdgeUsageDetail($state->edgeUsageEstimate));
         }
 
         return $items;

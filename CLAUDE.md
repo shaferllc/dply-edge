@@ -109,10 +109,14 @@ unrelated WIP commit three days earlier, so the boundary was silently unchecked.
 >   `Organizations/DeleteOrganizationAction`, `DeployContract/WaiveDeployContractRun`.
 >   The generic Actions framework (~375 files) was deleted 2026-09-11; Login,
 >   Register, Security, SourceControl and org settings use the five survivors.
-> - **Billing is per live site plus metered usage.** No plan tiers: an org with
->   no subscription gets one Edge site without a card, and any paid
->   subscription lifts the cap (`ManagesOrganizationQuotas::quotaLimit`). The
->   14-day trial and the bundled products (Tracely/Lookout) were removed.
+> - **Billing is plan tiers plus usage (2026-09-16, ruling r-zdescb7y05vp1bxx).**
+>   Free / Pro $20 / Team $49, monthly only, defined in
+>   `subscription.standard.tiers`. The tier comes from the Stripe tier price on
+>   the subscription (`Organization::billingTier()`); a pre-tier per-site
+>   subscription is swapped onto its cheapest tier by the next billing sync.
+>   Allowances (sites, seats, build minutes, concurrency, timeout, requests,
+>   egress, custom domains, add-ons, audit log) are enforced where each thing
+>   happens, not centrally. The 14-day trial and bundled products are gone.
 > - **The CLI (`packages/dply-cli`) and API-token catalog are Edge-only.** Token
 >   abilities live in `config/product/api_token_permissions.php`; the deployer
 >   allowlist must cover `cli.device_flow_role_caps.deployer` (a test guards it).

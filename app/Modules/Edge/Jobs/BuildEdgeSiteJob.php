@@ -10,6 +10,7 @@ use App\Modules\Edge\Services\EdgeArtifactPublisher;
 use App\Modules\Edge\Services\EdgeBuildRunner;
 use App\Modules\Edge\Services\EdgeDeliveryContextResolver;
 use App\Modules\Edge\Services\EdgeProductionEnv;
+use App\Modules\Edge\Support\EdgeBuildMinutes;
 use App\Modules\Edge\Support\EdgeLiveBuildLog;
 use App\Modules\Edge\Support\EdgeRepoRoot;
 use App\Modules\Notifications\Services\NotificationPublisher;
@@ -19,6 +20,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Throwable;
 
@@ -29,7 +31,8 @@ class BuildEdgeSiteJob implements ShouldQueue
     use Queueable;
     use SerializesModels;
 
-    public int $tries = 2;
+    /** Failures allowed; waiting for a free build slot releases without counting. */
+    public int $maxExceptions = 2;
 
     public function __construct(
         public string $deploymentId,
@@ -38,7 +41,65 @@ class BuildEdgeSiteJob implements ShouldQueue
         $this->onQueue((string) config('edge.build.queue', 'dply-provision'));
     }
 
+    /** A build waiting on its org's concurrency slots keeps retrying this long. */
+    public function retryUntil(): \DateTimeInterface
+    {
+        return now()->addHours(3);
+    }
+
+    /**
+     * Tier gates before the build proper (ruling r-zdescb7y05vp1bxx): orgs whose
+     * tier stops at its build-minute allowance fail fast once it's used, and
+     * each org gets `concurrent_builds` slots — a build without one waits.
+     */
     public function handle(EdgeBuildRunner $runner): void
+    {
+        $deployment = EdgeDeployment::query()->find($this->deploymentId);
+        $site = $deployment ? Site::find($deployment->site_id) : null;
+        $organization = $site?->organization;
+        if ($organization === null) {
+            $this->runBuild($runner, null);
+
+            return;
+        }
+
+        $tier = $organization->tierAllowances();
+        if (EdgeBuildMinutes::exhausted(EdgeBuildMinutes::usedThisMonth($organization), $tier)) {
+            $message = __('This month’s :minutes build minutes are used up. Upgrade to Pro for more, or wait until the 1st.', ['minutes' => number_format((int) $tier['build_minutes'])]);
+            if ($site->status === Site::STATUS_EDGE_ACTIVE) {
+                // Keep the live site as it is; only this deploy fails.
+                $deployment->update(['status' => EdgeDeployment::STATUS_FAILED, 'failed_at' => now(), 'failure_reason' => $message]);
+            } else {
+                $this->markFailed($site, $deployment, $message);
+            }
+
+            return;
+        }
+
+        $timeoutSeconds = (int) $tier['build_timeout_minutes'] * 60;
+        $slot = null;
+        for ($i = 0; $i < max(1, (int) $tier['concurrent_builds']); $i++) {
+            // Expires on its own if a worker dies mid-build.
+            $lock = Cache::lock('edge-build-slot:'.$organization->id.':'.$i, $timeoutSeconds + 900);
+            if ($lock->get()) {
+                $slot = $lock;
+                break;
+            }
+        }
+        if ($slot === null) {
+            $this->release(20);
+
+            return;
+        }
+
+        try {
+            $this->runBuild($runner, $timeoutSeconds);
+        } finally {
+            $slot->release();
+        }
+    }
+
+    private function runBuild(EdgeBuildRunner $runner, ?int $timeoutSeconds): void
     {
         $deployment = EdgeDeployment::query()->find($this->deploymentId);
         if ($deployment === null) {
@@ -100,17 +161,27 @@ class BuildEdgeSiteJob implements ShouldQueue
             // platform bindings like HOST_MAP / ASSETS / DEPLOYMENT_ID.
             $buildEnv = app(EdgeProductionEnv::class)->forSite($site);
 
-            $buildResult = $runner->build(
-                $deployment,
-                $repoUrl,
-                $branch,
-                $buildCommand,
-                $outputDir,
-                $buildEnv,
-                $this->commitOverride,
-                $runtimeMode,
-                EdgeRepoRoot::normalize(is_string($source['repo_root'] ?? null) ? $source['repo_root'] : null) ?: null,
-            );
+            // Build minutes bill from here (queue wait and publish excluded).
+            $buildStartedAt = now();
+            EdgeDeployment::query()->whereKey($deployment->id)->update(['build_started_at' => $buildStartedAt]);
+            try {
+                $buildResult = $runner->build(
+                    $deployment,
+                    $repoUrl,
+                    $branch,
+                    $buildCommand,
+                    $outputDir,
+                    $buildEnv,
+                    $this->commitOverride,
+                    $runtimeMode,
+                    EdgeRepoRoot::normalize(is_string($source['repo_root'] ?? null) ? $source['repo_root'] : null) ?: null,
+                    $timeoutSeconds,
+                );
+            } finally {
+                EdgeDeployment::query()->whereKey($deployment->id)->update([
+                    'build_seconds' => max(1, (int) $buildStartedAt->diffInSeconds(now())),
+                ]);
+            }
             $artifactDir = $buildResult['artifact_dir'];
             $workRoot = dirname($artifactDir);
 

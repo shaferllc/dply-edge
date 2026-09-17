@@ -7,6 +7,7 @@ namespace Tests\Unit\Services\Billing;
 use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
+use App\Modules\Billing\Models\Subscription;
 use App\Modules\Billing\Services\OrganizationBillingSnapshotWriter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
@@ -29,9 +30,12 @@ test('snapshot writer persists daily organization billing snapshot', function ()
         'created_at' => now()->subDays(5),
     ]);
 
+    config(['subscription.standard.stripe.tier_pro' => 'price_test_tier_pro']);
+    Subscription::factory()->withPrice('price_test_tier_pro')->active()->create(['organization_id' => $org->id]);
+
     $snapshot = app(OrganizationBillingSnapshotWriter::class)->writeForOrganization($org, now()->startOfDay());
 
-    expect($snapshot->monthly_total_cents)->toBeGreaterThan(0)
+    expect($snapshot->monthly_total_cents)->toBe(2000)
         ->and($snapshot->edge_usage_cents)->toBeInt()
         ->and($snapshot->category_breakdown)->toBeArray()
         // The fleet that bills is the Edge site count — nothing else.

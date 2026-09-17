@@ -45,6 +45,18 @@ class StripeBillingProvisioner
 
     public const ROLE_EDGE_LB_MONTHLY = 'standard_edge_lb_endpoint';
 
+    public const ROLE_TIER_PRO_PRODUCT = 'tier_pro_product';
+
+    public const ROLE_TIER_PRO_MONTHLY = 'tier_pro';
+
+    public const ROLE_TIER_TEAM_PRODUCT = 'tier_team_product';
+
+    public const ROLE_TIER_TEAM_MONTHLY = 'tier_team';
+
+    public const ROLE_TEAM_SEAT_PRODUCT = 'team_seat_product';
+
+    public const ROLE_TEAM_SEAT_MONTHLY = 'team_seat';
+
     public const ROLE_ENTERPRISE_PRODUCT = 'enterprise_product';
 
     public function __construct(private StripeClient $stripe) {}
@@ -129,6 +141,47 @@ class StripeBillingProvisioner
             )->id;
         }
 
+        // Plan tiers (monthly only) and Team's per-seat price.
+        foreach ([
+            'pro' => [self::ROLE_TIER_PRO_PRODUCT, self::ROLE_TIER_PRO_MONTHLY],
+            'team' => [self::ROLE_TIER_TEAM_PRODUCT, self::ROLE_TIER_TEAM_MONTHLY],
+        ] as $key => [$productRole, $priceRole]) {
+            $tier = (array) ($standardConfig['tiers'][$key] ?? []);
+            if ((int) ($tier['price_cents'] ?? 0) <= 0) {
+                continue;
+            }
+            $product = $this->upsertProduct(
+                name: 'dply '.$tier['label'],
+                description: sprintf('dply Edge %s plan — %d sites, %d seats, %s build minutes and delivery allowances included each month.', $tier['label'], $tier['sites'], $tier['seats'], number_format((int) $tier['build_minutes'])),
+                role: $productRole,
+            );
+            $result[$productRole] = $product->id;
+            $result[$priceRole] = $this->upsertRecurringPrice(
+                productId: $product->id,
+                amount: (int) $tier['price_cents'],
+                interval: 'month',
+                nickname: $tier['label'].' — Monthly',
+                role: $priceRole,
+            )->id;
+        }
+
+        $seatCents = (int) ($standardConfig['tiers']['team']['extra_seat_cents'] ?? 0);
+        if ($seatCents > 0) {
+            $seatProduct = $this->upsertProduct(
+                name: 'dply Team seat',
+                description: 'Additional member seat on the dply Team plan, beyond the seats it includes.',
+                role: self::ROLE_TEAM_SEAT_PRODUCT,
+            );
+            $result[self::ROLE_TEAM_SEAT_PRODUCT] = $seatProduct->id;
+            $result[self::ROLE_TEAM_SEAT_MONTHLY] = $this->upsertRecurringPrice(
+                productId: $seatProduct->id,
+                amount: $seatCents,
+                interval: 'month',
+                nickname: 'Team seat — Monthly',
+                role: self::ROLE_TEAM_SEAT_MONTHLY,
+            )->id;
+        }
+
         $edgeLbCents = (int) ($standardConfig['edge_lb_endpoint_cents'] ?? 800);
         if ($edgeLbCents > 0) {
             $edgeLbProduct = $this->upsertProduct(
@@ -171,6 +224,9 @@ class StripeBillingProvisioner
             self::ROLE_EDGE_SSR_YEARLY => 'STRIPE_PRICE_STANDARD_EDGE_SSR_YEARLY',
             self::ROLE_EDGE_USAGE_MONTHLY => 'STRIPE_PRICE_STANDARD_EDGE_USAGE',
             self::ROLE_EDGE_LB_MONTHLY => 'STRIPE_PRICE_STANDARD_EDGE_LB_ENDPOINT',
+            self::ROLE_TIER_PRO_MONTHLY => 'STRIPE_PRICE_TIER_PRO',
+            self::ROLE_TIER_TEAM_MONTHLY => 'STRIPE_PRICE_TIER_TEAM',
+            self::ROLE_TEAM_SEAT_MONTHLY => 'STRIPE_PRICE_TEAM_SEAT',
         ];
 
         $lines = [];

@@ -81,6 +81,7 @@ class EdgeBuildRunner
         ?string $commitOverride = null,
         string $runtimeMode = self::MODE_STATIC,
         ?string $repoRoot = null,
+        ?int $timeoutSeconds = null,
     ): array {
         $workRoot = rtrim(self::buildRoot(), '/').'/dply-edge-build-'.$deployment->id;
         File::ensureDirectoryExists($workRoot);
@@ -506,7 +507,7 @@ class EdgeBuildRunner
                 : '/src';
 
             $this->appendBuildLog($buildLog, "Running build in {$dockerImage}: {$script}\n");
-            $build = Process::timeout((int) config('edge.build.timeout_seconds', 900))
+            $build = Process::timeout($timeoutSeconds ?? (int) config('edge.build.timeout_seconds', 900))
                 ->run(
                     [
                         'docker', 'run', '--rm',
