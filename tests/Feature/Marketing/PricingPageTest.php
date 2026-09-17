@@ -76,3 +76,13 @@ test('pricing page sells one product — no server plans or other product lines'
         ->assertDontSee('Serverless functions')
         ->assertDontSee('/site/mo');
 });
+
+test('pricing page prices container compute per minute and in the estimator', function () {
+    $response = $this->withoutMiddleware()->get(route('pricing'));
+
+    $response->assertOk()
+        ->assertSee('Container compute, by the minute')
+        ->assertSee('standard-4')
+        ->assertSee('Container hours')
+        ->assertSee('Laravel app');
+});

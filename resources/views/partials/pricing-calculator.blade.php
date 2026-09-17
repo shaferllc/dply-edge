@@ -17,6 +17,7 @@
         'minutePrice' => ($t['build_minute_overage_millicents'] ?? 0) / 100_000,
         'requestsM' => $t['requests'] / 1_000_000,
         'egressGb' => $t['egress_gb'],
+        'computeCredit' => ($t['compute_credit_cents'] ?? 0) / 100,
     ];
     $calc = [
         'sitePrice' => $sitePrice,
@@ -24,12 +25,15 @@
         'requestsPerMillion' => (float) $rates['requests_per_million'],
         'egressPerGb' => (float) $rates['egress_per_gb'],
         'plans' => ['pro' => $plan($tiers['pro']), 'team' => $plan($tiers['team'])],
+        // Container compute per hour for a `basic` instance (¼ vCPU, 1 GiB) with the CPU busy.
+        'containerHour' => app(\App\Modules\Billing\Services\EdgeContainerComputeCost::class)->perMinuteMillicents(0.25, 1, 4) * 60 / 100_000,
     ];
 
     $presets = [
-        ['label' => __('Side project'), 'hint' => __('3 sites, just you'), 'static' => 3, 'ssr' => 0, 'seats' => 1, 'minutes' => 200, 'requests' => 2, 'egress' => 40],
-        ['label' => __('Agency'), 'hint' => __('20 client sites, 3 people'), 'static' => 20, 'ssr' => 0, 'seats' => 3, 'minutes' => 900, 'requests' => 30, 'egress' => 400],
-        ['label' => __('SaaS'), 'hint' => __('2 static + 2 SSR, 8 people'), 'static' => 2, 'ssr' => 2, 'seats' => 8, 'minutes' => 2500, 'requests' => 40, 'egress' => 900],
+        ['label' => __('Side project'), 'hint' => __('3 sites, just you'), 'static' => 3, 'ssr' => 0, 'seats' => 1, 'minutes' => 200, 'requests' => 2, 'egress' => 40, 'hours' => 0],
+        ['label' => __('Agency'), 'hint' => __('20 client sites, 3 people'), 'static' => 20, 'ssr' => 0, 'seats' => 3, 'minutes' => 900, 'requests' => 30, 'egress' => 400, 'hours' => 0],
+        ['label' => __('SaaS'), 'hint' => __('2 static + 2 SSR, 8 people'), 'static' => 2, 'ssr' => 2, 'seats' => 8, 'minutes' => 2500, 'requests' => 40, 'egress' => 900, 'hours' => 0],
+        ['label' => __('Laravel app'), 'hint' => __('1 container app, busy 8h a day'), 'static' => 1, 'ssr' => 0, 'seats' => 2, 'minutes' => 400, 'requests' => 5, 'egress' => 60, 'hours' => 240],
     ];
 @endphp
 
@@ -41,6 +45,7 @@
         minutes: 300,
         requestsM: 5,
         egressGb: 100,
+        containerHours: 0,
         c: @js($calc),
 
         n(v) { const x = Number(v); return Number.isFinite(x) && x > 0 ? x : 0; },
@@ -52,14 +57,16 @@
             const minutes = Math.ceil(Math.max(0, this.n(this.minutes) - p.minutes) * p.minutePrice * 100) / 100;
             const requests = Math.max(0, this.n(this.requestsM) - p.requestsM) * this.c.requestsPerMillion;
             const egress = Math.max(0, this.n(this.egressGb) - p.egressGb) * this.c.egressPerGb;
-            return { fee: p.price, sites: extraSites + ssr, seats, usage: minutes + requests + egress, total: p.price + extraSites + ssr + seats + minutes + requests + egress };
+            const compute = Math.max(0, this.n(this.containerHours) * this.c.containerHour - p.computeCredit);
+            const usage = minutes + requests + egress + compute;
+            return { fee: p.price, sites: extraSites + ssr, seats, usage, total: p.price + extraSites + ssr + seats + usage };
         },
         get pro() { return this.cost(this.c.plans.pro); },
         get team() { return this.cost(this.c.plans.team); },
         get best() { return this.pro === null || (this.team && this.team.total < this.pro.total) ? 'team' : 'pro'; },
         get pick() { return this[this.best]; },
         money(v) { return '$' + (Math.round(v * 100) / 100).toFixed(2); },
-        apply(p) { Object.assign(this, { staticSites: p.static, ssrSites: p.ssr, seats: p.seats, minutes: p.minutes, requestsM: p.requests, egressGb: p.egress }); },
+        apply(p) { Object.assign(this, { staticSites: p.static, ssrSites: p.ssr, seats: p.seats, minutes: p.minutes, requestsM: p.requests, egressGb: p.egress, containerHours: p.hours }); },
     }"
     class="mt-8 border border-edge-line bg-edge-panel"
 >
@@ -86,6 +93,7 @@
                 ['model' => 'minutes', 'label' => __('Build minutes'), 'hint' => __('Per month, rounded up per build'), 'step' => 100, 'suffix' => __('min / mo')],
                 ['model' => 'requestsM', 'label' => __('Requests'), 'hint' => __('All sites together'), 'step' => 1, 'suffix' => __('million / mo')],
                 ['model' => 'egressGb', 'label' => __('Egress'), 'hint' => __('All sites together'), 'step' => 10, 'suffix' => __('GB / mo')],
+                ['model' => 'containerHours', 'label' => __('Container hours'), 'hint' => __('PHP / Rails / Node apps, basic size, busy — idle containers sleep'), 'step' => 50, 'suffix' => __('hours / mo')],
             ] as $field)
                 <div class="flex flex-wrap items-center justify-between gap-4 bg-edge-panel px-5 py-3.5">
                     <div class="min-w-0">
@@ -122,7 +130,7 @@
                     <dd class="font-terminal text-edge-text" x-text="money(pick.seats)"></dd>
                 </div>
                 <div class="flex items-baseline justify-between gap-3 border-b border-edge-line pb-2">
-                    <dt class="text-edge-mute">{{ __('Usage past the plan') }}</dt>
+                    <dt class="text-edge-mute">{{ __('Usage and compute past the plan') }}</dt>
                     <dd class="font-terminal text-edge-text" x-text="money(pick.usage)"></dd>
                 </div>
                 <div class="flex items-baseline justify-between gap-3 pt-1">
