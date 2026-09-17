@@ -11,7 +11,7 @@ group: edge
 
 **Billing & usage** summarizes Edge-specific charges for this site. Org-wide invoices live under **Settings → Billing**.
 
-> Preview child sites do not include this tab. Previews are free; billing applies to the parent production site.
+> Preview child sites do not include this tab. Preview usage (builds, traffic, container compute) bills against the organization's plan like production; previews just don't take a site slot.
 
 ## Plan
 

@@ -53,7 +53,8 @@ test('pricing page tells you previews are free', function () {
     $response = $this->withoutMiddleware()->get(route('pricing'));
 
     $response->assertOk()
-        ->assertSee('Preview deployments are free.')
+        ->assertDontSee('Preview deployments are free.')
+        ->assertSee('Previews don’t use up a site on your plan', false)
         ->assertSee('Do preview deployments cost anything?');
 });
 

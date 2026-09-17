@@ -565,7 +565,7 @@ class Create extends Component
         }
 
         if ($included === null || $siteCount < $included) {
-            return ['plan' => $label, 'headline' => __('Included'), 'detail' => __(':used of :included sites on :plan. Usage past your plan is billed per use; previews are free.', ['used' => $siteCount, 'included' => $included ?? '∞', 'plan' => $label])];
+            return ['plan' => $label, 'headline' => __('Included'), 'detail' => __(':used of :included sites on :plan. Usage past your plan is billed per use, previews included.', ['used' => $siteCount, 'included' => $included ?? '∞', 'plan' => $label])];
         }
 
         return [

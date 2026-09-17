@@ -8,7 +8,7 @@ description: "How dply Edge bills: Free, Pro and Team plans, what each includes,
 
 # Billing & plans
 
-dply Edge bills a **monthly plan** plus **usage past what the plan includes**. Previews are always free. Plans are defined in `subscription.standard.tiers` (`config/product/subscription.php`).
+dply Edge bills a **monthly plan** plus **usage past what the plan includes**. Preview deployments don't use up a site, but their build minutes, traffic and container compute count as usage. Plans are defined in `subscription.standard.tiers` (`config/product/subscription.php`).
 
 ## Plans
 

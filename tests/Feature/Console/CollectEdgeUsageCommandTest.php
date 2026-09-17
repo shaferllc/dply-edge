@@ -220,3 +220,20 @@ test('collect usage merges r2 metrics into snapshots', function () {
     expect($snapshot->r2_class_b_ops)->toBe(40);
     expect($snapshot->meta['r2_collected'])->toBeTrue();
 });
+
+test('preview sites are collected so their traffic bills', function () {
+    Config::set('edge.cloudflare.account_id', '');
+    Config::set('edge.cloudflare.api_token', '');
+
+    $org = Organization::factory()->create();
+    $server = Server::factory()->create(['organization_id' => $org->id, 'status' => Server::STATUS_READY, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]]);
+    $parent = Site::factory()->create(['organization_id' => $org->id, 'server_id' => $server->id, 'status' => Site::STATUS_EDGE_ACTIVE, 'edge_backend' => 'dply_edge']);
+    $preview = Site::factory()->create([
+        'organization_id' => $org->id, 'server_id' => $server->id, 'status' => Site::STATUS_EDGE_ACTIVE, 'edge_backend' => 'dply_edge',
+        'meta' => ['edge' => ['preview_parent_site_id' => $parent->id]],
+    ]);
+
+    $this->artisan('dply:edge:collect-usage', ['--date' => now()->subDay()->toDateString()])->assertOk();
+
+    expect(EdgeUsageSnapshot::query()->where('site_id', $preview->id)->count())->toBe(1);
+});

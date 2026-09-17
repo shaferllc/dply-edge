@@ -9,7 +9,7 @@
 
     <x-seo-meta
         title="Pricing"
-        description="Free, Pro and Team plans for Edge sites, with metered usage only past what your plan includes. Preview deployments are free." />
+        description="Free, Pro and Team plans for Edge sites, with metered usage past what your plan includes." />
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @livewireStyles
     <style>
@@ -61,7 +61,7 @@
             [__('Container apps (PHP, Rails, Node)'), fn ($t) => $t['containers'] ? __(':credit compute included', ['credit' => '$'.number_format(($t['compute_credit_cents'] ?? 0) / 100, 0)]) : '—'],
             [__('Load balancing ($8/endpoint)'), fn ($t) => $yesNo((bool) $t['addons'])],
             [__('Audit log'), fn ($t) => $yesNo((bool) $t['audit_log'])],
-            [__('Preview deployments'), fn () => __('Free')],
+            [__('Preview deployments'), fn () => __('Unlimited · usage counts')],
         ];
 
         $overage = [
@@ -94,7 +94,7 @@
             ],
             [
                 'q' => __('Do preview deployments cost anything?'),
-                'a' => __('Previews don’t count as sites and their traffic isn’t billed. Previews of container apps (PHP, Rails, Node) run their own container, so the seconds they run are billed as compute like production.'),
+                'a' => __('Previews don’t use up a site on your plan, but everything they use counts: build minutes, requests and egress, and container compute for PHP, Rails and Node previews. It all comes out of your plan’s allowance first, then bills at the usage rates.'),
             ],
             [
                 'q' => __('What happens if I go past my plan?'),
@@ -126,7 +126,7 @@
                     {{ __('Pick a plan. Pay for what you outgrow.') }}
                 </h1>
                 <p class="mt-5 max-w-2xl text-base leading-7 text-edge-mute">
-                    {{ __('Free to start, Pro for real projects, Team for your whole company. Each plan includes sites, seats, build minutes and traffic; anything past that is metered. Previews are always free.') }}
+                    {{ __('Free to start, Pro for real projects, Team for your whole company. Each plan includes sites, seats, build minutes and traffic; anything past that is metered, previews included.') }}
                 </p>
 
                 <div class="mt-8 flex flex-wrap items-center gap-4">
@@ -160,7 +160,7 @@
             </div>
             <div class="border-t border-edge-line">
                 <p class="mx-auto max-w-6xl px-6 py-4 text-sm text-edge-mute lg:px-10">
-                    {{ __('Billed monthly. Preview deployments are free. Enterprise pricing on request.') }}
+                    {{ __('Billed monthly. Preview usage counts toward your plan. Enterprise pricing on request.') }}
                 </p>
             </div>
         </section>

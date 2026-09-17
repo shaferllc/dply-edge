@@ -14,7 +14,7 @@
         <dl class="space-y-2.5 text-sm">
             <div>
                 <dt class="font-semibold text-brand-ink">{{ __('A monthly plan') }}</dt>
-                <dd class="mt-1 text-brand-moss">{{ __('Free, Pro or Team. Each plan includes sites, seats, build minutes, requests and egress for the month. Previews are always free.') }}</dd>
+                <dd class="mt-1 text-brand-moss">{{ __('Free, Pro or Team. Each plan includes sites, seats, build minutes, requests and egress for the month. Preview deployments don’t take a site slot, but their builds, traffic and compute count toward your usage.') }}</dd>
             </div>
             <div>
                 <dt class="font-semibold text-brand-ink">{{ __('Extra sites and SSR') }}</dt>

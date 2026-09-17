@@ -80,5 +80,5 @@ Then run `dply:billing:sync-all --dry-run` before the first real sweep, because 
 
 - A queue can have only one consumer. Attaching it to two container projects fails the second deploy.
 - Free plan: the 1M requests / 10 GB egress allowance is advertised but not enforced — usage past it is neither billed nor throttled.
-- Container previews run (and bill) their own compute per second; the pricing FAQ says so.
+- Previews are billed for everything they use (build minutes, traffic, container compute) but do not take a site slot; the pricing FAQ says so.
 - Full suite on this branch: 1165 passed, 15 failed, 5 skipped. All 15 fail identically on `main` (verified by checking `main` out and rerunning them): AdminDashboardTest (6 feature-flag tests), BillingApiTest billing flag, ContainerProviderCredentialsTest (2), CredentialTest provider grouping, EdgeCreatePageTest / EdgeIndexTest / EdgeNavLinkTest "surface edge inactive", EdgeDeploymentDetailPageTest promote diff, EdgePreviewReviewHubTest approval.
