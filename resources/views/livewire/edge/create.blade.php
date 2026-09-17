@@ -119,8 +119,9 @@
                                             @php
                                                 $exampleSlug = (string) ($example['slug'] ?? '');
                                                 $exampleName = (string) ($example['name'] ?? $exampleSlug);
-                                                $exampleFramework = (string) ($example['framework'] ?? '');
-                                                $isKeel = $exampleFramework === 'keel' || $exampleSlug === 'keel-workers';
+                                                // Highlight the example whose repo is loaded (owner/name or a GitHub URL).
+                                                $loadedRepo = strtolower(trim((string) preg_replace('~^(https?://)?(www\.)?github\.com/|\.git$~i', '', trim((string) $repo)), '/'));
+                                                $isSelected = $loadedRepo !== '' && in_array($loadedRepo, array_map('strtolower', array_filter([(string) ($example['clone_repo'] ?? ''), (string) ($example['repo'] ?? '')])), true);
                                             @endphp
                                             <button
                                                 type="button"
@@ -129,14 +130,18 @@
                                                 wire:target="loadExampleApp"
                                                 data-testid="edge-example-{{ $exampleSlug }}"
                                                 title="{{ (string) ($example['description'] ?? $exampleName) }}"
+                                                aria-pressed="{{ $isSelected ? 'true' : 'false' }}"
                                                 @class([
                                                     'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition disabled:opacity-60',
-                                                    'bg-brand-ink text-brand-cream hover:bg-brand-forest' => $isKeel,
-                                                    'border border-brand-ink/15 bg-white text-brand-ink shadow-sm hover:bg-brand-sand/40 dark:border-brand-mist/25 dark:bg-zinc-800/60 dark:hover:bg-raw-zinc-700' => ! $isKeel,
+                                                    'bg-brand-ink text-brand-cream hover:bg-brand-forest' => $isSelected,
+                                                    'border border-brand-ink/15 bg-white text-brand-ink shadow-sm hover:bg-brand-sand/40 dark:border-brand-mist/25 dark:bg-zinc-800/60 dark:hover:bg-raw-zinc-700' => ! $isSelected,
                                                 ])
                                             >
-                                                <span wire:loading.remove wire:target="loadExampleApp">{{ $exampleName }}</span>
-                                                <span wire:loading wire:target="loadExampleApp">{{ __('Loading…') }}</span>
+                                                @if ($isSelected)
+                                                    <x-heroicon-m-check class="h-3.5 w-3.5" aria-hidden="true" />
+                                                @endif
+                                                <span wire:loading.remove wire:target="loadExampleApp('{{ $exampleSlug }}')">{{ $exampleName }}</span>
+                                                <span wire:loading wire:target="loadExampleApp('{{ $exampleSlug }}')">{{ __('Loading…') }}</span>
                                             </button>
                                         @endforeach
                                     </div>

@@ -109,3 +109,14 @@ test('without container setup, a laravel repo explains what is missing instead o
         ->assertSee('Laravel app detected — it runs as a Container')
         ->assertSee('DPLY_EDGE_CF_API_TOKEN');
 });
+
+test('the loaded example chip is the selected one', function () {
+    Http::fake(['*' => Http::response('Not Found', 404)]);
+
+    $component = Livewire::actingAs(creator())->test(Create::class)
+        ->call('loadExampleApp', 'laravel-starter');
+
+    $html = $component->html();
+    expect($html)->toMatch('/data-testid="edge-example-laravel-starter"[^>]*aria-pressed="true"/s')
+        ->and($html)->toMatch('/data-testid="edge-example-keel-workers"[^>]*aria-pressed="false"/s');
+});
