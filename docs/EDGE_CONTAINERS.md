@@ -1,15 +1,16 @@
 ---
-title: "Container apps (PHP, Rails)"
+title: "Container apps (PHP, Rails, Node)"
 slug: edge-containers
 category: "Edge"
 order: 118
-description: "Run Laravel, Symfony, Rails and other server apps on Cloudflare Containers behind your Edge site, with queues and an external database."
+description: "Run Laravel, Symfony, Rails and Node servers (Express, Nest, Fastify) on Cloudflare Containers behind your Edge site, with queues, per-second billing and an external database."
 group: edge
 ---
 
 # Container apps
 
-Edge runs **PHP (Laravel, Symfony) and Ruby (Rails, Sinatra)** apps as
+Edge runs **PHP (Laravel, Symfony), Ruby (Rails, Sinatra) and Node HTTP servers
+(Express, Nest, Fastify, Koa)** as
 [Cloudflare Containers](https://developers.cloudflare.com/containers/). Pick
 **Container** as the delivery mode when you create the site — dply preselects it
 for PHP and Ruby repositories. Available on **Pro and Team**.
@@ -21,6 +22,8 @@ Every deploy:
 1. Clones the repo and uses its `Dockerfile`, or generates `Dockerfile.dply`:
    - **PHP** — FrankenPHP, Composer install, Vite/npm assets when `package.json` exists.
    - **Rails** — Ruby slim image, `bundle install`, `assets:precompile`, Puma.
+   - **Node** — your lockfile's installer, `npm run build` if present, `npm start`.
+     Your server must listen on `process.env.PORT` (8080).
 2. Builds the image and deploys it with a small Worker in front
    (`wrangler deploy`), rolled out immediately.
 

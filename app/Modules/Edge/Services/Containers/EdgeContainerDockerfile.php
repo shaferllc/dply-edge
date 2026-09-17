@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Services\Containers;
 
+use App\Modules\Edge\Services\NodeVersionDetector;
 use RuntimeException;
 
 /**
  * The image a container site runs. A repo `Dockerfile` wins; otherwise one is
- * generated for Laravel/PHP (FrankenPHP) or Rails/Ruby (Puma) and written as
+ * generated for Laravel/PHP (FrankenPHP), Rails/Ruby (Puma) or a Node HTTP
+ * server (`npm start` on $PORT) and written as
  * `Dockerfile.dply` at the checkout root, which stays the build context.
  *
  * Generated images listen on 8080 and run migrations on boot
@@ -36,7 +38,8 @@ final class EdgeContainerDockerfile
         [$stack, $contents] = match (true) {
             is_file($checkout.'/composer.json') => ['php', self::php($checkout)],
             is_file($checkout.'/Gemfile') => ['ruby', self::ruby($checkout)],
-            default => throw new RuntimeException('Container sites need a Dockerfile, composer.json (PHP) or Gemfile (Ruby) at the repository root.'),
+            is_file($checkout.'/package.json') => ['node', self::node($checkout)],
+            default => throw new RuntimeException('Container sites need a Dockerfile, composer.json (PHP), Gemfile (Ruby) or package.json (Node) at the repository root.'),
         };
 
         file_put_contents($checkout.'/Dockerfile.dply', $contents);
@@ -87,6 +90,36 @@ final class EdgeContainerDockerfile
         $lines[] = 'CMD ["sh", "-c", '.json_encode($boot, JSON_UNESCAPED_SLASHES).']';
 
         return implode("\n", $lines)."\n";
+    }
+
+    /**
+     * Node HTTP server: dev dependencies for the build, production install
+     * for the image, `npm start` listening on $PORT.
+     */
+    private static function node(string $checkout): string
+    {
+        $major = app(NodeVersionDetector::class)->detect($checkout)['major'];
+        $install = match (true) {
+            is_file($checkout.'/pnpm-lock.yaml') => 'corepack enable && pnpm install --frozen-lockfile',
+            is_file($checkout.'/yarn.lock') => 'corepack enable && yarn install --frozen-lockfile',
+            is_file($checkout.'/package-lock.json') => 'npm ci',
+            default => 'npm install',
+        };
+        $start = match (true) {
+            is_file($checkout.'/pnpm-lock.yaml') => 'pnpm start',
+            is_file($checkout.'/yarn.lock') => 'yarn start',
+            default => 'npm start',
+        };
+
+        return implode("\n", [
+            "FROM node:{$major}-bookworm-slim",
+            'WORKDIR /app',
+            'COPY . .',
+            "RUN {$install} && (npm run build --if-present)",
+            'ENV NODE_ENV=production PORT=8080 HOST=0.0.0.0',
+            'EXPOSE 8080',
+            'CMD ["sh", "-c", '.json_encode("exec {$start}", JSON_UNESCAPED_SLASHES).']',
+        ])."\n";
     }
 
     private static function ruby(string $checkout): string

@@ -36,7 +36,6 @@ test('blocks long-running backend frameworks', function (array $plan, string $ro
 })->with([
     'wordpress' => [['runtime' => 'php', 'framework' => 'wordpress'], 'servers.create'],
     'django' => [['runtime' => 'python', 'framework' => 'django'], 'servers.create'],
-    'nest api' => [['runtime' => 'node', 'framework' => 'nest'], 'servers.create'],
     'go runtime' => [['runtime' => 'go', 'framework' => ''], 'servers.create'],
 ]);
 
@@ -60,6 +59,8 @@ test('php and ruby apps are eligible as containers', function (array $plan) {
     'php runtime' => [['runtime' => 'php', 'framework' => 'php']],
     'rails' => [['runtime' => 'ruby', 'framework' => 'rails']],
     'sinatra' => [['runtime' => 'ruby', 'framework' => 'sinatra']],
+    'nest api' => [['runtime' => 'node', 'framework' => 'nest']],
+    'express' => [['runtime' => 'node', 'framework' => 'express']],
 ]);
 
 test('javascript and wordpress plans never ask for a container', function () {

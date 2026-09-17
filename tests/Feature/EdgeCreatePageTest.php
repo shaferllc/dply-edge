@@ -8,6 +8,7 @@ use App\Models\Organization;
 use App\Models\Site;
 use App\Models\SocialAccount;
 use App\Models\User;
+use App\Modules\Billing\Models\Subscription;
 use App\Modules\Edge\Livewire\Create;
 use App\Modules\SourceControl\Services\SourceControlRepositoryBrowser;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -194,7 +195,26 @@ test('laravel repos are container workloads, and free orgs cannot deploy them', 
     expect(Site::query()->count())->toBe(0);
 });
 
-test('rejects nest api detection on edge deploy', function () {
+test('a pro org can create a laravel app as a container', function () {
+    config(['edge.fake.enabled' => true, 'subscription.standard.stripe.tier_pro' => 'price_tier_pro']);
+    $user = ownerWithOrg();
+    Subscription::factory()->withPrice('price_tier_pro')->active()
+        ->create(['organization_id' => session('current_organization_id')]);
+
+    Livewire::actingAs($user)
+        ->test(Create::class)
+        ->set('form.name', 'Laravel App')
+        ->set('repo', 'acme/laravel-app')
+        ->set('branch', 'main')
+        ->set('form.runtime_mode', 'container')
+        ->set('detectedPlan', ['runtime' => 'php', 'framework' => 'laravel'])
+        ->call('deploy');
+
+    expect(Site::query()->count())->toBe(1)
+        ->and(Site::query()->first()->edgeMeta()['runtime_mode'])->toBe('container');
+});
+
+test('a nest api must be deployed as a container', function () {
     $user = ownerWithOrg();
 
     Livewire::actingAs($user)

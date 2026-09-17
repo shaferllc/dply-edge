@@ -43,9 +43,7 @@ final class EdgeEligibility
         'django',
         'flask',
         'fastapi',
-        'nest',
         'spring',
-        'express',
     ];
 
     /**
@@ -64,14 +62,15 @@ final class EdgeEligibility
     ];
 
     /**
-     * Stacks that run as Cloudflare Containers (runtime_mode `container`).
+     * Stacks that run as Cloudflare Containers (runtime_mode `container`):
+     * PHP, Ruby, and Node HTTP servers (Nest, Express, Fastify, Koa).
      *
      * @var list<string>
      */
     public const CONTAINER_RUNTIMES = ['php', 'ruby'];
 
     /** @var list<string> */
-    public const CONTAINER_FRAMEWORKS = ['laravel', 'symfony', 'php', 'rails', 'sinatra', 'ruby'];
+    public const CONTAINER_FRAMEWORKS = ['laravel', 'symfony', 'php', 'rails', 'sinatra', 'ruby', 'nest', 'express', 'fastify', 'koa'];
 
     /**
      * True when the plan is a PHP / Ruby app that must deploy as a container.

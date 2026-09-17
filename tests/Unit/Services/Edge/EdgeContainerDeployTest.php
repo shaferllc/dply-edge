@@ -53,6 +53,19 @@ test('rails gets a puma image with db:prepare on boot', function () {
         ->and($dockerfile)->toContain('puma -b tcp://0.0.0.0:8080');
 });
 
+test('a node server gets npm start on port 8080 with the lockfile installer', function () {
+    $dir = checkout(['package.json' => '{"engines":{"node":"20"},"scripts":{"start":"node server.js"}}', 'pnpm-lock.yaml' => '']);
+
+    $image = EdgeContainerDockerfile::prepare($dir);
+    $dockerfile = File::get($image['path']);
+
+    expect($image['stack'])->toBe('node')
+        ->and($dockerfile)->toContain('FROM node:20-bookworm-slim')
+        ->and($dockerfile)->toContain('pnpm install --frozen-lockfile')
+        ->and($dockerfile)->toContain('PORT=8080')
+        ->and($dockerfile)->toContain('exec pnpm start');
+});
+
 test('an unrecognised repo without a Dockerfile is refused', function () {
     EdgeContainerDockerfile::prepare(checkout(['index.html' => 'hi']));
 })->throws(\RuntimeException::class, 'Container sites need a Dockerfile');

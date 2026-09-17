@@ -54,6 +54,32 @@ test('fake edge create runs build and publish to live deployment', function () {
     expect($backend)->not->toBeNull();
 });
 
+test('fake edge container site builds, records its script and goes live', function () {
+    config(['edge.fake.enabled' => true]);
+    Storage::fake('edge_r2');
+    [$user, $org] = scaffold();
+
+    $site = (new CreateEdgeSite)->handle($user, $org, [
+        'name' => 'Laravel App',
+        'repo' => 'acme/laravel',
+        'branch' => 'main',
+        'runtime_mode' => 'container',
+    ]);
+    $deployment = EdgeDeployment::query()->where('site_id', $site->id)->latest()->first();
+
+    app()->call([new BuildEdgeSiteJob($deployment->id), 'handle']);
+    foreach (Queue::pushed(PublishEdgeDeploymentJob::class) as $job) {
+        app()->call([$job, 'handle']);
+    }
+
+    $site->refresh();
+    $deployment->refresh();
+
+    expect($site->edgeMeta()['runtime_mode'])->toBe('container')
+        ->and($site->status)->toBe(Site::STATUS_EDGE_ACTIVE)
+        ->and($deployment->meta['container']['script_name'])->toBe('dply-ctr-'.strtolower((string) $site->id));
+});
+
 /**
  * @return array{0: User, 1: Organization}
  */
