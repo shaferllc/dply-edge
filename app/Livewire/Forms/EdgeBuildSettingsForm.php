@@ -32,6 +32,14 @@ class EdgeBuildSettingsForm extends Form
 
     public string $edge_origin_failover_html = '';
 
+    public string $edge_origin_access_client_id = '';
+
+    /**
+     * Write-only. Hydrated blank so the stored secret is never echoed into the
+     * page; a blank submit leaves the saved value alone.
+     */
+    public string $edge_origin_access_client_secret = '';
+
     public string $edge_convert_origin_url = '';
 
     public string $edge_cache_purge_tag = '';
@@ -70,6 +78,10 @@ class EdgeBuildSettingsForm extends Form
         ))));
         $this->edge_origin_healthcheck_path = trim((string) ($origin['healthcheck_path'] ?? '/')) ?: '/';
         $this->edge_origin_failover_html = is_string($origin['failover_html'] ?? null) ? (string) $origin['failover_html'] : '';
+        // Credentials come from the encrypted column, not meta. The secret
+        // half stays blank — see the property docblock.
+        $this->edge_origin_access_client_id = (string) ($site->edgeOriginSecret('access_client_id') ?? '');
+        $this->edge_origin_access_client_secret = '';
 
         $images = is_array($edge['images'] ?? null) ? $edge['images'] : [];
         $this->edge_image_optimization_enabled = is_string($images['signing_secret'] ?? null) && $images['signing_secret'] !== '';

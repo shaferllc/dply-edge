@@ -215,6 +215,106 @@ describe('handleRequest', () => {
     expect(response.status).toBe(404);
   });
 
+  it('sends the Cloudflare Access service token to an Access-protected origin', async () => {
+    const hybridEntry: HostMapEntry = {
+      ...hostEntry,
+      origin_url: 'https://tunnel.example.test',
+      origin_routes: ['/api/*'],
+      origin_auth_secret: 'shared-secret',
+      origin_access_client_id: 'svc.access',
+      origin_access_client_secret: 'svc-secret',
+    };
+
+    const env: Env = {
+      HOST_MAP: createMockKv({ 'hybrid.example.test': hybridEntry }),
+      ARTIFACTS: createMockR2({}),
+    };
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const headers = (input as Request).headers;
+      expect(headers.get('CF-Access-Client-Id')).toBe('svc.access');
+      expect(headers.get('CF-Access-Client-Secret')).toBe('svc-secret');
+      expect(headers.get('X-Dply-Origin-Auth')).toBe('shared-secret');
+
+      return new Response('ok', { status: 200 });
+    }) as typeof fetch;
+
+    try {
+      const response = await handleRequest(new Request('https://hybrid.example.test/api/users'), env);
+      expect(response.status).toBe(200);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('strips client-supplied Access headers so they cannot be spoofed inward', async () => {
+    const hybridEntry: HostMapEntry = {
+      ...hostEntry,
+      origin_url: 'https://tunnel.example.test',
+      origin_routes: ['/api/*'],
+    };
+
+    const env: Env = {
+      HOST_MAP: createMockKv({ 'hybrid.example.test': hybridEntry }),
+      ARTIFACTS: createMockR2({}),
+    };
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const headers = (input as Request).headers;
+      // No token configured on the entry, so nothing may reach the origin.
+      expect(headers.get('CF-Access-Client-Id')).toBeNull();
+      expect(headers.get('CF-Access-Client-Secret')).toBeNull();
+
+      return new Response('ok', { status: 200 });
+    }) as typeof fetch;
+
+    try {
+      const response = await handleRequest(
+        new Request('https://hybrid.example.test/api/users', {
+          headers: {
+            'CF-Access-Client-Id': 'attacker',
+            'CF-Access-Client-Secret': 'attacker',
+          },
+        }),
+        env,
+      );
+      expect(response.status).toBe(200);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('sends no Access headers when only one half of the token is configured', async () => {
+    const hybridEntry: HostMapEntry = {
+      ...hostEntry,
+      origin_url: 'https://tunnel.example.test',
+      origin_routes: ['/api/*'],
+      origin_access_client_id: 'svc.access',
+    };
+
+    const env: Env = {
+      HOST_MAP: createMockKv({ 'hybrid.example.test': hybridEntry }),
+      ARTIFACTS: createMockR2({}),
+    };
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const headers = (input as Request).headers;
+      expect(headers.get('CF-Access-Client-Id')).toBeNull();
+
+      return new Response('ok', { status: 200 });
+    }) as typeof fetch;
+
+    try {
+      const response = await handleRequest(new Request('https://hybrid.example.test/api/users'), env);
+      expect(response.status).toBe(200);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it('proxies hybrid origin routes before SPA fallback when index.html exists', async () => {
     const hybridEntry: HostMapEntry = {
       ...hostEntry,

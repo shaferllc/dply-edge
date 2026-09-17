@@ -75,6 +75,14 @@ class OriginHealthcheckRunner
         if ($authSecret !== '') {
             $headers['X-Dply-Origin-Auth'] = $authSecret;
         }
+        // Match what the Worker sends, or an Access-protected origin reports
+        // unhealthy here while serving traffic perfectly well.
+        $accessId = is_string($origin['access_client_id'] ?? null) ? trim((string) $origin['access_client_id']) : '';
+        $accessSecret = is_string($origin['access_client_secret'] ?? null) ? trim((string) $origin['access_client_secret']) : '';
+        if ($accessId !== '' && $accessSecret !== '') {
+            $headers['CF-Access-Client-Id'] = $accessId;
+            $headers['CF-Access-Client-Secret'] = $accessSecret;
+        }
 
         try {
             $response = $this->http

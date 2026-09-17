@@ -85,6 +85,7 @@ use Illuminate\Support\Str;
  * @property ?string $edge_backend
  * @property ?string $edge_backend_id
  * @property ?string $edge_provider_credential_id
+ * @property ?array<string, string> $edge_origin_secrets
  * @property ?array<string, mixed> $meta
  * @property ?string $dns_provider_credential_id
  * @property ?string $dns_zone
@@ -284,6 +285,7 @@ class Site extends Model
         'edge_backend',
         'edge_backend_id',
         'edge_provider_credential_id',
+        'edge_origin_secrets',
         'meta',
     ];
 
@@ -296,6 +298,7 @@ class Site extends Model
             'webhook_secret' => 'encrypted',
             'webhook_allowed_ips' => 'array',
             'env_file_content' => 'encrypted',
+            'edge_origin_secrets' => 'encrypted:array',
             'env_synced_at' => 'datetime',
             'meta' => 'array',
             'app_port' => 'integer',

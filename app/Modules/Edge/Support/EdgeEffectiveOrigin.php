@@ -21,6 +21,8 @@ final class EdgeEffectiveOrigin
      *     routes: list<string>,
      *     failover_html: ?string,
      *     auth_secret: ?string,
+     *     access_client_id: ?string,
+     *     access_client_secret: ?string,
      *     sources: array{repo: bool, dashboard: bool}
      * }
      */
@@ -41,7 +43,11 @@ final class EdgeEffectiveOrigin
             'url' => $url,
             'routes' => $routes,
             'failover_html' => $failover,
-            'auth_secret' => $dash['auth_secret'] ?? null,
+            // Credentials come from the encrypted column, never from meta or
+            // the repo — dply.yaml is committed, so it must not carry secrets.
+            'auth_secret' => $site->edgeOriginSecret('auth_secret'),
+            'access_client_id' => $site->edgeOriginSecret('access_client_id'),
+            'access_client_secret' => $site->edgeOriginSecret('access_client_secret'),
             'sources' => [
                 'repo' => $repo !== [],
                 'dashboard' => $dash !== [],
@@ -58,16 +64,12 @@ final class EdgeEffectiveOrigin
         return self::sanitize($origin);
     }
 
-    /** @return array{url?: string, routes?: list<string>, failover_html?: string, auth_secret?: string} */
+    /** @return array{url?: string, routes?: list<string>, failover_html?: string} */
     private static function extractDashboard(Site $site): array
     {
         $origin = is_array($site->edgeMeta()['origin'] ?? null) ? $site->edgeMeta()['origin'] : [];
-        $out = self::sanitize($origin);
-        if (is_string($origin['auth_secret'] ?? null) && trim((string) $origin['auth_secret']) !== '') {
-            $out['auth_secret'] = trim((string) $origin['auth_secret']);
-        }
 
-        return $out;
+        return self::sanitize($origin);
     }
 
     /**

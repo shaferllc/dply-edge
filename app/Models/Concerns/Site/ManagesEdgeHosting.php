@@ -398,4 +398,38 @@ trait ManagesEdgeHosting
         $meta['edge'] = array_merge(is_array($current) ? $current : [], $patch);
         $this->meta = $meta;
     }
+
+    /**
+     * Origin credentials live in the encrypted `edge_origin_secrets` column,
+     * not in `meta` — `meta` is queried with JSON operators and so cannot be
+     * encrypted. Keys: `auth_secret` (the dply shared secret) and the
+     * Cloudflare Access pair `access_client_id` / `access_client_secret`.
+     */
+    public function edgeOriginSecret(string $key): ?string
+    {
+        $value = ($this->edge_origin_secrets ?? [])[$key] ?? null;
+
+        return is_string($value) && trim($value) !== '' ? trim($value) : null;
+    }
+
+    /**
+     * Merges keys into the encrypted origin secrets. A null or blank value
+     * removes its key, so clearing a credential leaves no empty string behind.
+     *
+     * @param  array<string, ?string>  $patch
+     */
+    public function mergeEdgeOriginSecrets(array $patch): void
+    {
+        $secrets = $this->edge_origin_secrets ?? [];
+        foreach ($patch as $key => $value) {
+            if ($value === null || trim($value) === '') {
+                unset($secrets[$key]);
+
+                continue;
+            }
+            $secrets[$key] = trim($value);
+        }
+
+        $this->edge_origin_secrets = $secrets === [] ? null : $secrets;
+    }
 }

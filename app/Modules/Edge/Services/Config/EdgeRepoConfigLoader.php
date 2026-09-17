@@ -50,7 +50,8 @@ class EdgeRepoConfigLoader
     /** Hard cap so a hostile repo can't ship a huge config that blows up KV. */
     private const MAX_FILE_BYTES = 64 * 1024;
 
-    private const ALLOWED_STATUS_CODES = [301, 302, 303, 307, 308];
+    /** Public because EdgeRedirectImport reuses it for pasted dashboard rules. */
+    public const ALLOWED_STATUS_CODES = [301, 302, 303, 307, 308];
 
     public function loadFromDirectory(string $checkoutPath): ?EdgeRepoConfig
     {
@@ -1151,6 +1152,17 @@ class EdgeRepoConfigLoader
                 $out['failover_html'] = $value['failover_html'];
             } else {
                 $warnings[] = 'origin.failover_html must be an HTML string.';
+            }
+        }
+        // Credentials are never read from the repo — dply.yaml is committed.
+        // Say so rather than dropping them silently, so nobody leaves a live
+        // secret in git believing it is in use.
+        foreach (['auth_secret', 'access_client_id', 'access_client_secret'] as $credential) {
+            if (isset($value['origin'][$credential]) || isset($value[$credential])) {
+                $warnings[] = sprintf(
+                    'origin.%s is ignored — origin credentials are set in Delivery settings, not in a committed file. Remove it and rotate the value.',
+                    $credential,
+                );
             }
         }
 

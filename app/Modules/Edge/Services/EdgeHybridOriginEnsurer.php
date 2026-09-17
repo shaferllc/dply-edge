@@ -97,9 +97,12 @@ class EdgeHybridOriginEnsurer
                 'routes' => self::DEFAULT_PROXY_ROUTES,
                 'healthcheck_path' => '/',
                 'failover_html' => null,
-                'auth_secret' => Str::random(48),
             ]),
         ]);
+        // Secret goes to the encrypted column, never into meta.
+        if ($site->edgeOriginSecret('auth_secret') === null) {
+            $site->mergeEdgeOriginSecrets(['auth_secret' => Str::random(48)]);
+        }
         $site->save();
 
         $this->republishHostMap($site->fresh());
@@ -129,7 +132,6 @@ class EdgeHybridOriginEnsurer
             }
         }
 
-        $authSecret = is_string($origin['auth_secret'] ?? null) ? trim($origin['auth_secret']) : '';
         $healthPath = trim((string) ($origin['healthcheck_path'] ?? '/')) ?: '/';
         $failover = is_string($origin['failover_html'] ?? null) ? trim($origin['failover_html']) : '';
 
@@ -140,7 +142,6 @@ class EdgeHybridOriginEnsurer
             'routes' => $routes,
             'healthcheck_path' => $healthPath[0] === '/' ? $healthPath : '/'.$healthPath,
             'failover_html' => $failover !== '' ? $failover : null,
-            'auth_secret' => $authSecret !== '' ? $authSecret : Str::random(48),
         ];
     }
 

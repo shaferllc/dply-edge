@@ -143,7 +143,8 @@ final readonly class PublicOutboundUrl
         return $ips;
     }
 
-    private static function isBlockedHostname(string $host): bool
+    /** Public so save-time validation can reject these without paying for DNS. */
+    public static function isBlockedHostname(string $host): bool
     {
         $blocked = [
             'localhost',

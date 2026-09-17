@@ -352,6 +352,14 @@ class EdgeHostMapPublisher
                 if (is_string($effOrigin['failover_html']) && $effOrigin['failover_html'] !== '') {
                     $payload['origin_failover_html'] = $effOrigin['failover_html'];
                 }
+                // Cloudflare Access service token — lets the origin sit behind
+                // Access (a Tunnel hostname, typically) instead of being open
+                // to anyone who learns it. Both halves or neither.
+                if (is_string($effOrigin['access_client_id']) && $effOrigin['access_client_id'] !== ''
+                    && is_string($effOrigin['access_client_secret']) && $effOrigin['access_client_secret'] !== '') {
+                    $payload['origin_access_client_id'] = $effOrigin['access_client_id'];
+                    $payload['origin_access_client_secret'] = $effOrigin['access_client_secret'];
+                }
             }
         }
 

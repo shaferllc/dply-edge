@@ -66,6 +66,26 @@
                         <span class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Failover HTML') }}</span>
                         <textarea wire:model="buildForm.edge_origin_failover_html" rows="3" spellcheck="false" placeholder="{{ __('Optional — blank uses the built-in 503 page.') }}" class="mt-1.5 w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 font-mono text-xs text-brand-ink shadow-sm focus:border-brand-sage focus:ring-1 focus:ring-brand-sage dark:border-brand-mist/20 dark:bg-zinc-900"></textarea>
                         @error('buildForm.edge_origin_failover_html') <p class="mt-1 text-xs text-rose-700">{{ $message }}</p> @enderror
+                    </div>
+
+                    <div class="sm:col-span-2">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Cloudflare Access service token') }}</p>
+                        <p class="mt-1 text-xs text-brand-moss">
+                            {{ __('Optional. Set this when the origin sits behind Cloudflare Access — typically a Cloudflare Tunnel hostname, which has no public IP but is still reachable by anyone who learns it. The Worker sends the token on every origin request.') }}
+                        </p>
+                        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <div>
+                                <label for="origin-access-id" class="text-xs font-medium text-brand-ink dark:text-brand-sand">{{ __('Client ID') }}</label>
+                                <input id="origin-access-id" type="text" wire:model="buildForm.edge_origin_access_client_id" autocomplete="off" spellcheck="false" placeholder="xxxx.access" class="mt-1.5 w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 font-mono text-xs text-brand-ink shadow-sm focus:border-brand-sage focus:ring-1 focus:ring-brand-sage dark:border-brand-mist/20 dark:bg-zinc-900" />
+                                @error('buildForm.edge_origin_access_client_id') <p class="mt-1 text-xs text-rose-700">{{ $message }}</p> @enderror
+                            </div>
+                            <div>
+                                <label for="origin-access-secret" class="text-xs font-medium text-brand-ink dark:text-brand-sand">{{ __('Client Secret') }}</label>
+                                <input id="origin-access-secret" type="password" wire:model="buildForm.edge_origin_access_client_secret" autocomplete="new-password" spellcheck="false" placeholder="{{ $edgeOriginHasAccessSecret ? __('Stored — leave blank to keep') : __('Paste to set') }}" class="mt-1.5 w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 font-mono text-xs text-brand-ink shadow-sm focus:border-brand-sage focus:ring-1 focus:ring-brand-sage dark:border-brand-mist/20 dark:bg-zinc-900" />
+                                @error('buildForm.edge_origin_access_client_secret') <p class="mt-1 text-xs text-rose-700">{{ $message }}</p> @enderror
+                            </div>
+                        </div>
+                        <p class="mt-1.5 text-xs text-brand-moss">{{ __('Clearing the Client ID removes both halves.') }}</p>
                     </label>
 
                     <div class="flex flex-wrap items-center justify-end gap-3">

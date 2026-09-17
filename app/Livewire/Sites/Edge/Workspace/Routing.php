@@ -13,6 +13,7 @@ use App\Models\Server;
 use App\Models\Site;
 use App\Modules\Edge\Services\EdgeHostMapPublisher;
 use App\Modules\Edge\Support\EdgeEffectiveRouting;
+use App\Modules\Edge\Support\EdgeRedirectImport;
 use App\Support\Sites\EdgeSiteViewData;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\Url;
@@ -56,6 +57,9 @@ class Routing extends Component
     public string $new_header_for = '';
 
     public string $new_header_pairs = '';
+
+    /** Pasted Cloudflare bulk-redirect CSV / Netlify _redirects block. */
+    public string $bulk_redirects = '';
 
     public function mount(Server $server, Site $site): void
     {
@@ -132,6 +136,80 @@ class Routing extends Component
         $this->new_redirect_from = '';
         $this->new_redirect_to = '';
         $this->new_redirect_status = 301;
+    }
+
+    /**
+     * Appends a pasted block of rules in one go. Rules whose `from` already
+     * exists (repo-declared or dashboard) are skipped rather than added: the
+     * worker stops at the first match, so a duplicate could never fire.
+     */
+    public function importRedirects(): void
+    {
+        $this->authorize('update', $this->site);
+
+        $parsed = EdgeRedirectImport::parse($this->bulk_redirects);
+        if ($parsed['redirects'] === []) {
+            $this->addError('bulk_redirects', $parsed['errors'][0] ?? __('Nothing to import.'));
+
+            return;
+        }
+
+        $taken = array_column($this->effectiveRedirects(), 'from');
+        $added = 0;
+        $skipped = 0;
+        foreach ($parsed['redirects'] as $rule) {
+            if (self::isAlreadyMatched($rule['from'], $taken)) {
+                $skipped++;
+
+                continue;
+            }
+            $this->dashboard_redirects[] = $rule;
+            $taken[] = $rule['from'];
+            $added++;
+        }
+
+        if ($added === 0) {
+            $this->addError('bulk_redirects', __('Every rule in that paste already exists.'));
+
+            return;
+        }
+
+        $this->persist('redirects.imported');
+        $this->bulk_redirects = '';
+
+        $message = trans_choice('{1}Imported 1 redirect.|[2,*]Imported :count redirects.', $added, ['count' => $added]);
+        if ($skipped > 0) {
+            $message .= ' '.trans_choice('{1}Skipped 1 duplicate.|[2,*]Skipped :count duplicates.', $skipped, ['count' => $skipped]);
+        }
+        if ($parsed['errors'] !== []) {
+            $message .= ' '.trans_choice('{1}1 line was not readable.|[2,*]:count lines were not readable.', count($parsed['errors']), ['count' => count($parsed['errors'])]);
+        }
+        $this->toastSuccess($message);
+    }
+
+    /**
+     * True when an existing rule already fires for everything `$from` would.
+     *
+     * The worker matches an exact rule against the path *and* that path plus
+     * one trailing slash, so `/blog` already covers `/blog/` and an imported
+     * `/blog/` could never fire. The reverse is not true — `/blog/` matches
+     * only `/blog/` — so it is not treated as a duplicate.
+     *
+     * ponytail: exact + trailing-slash only. A pre-existing `/blog/*` also
+     * shadows an imported `/blog/foo`, but glob subsumption is a judgement
+     * call the operator may want to make themselves by reordering.
+     *
+     * @param  list<string>  $existing
+     */
+    private static function isAlreadyMatched(string $from, array $existing): bool
+    {
+        if (in_array($from, $existing, true)) {
+            return true;
+        }
+
+        return $from !== '/'
+            && str_ends_with($from, '/')
+            && in_array(rtrim($from, '/'), $existing, true);
     }
 
     public function removeRedirect(int $index): void
@@ -293,9 +371,10 @@ class Routing extends Component
         return $pairs;
     }
 
-    public function render(): View
+    /** The deployment whose repo_config supplies the read-only repo rules. */
+    private function latestRoutingDeployment(): ?EdgeDeployment
     {
-        $latest = EdgeDeployment::query()
+        return EdgeDeployment::query()
             ->where('site_id', $this->site->id)
             ->where('status', EdgeDeployment::STATUS_LIVE)
             ->latest('id')
@@ -305,6 +384,17 @@ class Routing extends Component
                 ->whereNotNull('repo_config')
                 ->latest('id')
                 ->first();
+    }
+
+    /** @return list<array{from: string, to: string, status: int, source: 'repo'|'dashboard'}> */
+    private function effectiveRedirects(): array
+    {
+        return EdgeEffectiveRouting::for($this->site, $this->latestRoutingDeployment())['redirects'];
+    }
+
+    public function render(): View
+    {
+        $latest = $this->latestRoutingDeployment();
 
         $effective = EdgeEffectiveRouting::for($this->site, $latest);
         $repoRedirects = array_values(array_filter($effective['redirects'], static fn (array $r): bool => $r['source'] === 'repo'));
@@ -327,6 +417,9 @@ class Routing extends Component
                 'repoHeaders' => $repoHeaders,
                 'sourcePath' => $sourcePath,
                 'templates' => self::templates(),
+                'bulkPreview' => trim($this->bulk_redirects) === ''
+                    ? null
+                    : EdgeRedirectImport::parse($this->bulk_redirects),
             ],
         ));
     }

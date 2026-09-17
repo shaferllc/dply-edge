@@ -227,6 +227,14 @@ class FakeEdgeBackend implements EdgeBackend
                 if ($authSecret !== '') {
                     $payload['origin_auth_secret'] = $authSecret;
                 }
+                // Parity with EdgeHostMapPublisher so local dev exercises the
+                // same worker path as production.
+                $accessId = is_string($origin['access_client_id'] ?? null) ? trim((string) $origin['access_client_id']) : '';
+                $accessSecret = is_string($origin['access_client_secret'] ?? null) ? trim((string) $origin['access_client_secret']) : '';
+                if ($accessId !== '' && $accessSecret !== '') {
+                    $payload['origin_access_client_id'] = $accessId;
+                    $payload['origin_access_client_secret'] = $accessSecret;
+                }
                 $failover = is_string($origin['failover_html'] ?? null) ? (string) $origin['failover_html'] : '';
                 if ($failover !== '') {
                     $payload['origin_failover_html'] = $failover;

@@ -84,6 +84,13 @@ class Delivery extends Component
         if (is_string($effOrigin['auth_secret']) && $effOrigin['auth_secret'] !== '') {
             $headers['X-Dply-Origin-Auth'] = $effOrigin['auth_secret'];
         }
+        // Send the Access token too, or the probe reports a failure the Worker
+        // would not actually hit against an Access-protected origin.
+        if (is_string($effOrigin['access_client_id']) && $effOrigin['access_client_id'] !== ''
+            && is_string($effOrigin['access_client_secret']) && $effOrigin['access_client_secret'] !== '') {
+            $headers['CF-Access-Client-Id'] = $effOrigin['access_client_id'];
+            $headers['CF-Access-Client-Secret'] = $effOrigin['access_client_secret'];
+        }
 
         try {
             $safe = PublicOutboundUrl::parse($target);
@@ -208,6 +215,9 @@ class Delivery extends Component
                 'originProbe' => $this->originProbe,
                 'imageProbe' => $this->imageProbe,
                 'effectiveImages' => EdgeEffectiveImages::for($this->site, $latest),
+                // Whether one is stored, never the value itself — the secret
+                // field is write-only and must not round-trip to the browser.
+                'edgeOriginHasAccessSecret' => $this->site->edgeOriginSecret('access_client_secret') !== null,
             ],
         ));
     }

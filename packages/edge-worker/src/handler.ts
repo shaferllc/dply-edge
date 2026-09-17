@@ -18,6 +18,16 @@ import { injectRumScript, shouldInjectRum, VITALS_BEACON_PATH } from './rum';
  * `:splat` substitution in the destination) before R2 lookup so the
  * 30x is the very first thing the visitor sees.
  */
+/**
+ * Cloudflare Access service-token pair. Present only when the site's origin
+ * sits behind Access — typically a Cloudflare Tunnel hostname, which has no
+ * public IP but is still reachable by anyone who learns the hostname.
+ */
+export interface OriginAccessToken {
+  id: string;
+  secret: string;
+}
+
 export interface RepoRedirect {
   from: string;
   to: string;
@@ -99,6 +109,9 @@ export interface HostMapEntry {
    * directly) does not return real content.
    */
   origin_auth_secret?: string;
+  /** Cloudflare Access service token for an Access-protected origin. */
+  origin_access_client_id?: string;
+  origin_access_client_secret?: string;
   /**
    * HTML body the Worker returns when the origin proxy fails (5xx or
    * timeout) after one retry. If unset, a built-in default page is used.
@@ -588,6 +601,7 @@ async function handleRequestInner(
         rewriteMatch.target,
         hostEntry.origin_auth_secret,
         hostEntry.origin_failover_html,
+        originAccessToken(hostEntry),
       );
       const finalResponse = stampVariantCookie(applyRepoHeaderRules(response, requestPath, hostEntry));
       recordRequest(ctx, env, request, finalResponse, hostEntry, url, requestPath, started, 'rewrite-proxy');
@@ -640,6 +654,7 @@ async function handleRequestInner(
         hostEntry.origin_url,
         hostEntry.origin_auth_secret,
         hostEntry.origin_failover_html,
+        originAccessToken(hostEntry),
       );
 
       // Tee the body into the cache without blocking the response. The
@@ -1174,17 +1189,30 @@ async function hmacSha256Hex(message: string, secret: string): Promise<string> {
  *   - WebSockets: routed through proxyWebSocket() below — Worker forwards
  *     the Upgrade handshake and pipes both directions.
  */
+/**
+ * Both halves of the service token or nothing — a lone client id would make
+ * the origin reject every request with a confusing Access error rather than
+ * failing closed at publish time.
+ */
+function originAccessToken(hostEntry: HostMapEntry): OriginAccessToken | undefined {
+  const id = hostEntry.origin_access_client_id;
+  const secret = hostEntry.origin_access_client_secret;
+
+  return id && secret ? { id, secret } : undefined;
+}
+
 async function proxyToOriginWithFailover(
   request: Request,
   originUrl: string,
   authSecret?: string,
   failoverHtml?: string,
+  access?: OriginAccessToken,
 ): Promise<Response> {
   // WebSocket upgrades cannot be retried — once a socket pair is created,
   // it's owned by the runtime and either succeeds or fails. Skip the
   // failover wrapper entirely for these.
   if (isWebSocketUpgrade(request)) {
-    return proxyWebSocket(request, originUrl, authSecret);
+    return proxyWebSocket(request, originUrl, authSecret, access);
   }
 
   const method = request.method.toUpperCase();
@@ -1197,7 +1225,7 @@ async function proxyToOriginWithFailover(
   const replayable = request.clone();
 
   try {
-    response = await proxyToOrigin(request, originUrl, authSecret);
+    response = await proxyToOrigin(request, originUrl, authSecret, access);
   } catch (err) {
     networkError = err;
   }
@@ -1208,7 +1236,7 @@ async function proxyToOriginWithFailover(
 
   if (firstAttemptFailed && safeToRetry) {
     try {
-      response = await proxyToOrigin(replayable, originUrl, authSecret);
+      response = await proxyToOrigin(replayable, originUrl, authSecret, access);
       networkError = null;
     } catch (err) {
       networkError = err;
@@ -1244,6 +1272,7 @@ async function proxyToOrigin(
   request: Request,
   originUrl: string,
   authSecret?: string,
+  access?: OriginAccessToken,
 ): Promise<Response> {
   const target = new URL(request.url);
   const origin = new URL(originUrl);
@@ -1258,6 +1287,16 @@ async function proxyToOrigin(
   upstreamRequest.headers.delete('X-Dply-Origin-Auth');
   if (authSecret) {
     upstreamRequest.headers.set('X-Dply-Origin-Auth', authSecret);
+  }
+
+  // Cloudflare Access service token, for an origin published through a
+  // Tunnel and locked behind Access. Same rule as above: drop whatever the
+  // client sent before setting ours, so these can never be spoofed inward.
+  upstreamRequest.headers.delete('CF-Access-Client-Id');
+  upstreamRequest.headers.delete('CF-Access-Client-Secret');
+  if (access) {
+    upstreamRequest.headers.set('CF-Access-Client-Id', access.id);
+    upstreamRequest.headers.set('CF-Access-Client-Secret', access.secret);
   }
 
   const upstream = await fetch(upstreamRequest);
@@ -1542,7 +1581,12 @@ async function revalidateEdgeCache(
   if (!hostEntry.origin_url) return;
 
   try {
-    const response = await proxyToOrigin(request, hostEntry.origin_url, hostEntry.origin_auth_secret);
+    const response = await proxyToOrigin(
+      request,
+      hostEntry.origin_url,
+      hostEntry.origin_auth_secret,
+      originAccessToken(hostEntry),
+    );
     if (response.status !== 200) return;
     const [, forCache] = teeIfCacheable(response, request);
     if (forCache) {
@@ -1776,6 +1820,7 @@ async function proxyWebSocket(
   request: Request,
   originUrl: string,
   authSecret?: string,
+  access?: OriginAccessToken,
 ): Promise<Response> {
   const target = new URL(request.url);
   const origin = new URL(originUrl);
@@ -1787,6 +1832,13 @@ async function proxyWebSocket(
   upstreamRequest.headers.delete('X-Dply-Origin-Auth');
   if (authSecret) {
     upstreamRequest.headers.set('X-Dply-Origin-Auth', authSecret);
+  }
+
+  upstreamRequest.headers.delete('CF-Access-Client-Id');
+  upstreamRequest.headers.delete('CF-Access-Client-Secret');
+  if (access) {
+    upstreamRequest.headers.set('CF-Access-Client-Id', access.id);
+    upstreamRequest.headers.set('CF-Access-Client-Secret', access.secret);
   }
 
   const upstream = await fetch(upstreamRequest);

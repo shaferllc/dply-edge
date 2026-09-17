@@ -17,6 +17,7 @@ use App\Modules\Edge\Services\EdgeGithubWebhookProvisioner;
 use App\Modules\Edge\Services\EdgeHostMapPublisher;
 use App\Modules\Edge\Support\EdgeRepoRoot;
 use App\Modules\SourceControl\Services\GitIdentityResolver;
+use App\Rules\PubliclyRoutableUrl;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Str;
 use Livewire\Component;
@@ -144,10 +145,12 @@ trait ManagesEdgeBuildSettings
         }
 
         $this->validate([
-            'buildForm.edge_origin_url' => ['required', 'string', 'max:500', 'url:http,https'],
+            'buildForm.edge_origin_url' => ['required', 'string', 'max:500', 'url:http,https', new PubliclyRoutableUrl],
             'buildForm.edge_origin_routes' => ['required', 'string', 'max:2000'],
             'buildForm.edge_origin_healthcheck_path' => ['required', 'string', 'max:200', 'regex:#^/[^\s]*$#'],
             'buildForm.edge_origin_failover_html' => ['nullable', 'string', 'max:32768'],
+            'buildForm.edge_origin_access_client_id' => ['nullable', 'string', 'max:200'],
+            'buildForm.edge_origin_access_client_secret' => ['nullable', 'string', 'max:200'],
         ], [
             'buildForm.edge_origin_url.url' => __('Origin URL must be a valid http(s) URL.'),
             'buildForm.edge_origin_healthcheck_path.regex' => __('Healthcheck path must start with / and contain no spaces.'),
@@ -186,12 +189,39 @@ trait ManagesEdgeBuildSettings
             'routes' => $routes,
             'healthcheck_path' => trim($this->buildForm->edge_origin_healthcheck_path) ?: '/',
             'failover_html' => $failoverHtml !== '' ? $failoverHtml : null,
-            'auth_secret' => is_string($previousOrigin['auth_secret'] ?? null) && $previousOrigin['auth_secret'] !== ''
-                ? $previousOrigin['auth_secret']
-                : Str::random(48),
         ];
 
-        if ($newOrigin === $previousOrigin) {
+        // Credentials live in the encrypted `edge_origin_secrets` column, not
+        // in meta. Mint the shared secret on first save so a hybrid origin is
+        // never published without auth.
+        $secretPatch = [];
+        if ($site->edgeOriginSecret('auth_secret') === null) {
+            $secretPatch['auth_secret'] = Str::random(48);
+        }
+
+        // Access client id: a blank submit clears it (both halves go together).
+        // Access client secret: a blank submit keeps whatever is stored, since
+        // the field is never populated with the saved value.
+        $accessId = trim($this->buildForm->edge_origin_access_client_id);
+        $accessSecret = trim($this->buildForm->edge_origin_access_client_secret);
+        $secretPatch['access_client_id'] = $accessId !== '' ? $accessId : null;
+        if ($accessId === '') {
+            $secretPatch['access_client_secret'] = null;
+        } elseif ($accessSecret !== '') {
+            $secretPatch['access_client_secret'] = $accessSecret;
+        }
+
+        $previousSecrets = $site->edge_origin_secrets ?? [];
+        $site->mergeEdgeOriginSecrets($secretPatch);
+        $secretsChanged = ($site->edge_origin_secrets ?? []) !== $previousSecrets;
+        if ($secretsChanged) {
+            $site->save();
+            $this->buildForm->edge_origin_access_client_secret = '';
+        }
+
+        // Credentials are published in the host map, so a token-only change
+        // still has to fall through and republish — not short-circuit here.
+        if ($newOrigin === $previousOrigin && ! $secretsChanged) {
             $this->toastSuccess(__('Origin settings unchanged.'));
 
             return;
@@ -532,9 +562,9 @@ trait ManagesEdgeBuildSettings
                 'routes' => ['/api/*', '/_next/data/*'],
                 'healthcheck_path' => '/',
                 'failover_html' => null,
-                'auth_secret' => Str::random(48),
             ],
         ]);
+        $site->mergeEdgeOriginSecrets(['auth_secret' => Str::random(48)]);
         $site->save();
         $this->site->refresh();
 
@@ -582,10 +612,7 @@ trait ManagesEdgeBuildSettings
             return;
         }
 
-        $newOrigin = $previousOrigin;
-        $newOrigin['auth_secret'] = Str::random(48);
-
-        $site->mergeEdgeMeta(['origin' => $newOrigin]);
+        $site->mergeEdgeOriginSecrets(['auth_secret' => Str::random(48)]);
         $site->save();
         $this->site->refresh();
 
