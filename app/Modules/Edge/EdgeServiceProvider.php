@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Edge;
 
 use App\Modules\Edge\Console\CheckEdgeRumAlertsCommand;
+use App\Modules\Edge\Console\CollectEdgeContainerUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeUsageCommand;
 use App\Modules\Edge\Console\EdgeDoctorCommand;
 use App\Modules\Edge\Console\EdgeEnsureBuildDockerCommand;
@@ -47,6 +48,7 @@ class EdgeServiceProvider extends ServiceProvider
         if ($this->app->runningInConsole()) {
             $this->commands([
                 CheckEdgeRumAlertsCommand::class,
+                CollectEdgeContainerUsageCommand::class,
                 CollectEdgeUsageCommand::class,
                 EdgeDoctorCommand::class,
                 EdgeEnsureBuildDockerCommand::class,

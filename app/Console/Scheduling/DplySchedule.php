@@ -20,6 +20,7 @@ use App\Console\Commands\SyncErrorEventsCommand;
 use App\Modules\Billing\Console\SnapshotOrganizationBillingCommand;
 use App\Modules\Billing\Console\SyncAllOrganizationBillingCommand;
 use App\Modules\Edge\Console\CheckEdgeRumAlertsCommand;
+use App\Modules\Edge\Console\CollectEdgeContainerUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeUsageCommand;
 use App\Modules\Edge\Console\EvaluateEdgeGuardrailsCommand;
 use App\Modules\Edge\Console\RollupEdgeAnalyticsEngineCommand;
@@ -74,6 +75,16 @@ final class DplySchedule
         $schedule->command(CollectEdgeUsageCommand::class, ['--today'])
             ->hourly()
             ->name('edge-usage-today');
+
+        // Container compute: today so far every hour, and yesterday once more
+        // after Cloudflare's late samples land (per-minute billing reads both).
+        $schedule->command(CollectEdgeContainerUsageCommand::class, ['--today'])
+            ->hourly()
+            ->withoutOverlapping()
+            ->name('edge-container-usage-today');
+        $schedule->command(CollectEdgeContainerUsageCommand::class)
+            ->dailyAt('01:40')
+            ->name('edge-container-usage-yesterday');
 
         // Keep Node build images warm on workers so Edge deploys skip cold pulls.
         if ((bool) config('edge.build.warm_images_on_schedule', true)) {

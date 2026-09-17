@@ -951,6 +951,69 @@ class EdgeCloudflareClient
     }
 
     /**
+     * Container applications on the account (Containers Read).
+     *
+     * @return list<array{id: string, name: string}>
+     */
+    public function listContainerApplications(): array
+    {
+        $rows = $this->decode(Http::withToken($this->apiToken)->get(self::BASE.'/accounts/'.$this->accountId.'/containers/applications'));
+
+        return array_values(array_map(
+            static fn (array $app): array => ['id' => (string) ($app['id'] ?? ''), 'name' => (string) ($app['name'] ?? '')],
+            array_filter($rows, 'is_array'),
+        ));
+    }
+
+    /**
+     * One UTC day of container usage per application, from
+     * containersUsageAdaptiveGroups — the resources Cloudflare bills
+     * (container plus its micro VM).
+     *
+     * @return array<string, array{cpu_seconds: float, memory_gib_seconds: float, disk_gb_seconds: float, tx_bytes: int}>
+     */
+    public function containerUsageForDate(CarbonInterface $date): array
+    {
+        $query = <<<'GRAPHQL'
+        query ContainerUsage($accountTag: string!, $date: Date!) {
+          viewer {
+            accounts(filter: { accountTag: $accountTag }) {
+              containersUsageAdaptiveGroups(limit: 10000, filter: { date_geq: $date, date_leq: $date }) {
+                dimensions { applicationId }
+                sum { cpuTimeSec allocatedMemory allocatedDisk txBytes }
+              }
+            }
+          }
+        }
+        GRAPHQL;
+
+        $response = Http::withToken($this->apiToken)->post(self::BASE.'/graphql', [
+            'query' => $query,
+            'variables' => ['accountTag' => $this->accountId, 'date' => $date->toDateString()],
+        ]);
+        $json = $response->json();
+        if (! is_array($json) || ! empty($json['errors'])) {
+            throw new RuntimeException('Cloudflare containers GraphQL request failed: '.Str::limit(json_encode($json['errors'] ?? $response->body()) ?: '', 500));
+        }
+
+        $out = [];
+        foreach ((array) data_get($json, 'data.viewer.accounts.0.containersUsageAdaptiveGroups', []) as $group) {
+            $appId = (string) data_get($group, 'dimensions.applicationId', '');
+            if ($appId === '') {
+                continue;
+            }
+            $row = $out[$appId] ?? ['cpu_seconds' => 0.0, 'memory_gib_seconds' => 0.0, 'disk_gb_seconds' => 0.0, 'tx_bytes' => 0];
+            $row['cpu_seconds'] += (float) data_get($group, 'sum.cpuTimeSec', 0);
+            $row['memory_gib_seconds'] += (float) data_get($group, 'sum.allocatedMemory', 0) / 1024 ** 3;
+            $row['disk_gb_seconds'] += (float) data_get($group, 'sum.allocatedDisk', 0) / 1000 ** 3;
+            $row['tx_bytes'] += (int) data_get($group, 'sum.txBytes', 0);
+            $out[$appId] = $row;
+        }
+
+        return $out;
+    }
+
+    /**
      * Load Balancing monitor (Account.Load Balancing: Monitors and Pools Edit).
      * PUT when an id is known, POST when not — or when the stored id 404s
      * because someone deleted it in the dashboard.

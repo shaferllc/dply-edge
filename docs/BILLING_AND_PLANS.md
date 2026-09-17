@@ -24,6 +24,7 @@ dply Edge bills a **monthly plan** plus **usage past what the plan includes**. P
 | Requests / mo | 1M | 10M | 50M |
 | Egress / mo | 10 GB | 500 GB | 2 TB |
 | Custom domains per site | 1 | 100 | 100 |
+| Container apps (PHP, Rails, Node) | — | $5 compute included | $20 compute included |
 | Load balancing ($8/endpoint) | — | Yes | Yes |
 | Audit log | — | — | Yes |
 
@@ -40,6 +41,8 @@ On Pro and Team, requests and egress past the plan are billed at a cost-floor ra
 | R2 storage | $0.03 / GB-month |
 | R2 Class A | $4.50 / million |
 | R2 Class B | $0.36 / million |
+
+Container compute is billed per second after the plan's credit: vCPU $0.020/hour, memory $0.0025/GiB-hour, disk $0.00007/GB-hour, egress $0.025/GB (Cloudflare list price), plus the same markup. It is collected hourly from Cloudflare's `containersUsageAdaptiveGroups`.
 
 Rates live under `edge.usage_billing` in `config/product/dply.php` (`DPLY_EDGE_USAGE_*`). Build-minute and delivery overage are billed together on the `edge_usage` line, in cents. Free orgs are never billed usage; their builds pause when the month's minutes run out.
 

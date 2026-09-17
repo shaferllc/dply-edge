@@ -150,6 +150,12 @@ final class BillingAnalytics
         if ($state->buildMinuteOverageCents > 0) {
             $items[] = $line(__('Build minutes over allowance'), 1, $state->buildMinuteOverageCents, __(':minutes minutes used this month', ['minutes' => number_format($state->buildMinutes)]));
         }
+        if ($state->containerComputeGrossCents > 0) {
+            $credit = $state->containerComputeGrossCents - $state->containerComputeCents;
+            $items[] = $line(__('Container compute'), 1, $state->containerComputeCents, $credit > 0
+                ? __(':gross used, :credit covered by your plan', ['gross' => '$'.number_format($state->containerComputeGrossCents / 100, 2), 'credit' => '$'.number_format($credit / 100, 2)])
+                : null);
+        }
         if ($state->edgeUsageSubtotalCents > 0) {
             $items[] = $line(__('Delivery usage over allowance'), 1, $state->edgeUsageSubtotalCents, $this->formatEdgeUsageDetail($state->edgeUsageEstimate));
         }

@@ -58,6 +58,7 @@
             [__('Requests / mo'), fn ($t) => $unitLabel($t['requests'])],
             [__('Egress / mo'), fn ($t) => number_format((int) $t['egress_gb']).' GB'],
             [__('Custom domains per site'), fn ($t) => $unitLabel($t['custom_domains_per_site'])],
+            [__('Container apps (PHP, Rails, Node)'), fn ($t) => $t['containers'] ? __(':credit compute included', ['credit' => '$'.number_format(($t['compute_credit_cents'] ?? 0) / 100, 0)]) : '—'],
             [__('Load balancing ($8/endpoint)'), fn ($t) => $yesNo((bool) $t['addons'])],
             [__('Audit log'), fn ($t) => $yesNo((bool) $t['audit_log'])],
             [__('Preview deployments'), fn () => __('Free')],
@@ -71,6 +72,20 @@
             ['unit' => __('Class A ops'), 'rate' => '$'.number_format($classARate, 2), 'per' => __('per million writes, past :n per site', ['n' => $unitLabel($includedClassA)]), 'note' => __('Publishing a deploy writes objects.')],
             ['unit' => __('Class B ops'), 'rate' => '$'.number_format($classBRate, 2), 'per' => __('per million reads, past :n per site', ['n' => $unitLabel($includedClassB)]), 'note' => __('Cache misses read from R2.')],
         ];
+
+        // Container compute is billed per second; shown per minute for each
+        // Cloudflare instance type with every vCPU busy (idle CPU costs less).
+        $computeCost = app(\App\Modules\Billing\Services\EdgeContainerComputeCost::class);
+        $instanceTypes = [
+            ['lite', 1 / 16, 0.25, 2], ['basic', 0.25, 1, 4], ['standard-1', 0.5, 4, 8],
+            ['standard-2', 1, 6, 12], ['standard-3', 2, 8, 16], ['standard-4', 4, 12, 20],
+        ];
+        $computeRows = array_map(static fn (array $t): array => [
+            'type' => $t[0],
+            'spec' => sprintf('%s vCPU · %s GiB · %d GB disk', $t[1] < 1 ? '1/'.(int) round(1 / $t[1]) : $t[1], $t[2], $t[3]),
+            'minute' => '$'.number_format($computeCost->perMinuteMillicents($t[1], $t[2], $t[3]) / 100_000, 5),
+            'month' => '$'.number_format($computeCost->perMinuteMillicents($t[1], $t[2], $t[3]) * 60 * 730 / 100_000, 2),
+        ], $instanceTypes);
 
         $faqs = [
             [
@@ -211,6 +226,40 @@
                         </tbody>
                     </table>
                 </div>
+            </div>
+        </section>
+
+        {{-- ========================= CONTAINER COMPUTE ====================== --}}
+        <section class="border-b border-edge-line">
+            <div class="mx-auto max-w-6xl px-6 py-14 lg:px-10">
+                <h2 class="text-2xl font-bold tracking-[-0.02em]">{{ __('Container compute, by the minute') }}</h2>
+                <p class="mt-2 max-w-2xl text-sm leading-6 text-edge-mute">
+                    {{ __('PHP, Rails and Node server apps run on Cloudflare Containers. You pay for the seconds they run — containers sleep when idle and the meter stops. Pro includes $5 and Team $20 of compute each month.') }}
+                </p>
+
+                <div class="mt-8 overflow-x-auto border border-edge-line">
+                    <table class="min-w-full text-left text-sm">
+                        <thead class="font-terminal border-b border-edge-line bg-edge-panel text-[11px] uppercase tracking-[0.16em] text-edge-faint">
+                            <tr>
+                                <th class="px-5 py-3 font-normal">{{ __('Instance') }}</th>
+                                <th class="px-5 py-3 font-normal">{{ __('Size') }}</th>
+                                <th class="px-5 py-3 font-normal">{{ __('Per minute') }}</th>
+                                <th class="px-5 py-3 font-normal">{{ __('Always on, per month') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-edge-line">
+                            @foreach ($computeRows as $row)
+                                <tr>
+                                    <td class="font-terminal px-5 py-3.5 text-edge-text">{{ $row['type'] }}</td>
+                                    <td class="px-5 py-3.5 text-edge-mute">{{ $row['spec'] }}</td>
+                                    <td class="font-terminal px-5 py-3.5 text-edge-lime">{{ $row['minute'] }}</td>
+                                    <td class="px-5 py-3.5 text-edge-mute">{{ $row['month'] }}</td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+                <p class="mt-3 text-xs text-edge-mute">{{ __('Maximum price with every vCPU busy; CPU is billed only while it works. Container egress is billed per GB.') }}</p>
             </div>
         </section>
 

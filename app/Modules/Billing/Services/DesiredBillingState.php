@@ -12,7 +12,10 @@ namespace App\Modules\Billing\Services;
  * - **SSR sites** — every Worker-native SSR site, never included.
  * - **Extra seats** — members beyond the tier's seats (Team only).
  * - **Load balancing** — per origin endpoint.
- * - **Usage** — delivery overage + build-minute overage, billed as cents.
+ * - **Container compute** — per second of vCPU / memory / disk after the
+ *   tier's compute credit.
+ * - **Usage** — delivery overage + build-minute overage + container compute,
+ *   billed together as cents.
  *
  * Always pre-tax; expressed in cents and plain counts so it survives JSON
  * round-trips through queue payloads.
@@ -42,6 +45,10 @@ class DesiredBillingState
         public readonly int $extraSeatSubtotalCents = 0,
         public readonly int $buildMinutes = 0,
         public readonly int $buildMinuteOverageCents = 0,
+        /** Container compute before the tier credit. */
+        public readonly int $containerComputeGrossCents = 0,
+        /** Container compute billed (after the tier credit). */
+        public readonly int $containerComputeCents = 0,
     ) {}
 
     /**
@@ -67,6 +74,8 @@ class DesiredBillingState
         int $extraSeatUnitCents = 0,
         int $buildMinutes = 0,
         int $buildMinuteOverageCents = 0,
+        int $containerComputeCents = 0,
+        ?int $computeCreditCents = 0,
     ): self {
         $planPriceCents = max(0, (int) $plan['price_cents']);
 
@@ -85,6 +94,9 @@ class DesiredBillingState
         $extraSeats = $includedSeats === null || $extraSeatUnitCents <= 0 ? 0 : max(0, $seatCount - $includedSeats);
         $extraSeatSubtotal = $extraSeats * $extraSeatUnitCents;
         $buildMinuteOverageCents = max(0, $buildMinuteOverageCents);
+        $containerComputeGross = max(0, $containerComputeCents);
+        // null credit = unlimited (Enterprise).
+        $containerComputeBilled = $computeCreditCents === null ? 0 : max(0, $containerComputeGross - $computeCreditCents);
 
         return new self(
             planKey: $plan['key'],
@@ -96,7 +108,7 @@ class DesiredBillingState
             edgeUsageSubtotalCents: $edgeUsageSubtotalCents,
             edgeUsageEstimate: $edgeUsageEstimate,
             monthlyTotalCents: $planPriceCents + $edgeSubtotal + $edgeUsageSubtotalCents + $edgeLbSubtotal
-                + $extraSeatSubtotal + $buildMinuteOverageCents,
+                + $extraSeatSubtotal + $buildMinuteOverageCents + $containerComputeBilled,
             edgeLbEndpointCount: $edgeLbEndpointCount,
             edgeLbSubtotalCents: $edgeLbSubtotal,
             extraSiteCount: $extraSites,
@@ -105,6 +117,8 @@ class DesiredBillingState
             extraSeatSubtotalCents: $extraSeatSubtotal,
             buildMinutes: max(0, $buildMinutes),
             buildMinuteOverageCents: $buildMinuteOverageCents,
+            containerComputeGrossCents: $containerComputeGross,
+            containerComputeCents: $containerComputeBilled,
         );
     }
 
@@ -114,10 +128,10 @@ class DesiredBillingState
         return max(0, $this->edgeCount - $this->edgeSsrCount);
     }
 
-    /** Stripe `edge_usage` quantity: delivery overage plus build-minute overage, in cents. */
+    /** Stripe `edge_usage` quantity: delivery, build-minute and container compute, in cents. */
     public function usageLineCents(): int
     {
-        return $this->edgeUsageSubtotalCents + $this->buildMinuteOverageCents;
+        return $this->edgeUsageSubtotalCents + $this->buildMinuteOverageCents + $this->containerComputeCents;
     }
 
     /**
@@ -156,6 +170,8 @@ class DesiredBillingState
             'extra_seat_subtotal_cents' => $this->extraSeatSubtotalCents,
             'build_minutes' => $this->buildMinutes,
             'build_minute_overage_cents' => $this->buildMinuteOverageCents,
+            'container_compute_gross_cents' => $this->containerComputeGrossCents,
+            'container_compute_cents' => $this->containerComputeCents,
             'edge_usage_subtotal_cents' => $this->edgeUsageSubtotalCents,
             'edge_usage_estimate' => $this->edgeUsageEstimate,
             'edge_lb_endpoint_count' => $this->edgeLbEndpointCount,

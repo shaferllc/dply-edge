@@ -26,7 +26,7 @@ class ManagedProductCostEstimator
      */
     public function edgeFeeForRuntimeMode(string $runtimeMode): float
     {
-        return in_array(strtolower($runtimeMode), ['ssr', 'container'], true)
+        return strtolower($runtimeMode) === 'ssr'
             ? $this->edgeSsrFee()
             : $this->edgeFee();
     }

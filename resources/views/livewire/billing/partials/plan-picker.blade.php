@@ -44,6 +44,7 @@
                     </li>
                     <li>{{ __(':minutes build minutes · :concurrent concurrent · :timeout-min timeout', ['minutes' => $num($tier['build_minutes']), 'concurrent' => $tier['concurrent_builds'], 'timeout' => $tier['build_timeout_minutes']]) }}</li>
                     <li>{{ __(':requests requests · :egress GB egress', ['requests' => $tier['requests'] >= 1_000_000 ? ($tier['requests'] / 1_000_000).'M' : $num($tier['requests']), 'egress' => $num($tier['egress_gb'])]) }}</li>
+                    <li>{{ $tier['containers'] ? __('Container apps with :credit compute included', ['credit' => '$'.number_format(($tier['compute_credit_cents'] ?? 0) / 100, 0)]) : __('No container apps') }}</li>
                     <li>{{ $tier['addons'] ? __('Load balancing and other paid add-ons') : __('No paid add-ons') }}</li>
                     @if ($tier['audit_log'])
                         <li>{{ __('Audit log') }}</li>

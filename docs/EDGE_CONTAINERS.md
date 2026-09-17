@@ -64,6 +64,21 @@ no worker process to run. Jobs that throw are retried. `DPLY_APP_URL` and
 Every production variable from **Environment** is passed to the container as a
 Worker secret.
 
+## Billing
+
+Container sites count toward your plan's sites like any other site. Compute is
+billed **per second** of vCPU, memory and disk the container runs, plus egress,
+at Cloudflare's list price plus the usage markup. Containers sleep when idle,
+and the meter stops when they do.
+
+| Plan | Compute included each month |
+|---|---|
+| Pro | $5 |
+| Team | $20 |
+
+Usage is collected hourly from Cloudflare (`dply:edge:collect-container-usage`)
+and appears as **Container compute** on the billing page.
+
 ## Limits
 
 - Container instance type and max instances are platform defaults

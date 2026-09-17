@@ -20,6 +20,7 @@ class OrganizationBillingStateComputer
     public function __construct(
         private EdgeOrganizationUsageReader $usageReader,
         private EdgeUsageCostCalculator $usageCostCalculator,
+        private EdgeContainerComputeCost $computeCost,
     ) {}
 
     /**
@@ -98,9 +99,7 @@ class OrganizationBillingStateComputer
 
                 $edgeCount++;
                 $runtimeMode = strtolower((string) ($site->edgeMeta()['runtime_mode'] ?? 'static'));
-                // Container sites (PHP / Rails) bill at the SSR rate until
-                // container compute is metered on its own line.
-                if (in_array($runtimeMode, ['ssr', 'container'], true)) {
+                if ($runtimeMode === 'ssr') {
                     $edgeSsrCount++;
                 }
                 $edgeLbEndpointCount += EdgeLoadBalancing::billableEndpointCount($site);
@@ -126,6 +125,7 @@ class OrganizationBillingStateComputer
             'r2_storage_bytes' => $usageTotals->r2StorageBytes,
         ]);
         $buildMinutes = EdgeBuildMinutes::usedThisMonth($organization);
+        $compute = $this->computeCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd);
 
         return DesiredBillingState::fromPlanAndUsage(
             plan: ['key' => $tierKey, 'label' => (string) $tier['label'], 'price_cents' => (int) $tier['price_cents']],
@@ -143,6 +143,8 @@ class OrganizationBillingStateComputer
             extraSeatUnitCents: $billable ? (int) ($tier['extra_seat_cents'] ?? 0) : 0,
             buildMinutes: $buildMinutes,
             buildMinuteOverageCents: $billable ? EdgeBuildMinutes::overageCents($buildMinutes, $tier) : 0,
+            containerComputeCents: $compute['cents'],
+            computeCreditCents: $billable ? (int) ($tier['compute_credit_cents'] ?? 0) : null,
         );
     }
 
