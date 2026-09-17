@@ -14,7 +14,8 @@ namespace App\Modules\Billing\Services;
  * - **Load balancing** — per origin endpoint.
  * - **Container compute** — per second of vCPU / memory / disk after the
  *   tier's compute credit.
- * - **Usage** — delivery overage + build-minute overage + container compute,
+ * - **Databases & queues** — D1 rows / storage and Queues operations.
+ * - **Usage** — delivery, build minutes, container compute, D1 and Queues,
  *   billed together as cents.
  *
  * Always pre-tax; expressed in cents and plain counts so it survives JSON
@@ -49,6 +50,8 @@ class DesiredBillingState
         public readonly int $containerComputeGrossCents = 0,
         /** Container compute billed (after the tier credit). */
         public readonly int $containerComputeCents = 0,
+        /** D1 + Queues usage. */
+        public readonly int $dataUsageCents = 0,
     ) {}
 
     /**
@@ -76,6 +79,7 @@ class DesiredBillingState
         int $buildMinuteOverageCents = 0,
         int $containerComputeCents = 0,
         ?int $computeCreditCents = 0,
+        int $dataUsageCents = 0,
     ): self {
         $planPriceCents = max(0, (int) $plan['price_cents']);
 
@@ -108,7 +112,7 @@ class DesiredBillingState
             edgeUsageSubtotalCents: $edgeUsageSubtotalCents,
             edgeUsageEstimate: $edgeUsageEstimate,
             monthlyTotalCents: $planPriceCents + $edgeSubtotal + $edgeUsageSubtotalCents + $edgeLbSubtotal
-                + $extraSeatSubtotal + $buildMinuteOverageCents + $containerComputeBilled,
+                + $extraSeatSubtotal + $buildMinuteOverageCents + $containerComputeBilled + max(0, $dataUsageCents),
             edgeLbEndpointCount: $edgeLbEndpointCount,
             edgeLbSubtotalCents: $edgeLbSubtotal,
             extraSiteCount: $extraSites,
@@ -119,6 +123,7 @@ class DesiredBillingState
             buildMinuteOverageCents: $buildMinuteOverageCents,
             containerComputeGrossCents: $containerComputeGross,
             containerComputeCents: $containerComputeBilled,
+            dataUsageCents: max(0, $dataUsageCents),
         );
     }
 
@@ -131,7 +136,7 @@ class DesiredBillingState
     /** Stripe `edge_usage` quantity: delivery, build-minute and container compute, in cents. */
     public function usageLineCents(): int
     {
-        return $this->edgeUsageSubtotalCents + $this->buildMinuteOverageCents + $this->containerComputeCents;
+        return $this->edgeUsageSubtotalCents + $this->buildMinuteOverageCents + $this->containerComputeCents + $this->dataUsageCents;
     }
 
     /**
@@ -172,6 +177,7 @@ class DesiredBillingState
             'build_minute_overage_cents' => $this->buildMinuteOverageCents,
             'container_compute_gross_cents' => $this->containerComputeGrossCents,
             'container_compute_cents' => $this->containerComputeCents,
+            'data_usage_cents' => $this->dataUsageCents,
             'edge_usage_subtotal_cents' => $this->edgeUsageSubtotalCents,
             'edge_usage_estimate' => $this->edgeUsageEstimate,
             'edge_lb_endpoint_count' => $this->edgeLbEndpointCount,

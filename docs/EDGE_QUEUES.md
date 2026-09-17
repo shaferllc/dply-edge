@@ -24,6 +24,10 @@ for background work.
 
 A queue can have only one consumer. Attach it to just one container project.
 
+## Billing
+
+On Pro and Team, operations (writes, reads, deletes) are billed at $0.40 per million plus the usage markup, on the **Databases & queues** line.
+
 | Plan | Queues |
 |---|---|
 | Free | 1 |

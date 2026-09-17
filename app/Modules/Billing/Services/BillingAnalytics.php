@@ -156,6 +156,9 @@ final class BillingAnalytics
                 ? __(':gross used, :credit covered by your plan', ['gross' => '$'.number_format($state->containerComputeGrossCents / 100, 2), 'credit' => '$'.number_format($credit / 100, 2)])
                 : null);
         }
+        if ($state->dataUsageCents > 0) {
+            $items[] = $line(__('Databases & queues'), 1, $state->dataUsageCents, __('D1 rows and storage, Queues operations'));
+        }
         if ($state->edgeUsageSubtotalCents > 0) {
             $items[] = $line(__('Delivery usage over allowance'), 1, $state->edgeUsageSubtotalCents, $this->formatEdgeUsageDetail($state->edgeUsageEstimate));
         }

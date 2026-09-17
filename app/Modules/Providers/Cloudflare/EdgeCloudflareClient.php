@@ -1052,6 +1052,68 @@ class EdgeCloudflareClient
     }
 
     /**
+     * One UTC day of D1 and Queues usage: rows read/written and peak size per
+     * database, billable operations per queue.
+     *
+     * @return array{d1: array<string, array{rows_read: int, rows_written: int, storage_bytes: int}>, queues: array<string, int>}
+     */
+    public function dataUsageForDate(CarbonInterface $date): array
+    {
+        $query = <<<'GRAPHQL'
+        query DataUsage($accountTag: string!, $date: Date!) {
+          viewer {
+            accounts(filter: { accountTag: $accountTag }) {
+              d1AnalyticsAdaptiveGroups(limit: 10000, filter: { date_geq: $date, date_leq: $date }) {
+                dimensions { databaseId }
+                sum { rowsRead rowsWritten }
+              }
+              d1StorageAdaptiveGroups(limit: 10000, filter: { date_geq: $date, date_leq: $date }) {
+                dimensions { databaseId }
+                max { databaseSizeBytes }
+              }
+              queueMessageOperationsAdaptiveGroups(limit: 10000, filter: { date_geq: $date, date_leq: $date }) {
+                dimensions { queueId }
+                sum { billableOperations }
+              }
+            }
+          }
+        }
+        GRAPHQL;
+
+        $response = Http::withToken($this->apiToken)->post(self::BASE.'/graphql', [
+            'query' => $query,
+            'variables' => ['accountTag' => $this->accountId, 'date' => $date->toDateString()],
+        ]);
+        $json = $response->json();
+        if (! is_array($json) || ! empty($json['errors'])) {
+            throw new RuntimeException('Cloudflare D1/Queues GraphQL request failed: '.Str::limit(json_encode($json['errors'] ?? $response->body()) ?: '', 500));
+        }
+
+        $account = (array) data_get($json, 'data.viewer.accounts.0', []);
+        $d1 = [];
+        foreach ((array) ($account['d1AnalyticsAdaptiveGroups'] ?? []) as $group) {
+            $id = (string) data_get($group, 'dimensions.databaseId', '');
+            $row = $d1[$id] ?? ['rows_read' => 0, 'rows_written' => 0, 'storage_bytes' => 0];
+            $row['rows_read'] += (int) data_get($group, 'sum.rowsRead', 0);
+            $row['rows_written'] += (int) data_get($group, 'sum.rowsWritten', 0);
+            $d1[$id] = $row;
+        }
+        foreach ((array) ($account['d1StorageAdaptiveGroups'] ?? []) as $group) {
+            $id = (string) data_get($group, 'dimensions.databaseId', '');
+            $row = $d1[$id] ?? ['rows_read' => 0, 'rows_written' => 0, 'storage_bytes' => 0];
+            $row['storage_bytes'] = max($row['storage_bytes'], (int) data_get($group, 'max.databaseSizeBytes', 0));
+            $d1[$id] = $row;
+        }
+        $queues = [];
+        foreach ((array) ($account['queueMessageOperationsAdaptiveGroups'] ?? []) as $group) {
+            $id = (string) data_get($group, 'dimensions.queueId', '');
+            $queues[$id] = ($queues[$id] ?? 0) + (int) data_get($group, 'sum.billableOperations', 0);
+        }
+
+        return ['d1' => $d1, 'queues' => $queues];
+    }
+
+    /**
      * Container applications on the account (Containers Read).
      *
      * @return list<array{id: string, name: string}>

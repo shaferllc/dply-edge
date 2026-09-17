@@ -338,6 +338,13 @@ return [
             'container_memory_millicents_per_gib_hour' => (int) env('DPLY_EDGE_CONTAINER_MEMORY_MC_PER_GIB_HOUR', 900),
             'container_disk_millicents_per_gb_hour' => (int) env('DPLY_EDGE_CONTAINER_DISK_MC_PER_GB_HOUR', 25),
             'container_egress_millicents_per_gb' => (int) env('DPLY_EDGE_CONTAINER_EGRESS_MC_PER_GB', 2_500),
+            // D1 and Queues at Cloudflare list price, millicents, marked up:
+            //   rows read $0.001/M · rows written $1.00/M · storage $0.75/GB-month
+            //   queue operations $0.40/M. Collected by dply:edge:collect-data-usage.
+            'd1_rows_read_millicents_per_million' => (int) env('DPLY_EDGE_D1_READ_MC_PER_MILLION', 100),
+            'd1_rows_written_millicents_per_million' => (int) env('DPLY_EDGE_D1_WRITE_MC_PER_MILLION', 100_000),
+            'd1_storage_millicents_per_gb_month' => (int) env('DPLY_EDGE_D1_STORAGE_MC_PER_GB_MONTH', 75_000),
+            'queue_operations_millicents_per_million' => (int) env('DPLY_EDGE_QUEUE_OPS_MC_PER_MILLION', 40_000),
         ],
     ],
 

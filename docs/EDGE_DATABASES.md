@@ -20,6 +20,10 @@ group: edge
   next deploy it is `env.DB` in Worker SSR and middleware code.
 - **Delete**: type the name to confirm. This removes all data permanently.
 
+## Billing
+
+On Pro and Team, usage is billed at Cloudflare list price plus the usage markup, on the **Databases & queues** line: rows read $0.001/million, rows written $1.00/million, storage $0.75/GB-month.
+
 | Plan | Databases |
 |---|---|
 | Free | 1 |

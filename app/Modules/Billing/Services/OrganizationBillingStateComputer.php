@@ -21,6 +21,7 @@ class OrganizationBillingStateComputer
         private EdgeOrganizationUsageReader $usageReader,
         private EdgeUsageCostCalculator $usageCostCalculator,
         private EdgeContainerComputeCost $computeCost,
+        private EdgeDataUsageCost $dataUsageCost,
     ) {}
 
     /**
@@ -126,6 +127,7 @@ class OrganizationBillingStateComputer
         ]);
         $buildMinutes = EdgeBuildMinutes::usedThisMonth($organization);
         $compute = $this->computeCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd);
+        $data = $this->dataUsageCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd);
 
         return DesiredBillingState::fromPlanAndUsage(
             plan: ['key' => $tierKey, 'label' => (string) $tier['label'], 'price_cents' => (int) $tier['price_cents']],
@@ -145,6 +147,7 @@ class OrganizationBillingStateComputer
             buildMinuteOverageCents: $billable ? EdgeBuildMinutes::overageCents($buildMinutes, $tier) : 0,
             containerComputeCents: $compute['cents'],
             computeCreditCents: $billable ? (int) ($tier['compute_credit_cents'] ?? 0) : null,
+            dataUsageCents: $billable ? $data['cents'] : 0,
         );
     }
 

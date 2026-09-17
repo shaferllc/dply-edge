@@ -21,6 +21,7 @@ use App\Modules\Billing\Console\SnapshotOrganizationBillingCommand;
 use App\Modules\Billing\Console\SyncAllOrganizationBillingCommand;
 use App\Modules\Edge\Console\CheckEdgeRumAlertsCommand;
 use App\Modules\Edge\Console\CollectEdgeContainerUsageCommand;
+use App\Modules\Edge\Console\CollectEdgeDataUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeUsageCommand;
 use App\Modules\Edge\Console\EvaluateEdgeGuardrailsCommand;
 use App\Modules\Edge\Console\RollupEdgeAnalyticsEngineCommand;
@@ -85,6 +86,13 @@ final class DplySchedule
         $schedule->command(CollectEdgeContainerUsageCommand::class)
             ->dailyAt('01:40')
             ->name('edge-container-usage-yesterday');
+        $schedule->command(CollectEdgeDataUsageCommand::class, ['--today'])
+            ->hourly()
+            ->withoutOverlapping()
+            ->name('edge-data-usage-today');
+        $schedule->command(CollectEdgeDataUsageCommand::class)
+            ->dailyAt('01:50')
+            ->name('edge-data-usage-yesterday');
 
         // Keep Node build images warm on workers so Edge deploys skip cold pulls.
         if ((bool) config('edge.build.warm_images_on_schedule', true)) {
