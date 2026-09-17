@@ -58,7 +58,7 @@ export interface HostMapEntry {
    * Worker dispatches every request (after redirects) to the
    * per-deployment Worker named by `ssr_worker_script`.
    */
-  runtime_mode?: 'static' | 'hybrid' | 'ssr';
+  runtime_mode?: 'static' | 'hybrid' | 'ssr' | 'container';
   /** Dispatch namespace script name (Phase 4b). Required when runtime_mode=ssr. */
   ssr_worker_script?: string;
   /**
@@ -557,10 +557,12 @@ async function handleRequestInner(
   // observability hooks. Falls through to a clear 503 when either
   // the dispatch binding is missing or the script name isn't set,
   // rather than silently serving a wrong response.
-  if (hostEntry.runtime_mode === 'ssr') {
+  // Container sites (PHP / Rails) dispatch the same way: the per-site script
+  // in the namespace fronts the app container.
+  if (hostEntry.runtime_mode === 'ssr' || hostEntry.runtime_mode === 'container') {
     const ssrResponse = await dispatchSsrRequest(request, env, hostEntry);
     const finalResponse = stampVariantCookie(applyRepoHeaderRules(ssrResponse, requestPath, hostEntry));
-    recordRequest(ctx, env, request, finalResponse, hostEntry, url, requestPath, started, 'ssr');
+    recordRequest(ctx, env, request, finalResponse, hostEntry, url, requestPath, started, hostEntry.runtime_mode === 'container' ? 'container' : 'ssr');
 
     return finalResponse;
   }

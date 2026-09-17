@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Livewire;
 
+use App\Enums\QuotaSurface;
 use App\Jobs\DetectRepositoryRuntimeJob;
 use App\Livewire\Concerns\DetectsRepositoryRuntime;
 use App\Livewire\Concerns\DispatchesToastNotifications;
@@ -12,6 +13,7 @@ use App\Livewire\Forms\EdgeCreateForm;
 use App\Models\EdgeSiteEnvVar;
 use App\Models\ProviderCredential;
 use App\Models\Site;
+use App\Modules\Billing\Services\EdgeContainerComputeCost;
 use App\Modules\Billing\Services\ManagedProductCostEstimator;
 use App\Modules\Edge\Livewire\Concerns\ManagesEdgeDeploy;
 use App\Modules\Edge\Livewire\Concerns\ManagesEdgeFormPrefills;
@@ -19,6 +21,7 @@ use App\Modules\Edge\Livewire\Concerns\ManagesEdgeRefPicker;
 use App\Modules\Edge\Livewire\Concerns\ManagesEdgeRepoDetection;
 use App\Modules\Edge\Services\EdgeTemplateRegistry;
 use App\Modules\Edge\Services\Frameworks\EdgeFrameworkPresetRegistry;
+use App\Modules\Edge\Support\EdgeDeliveryRecommender;
 use App\Modules\Edge\Support\EdgeEligibility;
 use App\Modules\Edge\Support\EdgeSsrAvailability;
 use App\Modules\Edge\Support\EdgeSsrDetection;
@@ -219,7 +222,7 @@ class Create extends Component
         $this->monorepoMarkers = [];
 
         $runtimeMode = strtolower((string) ($template['runtime_mode'] ?? 'static'));
-        $this->form->runtime_mode = in_array($runtimeMode, ['static', 'hybrid', 'ssr'], true)
+        $this->form->runtime_mode = in_array($runtimeMode, ['static', 'hybrid', 'ssr', 'container'], true)
             ? $runtimeMode
             : 'static';
 
@@ -387,6 +390,7 @@ class Create extends Component
         if (! $ssrAvailable && $this->form->runtime_mode === 'ssr') {
             $this->form->runtime_mode = 'hybrid';
         }
+        $recommendation = EdgeDeliveryRecommender::for($this->detectedPlan);
 
         return view('livewire.edge.create', [
             'fakeEdgeActive' => FakeEdgeProvision::enabled(),
@@ -395,6 +399,7 @@ class Create extends Component
             'edgeFee' => app(ManagedProductCostEstimator::class)->edgeFee(),
             'edgeSsrFee' => app(ManagedProductCostEstimator::class)->edgeSsrFee(),
             'edgePlatformFee' => app(ManagedProductCostEstimator::class)->edgeFeeForRuntimeMode((string) $this->form->runtime_mode),
+            'planCost' => $this->planCostSummary(),
             'edgeUsageBillingEnabled' => app(ManagedProductCostEstimator::class)->edgeUsageBillingEnabled(),
             'edgeUsageRates' => app(ManagedProductCostEstimator::class)->edgeUsageRates(),
             'cloudflareCredentials' => $cloudflareCredentials,
@@ -402,6 +407,8 @@ class Create extends Component
             'ssrDetected' => $this->detectedPlan !== [] && EdgeSsrDetection::planLooksLikeSsr($this->detectedPlan),
             'ssrAvailable' => $ssrAvailable,
             'ssrUnavailableReason' => EdgeSsrAvailability::unavailableReason(),
+            'needsContainer' => EdgeEligibility::needsContainer($this->detectedPlan),
+            'recommendation' => $recommendation,
             'edgeEligible' => $eligibility['eligible'],
             'edgeIneligibleMessage' => $eligibility['message'],
             'edgeAlternativeRoute' => $eligibility['alternative_route'],
@@ -447,7 +454,9 @@ class Create extends Component
         // Include repo_root so picking examples/basics doesn't reuse a
         // cached framework-monorepo plan from the repository root.
         $repoRoot = trim((string) ($this->form->repo_root ?? ''));
-        $key = 'edge-detect:'.sha1($url.'|'.$branch.'|'.$repoRoot);
+        // v2: plans cached before PHP/Ruby/Node-server detection (2026-09-17)
+        // called Laravel repos static Vite sites.
+        $key = 'edge-detect:v2:'.sha1($url.'|'.$branch.'|'.$repoRoot);
         $this->runtimeDetectionKey = $key;
         $cached = Cache::get($key);
 
@@ -518,5 +527,52 @@ class Create extends Component
         // when build fields were filled from detection — early-returning
         // after output_dir used to skip this and leave mode stuck on static.
         $this->applyDetectedDeliveryPrefills();
+    }
+
+    /**
+     * What this project adds to the bill on the org's plan: included in the
+     * plan, an extra site, an SSR site, or container compute by the minute.
+     *
+     * @return array{plan: string, headline: string, detail: string}
+     */
+    private function planCostSummary(): array
+    {
+        $org = auth()->user()?->currentOrganization();
+        $tier = $org?->tierAllowances() ?? (array) config('subscription.standard.tiers.free');
+        $label = (string) ($tier['label'] ?? 'Free');
+        $mode = (string) $this->form->runtime_mode;
+        $money = static fn (float $dollars, int $decimals = 2): string => '$'.number_format($dollars, $decimals);
+
+        if ($mode === 'container') {
+            $perMinute = app(EdgeContainerComputeCost::class)->perMinuteMillicents(0.25, 1, 4) / 100_000;
+            $credit = (int) ($tier['compute_credit_cents'] ?? 0);
+
+            return [
+                'plan' => $label,
+                'headline' => __(':price/min', ['price' => $money($perMinute, 5)]),
+                'detail' => $credit > 0
+                    ? __('Compute billed per second while the container runs (basic size). :credit/mo included on :plan.', ['credit' => $money($credit / 100, 0), 'plan' => $label])
+                    : __('Compute billed per second while the container runs (basic size). Container apps need Pro or Team.'),
+            ];
+        }
+
+        $siteCount = $org?->quotaUsage(QuotaSurface::Edge) ?? 0;
+        $included = $tier['sites'] ?? null;
+
+        if ($mode === 'ssr') {
+            return ['plan' => $label, 'headline' => $money((int) config('subscription.standard.edge_ssr_cents', 700) / 100).'/mo', 'detail' => __('Worker SSR site fee on :plan, plus usage past your plan.', ['plan' => $label])];
+        }
+
+        if ($included === null || $siteCount < $included) {
+            return ['plan' => $label, 'headline' => __('Included'), 'detail' => __(':used of :included sites on :plan. Usage past your plan is billed per use, previews included.', ['used' => $siteCount, 'included' => $included ?? '∞', 'plan' => $label])];
+        }
+
+        return [
+            'plan' => $label,
+            'headline' => $label === 'Free' ? __('Upgrade') : $money((int) config('subscription.standard.edge_cents', 200) / 100).'/mo',
+            'detail' => $label === 'Free'
+                ? __('Free includes :count site. Pro includes 10.', ['count' => $included])
+                : __('Extra site beyond the :count on :plan.', ['count' => $included, 'plan' => $label]),
+        ];
     }
 }

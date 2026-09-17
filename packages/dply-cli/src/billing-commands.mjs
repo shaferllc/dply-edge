@@ -61,7 +61,7 @@ export async function billingShow(flags) {
 
   if (data.is_free) {
     info('');
-    info(c.dim('No subscription required this cycle (free plan, no managed usage).'));
+    info(c.dim('Nothing to pay this cycle (Free plan). Upgrade on the organization billing page.'));
   }
 
   info('');

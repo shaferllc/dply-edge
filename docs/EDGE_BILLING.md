@@ -11,11 +11,11 @@ group: edge
 
 **Billing & usage** summarizes Edge-specific charges for this site. Org-wide invoices live under **Settings → Billing**.
 
-> Preview child sites do not include this tab. Previews are free; billing applies to the parent production site.
+> Preview child sites do not include this tab. Preview usage (builds, traffic, container compute) bills against the organization's plan like production; previews just don't take a site slot.
 
-## Platform fee
+## Plan
 
-Shows the flat **dply Edge per-site fee** while the app is live. This appears on your organization subscription alongside other managed products.
+Your organization's plan (Free, Pro or Team) includes a number of sites. On Pro and Team, sites past that count cost $2/mo each and Worker SSR sites $7/mo each. See [Billing & plans](BILLING_AND_PLANS.md).
 
 ## Usage this month
 
@@ -24,7 +24,7 @@ When usage billing is enabled for your org, see month-to-date:
 - **CDN requests**
 - **Bandwidth (egress GB)**
 
-Included allowances per site may apply before pass-through usage is metered. Exact rates appear in the create sidebar and org billing settings.
+Requests and egress allowances come from your plan and are shared across the organization. Usage past them is metered on Pro and Team.
 
 ## Usage charts
 
@@ -41,4 +41,4 @@ Historical charts help spot traffic spikes after launches or marketing campaigns
 
 ## Suspended or deleted sites
 
-Deleting an Edge site stops future platform fees after teardown completes. Historical invoices remain in **Billing → Invoices**.
+Deleting an Edge site stops any extra-site fee after teardown completes. Historical invoices remain in **Billing → Invoices**.

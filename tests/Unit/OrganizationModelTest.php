@@ -76,7 +76,7 @@ test('plan tier label defaults to free without a paid subscription', function ()
     expect($org->planTierLabel())->toBe('Free');
 });
 
-test('plan tier label returns standard when org is on standard', function () {
+test('a pre-tier per-site subscription reads as pro until the sync moves it', function () {
     $org = new class extends Organization
     {
         public function onStandardSubscription(): bool
@@ -85,7 +85,8 @@ test('plan tier label returns standard when org is on standard', function () {
         }
     };
 
-    expect($org->planTierLabel())->toBe('Standard');
+    expect($org->planTierLabel())->toBe('Pro')
+        ->and($org->billingTier())->toBe('pro');
 });
 
 test('plan tier label returns enterprise when org is on enterprise', function () {

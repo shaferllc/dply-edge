@@ -33,6 +33,8 @@ class EdgeAuditLogExportController extends Controller
             abort(404, 'Not an Edge site.');
         }
 
+        abort_unless($site->organization?->tierAllowances()['audit_log'] ?? false, 403, 'Audit log export is on the Team plan.');
+
         $format = strtolower((string) $request->query('format', 'csv'));
         if (! in_array($format, ['csv', 'json'], true)) {
             $format = 'csv';

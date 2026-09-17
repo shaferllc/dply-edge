@@ -79,6 +79,8 @@
                         @livewire('sites.edge.workspace.jobs', ['server' => $server, 'site' => $site], key('edge-section-jobs-'.$site->id))
                     @elseif ($section === 'edge-snippets')
                         @livewire('sites.edge.workspace.snippets', ['server' => $server, 'site' => $site], key('edge-section-snippets-'.$site->id))
+                    @elseif ($section === 'edge-container')
+                        @livewire('sites.edge.workspace.container', ['server' => $server, 'site' => $site], key('edge-section-container-'.$site->id))
                     @elseif ($section === 'edge-load-balancing')
                         @livewire('sites.edge.workspace.load-balancing', ['server' => $server, 'site' => $site], key('edge-section-load-balancing-'.$site->id))
                     @elseif ($section === 'edge-tags')
@@ -88,7 +90,11 @@
                     @elseif ($section === 'edge-alerts')
                         @livewire('sites.edge.workspace.alerts', ['server' => $server, 'site' => $site], key('edge-section-alerts-'.$site->id))
                     @elseif ($section === 'edge-audit')
-                        @include('livewire.sites.partials.edge.audit-log')
+                        @if ($site->organization?->tierAllowances()['audit_log'] ?? false)
+                            @include('livewire.sites.partials.edge.audit-log')
+                        @else
+                            <x-plan-upsell :organization="$site->organization" :title="__('The audit log is on the Team plan')" :message="__('Every change to this site is still being recorded. Upgrade to Team to browse and export it.')" />
+                        @endif
                     @elseif ($section === 'edge-previews')
                         @livewire('sites.edge.workspace.previews', ['server' => $server, 'site' => $site], key('edge-section-previews-'.$site->id))
                     @elseif ($section === 'edge-billing')

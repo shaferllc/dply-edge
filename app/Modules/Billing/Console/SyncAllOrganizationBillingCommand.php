@@ -6,6 +6,7 @@ namespace App\Modules\Billing\Console;
 
 use App\Models\Organization;
 use App\Modules\Billing\Jobs\SyncOrganizationBillingJob;
+use App\Modules\Billing\Services\OrganizationBillingStateComputer;
 use Illuminate\Console\Command;
 
 /**
@@ -49,7 +50,18 @@ class SyncAllOrganizationBillingCommand extends Command
 
         foreach ($orgs as $org) {
             if ($dryRun) {
-                $this->line(sprintf('[dry-run] would sync org=%s', $org->id));
+                // Pre-tier subscriptions get swapped onto a plan (invoiced now) —
+                // show who and for how much before anyone runs it for real.
+                if ($org->onStandardSubscription() && $org->subscribedTier() === null) {
+                    $desired = app(OrganizationBillingStateComputer::class)->compute($org);
+                    $this->line(sprintf(
+                        '[dry-run] would MOVE org=%s (%s) → %s at $%s/mo (%d sites, %d seats)',
+                        $org->id, $org->name, $desired->planLabel, number_format($desired->monthlyTotalCents / 100, 2),
+                        $desired->edgeCount, $desired->seatCount,
+                    ));
+                } else {
+                    $this->line(sprintf('[dry-run] would sync org=%s', $org->id));
+                }
 
                 continue;
             }

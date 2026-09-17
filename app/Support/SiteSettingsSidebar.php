@@ -283,6 +283,10 @@ final class SiteSettingsSidebar
             $items[] = ['id' => 'edge-previews', 'label' => __('Previews'), 'icon' => 'heroicon-o-sparkles', 'group' => 'ship'];
         }
 
+        if (($site->edgeMeta()['runtime_mode'] ?? '') === 'container') {
+            $items[] = ['id' => 'edge-container', 'label' => __('Container'), 'icon' => 'heroicon-o-cube', 'group' => 'ship'];
+        }
+
         $items[] = ['id' => 'edge-deploy-triggers', 'label' => __('Deploy triggers'), 'icon' => 'heroicon-o-bolt', 'group' => 'ship'];
         $items[] = ['id' => 'edge-logs', 'label' => __('Build & deploy logs'), 'icon' => 'heroicon-o-clipboard-document-list', 'group' => 'ship'];
 

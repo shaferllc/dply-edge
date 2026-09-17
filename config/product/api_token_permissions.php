@@ -91,6 +91,11 @@ return [
         'edge.env.update' => 'edge.env.write',
         'edge.env.upsert' => 'edge.env.write',
         'edge.env.destroy' => 'edge.env.write',
+        'edge.databases.index' => 'edge.read',
+        // SQL can write, so running it needs edge.write.
+        'edge.databases.query' => 'edge.write',
+        'edge.queues.index' => 'edge.read',
+        'edge.queues.send' => 'edge.write',
     ],
 
     'categories' => [

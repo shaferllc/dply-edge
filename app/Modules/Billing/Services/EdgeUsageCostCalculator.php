@@ -16,6 +16,9 @@ class EdgeUsageCostCalculator
     }
 
     /**
+     * @param  array<string, mixed>|null  $tier  A `subscription.standard.tiers.*` record: its
+     *                                           `requests` / `egress_gb` replace the per-site
+     *                                           request/egress allowances (org-wide, null = unlimited).
      * @return array{
      *     subtotal_cents: int,
      *     billable_requests: int,
@@ -26,7 +29,7 @@ class EdgeUsageCostCalculator
      *     included_r2_storage_bytes: int,
      * }
      */
-    public function estimate(EdgeUsageTotals $usage, int $edgeSiteCount): array
+    public function estimate(EdgeUsageTotals $usage, int $edgeSiteCount, ?array $tier = null): array
     {
         if (! $this->isEnabled() || $edgeSiteCount <= 0) {
             return $this->emptyEstimate();
@@ -34,6 +37,10 @@ class EdgeUsageCostCalculator
 
         $includedRequests = $edgeSiteCount * max(0, (int) config('dply.edge.usage_billing.included_requests_per_site', 0));
         $includedEgress = $edgeSiteCount * $this->includedEgressBytesPerSite();
+        if ($tier !== null) {
+            $includedRequests = $tier['requests'] === null ? PHP_INT_MAX : (int) $tier['requests'];
+            $includedEgress = $tier['egress_gb'] === null ? PHP_INT_MAX : (int) $tier['egress_gb'] * 1024 ** 3;
+        }
         $includedStorage = $edgeSiteCount * $this->includedR2StorageBytesPerSite();
         $includedClassA = $edgeSiteCount * max(0, (int) config('dply.edge.usage_billing.included_r2_class_a_ops_per_site', 0));
         $includedClassB = $edgeSiteCount * max(0, (int) config('dply.edge.usage_billing.included_r2_class_b_ops_per_site', 0));

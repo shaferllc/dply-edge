@@ -12,7 +12,7 @@
             <div class="min-w-0">
                 <x-profile-shell
                     :title="__('Deploy an edge app')"
-                    :description="__('Connect a static/SSG, Keel, or hybrid JS SSR repo — we build and publish to the edge.')"
+                    :description="__('Connect a static site, a JS SSR app, or a Laravel, Rails or Node server — we detect it, build it and run it on the edge.')"
                     icon="heroicon-o-globe-alt"
                 >
                     <x-slot:actions>
@@ -119,8 +119,9 @@
                                             @php
                                                 $exampleSlug = (string) ($example['slug'] ?? '');
                                                 $exampleName = (string) ($example['name'] ?? $exampleSlug);
-                                                $exampleFramework = (string) ($example['framework'] ?? '');
-                                                $isKeel = $exampleFramework === 'keel' || $exampleSlug === 'keel-workers';
+                                                // Highlight the example whose repo is loaded (owner/name or a GitHub URL).
+                                                $loadedRepo = strtolower(trim((string) preg_replace('~^(https?://)?(www\.)?github\.com/|\.git$~i', '', trim((string) $repo)), '/'));
+                                                $isSelected = $loadedRepo !== '' && in_array($loadedRepo, array_map('strtolower', array_filter([(string) ($example['clone_repo'] ?? ''), (string) ($example['repo'] ?? '')])), true);
                                             @endphp
                                             <button
                                                 type="button"
@@ -129,14 +130,18 @@
                                                 wire:target="loadExampleApp"
                                                 data-testid="edge-example-{{ $exampleSlug }}"
                                                 title="{{ (string) ($example['description'] ?? $exampleName) }}"
+                                                aria-pressed="{{ $isSelected ? 'true' : 'false' }}"
                                                 @class([
                                                     'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition disabled:opacity-60',
-                                                    'bg-brand-ink text-brand-cream hover:bg-brand-forest' => $isKeel,
-                                                    'border border-brand-ink/15 bg-white text-brand-ink shadow-sm hover:bg-brand-sand/40 dark:border-brand-mist/25 dark:bg-zinc-800/60 dark:hover:bg-raw-zinc-700' => ! $isKeel,
+                                                    'bg-brand-ink text-brand-cream hover:bg-brand-forest' => $isSelected,
+                                                    'border border-brand-ink/15 bg-white text-brand-ink shadow-sm hover:bg-brand-sand/40 dark:border-brand-mist/25 dark:bg-zinc-800/60 dark:hover:bg-raw-zinc-700' => ! $isSelected,
                                                 ])
                                             >
-                                                <span wire:loading.remove wire:target="loadExampleApp">{{ $exampleName }}</span>
-                                                <span wire:loading wire:target="loadExampleApp">{{ __('Loading…') }}</span>
+                                                @if ($isSelected)
+                                                    <x-heroicon-m-check class="h-3.5 w-3.5" aria-hidden="true" />
+                                                @endif
+                                                <span wire:loading.remove wire:target="loadExampleApp('{{ $exampleSlug }}')">{{ $exampleName }}</span>
+                                                <span wire:loading wire:target="loadExampleApp('{{ $exampleSlug }}')">{{ __('Loading…') }}</span>
                                             </button>
                                         @endforeach
                                     </div>
@@ -408,12 +413,15 @@
                         $runtimeLabel = match ($form->runtime_mode) {
                             'hybrid' => __('Hybrid'),
                             'ssr' => __('Worker SSR'),
+                            'container' => __('Container'),
                             default => __('Static / SSG'),
                         };
                         $buildSummary = trim((string) $form->build_command) !== ''
                             ? $form->build_command
                             : __('Detected / default');
-                        $outputSummary = trim((string) $form->output_dir) !== '' ? $form->output_dir : 'dist';
+                        $outputSummary = $form->runtime_mode === 'container'
+                            ? __('container on :port', ['port' => (int) ($detectedPlan['app_port'] ?? 8080)])
+                            : (trim((string) $form->output_dir) !== '' ? $form->output_dir : 'dist');
                         $frameworkSummary = trim((string) ($detectedPlan['framework'] ?? $detectedPlan['runtime'] ?? ''));
                         $advancedDefaultOpen = $form->delivery_mode === 'byo'
                             || $errors->has('form.build_command')
@@ -470,6 +478,17 @@
                                     <span class="text-brand-mist" aria-hidden="true">→</span>
                                     <span class="font-mono text-xs text-brand-moss">{{ $outputSummary }}</span>
                                 </div>
+                                @if ($recommendation)
+                                    <p class="text-xs text-brand-moss">
+                                        <x-heroicon-m-sparkles class="-mt-0.5 inline h-3.5 w-3.5 text-brand-sage" aria-hidden="true" />
+                                        @if ($form->runtime_mode === $recommendation['mode'])
+                                            {{ $recommendation['reason'] }}
+                                        @else
+                                            {{ __('You picked :mode. We recommend :recommended: :reason', ['mode' => $runtimeLabel, 'recommended' => match ($recommendation['mode']) { 'hybrid' => __('Hybrid'), 'ssr' => __('Worker SSR'), 'container' => __('Container'), default => __('Static / SSG') }, 'reason' => $recommendation['reason']]) }}
+                                            <button type="button" wire:click="useRecommendedRuntimeMode" class="font-semibold text-brand-forest underline-offset-2 hover:underline dark:text-brand-sage">{{ __('Use recommended') }}</button>
+                                        @endif
+                                    </p>
+                                @endif
                             @endif
 
                             @if ($showDetectionPanel && (! empty($detectedPlan['error']) || ! empty($detectedPlan['no_match'])))
@@ -492,6 +511,13 @@
                                             <x-heroicon-m-arrow-right class="h-3.5 w-3.5" aria-hidden="true" />
                                         </a>
                                     @endif
+                                </div>
+                            @endif
+
+                            @if ($needsContainer && ! $ssrAvailable)
+                                <div class="rounded-xl border border-amber-200/80 bg-amber-50/80 px-4 py-3 text-xs text-amber-950 dark:border-raw-amber-900/40 dark:bg-raw-amber-950/30 dark:text-raw-amber-100">
+                                    <p class="font-semibold">{{ __(':framework app detected — it runs as a Container', ['framework' => ucfirst((string) ($detectedPlan['framework'] ?? $detectedPlan['runtime'] ?? 'Server'))]) }}</p>
+                                    <p class="mt-1 leading-relaxed">{{ __('Container delivery isn’t set up on this install yet. It needs the Edge platform Cloudflare API token (DPLY_EDGE_CF_API_TOKEN, with Containers access) and a Workers for Platforms dispatch namespace.') }}</p>
                                 </div>
                             @endif
 
@@ -554,7 +580,20 @@
                                 </div>
 
                                 <div>
-                                    <p class="text-xs font-semibold uppercase tracking-[0.14em] text-brand-moss">{{ __('Delivery mode') }}</p>
+                                    <div class="flex flex-wrap items-baseline justify-between gap-2">
+                                        <p class="text-xs font-semibold uppercase tracking-[0.14em] text-brand-moss">{{ __('Delivery mode') }}</p>
+                                        @if ($recommendation && $form->runtime_mode !== $recommendation['mode'])
+                                            <button type="button" wire:click="useRecommendedRuntimeMode" class="text-xs font-semibold text-brand-forest underline-offset-2 hover:underline dark:text-brand-sage">
+                                                {{ __('Use recommended') }}
+                                            </button>
+                                        @endif
+                                    </div>
+                                    @if ($recommendation)
+                                        <p class="mt-1 text-xs text-brand-moss">
+                                            <x-heroicon-m-sparkles class="-mt-0.5 inline h-3.5 w-3.5 text-brand-sage" aria-hidden="true" />
+                                            {{ $recommendation['reason'] }}
+                                        </p>
+                                    @endif
                                     @php
                                         $deliveryModes = [
                                             ['value' => 'static', 'label' => __('Static / SSG'), 'body' => __('CDN-only. Most sites.')],
@@ -565,6 +604,14 @@
                                                 'body' => $ssrAvailable
                                                     ? __('Keel / Next.js on the edge — no origin. $:fee/mo platform fee.', ['fee' => number_format($edgeSsrFee, 2)])
                                                     : ($ssrUnavailableReason ?: __('Unavailable — use Hybrid.')),
+                                                'disabled' => ! $ssrAvailable,
+                                            ],
+                                            [
+                                                'value' => 'container',
+                                                'label' => __('Container'),
+                                                'body' => $ssrAvailable
+                                                    ? __('Laravel, Rails or a Node server on Cloudflare Containers. Uses your Dockerfile, or dply generates one. Pro and Team.')
+                                                    : __('Needs Edge platform setup: a Cloudflare API token with Containers access and a dispatch namespace.'),
                                                 'disabled' => ! $ssrAvailable,
                                             ],
                                         ];
@@ -588,6 +635,9 @@
                                                 />
                                                 <span class="min-w-0">
                                                     <span class="text-sm font-semibold text-brand-ink">{{ $mode['label'] }}</span>
+                                                    @if (($recommendation['mode'] ?? null) === $mode['value'])
+                                                        <span class="ms-1.5 rounded-full bg-brand-sage/15 px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide text-brand-forest dark:text-brand-sage">{{ __('Recommended') }}</span>
+                                                    @endif
                                                     <span class="mt-0.5 block text-xs text-brand-moss">{{ $mode['body'] }}</span>
                                                 </span>
                                             </label>

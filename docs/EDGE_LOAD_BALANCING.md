@@ -15,7 +15,7 @@ Requirements:
 
 - Dply-hosted Edge delivery
 - A **hybrid** site with origin routes (set under **Delivery**)
-- A paid, monthly subscription
+- The Pro or Team plan
 
 ## Pricing
 

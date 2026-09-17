@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Support\Edge;
 
+use App\Modules\Edge\Services\EdgeTemplateRegistry;
 use App\Modules\Edge\Support\EdgeEligibility;
 
 test('empty and unknown plans stay eligible', function () {
@@ -34,12 +35,8 @@ test('blocks long-running backend frameworks', function (array $plan, string $ro
         ->and($result['alternative_route'])->toBe($route)
         ->and($result['message'])->not->toBeNull();
 })->with([
-    'laravel' => [['runtime' => 'php', 'framework' => 'laravel'], 'servers.create'],
     'wordpress' => [['runtime' => 'php', 'framework' => 'wordpress'], 'servers.create'],
-    'rails' => [['runtime' => 'ruby', 'framework' => 'rails'], 'servers.create'],
     'django' => [['runtime' => 'python', 'framework' => 'django'], 'servers.create'],
-    'nest api' => [['runtime' => 'node', 'framework' => 'nest'], 'servers.create'],
-    'php runtime' => [['runtime' => 'php', 'framework' => 'php'], 'servers.create'],
     'go runtime' => [['runtime' => 'go', 'framework' => ''], 'servers.create'],
 ]);
 
@@ -53,4 +50,31 @@ test('blocks framework monorepo package roots flagged not_a_site', function () {
     expect($result['eligible'])->toBeFalse()
         ->and($result['alternative_route'])->toBeNull()
         ->and($result['message'])->toContain('monorepo');
+});
+
+test('php and ruby apps are eligible as containers', function (array $plan) {
+    expect(EdgeEligibility::evaluate($plan)['eligible'])->toBeTrue()
+        ->and(EdgeEligibility::needsContainer($plan))->toBeTrue();
+})->with([
+    'laravel' => [['runtime' => 'php', 'framework' => 'laravel']],
+    'php runtime' => [['runtime' => 'php', 'framework' => 'php']],
+    'rails' => [['runtime' => 'ruby', 'framework' => 'rails']],
+    'sinatra' => [['runtime' => 'ruby', 'framework' => 'sinatra']],
+    'nest api' => [['runtime' => 'node', 'framework' => 'nest']],
+    'express' => [['runtime' => 'node', 'framework' => 'express']],
+]);
+
+test('javascript and wordpress plans never ask for a container', function () {
+    expect(EdgeEligibility::needsContainer(['runtime' => 'node', 'framework' => 'astro']))->toBeFalse()
+        ->and(EdgeEligibility::needsContainer(['runtime' => 'php', 'framework' => 'wordpress']))->toBeFalse();
+});
+
+test('every container template is a container workload with a hero image', function () {
+    $containers = collect(EdgeTemplateRegistry::all())->where('runtime_mode', 'container');
+
+    expect($containers)->toHaveCount(3);
+    foreach ($containers as $template) {
+        expect(EdgeEligibility::needsContainer(['framework' => $template['framework']]))->toBeTrue()
+            ->and(file_exists(public_path(ltrim($template['hero_url'], '/'))))->toBeTrue();
+    }
 });

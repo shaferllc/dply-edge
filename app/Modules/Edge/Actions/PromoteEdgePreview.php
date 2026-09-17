@@ -66,6 +66,16 @@ class PromoteEdgePreview
             }
         }
 
+        // Container sites have no artifacts to copy: promoting rebuilds the
+        // preview's commit on the production site.
+        if (($parent->edgeMeta()['runtime_mode'] ?? '') === 'container') {
+            if (($previewDeployment->git_commit ?? '') === '') {
+                throw new \RuntimeException('The preview deployment has no recorded commit to promote.');
+            }
+
+            return (new RedeployEdgeSite)->handle($parent, (string) $previewDeployment->git_commit);
+        }
+
         $backend = EdgeRouter::backendFor($parent);
         if ($backend === null) {
             throw new \RuntimeException('No edge backend available for this site.');

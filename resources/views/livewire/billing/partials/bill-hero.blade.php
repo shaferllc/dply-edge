@@ -5,28 +5,10 @@
     $interval = $this->subscriptionInterval;
     $edgeSiteCount = $state->edgeCount;
 
-    // Colors for the stacked-breakdown bar: per-site fees, then metered usage.
-    $tierBarColors = [
-        'edge' => 'bg-emerald-500/70',
-        'edge_lb' => 'bg-sky-500/60',
-        'edge_usage' => 'bg-brand-sage/50',
-    ];
-
     $totalCents = max(1, $state->monthlyTotalCents);
-    $segments = [];
-    if ($state->edgeSubtotalCents > 0) {
-        $segments[] = ['key' => 'edge', 'label' => __('Projects').' × '.$state->edgeCount, 'cents' => $state->edgeSubtotalCents];
-    }
-    if ($state->edgeLbSubtotalCents > 0) {
-        $segments[] = ['key' => 'edge_lb', 'label' => __('Load balancing').' × '.$state->edgeLbEndpointCount, 'cents' => $state->edgeLbSubtotalCents];
-    }
-    if ($state->edgeUsageSubtotalCents > 0) {
-        $segments[] = [
-            'key' => 'edge_usage',
-            'label' => __('Projects usage'),
-            'cents' => $state->edgeUsageSubtotalCents,
-        ];
-    }
+    $segments = collect(app(\App\Modules\Billing\Services\BillingAnalytics::class)->categoryBreakdown($state));
+    $tierBarColors = $segments->pluck('color', 'key')->all();
+    $segments = $segments->all();
 @endphp
 
 <section class="border-b border-brand-ink/10">
@@ -82,7 +64,7 @@
                     <p class="text-sm text-brand-ink">
                         {{ trans_choice('{0} No live Edge sites yet|{1} :count live Edge site|[2,*] :count live Edge sites', $edgeSiteCount, ['count' => $edgeSiteCount]) }}.
                     </p>
-                    <p class="mt-0.5 text-xs text-brand-moss">{{ __(':static/mo per static or hybrid site, :ssr/mo per Worker SSR site, plus delivery usage beyond each site\'s allowance.', ['static' => '$'.number_format(((int) config('subscription.standard.edge_cents', 200)) / 100, 2), 'ssr' => '$'.number_format(((int) config('subscription.standard.edge_ssr_cents', 700)) / 100, 2)]) }}</p>
+                    <p class="mt-0.5 text-xs text-brand-moss">{{ __(':plan plan: :sites included, then :extra/mo per extra site. Usage beyond the plan is billed monthly.', ['plan' => $state->planLabel, 'sites' => trans_choice(':count site|:count sites', (int) config('subscription.standard.tiers.'.$state->planKey.'.sites', 0)), 'extra' => '$'.number_format(((int) config('subscription.standard.edge_cents', 200)) / 100, 2)]) }}</p>
                 </div>
 
                 {{-- Card CTA is the payment-method strip at the top of the page. --}}

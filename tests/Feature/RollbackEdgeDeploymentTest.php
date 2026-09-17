@@ -9,9 +9,13 @@ use App\Models\EdgeDeployment;
 use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
+use App\Models\User;
+use App\Modules\Edge\Actions\PromoteEdgePreview;
 use App\Modules\Edge\Actions\RollbackEdgeDeployment;
+use App\Modules\Edge\Jobs\BuildEdgeSiteJob;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Queue;
 
 uses(RefreshDatabase::class);
 
@@ -117,3 +121,44 @@ function scaffoldEdgeSiteWithTwoDeployments(): array
 
     return [$site->refresh(), $live, $old];
 }
+
+test('rolling back a container site rebuilds the chosen commit', function () {
+    config(['edge.fake.enabled' => true]);
+    $user = User::factory()->create();
+    $org = Organization::factory()->create();
+    $server = Server::factory()->create(['organization_id' => $org->id, 'user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]]);
+    $site = Site::factory()->create([
+        'organization_id' => $org->id, 'server_id' => $server->id, 'user_id' => $user->id,
+        'edge_backend' => 'dply_edge', 'status' => Site::STATUS_EDGE_ACTIVE,
+        'meta' => ['edge' => ['runtime_mode' => 'container', 'source' => ['repo' => 'acme/app', 'branch' => 'main']]],
+    ]);
+    $old = EdgeDeployment::query()->create(['site_id' => $site->id, 'organization_id' => $org->id, 'status' => EdgeDeployment::STATUS_SUPERSEDED, 'git_commit' => str_repeat('a', 40), 'storage_prefix' => 'x']);
+
+    $rebuild = (new RollbackEdgeDeployment)->handle($site, $old->id);
+
+    expect($rebuild->id)->not->toBe($old->id)
+        ->and($rebuild->status)->toBe(EdgeDeployment::STATUS_BUILDING)
+        ->and($rebuild->git_commit)->toBe(str_repeat('a', 40));
+    Queue::assertPushed(BuildEdgeSiteJob::class);
+});
+
+test('promoting a container preview rebuilds its commit on production', function () {
+    config(['edge.fake.enabled' => true, 'deploy_contract.require_for_promote' => false]);
+    $org = Organization::factory()->create();
+    $server = Server::factory()->create(['organization_id' => $org->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]]);
+    $parent = Site::factory()->create([
+        'organization_id' => $org->id, 'server_id' => $server->id, 'edge_backend' => 'dply_edge', 'status' => Site::STATUS_EDGE_ACTIVE,
+        'meta' => ['edge' => ['runtime_mode' => 'container', 'source' => ['repo' => 'acme/app', 'branch' => 'main']]],
+    ]);
+    $preview = Site::factory()->create([
+        'organization_id' => $org->id, 'server_id' => $server->id, 'edge_backend' => 'dply_edge', 'status' => Site::STATUS_EDGE_ACTIVE,
+        'meta' => ['edge' => ['runtime_mode' => 'container', 'preview_parent_site_id' => $parent->id]],
+    ]);
+    EdgeDeployment::query()->create(['site_id' => $preview->id, 'organization_id' => $org->id, 'status' => EdgeDeployment::STATUS_LIVE, 'published_at' => now(), 'git_commit' => str_repeat('b', 40), 'storage_prefix' => 'p']);
+
+    $deployment = (new PromoteEdgePreview)->handle($parent, $preview->id);
+
+    expect($deployment->site_id)->toBe($parent->id)
+        ->and($deployment->status)->toBe(EdgeDeployment::STATUS_BUILDING)
+        ->and($deployment->git_commit)->toBe(str_repeat('b', 40));
+});

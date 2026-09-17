@@ -9,7 +9,7 @@
 
     <x-seo-meta
         title="Pricing"
-        description="A flat fee per live Edge site and metered delivery only past a generous included allowance. Preview deployments are free." />
+        description="Free, Pro and Team plans for Edge sites, with metered usage past what your plan includes." />
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @livewireStyles
     <style>
@@ -20,22 +20,20 @@
 @include('partials.skip-link')
     @php
         /*
-         | One product, so one price list. Everything below is read from the
-         | billing config and the same estimator the app bills from, so the
-         | page cannot drift from the invoice:
-         |   subscription.standard.edge_cents      flat fee, static/SSG + hybrid
-         |   subscription.standard.edge_ssr_cents  flat fee, Worker SSR
-         |   dply.edge.usage_billing.*             allowances + overage rates
+         | Plan tiers + usage (ruling r-zdescb7y05vp1bxx). Everything below is
+         | read from the billing config the invoice is built from, so the page
+         | cannot drift from it:
+         |   subscription.standard.tiers.*          plans and allowances
+         |   subscription.standard.edge_cents       extra site, SSR site prices
+         |   dply.edge.usage_billing.*              overage rates + storage allowances
          */
         $estimator = app(\App\Modules\Billing\Services\ManagedProductCostEstimator::class);
         $rates = $estimator->edgeUsageRates();
 
         $sitePrice = ((int) config('subscription.standard.edge_cents', 200)) / 100;
         $ssrPrice = ((int) config('subscription.standard.edge_ssr_cents', 700)) / 100;
-        $annualPct = (int) config('subscription.standard.annual_discount_pct', 20);
+        $tiers = collect(config('subscription.standard.tiers'))->only(['free', 'pro', 'team'])->all();
 
-        $includedRequests = (int) $rates['included_requests_per_site'];
-        $includedEgress = (int) $rates['included_egress_gb_per_site'];
         $includedStorage = (int) $rates['included_r2_storage_gb_per_site'];
         $includedClassA = (int) config('dply.edge.usage_billing.included_r2_class_a_ops_per_site', 100_000);
         $includedClassB = (int) config('dply.edge.usage_billing.included_r2_class_b_ops_per_site', 1_000_000);
@@ -44,75 +42,75 @@
         $classARate = round(((int) config('dply.edge.usage_billing.r2_class_a_cents_per_million', 450)) / 100 * (100 + $markup) / 100, 2);
         $classBRate = round(((int) config('dply.edge.usage_billing.r2_class_b_cents_per_million', 36)) / 100 * (100 + $markup) / 100, 2);
 
-        $modes = [
-            [
-                'num' => '01',
-                'name' => __('Static / SSG'),
-                'price' => $sitePrice,
-                'body' => __('CDN-only. Astro, Eleventy, Hugo, Vite, Next export, plain HTML. Most sites belong here.'),
-            ],
-            [
-                'num' => '02',
-                'name' => __('Hybrid'),
-                'price' => $sitePrice,
-                'body' => __('Static assets on the edge, your own HTTPS origin behind the routes that need a server.'),
-            ],
-            [
-                'num' => '03',
-                'name' => __('Worker SSR'),
-                'price' => $ssrPrice,
-                'body' => __('Server rendering on the edge itself. No origin to run — this fee replaces the static one.'),
-            ],
-        ];
-
-        $unitLabel = static fn (int $n): string => $n >= 1_000_000
+        $unitLabel = static fn (?int $n): string => $n === null ? __('Unlimited') : ($n >= 1_000_000
             ? number_format($n / 1_000_000, 0).'M'
-            : number_format($n / 1000, 0).'k';
+            : ($n >= 1000 ? number_format($n / 1000, 0).'k' : (string) $n));
+        $yesNo = static fn (bool $v): string => $v ? __('Yes') : '—';
 
-        $included = [
-            ['label' => __('Requests'), 'value' => $unitLabel($includedRequests), 'unit' => __('per site / month')],
-            ['label' => __('Egress'), 'value' => $includedEgress.' GB', 'unit' => __('per site / month')],
-            ['label' => __('R2 storage'), 'value' => $includedStorage.' GB', 'unit' => __('per site')],
-            ['label' => __('Writes (Class A)'), 'value' => $unitLabel($includedClassA), 'unit' => __('per site / month')],
-            ['label' => __('Reads (Class B)'), 'value' => $unitLabel($includedClassB), 'unit' => __('per site / month')],
+        // Plan comparison rows: label => per-tier cell.
+        $compare = [
+            [__('Sites included'), fn ($t, $k) => $unitLabel($t['sites']).($k !== 'free' ? __(' · then $:p each', ['p' => number_format($sitePrice, 0)]) : '')],
+            [__('Worker SSR sites'), fn ($t) => $t['ssr'] ? __('$:p each', ['p' => number_format($ssrPrice, 0)]) : '—'],
+            [__('Seats'), fn ($t) => $unitLabel($t['seats']).($t['extra_seat_cents'] ? __(' · then $:p each', ['p' => number_format($t['extra_seat_cents'] / 100, 0)]) : '')],
+            [__('Build minutes / mo'), fn ($t) => number_format((int) $t['build_minutes']).($t['build_minute_overage_millicents'] ? __(' · then $:p/min', ['p' => rtrim(rtrim(number_format($t['build_minute_overage_millicents'] / 100_000, 3), '0'), '.')]) : __(' · then builds pause'))],
+            [__('Concurrent builds'), fn ($t) => (string) $t['concurrent_builds']],
+            [__('Build timeout'), fn ($t) => __(':m min', ['m' => $t['build_timeout_minutes']])],
+            [__('Requests / mo'), fn ($t) => $unitLabel($t['requests'])],
+            [__('Egress / mo'), fn ($t) => number_format((int) $t['egress_gb']).' GB'],
+            [__('Custom domains per site'), fn ($t) => $unitLabel($t['custom_domains_per_site'])],
+            [__('Container apps (PHP, Rails, Node)'), fn ($t) => $t['containers'] ? __(':credit compute included', ['credit' => '$'.number_format(($t['compute_credit_cents'] ?? 0) / 100, 0)]) : '—'],
+            [__('Load balancing ($8/endpoint)'), fn ($t) => $yesNo((bool) $t['addons'])],
+            [__('Audit log'), fn ($t) => $yesNo((bool) $t['audit_log'])],
+            [__('Preview deployments'), fn () => __('Unlimited · usage counts')],
         ];
-
-        $requestsAllowanceLabel = $unitLabel($includedRequests);
-        $classAAllowanceLabel = $unitLabel($includedClassA);
-        $classBAllowanceLabel = $unitLabel($includedClassB);
 
         $overage = [
-            ['unit' => __('Requests'), 'rate' => '$'.number_format($rates['requests_per_million'], 2), 'per' => __('per million, past :n', ['n' => $requestsAllowanceLabel]), 'note' => __('Every hit the Worker answers.')],
-            ['unit' => __('Egress'), 'rate' => '$'.number_format($rates['egress_per_gb'], 2), 'per' => __('per GB, past :n GB', ['n' => $includedEgress]), 'note' => __('Bytes delivered to visitors.')],
-            ['unit' => __('R2 storage'), 'rate' => '$'.number_format($rates['storage_per_gb'], 2), 'per' => __('per GB / month, past :n GB', ['n' => $includedStorage]), 'note' => __('Published build output at rest.')],
-            ['unit' => __('Class A ops'), 'rate' => '$'.number_format($classARate, 2), 'per' => __('per million writes, past :n', ['n' => $classAAllowanceLabel]), 'note' => __('Publishing a deploy writes objects.')],
-            ['unit' => __('Class B ops'), 'rate' => '$'.number_format($classBRate, 2), 'per' => __('per million reads, past :n', ['n' => $classBAllowanceLabel]), 'note' => __('Cache misses read from R2.')],
+            ['unit' => __('Requests'), 'rate' => '$'.number_format($rates['requests_per_million'], 2), 'per' => __('per million, past your plan'), 'note' => __('Every hit the Worker answers.')],
+            ['unit' => __('Egress'), 'rate' => '$'.number_format($rates['egress_per_gb'], 2), 'per' => __('per GB, past your plan'), 'note' => __('Bytes delivered to visitors.')],
+            ['unit' => __('Build minutes'), 'rate' => '$0.006 / $0.005', 'per' => __('per minute past your plan (Pro / Team)'), 'note' => __('Time in the build container, rounded up per build.')],
+            ['unit' => __('R2 storage'), 'rate' => '$'.number_format($rates['storage_per_gb'], 2), 'per' => __('per GB / month, past :n GB per site', ['n' => $includedStorage]), 'note' => __('Published build output at rest.')],
+            ['unit' => __('Class A ops'), 'rate' => '$'.number_format($classARate, 2), 'per' => __('per million writes, past :n per site', ['n' => $unitLabel($includedClassA)]), 'note' => __('Publishing a deploy writes objects.')],
+            ['unit' => __('Class B ops'), 'rate' => '$'.number_format($classBRate, 2), 'per' => __('per million reads, past :n per site', ['n' => $unitLabel($includedClassB)]), 'note' => __('Cache misses read from R2.')],
         ];
+
+        // Container compute is billed per second; shown per minute for each
+        // Cloudflare instance type with every vCPU busy (idle CPU costs less).
+        $computeCost = app(\App\Modules\Billing\Services\EdgeContainerComputeCost::class);
+        $instanceTypes = [
+            ['lite', 1 / 16, 0.25, 2], ['basic', 0.25, 1, 4], ['standard-1', 0.5, 4, 8],
+            ['standard-2', 1, 6, 12], ['standard-3', 2, 8, 16], ['standard-4', 4, 12, 20],
+        ];
+        $computeRows = array_map(static fn (array $t): array => [
+            'type' => $t[0],
+            'spec' => sprintf('%s vCPU · %s GiB · %d GB disk', $t[1] < 1 ? '1/'.(int) round(1 / $t[1]) : $t[1], $t[2], $t[3]),
+            'minute' => '$'.number_format($computeCost->perMinuteMillicents($t[1], $t[2], $t[3]) / 100_000, 5),
+            'month' => '$'.number_format($computeCost->perMinuteMillicents($t[1], $t[2], $t[3]) * 60 * 730 / 100_000, 2),
+        ], $instanceTypes);
 
         $faqs = [
             [
                 'q' => __('What exactly am I paying for?'),
-                'a' => __('A flat platform fee per live site, and metered delivery only if that site goes past its included allowance. There is no seat price, no build-minute price, and no plan tier to outgrow.'),
+                'a' => __('Your plan’s monthly fee, plus anything past its allowance: extra sites, Worker SSR sites, extra seats on Team, and metered delivery or build minutes. Free needs no card.'),
             ],
             [
                 'q' => __('Do preview deployments cost anything?'),
-                'a' => __('No. Branch and PR previews are free — they do not carry a platform fee, and their traffic is not billed. Only sites serving a production hostname are billable.'),
+                'a' => __('Previews don’t use up a site on your plan, but everything they use counts: build minutes, requests and egress, and container compute for PHP, Rails and Node previews. It all comes out of your plan’s allowance first, then bills at the usage rates.'),
             ],
             [
-                'q' => __('What happens if a site gets a traffic spike?'),
-                'a' => __('It keeps serving. Delivery past the included allowance is metered at the rates above and appears on your next invoice; the site is never throttled or taken offline for going over.'),
+                'q' => __('What happens if I go past my plan?'),
+                'a' => __('On Pro and Team, sites keep serving and builds keep running; the extra is metered at the rates above and lands on your next invoice. On Free, builds pause until the next month once the build minutes run out.'),
             ],
             [
                 'q' => __('How is Worker SSR different?'),
-                'a' => __('Worker SSR renders on Cloudflare Workers instead of shipping prebuilt files, so it carries the higher platform fee — and it replaces the static fee rather than stacking on top of it.'),
+                'a' => __('Worker SSR renders on Cloudflare Workers instead of shipping prebuilt files, so each SSR site carries its own monthly fee on Pro and Team.'),
             ],
             [
                 'q' => __('Can I pay yearly?'),
-                'a' => __('Yes — annual billing takes :pct% off the platform fee. Metered delivery is always billed monthly in arrears, because that is when it happens.', ['pct' => $annualPct]),
+                'a' => __('Not yet — plans are billed monthly for now.'),
             ],
             [
                 'q' => __('Where do I see what I am accruing?'),
-                'a' => __('Edge → Usage shows requests, egress, storage and estimated cost for the current calendar month, per site and org-wide, before the invoice lands.'),
+                'a' => __('The organization billing page shows your plan, what is included, and usage so far this month before the invoice lands.'),
             ],
         ];
     @endphp
@@ -125,10 +123,10 @@
             <div class="mx-auto max-w-6xl px-6 py-16 lg:px-10 lg:py-20">
                 <p class="font-terminal text-[11px] uppercase tracking-[0.2em] text-edge-lime">{{ __('Pricing') }}</p>
                 <h1 class="mt-4 max-w-3xl text-4xl font-bold leading-[1.05] tracking-[-0.03em] sm:text-5xl">
-                    {{ __('One product. Two numbers.') }}
+                    {{ __('Pick a plan. Pay for what you outgrow.') }}
                 </h1>
                 <p class="mt-5 max-w-2xl text-base leading-7 text-edge-mute">
-                    {{ __('A flat fee per live site, and metered delivery only if that site outgrows what is included. Previews are free, builds are free, seats are free.') }}
+                    {{ __('Free to start, Pro for real projects, Team for your whole company. Each plan includes sites, seats, build minutes and traffic; anything past that is metered, previews included.') }}
                 </p>
 
                 <div class="mt-8 flex flex-wrap items-center gap-4">
@@ -142,56 +140,68 @@
             </div>
         </section>
 
-        {{-- ========================= PLATFORM FEE =========================== --}}
+        {{-- ============================== PLANS ============================= --}}
         <section class="border-b border-edge-line">
             <div class="mx-auto grid max-w-6xl grid-cols-1 md:grid-cols-3">
-                @foreach ($modes as $i => $mode)
+                @foreach ($tiers as $key => $tier)
                     <div @class([
                         'px-6 py-8 lg:px-10',
-                        'border-b border-edge-line md:border-b-0 md:border-r' => $i < 2,
+                        'border-b border-edge-line md:border-b-0 md:border-r' => ! $loop->last,
                     ])>
-                        <p class="font-terminal text-[11px] text-edge-faint">{{ $mode['num'] }}</p>
-                        <p class="mt-2 text-lg font-bold tracking-[-0.02em]">{{ $mode['name'] }}</p>
+                        <p class="text-lg font-bold tracking-[-0.02em]">{{ $tier['label'] }}</p>
                         <p class="font-terminal mt-3 text-3xl font-bold text-edge-lime">
-                            ${{ number_format($mode['price'], 2) }}<span class="text-sm font-normal text-edge-mute">{{ __('/site/mo') }}</span>
+                            ${{ number_format($tier['price_cents'] / 100, 0) }}<span class="text-sm font-normal text-edge-mute">{{ __('/mo') }}</span>
                         </p>
-                        <p class="mt-3 text-sm leading-6 text-edge-mute">{{ $mode['body'] }}</p>
+                        <p class="mt-3 text-sm leading-6 text-edge-mute">
+                            {{ trans_choice(':count site|:count sites', $tier['sites']) }} · {{ trans_choice(':count seat|:count seats', $tier['seats']) }} · {{ __(':m build minutes', ['m' => number_format($tier['build_minutes'])]) }}
+                        </p>
                     </div>
                 @endforeach
             </div>
             <div class="border-t border-edge-line">
                 <p class="mx-auto max-w-6xl px-6 py-4 text-sm text-edge-mute lg:px-10">
-                    {{ __('Billed per live site. Preview deployments are free. Annual billing takes :pct% off.', ['pct' => $annualPct]) }}
+                    {{ __('Billed monthly. Preview usage counts toward your plan. Enterprise pricing on request.') }}
                 </p>
             </div>
         </section>
 
-        {{-- ========================== WHAT'S INCLUDED ======================= --}}
+        {{-- ============================ COMPARE ============================= --}}
         <section class="border-b border-edge-line">
             <div class="mx-auto max-w-6xl px-6 py-14 lg:px-10">
-                <h2 class="text-2xl font-bold tracking-[-0.02em]">{{ __('Included with every site') }}</h2>
-                <p class="mt-2 max-w-2xl text-sm leading-6 text-edge-mute">
-                    {{ __('Per site, per calendar month. A typical marketing site or docs site never leaves this envelope, and pays only the platform fee.') }}
-                </p>
+                <h2 class="text-2xl font-bold tracking-[-0.02em]">{{ __('What each plan includes') }}</h2>
+                <p class="mt-2 max-w-2xl text-sm leading-6 text-edge-mute">{{ __('Allowances are per organization, per calendar month.') }}</p>
 
-                <dl class="mt-8 grid grid-cols-2 gap-px border border-edge-line bg-edge-line sm:grid-cols-3 lg:grid-cols-5">
-                    @foreach ($included as $item)
-                        <div class="bg-edge-panel px-5 py-5">
-                            <dt class="font-terminal text-[11px] uppercase tracking-[0.16em] text-edge-faint">{{ $item['label'] }}</dt>
-                            <dd class="font-terminal mt-2 text-2xl font-bold text-edge-text">{{ $item['value'] }}</dd>
-                            <p class="mt-1 text-xs text-edge-mute">{{ $item['unit'] }}</p>
-                        </div>
-                    @endforeach
-                </dl>
+                <div class="mt-8 overflow-x-auto border border-edge-line">
+                    <table class="min-w-full text-left text-sm">
+                        <thead class="font-terminal border-b border-edge-line bg-edge-panel text-[11px] uppercase tracking-[0.16em] text-edge-faint">
+                            <tr>
+                                <th class="px-5 py-3 font-normal"></th>
+                                @foreach ($tiers as $tier)
+                                    <th class="px-5 py-3 font-normal">{{ $tier['label'] }}</th>
+                                @endforeach
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-edge-line">
+                            @foreach ($compare as [$label, $cell])
+                                <tr>
+                                    <td class="px-5 py-3 font-medium text-edge-text">{{ $label }}</td>
+                                    @foreach ($tiers as $key => $tier)
+                                        <td class="px-5 py-3 text-edge-mute">{{ $cell($tier, $key) }}</td>
+                                    @endforeach
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </section>
 
         {{-- ============================= OVERAGE ============================ --}}
         <section class="border-b border-edge-line">
             <div class="mx-auto max-w-6xl px-6 py-14 lg:px-10">
-                <h2 class="text-2xl font-bold tracking-[-0.02em]">{{ __('If a site outgrows it') }}</h2>
+                <h2 class="text-2xl font-bold tracking-[-0.02em]">{{ __('If you outgrow your plan') }}</h2>
                 <p class="mt-2 max-w-2xl text-sm leading-6 text-edge-mute">
-                    {{ __('Delivery past the allowance is metered at these rates and billed monthly in arrears. Nothing is throttled; the meter simply runs.') }}
+                    {{ __('On Pro and Team, usage past your plan is metered at these rates and billed monthly in arrears. Nothing is throttled; the meter simply runs.') }}
                 </p>
 
                 <div class="mt-8 overflow-x-auto border border-edge-line">
@@ -219,6 +229,40 @@
             </div>
         </section>
 
+        {{-- ========================= CONTAINER COMPUTE ====================== --}}
+        <section class="border-b border-edge-line">
+            <div class="mx-auto max-w-6xl px-6 py-14 lg:px-10">
+                <h2 class="text-2xl font-bold tracking-[-0.02em]">{{ __('Container compute, by the minute') }}</h2>
+                <p class="mt-2 max-w-2xl text-sm leading-6 text-edge-mute">
+                    {{ __('PHP, Rails and Node server apps run on Cloudflare Containers. You pay for the seconds they run — containers sleep when idle and the meter stops. Pro includes $5 and Team $20 of compute each month.') }}
+                </p>
+
+                <div class="mt-8 overflow-x-auto border border-edge-line">
+                    <table class="min-w-full text-left text-sm">
+                        <thead class="font-terminal border-b border-edge-line bg-edge-panel text-[11px] uppercase tracking-[0.16em] text-edge-faint">
+                            <tr>
+                                <th class="px-5 py-3 font-normal">{{ __('Instance') }}</th>
+                                <th class="px-5 py-3 font-normal">{{ __('Size') }}</th>
+                                <th class="px-5 py-3 font-normal">{{ __('Per minute') }}</th>
+                                <th class="px-5 py-3 font-normal">{{ __('Always on, per month') }}</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-edge-line">
+                            @foreach ($computeRows as $row)
+                                <tr>
+                                    <td class="font-terminal px-5 py-3.5 text-edge-text">{{ $row['type'] }}</td>
+                                    <td class="px-5 py-3.5 text-edge-mute">{{ $row['spec'] }}</td>
+                                    <td class="font-terminal px-5 py-3.5 text-edge-lime">{{ $row['minute'] }}</td>
+                                    <td class="px-5 py-3.5 text-edge-mute">{{ $row['month'] }}</td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+                <p class="mt-3 text-xs text-edge-mute">{{ __('Maximum price with every vCPU busy; CPU is billed only while it works. Container egress is billed per GB.') }}</p>
+            </div>
+        </section>
+
         {{-- ============================ ESTIMATOR =========================== --}}
         <section id="estimate" class="border-b border-edge-line scroll-mt-16">
             <div class="mx-auto max-w-6xl px-6 py-14 lg:px-10">
@@ -230,11 +274,8 @@
                 @include('partials.pricing-calculator', [
                     'sitePrice' => $sitePrice,
                     'ssrPrice' => $ssrPrice,
-                    'annualPct' => $annualPct,
+                    'tiers' => $tiers,
                     'rates' => $rates,
-                    'includedRequests' => $includedRequests,
-                    'includedEgress' => $includedEgress,
-                    'includedStorage' => $includedStorage,
                 ])
             </div>
         </section>

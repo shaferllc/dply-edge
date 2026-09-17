@@ -330,6 +330,21 @@ return [
             // a month writes 20k objects.
             'included_r2_class_a_ops_per_site' => (int) env('DPLY_EDGE_USAGE_INCLUDED_R2_CLASS_A_OPS_PER_SITE', 20_000),
             'included_r2_class_b_ops_per_site' => (int) env('DPLY_EDGE_USAGE_INCLUDED_R2_CLASS_B_OPS_PER_SITE', 1_000_000),
+            // Container compute, per second at Cloudflare list price in
+            // millicents (1/1000 ¢), marked up like the rest of usage:
+            //   vCPU $0.000020/s · memory $0.0000025/GiB-s · disk $0.00000007/GB-s
+            //   egress $0.025/GB. Collected by dply:edge:collect-container-usage.
+            'container_vcpu_millicents_per_hour' => (int) env('DPLY_EDGE_CONTAINER_VCPU_MC_PER_HOUR', 7_200),
+            'container_memory_millicents_per_gib_hour' => (int) env('DPLY_EDGE_CONTAINER_MEMORY_MC_PER_GIB_HOUR', 900),
+            'container_disk_millicents_per_gb_hour' => (int) env('DPLY_EDGE_CONTAINER_DISK_MC_PER_GB_HOUR', 25),
+            'container_egress_millicents_per_gb' => (int) env('DPLY_EDGE_CONTAINER_EGRESS_MC_PER_GB', 2_500),
+            // D1 and Queues at Cloudflare list price, millicents, marked up:
+            //   rows read $0.001/M · rows written $1.00/M · storage $0.75/GB-month
+            //   queue operations $0.40/M. Collected by dply:edge:collect-data-usage.
+            'd1_rows_read_millicents_per_million' => (int) env('DPLY_EDGE_D1_READ_MC_PER_MILLION', 100),
+            'd1_rows_written_millicents_per_million' => (int) env('DPLY_EDGE_D1_WRITE_MC_PER_MILLION', 100_000),
+            'd1_storage_millicents_per_gb_month' => (int) env('DPLY_EDGE_D1_STORAGE_MC_PER_GB_MONTH', 75_000),
+            'queue_operations_millicents_per_million' => (int) env('DPLY_EDGE_QUEUE_OPS_MC_PER_MILLION', 40_000),
         ],
     ],
 

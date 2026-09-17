@@ -8,16 +8,9 @@ use InvalidArgumentException;
 use RuntimeException;
 
 /**
- * Provisions a fresh Standard Stripe subscription for an organization,
- * seeded with line items derived from its live Edge sites:
- *
- * - One line per Edge site kind in use (static/hybrid `edge`, Worker SSR
- *   `edge_ssr`).
- * - A metered **Edge usage** line (monthly only).
- *
- * Stripe Checkout requires every line item in a subscription to share a
- * billing interval, so each priced item has both a monthly and a yearly
- * Stripe Price. The creator picks the right set based on the chosen interval.
+ * Builds the Stripe line items for a plan tier (tier fee, extra sites, SSR
+ * sites, extra seats, load balancer endpoints, usage) and provisions a fresh
+ * subscription from them. Tiers are monthly only.
  */
 class StandardSubscriptionCreator
 {
@@ -30,64 +23,37 @@ class StandardSubscriptionCreator
     ) {}
 
     /**
+     * Stripe line items for a tier state (monthly only — tiers have no yearly
+     * prices). Free and Enterprise produce no lines.
+     *
      * @return array<int, array{price: string, quantity: int}>
      */
     public function buildPriceList(DesiredBillingState $desired, string $interval = self::INTERVAL_MONTH): array
     {
-        $items = [];
-
-        $edgeBaseCount = $desired->edgeBaseCount();
-        if ($edgeBaseCount > 0) {
-            $edgePriceId = $this->managedProductPriceIdForInterval('edge', $interval);
-            if ($edgePriceId !== '') {
-                $items[] = ['price' => $edgePriceId, 'quantity' => $edgeBaseCount];
-            }
+        if ($interval !== self::INTERVAL_MONTH) {
+            throw new InvalidArgumentException('Plan tiers are billed monthly only.');
         }
 
-        if ($desired->edgeSsrCount > 0) {
-            $edgeSsrPriceId = $this->managedProductPriceIdForInterval('edge_ssr', $interval);
-            if ($edgeSsrPriceId !== '') {
-                $items[] = ['price' => $edgeSsrPriceId, 'quantity' => $desired->edgeSsrCount];
-            }
+        $tierPriceId = (string) (config('subscription.standard.stripe.tier_'.$desired->planKey) ?? '');
+        if (! in_array($desired->planKey, ['pro', 'team'], true) || $tierPriceId === '') {
+            return [];
         }
 
-        $lbPriceId = (string) (config('subscription.standard.stripe.edge_lb_endpoint') ?? '');
-        if ($interval === self::INTERVAL_MONTH && $desired->edgeLbEndpointCount > 0 && $lbPriceId !== '') {
-            $items[] = ['price' => $lbPriceId, 'quantity' => $desired->edgeLbEndpointCount];
-        }
-
-        if ($interval === self::INTERVAL_MONTH && $desired->edgeUsageSubtotalCents > 0) {
-            $usagePriceId = $this->edgeUsagePriceId();
-            if ($usagePriceId !== '') {
-                $items[] = ['price' => $usagePriceId, 'quantity' => $desired->edgeUsageSubtotalCents];
+        $items = [['price' => $tierPriceId, 'quantity' => 1]];
+        foreach ([
+            'edge' => $desired->extraSiteCount,
+            'edge_ssr' => $desired->edgeSsrCount,
+            'team_seat' => $desired->extraSeatCount,
+            'edge_lb_endpoint' => $desired->edgeLbEndpointCount,
+            'edge_usage' => $desired->usageLineCents(),
+        ] as $product => $quantity) {
+            $priceId = (string) (config('subscription.standard.stripe.'.$product) ?? '');
+            if ($quantity > 0 && $priceId !== '') {
+                $items[] = ['price' => $priceId, 'quantity' => $quantity];
             }
         }
 
         return $items;
-    }
-
-    public function edgePriceIdForInterval(string $interval): string
-    {
-        return $this->managedProductPriceIdForInterval('edge', $interval);
-    }
-
-    public function edgeSsrPriceIdForInterval(string $interval): string
-    {
-        return $this->managedProductPriceIdForInterval('edge_ssr', $interval);
-    }
-
-    public function edgeUsagePriceId(): string
-    {
-        return (string) (config('subscription.standard.stripe.edge_usage') ?? '');
-    }
-
-    private function managedProductPriceIdForInterval(string $product, string $interval): string
-    {
-        return (string) match ($interval) {
-            self::INTERVAL_MONTH => config('subscription.standard.stripe.'.$product) ?? '',
-            self::INTERVAL_YEAR => config('subscription.standard.stripe.'.$product.'_yearly') ?? '',
-            default => throw new InvalidArgumentException("Unknown billing interval: {$interval}"),
-        };
     }
 
     /**
@@ -97,7 +63,7 @@ class StandardSubscriptionCreator
      *
      * @throws InvalidArgumentException when the org already has a subscription.
      */
-    public function create(Organization $organization, string $paymentMethodId, string $interval = self::INTERVAL_MONTH): Subscription
+    public function create(Organization $organization, string $paymentMethodId, string $tier = 'pro'): Subscription
     {
         if ($organization->subscription('default') !== null) {
             throw new InvalidArgumentException(
@@ -105,8 +71,7 @@ class StandardSubscriptionCreator
             );
         }
 
-        $desired = $this->computer->compute($organization);
-        $items = $this->buildPriceList($desired, $interval);
+        $items = $this->buildPriceList($this->computer->computeForTier($organization, $tier));
 
         if ($items === []) {
             // No live Edge sites owes nothing — Stripe rejects empty

@@ -10,7 +10,7 @@ namespace App\Modules\Edge\Services\RuntimeDetection;
  * Pre-fills:
  *   - runtime: "node"
  *   - version: from .tool-versions / .nvmrc / package.json#engines.node
- *   - framework: next | nuxt | astro | nest | remix | sveltekit | "node"
+ *   - framework: next | nuxt | astro | nest | remix | sveltekit | express | fastify | koa | "node"
  *   - build: package.json#scripts.build (when present)
  *   - start: package.json#scripts.start, then main, then conventional fallbacks
  *   - app port: parsed from start/dev script flags, then framework defaults
@@ -129,6 +129,10 @@ final class NodeRuntimeDetector implements RuntimeDetector
             'remix' => 'remix',
             '@remix-run/node' => 'remix',
             '@sveltejs/kit' => 'sveltekit',
+            // Plain HTTP servers — these deploy as containers.
+            'express' => 'express',
+            'fastify' => 'fastify',
+            'koa' => 'koa',
         ];
 
         foreach ($frameworks as $packageName => $frameworkKey) {

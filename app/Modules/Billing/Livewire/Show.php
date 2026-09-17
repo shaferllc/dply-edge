@@ -19,7 +19,6 @@ use Laravel\Cashier\Subscription;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
-use RuntimeException;
 use Throwable;
 
 /**
@@ -132,13 +131,8 @@ class Show extends Component
         if (! $sub) {
             return null;
         }
-        if ($this->organization->onStandardSubscription()) {
-            $interval = $this->subscriptionIsYearly($sub) ? 'yearly' : 'monthly';
-
-            return 'Standard ('.$interval.')';
-        }
-        if ($this->organization->onEnterpriseSubscription()) {
-            return 'Enterprise';
+        if ($this->organization->onAnyPaidPlan()) {
+            return $this->organization->planTierLabel();
         }
 
         return $sub->stripe_price ?? $sub->items->first()?->stripe_price;
@@ -190,48 +184,36 @@ class Show extends Component
     }
 
     /**
-     * Start a Stripe Checkout session for the Standard plan. Line items are
-     * seeded from the org's live Edge sites, so the customer's first bill
-     * reflects what they're actually running.
+     * Start a Stripe Checkout session for a paid tier. Line items are seeded
+     * from what the org runs today on that tier (extra sites, SSR, seats…).
      */
-    public function subscribeStandard(string $interval = StandardSubscriptionCreator::INTERVAL_MONTH): mixed
+    public function subscribeTier(string $tier = 'pro'): mixed
     {
         $this->authorize('update', $this->organization);
 
-        if (! in_array($interval, [StandardSubscriptionCreator::INTERVAL_MONTH, StandardSubscriptionCreator::INTERVAL_YEAR], true)) {
-            $this->addError('plan', __('Invalid billing interval.'));
+        if (! in_array($tier, ['pro', 'team'], true)) {
+            $this->addError('plan', __('Choose Pro or Team.'));
 
             return null;
         }
 
         if ($this->organization->subscription('default') !== null) {
-            $this->addError('billing', __('This organization already has an active subscription. Use Manage Billing to make changes.'));
+            $this->addError('billing', __('This organization already has a subscription. Change plan below instead.'));
 
             return null;
         }
 
-        $computer = app(OrganizationBillingStateComputer::class);
-        $creator = app(StandardSubscriptionCreator::class);
-
-        try {
-            $items = $creator->buildPriceList($computer->compute($this->organization), $interval);
-        } catch (RuntimeException $e) {
-            $this->addError('billing', __('Standard pricing is not configured yet. Contact support.'));
-
-            return null;
-        }
-
+        $items = app(StandardSubscriptionCreator::class)->buildPriceList(
+            app(OrganizationBillingStateComputer::class)->computeForTier($this->organization, $tier),
+        );
         if ($items === []) {
-            // No live Edge sites — nothing for Stripe to bill, so there's no
-            // subscription to start. The org keeps using dply free.
-            $this->addError('billing', __('There\'s nothing to bill yet. Subscribe once you have a live Edge site.'));
+            $this->addError('billing', __('Plan pricing is not configured yet. Contact support.'));
 
             return null;
         }
 
         audit_log($this->organization, auth()->user(), 'billing.checkout_started', null, null, [
-            'plan' => 'standard',
-            'interval' => $interval,
+            'plan' => $tier,
         ]);
 
         $subscriptionUrl = route('subscription.show', $this->organization);
@@ -248,18 +230,14 @@ class Show extends Component
         // Stripe Checkout lives on a different origin (checkout.stripe.com),
         // so Livewire's default wire:navigate redirect fails silently — pass
         // navigate: false to force a full-page window.location swap.
-        // asStripeCheckoutSession() rather than $checkout->url: Checkout::__get()
-        // just forwards to the underlying session, and the typed accessor says
-        // so explicitly.
         return $this->redirect((string) $checkout->asStripeCheckoutSession()->url, navigate: false);
     }
 
     /**
-     * Switch an existing subscription between monthly and yearly billing.
-     * Swaps every Edge line item to the target interval's price set and
-     * invoices the prorated difference immediately.
+     * Move an existing subscription to another paid tier. Swaps every line to
+     * the target tier's set and invoices the prorated difference now.
      */
-    public function switchInterval(): mixed
+    public function changeTier(string $tier): mixed
     {
         $this->authorize('update', $this->organization);
 
@@ -267,40 +245,41 @@ class Show extends Component
         if (! $subscription || ! $subscription->valid()) {
             return $this->billingRedirect('billing_error', __('No active subscription to change.'));
         }
-
-        $current = $this->subscriptionInterval;
-        $target = $current === StandardSubscriptionCreator::INTERVAL_YEAR
-            ? StandardSubscriptionCreator::INTERVAL_MONTH
-            : StandardSubscriptionCreator::INTERVAL_YEAR;
-
-        $computer = app(OrganizationBillingStateComputer::class);
-        $creator = app(StandardSubscriptionCreator::class);
-
-        try {
-            $items = $creator->buildPriceList($computer->compute($this->organization), $target);
-        } catch (RuntimeException $e) {
-            return $this->billingRedirect('billing_error', __('The :interval price set is not configured.', ['interval' => $target]));
+        if (! in_array($tier, ['pro', 'team'], true) || $tier === $this->organization->subscribedTier()) {
+            return $this->billingRedirect('billing_error', __('Choose a different plan.'));
         }
 
-        // Cashier's swap() wants prices keyed by ID, value = options.
-        $swap = [];
-        foreach ($items as $item) {
-            $swap[$item['price']] = ['quantity' => $item['quantity']];
+        $proSeats = (int) config('subscription.standard.tiers.pro.seats');
+        if ($tier === 'pro' && $this->organization->users()->count() > $proSeats) {
+            return $this->billingRedirect('billing_error', __('Pro includes :count seats. Remove members before moving to Pro.', ['count' => $proSeats]));
         }
 
-        audit_log($this->organization, auth()->user(), 'billing.interval_switched', null, null, [
-            'from' => $current,
-            'to' => $target,
+        $items = app(StandardSubscriptionCreator::class)->buildPriceList(
+            app(OrganizationBillingStateComputer::class)->computeForTier($this->organization, $tier),
+        );
+        if ($items === []) {
+            return $this->billingRedirect('billing_error', __('Plan pricing is not configured yet. Contact support.'));
+        }
+
+        audit_log($this->organization, auth()->user(), 'billing.plan_changed', null, null, [
+            'from' => $this->organization->subscribedTier(),
+            'to' => $tier,
         ]);
 
         try {
-            $subscription->swapAndInvoice($swap);
+            $subscription->swapAndInvoice(collect($items)->mapWithKeys(
+                static fn (array $item): array => [$item['price'] => ['quantity' => $item['quantity']]],
+            )->all());
         } catch (Throwable $e) {
-            return $this->billingRedirect('billing_error', __('Could not switch billing interval. Please try again or contact support.'));
+            report($e);
+
+            return $this->billingRedirect('billing_error', __('Could not change plan. Please try again or contact support.'));
         }
 
-        return $this->billingRedirect('billing_status', __('Billing switched to :interval.', [
-            'interval' => $target === StandardSubscriptionCreator::INTERVAL_YEAR ? __('yearly') : __('monthly'),
+        OrganizationBillingStateComputer::flushMemo((string) $this->organization->id);
+
+        return $this->billingRedirect('billing_status', __('You\'re now on :plan.', [
+            'plan' => (string) config('subscription.standard.tiers.'.$tier.'.label'),
         ]));
     }
 
@@ -390,21 +369,9 @@ class Show extends Component
 
     public function getStandardPricingAvailableProperty(): bool
     {
-        // Standard pricing is "available" as soon as an Edge site price (at
-        // either interval) is configured in Stripe — those are the lines a
-        // first subscription is built from.
-        $configured = [
-            config('subscription.standard.stripe.edge'),
-            config('subscription.standard.stripe.edge_yearly'),
-        ];
-
-        foreach ($configured as $priceId) {
-            if ((string) $priceId !== '') {
-                return true;
-            }
-        }
-
-        return false;
+        // Checkout needs a tier price; everything else on the list is optional.
+        return (string) config('subscription.standard.stripe.tier_pro') !== ''
+            || (string) config('subscription.standard.stripe.tier_team') !== '';
     }
 
     /**
@@ -442,79 +409,7 @@ class Show extends Component
      */
     public function getTierLineItemsProperty(): array
     {
-        $state = $this->billingState;
-        $items = [];
-
-        $edgeBaseCount = $state->edgeBaseCount();
-        if ($edgeBaseCount > 0) {
-            $unit = (int) config('subscription.standard.edge_cents', 200);
-            $items[] = [
-                'label' => __('dply Edge site'),
-                'quantity' => $edgeBaseCount,
-                'unit_cents' => $unit,
-                'line_cents' => $edgeBaseCount * $unit,
-            ];
-        }
-
-        if ($state->edgeSsrCount > 0) {
-            $ssrUnit = (int) config('subscription.standard.edge_ssr_cents', 700);
-            $items[] = [
-                'label' => __('dply Edge SSR site'),
-                'quantity' => $state->edgeSsrCount,
-                'unit_cents' => $ssrUnit,
-                'line_cents' => $state->edgeSsrCount * $ssrUnit,
-            ];
-        }
-
-        if ($state->edgeLbEndpointCount > 0) {
-            $items[] = [
-                'label' => __('Load balancing endpoint'),
-                'quantity' => $state->edgeLbEndpointCount,
-                'unit_cents' => (int) config('subscription.standard.edge_lb_endpoint_cents', 800),
-                'line_cents' => $state->edgeLbSubtotalCents,
-            ];
-        }
-
-        if ($state->edgeUsageSubtotalCents > 0) {
-            $items[] = [
-                'label' => __('dply Edge delivery usage'),
-                'quantity' => 1,
-                'unit_cents' => $state->edgeUsageSubtotalCents,
-                'line_cents' => $state->edgeUsageSubtotalCents,
-                'detail' => $this->formatEdgeUsageDetail($state->edgeUsageEstimate),
-            ];
-        }
-
-        return $items;
-    }
-
-    /**
-     * @param  array<string, mixed>  $estimate
-     */
-    private function formatEdgeUsageDetail(array $estimate): ?string
-    {
-        $requests = (int) ($estimate['requests'] ?? 0);
-        $egress = (int) ($estimate['bytes_egress'] ?? 0);
-
-        if ($requests === 0 && $egress === 0) {
-            return null;
-        }
-
-        $parts = [];
-        if ($requests > 0) {
-            $parts[] = number_format($requests).' '.__('requests');
-        }
-        if ($egress > 0) {
-            $parts[] = number_format($egress / (1024 ** 3), 2).' GB '.__('egress');
-        }
-
-        $periodStart = (string) ($estimate['period_start'] ?? '');
-        $periodEnd = (string) ($estimate['period_end'] ?? '');
-        if ($periodStart !== '' && $periodEnd !== '') {
-            $parts[] = $periodStart.' → '.$periodEnd;
-        }
-
-        return implode(' · ', $parts);
+        return app(BillingAnalytics::class)->lineItems($this->billingState);
     }
 
     public function getYearlyTotalCentsProperty(): int

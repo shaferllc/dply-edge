@@ -39,6 +39,18 @@ final class EdgeCustomDomainProvisioner
             return null;
         }
 
+        // Tier allowance: custom_domains_per_site (re-provisioning an attached
+        // hostname never counts as a new one).
+        $routing = is_array($site->edgeMeta()['routing'] ?? null) ? $site->edgeMeta()['routing'] : [];
+        $attached = is_array($routing['custom_domains'] ?? null) ? $routing['custom_domains'] : [];
+        $limit = $site->organization?->tierAllowances()['custom_domains_per_site'] ?? null;
+        if ($limit !== null && ! isset($attached[$hostname]) && count($attached) >= (int) $limit) {
+            throw new RuntimeException(trans_choice(
+                '{1} Your plan includes :count custom domain per site. Upgrade to Pro for up to 100.|[2,*] Your plan includes :count custom domains per site.',
+                (int) $limit,
+            ));
+        }
+
         $edgeHost = $this->cnameTargetFor($site);
         if ($edgeHost === '') {
             return $this->updateEntry($site, $hostname, [

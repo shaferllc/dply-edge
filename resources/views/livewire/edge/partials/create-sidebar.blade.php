@@ -8,6 +8,7 @@
     $runtimeLabel = match ($runtimeMode) {
         'hybrid' => __('Hybrid'),
         'ssr' => __('Worker SSR'),
+        'container' => __('Container'),
         default => __('Static / SSG'),
     };
     $deliveryLabel = ($form->delivery_mode ?? 'managed') === 'byo'
@@ -34,9 +35,9 @@
             <div class="flex items-start justify-between gap-3 px-5 py-2.5">
                 <dt class="shrink-0 text-xs font-medium text-brand-mist">{{ __('Build') }}</dt>
                 <dd class="min-w-0 text-end text-xs font-semibold text-brand-ink dark:text-brand-ink">
-                    <span class="block truncate font-mono font-normal">{{ $buildCommand !== '' ? $buildCommand : __('Detected / default') }}</span>
+                    <span class="block truncate font-mono font-normal">{{ $runtimeMode === 'container' ? __('Docker image') : ($buildCommand !== '' ? $buildCommand : __('Detected / default')) }}</span>
                     <span class="mt-0.5 block text-xs font-normal text-brand-moss">
-                        {{ __('Output') }} {{ $outputDir !== '' ? $outputDir : 'dist' }}
+                        {{ $runtimeMode === 'container' ? __('Your Dockerfile, or generated') : __('Output').' '.($outputDir !== '' ? $outputDir : 'dist') }}
                     </span>
                 </dd>
             </div>
@@ -49,23 +50,10 @@
                 <dd class="min-w-0 text-end text-xs font-semibold text-brand-ink dark:text-brand-ink">{{ $deliveryLabel }}</dd>
             </div>
             <div class="flex items-center justify-between gap-3 bg-brand-sand/20 px-5 py-3 dark:bg-brand-sand/10">
-                <dt class="shrink-0 text-xs font-medium text-brand-mist">{{ __('Est. cost') }}</dt>
+                <dt class="shrink-0 text-xs font-medium text-brand-mist">{{ __('Cost') }} · {{ $planCost['plan'] }}</dt>
                 <dd class="min-w-0 text-end">
-                    @php
-                        $platformFee = $edgePlatformFee ?? $edgeFee;
-                    @endphp
-                    <p class="text-lg font-semibold tracking-tight text-brand-ink">
-                        ${{ number_format($platformFee, 2) }}<span class="text-sm font-medium text-brand-moss">/mo</span>
-                    </p>
-                    <p class="mt-0.5 text-xs text-brand-moss">
-                        @if ($runtimeMode === 'ssr')
-                            {{ __('Worker SSR platform fee. Previews free.') }}
-                        @elseif ($edgeUsageBillingEnabled)
-                            {{ __('Per live site + overage. Previews free.') }}
-                        @else
-                            {{ __('Per live site. Previews free.') }}
-                        @endif
-                    </p>
+                    <p class="text-lg font-semibold tracking-tight text-brand-ink">{{ $planCost['headline'] }}</p>
+                    <p class="mt-0.5 text-xs text-brand-moss">{{ $planCost['detail'] }}</p>
                 </dd>
             </div>
         </dl>
@@ -78,6 +66,6 @@
     </div>
 
     <p class="px-1 text-xs leading-relaxed text-brand-moss">
-        {{ __('Static/SSG JS, Keel, and hybrid SSR — not Laravel, Rails, WordPress, or Nest/Express. Worker SSR is optional.') }}
+        {{ __('Static and SSG sites, hybrid and Worker SSR, and Laravel, Rails or Node servers as containers. WordPress isn’t supported.') }}
     </p>
 </aside>

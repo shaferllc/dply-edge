@@ -7,6 +7,7 @@ namespace App\Modules\Edge\Services;
 use App\Models\EdgeDeployment;
 use App\Modules\Edge\Services\Config\EdgeRepoConfigLinter;
 use App\Modules\Edge\Services\Config\EdgeRepoConfigLoader;
+use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Services\Ssr\EdgeSsrFrameworkRegistry;
 use App\Modules\Edge\Support\EdgeBuildDockerBootstrap;
 use App\Modules\Edge\Support\EdgeLiveBuildLog;
@@ -35,6 +36,12 @@ class EdgeBuildRunner
      * dispatch namespace. See {@see EdgeSsrBundleUploader}.
      */
     public const MODE_SSR = 'ssr';
+
+    /**
+     * PHP / Rails on Cloudflare Containers: the build deploys an image and a
+     * fronting Worker into the dispatch namespace ({@see EdgeContainerDeployer}).
+     */
+    public const MODE_CONTAINER = 'container';
 
     /** Cap per-script source bytes to avoid blowing past CF's 10 MB Worker limit. */
     private const SSR_SCRIPT_MAX_BYTES = 9 * 1024 * 1024;
@@ -81,6 +88,7 @@ class EdgeBuildRunner
         ?string $commitOverride = null,
         string $runtimeMode = self::MODE_STATIC,
         ?string $repoRoot = null,
+        ?int $timeoutSeconds = null,
     ): array {
         $workRoot = rtrim(self::buildRoot(), '/').'/dply-edge-build-'.$deployment->id;
         File::ensureDirectoryExists($workRoot);
@@ -122,6 +130,10 @@ class EdgeBuildRunner
                     'build_log' => $buildLog,
                     'git_commit' => $fakeCommit,
                 ];
+
+                if ($runtimeMode === self::MODE_CONTAINER) {
+                    $result['container'] = ['script_name' => EdgeContainerDeployer::scriptName($deployment->site), 'stack' => 'fake', 'port' => 8080, 'queues' => []];
+                }
 
                 if ($runtimeMode === self::MODE_SSR) {
                     // Stand-in worker module so the fake-edge path covers
@@ -396,6 +408,33 @@ class EdgeBuildRunner
                 }
             }
 
+            // Container mode: no Node build or static artifact — wrangler
+            // builds the image and deploys it behind the site's Worker.
+            if ($runtimeMode === self::MODE_CONTAINER) {
+                $this->appendBuildLog($buildLog, "[dply:step] build\n");
+                $container = app(EdgeContainerDeployer::class)->deploy(
+                    $deployment->site,
+                    $deployment,
+                    $checkout,
+                    $workRoot,
+                    $env,
+                    fn (string $line) => $this->appendBuildLog($buildLog, $line),
+                    $timeoutSeconds,
+                );
+                File::ensureDirectoryExists($artifactDir);
+                $this->appendBuildLog($buildLog, "Container deployed as {$container['script_name']}.\n");
+
+                return [
+                    'artifact_dir' => $artifactDir,
+                    'build_log' => $buildLog,
+                    'git_commit' => $resolvedCommit,
+                    'git_commit_subject' => $commitDetails['subject'] ?? null,
+                    'git_commit_author' => $commitDetails['author'] ?? null,
+                    'git_commit_at' => $commitDetails['committed_at'] ?? null,
+                    'container' => $container,
+                ];
+            }
+
             // SSR mode: detect which framework adapter the repo uses
             // and dispatch the build accordingly. Profile registry lives
             // in app/Services/Edge/Ssr/ — adding Astro / SvelteKit /
@@ -506,7 +545,7 @@ class EdgeBuildRunner
                 : '/src';
 
             $this->appendBuildLog($buildLog, "Running build in {$dockerImage}: {$script}\n");
-            $build = Process::timeout((int) config('edge.build.timeout_seconds', 900))
+            $build = Process::timeout($timeoutSeconds ?? (int) config('edge.build.timeout_seconds', 900))
                 ->run(
                     [
                         'docker', 'run', '--rm',

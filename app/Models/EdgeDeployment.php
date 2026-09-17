@@ -16,6 +16,8 @@ use Illuminate\Support\Carbon;
  * @property string $id
  * @property array<string, mixed>|null $aliases
  * @property ?string $build_log_path
+ * @property ?Carbon $build_started_at
+ * @property ?int $build_seconds
  * @property int $cf_kv_version
  * @property ?Carbon $failed_at
  * @property ?string $failure_reason
@@ -64,6 +66,8 @@ class EdgeDeployment extends Model
         'failure_reason',
         'pruned_at',
         'meta',
+        'build_started_at',
+        'build_seconds',
     ];
 
     /** @return array<string, string> */
@@ -76,6 +80,8 @@ class EdgeDeployment extends Model
             'published_at' => 'datetime',
             'failed_at' => 'datetime',
             'pruned_at' => 'datetime',
+            'build_started_at' => 'datetime',
+            'build_seconds' => 'integer',
             'cf_kv_version' => 'integer',
         ];
     }

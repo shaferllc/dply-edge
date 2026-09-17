@@ -122,8 +122,9 @@ class EdgeUsageCollector
             ->where('status', Site::STATUS_EDGE_ACTIVE)
             ->whereNotNull('edge_backend')
             ->where('edge_backend', '!=', '')
+            // Previews included: their traffic bills against the plan like
+            // production (they just don't take a site slot).
             ->get()
-            ->reject(fn (Site $site): bool => $site->isEdgePreview())
             ->values();
     }
 

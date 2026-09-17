@@ -246,6 +246,11 @@ final class SiteSettingsHeader
                 'description' => __('Inject HTML into matching pages without rebuilding — banners, meta, small widgets.'),
                 'icon' => 'heroicon-o-code-bracket',
             ],
+            'edge-container' => [
+                'title' => __('Container'),
+                'description' => __('Instance size, scaling and sleep for your PHP, Rails or Node app.'),
+                'icon' => 'heroicon-o-cube',
+            ],
             'edge-load-balancing' => [
                 'title' => __('Load balancing'),
                 'description' => __('Spread origin traffic across servers with health checks and automatic failover.'),

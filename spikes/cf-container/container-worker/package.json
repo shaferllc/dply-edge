@@ -1,0 +1,1 @@
+{ "name": "php-spike", "private": true, "type": "module", "dependencies": { "@cloudflare/containers": "latest" }, "devDependencies": { "wrangler": "^4.94.0" } }

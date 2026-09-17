@@ -33,6 +33,16 @@ class RollbackEdgeDeployment
             throw new \RuntimeException('That deployment is already live.');
         }
 
+        // Container sites run one Worker + container per site, so the host map
+        // can't point back at an old image: roll back by rebuilding that commit.
+        if (($site->edgeMeta()['runtime_mode'] ?? '') === 'container') {
+            if (($deployment->git_commit ?? '') === '') {
+                throw new \RuntimeException('That deployment has no recorded commit to rebuild.');
+            }
+
+            return (new RedeployEdgeSite)->handle($site, (string) $deployment->git_commit);
+        }
+
         if ($deployment->storage_prefix === null) {
             $short = substr((string) $deployment->git_commit, 0, 7);
             $ref = $short !== '' ? $short : $deployment->id;

@@ -7,6 +7,7 @@ namespace App\Modules\Providers\Cloudflare;
 use App\Modules\Billing\Services\EdgeUsageTotals;
 use Carbon\CarbonInterface;
 use Illuminate\Http\Client\Response;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -376,6 +377,41 @@ class EdgeCloudflareClient
     }
 
     /**
+     * D1 database details (file_size, num_tables, running_in_region…).
+     *
+     * @return array<string, mixed>
+     */
+    public function getD1Database(string $databaseId): array
+    {
+        return $this->decode(Http::withToken($this->apiToken)->get(self::BASE.'/accounts/'.$this->accountId.'/d1/database/'.$databaseId));
+    }
+
+    /**
+     * Run SQL against a D1 database. Returns one result per statement:
+     * {results: list<row>, success, meta{changes, duration, rows_read, rows_written}}.
+     *
+     * @param  list<mixed>  $params
+     * @return list<array<string, mixed>>
+     */
+    public function queryD1(string $databaseId, string $sql, array $params = []): array
+    {
+        $payload = $this->decode(Http::withToken($this->apiToken)->timeout(35)->post(
+            self::BASE.'/accounts/'.$this->accountId.'/d1/database/'.$databaseId.'/query',
+            array_filter(['sql' => $sql, 'params' => $params], static fn ($v) => $v !== []),
+        ));
+
+        return array_values(array_filter($payload, 'is_array'));
+    }
+
+    public function deleteD1Database(string $databaseId): void
+    {
+        $response = Http::withToken($this->apiToken)->delete(self::BASE.'/accounts/'.$this->accountId.'/d1/database/'.$databaseId);
+        if ($response->status() !== 404) {
+            $this->decode($response);
+        }
+    }
+
+    /**
      * @return list<array<string, mixed>>
      */
     public function listQueues(): array
@@ -403,6 +439,72 @@ class EdgeCloudflareClient
                     'queue_name' => $name,
                 ]),
         );
+    }
+
+    /**
+     * Queue details: consumers, producers, settings.
+     *
+     * @return array<string, mixed>
+     */
+    public function getQueue(string $queueId): array
+    {
+        return $this->decode(Http::withToken($this->apiToken)->get(self::BASE.'/accounts/'.$this->accountId.'/queues/'.$queueId));
+    }
+
+    public function deleteQueue(string $queueId): void
+    {
+        $response = Http::withToken($this->apiToken)->delete(self::BASE.'/accounts/'.$this->accountId.'/queues/'.$queueId);
+        if ($response->status() !== 404) {
+            $this->decode($response);
+        }
+    }
+
+    /** @param mixed $body JSON-serialisable message body */
+    public function sendQueueMessage(string $queueId, mixed $body): void
+    {
+        $this->decode(Http::withToken($this->apiToken)->post(
+            self::BASE.'/accounts/'.$this->accountId.'/queues/'.$queueId.'/messages',
+            ['body' => $body, 'content_type' => 'json'],
+        ));
+    }
+
+    /**
+     * Latest backlog (messages waiting) per queue id over the last hour.
+     *
+     * @param  list<string>  $queueIds
+     * @return array<string, int>
+     */
+    public function queueBacklogs(array $queueIds): array
+    {
+        if ($queueIds === []) {
+            return [];
+        }
+
+        $query = <<<'GRAPHQL'
+        query Backlog($accountTag: string!, $ids: [string!], $since: Time!) {
+          viewer {
+            accounts(filter: { accountTag: $accountTag }) {
+              queueBacklogAdaptiveGroups(limit: 1000, filter: { queueId_in: $ids, datetime_geq: $since }, orderBy: [datetimeMinute_DESC]) {
+                dimensions { queueId datetimeMinute }
+                avg { messages }
+              }
+            }
+          }
+        }
+        GRAPHQL;
+
+        $json = Http::withToken($this->apiToken)->post(self::BASE.'/graphql', [
+            'query' => $query,
+            'variables' => ['accountTag' => $this->accountId, 'ids' => $queueIds, 'since' => now()->subHour()->toIso8601String()],
+        ])->json();
+
+        $out = [];
+        foreach ((array) data_get($json, 'data.viewer.accounts.0.queueBacklogAdaptiveGroups', []) as $group) {
+            $id = (string) data_get($group, 'dimensions.queueId', '');
+            $out[$id] ??= (int) round((float) data_get($group, 'avg.messages', 0)); // newest minute first
+        }
+
+        return $out;
     }
 
     /**
@@ -948,6 +1050,171 @@ class EdgeCloudflareClient
         }
 
         return null;
+    }
+
+    /**
+     * One UTC day of D1 and Queues usage: rows read/written and peak size per
+     * database, billable operations per queue.
+     *
+     * @return array{d1: array<string, array{rows_read: int, rows_written: int, storage_bytes: int}>, queues: array<string, int>}
+     */
+    public function dataUsageForDate(CarbonInterface $date): array
+    {
+        $query = <<<'GRAPHQL'
+        query DataUsage($accountTag: string!, $date: Date!) {
+          viewer {
+            accounts(filter: { accountTag: $accountTag }) {
+              d1AnalyticsAdaptiveGroups(limit: 10000, filter: { date_geq: $date, date_leq: $date }) {
+                dimensions { databaseId }
+                sum { rowsRead rowsWritten }
+              }
+              d1StorageAdaptiveGroups(limit: 10000, filter: { date_geq: $date, date_leq: $date }) {
+                dimensions { databaseId }
+                max { databaseSizeBytes }
+              }
+              queueMessageOperationsAdaptiveGroups(limit: 10000, filter: { date_geq: $date, date_leq: $date }) {
+                dimensions { queueId }
+                sum { billableOperations }
+              }
+            }
+          }
+        }
+        GRAPHQL;
+
+        $response = Http::withToken($this->apiToken)->post(self::BASE.'/graphql', [
+            'query' => $query,
+            'variables' => ['accountTag' => $this->accountId, 'date' => $date->toDateString()],
+        ]);
+        $json = $response->json();
+        if (! is_array($json) || ! empty($json['errors'])) {
+            throw new RuntimeException('Cloudflare D1/Queues GraphQL request failed: '.Str::limit(json_encode($json['errors'] ?? $response->body()) ?: '', 500));
+        }
+
+        $account = (array) data_get($json, 'data.viewer.accounts.0', []);
+        $d1 = [];
+        foreach ((array) ($account['d1AnalyticsAdaptiveGroups'] ?? []) as $group) {
+            $id = (string) data_get($group, 'dimensions.databaseId', '');
+            $row = $d1[$id] ?? ['rows_read' => 0, 'rows_written' => 0, 'storage_bytes' => 0];
+            $row['rows_read'] += (int) data_get($group, 'sum.rowsRead', 0);
+            $row['rows_written'] += (int) data_get($group, 'sum.rowsWritten', 0);
+            $d1[$id] = $row;
+        }
+        foreach ((array) ($account['d1StorageAdaptiveGroups'] ?? []) as $group) {
+            $id = (string) data_get($group, 'dimensions.databaseId', '');
+            $row = $d1[$id] ?? ['rows_read' => 0, 'rows_written' => 0, 'storage_bytes' => 0];
+            $row['storage_bytes'] = max($row['storage_bytes'], (int) data_get($group, 'max.databaseSizeBytes', 0));
+            $d1[$id] = $row;
+        }
+        $queues = [];
+        foreach ((array) ($account['queueMessageOperationsAdaptiveGroups'] ?? []) as $group) {
+            $id = (string) data_get($group, 'dimensions.queueId', '');
+            $queues[$id] = ($queues[$id] ?? 0) + (int) data_get($group, 'sum.billableOperations', 0);
+        }
+
+        return ['d1' => $d1, 'queues' => $queues];
+    }
+
+    /**
+     * Recent Workers Logs events for one script (Workers Observability).
+     * The events payload isn't fully documented, so fields are read
+     * defensively.
+     *
+     * @return list<array{at: ?string, level: string, message: string}>
+     */
+    public function workerLogs(string $scriptName, int $minutes = 15, int $limit = 200): array
+    {
+        $payload = $this->decode(Http::withToken($this->apiToken)->post(self::BASE.'/accounts/'.$this->accountId.'/workers/observability/telemetry/query', [
+            'queryId' => 'dply-logs-'.$scriptName,
+            'view' => 'events',
+            'limit' => $limit,
+            'timeframe' => ['from' => now()->subMinutes($minutes)->getTimestampMs(), 'to' => now()->getTimestampMs()],
+            'parameters' => ['filters' => [['key' => '$metadata.service', 'operation' => 'eq', 'type' => 'string', 'value' => $scriptName]]],
+        ]));
+
+        $events = data_get($payload, 'events.events', data_get($payload, 'events', []));
+        $out = [];
+        foreach ((array) $events as $event) {
+            $message = data_get($event, '$metadata.message', data_get($event, 'source.message', data_get($event, 'message')));
+            $timestamp = data_get($event, 'timestamp', data_get($event, '$metadata.timestamp'));
+            $out[] = [
+                'at' => is_numeric($timestamp) ? Carbon::createFromTimestampMs((int) $timestamp)->toIso8601String() : (is_string($timestamp) ? $timestamp : null),
+                'level' => (string) data_get($event, '$metadata.level', data_get($event, 'source.level', 'log')),
+                'message' => is_string($message) ? $message : (string) json_encode($message ?? data_get($event, 'source')),
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Container applications on the account (Containers Read).
+     *
+     * @return list<array{id: string, name: string}>
+     */
+    public function listContainerApplications(): array
+    {
+        $rows = $this->decode(Http::withToken($this->apiToken)->get(self::BASE.'/accounts/'.$this->accountId.'/containers/applications'));
+
+        return array_values(array_map(
+            static fn (array $app): array => ['id' => (string) ($app['id'] ?? ''), 'name' => (string) ($app['name'] ?? '')],
+            array_filter($rows, 'is_array'),
+        ));
+    }
+
+    public function deleteContainerApplication(string $applicationId): void
+    {
+        $response = Http::withToken($this->apiToken)->delete(self::BASE.'/accounts/'.$this->accountId.'/containers/applications/'.$applicationId);
+        if ($response->status() !== 404) {
+            $this->decode($response);
+        }
+    }
+
+    /**
+     * One UTC day of container usage per application, from
+     * containersUsageAdaptiveGroups — the resources Cloudflare bills
+     * (container plus its micro VM).
+     *
+     * @return array<string, array{cpu_seconds: float, memory_gib_seconds: float, disk_gb_seconds: float, tx_bytes: int}>
+     */
+    public function containerUsageForDate(CarbonInterface $date): array
+    {
+        $query = <<<'GRAPHQL'
+        query ContainerUsage($accountTag: string!, $date: Date!) {
+          viewer {
+            accounts(filter: { accountTag: $accountTag }) {
+              containersUsageAdaptiveGroups(limit: 10000, filter: { date_geq: $date, date_leq: $date }) {
+                dimensions { applicationId }
+                sum { cpuTimeSec allocatedMemory allocatedDisk txBytes }
+              }
+            }
+          }
+        }
+        GRAPHQL;
+
+        $response = Http::withToken($this->apiToken)->post(self::BASE.'/graphql', [
+            'query' => $query,
+            'variables' => ['accountTag' => $this->accountId, 'date' => $date->toDateString()],
+        ]);
+        $json = $response->json();
+        if (! is_array($json) || ! empty($json['errors'])) {
+            throw new RuntimeException('Cloudflare containers GraphQL request failed: '.Str::limit(json_encode($json['errors'] ?? $response->body()) ?: '', 500));
+        }
+
+        $out = [];
+        foreach ((array) data_get($json, 'data.viewer.accounts.0.containersUsageAdaptiveGroups', []) as $group) {
+            $appId = (string) data_get($group, 'dimensions.applicationId', '');
+            if ($appId === '') {
+                continue;
+            }
+            $row = $out[$appId] ?? ['cpu_seconds' => 0.0, 'memory_gib_seconds' => 0.0, 'disk_gb_seconds' => 0.0, 'tx_bytes' => 0];
+            $row['cpu_seconds'] += (float) data_get($group, 'sum.cpuTimeSec', 0);
+            $row['memory_gib_seconds'] += (float) data_get($group, 'sum.allocatedMemory', 0) / 1024 ** 3;
+            $row['disk_gb_seconds'] += (float) data_get($group, 'sum.allocatedDisk', 0) / 1000 ** 3;
+            $row['tx_bytes'] += (int) data_get($group, 'sum.txBytes', 0);
+            $out[$appId] = $row;
+        }
+
+        return $out;
     }
 
     /**

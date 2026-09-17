@@ -1,6 +1,6 @@
 {{--
   Callers: livewire.billing.show (@include), first strip on the merged billing page.
-  Actions: Show::subscribeStandard (new card) and Show::portal (manage existing).
+  Actions: Show::portal (manage existing); new cards go through the plan picker (Show::subscribeTier).
   No schema change.
   User: "i should have a big fucking place to go to add the credit card and manage it"
 --}}
@@ -29,7 +29,7 @@
                 @else
                     <h2 class="mt-1 text-3xl font-bold tracking-tight text-brand-ink sm:text-4xl">{{ __('Add a credit card') }}</h2>
                     <p class="mt-2 max-w-2xl text-base leading-relaxed text-brand-moss">
-                        {{ __('Live Edge sites bill to this card. Stripe handles checkout — we never store the number here.') }}
+                        {{ __('Your plan and usage bill to this card. Stripe handles checkout — we never store the number here.') }}
                     </p>
                 @endif
             </div>
@@ -49,21 +49,10 @@
                     </span>
                 </x-primary-button>
             @elseif ($canCheckout)
-                <x-primary-button type="button" wire:click="subscribeStandard('month')" wire:loading.attr="disabled" wire:target="subscribeStandard"
-                                  class="min-h-16 w-full !rounded-2xl !px-8 !text-lg">
-                    <span wire:loading.remove wire:target="subscribeStandard" class="inline-flex items-center gap-2">
-                        <x-heroicon-o-credit-card class="h-5 w-5 shrink-0" aria-hidden="true" />
-                        {{ __('Add a credit card') }}
-                    </span>
-                    <span wire:loading wire:target="subscribeStandard" class="inline-flex items-center gap-2">
-                        <x-spinner variant="cream" size="sm" />
-                        {{ __('Opening Stripe…') }}
-                    </span>
-                </x-primary-button>
-                <x-secondary-button type="button" wire:click="subscribeStandard('year')" wire:loading.attr="disabled" wire:target="subscribeStandard"
-                                    class="min-h-14 w-full !rounded-2xl !text-base">
-                    {{ __('Pay yearly — save 20%') }}
-                </x-secondary-button>
+                <a href="#plans" class="inline-flex min-h-16 w-full items-center justify-center gap-2 rounded-2xl bg-brand-ink px-8 text-lg font-semibold text-brand-cream hover:bg-brand-forest">
+                    <x-heroicon-o-credit-card class="h-5 w-5 shrink-0" aria-hidden="true" />
+                    {{ __('Choose a plan to add a card') }}
+                </a>
             @elseif ($canPortal)
                 <x-primary-button type="button" wire:click="portal" wire:loading.attr="disabled" wire:target="portal"
                                   class="min-h-16 w-full !rounded-2xl !px-8 !text-lg">

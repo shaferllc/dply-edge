@@ -8,6 +8,7 @@ use App\Modules\Billing\Http\Controllers\Api\BillingApiController;
 use App\Modules\Edge\Http\Controllers\Api\EdgeAccessApiController;
 use App\Modules\Edge\Http\Controllers\Api\EdgeAliasApiController;
 use App\Modules\Edge\Http\Controllers\Api\EdgeCacheApiController;
+use App\Modules\Edge\Http\Controllers\Api\EdgeDataApiController;
 use App\Modules\Edge\Http\Controllers\Api\EdgeDeploymentApiController;
 use App\Modules\Edge\Http\Controllers\Api\EdgeDomainApiController;
 use App\Modules\Edge\Http\Controllers\Api\EdgeEnvController;
@@ -89,6 +90,15 @@ Route::prefix('v1')->group(function (): void {
                 ->middleware('ability:'.$apiAbilities['edge.previews.destroy']);
             Route::post('/sites/{site}/previews/{preview}/promote', [EdgePreviewApiController::class, 'promote'])
                 ->middleware('ability:'.$apiAbilities['edge.previews.promote']);
+
+            Route::get('/databases', [EdgeDataApiController::class, 'databases'])
+                ->middleware('ability:'.$apiAbilities['edge.databases.index']);
+            Route::post('/databases/{database}/query', [EdgeDataApiController::class, 'query'])
+                ->middleware('ability:'.$apiAbilities['edge.databases.query']);
+            Route::get('/queues', [EdgeDataApiController::class, 'queues'])
+                ->middleware('ability:'.$apiAbilities['edge.queues.index']);
+            Route::post('/queues/{queue}/messages', [EdgeDataApiController::class, 'send'])
+                ->middleware('ability:'.$apiAbilities['edge.queues.send']);
 
             Route::get('/sites/{site}/domains', [EdgeDomainApiController::class, 'index'])
                 ->middleware('ability:'.$apiAbilities['edge.domains.index']);

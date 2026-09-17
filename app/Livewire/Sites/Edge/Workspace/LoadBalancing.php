@@ -9,7 +9,6 @@ use App\Livewire\Concerns\Edge\MountsEdgeWorkspaceSection;
 use App\Livewire\Concerns\Edge\PublishesEdgeHostMap;
 use App\Models\Server;
 use App\Models\Site;
-use App\Modules\Billing\Services\SubscriptionPlanResolver;
 use App\Modules\Edge\Jobs\SyncEdgeLoadBalancerJob;
 use App\Modules\Edge\Services\EdgeLoadBalancerProvisioner;
 use App\Modules\Edge\Support\EdgeLoadBalancing;
@@ -140,12 +139,8 @@ class LoadBalancing extends Component
             return __('Load balancing fronts a hybrid origin. Convert this site to hybrid under Delivery first.');
         }
         $org = $this->site->organization;
-        if ($org === null || ! $org->onAnyPaidPlan()) {
-            return __('Load balancing is a paid add-on. Add a subscription on the organization billing page first.');
-        }
-        $subscription = $org->subscription('default');
-        if ($subscription !== null && $org->onStandardSubscription() && SubscriptionPlanResolver::isYearly($subscription)) {
-            return __('Load balancing is billed monthly and can’t be added to a yearly subscription. Contact support to switch.');
+        if ($org === null || ! ($org->tierAllowances()['addons'] ?? false) || ! $org->onAnyPaidPlan()) {
+            return __('Load balancing is available on Pro and Team. Choose a plan on the organization billing page first.');
         }
 
         return null;

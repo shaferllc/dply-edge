@@ -9,6 +9,7 @@ use App\Models\EdgeSiteEnvVar;
 use App\Models\Site;
 use App\Modules\Edge\Actions\CreateEdgeSite;
 use App\Modules\Edge\Support\EdgeEligibility;
+use App\Modules\Edge\Support\EdgeSsrAvailability;
 use App\Modules\Edge\Support\EdgeSsrDetection;
 
 /**
@@ -41,6 +42,30 @@ trait ManagesEdgeDeploy
 
         if (! $org->canCreateOnSurface(QuotaSurface::Edge)) {
             $this->toastError($org->quotaLimitMessage(QuotaSurface::Edge));
+
+            return;
+        }
+
+        if ($this->form->runtime_mode === 'container' && ! EdgeSsrAvailability::isAvailable()) {
+            $this->toastError(__('Container delivery isn’t set up on this install yet: it needs the Edge platform Cloudflare API token (with Containers access) and a dispatch namespace.'));
+
+            return;
+        }
+
+        if ($this->form->runtime_mode === 'container' && ! ($org->tierAllowances()['containers'] ?? false) && ! $org->isBeta()) {
+            $this->toastError(__('Container apps (PHP, Rails) are on Pro and Team. Choose a plan on the billing page.'));
+
+            return;
+        }
+
+        if ($this->detectedPlan !== [] && EdgeEligibility::needsContainer($this->detectedPlan) && $this->form->runtime_mode !== 'container') {
+            $this->toastError(__('This looks like a PHP or Rails app. Choose "Container" delivery to run it on Edge.'));
+
+            return;
+        }
+
+        if ($this->form->runtime_mode === 'ssr' && ! ($org->tierAllowances()['ssr'] ?? false) && ! $org->isBeta()) {
+            $this->toastError(__('Worker-native SSR sites are on Pro and Team. Choose a plan on the billing page, or deploy as static or hybrid.'));
 
             return;
         }

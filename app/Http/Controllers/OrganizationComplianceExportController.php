@@ -30,6 +30,7 @@ class OrganizationComplianceExportController extends Controller
     {
         $this->authorize('view', $organization);
         abort_unless($organization->hasAdminAccess(auth()->user()), 403);
+        abort_unless($organization->tierAllowances()['audit_log'] ?? false, 403, 'Compliance export is on the Team plan.');
 
         $tempPath = tempnam(sys_get_temp_dir(), 'dply-compliance-');
         if ($tempPath === false) {

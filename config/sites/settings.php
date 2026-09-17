@@ -53,6 +53,7 @@ return [
         'edge-snippets' => ['label' => 'Snippets'],
         'edge-tags' => ['label' => 'Tags'],
         'edge-load-balancing' => ['label' => 'Load balancing'],
+        'edge-container' => ['label' => 'Container'],
         'edge-members' => ['label' => 'Members'],
         'edge-alerts' => ['label' => 'Alerts'],
         'edge-audit' => ['label' => 'Audit log'],

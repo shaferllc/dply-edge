@@ -3,7 +3,7 @@
     // big one — color-coded so it doubles as a banner.
     $edgeSiteCount = $this->billingState->edgeCount;
     $monthlyCents = (int) ($this->billingState->monthlyTotalCents ?? 0);
-    $intervalLabel = $this->subscriptionInterval === 'year' ? __('billed annually') : __('billed monthly');
+    $intervalLabel = $this->subscriptionInterval === 'year' ? __('billed annually') : __(':plan · billed monthly', ['plan' => $this->organization->planTierLabel()]);
 
     $betaFeeWaived = $this->organization->betaFeeWaived();
 
@@ -136,13 +136,15 @@
                 </div>
             @endif
 
-            <div wire:loading.flex wire:target="subscribeStandard,portal,switchInterval,cancelSubscription,resumeSubscription"
+            <div wire:loading.flex wire:target="subscribeTier,changeTier,portal,cancelSubscription,resumeSubscription"
                  class="hidden items-center gap-3 border-b border-brand-ink/10 bg-brand-gold/10 px-3 py-2 sm:px-4">
                 <x-spinner variant="ink" size="sm" />
                 <span class="text-sm font-medium text-brand-ink">{{ __('Updating your subscription with Stripe…') }}</span>
             </div>
 
             @include('livewire.billing.partials.payment-method')
+
+            @include('livewire.billing.partials.plan-picker')
 
             @include('livewire.billing.partials.bill-hero')
 
@@ -301,34 +303,6 @@
 
             {{-- Confirmation modals --}}
             @if ($this->subscription)
-                @php $interval = $this->subscriptionInterval; @endphp
-                <x-modal name="switch-interval" maxWidth="md">
-                    <div class="p-6">
-                        <h3 class="text-lg font-semibold text-brand-ink">
-                            {{ $interval === 'year' ? __('Switch to monthly billing') : __('Switch to annual billing') }}
-                        </h3>
-                        <p class="mt-3 text-sm text-brand-moss leading-relaxed">
-                            @if ($interval === 'year')
-                                {{ __('You\'ll move to monthly billing. A prorated adjustment for the rest of your current period appears on your next invoice, and you\'ll lose the 20% annual discount.') }}
-                            @else
-                                {{ __('You\'ll be charged a prorated amount for the rest of your current cycle now, then :amount/yr going forward — a 20% saving versus monthly.', ['amount' => '$'.number_format($this->yearlyTotalCents / 100, 2)]) }}
-                            @endif
-                            {{ __('The switch takes effect immediately.') }}
-                        </p>
-                        <div class="mt-6 flex justify-end gap-3">
-                            <x-secondary-button type="button" x-on:click="$dispatch('close-modal', 'switch-interval')">
-                                {{ __('Never mind') }}
-                            </x-secondary-button>
-                            <button type="button"
-                                    wire:click="switchInterval"
-                                    x-on:click="$dispatch('close-modal', 'switch-interval')"
-                                    class="inline-flex items-center rounded-xl bg-brand-ink px-4 py-2 text-sm font-semibold text-brand-cream hover:bg-brand-forest">
-                                {{ $interval === 'year' ? __('Switch to monthly') : __('Switch to annual') }}
-                            </button>
-                        </div>
-                    </div>
-                </x-modal>
-
                 <x-modal name="cancel-subscription" maxWidth="md">
                     <div class="p-6">
                         <h3 class="text-lg font-semibold text-brand-ink">{{ __('Cancel subscription') }}</h3>

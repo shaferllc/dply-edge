@@ -2,6 +2,7 @@
 
 use App\Models\Organization;
 use App\Modules\Billing\Models\Subscription;
+use App\Modules\Billing\Services\DesiredBillingState;
 use App\Modules\Billing\Services\StripeSubscriptionSyncer;
 use App\Modules\Billing\Services\SubscriptionPlanResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -76,4 +77,70 @@ test('prices that are neither edge nor retired are left alone', function () {
     $subscription = subscriptionWithPrices(['price_edge', 'price_unrelated']);
 
     expect(app(StripeSubscriptionSyncer::class)->retiredPricesToRemove($subscription))->toBe([]);
+});
+
+/** Records swapAndInvoice instead of calling Stripe. */
+function recordingSubscription(array $prices): Subscription
+{
+    $real = subscriptionWithPrices($prices);
+    $fake = new class extends Subscription
+    {
+        public ?array $swapped = null;
+
+        public function swapAndInvoice($prices, array $options = [])
+        {
+            $this->swapped = $prices;
+
+            return $this;
+        }
+    };
+    $fake->setRawAttributes($real->getAttributes(), true);
+    $fake->exists = true;
+    $fake->setRelation('items', $real->items);
+
+    return $fake;
+}
+
+function orgWith(Subscription $subscription): Organization
+{
+    $org = new class extends Organization
+    {
+        public ?Subscription $fakeSubscription = null;
+
+        public function subscription(string $type = 'default'): ?Laravel\Cashier\Subscription
+        {
+            return $this->fakeSubscription;
+        }
+    };
+    $org->id = $subscription->organization_id;
+    $org->fakeSubscription = $subscription;
+
+    return $org;
+}
+
+test('the sync moves a pre-tier per-site subscription onto its tier in one swap', function () {
+    Config::set('subscription.standard.stripe.tier_pro', 'price_tier_pro');
+    $subscription = recordingSubscription(['price_edge_yearly']);
+    $desired = DesiredBillingState::fromPlanAndUsage(
+        plan: ['key' => 'pro', 'label' => 'Pro', 'price_cents' => 2000],
+        edgeCount: 12, edgeUnitCents: 200, includedSites: 10,
+    );
+
+    $changes = app(StripeSubscriptionSyncer::class)->reconcile(orgWith($subscription), $desired);
+
+    expect($subscription->swapped)->toBe([
+        'price_tier_pro' => ['quantity' => 1],
+        'price_edge' => ['quantity' => 2],
+    ])->and($changes[0])->toMatchArray(['action' => 'move', 'to' => 'pro']);
+});
+
+test('the sync leaves subscriptions alone until tier prices are provisioned', function () {
+    Config::set('subscription.standard.stripe.tier_pro', '');
+    $subscription = recordingSubscription(['price_edge']);
+    $desired = DesiredBillingState::fromPlanAndUsage(
+        plan: ['key' => 'pro', 'label' => 'Pro', 'price_cents' => 2000], edgeCount: 3, edgeUnitCents: 200, includedSites: 10,
+    );
+
+    expect(app(StripeSubscriptionSyncer::class)->reconcile(orgWith($subscription), $desired))->toBe([])
+        ->and($subscription->swapped)->toBeNull();
 });

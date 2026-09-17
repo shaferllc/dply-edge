@@ -5,13 +5,16 @@ declare(strict_types=1);
 namespace Tests\Feature\Api;
 
 use App\Models\ApiToken;
+use App\Models\EdgeDatabase;
 use App\Models\EdgeDeployment;
+use App\Models\EdgeQueue;
 use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
 use App\Modules\Edge\Jobs\BuildEdgeSiteJob;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 
 uses(RefreshDatabase::class);
@@ -129,3 +132,28 @@ function edgeApiContext(array $abilities): array
         $site,
     ];
 }
+
+test('databases and queues api lists, queries and sends for the token org only', function () {
+    config(['edge.cloudflare.account_id' => 'acct', 'edge.cloudflare.api_token' => 'tok']);
+    [$headers, $site] = edgeApiContext(['edge.read', 'edge.write']);
+    EdgeDatabase::query()->create(['organization_id' => $site->organization_id, 'name' => 'app', 'cloudflare_id' => 'db-1']);
+    EdgeDatabase::query()->create(['organization_id' => Organization::factory()->create()->id, 'name' => 'theirs', 'cloudflare_id' => 'db-9']);
+    EdgeQueue::query()->create(['organization_id' => $site->organization_id, 'name' => 'jobs', 'cloudflare_id' => 'q-1', 'cloudflare_name' => 'dply-x-jobs']);
+    Http::fake([
+        'api.cloudflare.com/client/v4/accounts/acct/d1/database/db-1/query' => Http::response(['success' => true, 'result' => [['results' => [['n' => 1]], 'success' => true]]]),
+        'api.cloudflare.com/client/v4/accounts/acct/queues/q-1/messages' => Http::response(['success' => true, 'result' => null]),
+    ]);
+
+    $this->getJson('/api/v1/edge/databases', $headers)->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.name', 'app');
+    $this->postJson('/api/v1/edge/databases/app/query', ['sql' => 'select 1 as n'], $headers)->assertOk()->assertJsonPath('data.0.results.0.n', 1);
+    $this->postJson('/api/v1/edge/databases/theirs/query', ['sql' => 'select 1'], $headers)->assertNotFound();
+    $this->getJson('/api/v1/edge/queues', $headers)->assertOk()->assertJsonPath('data.0.name', 'jobs');
+    $this->postJson('/api/v1/edge/queues/jobs/messages', ['body' => ['hello' => 'world']], $headers)->assertStatus(202);
+});
+
+test('running sql needs edge.write', function () {
+    [$headers, $site] = edgeApiContext(['edge.read']);
+    EdgeDatabase::query()->create(['organization_id' => $site->organization_id, 'name' => 'app', 'cloudflare_id' => 'db-1']);
+
+    $this->postJson('/api/v1/edge/databases/app/query', ['sql' => 'drop table users'], $headers)->assertForbidden();
+});

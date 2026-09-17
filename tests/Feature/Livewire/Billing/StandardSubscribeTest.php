@@ -20,7 +20,8 @@ beforeEach(function () {
     $this->org->users()->attach($this->admin->id, ['role' => 'admin']);
 
     Config::set('subscription.standard.stripe.edge', 'price_test_edge_monthly');
-    Config::set('subscription.standard.stripe.edge_yearly', 'price_test_edge_yearly');
+    Config::set('subscription.standard.stripe.tier_pro', 'price_test_tier_pro');
+    Config::set('subscription.standard.stripe.tier_team', 'price_test_tier_team');
 });
 
 test('billing page renders edge-site billing with no server plan residue', function () {
@@ -35,21 +36,22 @@ test('billing page renders edge-site billing with no server plan residue', funct
         ->test(BillingShow::class, ['organization' => $this->org])
         ->assertOk()
         ->assertSee('Edge sites')
-        ->assertSee('dply Edge site')
+        ->assertSee('Choose Pro')
+        ->assertSee('Choose Team')
         ->assertSee('How billing works')
         ->assertSee('Cost forecast')
         ->assertSee('Invoices')
         ->assertSee('Add a credit card')
-        ->assertSee('Pay yearly')
+        ->assertDontSee('Pay yearly')
         ->assertDontSee('Any size, any provider')
         ->assertDontSee('One flat plan')
         ->assertDontSee('dply plan');
 });
 
-test('subscribe rejects invalid intervals', function () {
+test('subscribe rejects unknown tiers', function () {
     Livewire::actingAs($this->admin)
         ->test(BillingShow::class, ['organization' => $this->org])
-        ->call('subscribeStandard', 'weekly')
+        ->call('subscribeTier', 'enterprise')
         ->assertHasErrors('plan');
 });
 
@@ -61,17 +63,16 @@ test('subscribe rejects when already subscribed', function () {
 
     Livewire::actingAs($this->admin)
         ->test(BillingShow::class, ['organization' => $this->org])
-        ->call('subscribeStandard', 'month')
+        ->call('subscribeTier', 'pro')
         ->assertHasErrors('billing');
 });
 
 test('subscribe fails gracefully when pricing not configured', function () {
-    Config::set('subscription.standard.stripe.edge', '');
-    Config::set('subscription.standard.stripe.edge_yearly', '');
+    Config::set('subscription.standard.stripe.tier_pro', '');
 
     Livewire::actingAs($this->admin)
         ->test(BillingShow::class, ['organization' => $this->org])
-        ->call('subscribeStandard', 'month')
+        ->call('subscribeTier', 'pro')
         ->assertHasErrors('billing');
 });
 
@@ -84,30 +85,25 @@ test('non admin cannot subscribe', function () {
         ->assertForbidden();
 });
 
-test('switch interval rejects when no subscription', function () {
+test('change tier rejects when no subscription', function () {
     Livewire::actingAs($this->admin)
         ->test(BillingShow::class, ['organization' => $this->org])
-        ->call('switchInterval')
+        ->call('changeTier', 'team')
         ->assertRedirect();
 
     expect(session('billing_error'))->not->toBeNull();
 });
 
-test('switch interval rejects when target prices unconfigured', function () {
-    Subscription::factory()
-        ->withPrice('price_test_edge_monthly')
-        ->active()
-        ->create(['organization_id' => $this->org->id]);
-
-    // Current interval resolves to monthly → target is yearly → unconfigure it.
-    Config::set('subscription.standard.stripe.edge_yearly', '');
+test('change tier refuses pro when the org has more members than pro seats', function () {
+    Subscription::factory()->withPrice('price_test_tier_team')->active()->create(['organization_id' => $this->org->id]);
+    User::factory()->count(3)->create()->each(fn (User $u) => $this->org->users()->attach($u->id, ['role' => 'member']));
 
     Livewire::actingAs($this->admin)
         ->test(BillingShow::class, ['organization' => $this->org])
-        ->call('switchInterval')
+        ->call('changeTier', 'pro')
         ->assertRedirect();
 
-    expect(session('billing_error'))->not->toBeNull();
+    expect(session('billing_error'))->toContain('Pro includes 3 seats');
 });
 
 test('cancel rejects when no active subscription', function () {

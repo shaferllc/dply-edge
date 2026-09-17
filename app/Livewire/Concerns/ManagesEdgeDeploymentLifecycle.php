@@ -88,7 +88,9 @@ trait ManagesEdgeDeploymentLifecycle
             $this->deployment->refresh();
         }
 
-        $this->toastSuccess(__('Rolled back — the selected deployment is now live.'));
+        $this->toastSuccess(($this->site->edgeMeta()['runtime_mode'] ?? '') === 'container'
+            ? __('Rolling back — rebuilding that commit. It goes live when the deploy finishes.')
+            : __('Rolled back — the selected deployment is now live.'));
     }
 
     /**

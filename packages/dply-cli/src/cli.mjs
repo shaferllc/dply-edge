@@ -1,5 +1,6 @@
 import * as commands from './commands.mjs';
 import * as billingCommands from './billing-commands.mjs';
+import * as dataCommands from './data-commands.mjs';
 import * as accountCommands from './account-commands.mjs';
 import * as notificationsCommands from './notifications-commands.mjs';
 import * as updateCommands from './update-command.mjs';
@@ -18,6 +19,8 @@ const TOP_LEVEL = {
   whoami: { handler: commands.whoami, summary: 'Show account + session (alias for account show).' },
   account: { handler: runAccount, summary: 'Profile, orgs, CLI sessions (show, orgs, sessions, revoke).' },
   billing: { handler: runBilling, summary: 'Plan estimate, breakdown, invoices (org admin).' },
+  db: { handler: runDb, summary: 'D1 databases: list | query <database> "<sql>".' },
+  queues: { handler: runQueues, summary: "Queues: list | send <queue> '<json>'." },
   use: { handler: instanceCommands.useCommand, summary: 'Switch which dply instance the CLI talks to (list, <name>, <url>, forget).' },
   sites: { handler: commands.sites, summary: 'List your Edge sites (name filter).' },
   link: { handler: commands.link, summary: 'Link this folder to an existing Edge site (.dply/site.json).' },
@@ -152,6 +155,18 @@ async function runAccount(argv) {
   return accountCommands.accountCommand(args.length ? args : ['show'], flags);
 }
 
+async function runDb(argv) {
+  const { args, flags } = parse(argv);
+
+  return dataCommands.dbCommand(args, flags);
+}
+
+async function runQueues(argv) {
+  const { args, flags } = parse(argv);
+
+  return dataCommands.queuesCommand(args, flags);
+}
+
 async function runBilling(argv) {
   const { args, flags } = parse(argv);
 
@@ -262,6 +277,12 @@ function printTopLevelHelp() {
   info(`  ${'billing show'.padEnd(18)} ${c.dim('Plan + monthly estimate')}`);
   info(`  ${'billing breakdown'.padEnd(18)} ${c.dim('Line-item estimate')}`);
   info(`  ${'billing invoices'.padEnd(18)} ${c.dim('Stripe invoice history')}`);
+  info('');
+  info(c.bold('Data:'));
+  info(`  ${'db list'.padEnd(18)} ${c.dim('D1 databases')}`);
+  info(`  ${'db query <db> "sql"'.padEnd(18)} ${c.dim('Run SQL against a database')}`);
+  info(`  ${'queues list'.padEnd(18)} ${c.dim('Cloudflare Queues')}`);
+  info(`  ${"queues send <q> '{}'".padEnd(18)} ${c.dim('Send a JSON message')}`);
   info('');
   info(c.bold('Sites:'));
   info(`  ${'sites [name]'.padEnd(18)} ${c.dim('Edge sites this token can see')}`);

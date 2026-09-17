@@ -36,7 +36,7 @@ When dply detects an SSR framework during create, **Hybrid** is suggested automa
 ## Pricing (summary)
 
 - **Flat per-site fee** while the Edge app is live (see create sidebar and Billing & usage).
-- **Branch/PR previews** are free.
+- **Branch/PR previews** don't take a site slot; their builds, traffic and compute count as usage.
 - Optional **usage pass-through** (CDN requests and bandwidth) may apply when enabled for your organization.
 
 See **Edge billing & usage** in your site workspace for month-to-date numbers.

@@ -10,8 +10,9 @@ namespace App\Modules\Edge\Services\RuntimeDetection;
  *
  * Selection rule:
  *   1. Confidence: high > medium > low.
- *   2. Tie-breaker by runtime priority (manifest specificity): PHP > Node >
- *      Python > Ruby > Go > Static.
+ *   2. Tie-breaker by runtime priority (manifest specificity): PHP > Ruby >
+ *      Node > Python > Go > Static. PHP and Ruby apps commonly carry a
+ *      package.json for their assets, so their own manifest wins.
  *
  * The priority order reflects how distinctive each detector's trigger file
  * is. composer.json / package.json / Gemfile / go.mod uniquely identify
@@ -28,9 +29,10 @@ final class RuntimeDetectionEngine
 {
     private const RUNTIME_PRIORITY = [
         'php' => 1,
-        'node' => 2,
-        'python' => 3,
-        'ruby' => 4,
+        // Rails apps ship a package.json for assets; the Gemfile is the app.
+        'ruby' => 2,
+        'node' => 3,
+        'python' => 4,
         'go' => 5,
         'static' => 6,
     ];

@@ -384,12 +384,16 @@ Match remaining questions to the layer that still exists:
 
 ### Billing
 
-- **Plans are flat, metered by app count**, never seat-based — team seats are
-  always unlimited. There is **no org base fee**.
+- **Plan tiers + usage** (ruling r-zdescb7y05vp1bxx, 2026-09-16): Free $0,
+  Pro $20, Team $49 — monthly only, all allowances in
+  `subscription.standard.tiers`. `Organization::billingTier()` reads the tier
+  price off the subscription. Sites past the tier's count bill at `edge_cents`;
+  seats hard-cap on Free/Pro and bill `extra_seat_cents` on Team; build minutes
+  stop builds on Free and bill overage on Pro/Team. No trial. Previews consume
+  nothing.
 - **Free = 1 live Edge site without a card** (`plans.free.max_edge_apps`).
-  **Any paid subscription removes the cap** (`quotaLimit()` returns null) — the
-  sites bill per app anyway, so a cap on payers is no revenue lever. There are
-  no plan tiers and no trial. Previews consume nothing.
+  **Any paid subscription removes the cap** (`quotaLimit()` returns null) —
+  extra sites bill, so a cap on payers is no revenue lever.
 - **Edge** (managed `dply_edge` only) = **$2/mo** per live static or hybrid
   site, **$7/mo** per Worker-native SSR site
   (`subscription.standard.edge_ssr_cents`, Stripe `edge_ssr`) — never "sites
@@ -415,8 +419,8 @@ Match remaining questions to the layer that still exists:
   browser alert.
 - Org billing is **one page** (`billing.show`). `/billing/analytics` and
   `/invoices` redirect there. Forecast and invoices live on that page — no
-  separate analytics/invoices nav. Copy is pay-per-use (no plan-tier
-  language). The **payment method** (add/manage card) is the primary CTA;
+  separate analytics/invoices nav. Copy names the plan (Free/Pro/Team) and
+  what it includes; the plan picker sits under the payment method. The **payment method** (add/manage card) is the primary CTA;
   forecast and invoices sit below.
 - Billing numbers are customer-facing (`authorize('update', $organization)`),
   so write them from the **payer's** side. The MRR/ARR tiles and competitor

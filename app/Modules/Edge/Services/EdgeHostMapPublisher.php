@@ -266,9 +266,19 @@ class EdgeHostMapPublisher
             }
         }
 
+        // Container sites dispatch like SSR: the per-site script fronts the
+        // app container (EdgeContainerDeployer). The Worker treats both the same.
+        if (($edgeMeta['runtime_mode'] ?? 'static') === 'container') {
+            $scriptName = trim((string) ($deployment->meta['container']['script_name'] ?? ''));
+            if ($scriptName !== '') {
+                $payload['runtime_mode'] = 'container';
+                $payload['ssr_worker_script'] = $scriptName;
+            }
+        }
+
         // Middleware (P10a) — only for static + hybrid sites. SSR
         // sites bundle middleware via OpenNext so we'd double-run it.
-        if (($edgeMeta['runtime_mode'] ?? 'static') !== 'ssr') {
+        if (! in_array($edgeMeta['runtime_mode'] ?? 'static', ['ssr', 'container'], true)) {
             $mwMeta = is_array($deployment->meta['middleware'] ?? null) ? $deployment->meta['middleware'] : [];
             $mwScript = is_string($mwMeta['script_name'] ?? null) ? trim($mwMeta['script_name']) : '';
             if ($mwScript !== '') {
