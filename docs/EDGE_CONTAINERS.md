@@ -77,6 +77,17 @@ Cloudflare allows 5 schedules per site.
 Every production variable from **Environment** is passed to the container as a
 Worker secret.
 
+On the first deploy, dply fills in what the framework needs to boot, but only
+where you haven't set a value. The values are saved under **Environment**, so
+you can change them:
+
+- **Laravel**: a generated `APP_KEY`, `APP_ENV=production`, `APP_DEBUG=false`,
+  `APP_URL`, `LOG_CHANNEL=stderr`, `SESSION_DRIVER=cookie`. There is no shared
+  disk between containers.
+- **Rails**: a generated `SECRET_KEY_BASE`, `RAILS_ENV=production`, logs to
+  stdout, and static files served.
+- **Node**: `NODE_ENV=production`.
+
 ## Billing
 
 Container sites count toward your plan's sites like any other site. Compute is

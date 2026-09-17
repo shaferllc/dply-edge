@@ -56,6 +56,10 @@ class EdgeContainerDeployer
         $image = EdgeContainerDockerfile::prepare($checkout);
         $log(sprintf("Container image: %s (%s, port %d)\n", $image['generated'] ? 'generated Dockerfile.dply' : 'repo Dockerfile', $image['stack'], $image['port']));
 
+        $withDefaults = EdgeContainerEnvDefaults::ensure($site, $checkout, $env);
+        $log(EdgeContainerEnvDefaults::describe($env, $withDefaults));
+        $env = $withDefaults;
+
         $project = $workRoot.'/container-worker';
         $queues = $this->queueBindings($site, $deployment);
         $this->scaffold($project, $site, $image['path'], $image['port'], $queues, self::cronHandlers($site, $deployment));
