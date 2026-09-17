@@ -6,6 +6,7 @@ namespace App\Modules\Edge\Services\Containers;
 
 use App\Models\EdgeDeployment;
 use App\Models\Site;
+use App\Modules\Edge\Support\EdgeContainerSettings;
 use App\Modules\Edge\Support\EdgeEffectiveBindings;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
@@ -59,6 +60,7 @@ class EdgeContainerDeployer
         File::put($project.'/secrets.json', json_encode(array_merge($env, [
             'DPLY_QUEUE_TOKEN' => self::queueToken($site),
             'DPLY_APP_URL' => (string) ($site->edgeLiveUrl() ?? ''),
+            'DPLY_MIGRATE_ON_BOOT' => EdgeContainerSettings::for($site)['migrate_on_boot'] ? '1' : '0',
         ]), JSON_THROW_ON_ERROR));
 
         $this->ensureDeployerImage($log);
@@ -97,6 +99,7 @@ class EdgeContainerDeployer
     public function scaffold(string $dir, Site $site, string $dockerfile, int $port, array $queues): void
     {
         File::ensureDirectoryExists($dir.'/src');
+        $settings = EdgeContainerSettings::for($site);
 
         $config = [
             'name' => self::scriptName($site),
@@ -104,12 +107,13 @@ class EdgeContainerDeployer
             // Containers need a recent runtime; not the SSR scripts' pinned date.
             'compatibility_date' => '2026-06-01',
             'compatibility_flags' => ['nodejs_compat'],
-            'containers' => [[
+            'containers' => [array_filter([
                 'class_name' => 'App',
                 'image' => $dockerfile,
-                'instance_type' => (string) config('edge.build.containers.instance_type', 'basic'),
-                'max_instances' => (int) config('edge.build.containers.max_instances', 5),
-            ]],
+                'instance_type' => $settings['instance_type'],
+                'max_instances' => $settings['max_instances'],
+                'constraints' => $settings['jurisdiction'] !== '' ? ['jurisdiction' => $settings['jurisdiction']] : null,
+            ])],
             'durable_objects' => ['bindings' => [['name' => 'APP', 'class_name' => 'App']]],
             'migrations' => [['tag' => 'v1', 'new_sqlite_classes' => ['App']]],
         ];
@@ -127,18 +131,19 @@ class EdgeContainerDeployer
             'type' => 'module',
             'dependencies' => ['@cloudflare/containers' => '^0'],
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-        File::put($dir.'/src/index.js', $this->workerSource($port, array_flip($queues)));
+        File::put($dir.'/src/index.js', $this->workerSource($port, array_flip($queues), $settings));
     }
 
     /**
      * @param  array<string, string>  $queueBindings  queue name => binding name
+     * @param  array{instance_type: string, max_instances: int, sleep_after: string, migrate_on_boot: bool, jurisdiction: string}  $settings
      */
-    private function workerSource(int $port, array $queueBindings): string
+    private function workerSource(int $port, array $queueBindings, array $settings): string
     {
         $replace = [
             '__PORT__' => (string) $port,
-            '__SLEEP__' => json_encode((string) config('edge.build.containers.sleep_after', '10m')),
-            '__INSTANCES__' => (string) max(1, (int) config('edge.build.containers.max_instances', 5)),
+            '__SLEEP__' => json_encode($settings['sleep_after']),
+            '__INSTANCES__' => (string) $settings['max_instances'],
             '__QUEUE_PATH__' => json_encode(self::QUEUE_PATH, JSON_UNESCAPED_SLASHES),
             '__QUEUE_SEND_PATH__' => json_encode(self::QUEUE_SEND_PATH, JSON_UNESCAPED_SLASHES),
             '__QUEUE_BINDINGS__' => json_encode((object) $queueBindings, JSON_UNESCAPED_SLASHES),
