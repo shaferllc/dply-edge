@@ -124,6 +124,9 @@ class EdgeContainerDeployer
             ])],
             'durable_objects' => ['bindings' => [['name' => 'APP', 'class_name' => 'App']]],
             'migrations' => [['tag' => 'v1', 'new_sqlite_classes' => ['App']]],
+            // Workers Logs: Worker + container stdout/stderr, read back by the
+            // Container tab through the telemetry query API.
+            'observability' => ['enabled' => true],
         ];
         if ($queues !== []) {
             $config['queues'] = [

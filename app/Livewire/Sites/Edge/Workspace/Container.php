@@ -13,6 +13,7 @@ use App\Models\Site;
 use App\Modules\Billing\Services\EdgeContainerComputeCost;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Support\EdgeContainerSettings;
+use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use App\Support\Sites\EdgeSiteViewData;
 use Illuminate\Contracts\View\View;
 use Illuminate\Validation\Rule;
@@ -38,6 +39,11 @@ class Container extends Component
     public string $jurisdiction = '';
 
     public bool $scheduler = false;
+
+    /** @var list<array{at: ?string, level: string, message: string}>|null */
+    public ?array $logs = null;
+
+    public ?string $logsError = null;
 
     public function mount(Server $server, Site $site): void
     {
@@ -74,6 +80,18 @@ class Container extends Component
         }
 
         $this->toastSuccess(__('Saved. Changes apply on the next deploy.'));
+    }
+
+    public function loadLogs(): void
+    {
+        $this->authorize('view', $this->site);
+        try {
+            $this->logs = array_reverse(EdgeCloudflareClient::fromConfig()->workerLogs(EdgeContainerDeployer::scriptName($this->site)));
+            $this->logsError = null;
+        } catch (\Throwable $e) {
+            $this->logs = null;
+            $this->logsError = $e->getMessage();
+        }
     }
 
     protected function currentEdgeSection(): ?string

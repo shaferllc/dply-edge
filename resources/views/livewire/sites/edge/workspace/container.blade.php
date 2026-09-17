@@ -115,4 +115,27 @@
             </div>
         </div>
     </section>
+
+    <section class="px-5 py-4 sm:px-6">
+        <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-brand-ink">{{ __('Logs') }}</h3>
+            <x-secondary-button type="button" wire:click="loadLogs" wire:loading.attr="disabled" wire:target="loadLogs">
+                {{ $logs === null ? __('Load last 15 minutes') : __('Refresh') }}
+            </x-secondary-button>
+        </div>
+        @if ($logsError)
+            <p class="mt-2 text-sm text-red-700">{{ __('Could not load logs: :error', ['error' => $logsError]) }}</p>
+        @elseif ($logs !== null)
+            <div class="mt-2 max-h-96 overflow-auto rounded-xl border border-brand-ink/10 bg-zinc-950 p-3 font-mono text-xs leading-5 text-zinc-100">
+                @forelse ($logs as $line)
+                    <div @class(['text-red-300' => in_array($line['level'], ['error', 'fatal'], true), 'text-amber-200' => $line['level'] === 'warn'])>
+                        <span class="text-zinc-500">{{ $line['at'] ? \Illuminate\Support\Carbon::parse($line['at'])->format('H:i:s') : '' }}</span>
+                        {{ $line['message'] }}
+                    </div>
+                @empty
+                    <p class="text-zinc-400">{{ __('No log lines in the last 15 minutes. Containers log to stdout/stderr; logs appear after the next deploy enables them.') }}</p>
+                @endforelse
+            </div>
+        @endif
+    </section>
 </div>

@@ -7,6 +7,7 @@ namespace App\Modules\Providers\Cloudflare;
 use App\Modules\Billing\Services\EdgeUsageTotals;
 use Carbon\CarbonInterface;
 use Illuminate\Http\Client\Response;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -1111,6 +1112,38 @@ class EdgeCloudflareClient
         }
 
         return ['d1' => $d1, 'queues' => $queues];
+    }
+
+    /**
+     * Recent Workers Logs events for one script (Workers Observability).
+     * The events payload isn't fully documented, so fields are read
+     * defensively.
+     *
+     * @return list<array{at: ?string, level: string, message: string}>
+     */
+    public function workerLogs(string $scriptName, int $minutes = 15, int $limit = 200): array
+    {
+        $payload = $this->decode(Http::withToken($this->apiToken)->post(self::BASE.'/accounts/'.$this->accountId.'/workers/observability/telemetry/query', [
+            'queryId' => 'dply-logs-'.$scriptName,
+            'view' => 'events',
+            'limit' => $limit,
+            'timeframe' => ['from' => now()->subMinutes($minutes)->getTimestampMs(), 'to' => now()->getTimestampMs()],
+            'parameters' => ['filters' => [['key' => '$metadata.service', 'operation' => 'eq', 'type' => 'string', 'value' => $scriptName]]],
+        ]));
+
+        $events = data_get($payload, 'events.events', data_get($payload, 'events', []));
+        $out = [];
+        foreach ((array) $events as $event) {
+            $message = data_get($event, '$metadata.message', data_get($event, 'source.message', data_get($event, 'message')));
+            $timestamp = data_get($event, 'timestamp', data_get($event, '$metadata.timestamp'));
+            $out[] = [
+                'at' => is_numeric($timestamp) ? Carbon::createFromTimestampMs((int) $timestamp)->toIso8601String() : (is_string($timestamp) ? $timestamp : null),
+                'level' => (string) data_get($event, '$metadata.level', data_get($event, 'source.level', 'log')),
+                'message' => is_string($message) ? $message : (string) json_encode($message ?? data_get($event, 'source')),
+            ];
+        }
+
+        return $out;
     }
 
     /**

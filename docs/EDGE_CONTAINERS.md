@@ -88,6 +88,12 @@ you can change them:
   stdout, and static files served.
 - **Node**: `NODE_ENV=production`.
 
+## Logs
+
+The Container tab's **Logs** section shows the last 15 minutes of stdout/stderr
+from your app and its Worker, read from Cloudflare Workers Logs (enabled for
+every container deploy).
+
 ## Billing
 
 Container sites count toward your plan's sites like any other site. Compute is

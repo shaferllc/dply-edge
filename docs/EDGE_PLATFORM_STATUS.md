@@ -41,6 +41,7 @@ No platform API token was available, so none of this has touched Cloudflare:
 5. **GraphQL dataset/field names** for container, D1 and Queues usage, taken from Cloudflare's docs pages.
 6. **`--secrets-file` + `--containers-rollout immediate`** on a real deploy.
 7. **The generated FrankenPHP / Rails / Node images** building a real app end to end.
+8. **Container logs**: that Workers Logs includes container stdout, and the telemetry query response shape (`events.events[].$metadata.message`) the Container tab parses.
 
 If (1) fails: deploy container Workers as normal scripts with a route or Custom Domain per site, and proxy from the Edge Worker by hostname. Only `EdgeContainerDeployer` (the `--dispatch-namespace` flag) and the `container` branch in `handler.ts` change.
 
@@ -70,5 +71,4 @@ Then run `dply:billing:sync-all --dry-run` before the first real sweep, because 
 - Deleting a container site removes its Worker script, but not Cloudflare's container application.
 - A queue can have only one consumer. Attaching it to two container projects fails the second deploy.
 - Free plan: requests/egress past the allowance aren't billed or throttled; an existing site can still be switched to SSR.
-- Container logs aren't in the dashboard yet (Cloudflare's container logs only).
 - Full suite on this branch: 1165 passed, 15 failed, 5 skipped. All 15 fail identically on `main` (verified by checking `main` out and rerunning them): AdminDashboardTest (6 feature-flag tests), BillingApiTest billing flag, ContainerProviderCredentialsTest (2), CredentialTest provider grouping, EdgeCreatePageTest / EdgeIndexTest / EdgeNavLinkTest "surface edge inactive", EdgeDeploymentDetailPageTest promote diff, EdgePreviewReviewHubTest approval.
