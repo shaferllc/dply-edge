@@ -112,7 +112,6 @@ class EdgeContainerDeployer
             ]],
             'durable_objects' => ['bindings' => [['name' => 'APP', 'class_name' => 'App']]],
             'migrations' => [['tag' => 'v1', 'new_sqlite_classes' => ['App']]],
-            'tags' => ['dply-edge', 'dply-container', 'site:'.$site->id],
         ];
         if ($queues !== []) {
             $config['queues'] = [
