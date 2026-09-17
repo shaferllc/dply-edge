@@ -103,3 +103,17 @@ test('the queue token is stable per site and differs between sites', function ()
     expect(EdgeContainerDeployer::queueToken($a))->toBe(EdgeContainerDeployer::queueToken($a))
         ->not->toBe(EdgeContainerDeployer::queueToken($b));
 });
+
+test('crons become cron triggers and a scheduled() handler posting to /_dply/schedule', function () {
+    $site = new Site(['meta' => ['edge' => ['container' => ['scheduler' => true], 'crons_overrides' => [['schedule' => '0 3 * * *', 'handler' => 'reports:send']]]]]);
+    $site->id = '01CRON';
+    $dir = sys_get_temp_dir().'/dply-container-test-'.bin2hex(random_bytes(4));
+
+    $crons = EdgeContainerDeployer::cronHandlers($site, null);
+    (new EdgeContainerDeployer)->scaffold($dir, $site, '/x/Dockerfile', 8080, [], $crons);
+
+    expect($crons)->toBe(['* * * * *' => ['schedule:run'], '0 3 * * *' => ['reports:send']])
+        ->and(json_decode(File::get($dir.'/wrangler.jsonc'), true)['triggers'])->toBe(['crons' => ['* * * * *', '0 3 * * *']])
+        ->and(File::get($dir.'/src/index.js'))->toContain('async scheduled(controller, env, ctx)')
+        ->and(File::get($dir.'/src/index.js'))->toContain('"/_dply/schedule"');
+});

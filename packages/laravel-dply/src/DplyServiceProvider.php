@@ -30,5 +30,6 @@ class DplyServiceProvider extends ServiceProvider
 
         // No web middleware: the Worker authenticates with DPLY_QUEUE_TOKEN.
         Route::post('/_dply/queue', QueueController::class)->name('dply.queue');
+        Route::post('/_dply/schedule', ScheduleController::class)->name('dply.schedule');
     }
 }

@@ -36,6 +36,8 @@ class Container extends Component
 
     public string $jurisdiction = '';
 
+    public bool $scheduler = false;
+
     public function mount(Server $server, Site $site): void
     {
         $this->mountEdgeWorkspaceSection($server, $site);
@@ -60,6 +62,7 @@ class Container extends Component
             'sleep_after' => $this->sleep_after,
             'migrate_on_boot' => $this->migrate_on_boot,
             'jurisdiction' => $this->jurisdiction,
+            'scheduler' => $this->scheduler,
         ]]);
         $this->site->save();
 

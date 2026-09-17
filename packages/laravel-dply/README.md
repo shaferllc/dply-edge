@@ -19,4 +19,10 @@ there is no `queue:work` process:
 The queue binding defaults to `JOBS` (Edge → Jobs); pick another with
 `DPLY_QUEUE=MY_BINDING` or `->onQueue('MY_BINDING')`.
 
-Limits: 128 KB per job payload, 24 h max delay (Cloudflare Queues).
+## Scheduler
+
+Turn on **Container → Run the Laravel scheduler every minute** and dply calls
+`schedule:run` on POST `/_dply/schedule` from a Cloudflare Cron Trigger. Crons
+added under **Crons** run their handler as an artisan command.
+
+Limits: 128 KB per job payload, 12 h max delay (Cloudflare Queues).

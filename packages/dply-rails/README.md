@@ -20,5 +20,8 @@ No Sidekiq or worker process to run:
   gem's middleware runs each job. Jobs that raise are retried by Cloudflare
   (Active Job's own `retry_on` still applies first).
 
+Crons added under **Crons** run their handler as a rake task (POST
+`/_dply/schedule` from a Cloudflare Cron Trigger).
+
 `queue_as` names map to queue bindings (default `JOBS`, set `DPLY_QUEUE` to change).
 Limits: 128 KB per job, 24 h max `wait`.

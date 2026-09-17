@@ -62,6 +62,16 @@ consumes each batch and POSTs it to `/_dply/queue` in your app, so there is
 no worker process to run. Jobs that throw are retried. `DPLY_APP_URL` and
 `DPLY_QUEUE_TOKEN` are injected for you.
 
+## Scheduled tasks
+
+- **Laravel scheduler:** turn on *Run the Laravel scheduler every minute* under
+  **Container**. A Cron Trigger calls `schedule:run` through `dply/laravel`.
+- **Anything else:** add a cron under **Crons**. The handler is an artisan
+  command (Laravel, e.g. `reports:send --daily`) or a rake task (Rails, e.g.
+  `reports:daily`).
+
+Cloudflare allows 5 schedules per site.
+
 ## Environment
 
 Every production variable from **Environment** is passed to the container as a

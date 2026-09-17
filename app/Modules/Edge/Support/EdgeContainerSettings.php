@@ -30,7 +30,7 @@ final class EdgeContainerSettings
     public const MAX_INSTANCES = 20;
 
     /**
-     * @return array{instance_type: string, max_instances: int, sleep_after: string, migrate_on_boot: bool, jurisdiction: string}
+     * @return array{instance_type: string, max_instances: int, sleep_after: string, migrate_on_boot: bool, jurisdiction: string, scheduler: bool}
      */
     public static function for(Site $site): array
     {
@@ -45,6 +45,8 @@ final class EdgeContainerSettings
             'sleep_after' => in_array($sleep, self::SLEEP_AFTER, true) ? $sleep : '10m',
             'migrate_on_boot' => (bool) ($raw['migrate_on_boot'] ?? true),
             'jurisdiction' => in_array($jurisdiction, self::JURISDICTIONS, true) ? $jurisdiction : '',
+            // Laravel: run `schedule:run` every minute via a Cron Trigger.
+            'scheduler' => (bool) ($raw['scheduler'] ?? false),
         ];
     }
 }

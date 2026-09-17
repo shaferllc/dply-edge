@@ -85,6 +85,14 @@
                 </span>
             </label>
 
+            <label class="flex items-start gap-3">
+                <input type="checkbox" wire:model="scheduler" class="mt-0.5 rounded border-brand-ink/20 text-brand-sage" />
+                <span class="text-sm">
+                    <span class="font-medium text-brand-ink">{{ __('Run the Laravel scheduler every minute') }}</span>
+                    <span class="block text-xs text-brand-moss">{{ __('Calls schedule:run through dply/laravel. For other jobs add a cron under Crons with an artisan command or rake task as the handler.') }}</span>
+                </span>
+            </label>
+
             <div class="flex flex-wrap items-center justify-between gap-3">
                 <p class="font-mono text-xs text-brand-mist">{{ $scriptName }}</p>
                 <div class="flex gap-2">

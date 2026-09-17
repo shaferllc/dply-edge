@@ -8,6 +8,7 @@ use App\Models\EdgeDeployment;
 use App\Models\Site;
 use App\Modules\Edge\Support\EdgeContainerSettings;
 use App\Modules\Edge\Support\EdgeEffectiveBindings;
+use App\Modules\Edge\Support\EdgeEffectiveCrons;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
 use RuntimeException;
@@ -32,6 +33,8 @@ class EdgeContainerDeployer
 
     public const QUEUE_SEND_PATH = '/_dply/queue/send';
 
+    public const SCHEDULE_PATH = '/_dply/schedule';
+
     public static function scriptName(Site $site): string
     {
         return 'dply-ctr-'.strtolower((string) $site->id);
@@ -55,7 +58,7 @@ class EdgeContainerDeployer
 
         $project = $workRoot.'/container-worker';
         $queues = $this->queueBindings($site, $deployment);
-        $this->scaffold($project, $site, $image['path'], $image['port'], $queues);
+        $this->scaffold($project, $site, $image['path'], $image['port'], $queues, self::cronHandlers($site, $deployment));
 
         File::put($project.'/secrets.json', json_encode(array_merge($env, [
             'DPLY_QUEUE_TOKEN' => self::queueToken($site),
@@ -95,8 +98,9 @@ class EdgeContainerDeployer
      * Write the Worker project wrangler deploys.
      *
      * @param  array<string, string>  $queues  binding name => queue name
+     * @param  array<string, list<?string>>  $crons  schedule => handlers (artisan command / rake task)
      */
-    public function scaffold(string $dir, Site $site, string $dockerfile, int $port, array $queues): void
+    public function scaffold(string $dir, Site $site, string $dockerfile, int $port, array $queues, array $crons = []): void
     {
         File::ensureDirectoryExists($dir.'/src');
         $settings = EdgeContainerSettings::for($site);
@@ -124,6 +128,10 @@ class EdgeContainerDeployer
             ];
         }
 
+        if ($crons !== []) {
+            $config['triggers'] = ['crons' => array_keys($crons)];
+        }
+
         File::put($dir.'/wrangler.jsonc', json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
         File::put($dir.'/package.json', json_encode([
             'name' => self::scriptName($site),
@@ -131,14 +139,15 @@ class EdgeContainerDeployer
             'type' => 'module',
             'dependencies' => ['@cloudflare/containers' => '^0'],
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-        File::put($dir.'/src/index.js', $this->workerSource($port, array_flip($queues), $settings));
+        File::put($dir.'/src/index.js', $this->workerSource($port, array_flip($queues), $settings, $crons));
     }
 
     /**
      * @param  array<string, string>  $queueBindings  queue name => binding name
-     * @param  array{instance_type: string, max_instances: int, sleep_after: string, migrate_on_boot: bool, jurisdiction: string}  $settings
+     * @param  array{instance_type: string, max_instances: int, sleep_after: string, migrate_on_boot: bool, jurisdiction: string, scheduler: bool}  $settings
+     * @param  array<string, list<?string>>  $crons
      */
-    private function workerSource(int $port, array $queueBindings, array $settings): string
+    private function workerSource(int $port, array $queueBindings, array $settings, array $crons): string
     {
         $replace = [
             '__PORT__' => (string) $port,
@@ -147,6 +156,8 @@ class EdgeContainerDeployer
             '__QUEUE_PATH__' => json_encode(self::QUEUE_PATH, JSON_UNESCAPED_SLASHES),
             '__QUEUE_SEND_PATH__' => json_encode(self::QUEUE_SEND_PATH, JSON_UNESCAPED_SLASHES),
             '__QUEUE_BINDINGS__' => json_encode((object) $queueBindings, JSON_UNESCAPED_SLASHES),
+            '__SCHEDULE_PATH__' => json_encode(self::SCHEDULE_PATH, JSON_UNESCAPED_SLASHES),
+            '__CRON_HANDLERS__' => json_encode((object) $crons, JSON_UNESCAPED_SLASHES),
         ];
 
         return strtr(<<<'JS'
@@ -154,6 +165,7 @@ class EdgeContainerDeployer
 import { Container, getRandom } from '@cloudflare/containers';
 
 const QUEUE_BINDINGS = __QUEUE_BINDINGS__; // queue name -> binding name
+const CRON_HANDLERS = __CRON_HANDLERS__; // schedule -> [artisan command / rake task]
 
 export class App extends Container {
   defaultPort = __PORT__;
@@ -190,6 +202,17 @@ export default {
     return (await app(env)).fetch(request);
   },
 
+  // Cron Triggers: ask the app to run each handler for this schedule.
+  async scheduled(controller, env, ctx) {
+    for (const handler of CRON_HANDLERS[controller.cron] ?? [null]) {
+      ctx.waitUntil((async () => (await app(env)).fetch(new Request('http://app' + __SCHEDULE_PATH__, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-dply-queue-token': env.DPLY_QUEUE_TOKEN },
+        body: JSON.stringify({ cron: controller.cron, handler }),
+      })))());
+    }
+  },
+
   // Push each batch into the app; it answers { failed: [message ids] }.
   async queue(batch, env) {
     const response = await (await app(env)).fetch(new Request('http://app' + __QUEUE_PATH__, {
@@ -211,6 +234,26 @@ export default {
   },
 };
 JS, $replace);
+    }
+
+    /**
+     * Cron Triggers for the site: Crons tab / dply.yaml entries (handler =
+     * artisan command or rake task) plus `schedule:run` every minute when the
+     * scheduler is on. Cloudflare allows 5 schedules per Worker.
+     *
+     * @return array<string, list<?string>>
+     */
+    public static function cronHandlers(Site $site, ?EdgeDeployment $deployment): array
+    {
+        $crons = [];
+        if (EdgeContainerSettings::for($site)['scheduler']) {
+            $crons['* * * * *'][] = 'schedule:run';
+        }
+        foreach (EdgeEffectiveCrons::for($site, $deployment) as $cron) {
+            $crons[$cron['schedule']][] = $cron['handler'];
+        }
+
+        return array_slice($crons, 0, 5, true);
     }
 
     /**
