@@ -109,6 +109,10 @@ and the meter stops when they do.
 Usage is collected hourly from Cloudflare (`dply:edge:collect-container-usage`)
 and appears as **Container compute** on the billing page.
 
+**Previews** of a container site run their own container, so their compute is
+billed the same way. They never consume the site's queues or run its crons,
+and promoting one rebuilds its commit on production.
+
 ## Limits
 
 - Container instance type and max instances are platform defaults

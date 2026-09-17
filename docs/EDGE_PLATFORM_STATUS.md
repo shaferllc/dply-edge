@@ -8,6 +8,16 @@ description: "What the feat/edge-platform branch adds, what has been verified, w
 
 # Platform build status
 
+> **Blocking before any of this runs for real:** the spike. Docker is up; it
+> needs a Cloudflare API token and any reachable Postgres:
+>
+>     cd spikes/cf-container
+>     CLOUDFLARE_ACCOUNT_ID=7b04f7af0455bad4f97632f4f490f5de \
+>     CLOUDFLARE_API_TOKEN=… DATABASE_URL=postgres://… ./run.sh
+>
+> If "containers in a dispatch namespace" or "TCP to Postgres" fails, the
+> routing or database design changes (see below).
+
 Branch `feat/edge-platform`. One feature per commit.
 
 ## What was built
@@ -69,5 +79,6 @@ Then run `dply:billing:sync-all --dry-run` before the first real sweep, because 
 ## Known gaps
 
 - A queue can have only one consumer. Attaching it to two container projects fails the second deploy.
-- Free plan: requests/egress past the allowance aren't billed or throttled.
+- Free plan: the 1M requests / 10 GB egress allowance is advertised but not enforced — usage past it is neither billed nor throttled.
+- Container previews run (and bill) their own compute per second; the pricing FAQ says so.
 - Full suite on this branch: 1165 passed, 15 failed, 5 skipped. All 15 fail identically on `main` (verified by checking `main` out and rerunning them): AdminDashboardTest (6 feature-flag tests), BillingApiTest billing flag, ContainerProviderCredentialsTest (2), CredentialTest provider grouping, EdgeCreatePageTest / EdgeIndexTest / EdgeNavLinkTest "surface edge inactive", EdgeDeploymentDetailPageTest promote diff, EdgePreviewReviewHubTest approval.

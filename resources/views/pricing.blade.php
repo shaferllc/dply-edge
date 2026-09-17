@@ -94,7 +94,7 @@
             ],
             [
                 'q' => __('Do preview deployments cost anything?'),
-                'a' => __('No. Branch and PR previews are free — they do not count as sites and their traffic is not billed.'),
+                'a' => __('Previews don’t count as sites and their traffic isn’t billed. Previews of container apps (PHP, Rails, Node) run their own container, so the seconds they run are billed as compute like production.'),
             ],
             [
                 'q' => __('What happens if I go past my plan?'),
