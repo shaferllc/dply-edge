@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Edge\Livewire\Concerns;
 
 use App\Modules\Edge\Services\Frameworks\EdgeFrameworkPresetRegistry;
+use App\Modules\Edge\Support\EdgeEligibility;
 use App\Modules\Edge\Support\EdgeSsrDetection;
 use App\Modules\Edge\Support\HybridEdgeOriginMatcher;
 use Illuminate\Support\Str;
@@ -72,7 +73,10 @@ trait ManagesEdgeFormPrefills
         // (incl. Keel) default to hybrid so orgs without Workers for
         // Platforms aren't forced onto Worker SSR. Operators can still
         // pick Worker SSR when it's available.
-        if (EdgeSsrDetection::planLooksLikeSsr($this->detectedPlan)) {
+        if (EdgeEligibility::needsContainer($this->detectedPlan)) {
+            // PHP / Ruby / Node servers: a start command is a server, not SSR.
+            $mode = 'container';
+        } elseif (EdgeSsrDetection::planLooksLikeSsr($this->detectedPlan)) {
             $mode = 'hybrid';
         } else {
             $preset = EdgeFrameworkPresetRegistry::byDetectionPlan($this->detectedPlan);

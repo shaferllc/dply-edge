@@ -9,6 +9,7 @@ use App\Models\EdgeSiteEnvVar;
 use App\Models\Site;
 use App\Modules\Edge\Actions\CreateEdgeSite;
 use App\Modules\Edge\Support\EdgeEligibility;
+use App\Modules\Edge\Support\EdgeSsrAvailability;
 use App\Modules\Edge\Support\EdgeSsrDetection;
 
 /**
@@ -41,6 +42,12 @@ trait ManagesEdgeDeploy
 
         if (! $org->canCreateOnSurface(QuotaSurface::Edge)) {
             $this->toastError($org->quotaLimitMessage(QuotaSurface::Edge));
+
+            return;
+        }
+
+        if ($this->form->runtime_mode === 'container' && ! EdgeSsrAvailability::isAvailable()) {
+            $this->toastError(__('Container delivery isn’t set up on this install yet: it needs the Edge platform Cloudflare API token (with Containers access) and a dispatch namespace.'));
 
             return;
         }

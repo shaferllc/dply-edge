@@ -386,11 +386,13 @@ class Create extends Component
 
         $eligibility = EdgeEligibility::evaluate($this->detectedPlan);
         $ssrAvailable = EdgeSsrAvailability::isAvailable();
-        if (! $ssrAvailable && in_array($this->form->runtime_mode, ['ssr', 'container'], true)) {
+        if (! $ssrAvailable && $this->form->runtime_mode === 'ssr') {
             $this->form->runtime_mode = 'hybrid';
         }
-        // PHP / Rails repos only run as containers — preselect it.
-        if ($ssrAvailable && EdgeEligibility::needsContainer($this->detectedPlan) && $this->form->runtime_mode === 'static') {
+        // PHP / Rails / Node-server repos only run as containers, so select it
+        // even when containers aren't set up here — the page explains what's
+        // missing and deploy refuses, instead of pretending it's a static site.
+        if (EdgeEligibility::needsContainer($this->detectedPlan) && ! $this->runtimeModeTouched) {
             $this->form->runtime_mode = 'container';
         }
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\EdgeContainerDetectionTest;
 
 use App\Models\Organization;
+use App\Models\Site;
 use App\Models\User;
 use App\Modules\Edge\Livewire\Create;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -106,8 +107,15 @@ test('without container setup, a laravel repo explains what is missing instead o
         ->set('repo', 'laravel/laravel')
         ->call('detectFromRepository')
         ->assertSet('detectedPlan.framework', 'laravel')
+        ->assertSet('form.runtime_mode', 'container')
         ->assertSee('Laravel app detected — it runs as a Container')
-        ->assertSee('DPLY_EDGE_CF_API_TOKEN');
+        ->assertSee('DPLY_EDGE_CF_API_TOKEN')
+        ->assertSee('Docker image')
+        ->assertDontSee('Output .')
+        ->set('form.name', 'laravel-starter')
+        ->call('deploy');
+
+    expect(Site::query()->count())->toBe(0);
 });
 
 test('the loaded example chip is the selected one', function () {
@@ -119,4 +127,14 @@ test('the loaded example chip is the selected one', function () {
     $html = $component->html();
     expect($html)->toMatch('/data-testid="edge-example-laravel-starter"[^>]*aria-pressed="true"/s')
         ->and($html)->toMatch('/data-testid="edge-example-keel-workers"[^>]*aria-pressed="false"/s');
+});
+
+test('a rails repo with a puma start command is a container, not hybrid', function () {
+    fakeRepo('acme/rails-app', ['Gemfile' => "gem 'rails'\n"]);
+
+    Livewire::actingAs(creator())
+        ->test(Create::class)
+        ->set('repo', 'acme/rails-app')
+        ->call('detectFromRepository')
+        ->assertSet('form.runtime_mode', 'container');
 });
