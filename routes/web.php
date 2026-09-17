@@ -62,6 +62,7 @@ use App\Modules\Edge\Http\Controllers\EdgeRepoConfigYamlDownloadController;
 use App\Modules\Edge\Http\Controllers\EdgeVitalsIngestController;
 use App\Modules\Edge\Http\Controllers\GithubEdgeWebhookController;
 use App\Modules\Edge\Livewire\Create as EdgeCreate;
+use App\Modules\Edge\Livewire\Databases;
 use App\Modules\Edge\Livewire\Import;
 use App\Modules\Edge\Livewire\Index as EdgeIndex;
 use App\Modules\Edge\Livewire\Templates;
@@ -282,6 +283,7 @@ Route::middleware(['auth', 'verified', 'org'])->group(function () {
     Route::livewire('projects/import', Import::class)->name('edge.import');
     Route::livewire('projects/templates', Templates::class)->name('edge.templates');
     Route::livewire('projects/usage', Usage::class)->name('edge.usage');
+    Route::livewire('projects/databases', Databases::class)->name('edge.databases');
 
     /*
      * Legacy /edge/*, /apps/*, /applications/* URLs. The section is

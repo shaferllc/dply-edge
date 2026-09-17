@@ -376,6 +376,41 @@ class EdgeCloudflareClient
     }
 
     /**
+     * D1 database details (file_size, num_tables, running_in_region…).
+     *
+     * @return array<string, mixed>
+     */
+    public function getD1Database(string $databaseId): array
+    {
+        return $this->decode(Http::withToken($this->apiToken)->get(self::BASE.'/accounts/'.$this->accountId.'/d1/database/'.$databaseId));
+    }
+
+    /**
+     * Run SQL against a D1 database. Returns one result per statement:
+     * {results: list<row>, success, meta{changes, duration, rows_read, rows_written}}.
+     *
+     * @param  list<mixed>  $params
+     * @return list<array<string, mixed>>
+     */
+    public function queryD1(string $databaseId, string $sql, array $params = []): array
+    {
+        $payload = $this->decode(Http::withToken($this->apiToken)->timeout(35)->post(
+            self::BASE.'/accounts/'.$this->accountId.'/d1/database/'.$databaseId.'/query',
+            array_filter(['sql' => $sql, 'params' => $params], static fn ($v) => $v !== []),
+        ));
+
+        return array_values(array_filter($payload, 'is_array'));
+    }
+
+    public function deleteD1Database(string $databaseId): void
+    {
+        $response = Http::withToken($this->apiToken)->delete(self::BASE.'/accounts/'.$this->accountId.'/d1/database/'.$databaseId);
+        if ($response->status() !== 404) {
+            $this->decode($response);
+        }
+    }
+
+    /**
      * @return list<array<string, mixed>>
      */
     public function listQueues(): array
