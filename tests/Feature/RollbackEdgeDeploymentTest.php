@@ -10,6 +10,7 @@ use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
+use App\Modules\Edge\Actions\PromoteEdgePreview;
 use App\Modules\Edge\Actions\RollbackEdgeDeployment;
 use App\Modules\Edge\Jobs\BuildEdgeSiteJob;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -139,4 +140,25 @@ test('rolling back a container site rebuilds the chosen commit', function () {
         ->and($rebuild->status)->toBe(EdgeDeployment::STATUS_BUILDING)
         ->and($rebuild->git_commit)->toBe(str_repeat('a', 40));
     Queue::assertPushed(BuildEdgeSiteJob::class);
+});
+
+test('promoting a container preview rebuilds its commit on production', function () {
+    config(['edge.fake.enabled' => true]);
+    $org = Organization::factory()->create();
+    $server = Server::factory()->create(['organization_id' => $org->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]]);
+    $parent = Site::factory()->create([
+        'organization_id' => $org->id, 'server_id' => $server->id, 'edge_backend' => 'dply_edge', 'status' => Site::STATUS_EDGE_ACTIVE,
+        'meta' => ['edge' => ['runtime_mode' => 'container', 'source' => ['repo' => 'acme/app', 'branch' => 'main']]],
+    ]);
+    $preview = Site::factory()->create([
+        'organization_id' => $org->id, 'server_id' => $server->id, 'edge_backend' => 'dply_edge', 'status' => Site::STATUS_EDGE_ACTIVE,
+        'meta' => ['edge' => ['runtime_mode' => 'container', 'preview_parent_site_id' => $parent->id]],
+    ]);
+    EdgeDeployment::query()->create(['site_id' => $preview->id, 'organization_id' => $org->id, 'status' => EdgeDeployment::STATUS_LIVE, 'published_at' => now(), 'git_commit' => str_repeat('b', 40), 'storage_prefix' => 'p']);
+
+    $deployment = (new PromoteEdgePreview)->handle($parent, $preview->id);
+
+    expect($deployment->site_id)->toBe($parent->id)
+        ->and($deployment->status)->toBe(EdgeDeployment::STATUS_BUILDING)
+        ->and($deployment->git_commit)->toBe(str_repeat('b', 40));
 });

@@ -128,8 +128,12 @@ class EdgeContainerDeployer
         if ($queues !== []) {
             $config['queues'] = [
                 'producers' => array_map(static fn (string $name, string $queue): array => ['binding' => $name, 'queue' => $queue], array_keys($queues), $queues),
-                'consumers' => array_map(static fn (string $queue): array => ['queue' => $queue, 'max_batch_size' => 10, 'max_retries' => 5], array_values($queues)),
             ];
+            // A queue takes one consumer: only the production site processes
+            // jobs; previews can enqueue but never steal production's messages.
+            if (! $site->isEdgePreview()) {
+                $config['queues']['consumers'] = array_map(static fn (string $queue): array => ['queue' => $queue, 'max_batch_size' => 10, 'max_retries' => 5], array_values($queues));
+            }
         }
 
         if ($crons !== []) {
@@ -249,6 +253,11 @@ JS, $replace);
      */
     public static function cronHandlers(Site $site, ?EdgeDeployment $deployment): array
     {
+        // Previews never run scheduled tasks — production already does.
+        if ($site->isEdgePreview()) {
+            return [];
+        }
+
         $crons = [];
         if (EdgeContainerSettings::for($site)['scheduler']) {
             $crons['* * * * *'][] = 'schedule:run';

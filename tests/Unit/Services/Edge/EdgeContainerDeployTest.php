@@ -117,3 +117,15 @@ test('crons become cron triggers and a scheduled() handler posting to /_dply/sch
         ->and(File::get($dir.'/src/index.js'))->toContain('async scheduled(controller, env, ctx)')
         ->and(File::get($dir.'/src/index.js'))->toContain('"/_dply/schedule"');
 });
+
+test('previews enqueue but never consume queues or run crons', function () {
+    $preview = new Site(['meta' => ['edge' => ['preview_parent_site_id' => '01PARENT', 'container' => ['scheduler' => true]]]]);
+    $preview->id = '01PREVIEW';
+    $dir = sys_get_temp_dir().'/dply-container-test-'.bin2hex(random_bytes(4));
+
+    (new EdgeContainerDeployer)->scaffold($dir, $preview, '/x/Dockerfile', 8080, ['JOBS' => 'site-jobs'], EdgeContainerDeployer::cronHandlers($preview, null));
+    $config = json_decode(File::get($dir.'/wrangler.jsonc'), true);
+
+    expect($config['queues'])->toBe(['producers' => [['binding' => 'JOBS', 'queue' => 'site-jobs']]])
+        ->and($config)->not->toHaveKey('triggers');
+});
