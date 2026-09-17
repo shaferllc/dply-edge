@@ -441,6 +441,72 @@ class EdgeCloudflareClient
     }
 
     /**
+     * Queue details: consumers, producers, settings.
+     *
+     * @return array<string, mixed>
+     */
+    public function getQueue(string $queueId): array
+    {
+        return $this->decode(Http::withToken($this->apiToken)->get(self::BASE.'/accounts/'.$this->accountId.'/queues/'.$queueId));
+    }
+
+    public function deleteQueue(string $queueId): void
+    {
+        $response = Http::withToken($this->apiToken)->delete(self::BASE.'/accounts/'.$this->accountId.'/queues/'.$queueId);
+        if ($response->status() !== 404) {
+            $this->decode($response);
+        }
+    }
+
+    /** @param mixed $body JSON-serialisable message body */
+    public function sendQueueMessage(string $queueId, mixed $body): void
+    {
+        $this->decode(Http::withToken($this->apiToken)->post(
+            self::BASE.'/accounts/'.$this->accountId.'/queues/'.$queueId.'/messages',
+            ['body' => $body, 'content_type' => 'json'],
+        ));
+    }
+
+    /**
+     * Latest backlog (messages waiting) per queue id over the last hour.
+     *
+     * @param  list<string>  $queueIds
+     * @return array<string, int>
+     */
+    public function queueBacklogs(array $queueIds): array
+    {
+        if ($queueIds === []) {
+            return [];
+        }
+
+        $query = <<<'GRAPHQL'
+        query Backlog($accountTag: string!, $ids: [string!], $since: Time!) {
+          viewer {
+            accounts(filter: { accountTag: $accountTag }) {
+              queueBacklogAdaptiveGroups(limit: 1000, filter: { queueId_in: $ids, datetime_geq: $since }, orderBy: [datetimeMinute_DESC]) {
+                dimensions { queueId datetimeMinute }
+                avg { messages }
+              }
+            }
+          }
+        }
+        GRAPHQL;
+
+        $json = Http::withToken($this->apiToken)->post(self::BASE.'/graphql', [
+            'query' => $query,
+            'variables' => ['accountTag' => $this->accountId, 'ids' => $queueIds, 'since' => now()->subHour()->toIso8601String()],
+        ])->json();
+
+        $out = [];
+        foreach ((array) data_get($json, 'data.viewer.accounts.0.queueBacklogAdaptiveGroups', []) as $group) {
+            $id = (string) data_get($group, 'dimensions.queueId', '');
+            $out[$id] ??= (int) round((float) data_get($group, 'avg.messages', 0)); // newest minute first
+        }
+
+        return $out;
+    }
+
+    /**
      * @return array<string, mixed>|null
      */
     public function zoneSetting(string $zoneId, string $settingId): ?array
