@@ -53,7 +53,10 @@ test('a laravel repo with a vite package.json is detected as laravel and presele
         ->assertSet('detectedPlan.runtime', 'php')
         ->assertSet('detectedPlan.framework', 'laravel')
         ->assertSet('form.runtime_mode', 'container')
-        ->assertDontSee('Not an Edge workload');
+        ->assertDontSee('Not an Edge workload')
+        ->assertSee('/min')
+        ->assertSee('Compute billed per second')
+        ->assertDontSee('$2.00');
 });
 
 test('a rails repo is detected as rails', function () {
@@ -89,7 +92,9 @@ test('a vite site stays static', function () {
         ->set('repo', 'acme/site')
         ->call('detectFromRepository')
         ->assertSet('detectedPlan.framework', 'vite')
-        ->assertSet('form.runtime_mode', 'static');
+        ->assertSet('form.runtime_mode', 'static')
+        ->assertSee('Included')
+        ->assertSee('0 of 1 sites on Free');
 });
 
 test('without container setup, a laravel repo explains what is missing instead of looking static', function () {

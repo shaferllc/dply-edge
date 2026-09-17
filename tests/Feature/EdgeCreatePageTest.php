@@ -35,7 +35,7 @@ test('authenticated user can load edge create form', function () {
         ->assertSee('Connect Git')
         ->assertSee('Build & delivery')
         ->assertSee('Advanced settings')
-        ->assertSee('Est. cost')
+        ->assertSee('Cost · Free')
         ->assertSee('SPA fallback')
         ->assertSee('Deploy on push')
         ->assertSee('Dply Edge (managed)')

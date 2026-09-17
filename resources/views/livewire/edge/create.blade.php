@@ -12,7 +12,7 @@
             <div class="min-w-0">
                 <x-profile-shell
                     :title="__('Deploy an edge app')"
-                    :description="__('Connect a static/SSG, Keel, or hybrid JS SSR repo — we build and publish to the edge.')"
+                    :description="__('Connect a static site, a JS SSR app, or a Laravel, Rails or Node server — we detect it, build it and run it on the edge.')"
                     icon="heroicon-o-globe-alt"
                 >
                     <x-slot:actions>
