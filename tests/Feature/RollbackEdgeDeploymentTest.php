@@ -9,9 +9,12 @@ use App\Models\EdgeDeployment;
 use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
+use App\Models\User;
 use App\Modules\Edge\Actions\RollbackEdgeDeployment;
+use App\Modules\Edge\Jobs\BuildEdgeSiteJob;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Queue;
 
 uses(RefreshDatabase::class);
 
@@ -117,3 +120,23 @@ function scaffoldEdgeSiteWithTwoDeployments(): array
 
     return [$site->refresh(), $live, $old];
 }
+
+test('rolling back a container site rebuilds the chosen commit', function () {
+    config(['edge.fake.enabled' => true]);
+    $user = User::factory()->create();
+    $org = Organization::factory()->create();
+    $server = Server::factory()->create(['organization_id' => $org->id, 'user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]]);
+    $site = Site::factory()->create([
+        'organization_id' => $org->id, 'server_id' => $server->id, 'user_id' => $user->id,
+        'edge_backend' => 'dply_edge', 'status' => Site::STATUS_EDGE_ACTIVE,
+        'meta' => ['edge' => ['runtime_mode' => 'container', 'source' => ['repo' => 'acme/app', 'branch' => 'main']]],
+    ]);
+    $old = EdgeDeployment::query()->create(['site_id' => $site->id, 'organization_id' => $org->id, 'status' => EdgeDeployment::STATUS_SUPERSEDED, 'git_commit' => str_repeat('a', 40), 'storage_prefix' => 'x']);
+
+    $rebuild = (new RollbackEdgeDeployment)->handle($site, $old->id);
+
+    expect($rebuild->id)->not->toBe($old->id)
+        ->and($rebuild->status)->toBe(EdgeDeployment::STATUS_BUILDING)
+        ->and($rebuild->git_commit)->toBe(str_repeat('a', 40));
+    Queue::assertPushed(BuildEdgeSiteJob::class);
+});
