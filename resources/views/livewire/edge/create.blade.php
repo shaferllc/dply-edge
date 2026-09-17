@@ -408,12 +408,15 @@
                         $runtimeLabel = match ($form->runtime_mode) {
                             'hybrid' => __('Hybrid'),
                             'ssr' => __('Worker SSR'),
+                            'container' => __('Container'),
                             default => __('Static / SSG'),
                         };
                         $buildSummary = trim((string) $form->build_command) !== ''
                             ? $form->build_command
                             : __('Detected / default');
-                        $outputSummary = trim((string) $form->output_dir) !== '' ? $form->output_dir : 'dist';
+                        $outputSummary = $form->runtime_mode === 'container'
+                            ? __('container on :port', ['port' => (int) ($detectedPlan['app_port'] ?? 8080)])
+                            : (trim((string) $form->output_dir) !== '' ? $form->output_dir : 'dist');
                         $frameworkSummary = trim((string) ($detectedPlan['framework'] ?? $detectedPlan['runtime'] ?? ''));
                         $advancedDefaultOpen = $form->delivery_mode === 'byo'
                             || $errors->has('form.build_command')
@@ -495,6 +498,13 @@
                                 </div>
                             @endif
 
+                            @if ($needsContainer && ! $ssrAvailable)
+                                <div class="rounded-xl border border-amber-200/80 bg-amber-50/80 px-4 py-3 text-xs text-amber-950 dark:border-raw-amber-900/40 dark:bg-raw-amber-950/30 dark:text-raw-amber-100">
+                                    <p class="font-semibold">{{ __(':framework app detected — it runs as a Container', ['framework' => ucfirst((string) ($detectedPlan['framework'] ?? $detectedPlan['runtime'] ?? 'Server'))]) }}</p>
+                                    <p class="mt-1 leading-relaxed">{{ __('Container delivery isn’t set up on this install yet. It needs the Edge platform Cloudflare API token (DPLY_EDGE_CF_API_TOKEN, with Containers access) and a Workers for Platforms dispatch namespace.') }}</p>
+                                </div>
+                            @endif
+
                             @if ($monorepoDetected && $monorepoPackages !== [])
                                 <div class="rounded-xl border border-brand-sage/25 bg-brand-sage/5 px-4 py-3 dark:border-brand-sage/20 dark:bg-brand-sage/10">
                                     <p class="text-sm font-semibold text-brand-ink">{{ __('Monorepo detected') }}</p>
@@ -571,8 +581,8 @@
                                                 'value' => 'container',
                                                 'label' => __('Container'),
                                                 'body' => $ssrAvailable
-                                                    ? __('PHP (Laravel) or Rails on Cloudflare Containers. Uses your Dockerfile, or dply generates one. Pro and Team.')
-                                                    : ($ssrUnavailableReason ?: __('Unavailable on this install.')),
+                                                    ? __('Laravel, Rails or a Node server on Cloudflare Containers. Uses your Dockerfile, or dply generates one. Pro and Team.')
+                                                    : __('Needs Edge platform setup: a Cloudflare API token with Containers access and a dispatch namespace.'),
                                                 'disabled' => ! $ssrAvailable,
                                             ],
                                         ];

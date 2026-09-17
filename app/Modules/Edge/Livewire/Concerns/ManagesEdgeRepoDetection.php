@@ -310,12 +310,18 @@ trait ManagesEdgeRepoDetection
             // Single Contents API call for package.json — that's all the
             // Node fast path needs. ~200ms round-trip end-to-end.
             $repoRoot = trim((string) ($this->form->repo_root ?? ''));
-            $packageJson = $this->fetchPackageJsonFromGitHub($owner, $repo, $branch, $repoRoot);
-            if ($packageJson === null) {
-                return false;
-            }
 
-            $planArray = $this->synthesizeNodePlan($packageJson, $url, $branch);
+            // PHP and Ruby apps usually also ship a package.json (Vite,
+            // esbuild), so their manifests are checked first — otherwise a
+            // Laravel repo reads as a static Vite site.
+            $planArray = $this->synthesizeContainerPlan($owner, $repo, $branch, $repoRoot, $url);
+            if ($planArray === null) {
+                $packageJson = $this->fetchPackageJsonFromGitHub($owner, $repo, $branch, $repoRoot);
+                if ($packageJson === null) {
+                    return false;
+                }
+                $planArray = $this->synthesizeNodePlan($packageJson, $url, $branch);
+            }
             if ($planArray === null) {
                 // package.json present but framework unknown — defer to
                 // the clone-based composer which has broader heuristics.
@@ -345,8 +351,74 @@ trait ManagesEdgeRepoDetection
      */
     private function fetchPackageJsonFromGitHub(string $owner, string $repo, string $branch, string $subdir = ''): ?array
     {
+        $raw = $this->fetchGitHubFile($owner, $repo, $branch, 'package.json', $subdir);
+        $parsed = $raw !== null ? json_decode($raw, true) : null;
+
+        return is_array($parsed) ? $parsed : null;
+    }
+
+    /**
+     * PHP (composer.json) or Ruby (Gemfile) app → a container plan, without
+     * cloning. Null when neither manifest exists.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function synthesizeContainerPlan(string $owner, string $repo, string $branch, string $subdir, string $url): ?array
+    {
+        $plan = static fn (string $runtime, string $framework, string $source, ?string $build, ?string $start): array => [
+            'url' => $url,
+            'branch' => $branch,
+            'runtime' => $runtime,
+            'version' => null,
+            'framework' => $framework,
+            'build_command' => $build,
+            'start_command' => $start,
+            'app_port' => 8080,
+            'output_dir' => null,
+            'confidence' => 'high',
+            'sources' => [$source],
+            'reasons' => ['Fast-path GitHub API detection', "Found {$source} — runs as a container"],
+            'warnings' => [],
+            'has_manifest' => true,
+            'processes' => [],
+            'not_a_site' => false,
+        ];
+
+        $composer = $this->fetchGitHubFile($owner, $repo, $branch, 'composer.json', $subdir);
+        if ($composer !== null) {
+            $json = json_decode($composer, true);
+            $require = is_array($json['require'] ?? null) ? $json['require'] : [];
+            $framework = match (true) {
+                isset($require['laravel/framework']) => 'laravel',
+                isset($require['symfony/framework-bundle']) => 'symfony',
+                default => 'php',
+            };
+
+            return $plan('php', $framework, 'composer.json', 'composer install --no-dev --optimize-autoloader', null);
+        }
+
+        $gemfile = $this->fetchGitHubFile($owner, $repo, $branch, 'Gemfile', $subdir);
+        if ($gemfile !== null) {
+            $framework = match (true) {
+                preg_match('/^\s*gem\s+["\']rails["\']/m', $gemfile) === 1 => 'rails',
+                preg_match('/^\s*gem\s+["\']sinatra["\']/m', $gemfile) === 1 => 'sinatra',
+                default => 'ruby',
+            };
+
+            return $plan('ruby', $framework, 'Gemfile', 'bundle install', 'bundle exec puma');
+        }
+
+        return null;
+    }
+
+    /**
+     * Raw text of one repo file: raw.githubusercontent.com for public repos,
+     * the Contents API with the user's GitHub token for private ones.
+     */
+    private function fetchGitHubFile(string $owner, string $repo, string $branch, string $path, string $subdir = ''): ?string
+    {
         $relative = trim(str_replace('\\', '/', $subdir), '/');
-        $filePath = $relative !== '' ? $relative.'/package.json' : 'package.json';
+        $filePath = $relative !== '' ? $relative.'/'.$path : $path;
 
         // Path 1: raw.githubusercontent.com — direct file content, no
         // API metadata wrapping, no base64 decode, no per-IP rate limit
@@ -362,10 +434,7 @@ trait ManagesEdgeRepoDetection
             );
             $rawResponse = Http::timeout(5)->get($rawUrl);
             if ($rawResponse->successful()) {
-                $parsed = json_decode($rawResponse->body(), true);
-                if (is_array($parsed)) {
-                    return $parsed;
-                }
+                return $rawResponse->body();
             }
         } catch (\Throwable) {
             // Fall through to authenticated API path.
@@ -411,13 +480,8 @@ trait ManagesEdgeRepoDetection
         }
 
         $decoded = base64_decode((string) preg_replace('/\s+/', '', (string) $body['content']), true);
-        if ($decoded === false) {
-            return null;
-        }
 
-        $parsed = json_decode($decoded, true);
-
-        return is_array($parsed) ? $parsed : null;
+        return $decoded === false ? null : $decoded;
     }
 
     /**
@@ -438,6 +502,12 @@ trait ManagesEdgeRepoDetection
 
         // Framework lookup: dep name → [framework, default build, default output]
         // Keel before hono/vite — kits declare both `@shaferllc/keel` and `hono`.
+        // Node HTTP servers run as containers; a Nest app is a server even
+        // when it also pulls in a frontend toolchain.
+        if (isset($deps['@nestjs/core'])) {
+            return $this->nodeServerPlan('nest', $pkg, $url, $branch);
+        }
+
         $frameworkMap = [
             '@shaferllc/keel' => ['keel', 'npm run css:build --if-present', 'public'],
             'astro' => ['astro', 'npm run build', 'dist'],
@@ -467,6 +537,11 @@ trait ManagesEdgeRepoDetection
         // Fallback Node plan when no framework matched but a build
         // script exists — assume vite/webpack-style dist output.
         if ($framework === null) {
+            foreach (['express', 'fastify', 'koa'] as $server) {
+                if (isset($deps[$server])) {
+                    return $this->nodeServerPlan($server, $pkg, $url, $branch);
+                }
+            }
             if (! isset($pkg['scripts']['build'])) {
                 return null;
             }
@@ -500,6 +575,32 @@ trait ManagesEdgeRepoDetection
             'has_manifest' => true,
             'processes' => [],
             'not_a_site' => $notASite,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $pkg
+     * @return array<string, mixed>
+     */
+    private function nodeServerPlan(string $framework, array $pkg, string $url, string $branch): array
+    {
+        return [
+            'url' => $url,
+            'branch' => $branch,
+            'runtime' => 'node',
+            'version' => ($pkg['engines']['node'] ?? null) ?: null,
+            'framework' => $framework,
+            'build_command' => isset($pkg['scripts']['build']) ? 'npm run build' : null,
+            'start_command' => isset($pkg['scripts']['start']) ? 'npm start' : null,
+            'app_port' => 8080,
+            'output_dir' => null,
+            'confidence' => 'high',
+            'sources' => ['package.json'],
+            'reasons' => ['Fast-path GitHub API detection', "Found {$framework} — runs as a container"],
+            'warnings' => [],
+            'has_manifest' => true,
+            'processes' => [],
+            'not_a_site' => false,
         ];
     }
 

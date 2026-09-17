@@ -406,6 +406,7 @@ class Create extends Component
             'ssrDetected' => $this->detectedPlan !== [] && EdgeSsrDetection::planLooksLikeSsr($this->detectedPlan),
             'ssrAvailable' => $ssrAvailable,
             'ssrUnavailableReason' => EdgeSsrAvailability::unavailableReason(),
+            'needsContainer' => EdgeEligibility::needsContainer($this->detectedPlan),
             'edgeEligible' => $eligibility['eligible'],
             'edgeIneligibleMessage' => $eligibility['message'],
             'edgeAlternativeRoute' => $eligibility['alternative_route'],
