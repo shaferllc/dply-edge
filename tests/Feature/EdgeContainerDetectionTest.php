@@ -138,3 +138,32 @@ test('a rails repo with a puma start command is a container, not hybrid', functi
         ->call('detectFromRepository')
         ->assertSet('form.runtime_mode', 'container');
 });
+
+test('loading the laravel example keeps container, and a manual pick can go back to the recommendation', function () {
+    fakeRepo('laravel/laravel', ['composer.json' => json_encode(['require' => ['laravel/framework' => '^12.0']])]);
+
+    Livewire::actingAs(creator())
+        ->test(Create::class)
+        ->call('loadExampleApp', 'laravel-starter')
+        ->assertSet('form.runtime_mode', 'container')
+        ->call('detectFromRepository')
+        ->set('form.runtime_mode', 'static')
+        ->assertSee('We recommend Container')
+        ->call('useRecommendedRuntimeMode')
+        ->assertSet('form.runtime_mode', 'container')
+        ->assertSee('Recommended');
+});
+
+test('switching from a laravel repo to a vite repo moves the mode back to static', function () {
+    fakeRepo('laravel/laravel', ['composer.json' => json_encode(['require' => ['laravel/framework' => '^12.0']])]);
+    $component = Livewire::actingAs(creator())
+        ->test(Create::class)
+        ->set('repo', 'laravel/laravel')
+        ->call('detectFromRepository')
+        ->assertSet('form.runtime_mode', 'container');
+
+    // A different repo's plan (as the queued/fast detection would deliver it).
+    $component->set('detectedPlan', ['runtime' => 'node', 'framework' => 'vite', 'build_command' => 'vite build'])
+        ->call('useRecommendedRuntimeMode')
+        ->assertSet('form.runtime_mode', 'static');
+});

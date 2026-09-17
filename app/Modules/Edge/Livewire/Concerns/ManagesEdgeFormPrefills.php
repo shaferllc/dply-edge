@@ -4,9 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Livewire\Concerns;
 
-use App\Modules\Edge\Services\Frameworks\EdgeFrameworkPresetRegistry;
-use App\Modules\Edge\Support\EdgeEligibility;
-use App\Modules\Edge\Support\EdgeSsrDetection;
+use App\Modules\Edge\Support\EdgeDeliveryRecommender;
 use App\Modules\Edge\Support\HybridEdgeOriginMatcher;
 use Illuminate\Support\Str;
 
@@ -44,6 +42,13 @@ trait ManagesEdgeFormPrefills
         $this->originUrlTouched = true;
     }
 
+    /** "Use recommended" on the create page: drop the manual pick. */
+    public function useRecommendedRuntimeMode(): void
+    {
+        $this->runtimeModeTouched = false;
+        $this->applyDetectedDeliveryPrefills();
+    }
+
     public function updatedFormBuildCommand(): void
     {
         $this->buildOverridesTouched = true;
@@ -66,26 +71,7 @@ trait ManagesEdgeFormPrefills
             $this->prefillingFromDetection = false;
         }
 
-        $mode = null;
-
-        // Prefer live SSR signals (start/build commands) over the static
-        // preset table — Next export stays static; SSR-capable frameworks
-        // (incl. Keel) default to hybrid so orgs without Workers for
-        // Platforms aren't forced onto Worker SSR. Operators can still
-        // pick Worker SSR when it's available.
-        if (EdgeEligibility::needsContainer($this->detectedPlan)) {
-            // PHP / Ruby / Node servers: a start command is a server, not SSR.
-            $mode = 'container';
-        } elseif (EdgeSsrDetection::planLooksLikeSsr($this->detectedPlan)) {
-            $mode = 'hybrid';
-        } else {
-            $preset = EdgeFrameworkPresetRegistry::byDetectionPlan($this->detectedPlan);
-            // Frameworks that are always hybrid (Keel, SvelteKit, Remix, Hono)
-            // even when detection didn't surface a start command.
-            if ($preset->runtimeMode === 'hybrid') {
-                $mode = 'hybrid';
-            }
-        }
+        $mode = EdgeDeliveryRecommender::for($this->detectedPlan)['mode'] ?? null;
 
         if ($mode === null) {
             return;

@@ -478,6 +478,17 @@
                                     <span class="text-brand-mist" aria-hidden="true">→</span>
                                     <span class="font-mono text-xs text-brand-moss">{{ $outputSummary }}</span>
                                 </div>
+                                @if ($recommendation)
+                                    <p class="text-xs text-brand-moss">
+                                        <x-heroicon-m-sparkles class="-mt-0.5 inline h-3.5 w-3.5 text-brand-sage" aria-hidden="true" />
+                                        @if ($form->runtime_mode === $recommendation['mode'])
+                                            {{ $recommendation['reason'] }}
+                                        @else
+                                            {{ __('You picked :mode. We recommend :recommended: :reason', ['mode' => $runtimeLabel, 'recommended' => match ($recommendation['mode']) { 'hybrid' => __('Hybrid'), 'ssr' => __('Worker SSR'), 'container' => __('Container'), default => __('Static / SSG') }, 'reason' => $recommendation['reason']]) }}
+                                            <button type="button" wire:click="useRecommendedRuntimeMode" class="font-semibold text-brand-forest underline-offset-2 hover:underline dark:text-brand-sage">{{ __('Use recommended') }}</button>
+                                        @endif
+                                    </p>
+                                @endif
                             @endif
 
                             @if ($showDetectionPanel && (! empty($detectedPlan['error']) || ! empty($detectedPlan['no_match'])))
@@ -569,7 +580,20 @@
                                 </div>
 
                                 <div>
-                                    <p class="text-xs font-semibold uppercase tracking-[0.14em] text-brand-moss">{{ __('Delivery mode') }}</p>
+                                    <div class="flex flex-wrap items-baseline justify-between gap-2">
+                                        <p class="text-xs font-semibold uppercase tracking-[0.14em] text-brand-moss">{{ __('Delivery mode') }}</p>
+                                        @if ($recommendation && $form->runtime_mode !== $recommendation['mode'])
+                                            <button type="button" wire:click="useRecommendedRuntimeMode" class="text-xs font-semibold text-brand-forest underline-offset-2 hover:underline dark:text-brand-sage">
+                                                {{ __('Use recommended') }}
+                                            </button>
+                                        @endif
+                                    </div>
+                                    @if ($recommendation)
+                                        <p class="mt-1 text-xs text-brand-moss">
+                                            <x-heroicon-m-sparkles class="-mt-0.5 inline h-3.5 w-3.5 text-brand-sage" aria-hidden="true" />
+                                            {{ $recommendation['reason'] }}
+                                        </p>
+                                    @endif
                                     @php
                                         $deliveryModes = [
                                             ['value' => 'static', 'label' => __('Static / SSG'), 'body' => __('CDN-only. Most sites.')],
@@ -611,6 +635,9 @@
                                                 />
                                                 <span class="min-w-0">
                                                     <span class="text-sm font-semibold text-brand-ink">{{ $mode['label'] }}</span>
+                                                    @if (($recommendation['mode'] ?? null) === $mode['value'])
+                                                        <span class="ms-1.5 rounded-full bg-brand-sage/15 px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide text-brand-forest dark:text-brand-sage">{{ __('Recommended') }}</span>
+                                                    @endif
                                                     <span class="mt-0.5 block text-xs text-brand-moss">{{ $mode['body'] }}</span>
                                                 </span>
                                             </label>

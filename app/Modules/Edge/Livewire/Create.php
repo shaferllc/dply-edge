@@ -21,6 +21,7 @@ use App\Modules\Edge\Livewire\Concerns\ManagesEdgeRefPicker;
 use App\Modules\Edge\Livewire\Concerns\ManagesEdgeRepoDetection;
 use App\Modules\Edge\Services\EdgeTemplateRegistry;
 use App\Modules\Edge\Services\Frameworks\EdgeFrameworkPresetRegistry;
+use App\Modules\Edge\Support\EdgeDeliveryRecommender;
 use App\Modules\Edge\Support\EdgeEligibility;
 use App\Modules\Edge\Support\EdgeSsrAvailability;
 use App\Modules\Edge\Support\EdgeSsrDetection;
@@ -221,7 +222,7 @@ class Create extends Component
         $this->monorepoMarkers = [];
 
         $runtimeMode = strtolower((string) ($template['runtime_mode'] ?? 'static'));
-        $this->form->runtime_mode = in_array($runtimeMode, ['static', 'hybrid', 'ssr'], true)
+        $this->form->runtime_mode = in_array($runtimeMode, ['static', 'hybrid', 'ssr', 'container'], true)
             ? $runtimeMode
             : 'static';
 
@@ -389,12 +390,7 @@ class Create extends Component
         if (! $ssrAvailable && $this->form->runtime_mode === 'ssr') {
             $this->form->runtime_mode = 'hybrid';
         }
-        // PHP / Rails / Node-server repos only run as containers, so select it
-        // even when containers aren't set up here — the page explains what's
-        // missing and deploy refuses, instead of pretending it's a static site.
-        if (EdgeEligibility::needsContainer($this->detectedPlan) && ! $this->runtimeModeTouched) {
-            $this->form->runtime_mode = 'container';
-        }
+        $recommendation = EdgeDeliveryRecommender::for($this->detectedPlan);
 
         return view('livewire.edge.create', [
             'fakeEdgeActive' => FakeEdgeProvision::enabled(),
@@ -412,6 +408,7 @@ class Create extends Component
             'ssrAvailable' => $ssrAvailable,
             'ssrUnavailableReason' => EdgeSsrAvailability::unavailableReason(),
             'needsContainer' => EdgeEligibility::needsContainer($this->detectedPlan),
+            'recommendation' => $recommendation,
             'edgeEligible' => $eligibility['eligible'],
             'edgeIneligibleMessage' => $eligibility['message'],
             'edgeAlternativeRoute' => $eligibility['alternative_route'],
