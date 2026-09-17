@@ -212,6 +212,10 @@ class BuildEdgeSiteJob implements ShouldQueue
                 // Preserve cancelled flag if a race set it during persist.
                 $updates['meta'] = array_merge($existingMeta, ['commit' => $commitMeta]);
             }
+            // Container sites: the host map points at this script.
+            if (is_array($buildResult['container'] ?? null)) {
+                $updates['meta'] = array_merge($updates['meta'] ?? (is_array($deployment->meta) ? $deployment->meta : []), ['container' => $buildResult['container']]);
+            }
             $deployment->refresh();
             if ($deployment->wasCancelledByOperator()) {
                 if (is_dir($artifactDir) && str_starts_with($artifactDir, EdgeBuildRunner::buildRoot())) {

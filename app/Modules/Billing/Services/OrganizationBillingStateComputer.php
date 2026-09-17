@@ -98,15 +98,26 @@ class OrganizationBillingStateComputer
 
                 $edgeCount++;
                 $runtimeMode = strtolower((string) ($site->edgeMeta()['runtime_mode'] ?? 'static'));
-                if ($runtimeMode === 'ssr') {
+                // Container sites (PHP / Rails) bill at the SSR rate until
+                // container compute is metered on its own line.
+                if (in_array($runtimeMode, ['ssr', 'container'], true)) {
                     $edgeSsrCount++;
                 }
                 $edgeLbEndpointCount += EdgeLoadBalancing::billableEndpointCount($site);
             });
 
+        $seatCount = $organization->users()->count();
+        $tierKey = $forceTier
+            ?? $organization->subscribedTier()
+            ?? ($organization->onStandardSubscription() ? self::cheapestPaidTier($edgeCount - $edgeSsrCount, $seatCount) : 'free');
+        $tier = (array) config('subscription.standard.tiers.'.$tierKey);
+        // Free has no card to bill and Enterprise is invoiced by hand: both
+        // owe nothing through this path.
+        $billable = in_array($tierKey, ['pro', 'team'], true);
+
         [$usagePeriodStart, $usagePeriodEnd] = $this->usageReader->currentMonthWindow();
         $usageTotals = $this->usageReader->totalsForOrganization($organization, $usagePeriodStart, $usagePeriodEnd);
-        $edgeUsageEstimate = $this->usageCostCalculator->estimate($usageTotals, $edgeCount);
+        $edgeUsageEstimate = $this->usageCostCalculator->estimate($usageTotals, $edgeCount, $tier);
         $edgeUsageEstimate = array_merge($edgeUsageEstimate, [
             'period_start' => $usagePeriodStart->toDateString(),
             'period_end' => $usagePeriodEnd->toDateString(),

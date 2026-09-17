@@ -41,11 +41,11 @@ class CreateEdgeSite
         $framework = (string) ($payload['framework'] ?? '');
         $spaFallback = ! array_key_exists('spa_fallback', $payload) || (bool) $payload['spa_fallback'];
         $runtimeMode = (string) ($payload['runtime_mode'] ?? 'static');
-        if (! in_array($runtimeMode, ['static', 'hybrid', 'ssr'], true)) {
+        if (! in_array($runtimeMode, ['static', 'hybrid', 'ssr', 'container'], true)) {
             $runtimeMode = 'static';
         }
 
-        if ($runtimeMode === 'ssr') {
+        if (in_array($runtimeMode, ['ssr', 'container'], true)) {
             // Block before any of the per-site infra is created — once
             // the server + site rows exist the user has to tear them
             // down to recover. Failing here keeps the screen clean.

@@ -20,7 +20,8 @@ final class EdgeSiteHasWorker
     public static function for(Site $site, ?EdgeDeployment $deployment = null): bool
     {
         $runtimeMode = (string) ($site->edgeMeta()['runtime_mode'] ?? 'static');
-        if ($runtimeMode === 'ssr') {
+        // Container sites always have their fronting Worker (queues bind there).
+        if (in_array($runtimeMode, ['ssr', 'container'], true)) {
             return true;
         }
 

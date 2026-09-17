@@ -384,8 +384,12 @@ class Create extends Component
 
         $eligibility = EdgeEligibility::evaluate($this->detectedPlan);
         $ssrAvailable = EdgeSsrAvailability::isAvailable();
-        if (! $ssrAvailable && $this->form->runtime_mode === 'ssr') {
+        if (! $ssrAvailable && in_array($this->form->runtime_mode, ['ssr', 'container'], true)) {
             $this->form->runtime_mode = 'hybrid';
+        }
+        // PHP / Rails repos only run as containers — preselect it.
+        if ($ssrAvailable && EdgeEligibility::needsContainer($this->detectedPlan) && $this->form->runtime_mode === 'static') {
+            $this->form->runtime_mode = 'container';
         }
 
         return view('livewire.edge.create', [

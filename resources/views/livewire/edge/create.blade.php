@@ -567,6 +567,14 @@
                                                     : ($ssrUnavailableReason ?: __('Unavailable — use Hybrid.')),
                                                 'disabled' => ! $ssrAvailable,
                                             ],
+                                            [
+                                                'value' => 'container',
+                                                'label' => __('Container'),
+                                                'body' => $ssrAvailable
+                                                    ? __('PHP (Laravel) or Rails on Cloudflare Containers. Uses your Dockerfile, or dply generates one. Pro and Team.')
+                                                    : ($ssrUnavailableReason ?: __('Unavailable on this install.')),
+                                                'disabled' => ! $ssrAvailable,
+                                            ],
                                         ];
                                     @endphp
                                     <div class="mt-2 grid gap-2" role="radiogroup" aria-label="{{ __('Delivery mode') }}">

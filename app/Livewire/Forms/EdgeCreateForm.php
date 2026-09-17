@@ -68,7 +68,7 @@ class EdgeCreateForm extends Form
             'spa_fallback' => ['boolean'],
             'deploy_on_push' => ['boolean'],
             'repo_root' => ['nullable', 'string', 'max:255'],
-            'runtime_mode' => ['required', 'in:static,hybrid,ssr'],
+            'runtime_mode' => ['required', 'in:static,hybrid,ssr,container'],
             'origin_url' => ['nullable', 'string', 'max:500'],
             'delivery_mode' => ['required', 'in:managed,byo'],
             'edge_provider_credential_id' => ['required_if:delivery_mode,byo', 'nullable', 'string'],

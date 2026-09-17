@@ -1,0 +1,8 @@
+{
+  "name": "php-spike",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "containers": [{ "class_name": "PhpApp", "image": "../app/Dockerfile", "instance_type": "basic", "max_instances": 2 }],
+  "durable_objects": { "bindings": [{ "name": "APP", "class_name": "PhpApp" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PhpApp"] }]
+}

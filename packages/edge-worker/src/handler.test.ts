@@ -340,3 +340,32 @@ describe('handleRequest', () => {
     }
   });
 });
+
+describe('container sites', () => {
+  it('dispatch to the per-site container script like SSR', async () => {
+    const seen: string[] = [];
+    const env: Env = {
+      HOST_MAP: createMockKv({
+        'app.example.test': {
+          site_id: 'site-1',
+          deployment_id: 'deploy-9',
+          storage_prefix: 'edge/site-1/deploy-9',
+          runtime_mode: 'container',
+          ssr_worker_script: 'dply-ctr-site-1',
+        } as HostMapEntry,
+      }),
+      ARTIFACTS: createMockR2({}),
+      DISPATCHER: {
+        get: (name: string) => {
+          seen.push(name);
+          return { fetch: async () => new Response('from laravel', { status: 200 }) };
+        },
+      } as unknown as DispatchNamespace,
+    };
+
+    const response = await handleRequest(new Request('https://app.example.test/dashboard'), env);
+
+    expect(seen).toEqual(['dply-ctr-site-1']);
+    expect(await response.text()).toBe('from laravel');
+  });
+});

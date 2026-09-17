@@ -6,10 +6,12 @@ namespace App\Modules\Edge\Jobs;
 
 use App\Models\Server;
 use App\Models\Site;
+use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Services\EdgeLoadBalancerProvisioner;
 use App\Modules\Edge\Services\EdgeMiddlewareBundleUploader;
 use App\Modules\Edge\Services\EdgeRouter;
 use App\Modules\Edge\Services\EdgeSsrBundleUploader;
+use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -53,6 +55,20 @@ class TeardownEdgeSiteJob implements ShouldQueue
             app(EdgeMiddlewareBundleUploader::class)->deleteAllForSite($site);
         } catch (\Throwable) {
             // Same — orphan middleware scripts are non-blocking.
+        }
+
+        if (($site->edgeMeta()['runtime_mode'] ?? '') === 'container') {
+            try {
+                // ponytail: removes the Worker script; Cloudflare's container
+                // application behind it isn't deleted via API yet — sweep with
+                // `wrangler containers list/delete` until that's automated.
+                EdgeCloudflareClient::fromConfig()->deleteDispatchScript(
+                    (string) config('edge.cloudflare.dispatch_namespace_name'),
+                    EdgeContainerDeployer::scriptName($site),
+                );
+            } catch (\Throwable) {
+                // Best-effort, like the SSR scripts above.
+            }
         }
 
         try {

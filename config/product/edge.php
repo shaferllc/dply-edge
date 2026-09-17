@@ -137,6 +137,17 @@ return [
         'skip_pull_if_present' => filter_var(env('DPLY_EDGE_BUILD_SKIP_PULL_IF_PRESENT', true), FILTER_VALIDATE_BOOLEAN),
         // Long-running clone/build/publish — Horizon supervisor-build.
         'queue' => env('DPLY_EDGE_BUILD_QUEUE', 'dply-provision'),
+        // Container sites (PHP / Rails on Cloudflare Containers). The build
+        // step runs `wrangler deploy --dispatch-namespace` inside this image
+        // (Node + Docker CLI + wrangler) against the host Docker socket; it is
+        // built from docker/edge-container-deployer on first use.
+        'containers' => [
+            'deployer_image' => env('DPLY_EDGE_CONTAINER_DEPLOYER_IMAGE', 'dply/edge-container-deployer:1'),
+            'instance_type' => env('DPLY_EDGE_CONTAINER_INSTANCE_TYPE', 'basic'),
+            'max_instances' => (int) env('DPLY_EDGE_CONTAINER_MAX_INSTANCES', 5),
+            'sleep_after' => env('DPLY_EDGE_CONTAINER_SLEEP_AFTER', '10m'),
+            'default_port' => 8080,
+        ],
         'timeout_seconds' => 900,
         'artifact_max_bytes' => 524_288_000,
         // Docker should always be present on a build worker, but if a box came

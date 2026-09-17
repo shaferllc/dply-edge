@@ -173,7 +173,7 @@ test('rejects ssr-looking detection on deploy when hybrid origin missing', funct
     expect(Site::query()->count())->toBe(0);
 });
 
-test('rejects laravel detection on edge deploy', function () {
+test('laravel repos are container workloads, and free orgs cannot deploy them', function () {
     $user = ownerWithOrg();
 
     Livewire::actingAs($user)
@@ -181,13 +181,13 @@ test('rejects laravel detection on edge deploy', function () {
         ->set('form.name', 'Laravel App')
         ->set('repo', 'acme/laravel-app')
         ->set('branch', 'main')
-        ->set('form.runtime_mode', 'static')
+        ->set('form.runtime_mode', 'container')
         ->set('detectedPlan', [
             'runtime' => 'php',
             'framework' => 'laravel',
             'build_command' => 'composer install',
         ])
-        ->assertSee('Not an Edge workload')
+        ->assertDontSee('Not an Edge workload')
         ->call('deploy')
         ->assertNoRedirect();
 
