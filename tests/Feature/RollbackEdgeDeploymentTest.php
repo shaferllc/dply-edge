@@ -143,7 +143,7 @@ test('rolling back a container site rebuilds the chosen commit', function () {
 });
 
 test('promoting a container preview rebuilds its commit on production', function () {
-    config(['edge.fake.enabled' => true]);
+    config(['edge.fake.enabled' => true, 'deploy_contract.require_for_promote' => false]);
     $org = Organization::factory()->create();
     $server = Server::factory()->create(['organization_id' => $org->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]]);
     $parent = Site::factory()->create([
