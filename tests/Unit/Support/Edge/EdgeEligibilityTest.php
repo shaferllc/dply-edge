@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Support\Edge;
 
+use App\Modules\Edge\Services\EdgeTemplateRegistry;
 use App\Modules\Edge\Support\EdgeEligibility;
 
 test('empty and unknown plans stay eligible', function () {
@@ -66,4 +67,14 @@ test('php and ruby apps are eligible as containers', function (array $plan) {
 test('javascript and wordpress plans never ask for a container', function () {
     expect(EdgeEligibility::needsContainer(['runtime' => 'node', 'framework' => 'astro']))->toBeFalse()
         ->and(EdgeEligibility::needsContainer(['runtime' => 'php', 'framework' => 'wordpress']))->toBeFalse();
+});
+
+test('every container template is a container workload with a hero image', function () {
+    $containers = collect(EdgeTemplateRegistry::all())->where('runtime_mode', 'container');
+
+    expect($containers)->toHaveCount(3);
+    foreach ($containers as $template) {
+        expect(EdgeEligibility::needsContainer(['framework' => $template['framework']]))->toBeTrue()
+            ->and(file_exists(public_path(ltrim($template['hero_url'], '/'))))->toBeTrue();
+    }
 });

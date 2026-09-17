@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400" role="img" aria-labelledby="express-getting-startedTitle">
+  <title id="express-getting-startedTitle">Express template hero</title>
+  <defs>
+    <linearGradient id="express-getting-startedBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#5f7a4f"/>
+      <stop offset="50%" stop-color="#2f4226"/>
+      <stop offset="100%" stop-color="#10170c"/>
+    </linearGradient>
+  </defs>
+  <rect width="600" height="400" fill="url(#express-getting-startedBg)"/>
+  <g transform="translate(440,200)">
+    <text x="0" y="0" text-anchor="middle" dominant-baseline="middle" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="280" font-weight="800" fill="#fdfcf9" opacity="0.95">E</text>
+    <text x="0" y="0" text-anchor="middle" dominant-baseline="middle" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="280" font-weight="800" fill="none" stroke="#cda942" stroke-width="2" opacity="0.35">E</text>
+  </g>
+  <text x="48" y="270" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="56" font-weight="700" fill="#fdfcf9" letter-spacing="-1.5">Express</text>
+  <text x="48" y="306" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="20" font-weight="500" fill="#e1d8ac" opacity="0.9">Node.js server on Cloudflare Containers</text>
+  <g transform="translate(48,332)">
+    <rect width="96" height="22" rx="11" fill="#fdfcf9" fill-opacity="0.12" stroke="#fdfcf9" stroke-opacity="0.35"/>
+    <text x="48" y="15" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="11" font-weight="600" fill="#fdfcf9" letter-spacing="1.2">CONTAINER</text>
+  </g>
+</svg>

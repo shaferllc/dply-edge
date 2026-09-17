@@ -202,6 +202,46 @@ class EdgeTemplateRegistry
                 'hero_emoji' => 'C',
                 'hero_url' => '/edge-templates/remix-shop-storefront.svg',
             ],
+            // Container apps (PHP / Rails / Node servers on Cloudflare Containers).
+            [
+                'slug' => 'laravel-starter',
+                'name' => 'Laravel',
+                'description' => 'The official Laravel skeleton as a container app — FrankenPHP, queues and the scheduler wired through dply/laravel.',
+                'repo' => 'laravel/laravel',
+                'clone_repo' => 'laravel/laravel',
+                'branch' => '12.x',
+                'framework' => 'laravel',
+                'runtime_mode' => 'container',
+                'tags' => ['laravel', 'php', 'container'],
+                'hero_emoji' => 'L',
+                'hero_url' => '/edge-templates/laravel-starter.svg',
+            ],
+            [
+                'slug' => 'rails-getting-started',
+                'name' => 'Ruby on Rails',
+                'description' => 'A Rails app on Puma as a container. Add DATABASE_URL for Postgres before the first deploy.',
+                'repo' => 'heroku/ruby-getting-started',
+                'clone_repo' => 'heroku/ruby-getting-started',
+                'branch' => 'main',
+                'framework' => 'rails',
+                'runtime_mode' => 'container',
+                'tags' => ['rails', 'ruby', 'container'],
+                'hero_emoji' => 'R',
+                'hero_url' => '/edge-templates/rails-getting-started.svg',
+            ],
+            [
+                'slug' => 'express-getting-started',
+                'name' => 'Express server',
+                'description' => 'A Node.js Express app listening on $PORT, run as a container.',
+                'repo' => 'heroku/node-js-getting-started',
+                'clone_repo' => 'heroku/node-js-getting-started',
+                'branch' => 'main',
+                'framework' => 'express',
+                'runtime_mode' => 'container',
+                'tags' => ['node', 'express', 'container'],
+                'hero_emoji' => 'E',
+                'hero_url' => '/edge-templates/express-getting-started.svg',
+            ],
         ];
     }
 
@@ -215,7 +255,7 @@ class EdgeTemplateRegistry
     public static function featuredForCreate(): array
     {
         $featured = [];
-        foreach (['keel-workers', 'eleventy-portfolio', 'nextjs-docs', 'hono-api-starter'] as $slug) {
+        foreach (['keel-workers', 'laravel-starter', 'nextjs-docs', 'rails-getting-started'] as $slug) {
             $template = self::find($slug);
             if ($template !== null) {
                 $featured[] = $template;
