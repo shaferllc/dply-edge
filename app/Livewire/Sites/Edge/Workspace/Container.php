@@ -7,6 +7,7 @@ namespace App\Livewire\Sites\Edge\Workspace;
 use App\Livewire\Concerns\Edge\ManagesEdgeRedeploy;
 use App\Livewire\Concerns\Edge\MountsEdgeWorkspaceSection;
 use App\Models\EdgeContainerUsage;
+use App\Models\EdgeDeployment;
 use App\Models\Server;
 use App\Models\Site;
 use App\Modules\Billing\Services\EdgeContainerComputeCost;
@@ -101,6 +102,7 @@ class Container extends Component
                 'cpuHours' => (float) ($usage->cpu ?? 0) / 3600,
                 'memoryGibHours' => (float) ($usage->mem ?? 0) / 3600,
                 'perMinute' => $cost->perMinuteMillicents($vcpu, $memory, $disk) / 100_000,
+                'health' => EdgeDeployment::query()->where('site_id', $this->site->id)->where('status', EdgeDeployment::STATUS_LIVE)->latest('published_at')->first()?->meta['container']['health'] ?? null,
                 'maxPerMonth' => $cost->perMinuteMillicents($vcpu, $memory, $disk) * 60 * 730 * $this->max_instances / 100_000,
             ],
         ));

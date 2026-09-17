@@ -15,6 +15,19 @@
             ],
         ])
 
+        @if ($health)
+            <div @class([
+                'mt-4 rounded-xl border px-3 py-2 text-sm',
+                'border-emerald-300 bg-emerald-50 text-emerald-900' => $health['ok'],
+                'border-red-300 bg-red-50 text-red-900' => ! $health['ok'],
+            ])>
+                {{ $health['ok'] ? __('Healthy after last deploy') : __('Unhealthy after last deploy') }}
+                · {{ $health['status'] !== null ? 'HTTP '.$health['status'] : ($health['error'] ?? __('no response')) }}
+                · {{ __(':ms ms', ['ms' => number_format($health['ms'])]) }}
+                · {{ \Illuminate\Support\Carbon::parse($health['checked_at'])->diffForHumans() }}
+            </div>
+        @endif
+
         <div class="mt-4 grid gap-3 sm:grid-cols-3">
             <div class="rounded-xl border border-brand-ink/10 bg-white px-3 py-2.5 dark:bg-zinc-900">
                 <p class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Compute this month') }}</p>

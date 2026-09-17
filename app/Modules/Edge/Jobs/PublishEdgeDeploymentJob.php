@@ -17,6 +17,7 @@ use App\Modules\Edge\Services\EdgeSsrBundleUploader;
 use App\Modules\Edge\Services\EdgeTestingHostnameProvisioner;
 use App\Modules\Edge\Services\EnsureEdgeRepoDomains;
 use App\Modules\Edge\Services\OriginHealthcheckRunner;
+use App\Modules\Edge\Support\FakeEdgeProvision;
 use App\Modules\Notifications\Services\NotificationPublisher;
 use App\Support\ProductLine\ProductLineKillSwitches;
 use Illuminate\Bus\Queueable;
@@ -201,6 +202,10 @@ class PublishEdgeDeploymentJob implements ShouldQueue
                 'edge_backend_id' => (string) ($site->edge_backend_id ?: $deployment->id),
                 'meta' => array_merge(is_array($site->meta) ? $site->meta : [], ['edge' => $meta]),
             ]);
+
+            if (($site->edgeMeta()['runtime_mode'] ?? '') === 'container' && ! FakeEdgeProvision::enabled()) {
+                CheckEdgeContainerHealthJob::dispatch((string) $deployment->id)->delay(now()->addSeconds(20));
+            }
 
             try {
                 app(EdgeTestingHostnameProvisioner::class)->provision($site->fresh());
