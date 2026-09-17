@@ -71,4 +71,4 @@ Then run `dply:billing:sync-all --dry-run` before the first real sweep, because 
 - A queue can have only one consumer. Attaching it to two container projects fails the second deploy.
 - Free plan: requests/egress past the allowance aren't billed or throttled; an existing site can still be switched to SSR.
 - Container logs aren't in the dashboard yet (Cloudflare's container logs only).
-- Pre-existing test failures, not from this branch: EdgeCreatePageTest / EdgeIndexTest "returns 404 when surface edge inactive", AdminDashboardTest feature-flag tests, BillingApiTest "billing endpoints respect billing feature flag".
+- Full suite on this branch: 1165 passed, 15 failed, 5 skipped. All 15 fail identically on `main` (verified by checking `main` out and rerunning them): AdminDashboardTest (6 feature-flag tests), BillingApiTest billing flag, ContainerProviderCredentialsTest (2), CredentialTest provider grouping, EdgeCreatePageTest / EdgeIndexTest / EdgeNavLinkTest "surface edge inactive", EdgeDeploymentDetailPageTest promote diff, EdgePreviewReviewHubTest approval.
