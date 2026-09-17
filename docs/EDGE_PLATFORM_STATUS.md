@@ -68,7 +68,6 @@ Then run `dply:billing:sync-all --dry-run` before the first real sweep, because 
 
 ## Known gaps
 
-- Deleting a container site removes its Worker script, but not Cloudflare's container application.
 - A queue can have only one consumer. Attaching it to two container projects fails the second deploy.
-- Free plan: requests/egress past the allowance aren't billed or throttled; an existing site can still be switched to SSR.
+- Free plan: requests/egress past the allowance aren't billed or throttled.
 - Full suite on this branch: 1165 passed, 15 failed, 5 skipped. All 15 fail identically on `main` (verified by checking `main` out and rerunning them): AdminDashboardTest (6 feature-flag tests), BillingApiTest billing flag, ContainerProviderCredentialsTest (2), CredentialTest provider grouping, EdgeCreatePageTest / EdgeIndexTest / EdgeNavLinkTest "surface edge inactive", EdgeDeploymentDetailPageTest promote diff, EdgePreviewReviewHubTest approval.

@@ -1161,6 +1161,14 @@ class EdgeCloudflareClient
         ));
     }
 
+    public function deleteContainerApplication(string $applicationId): void
+    {
+        $response = Http::withToken($this->apiToken)->delete(self::BASE.'/accounts/'.$this->accountId.'/containers/applications/'.$applicationId);
+        if ($response->status() !== 404) {
+            $this->decode($response);
+        }
+    }
+
     /**
      * One UTC day of container usage per application, from
      * containersUsageAdaptiveGroups — the resources Cloudflare bills

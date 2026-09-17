@@ -59,13 +59,15 @@ class TeardownEdgeSiteJob implements ShouldQueue
 
         if (($site->edgeMeta()['runtime_mode'] ?? '') === 'container') {
             try {
-                // ponytail: removes the Worker script; Cloudflare's container
-                // application behind it isn't deleted via API yet — sweep with
-                // `wrangler containers list/delete` until that's automated.
-                EdgeCloudflareClient::fromConfig()->deleteDispatchScript(
-                    (string) config('edge.cloudflare.dispatch_namespace_name'),
-                    EdgeContainerDeployer::scriptName($site),
-                );
+                $client = EdgeCloudflareClient::fromConfig();
+                $script = EdgeContainerDeployer::scriptName($site);
+                $client->deleteDispatchScript((string) config('edge.cloudflare.dispatch_namespace_name'), $script);
+                // wrangler names the container application after the script.
+                foreach ($client->listContainerApplications() as $application) {
+                    if (str_starts_with($application['name'], $script)) {
+                        $client->deleteContainerApplication($application['id']);
+                    }
+                }
             } catch (\Throwable) {
                 // Best-effort, like the SSR scripts above.
             }
