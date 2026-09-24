@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Modules\Edge\Http\Controllers;
 
 use App\Http\Controllers\Controller;
-use App\Models\Server;
 use App\Models\Site;
 use App\Modules\Edge\Services\EdgeRepoConfigYamlGenerator;
 use Illuminate\Http\Request;
@@ -18,13 +17,9 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class EdgeRepoConfigYamlDownloadController extends Controller
 {
-    public function __invoke(Request $request, Server $server, Site $site, EdgeRepoConfigYamlGenerator $generator): Response
+    public function __invoke(Request $request, Site $site, EdgeRepoConfigYamlGenerator $generator): Response
     {
         Gate::authorize('view', $site);
-
-        if ((string) $site->server_id !== (string) $server->id) {
-            abort(404);
-        }
         if (! $site->usesEdgeRuntime()) {
             abort(404, 'Not an Edge site.');
         }

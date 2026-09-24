@@ -14,7 +14,7 @@
 <div class="dply-page-shell space-y-4 pt-6">
     <x-breadcrumb-trail :items="[
         ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
-        ['label' => __('Projects'), 'href' => route('edge.index'), 'icon' => 'globe-alt'],
+        ['label' => __('Projects'), 'href' => route('dashboard'), 'icon' => 'globe-alt'],
         ['label' => __('Usage'), 'icon' => 'chart-bar'],
     ]" />
 
@@ -24,7 +24,7 @@
         icon="heroicon-o-chart-bar"
     >
         <x-slot:actions>
-            <x-outline-link href="{{ route('edge.index') }}" wire:navigate size="sm">
+            <x-outline-link href="{{ route('dashboard') }}" wire:navigate size="sm">
                 <x-heroicon-o-arrow-left class="h-4 w-4 shrink-0 opacity-90" aria-hidden="true" />
                 {{ __('Back to projects') }}
             </x-outline-link>
@@ -70,8 +70,8 @@
                         </dt>
                         <dd class="mt-0.5 font-mono text-lg font-semibold tabular-nums leading-none text-brand-ink">${{ number_format($totals['total_cents'] / 100, 2) }}</dd>
                         <p class="mt-1 text-2xs text-brand-mist">
-                            {{ __(':platform platform + :usage usage', [
-                                'platform' => '$'.number_format($totals['platform_cents'] / 100, 2),
+                            {{ __(':fees site fees + :usage usage', [
+                                'fees' => '$'.number_format($totals['platform_cents'] / 100, 2),
                                 'usage' => '$'.number_format($totals['usage_cents'] / 100, 2),
                             ]) }}
                         </p>
@@ -91,7 +91,7 @@
                         <x-heroicon-o-chart-bar class="h-6 w-6" aria-hidden="true" />
                     </span>
                     <p class="mt-2 text-sm text-brand-moss">{{ __('No billable Edge sites with usage in this window yet.') }}</p>
-                    <a href="{{ route('edge.index') }}" wire:navigate class="text-xs font-semibold text-brand-forest hover:underline dark:text-brand-sage">
+                    <a href="{{ route('dashboard') }}" wire:navigate class="text-xs font-semibold text-brand-forest hover:underline dark:text-brand-sage">
                         {{ __('Go to projects →') }}
                     </a>
                 </div>
@@ -112,7 +112,7 @@
                                     <th class="px-3 py-2 text-right">{{ __('Requests') }}</th>
                                     <th class="px-3 py-2 text-right">{{ __('Egress') }}</th>
                                     <th class="px-3 py-2 text-right">{{ __('R2 storage') }}</th>
-                                    <th class="px-3 py-2 text-right">{{ __('Platform') }}</th>
+                                    <th class="px-3 py-2 text-right">{{ __('Site fee') }}</th>
                                     <th class="px-3 py-2 text-right">{{ __('Usage') }}</th>
                                     <th class="px-3 py-2 text-right">{{ __('Est. total') }}</th>
                                     <th class="px-3 py-2 text-right">{{ __('Actions') }}</th>
@@ -157,7 +157,7 @@
                                         <td class="px-3 py-2.5 text-right">
                                             @if ($serverId && $siteId)
                                                 <a
-                                                    href="{{ route('sites.show', ['server' => $serverId, 'site' => $siteId, 'section' => 'edge-billing']) }}"
+                                                    href="{{ route('sites.show', ['server' => $serverId, 'site' => $siteId, 'section' => 'billing']) }}"
                                                     wire:navigate
                                                     class="inline-flex items-center gap-1 text-xs font-semibold text-brand-forest hover:underline dark:text-brand-sage"
                                                 >

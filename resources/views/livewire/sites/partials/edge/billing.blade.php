@@ -21,8 +21,14 @@
                         <dd class="mt-1 text-xl font-semibold tabular-nums text-brand-ink">${{ number_format(($billing['total_cents'] ?? 0) / 100, 2) }}</dd>
                     </div>
                     <div>
-                        <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Platform fee') }}</dt>
-                        <dd class="mt-1 text-xl font-semibold tabular-nums text-brand-ink">${{ number_format(($billing['platform_cents'] ?? 0) / 100, 2) }}</dd>
+                        <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ $billing['platform_label'] ?? __('Site fee') }}</dt>
+                        <dd class="mt-1 text-xl font-semibold tabular-nums text-brand-ink">
+                            @if (($billing['platform_cents'] ?? 0) > 0)
+                                ${{ number_format(($billing['platform_cents'] ?? 0) / 100, 2) }}
+                            @else
+                                {{ __('Included') }}
+                            @endif
+                        </dd>
                     </div>
                     <div>
                         <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Usage MTD') }}</dt>
@@ -131,14 +137,14 @@
         @else
             <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
                 <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Pricing') }}</p>
-                @if (($edgeManagedFee ?? 0) > 0)
-                    <p class="mt-2 text-sm text-brand-ink">
-                        <span class="text-2xl font-semibold tabular-nums">${{ number_format($edgeManagedFee, 2) }}</span>
-                        <span class="text-brand-moss">/ {{ __('month per live site') }}</span>
-                    </p>
-                @endif
+                <p class="mt-2 text-sm text-brand-ink">
+                    {{ __('Sites on your plan are included. On Pro and Team, sites past that count are :extra/mo and Worker SSR sites are :ssr/mo. Usage past the plan is metered.', [
+                        'extra' => '$'.number_format(((int) config('subscription.standard.edge_cents', 200)) / 100, 2),
+                        'ssr' => '$'.number_format(((int) config('subscription.standard.edge_ssr_cents', 700)) / 100, 2),
+                    ]) }}
+                </p>
                 @if ($edgeUsageBillingEnabled ?? false)
-                    <p class="mt-2 text-sm text-brand-moss">{{ __('Usage beyond included quotas is metered on requests and egress.') }}</p>
+                    <p class="mt-2 text-sm text-brand-moss">{{ __('Usage beyond the plan allowance is metered on requests and egress.') }}</p>
                     <ul class="mt-2 space-y-1 text-xs text-brand-mist">
                         @if (($edgeUsageRates['requests_per_million'] ?? 0) > 0)
                             <li>{{ __(':price / million requests', ['price' => '$'.number_format($edgeUsageRates['requests_per_million'], 2)]) }}</li>

@@ -1,5 +1,6 @@
 import {
   applyHtmlAddons,
+  injectDeployFooter,
   runEarlyAddons,
   waitingRoomAdmitCookie,
   type FormsConfig,
@@ -138,6 +139,8 @@ export interface HostMapEntry {
    * be set; the Worker bails (no injection) if either is missing.
    */
   comment_widget_enabled?: boolean;
+  /** When true, HTML responses gain the deployment id just before </body>. */
+  deploy_footer?: boolean;
   /** Per-parent HMAC token the widget includes in API calls for auth. */
   comment_widget_token?: string;
   /** dply backend base URL the widget POSTs/GETs comments against. */
@@ -573,8 +576,21 @@ async function handleRequestInner(
   // Container sites (PHP / Rails) dispatch the same way: the per-site script
   // in the namespace fronts the app container.
   if (hostEntry.runtime_mode === 'ssr' || hostEntry.runtime_mode === 'container') {
+    if (hostEntry.runtime_mode === 'container') {
+      const paused = await env.HOST_MAP.get(`container-pause:${hostEntry.site_id}`);
+      if (paused === '1') {
+        const pausedResponse = new Response('This app is paused. The workspace usage credit is used up.', {
+          status: 503,
+          headers: { 'content-type': 'text/plain; charset=utf-8', 'retry-after': '3600' },
+        });
+        recordRequest(ctx, env, request, pausedResponse, hostEntry, url, requestPath, started, 'container');
+
+        return pausedResponse;
+      }
+    }
     const ssrResponse = await dispatchSsrRequest(request, env, hostEntry);
-    const finalResponse = stampVariantCookie(applyRepoHeaderRules(ssrResponse, requestPath, hostEntry));
+    const stamped = stampVariantCookie(applyRepoHeaderRules(ssrResponse, requestPath, hostEntry));
+    const finalResponse = await maybeInjectDeployFooter(stamped, hostEntry);
     recordRequest(ctx, env, request, finalResponse, hostEntry, url, requestPath, started, hostEntry.runtime_mode === 'container' ? 'container' : 'ssr');
 
     return finalResponse;
@@ -724,7 +740,11 @@ async function handleRequestInner(
       hostEntry.turnstile?.enabled,
   );
 
-  if (isHtml && (shouldInjectRum(requestPath, hasIngest) || shouldInjectComments || hasHtmlAddons)) {
+  const shouldInjectDeployFooter = isHtml
+    && hostEntry.deploy_footer === true
+    && (hostEntry.deployment_id ?? '').trim() !== '';
+
+  if (isHtml && (shouldInjectRum(requestPath, hasIngest) || shouldInjectComments || hasHtmlAddons || shouldInjectDeployFooter)) {
     let html = await object.text();
     if (shouldInjectRum(requestPath, hasIngest)) {
       html = injectRumScript(html);
@@ -734,6 +754,9 @@ async function handleRequestInner(
     }
     if (hasHtmlAddons) {
       html = applyHtmlAddons(html, '/' + requestPath.replace(/^\/+/, ''), hostEntry);
+    }
+    if (shouldInjectDeployFooter) {
+      html = injectDeployFooter(html, hostEntry.deployment_id);
     }
     headers.delete('Content-Length');
     response = new Response(html, { status: 200, headers });
@@ -1709,6 +1732,23 @@ function timingSafeEqual(a: string, b: string): boolean {
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
 
   return diff === 0;
+}
+
+async function maybeInjectDeployFooter(response: Response, hostEntry: HostMapEntry): Promise<Response> {
+  if (hostEntry.deploy_footer !== true) return response;
+  const id = (hostEntry.deployment_id ?? '').trim();
+  if (id === '') return response;
+  const contentType = response.headers.get('Content-Type') ?? '';
+  if (!contentType.includes('text/html')) return response;
+
+  const html = await response.text();
+  const next = injectDeployFooter(html, id);
+  if (next === html) return new Response(next, response);
+
+  const headers = new Headers(response.headers);
+  headers.delete('Content-Length');
+
+  return new Response(next, { status: response.status, statusText: response.statusText, headers });
 }
 
 /**

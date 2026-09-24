@@ -19,7 +19,7 @@ This is the Edge-only cut of dply — the VM platform (BYO servers, SSH), Cloud 
 
 ## Pricing model
 
-A flat per-site platform fee (SSR sites cost more) plus metered CDN requests and bandwidth. Previews are free. Orgs can run up to three sites without a card; subscribing removes the cap. See [docs/EDGE_BILLING.md](docs/EDGE_BILLING.md).
+Free includes unlimited sites, seats, and builds, with $5 of usage credit. Pro ($20) and Team ($49) include more, then $2/mo for each site past the plan. Worker SSR sites are $7/mo. Usage past a paid plan is metered. Previews count as usage. See [docs/BILLING_AND_PLANS.md](docs/BILLING_AND_PLANS.md).
 
 ## Quick start
 

@@ -152,6 +152,42 @@ describe('handleRequest', () => {
     expect(response.headers.get('Cache-Control')).toBe('public, max-age=0, must-revalidate');
   });
 
+  it('injects the deploy id into html when the footer is enabled', async () => {
+    const env: Env = {
+      HOST_MAP: createMockKv({
+        'preview.example.test': { ...hostEntry, deploy_footer: true },
+      }),
+      ARTIFACTS: createMockR2({
+        'edge/site-1/deploy-9/index.html': {
+          body: '<!doctype html><html><body>edge</body></html>',
+          contentType: 'text/html; charset=utf-8',
+        },
+      }),
+    };
+
+    const response = await handleRequest(new Request('https://preview.example.test/'), env);
+    const html = await response.text();
+
+    expect(html).toContain('data-dply-deploy="deploy-9"');
+    expect(html.indexOf('data-dply-deploy')).toBeLessThan(html.indexOf('</body>'));
+  });
+
+  it('leaves html unchanged when the deploy footer is off', async () => {
+    const env: Env = {
+      HOST_MAP: createMockKv({ 'preview.example.test': hostEntry }),
+      ARTIFACTS: createMockR2({
+        'edge/site-1/deploy-9/index.html': {
+          body: '<!doctype html><html><body>edge</body></html>',
+          contentType: 'text/html; charset=utf-8',
+        },
+      }),
+    };
+
+    const response = await handleRequest(new Request('https://preview.example.test/'), env);
+
+    expect(await response.text()).not.toContain('data-dply-deploy');
+  });
+
   it('injects RUM script into html when log ingest is configured', async () => {
     const env: Env = {
       HOST_MAP: createMockKv({ 'preview.example.test': hostEntry }),
@@ -467,5 +503,73 @@ describe('container sites', () => {
 
     expect(seen).toEqual(['dply-ctr-site-1']);
     expect(await response.text()).toBe('from laravel');
+  });
+
+  it('returns 503 and does not start the container when the usage credit is used up', async () => {
+    const seen: string[] = [];
+    const host: HostMapEntry = {
+      site_id: 'site-1',
+      deployment_id: 'deploy-9',
+      storage_prefix: 'edge/site-1/deploy-9',
+      runtime_mode: 'container',
+      ssr_worker_script: 'dply-ctr-site-1',
+    } as HostMapEntry;
+    const env: Env = {
+      HOST_MAP: {
+        get: async (key: string, type?: string) => {
+          if (key === 'container-pause:site-1') {
+            return '1';
+          }
+          if (key === 'app.example.test') {
+            return type === 'json' ? host : JSON.stringify(host);
+          }
+
+          return null;
+        },
+      } as KVNamespace,
+      ARTIFACTS: createMockR2({}),
+      DISPATCHER: {
+        get: (name: string) => {
+          seen.push(name);
+          return { fetch: async () => new Response('from laravel', { status: 200 }) };
+        },
+      } as unknown as DispatchNamespace,
+    };
+
+    const response = await handleRequest(new Request('https://app.example.test/dashboard'), env);
+
+    expect(seen).toEqual([]);
+    expect(response.status).toBe(503);
+    expect(await response.text()).toContain('usage credit is used up');
+  });
+
+  it('adds the deploy id to container html when the footer is enabled', async () => {
+    const env: Env = {
+      HOST_MAP: createMockKv({
+        'app.example.test': {
+          site_id: 'site-1',
+          deployment_id: 'deploy-9',
+          storage_prefix: 'edge/site-1/deploy-9',
+          runtime_mode: 'container',
+          deploy_footer: true,
+          ssr_worker_script: 'dply-ctr-site-1',
+        } as HostMapEntry,
+      }),
+      ARTIFACTS: createMockR2({}),
+      DISPATCHER: {
+        get: () => ({
+          fetch: async () => new Response('<html><body>from laravel</body></html>', {
+            status: 200,
+            headers: { 'Content-Type': 'text/html; charset=utf-8' },
+          }),
+        }),
+      } as unknown as DispatchNamespace,
+    };
+
+    const response = await handleRequest(new Request('https://app.example.test/dashboard'), env);
+    const html = await response.text();
+
+    expect(html).toContain('data-dply-deploy="deploy-9"');
+    expect(html.indexOf('data-dply-deploy')).toBeLessThan(html.indexOf('</body>'));
   });
 });

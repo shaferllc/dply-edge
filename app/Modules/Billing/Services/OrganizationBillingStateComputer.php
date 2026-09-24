@@ -5,7 +5,6 @@ namespace App\Modules\Billing\Services;
 use App\Models\Organization;
 use App\Models\Site;
 use App\Modules\Edge\Support\EdgeBuildMinutes;
-use App\Modules\Edge\Support\EdgeLoadBalancing;
 
 /**
  * Builds a {@see DesiredBillingState} for an organization: its tier (from the
@@ -84,12 +83,11 @@ class OrganizationBillingStateComputer
 
         $edgeCount = 0;
         $edgeSsrCount = 0;
-        $edgeLbEndpointCount = 0;
 
         $organization->sites()
             ->where('created_at', '<=', $ageCutoff)
             ->get()
-            ->each(function (Site $site) use (&$edgeCount, &$edgeSsrCount, &$edgeLbEndpointCount): void {
+            ->each(function (Site $site) use (&$edgeCount, &$edgeSsrCount): void {
                 if (
                     $site->status !== Site::STATUS_EDGE_ACTIVE
                     || $site->edge_backend !== 'dply_edge'
@@ -103,7 +101,6 @@ class OrganizationBillingStateComputer
                 if ($runtimeMode === 'ssr') {
                     $edgeSsrCount++;
                 }
-                $edgeLbEndpointCount += EdgeLoadBalancing::billableEndpointCount($site);
             });
 
         $seatCount = $organization->users()->count();
@@ -137,8 +134,8 @@ class OrganizationBillingStateComputer
             edgeSsrUnitCents: $billable ? (int) config('subscription.standard.edge_ssr_cents', 700) : 0,
             edgeUsageSubtotalCents: $billable ? (int) $edgeUsageEstimate['subtotal_cents'] : 0,
             edgeUsageEstimate: $edgeUsageEstimate,
-            edgeLbEndpointCount: $edgeLbEndpointCount,
-            edgeLbEndpointUnitCents: $billable ? (int) config('subscription.standard.edge_lb_endpoint_cents', 800) : 0,
+            edgeLbEndpointCount: 0,
+            edgeLbEndpointUnitCents: 0,
             includedSites: $tier['sites'] ?? PHP_INT_MAX,
             seatCount: $seatCount,
             includedSeats: $tier['seats'] ?? null,

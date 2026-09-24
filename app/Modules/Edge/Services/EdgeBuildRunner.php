@@ -11,6 +11,7 @@ use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Services\Ssr\EdgeSsrFrameworkRegistry;
 use App\Modules\Edge\Support\EdgeBuildDockerBootstrap;
 use App\Modules\Edge\Support\EdgeLiveBuildLog;
+use App\Modules\Edge\Support\EdgeLogCopy;
 use App\Modules\Edge\Support\EdgeRepoRoot;
 use App\Modules\Edge\Support\FakeEdgeProvision;
 use App\Services\DeployContract\DeployContractPolicyLoader;
@@ -160,15 +161,25 @@ class EdgeBuildRunner
             // (skips re-downloading the whole history on repeat builds) and
             // retry-on-transient-failure (TCP timeouts no longer kill the
             // build outright).
+            // Streamed, not collected: a first-time mirror population can run
+            // for minutes, and the operator needs to see it working.
+            $streamed = [];
             $cloneLog = app(EdgeRepoCloner::class)->clone(
                 $repoUrl,
                 $branch,
                 $checkout,
                 $commitOverride,
                 $normalizedRepoRoot !== '' ? $normalizedRepoRoot : null,
+                function (string $line) use ($buildLog, &$streamed): void {
+                    $this->appendBuildLog($buildLog, $line."\n");
+                    $streamed[$line] = true;
+                },
             );
+            // Whatever the cloner recorded without streaming (fallback path).
             foreach ($cloneLog as $line) {
-                $this->appendBuildLog($buildLog, $line."\n");
+                if (! isset($streamed[$line])) {
+                    $this->appendBuildLog($buildLog, $line."\n");
+                }
             }
 
             $resolvedCommit = $this->resolveHead($checkout);
@@ -442,7 +453,7 @@ class EdgeBuildRunner
             $ssrProfile = null;
             if ($runtimeMode === self::MODE_SSR) {
                 if (! is_file($checkout.'/package.json')) {
-                    throw new RuntimeException('SSR builds require a package.json declaring a supported framework + Cloudflare adapter.');
+                    throw new RuntimeException('SSR builds require a package.json declaring a supported framework + edge adapter.');
                 }
                 $packageJson = json_decode((string) file_get_contents($checkout.'/package.json'), true);
                 $packageJson = is_array($packageJson) ? $packageJson : [];
@@ -451,7 +462,7 @@ class EdgeBuildRunner
                 if ($ssrProfile === null) {
                     throw new RuntimeException(
                         'SSR Edge sites need one of: Keel, Next.js, Astro, SvelteKit, or Remix. '
-                        .'Add the framework + its Cloudflare adapter to package.json or pick static / hybrid mode.'
+                        .'Add the framework + its edge adapter to package.json or pick static / hybrid mode.'
                     );
                 }
                 if (! EdgeSsrFrameworkRegistry::adapterInstalled($ssrProfile, $packageJson)) {
@@ -723,10 +734,34 @@ class EdgeBuildRunner
 
     private function appendBuildLog(string $path, string $chunk): void
     {
+        $chunk = EdgeLogCopy::forCustomer(self::scrubHostPaths($chunk));
         File::append($path, $chunk);
         if ($this->activeDeploymentId !== null && $this->activeDeploymentId !== '') {
             EdgeLiveBuildLog::append($this->activeDeploymentId, $chunk);
         }
+    }
+
+    /**
+     * Build logs are customer-facing, and git/docker happily print the build
+     * host's absolute paths ("Cloning into '/Users/…/edge-builds/…/src'").
+     * Those say nothing useful about the customer's build and expose our
+     * layout, so collapse them to the path inside the build.
+     */
+    private static function scrubHostPaths(string $chunk): string
+    {
+        $roots = array_unique(array_filter([
+            rtrim(self::buildRoot(), '/'),
+            rtrim(base_path(), '/'),
+        ]));
+
+        foreach ($roots as $root) {
+            // …/dply-edge-build-<id>/src → src
+            $chunk = preg_replace('#'.preg_quote($root, '#').'/dply-edge-build-[A-Za-z0-9]+/?#', '', $chunk) ?? $chunk;
+            $chunk = str_replace($root.'/', '', $chunk);
+            $chunk = str_replace($root, '', $chunk);
+        }
+
+        return $chunk;
     }
 
     /**

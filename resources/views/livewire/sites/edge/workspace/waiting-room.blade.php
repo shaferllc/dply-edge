@@ -36,11 +36,21 @@
                     <p class="mt-1 text-xs leading-relaxed text-brand-moss">{{ __('Admitted visitors get a cookie and see the normal site for the session length.') }}</p>
                 </li>
             </ol>
-            <div class="mt-4 rounded-xl border border-dashed border-brand-ink/15 bg-brand-sand/15 px-4 py-3">
-                <p class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('What they see while waiting') }}</p>
-                <div class="mt-2 rounded-lg border border-brand-ink/10 bg-[#f6f5ef] px-4 py-6 text-center text-brand-ink shadow-sm">
-                    <p class="text-base font-semibold">{{ __('You’re in line') }}</p>
-                    <p class="mt-1 text-sm text-brand-moss">{{ __('This site is at capacity. We’ll refresh automatically.') }}</p>
+            <div class="mt-4">
+                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('What they see while waiting') }}</p>
+                <div class="mt-2 overflow-hidden rounded-xl border border-brand-ink/15 shadow-sm">
+                    <div class="flex items-center gap-2 bg-[#171a0e] px-3 py-2">
+                        <span class="flex gap-1" aria-hidden="true">
+                            <span class="size-2 rounded-full bg-white/25"></span>
+                            <span class="size-2 rounded-full bg-white/25"></span>
+                            <span class="size-2 rounded-full bg-white/25"></span>
+                        </span>
+                        <span class="min-w-0 truncate font-mono text-xs text-[#e8ece3]/80">{{ parse_url((string) ($site->edgeLiveUrl() ?? ''), PHP_URL_HOST) ?: __('your app') }}</span>
+                    </div>
+                    <div class="bg-[#f6f5ef] px-6 py-10 text-center">
+                        <p class="text-lg font-semibold text-[#171a0e]">{{ __('You’re in line') }}</p>
+                        <p class="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-[#3f4438]">{{ __('This site is at capacity. We’ll refresh automatically.') }}</p>
+                    </div>
                 </div>
                 <p class="mt-2 text-xs text-brand-moss">{{ __('Served by Edge (not your build). Branding customization is not available yet.') }}</p>
             </div>

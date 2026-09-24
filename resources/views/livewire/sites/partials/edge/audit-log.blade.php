@@ -30,7 +30,7 @@
                 __('Export CSV or JSON when you need a copy outside the dashboard.'),
             ],
             'tips' => [
-                __('This is the dply audit log, not Cloudflare’s account audit log.'),
+                __('This is the dply audit log for this app.'),
                 __('Deploy history itself lives under Deploys / Build & deploy logs.'),
             ],
         ])

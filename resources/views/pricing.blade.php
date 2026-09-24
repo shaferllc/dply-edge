@@ -52,14 +52,18 @@
             [__('Sites included'), fn ($t, $k) => $unitLabel($t['sites']).($k !== 'free' ? __(' · then $:p each', ['p' => number_format($sitePrice, 0)]) : '')],
             [__('Worker SSR sites'), fn ($t) => $t['ssr'] ? __('$:p each', ['p' => number_format($ssrPrice, 0)]) : '—'],
             [__('Seats'), fn ($t) => $unitLabel($t['seats']).($t['extra_seat_cents'] ? __(' · then $:p each', ['p' => number_format($t['extra_seat_cents'] / 100, 0)]) : '')],
-            [__('Build minutes / mo'), fn ($t) => number_format((int) $t['build_minutes']).($t['build_minute_overage_millicents'] ? __(' · then $:p/min', ['p' => rtrim(rtrim(number_format($t['build_minute_overage_millicents'] / 100_000, 3), '0'), '.')]) : __(' · then builds pause'))],
+            [__('Build minutes / mo'), fn ($t) => $t['build_minutes'] === null ? __('Unlimited') : number_format((int) $t['build_minutes']).($t['build_minute_overage_millicents'] ? __(' · then $:p/min', ['p' => rtrim(rtrim(number_format($t['build_minute_overage_millicents'] / 100_000, 3), '0'), '.')]) : __(' · then builds pause'))],
             [__('Concurrent builds'), fn ($t) => (string) $t['concurrent_builds']],
             [__('Build timeout'), fn ($t) => __(':m min', ['m' => $t['build_timeout_minutes']])],
             [__('Requests / mo'), fn ($t) => $unitLabel($t['requests'])],
-            [__('Egress / mo'), fn ($t) => number_format((int) $t['egress_gb']).' GB'],
+            [__('Egress / mo'), fn ($t) => $t['egress_gb'] === null ? __('Unlimited') : number_format((int) $t['egress_gb']).' GB'],
             [__('Custom domains per site'), fn ($t) => $unitLabel($t['custom_domains_per_site'])],
             [__('Container apps (PHP, Rails, Node)'), fn ($t) => $t['containers'] ? __(':credit compute included', ['credit' => '$'.number_format(($t['compute_credit_cents'] ?? 0) / 100, 0)]) : '—'],
-            [__('Load balancing ($8/endpoint)'), fn ($t) => $yesNo((bool) $t['addons'])],
+            [__('Usage credit'), fn ($t) => isset($t['spending_limit_cents']) ? __('$ :n, then apps pause', ['n' => number_format(((int) $t['spending_limit_cents']) / 100, 0)]) : __('Billed as overage')],
+            [__('Managed queues'), fn ($t) => $unitLabel($t['queues'] ?? null)],
+            [__('Scale to zero'), fn ($t) => $t['containers'] ? __('Sleeps when idle') : '—'],
+            [__('DDoS mitigation'), fn () => __('Yes')],
+            [__('Request logs'), fn () => __(':d days', ['d' => (int) config('edge.analytics.access_logs_days', 7)])],
             [__('Audit log'), fn ($t) => $yesNo((bool) $t['audit_log'])],
             [__('Preview deployments'), fn () => __('Unlimited · usage counts')],
         ];
@@ -90,7 +94,7 @@
         $faqs = [
             [
                 'q' => __('What exactly am I paying for?'),
-                'a' => __('Your plan’s monthly fee, plus anything past its allowance: extra sites, Worker SSR sites, extra seats on Team, and metered delivery or build minutes. Free needs no card.'),
+                'a' => __('Your plan’s monthly fee, plus anything past its allowance: extra sites, Worker SSR sites, extra seats on Team, and metered delivery or build minutes. Free needs no card and includes $5 of usage.'),
             ],
             [
                 'q' => __('Do preview deployments cost anything?'),
@@ -98,11 +102,11 @@
             ],
             [
                 'q' => __('What happens if I go past my plan?'),
-                'a' => __('On Pro and Team, sites keep serving and builds keep running; the extra is metered at the rates above and lands on your next invoice. On Free, builds pause until the next month once the build minutes run out.'),
+                'a' => __('On Pro and Team, sites keep serving and builds keep running; the extra is metered at the rates above and lands on your next invoice. On Free, builds and traffic pause until the next month once the $5 usage credit is used.'),
             ],
             [
                 'q' => __('How is Worker SSR different?'),
-                'a' => __('Worker SSR renders on Cloudflare Workers instead of shipping prebuilt files, so each SSR site carries its own monthly fee on Pro and Team.'),
+                'a' => __('Worker SSR renders on Dply Edge instead of shipping prebuilt files, so each SSR site carries its own monthly fee on Pro and Team.'),
             ],
             [
                 'q' => __('Can I pay yearly?'),
@@ -126,7 +130,7 @@
                     {{ __('Pick a plan. Pay for what you outgrow.') }}
                 </h1>
                 <p class="mt-5 max-w-2xl text-base leading-7 text-edge-mute">
-                    {{ __('Free to start, Pro for real projects, Team for your whole company. Each plan includes sites, seats, build minutes and traffic; anything past that is metered, previews included.') }}
+                    {{ __('Free to start with unlimited apps and $5 of usage, Pro for real projects, Team for your whole company. Anything past a paid plan is metered, previews included.') }}
                 </p>
 
                 <div class="mt-8 flex flex-wrap items-center gap-4">
@@ -153,7 +157,7 @@
                             ${{ number_format($tier['price_cents'] / 100, 0) }}<span class="text-sm font-normal text-edge-mute">{{ __('/mo') }}</span>
                         </p>
                         <p class="mt-3 text-sm leading-6 text-edge-mute">
-                            {{ trans_choice(':count site|:count sites', $tier['sites']) }} · {{ trans_choice(':count seat|:count seats', $tier['seats']) }} · {{ __(':m build minutes', ['m' => number_format($tier['build_minutes'])]) }}
+                            {{ $tier['sites'] === null ? __('Unlimited sites') : trans_choice(':count site|:count sites', (int) $tier['sites']) }} · {{ $tier['seats'] === null ? __('Unlimited seats') : trans_choice(':count seat|:count seats', (int) $tier['seats']) }} · {{ $tier['build_minutes'] === null ? __('Unlimited builds') : __(':m build minutes', ['m' => number_format((int) $tier['build_minutes'])]) }}
                         </p>
                     </div>
                 @endforeach
@@ -234,7 +238,7 @@
             <div class="mx-auto max-w-6xl px-6 py-14 lg:px-10">
                 <h2 class="text-2xl font-bold tracking-[-0.02em]">{{ __('Container compute, by the minute') }}</h2>
                 <p class="mt-2 max-w-2xl text-sm leading-6 text-edge-mute">
-                    {{ __('PHP, Rails and Node server apps run on Cloudflare Containers. You pay for the seconds they run — containers sleep when idle and the meter stops. Pro includes $5 and Team $20 of compute each month.') }}
+                    {{ __('PHP, Rails and Node server apps run on Dply Edge. You pay for the seconds they run — containers sleep when idle and the meter stops. Pro includes $5 and Team $20 of compute each month.') }}
                 </p>
 
                 <div class="mt-8 overflow-x-auto border border-edge-line">

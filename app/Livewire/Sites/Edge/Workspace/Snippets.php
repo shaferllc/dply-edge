@@ -184,7 +184,7 @@ HTML,
         $repo = $this->edgeRepoConfigSection('snippets');
 
         return view('livewire.sites.edge.workspace.snippets', array_merge(
-            EdgeSiteViewData::context($this->site, 'edge-snippets'),
+            EdgeSiteViewData::context($this->site, 'snippets'),
             [
                 'server' => $this->server,
                 'site' => $this->site,

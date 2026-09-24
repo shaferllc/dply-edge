@@ -515,6 +515,18 @@ export async function runEarlyAddons(
   return null;
 }
 
+/** A one-line deploy id before `</body>`, when the site has the footer enabled. */
+export function injectDeployFooter(html: string, deploymentId: string): string {
+  const id = deploymentId.trim().replace(/[^A-Za-z0-9_-]/g, '');
+  if (id === '' || html.includes('data-dply-deploy=')) return html;
+
+  const tag = `<p data-dply-deploy="${id}" style="margin:1rem 0 0;padding:0.5rem 1rem;text-align:center;font:12px/1.4 ui-monospace,monospace;color:#6b7280">${id}</p>`;
+  const idx = html.toLowerCase().lastIndexOf('</body>');
+  if (idx === -1) return html + tag;
+
+  return html.slice(0, idx) + tag + html.slice(idx);
+}
+
 export function applyHtmlAddons(html: string, pathname: string, host: EdgeAddonsHostEntry): string {
   let out = html;
   out = injectSnippets(out, pathname, host.snippets);

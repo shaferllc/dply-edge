@@ -175,7 +175,7 @@ final class EdgeSiteViewData
 
     private static function sectionNeedsDeployments(string $section): bool
     {
-        return in_array($section, ['general', 'edge-deploys', 'edge-logs', 'edge-build'], true);
+        return in_array($section, ['general', 'deploys', 'logs', 'build'], true);
     }
 
     private static function sectionNeedsDeliveryWorker(string $section): bool
@@ -186,7 +186,7 @@ final class EdgeSiteViewData
 
     private static function sectionNeedsDeliveryBanner(string $section): bool
     {
-        return in_array($section, ['general', 'edge-delivery'], true);
+        return in_array($section, ['general', 'delivery'], true);
     }
 
     private static function deliveryBackendLabel(

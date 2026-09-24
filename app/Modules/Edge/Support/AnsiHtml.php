@@ -58,6 +58,8 @@ final class AnsiHtml
             return '';
         }
 
+        $text = EdgeLogCopy::forCustomer($text);
+
         // Normalize CR-only progress rewrites so the log stays readable.
         $text = str_replace("\r\n", "\n", $text);
         $text = preg_replace("/\r[^\n]/", "\n", $text) ?? $text;

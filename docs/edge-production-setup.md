@@ -212,7 +212,7 @@ On **Edge → Create**, choose **Your Cloudflare account** and pick the bootstra
 
 ### Billing
 
-BYO Edge sites still incur the dply **platform fee** per live site where applicable, but **Cloudflare delivery usage is billed by Cloudflare directly** — not through dply's metered Edge usage line item (which applies to managed `dply_edge` sites only).
+BYO Edge sites are billed by Cloudflare directly. dply does not add a site fee or a delivery meter for them. The metered Edge usage line applies to managed `dply_edge` sites only.
 
 ## Troubleshooting
 

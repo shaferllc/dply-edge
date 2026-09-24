@@ -142,7 +142,7 @@
             <p class="mt-5 text-xs leading-relaxed text-edge-mute">
                 <template x-if="pro && team"><span>{{ __('Pro') }} <span x-text="money(pro.total)"></span> · {{ __('Team') }} <span x-text="money(team.total)"></span>. </span></template>
                 <template x-if="pro === null"><span>{{ __('Pro includes :n seats, so this needs Team.', ['n' => $tiers['pro']['seats']]) }} </span></template>
-                {{ __('Free covers 1 site and 1 seat with no card. Include preview traffic and build minutes in the numbers above.') }}
+                {{ __('Free covers unlimited sites and seats, with $5 of usage and no card. Include preview traffic and build minutes in the numbers above.') }}
             </p>
         </div>
     </div>

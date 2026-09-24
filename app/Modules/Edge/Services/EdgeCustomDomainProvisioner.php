@@ -220,7 +220,7 @@ final class EdgeCustomDomainProvisioner
                 subject: $site->fresh(),
                 title: $title,
                 body: $entry['error'] ?? null,
-                url: route('sites.show', ['server' => $site->server_id, 'site' => $site->id, 'section' => 'edge-routing', 'tab' => 'domains']),
+                url: route('sites.show', ['server' => $site->server_id, 'site' => $site->id, 'section' => 'routing', 'tab' => 'domains']),
                 metadata: [
                     'hostname' => $hostname,
                     'expected_cname' => $expected,

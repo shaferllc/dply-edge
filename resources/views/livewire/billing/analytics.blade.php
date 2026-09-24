@@ -287,7 +287,7 @@
                         icon="heroicon-o-bolt"
                         :title="__('Projects')"
                         :count="count($edgeSites) ?: null"
-                        :note="__('Per-site platform fee, delivery usage (MTD), and daily request trends.')"
+                        :note="__('Delivery usage this month, plus any extra-site or SSR fee.')"
                     />
 
                     @if ($edgeSites === [])
@@ -329,7 +329,7 @@
                         class="border-b border-brand-ink/10"
                         icon="heroicon-o-cube"
                         :title="__('Managed products')"
-                        :note="__('Live Edge sites billed per site.')"
+                        :note="__('Included sites are $0. Extra sites and SSR sites show their fee.')"
                     />
 
                     <div class="bg-white px-3 py-2">

@@ -49,7 +49,7 @@ class Deploys extends Component
             : null;
 
         return view('livewire.sites.edge.workspace.deploys', array_merge(
-            EdgeSiteViewData::context($this->site, 'edge-deploys'),
+            EdgeSiteViewData::context($this->site, 'deploys'),
             [
                 'server' => $this->server,
                 'site' => $this->site,

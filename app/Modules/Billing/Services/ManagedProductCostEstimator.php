@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Modules\Billing\Services;
 
 /**
- * Surfaces dply's Edge per-site fees and usage rates in create flows, site
- * settings and the pricing page — read from the same config the biller uses.
+ * Extra-site rate, SSR rate, and usage rates for create flows, site
+ * settings, and the pricing page — read from the same config the biller uses.
  */
 class ManagedProductCostEstimator
 {
@@ -15,14 +15,14 @@ class ManagedProductCostEstimator
         return ((int) config('subscription.standard.edge_cents', 0)) / 100;
     }
 
-    /** Monthly platform fee (dollars) for Worker-native SSR Edge sites. */
+    /** Monthly fee (dollars) for each Worker-native SSR Edge site. */
     public function edgeSsrFee(): float
     {
         return ((int) config('subscription.standard.edge_ssr_cents', 0)) / 100;
     }
 
     /**
-     * Platform fee for an Edge runtime mode (static/hybrid → edgeFee, ssr → edgeSsrFee).
+     * Extra-site rate for static/hybrid, SSR rate for Worker-native SSR.
      */
     public function edgeFeeForRuntimeMode(string $runtimeMode): float
     {

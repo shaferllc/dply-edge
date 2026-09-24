@@ -13,7 +13,7 @@
             @endunless
         </div>
         @if ($compact)
-            <a href="{{ route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'edge-deploys']) }}" wire:navigate class="text-xs font-medium text-brand-sage hover:underline">
+            <a href="{{ route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'deploys']) }}" wire:navigate class="text-xs font-medium text-brand-sage hover:underline">
                 {{ __('View all →') }}
             </a>
         @elseif ($edgeDeployments->count() > 0)
@@ -126,10 +126,11 @@
                 <thead class="bg-brand-sand/30 text-left text-2xs font-semibold uppercase tracking-[0.14em] text-brand-mist">
                     <tr>
                         <th class="px-6 py-3 sm:px-8">{{ __('Deployment') }}</th>
-                        <th class="px-4 py-3">{{ __('Status') }}</th>
-                        <th class="px-4 py-3">{{ __('Branch') }}</th>
-                        <th class="px-4 py-3">{{ __('Commit') }}</th>
-                        <th class="px-4 py-3">{{ __('Published') }}</th>
+                        <th class="whitespace-nowrap px-4 py-3">{{ __('Status') }}</th>
+                        <th class="whitespace-nowrap px-4 py-3">{{ __('Branch') }}</th>
+                        <th class="whitespace-nowrap px-4 py-3">{{ __('Commit') }}</th>
+                        <th class="w-px whitespace-nowrap px-4 py-3 text-right">{{ __('Build') }}</th>
+                        <th class="whitespace-nowrap px-4 py-3">{{ __('Published') }}</th>
                         <th class="px-6 py-3 text-right sm:px-8">{{ __('Actions') }}</th>
                     </tr>
                 </thead>
@@ -168,7 +169,7 @@
                                     </div>
                                 @endif
                             </td>
-                            <td class="px-4 py-3">
+                            <td class="whitespace-nowrap px-4 py-3">
                                 <span class="inline-flex rounded-full px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide {{ $depBadge }}">
                                     {{ str_replace('_', ' ', (string) $deployment->status) }}
                                 </span>
@@ -186,7 +187,22 @@
                                     <span class="text-brand-mist">—</span>
                                 @endif
                             </td>
-                            <td class="px-4 py-3 text-xs text-brand-moss">
+                            <td class="w-px whitespace-nowrap px-4 py-3 text-right text-xs tabular-nums text-brand-moss">
+                                @php
+                                    // Clone → build → deploy. Queue wait and publish are excluded
+                                    // (BuildEdgeSiteJob times from build_started_at), so this is
+                                    // the number that moves when a build gets faster.
+                                    $secs = (int) ($deployment->build_seconds ?? 0);
+                                @endphp
+                                @if ($secs > 0)
+                                    <span title="{{ __('Clone, build and deploy — excludes queue wait.') }}">
+                                        {{ $secs < 60 ? $secs.'s' : intdiv($secs, 60).'m '.str_pad((string) ($secs % 60), 2, '0', STR_PAD_LEFT).'s' }}
+                                    </span>
+                                @else
+                                    <span class="text-brand-mist">—</span>
+                                @endif
+                            </td>
+                            <td class="whitespace-nowrap px-4 py-3 text-xs text-brand-moss">
                                 {{ $deployment->published_at?->diffForHumans() ?? ($deployment->created_at?->diffForHumans() ?? '—') }}
                                 @if ($deployment->pruned_at)
                                     <span class="ms-1 inline-flex rounded-full bg-brand-sand/60 px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide text-brand-mist" title="{{ __('R2 artifacts deleted by retention policy.') }}">{{ __('Pruned') }}</span>

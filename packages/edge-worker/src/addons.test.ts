@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyHtmlAddons, injectSnippets, injectTags, injectTurnstileWidget } from './addons';
+import { applyHtmlAddons, injectDeployFooter, injectSnippets, injectTags, injectTurnstileWidget } from './addons';
 
 describe('edge addons html helpers', () => {
   it('injects turnstile into forms', () => {
@@ -8,6 +8,13 @@ describe('edge addons html helpers', () => {
     expect(out).toContain('cf-turnstile');
     expect(out).toContain('site-key-1');
     expect(out).toContain('challenges.cloudflare.com/turnstile');
+  });
+
+  it('injects a deploy id before the closing body tag', () => {
+    const out = injectDeployFooter('<html><body><p>Hi</p></body></html>', 'deploy-9');
+    expect(out).toContain('data-dply-deploy="deploy-9"');
+    expect(out.indexOf('data-dply-deploy')).toBeLessThan(out.indexOf('</body>'));
+    expect(injectDeployFooter(out, 'deploy-9').match(/data-dply-deploy/g)).toHaveLength(1);
   });
 
   it('injects head snippets', () => {

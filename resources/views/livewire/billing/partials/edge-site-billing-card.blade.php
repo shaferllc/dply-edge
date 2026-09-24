@@ -22,8 +22,14 @@
     <div class="grid gap-2.5 px-3 py-2.5 sm:grid-cols-2 sm:px-4">
         <dl class="space-y-2 text-sm">
             <div class="flex justify-between gap-2">
-                <dt class="text-brand-moss">{{ __('Platform fee') }}</dt>
-                <dd class="tabular-nums font-medium text-brand-ink">${{ number_format(($site['platform_cents'] ?? 0) / 100, 2) }}</dd>
+                <dt class="text-brand-moss">{{ $site['platform_label'] ?? __('Site fee') }}</dt>
+                <dd class="tabular-nums font-medium text-brand-ink">
+                    @if (($site['platform_cents'] ?? 0) > 0)
+                        ${{ number_format(($site['platform_cents'] ?? 0) / 100, 2) }}
+                    @else
+                        {{ __('Included') }}
+                    @endif
+                </dd>
             </div>
             <div class="flex justify-between gap-2">
                 <dt class="text-brand-moss">{{ __('Delivery usage') }}</dt>

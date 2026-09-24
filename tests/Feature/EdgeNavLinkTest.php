@@ -12,31 +12,31 @@ use Laravel\Pennant\Feature;
 uses(RefreshDatabase::class);
 
 /*
- | The nav is asserted on /edge rather than /dashboard: the dashboard route is
- | a redirect into this surface now.
+ | The app list is /dashboard. Databases and queues live on each app, so the
+ | Compute tab strip is not on this page.
  */
-test('edge surface carries the compute nav row when surface edge is active', function () {
+test('dashboard does not show the compute nav row', function () {
     Feature::define('surface.edge', fn () => true);
     Feature::flushCache();
     $user = ownerWithOrg();
 
     $this->actingAs($user)
-        ->get(route('edge.index'))
+        ->get(route('dashboard'))
         ->assertOk()
-        ->assertSee('Compute')
-        ->assertSee('Projects')
-        ->assertSee(route('edge.index'), false);
+        ->assertDontSee('Compute')
+        ->assertSee('Dashboard')
+        ->assertSee(route('dashboard'), false);
 });
 
-test('edge surface is not reachable when surface edge is inactive', function () {
+test('dashboard stays reachable when the retired surface edge flag is off', function () {
     Feature::define('surface.edge', fn () => false);
     Feature::flushCache();
 
     $user = ownerWithOrg();
 
     $this->actingAs($user)
-        ->get(route('edge.index'))
-        ->assertNotFound();
+        ->get(route('dashboard'))
+        ->assertOk();
 });
 
 function ownerWithOrg(): User

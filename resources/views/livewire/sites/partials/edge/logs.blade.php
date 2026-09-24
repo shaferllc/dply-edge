@@ -9,14 +9,14 @@
         <p class="text-xs text-brand-moss">
             {{ __('Build and deploy output — not visitor HTTP logs.') }}
             <a
-                href="{{ route('sites.show', ['server' => $server ?? $site->server, 'site' => $site, 'section' => 'edge-traffic']) }}"
+                href="{{ route('sites.show', ['server' => $server ?? $site->server, 'site' => $site, 'section' => 'traffic']) }}"
                 wire:navigate
                 class="font-medium text-brand-sage hover:underline"
             >{{ __('Live requests') }}</a>
             {{ __('are under Traffic.') }}
         </p>
         <a
-            href="{{ route('sites.show', ['server' => $server ?? $site->server, 'site' => $site, 'section' => 'edge-deploys']) }}"
+            href="{{ route('sites.show', ['server' => $server ?? $site->server, 'site' => $site, 'section' => 'deploys']) }}"
             wire:navigate
             class="text-xs font-medium text-brand-sage hover:underline"
         >
@@ -46,18 +46,67 @@
                         $statusLabel = str_replace('_', ' ', (string) $deployment->status);
                     @endphp
                     <li class="px-5 py-3 sm:px-6" wire:key="edge-log-{{ $deployment->id }}">
+                        @php
+                            $commitMeta = is_array($deployment->meta['commit'] ?? null) ? $deployment->meta['commit'] : [];
+                            $commitSubject = is_string($commitMeta['subject'] ?? null) ? $commitMeta['subject'] : null;
+                            $commitAuthor = is_string($commitMeta['author'] ?? null) ? $commitMeta['author'] : null;
+                            $containerMeta = is_array($deployment->meta['container'] ?? null) ? $deployment->meta['container'] : [];
+                            $containerStack = is_string($containerMeta['stack'] ?? null) ? $containerMeta['stack'] : null;
+                            $healthMeta = is_array($containerMeta['health'] ?? null) ? $containerMeta['health'] : [];
+                            $healthStatus = isset($healthMeta['status']) ? (int) $healthMeta['status'] : null;
+                            $healthMs = isset($healthMeta['ms']) ? (int) $healthMeta['ms'] : null;
+                            $rolloutHealth = is_array($containerMeta['rollout']['health'] ?? null) ? $containerMeta['rollout']['health'] : [];
+                            $healthyInstances = isset($rolloutHealth['healthy']) ? (int) $rolloutHealth['healthy'] : null;
+                            $buildSeconds = (int) ($deployment->build_seconds ?? 0);
+                            $buildDuration = $buildSeconds > 0
+                                ? ($buildSeconds < 60 ? $buildSeconds.'s' : intdiv($buildSeconds, 60).'m '.str_pad((string) ($buildSeconds % 60), 2, '0', STR_PAD_LEFT).'s')
+                                : null;
+                            $isProduction = ($edgeActiveDeploymentId ?? null) === $deployment->id;
+                            $detailUrl = route('sites.edge.deployments.show', ['server' => $server ?? $site->server, 'site' => $site, 'deployment' => $deployment]);
+                        @endphp
                         <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                             <p class="text-sm capitalize {{ $depBadge }}">
                                 <span class="font-semibold">{{ $statusLabel }}</span>
+                                @if ($isProduction)
+                                    <span class="ms-1 text-xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Production') }}</span>
+                                @endif
+                                @if ($deployment->git_branch)
+                                    <span class="font-mono text-xs text-brand-mist">· {{ $deployment->git_branch }}</span>
+                                @endif
                                 @if ($deployment->git_commit)
-                                    <span class="font-mono text-xs text-brand-mist">· {{ \Illuminate\Support\Str::limit($deployment->git_commit, 7, '') }}</span>
+                                    <a href="{{ $detailUrl }}" wire:navigate class="font-mono text-xs text-brand-sage hover:underline">· {{ \Illuminate\Support\Str::limit($deployment->git_commit, 7, '') }}</a>
                                 @endif
                             </p>
                             <time class="shrink-0 text-xs text-brand-mist">
                                 {{ $deployment->created_at?->timezone(config('app.timezone'))->format('M j, g:i A') ?? '—' }}
                             </time>
                         </div>
-                        <p class="mt-0.5 truncate font-mono text-xs text-brand-mist" title="{{ $deployment->id }}">{{ $deployment->id }}</p>
+                        @if ($commitSubject)
+                            <p class="mt-1 text-sm text-brand-ink">{{ $commitSubject }}</p>
+                        @endif
+                        <p class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-brand-moss">
+                            @if ($commitAuthor)
+                                <span>{{ $commitAuthor }}</span>
+                            @endif
+                            @if ($buildDuration)
+                                <span>{{ __('Built in :time', ['time' => $buildDuration]) }}</span>
+                            @endif
+                            @if ($deployment->published_at)
+                                <span>{{ __('Published :time', ['time' => $deployment->published_at->diffForHumans()]) }}</span>
+                            @endif
+                            @if ($containerStack)
+                                <span class="uppercase">{{ $containerStack }}</span>
+                            @endif
+                            @if ($healthStatus !== null)
+                                <span>{{ __('Health :status', ['status' => $healthStatus]) }}@if ($healthMs !== null) · {{ $healthMs }} ms @endif</span>
+                            @endif
+                            @if ($healthyInstances !== null)
+                                <span>{{ trans_choice(':count healthy instance|:count healthy instances', $healthyInstances, ['count' => $healthyInstances]) }}</span>
+                            @endif
+                        </p>
+                        <p class="mt-0.5 truncate font-mono text-xs text-brand-mist" title="{{ $deployment->id }}">
+                            <a href="{{ $detailUrl }}" wire:navigate class="hover:text-brand-sage hover:underline">{{ $deployment->id }}</a>
+                        </p>
 
                         @if (is_string($failureReason) && $failureReason !== '')
                             @include('livewire.sites.partials.edge.build-log-lint-callout', [

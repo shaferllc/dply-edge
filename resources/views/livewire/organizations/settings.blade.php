@@ -215,11 +215,11 @@
                     dense
                     icon="heroicon-o-globe-europe-africa"
                     :title="__('Edge data region')"
-                    :note="__('Preferred Cloudflare R2 region for buckets created on behalf of this organization. Existing buckets stay where they are — the setting only applies to future Edge bootstraps.')"
+                    :note="__('Preferred storage region for buckets created on behalf of this organization. Existing buckets stay where they are — the setting only applies to future Edge bootstraps.')"
                 />
                 <div class="space-y-2 px-3 py-3 sm:px-4">
                     <select wire:model.live="edge_data_region" class="block w-full max-w-md rounded-lg border-brand-ink/15 bg-white text-sm shadow-sm focus:border-brand-forest focus:ring-brand-forest">
-                        <option value="default">{{ __('Default — Cloudflare picks the region') }}</option>
+                        <option value="default">{{ __('Default — Dply Edge picks the region') }}</option>
                         <option value="eu">{{ __('EU — strict EU jurisdiction (R2 EU jurisdiction)') }}</option>
                         <option value="weur">{{ __('Western Europe (weur)') }}</option>
                         <option value="eeur">{{ __('Eastern Europe (eeur)') }}</option>
@@ -228,7 +228,7 @@
                         <option value="apac">{{ __('Asia-Pacific (apac)') }}</option>
                         <option value="oc">{{ __('Oceania (oc)') }}</option>
                     </select>
-                    <p class="text-xs text-brand-mist">{{ __('Selecting "EU" creates buckets in Cloudflare\'s EU jurisdiction — data is stored in the EU and the EU jurisdiction header is set on every request.') }}</p>
+                    <p class="text-xs text-brand-mist">{{ __('Selecting "EU" creates buckets in the EU jurisdiction — data is stored in the EU and the EU jurisdiction header is set on every request.') }}</p>
                 </div>
             </section>
 

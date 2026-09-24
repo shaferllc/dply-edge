@@ -48,7 +48,9 @@ Never put developer seed/artisan instructions in a product empty state.
 
 An **empty Edge index** should be a polished onboarding splash — hero + primary
 Deploy/Create CTA + capability tiles — inside the same shell chrome, not a lone
-icon and a button.
+icon and a button. A **populated dashboard** stays dead simple: app cards plus
+basic stats, Create in the header — not a busy cockpit. The dashboard itself
+has **no breadcrumb**.
 
 ### Type, tokens, spacing
 
@@ -90,6 +92,8 @@ icon and a button.
 
 - **Toasts** for routine success/error feedback. Avoid
   `session()->flash('success')` + Blade-only `$flash_*` patterns for this.
+- Notification **badges must stay readable** in light and dark (enough contrast
+  on the badge fill — not low-contrast ink on sand).
 - **Copy-to-clipboard** shows an explicit *copied* confirmation (inline state
   or toast).
 - Never `alert()` or a browser dialog — use **site-styled modals** for
@@ -120,8 +124,10 @@ icon and a button.
 
 ### Edge create flow
 
-- **Form-first and lean.** Maximise auto-detect over teaching copy — no
-  duplicate how-it-works walls in both the form and the sidebar.
+- **Dead simple by default.** Detect and deploy with as few operator-facing
+  settings as possible; advanced knobs stay secondary. Maximise auto-detect
+  over teaching copy — no duplicate how-it-works walls in both the form and
+  the sidebar.
 - Two-column layout (`max-w-7xl`): form in **`x-profile-shell`** plus a sticky
   live summary sidebar (`lg:sticky lg:top-24` +
   `lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto` — below the site header,
@@ -148,6 +154,13 @@ icon and a button.
 
 ### Edge workspace IA
 
+- Customer copy says **project** / **app**, not "server" or "site". Breadcrumbs
+  omit **"Edge"** (the whole product is Edge). Trail shape is **Dashboard /
+  Projects / {app}**; crumbs that include the project name show the **project
+  logo**. On a deployment detail page, the crumb points back to **Deploys** and
+  the Deploys nav item stays highlighted.
+- There is **no org-level Compute hub**. Databases and Queues belong **per app**,
+  not as org-wide Projects leaves.
 - **Overview** = status + URL + actions + shortcuts into dedicated leaves. Not
   a dump of delivery/domains/bindings/traffic/billing, and **no overlapping
   copies** of Traffic, Deploys or other leaf content.
@@ -266,13 +279,15 @@ Match remaining questions to the layer that still exists:
   `/admin/connections` for Slack / Discord / Telegram **platform** app
   credentials (DB overlays `.env`, never writes it; secrets are write-never
   after save).
-- The product list is **`/projects`** (`edge.index`). `/dashboard` 302s there.
-  Never put the index at `/apps` or `/applications` — nginx `location ^~ /app`
-  on the public vhost proxies those prefixes to Reverb/Pusher (`Not found.`),
-  so Laravel never sees them. Legacy `/edge`, `/apps`, and `/applications`
-  permanently redirect to `/projects`.
-- **`Server` is a vestigial owner row** — see `CLAUDE.md`. Workspace URLs keep
-  the `/servers/{server}/sites/{site}/…` shape they were built on.
+- The product list is **`/dashboard`** (route name `dashboard`, not
+  `edge.index`). `/projects` 301s there. Never put the index at `/apps` or
+  `/applications` — nginx `location ^~ /app` on the public vhost proxies those
+  prefixes to Reverb/Pusher (`Not found.`), so Laravel never sees them. Legacy
+  `/edge`, `/apps`, and `/applications` permanently redirect to `/projects`.
+- **`Server` is a vestigial owner row** — see `CLAUDE.md`. In the UI it is a
+  **project**; workspace URLs use `/projects/{server}/…` (`/servers/…`
+  redirects there). Prefer project-scoped paths over exposing `/sites/…` in
+  customer-facing crumbs and nav.
 
 ### Edge delivery
 
@@ -280,12 +295,13 @@ Match remaining questions to the layer that still exists:
   Cloudflare, configured through `.env` + Artisan —
   `dply:edge:infra:bootstrap`, `edge:worker:deploy`, **not the app UI**) or
   **BYO `org_cloudflare`** (an org credential, picked at Edge create).
-- **Delivery hostnames** are flat `{slug}.on-dply.site` on the `on-dply.*`
-  apex (`on-dply.site` preferred, via `config/product/testing_domains.php` /
-  `EdgeTestingDomains`) — **not** nested `*.on-dply.dply.host/*`, since
-  wildcard SSL on `*.dply.host` does not cover `*.*.dply.host`. `dply.host`
-  stays in the pool for legacy hostnames — still routed, nothing new minted
-  there. Legacy hostnames migrate via `dply:edge:migrate-hostnames`.
+- **Delivery hostnames** are flat `{slug}.on-dply.live` on the Edge apex
+  (`edge_apex` / `testing_domains.edge` → **`on-dply.live`**, via
+  `config/product/testing_domains.php` / `EdgeTestingDomains`) — **not** nested
+  `*.on-dply.dply.host/*`, since wildcard SSL on `*.dply.host` does not cover
+  `*.*.dply.host`. Older `on-dply.site` / `dply.host` hostnames may still
+  route; mint new ones on `on-dply.live`. Legacy hostnames migrate via
+  `dply:edge:migrate-hostnames`.
 - **Custom Hostnames (SSL for SaaS)** handle managed-delivery custom domains:
   `EdgeCloudflareClient` + `EdgeCustomDomainProvisioner`, polling pending TLS,
   with TLS badges and ownership TXT in the Domains UI. The toggle is
@@ -338,7 +354,21 @@ Match remaining questions to the layer that still exists:
 - **Preview protection** = `edge_site_access_rules` + `EdgeAccessGate`
   (off / password / dply-account), non-production hostnames only.
 - **Monorepo** = `repo_root` on the site, a create-flow picker, and a GitHub
-  webhook scoped to `repo_root/**`.
+  webhook scoped to `repo_root/**`. Container detection and Dockerfile
+  generation re-root to that directory; one site is still one app package (a
+  Laravel API and a Next app stay two sites).
+- **Container apps** (`runtime_mode = container`): PHP/Rails/Node on Cloudflare
+  Containers via `Services/Containers/*`. Rollouts are **gradual**
+  (zero-downtime); wrangler gets `max_instances + 1` spare while traffic
+  `getRandom` stays at the operator setting — `max_instances: 1` alone cannot
+  finish an overlapping deploy. New deploys apply Container tab settings
+  automatically (no special Save-and-redeploy for the next build). Block a new
+  deploy while a rollout is still in progress. Scale-to-zero / cold start must
+  **not** surface as a raw visitor **500** — wake or retry cleanly.
+- **PHP + frontend assets:** when `package.json` has `scripts.build`, detection
+  appends the frontend asset step (`FrontendAssetBuild`) beside Composer so the
+  stored build command matches the image's Node assets stage (default
+  `laravel/laravel` is Composer + Vite, often with no lockfile → `npm install`).
 - **Edge Routing** lives at `/edge-routing` (redirects, rewrites, headers);
   legacy `/routing` redirects there.
 - Managed-delivery add-ons ship as workspace sections plus a worker host-map
@@ -388,17 +418,24 @@ Match remaining questions to the layer that still exists:
   Pro $20, Team $49 — monthly only, all allowances in
   `subscription.standard.tiers`. `Organization::billingTier()` reads the tier
   price off the subscription. Sites past the tier's count bill at `edge_cents`;
-  seats hard-cap on Free/Pro and bill `extra_seat_cents` on Team; build minutes
-  stop builds on Free and bill overage on Pro/Team. No trial. Previews consume
-  nothing.
-- **Free = 1 live Edge site without a card** (`plans.free.max_edge_apps`).
-  **Any paid subscription removes the cap** (`quotaLimit()` returns null) —
+  seats hard-cap on Pro and bill `extra_seat_cents` on Team; build minutes
+  are unlimited on Free (they draw the $5 credit) and bill overage on Pro/Team.
+  No trial. Previews consume a usage credit, not a site slot.
+- **Free is the starter plan** (parity target: Laravel Cloud starter): unlimited
+  apps, seats, and builds (`plans.free.max_edge_apps` and `tiers.free.sites` /
+  `seats` / `build_minutes` are null), containers on, scale-to-zero compute, 10
+  custom domains, 1 managed queue, short log retention, spending limits/alerts,
+  and a **$5 usage credit** (`spending_limit_cents`). `StarterUsageBudget`
+  pauses new builds when that credit is used, and `StarterTrafficGate` stops
+  managed container traffic, because a free org has no card.
+  **Any paid subscription bills overage** (`quotaLimit()` returns null) —
   extra sites bill, so a cap on payers is no revenue lever.
-- **Edge** (managed `dply_edge` only) = **$2/mo** per live static or hybrid
-  site, **$7/mo** per Worker-native SSR site
-  (`subscription.standard.edge_ssr_cents`, Stripe `edge_ssr`) — never "sites
-  free". BYO `org_cloudflare` pays Cloudflare directly: no platform fee and no
-  usage meter today.
+- **Extra sites** (managed `dply_edge` only): static, hybrid, and container
+  sites **past** the plan's included count bill at `edge_cents` ($2). Every
+  Worker-native SSR site bills at `edge_ssr_cents` ($7) and does not use an
+  included slot. Included sites are $0. Container apps also meter **compute**
+  (tier compute credit, then overage). BYO `org_cloudflare` pays Cloudflare
+  directly: no site fee and no usage meter today.
 - Each live site includes **1M requests / 100 GB egress / 5 GB R2 storage**
   plus R2 op allowances (`dply.edge.usage_billing.included_requests_per_site`,
   reduced from an earlier 5M — the config comment explains why), then metered
@@ -538,7 +575,7 @@ Match remaining questions to the layer that still exists:
 
 - Dply-owned testing and preview zones live in
   `config/product/testing_domains.php` (`TestingDomains`), **not** a `.env`
-  list — adding a zone is a code change. Edge uses the **`on-dply.site`** apex;
+  list — adding a zone is a code change. Edge uses the **`on-dply.live`** apex;
   tests (`APP_ENV=testing`) use local `*.test` apexes so the suite never talks
   to a public zone. Edge delivery resolves through `EdgeTestingDomains`, which
   falls back to `TestingDomains::edge()`.

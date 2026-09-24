@@ -79,7 +79,7 @@ class WaitingRoom extends Component
     public function render(): View
     {
         return view('livewire.sites.edge.workspace.waiting-room', array_merge(
-            EdgeSiteViewData::context($this->site, 'edge-waiting-room'),
+            EdgeSiteViewData::context($this->site, 'waiting-room'),
             [
                 'server' => $this->server,
                 'site' => $this->site,

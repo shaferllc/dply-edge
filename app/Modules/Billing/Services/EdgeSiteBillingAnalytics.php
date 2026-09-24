@@ -12,14 +12,25 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Per Edge site billing: platform fee, delivery usage (MTD + daily), and totals.
+ * Per Edge site billing: site fee, delivery usage (MTD + daily), and totals.
+ *
+ * The site fee matches the org bill. Static and hybrid sites inside the
+ * plan's included count are $0. Sites past that count are the extra-site
+ * rate. Every Worker-native SSR site is the SSR rate on Pro and Team.
+ * Free and Enterprise owe nothing through this path.
  */
 final class EdgeSiteBillingAnalytics
 {
     public function __construct(
         private readonly EdgeOrganizationUsageReader $usageReader,
         private readonly EdgeUsageCostCalculator $usageCostCalculator,
+        private readonly OrganizationBillingStateComputer $billingState,
     ) {}
+
+    /**
+     * @var array<string, array<string, array{cents: int, kind: string}>>
+     */
+    private array $platformFeeMaps = [];
 
     /**
      * @return list<array<string, mixed>>
@@ -43,14 +54,12 @@ final class EdgeSiteBillingAnalytics
             $siteId = (string) $site->id;
             $mtd = $mtdBySite[$siteId] ?? EdgeUsageTotals::empty();
             $usageEstimate = $this->usageCostCalculator->estimate($mtd, 1);
-            $runtimeMode = strtolower((string) ($site->edgeMeta()['runtime_mode'] ?? 'static'));
-            $platformCents = $runtimeMode === 'ssr'
-                ? (int) config('subscription.standard.edge_ssr_cents', 700)
-                : (int) config('subscription.standard.edge_cents', 200);
+            $fee = $this->platformFee($site);
 
             $result[] = $this->formatSiteRow(
                 site: $site,
-                platformCents: $platformCents,
+                platformCents: $fee['cents'],
+                platformKind: $fee['kind'],
                 mtd: $mtd,
                 usageEstimate: $usageEstimate,
                 daily: $dailyBySite[$siteId] ?? [],
@@ -92,14 +101,12 @@ final class EdgeSiteBillingAnalytics
         $mtd = $mtdBySite[$siteId] ?? EdgeUsageTotals::empty();
         $usageEstimate = $this->usageCostCalculator->estimate($mtd, 1);
 
-        $runtimeMode = strtolower((string) ($site->edgeMeta()['runtime_mode'] ?? 'static'));
-        $platformCents = $runtimeMode === 'ssr'
-            ? (int) config('subscription.standard.edge_ssr_cents', 700)
-            : (int) config('subscription.standard.edge_cents', 200);
+        $fee = $this->platformFee($site);
 
         $payload = $this->formatSiteRow(
             site: $site,
-            platformCents: $platformCents,
+            platformCents: $fee['cents'],
+            platformKind: $fee['kind'],
             mtd: $mtd,
             usageEstimate: $usageEstimate,
             daily: $dailyBySite[$siteId] ?? [],
@@ -110,6 +117,101 @@ final class EdgeSiteBillingAnalytics
         }
 
         return $payload;
+    }
+
+    /**
+     * Site fee for one live site. Oldest static/hybrid sites fill the plan's
+     * included slots; later ones are extras. SSR never uses an included slot.
+     *
+     * @return array{cents: int, kind: string}
+     */
+    public function platformFee(Site $site): array
+    {
+        $organization = $site->relationLoaded('organization')
+            ? $site->organization
+            : $site->organization()->first();
+
+        if (! $organization instanceof Organization) {
+            return ['cents' => 0, 'kind' => 'included'];
+        }
+
+        $map = $this->platformFees($organization);
+
+        return $map[(string) $site->id] ?? ['cents' => 0, 'kind' => 'included'];
+    }
+
+    /**
+     * @return array<string, array{cents: int, kind: string}>
+     */
+    private function platformFees(Organization $organization): array
+    {
+        $orgId = (string) $organization->id;
+        if (isset($this->platformFeeMaps[$orgId])) {
+            return $this->platformFeeMaps[$orgId];
+        }
+
+        $memoKey = 'edge.billing.platform_fees.'.$orgId;
+        if (app()->bound('request') && request()->attributes->has($memoKey)) {
+            /** @var array<string, array{cents: int, kind: string}> $cached */
+            $cached = request()->attributes->get($memoKey);
+            $this->platformFeeMaps[$orgId] = $cached;
+
+            return $cached;
+        }
+
+        $map = $this->buildPlatformFeeMap($organization);
+        $this->platformFeeMaps[$orgId] = $map;
+        if (app()->bound('request')) {
+            request()->attributes->set($memoKey, $map);
+        }
+
+        return $map;
+    }
+
+    /**
+     * @return array<string, array{cents: int, kind: string}>
+     */
+    private function buildPlatformFeeMap(Organization $organization): array
+    {
+        $state = $this->billingState->compute($organization);
+        $billable = in_array($state->planKey, ['pro', 'team'], true);
+        $includedRaw = config('subscription.standard.tiers.'.$state->planKey.'.sites');
+        $included = $includedRaw === null ? PHP_INT_MAX : (int) $includedRaw;
+        $extraUnit = $billable ? (int) config('subscription.standard.edge_cents', 200) : 0;
+        $ssrUnit = $billable ? (int) config('subscription.standard.edge_ssr_cents', 700) : 0;
+
+        $sites = $this->billableEdgeSites($organization);
+        $base = $sites
+            ->filter(fn (Site $site): bool => $this->runtimeMode($site) !== 'ssr')
+            ->sortBy(fn (Site $site): string => ($site->created_at?->format('Y-m-d H:i:s.u') ?? '').'|'.$site->id)
+            ->values();
+
+        $map = [];
+        foreach ($sites as $site) {
+            if ($this->runtimeMode($site) !== 'ssr') {
+                continue;
+            }
+
+            $map[(string) $site->id] = [
+                'cents' => $ssrUnit,
+                'kind' => $ssrUnit > 0 ? 'ssr' : 'included',
+            ];
+        }
+
+        foreach ($base as $index => $site) {
+            $extra = $extraUnit > 0 && $index >= $included;
+            $map[(string) $site->id] = [
+                'cents' => $extra ? $extraUnit : 0,
+                'kind' => $extra ? 'extra' : 'included',
+            ];
+        }
+
+        return $map;
+    }
+
+    private function runtimeMode(Site $site): string
+    {
+        return strtolower((string) ($site->edgeMeta()['runtime_mode'] ?? 'static'));
     }
 
     /**
@@ -226,6 +328,7 @@ final class EdgeSiteBillingAnalytics
     private function formatSiteRow(
         Site $site,
         int $platformCents,
+        string $platformKind,
         EdgeUsageTotals $mtd,
         array $usageEstimate,
         array $daily,
@@ -242,6 +345,12 @@ final class EdgeSiteBillingAnalytics
                 ? route('sites.show', ['server' => $server, 'site' => $site])
                 : null,
             'platform_cents' => $platformCents,
+            'platform_kind' => $platformKind,
+            'platform_label' => match ($platformKind) {
+                'extra' => __('Extra site'),
+                'ssr' => __('SSR site'),
+                default => __('Site fee'),
+            },
             'usage_cents' => $usageCents,
             'total_cents' => $platformCents + $usageCents,
             'requests' => $mtd->requests,

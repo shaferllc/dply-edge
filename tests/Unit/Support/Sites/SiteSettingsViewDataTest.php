@@ -35,7 +35,7 @@ test('edge deploys section skips usage analytics queries', function () {
     $payload = SiteSettingsViewData::for(
         $server,
         $site,
-        'edge-deploys',
+        'deploys',
         null,
         [],
         null,
@@ -58,7 +58,7 @@ test('edge deploys section skips delivery worker context', function () {
     $payload = SiteSettingsViewData::for(
         $server,
         $site,
-        'edge-routing',
+        'routing',
         null,
         [],
         null,
@@ -141,7 +141,7 @@ test('edge traffic shell defers usage analytics to the nested child', function (
 
     DB::enableQueryLog();
 
-    $shell = SiteSettingsViewData::for($server, $site, 'edge-traffic', null, [], null);
+    $shell = SiteSettingsViewData::for($server, $site, 'traffic', null, [], null);
 
     $shellQueries = collect(DB::getQueryLog())
         ->filter(fn (array $query): bool => str_contains($query['query'], 'edge_usage_snapshots'))
@@ -151,8 +151,8 @@ test('edge traffic shell defers usage analytics to the nested child', function (
         ->and($shell['edgeSiteAccess'])->toBeNull()
         ->and($shellQueries)->toBe(0);
 
-    $child = SiteSettingsViewData::edgeSectionAnalytics($site, 'edge-traffic');
-    $again = SiteSettingsViewData::edgeSectionAnalytics($site, 'edge-traffic');
+    $child = SiteSettingsViewData::edgeSectionAnalytics($site, 'traffic');
+    $again = SiteSettingsViewData::edgeSectionAnalytics($site, 'traffic');
 
     $usageQueries = collect(DB::getQueryLog())
         ->filter(fn (array $query): bool => str_contains($query['query'], 'edge_usage_snapshots'))

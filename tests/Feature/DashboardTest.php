@@ -19,16 +19,15 @@ function userWithOrganization(): User
 }
 
 /*
- | There is no dashboard page any more: one product surface means the edge
- | site list IS the dashboard. The route name survives so `route('dashboard')`
- | call sites keep resolving — see CLAUDE.md, "The Edge-only cut".
+ | The edge app list is the dashboard, at /dashboard (route name dashboard).
  */
-test('dashboard sends an authenticated user to the edge surface', function () {
+test('dashboard is the edge app list', function () {
     $user = userWithOrganization();
 
     $this->actingAs($user)
-        ->get(route('dashboard'))
-        ->assertRedirect(route('edge.index'));
+        ->get('/dashboard')
+        ->assertOk()
+        ->assertSee('New app');
 });
 
 test('dashboard redirects guest to login', function () {

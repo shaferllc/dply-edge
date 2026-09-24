@@ -20,6 +20,7 @@ use App\Modules\Edge\Console\EnsureEdgeLogpushCommand;
 use App\Modules\Edge\Console\EvaluateEdgeGuardrailsCommand;
 use App\Modules\Edge\Console\MigrateEdgeHostnamesCommand;
 use App\Modules\Edge\Console\PruneEdgeAnalyticsCommand;
+use App\Modules\Edge\Console\PublishEdgeBaseImagesCommand;
 use App\Modules\Edge\Console\RollupEdgeAnalyticsEngineCommand;
 use App\Modules\Edge\Console\WarmEdgeBuildImagesCommand;
 use App\Modules\Edge\Livewire\BuildJourney;
@@ -64,6 +65,7 @@ class EdgeServiceProvider extends ServiceProvider
                 EvaluateEdgeGuardrailsCommand::class,
                 MigrateEdgeHostnamesCommand::class,
                 PruneEdgeAnalyticsCommand::class,
+                PublishEdgeBaseImagesCommand::class,
                 RollupEdgeAnalyticsEngineCommand::class,
                 WarmEdgeBuildImagesCommand::class,
             ]);

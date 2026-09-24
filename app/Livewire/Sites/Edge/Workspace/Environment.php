@@ -61,7 +61,7 @@ class Environment extends Component
         ));
 
         return view('livewire.sites.edge.workspace.environment', array_merge(
-            EdgeSiteViewData::context($this->site, 'edge-environment'),
+            EdgeSiteViewData::context($this->site, 'environment'),
             [
                 'server' => $this->server,
                 'site' => $this->site,

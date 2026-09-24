@@ -105,7 +105,7 @@ trait ManagesEdgeSiteProvisioning
             $edgeCanceller->cancel($this->site->fresh(['server', 'domains']));
             $this->toastSuccess(__('Build cancelled. Removing this Edge site…'));
             $this->skipRender();
-            $this->redirect(route('edge.index'), navigate: false);
+            $this->redirect(route('dashboard'), navigate: false);
         } catch (\Throwable $e) {
             $this->toastError($e->getMessage());
         }

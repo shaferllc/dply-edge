@@ -25,21 +25,28 @@ class CloudflareEdgeDelivery
     public function publishDeployment(EdgeDeployment $deployment, Site $site, string $localArtifactDir): array
     {
         $context = $this->contextResolver->forSite($site);
-        $uploaded = $this->artifactPublisher->uploadDirectory(
-            $localArtifactDir,
-            $deployment->storage_prefix,
-            $context->diskName,
-        );
-        if ($uploaded < 1) {
-            throw new RuntimeException('Refusing to publish: no artifacts uploaded to R2.');
-        }
 
-        $artifactBytes = $this->artifactPublisher->directoryBytes($localArtifactDir);
-        if ($artifactBytes > 0) {
-            $meta = is_array($deployment->meta) ? $deployment->meta : [];
-            $deployment->update([
-                'meta' => array_merge($meta, ['artifact_bytes' => $artifactBytes]),
-            ]);
+        // A container site serves from its image, not from R2 — there is no
+        // artifact directory to upload. Running the static path against one
+        // failed it *after* wrangler had already deployed the container, so a
+        // live deployment was recorded as failed.
+        if (($site->edgeMeta()['runtime_mode'] ?? 'static') !== 'container') {
+            $uploaded = $this->artifactPublisher->uploadDirectory(
+                $localArtifactDir,
+                $deployment->storage_prefix,
+                $context->diskName,
+            );
+            if ($uploaded < 1) {
+                throw new RuntimeException('Refusing to publish: no artifacts uploaded to R2.');
+            }
+
+            $artifactBytes = $this->artifactPublisher->directoryBytes($localArtifactDir);
+            if ($artifactBytes > 0) {
+                $meta = is_array($deployment->meta) ? $deployment->meta : [];
+                $deployment->update([
+                    'meta' => array_merge($meta, ['artifact_bytes' => $artifactBytes]),
+                ]);
+            }
         }
 
         $version = $this->hostMapPublisher->publish($site, $deployment, $context);

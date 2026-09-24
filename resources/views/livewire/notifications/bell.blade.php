@@ -22,7 +22,7 @@
                 <span class="relative inline-flex">
                     <x-heroicon-o-bell class="h-5 w-5 shrink-0 opacity-90" />
                     @if ($unreadCount > 0)
-                        <span class="absolute -right-1.5 -top-1.5 inline-flex min-h-4 min-w-4 items-center justify-center rounded-full bg-brand-gold px-1 text-2xs font-semibold text-brand-ink">
+                        <span class="absolute -right-1.5 -top-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-gold px-1 text-xs font-bold leading-none text-edge-void ring-2 ring-brand-cream">
                             {{ $unreadCount > 9 ? '9+' : $unreadCount }}
                         </span>
                     @endif

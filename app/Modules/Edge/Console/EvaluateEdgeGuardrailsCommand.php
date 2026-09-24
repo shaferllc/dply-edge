@@ -131,7 +131,7 @@ class EvaluateEdgeGuardrailsCommand extends Command
                 url: route('sites.show', [
                     'server' => $site->server_id,
                     'site' => $site->id,
-                    'section' => 'edge-billing',
+                    'section' => 'billing',
                 ]),
                 metadata: $status->meta(),
             );

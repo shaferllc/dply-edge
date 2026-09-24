@@ -180,13 +180,13 @@
                             {{ __('API token') }}
                         </x-input-label>
                         <x-text-input id="cloudflare_api_token" wire:model="cloudflare_api_token" type="password" class="mt-1 block w-full" required autocomplete="off" />
-                        <p class="{{ $hint }}">{!! __('Create a token in the :link with DNS permissions for your zones.', ['link' => '<a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener" class="'.$link.'">Cloudflare dashboard</a>']) !!}</p>
+                        <p class="{{ $hint }}">{!! __('Create a token in the :link with DNS permissions for your zones.', ['link' => '<a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener" class="'.$link.'">token dashboard</a>']) !!}</p>
                         <x-input-error :messages="$errors->get('cloudflare_api_token')" class="mt-2" />
                     </div>
                     <x-primary-button type="button" wire:click="storeCloudflare" wire:loading.attr="disabled" wire:target="storeCloudflare">
                         <span wire:loading.remove wire:target="storeCloudflare" class="inline-flex items-center justify-center gap-2">
                             <x-heroicon-o-link class="h-4 w-4 shrink-0" aria-hidden="true" />
-                            {{ __('Connect Cloudflare') }}
+                            {{ __('Connect account') }}
                         </span>
                         <span wire:loading wire:target="storeCloudflare" class="inline-flex items-center justify-center gap-2">
                             <x-spinner variant="cream" />

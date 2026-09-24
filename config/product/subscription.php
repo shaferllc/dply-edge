@@ -12,13 +12,13 @@ return [
     |   STRIPE_SECRET=sk_...
     |   STRIPE_WEBHOOK_SECRET=whsec_...
     |
-    | Pricing — dply-edge sells one product (docs/BILLING_AND_PLANS.md): a flat
-    | fee per live production Edge site plus metered Edge delivery usage. No
-    | plan tiers. Stripe Checkout requires every line item to share a billing
-    | interval, so each per-site price has a monthly and a yearly variant; the
-    | yearly variant is `annual_discount_pct` off the monthly × 12.
+    | Pricing — plan tiers plus usage (docs/BILLING_AND_PLANS.md, ruling
+    | r-zdescb7y05vp1bxx). Free / Pro / Team include a site count. Static and
+    | hybrid sites past that count use the `edge` price. Every Worker-native
+    | SSR site uses the `edge_ssr` price. Delivery past the plan is metered.
+    | Stripe Checkout requires every line item to share a billing interval.
     |
-    |   STRIPE_PRICE_STANDARD_EDGE=price_...               (flat per static/hybrid Edge site, monthly)
+    |   STRIPE_PRICE_STANDARD_EDGE=price_...               (extra static/hybrid site, monthly)
     |   STRIPE_PRICE_STANDARD_EDGE_YEARLY=price_...
     |   STRIPE_PRICE_STANDARD_EDGE_SSR=price_...           (Worker-native SSR Edge site, monthly)
     |   STRIPE_PRICE_STANDARD_EDGE_SSR_YEARLY=price_...
@@ -34,15 +34,14 @@ return [
         // nickel-and-dimed for transient sites.
         'min_billable_age_days' => (int) env('SUBSCRIPTION_MIN_BILLABLE_AGE_DAYS', 1),
         // No paid plan tiers. The one record is `free`: its per-surface
-        // ceilings (App\Enums\QuotaSurface) are the "no card to start"
-        // allowance — `max_edge_apps` is the one free Edge site. Any paid
-        // subscription lifts the cap (ManagesOrganizationQuotas::quotaLimit()).
+        // ceilings (App\Enums\QuotaSurface). Null means unlimited. Any paid
+        // subscription also lifts the cap (ManagesOrganizationQuotas::quotaLimit()).
+        // Starter matches a Laravel Cloud starter: unlimited apps, usage
+        // credit instead of a site cap.
         //
-        // Callers: ManagesOrganizationQuotas::quotaLimit, SubscriptionPlanResolver,
-        // how-billing-works, EdgeQuotaCapTest. No schema change — config only.
-        // User: "we are allowd 1 free site until we have to pay"
+        // Callers: ManagesOrganizationQuotas::quotaLimit, SubscriptionPlanResolver.
         'plans' => [
-            'free' => ['label' => 'Free', 'price_cents' => 0, 'max_servers' => 1, 'max_sites' => 1, 'max_cloud_apps' => 1, 'max_edge_apps' => 1, 'max_functions' => 3],
+            'free' => ['label' => 'Free', 'price_cents' => 0, 'max_servers' => null, 'max_sites' => null, 'max_cloud_apps' => null, 'max_edge_apps' => null, 'max_functions' => null],
         ],
         // Closed-beta envelope. An org with organizations.beta_joined_at set is a
         // beta participant: the platform fee is waived and these caps replace
@@ -67,17 +66,18 @@ return [
         |   requests/egress  billed at dply.edge.usage_billing rates
         |   container compute  per second of vCPU / memory / disk after the
         |                  tier's compute_credit_cents
-        | Free needs no card; paid add-ons (load balancing) and the audit log
-        | are tier features.
+        | Free needs no card. The audit log is a tier feature.
         */
         'tiers' => [
             'free' => [
                 'label' => 'Free', 'price_cents' => 0,
-                'sites' => 1, 'ssr' => false, 'seats' => 1, 'extra_seat_cents' => null,
-                'build_minutes' => 300, 'build_minute_overage_millicents' => null,
+                // Unlimited apps, seats, and builds. Metered usage draws down
+                // the credit; at spending_limit_cents new builds and container traffic pause.
+                'sites' => null, 'ssr' => false, 'seats' => null, 'extra_seat_cents' => null,
+                'build_minutes' => null, 'build_minute_overage_millicents' => null,
                 'concurrent_builds' => 1, 'build_timeout_minutes' => 20,
                 'requests' => 1_000_000, 'egress_gb' => 10,
-                'custom_domains_per_site' => 1, 'addons' => false, 'audit_log' => false, 'containers' => false, 'compute_credit_cents' => 0, 'databases' => 1, 'queues' => 1,
+                'custom_domains_per_site' => 10, 'addons' => false, 'audit_log' => false, 'containers' => true, 'compute_credit_cents' => 500, 'spending_limit_cents' => 500, 'build_minute_credit_millicents' => 1000, 'databases' => 1, 'queues' => 1,
             ],
             'pro' => [
                 'label' => 'Pro', 'price_cents' => 2000,
@@ -106,7 +106,7 @@ return [
                 'custom_domains_per_site' => null, 'addons' => true, 'audit_log' => true, 'containers' => true, 'compute_credit_cents' => null, 'databases' => null, 'queues' => null,
             ],
         ],
-        // Flat per-site fee for first-party dply Edge (static/SSG + hybrid).
+        // Extra static/hybrid site past the plan's included count.
         // Edge static is genuinely flat-eligible: Cloudflare Workers Paid is
         // $5/mo per *account* (amortized across the whole fleet) and R2/Pages
         // egress is free, so the marginal cost of another static site is ~$0.
@@ -114,9 +114,7 @@ return [
         // Worker-native SSR Edge sites (dispatch namespace / Workers for
         // Platforms). Higher platform fee than static/hybrid.
         'edge_ssr_cents' => 700,
-        // Load balancing (Cloudflare Load Balancing on the platform zone), per
-        // origin endpoint across the org's live sites. Monthly only — yearly
-        // subscriptions can't enable it (Stripe can't mix intervals).
+        // Retired. Kept so an existing Stripe price id still resolves; quantity is always 0.
         'edge_lb_endpoint_cents' => 800,
         // Edge delivery usage is billed in 1-cent Stripe units (quantity = cents).
         'edge_usage_unit_cents' => 1,

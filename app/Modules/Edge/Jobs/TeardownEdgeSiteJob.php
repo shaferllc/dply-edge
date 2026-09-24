@@ -7,7 +7,6 @@ namespace App\Modules\Edge\Jobs;
 use App\Models\Server;
 use App\Models\Site;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
-use App\Modules\Edge\Services\EdgeLoadBalancerProvisioner;
 use App\Modules\Edge\Services\EdgeMiddlewareBundleUploader;
 use App\Modules\Edge\Services\EdgeRouter;
 use App\Modules\Edge\Services\EdgeSsrBundleUploader;
@@ -71,12 +70,6 @@ class TeardownEdgeSiteJob implements ShouldQueue
             } catch (\Throwable) {
                 // Best-effort, like the SSR scripts above.
             }
-        }
-
-        try {
-            app(EdgeLoadBalancerProvisioner::class)->teardown($site);
-        } catch (\Throwable) {
-            // Best-effort — an orphaned load balancer must not block deletion.
         }
 
         $backend?->unpublish($site);

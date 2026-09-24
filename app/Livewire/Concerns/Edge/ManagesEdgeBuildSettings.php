@@ -411,6 +411,28 @@ trait ManagesEdgeBuildSettings
         $this->toastSuccess(__('Preview comment widget enabled. New previews ship with the widget script injected.'));
     }
 
+    public function saveEdgeDeployFooter(): void
+    {
+        if (! $this->site->usesEdgeRuntime()) {
+            return;
+        }
+        $this->authorize('update', $this->site);
+
+        $site = $this->site->fresh();
+        $enabled = $this->buildForm->edge_deploy_footer_enabled;
+        $site->mergeEdgeMeta([
+            'deploy_footer' => $enabled ? ['enabled' => true] : [],
+        ]);
+        $site->save();
+        $this->site->refresh();
+
+        $this->republishHostMapForActiveDeployment();
+
+        $this->toastSuccess($enabled
+            ? __('Deploy id will show in the site footer.')
+            : __('Deploy id removed from the site footer.'));
+    }
+
     public function saveEdgePreviewProtection(): void
     {
         if (! $this->site->usesEdgeRuntime() || $this->site->isEdgePreview()) {

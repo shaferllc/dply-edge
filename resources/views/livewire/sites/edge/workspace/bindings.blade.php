@@ -26,7 +26,7 @@
             'setupLinks' => [
                 [
                     'label' => __('Jobs'),
-                    'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'edge-jobs']),
+                    'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'jobs']),
                 ],
             ],
             'tips' => [

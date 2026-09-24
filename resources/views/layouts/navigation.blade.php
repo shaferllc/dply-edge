@@ -15,7 +15,7 @@
                     <x-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
                         {{ __('Dashboard') }}
                     </x-nav-link>
-                    <x-nav-link :href="route('edge.index')" :active="request()->routeIs('edge.*')">
+                    <x-nav-link :href="route('dashboard')" :active="request()->routeIs('edge.*')">
                         {{ __('Projects') }}
                     </x-nav-link>
                     @can('viewAny', App\Models\ProviderCredential::class)
@@ -84,7 +84,7 @@
             <x-responsive-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
                 {{ __('Dashboard') }}
             </x-responsive-nav-link>
-            <x-responsive-nav-link :href="route('edge.index')" :active="request()->routeIs('edge.*')">
+            <x-responsive-nav-link :href="route('dashboard')" :active="request()->routeIs('edge.*')">
                 {{ __('Projects') }}
             </x-responsive-nav-link>
             @can('viewAny', App\Models\ProviderCredential::class)

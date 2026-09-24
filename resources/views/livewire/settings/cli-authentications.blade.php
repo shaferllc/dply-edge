@@ -213,7 +213,7 @@ env:
                                     ['rewrites', __('`{from, to}` path proxies without changing the URL bar.')],
                                     ['headers', __('`{for, values}` response headers for path globs.')],
                                     ['env', __('`public:` map + `secret:` name list (values in dashboard).')],
-                                    ['bindings', __('Cloudflare: `kv`, `r2`, `d1`, `queues` maps.')],
+                                    ['bindings', __('Bindings: `kv`, `r2`, `d1`, `queues` maps.')],
                                     ['origin', __('Origin proxy: `url`, `routes`, `failover_html`.')],
                                     ['domains', __('Hostnames to attach on deploy (attach-only).')],
                                     ['crons', __('`{schedule}` 5-field cron · up to 5 per site.')],

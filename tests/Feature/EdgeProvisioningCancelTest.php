@@ -32,7 +32,7 @@ test('cancel build during edge provisioning tears down site and edge server', fu
     Livewire::actingAs($user)
         ->test(EdgeSettings::class, ['server' => $server, 'site' => $site, 'section' => 'general'])
         ->call('cancelProvisioning')
-        ->assertRedirect(route('edge.index'));
+        ->assertRedirect(route('dashboard'));
 
     expect(Site::query()->find($siteId))->toBeNull();
     expect(Server::query()->find($serverId))->toBeNull();
@@ -48,7 +48,7 @@ test('cancel build marks deployment cancelled before teardown so workers cannot 
     Livewire::actingAs($user)
         ->test(EdgeSettings::class, ['server' => $server, 'site' => $site, 'section' => 'general'])
         ->call('cancelProvisioning')
-        ->assertRedirect(route('edge.index'));
+        ->assertRedirect(route('dashboard'));
 
     $deployment->refresh();
     expect($deployment->wasCancelledByOperator())->toBeTrue()

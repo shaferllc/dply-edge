@@ -34,6 +34,28 @@ test('writes kv using org delivery context', function () {
     });
 });
 
+test('publishes the deploy footer flag when the site enables it', function () {
+    config(['edge.fake.enabled' => false]);
+
+    Http::fake([
+        'api.cloudflare.com/*' => Http::response(['success' => true, 'result' => []], 200),
+    ]);
+
+    [$site, $deployment, $context] = scaffoldOrgSite();
+    $site->mergeEdgeMeta(['deploy_footer' => ['enabled' => true]]);
+    $site->save();
+
+    app(EdgeHostMapPublisher::class)->publishHostname($site->fresh(), $deployment, 'app.example.com', $context);
+
+    Http::assertSent(function ($request) use ($deployment) {
+        $body = json_decode($request->body(), true);
+
+        return is_array($body)
+            && ($body['deploy_footer'] ?? null) === true
+            && ($body['deployment_id'] ?? null) === $deployment->id;
+    });
+});
+
 /**
  * @return array{0: Site, 1: EdgeDeployment, 2: EdgeDeliveryContext}
  */

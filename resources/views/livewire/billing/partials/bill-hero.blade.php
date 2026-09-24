@@ -64,7 +64,10 @@
                     <p class="text-sm text-brand-ink">
                         {{ trans_choice('{0} No live Edge sites yet|{1} :count live Edge site|[2,*] :count live Edge sites', $edgeSiteCount, ['count' => $edgeSiteCount]) }}.
                     </p>
-                    <p class="mt-0.5 text-xs text-brand-moss">{{ __(':plan plan: :sites included, then :extra/mo per extra site. Usage beyond the plan is billed monthly.', ['plan' => $state->planLabel, 'sites' => trans_choice(':count site|:count sites', (int) config('subscription.standard.tiers.'.$state->planKey.'.sites', 0)), 'extra' => '$'.number_format(((int) config('subscription.standard.edge_cents', 200)) / 100, 2)]) }}</p>
+                    @php $includedSites = config('subscription.standard.tiers.'.$state->planKey.'.sites'); @endphp
+                    <p class="mt-0.5 text-xs text-brand-moss">{{ $includedSites === null
+                        ? __(':plan plan: unlimited sites. Usage past the plan’s credit pauses new builds until next month on Free.', ['plan' => $state->planLabel])
+                        : __(':plan plan: :sites included, then :extra/mo per extra site. Usage beyond the plan is billed monthly.', ['plan' => $state->planLabel, 'sites' => trans_choice(':count site|:count sites', (int) $includedSites), 'extra' => '$'.number_format(((int) config('subscription.standard.edge_cents', 200)) / 100, 2)]) }}</p>
                 </div>
 
                 {{-- Card CTA is the payment-method strip at the top of the page. --}}

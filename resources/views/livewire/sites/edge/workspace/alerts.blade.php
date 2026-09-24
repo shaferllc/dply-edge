@@ -15,7 +15,7 @@
             'setupLinks' => [
                 [
                     'label' => __('Traffic & analytics'),
-                    'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'edge-traffic']),
+                    'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'traffic']),
                 ],
             ],
             'tips' => [

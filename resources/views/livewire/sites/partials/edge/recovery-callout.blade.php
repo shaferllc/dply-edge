@@ -101,7 +101,7 @@
                             {{ __('Retry deploy') }}
                         </button>
                         <a
-                            href="{{ route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'edge-build']) }}"
+                            href="{{ route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'build']) }}"
                             wire:navigate
                             class="inline-flex items-center gap-1.5 rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-50"
                         >

@@ -63,7 +63,7 @@
                 {{ __('Live requests') }}
             </p>
             <p class="mt-0.5 text-xs text-brand-moss">
-                <span x-show="status === 'connected'">{{ __('Streaming access logs in real time.') }}</span>
+                <span x-show="status === 'connected'">{{ __('Reading requests from edge analytics.') }}</span>
                 <span x-show="status === 'connecting'" x-cloak>{{ __('Connecting…') }}</span>
                 <span x-show="status === 'disconnected'" x-cloak>{{ __('Disconnected — refresh to reconnect.') }}</span>
             </p>
@@ -131,14 +131,8 @@
                 <template x-if="filteredRows.length === 0">
                     <tr>
                         <td colspan="7" class="px-5 py-8 text-center text-xs text-brand-moss">
-                            <span x-show="status === 'connected' && rows.length === 0 && ! ingestConfigured" x-cloak>
-                                {{ __('Log ingest is not configured (DPLY_EDGE_LOG_INGEST_KEY / base URL).') }}
-                            </span>
-                            <span x-show="status === 'connected' && rows.length === 0 && ingestConfigured && ingestLooksPrivate" x-cloak>
-                                {{ __('Connected, but log ingest points at a local host Edge cannot reach. Set DPLY_EDGE_LOG_INGEST_BASE_URL to your public tunnel URL, redeploy the Edge worker, then visit the site.') }}
-                            </span>
-                            <span x-show="status === 'connected' && rows.length === 0 && ingestConfigured && ! ingestLooksPrivate">
-                                {{ __('Waiting for the next request… Visit your live Edge URL to generate traffic. If nothing ever appears, redeploy the Edge worker so it picks up the ingest URL.') }}
+                            <span x-show="status === 'connected' && rows.length === 0">
+                                {{ __('No requests in the last hour. Visit the live site and they will show up here.') }}
                             </span>
                             <span x-show="status === 'connecting'" x-cloak>{{ __('Connecting…') }}</span>
                             <span x-show="status === 'disconnected'" x-cloak>{{ __('No live stream.') }}</span>
@@ -263,7 +257,7 @@
 
                         try {
                             const since = this.rows[0]?.occurred_at
-                                || new Date(Date.now() - 15 * 60 * 1000).toISOString();
+                                || new Date(Date.now() - 60 * 60 * 1000).toISOString();
                             const url = new URL(this.pollUrl, window.location.origin);
                             url.searchParams.set('since', since);
                             url.searchParams.set('limit', '50');

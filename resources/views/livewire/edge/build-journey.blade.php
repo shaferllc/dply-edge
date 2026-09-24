@@ -3,6 +3,77 @@
         <div class="rounded-2xl border border-dashed border-brand-ink/15 bg-white/40 px-5 py-6 text-center text-xs text-brand-moss">
             {{ __('Deployment no longer available.') }}
         </div>
+    @elseif ($logOnly)
+        @php
+            $inFlight = $polling && ! $journey['hasFailed'] && ! $journey['isDone'];
+            $statusLabel = $journey['hasFailed']
+                ? __('Failed')
+                : ($journey['isDone'] ? __('Live') : __('Building'));
+            $commit = is_string($deployment->git_commit ?? null) && $deployment->git_commit !== ''
+                ? substr((string) $deployment->git_commit, 0, 7)
+                : null;
+        @endphp
+        <div class="overflow-hidden rounded-xl border border-brand-ink/10 bg-white dark:border-brand-mist/20 dark:bg-zinc-900">
+            <div
+                x-data="{
+                    pinned: true,
+                    onScroll() {
+                        const el = $refs.logPre;
+                        this.pinned = (el.scrollHeight - el.scrollTop - el.clientHeight) < 16;
+                    },
+                    init() {
+                        this.$nextTick(() => { $refs.logPre.scrollTop = $refs.logPre.scrollHeight; });
+                        Livewire.hook('morph.updated', () => {
+                            if (this.pinned && $refs.logPre) { $refs.logPre.scrollTop = $refs.logPre.scrollHeight; }
+                        });
+                    },
+                }"
+            >
+                <pre
+                    x-ref="logPre"
+                    x-on:scroll.throttle.100ms="onScroll"
+                    class="max-h-80 min-h-40 overflow-auto bg-brand-ink px-4 py-3 font-mono text-xs leading-relaxed text-brand-cream whitespace-pre-wrap break-words"
+                >@if (trim($buffer) === ''){{ __('Creating build environment…') }}@else{!! \App\Modules\Edge\Support\AnsiHtml::toHtml($buffer) !!}@endif</pre>
+            </div>
+            <div class="flex flex-wrap items-center justify-between gap-3 border-t border-brand-ink/10 px-4 py-3 dark:border-brand-mist/20">
+                <div class="min-w-0">
+                    <p class="truncate text-sm font-semibold text-brand-ink">
+                        {{ $site?->name }}
+                        @if ($commit)
+                            <span class="font-mono text-xs font-normal text-brand-moss">· {{ $commit }}</span>
+                        @endif
+                    </p>
+                    <p class="mt-0.5 inline-flex items-center gap-1.5 text-xs text-brand-moss">
+                        <span class="inline-flex h-2 w-2 rounded-full {{ $journey['hasFailed'] ? 'bg-red-500' : ($journey['isDone'] ? 'bg-emerald-500' : 'bg-brand-sage') }}" aria-hidden="true"></span>
+                        {{ $statusLabel }}
+                    </p>
+                </div>
+                <div class="flex items-center gap-2">
+                    @if ($inFlight)
+                        <button
+                            type="button"
+                            wire:click="confirmCancelBuild"
+                            class="rounded-lg px-3 py-1.5 text-sm font-semibold text-brand-moss hover:text-brand-ink"
+                        >
+                            {{ __('Cancel') }}
+                        </button>
+                    @endif
+                    @if ($server && $site)
+                        <a
+                            href="{{ route('sites.show', ['server' => $server, 'site' => $site]) }}"
+                            wire:navigate
+                            class="inline-flex items-center rounded-lg bg-brand-ink px-3 py-1.5 text-sm font-semibold text-brand-cream hover:bg-brand-forest"
+                        >
+                            {{ __('Go to app') }}
+                        </a>
+                    @endif
+                </div>
+            </div>
+            @if ($journey['hasFailed'] && $journey['error'])
+                <p class="border-t border-red-200 px-4 py-2 font-mono text-xs text-red-800 dark:border-red-900/40 dark:text-red-200">{{ $journey['error'] }}</p>
+            @endif
+        </div>
+        @include('livewire.partials.confirm-action-modal')
     @else
         @php
             $sectionFor = [

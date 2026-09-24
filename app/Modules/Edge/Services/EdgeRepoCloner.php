@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Edge\Services;
 
 use App\Modules\Edge\Support\EdgeRepoRoot;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
 use RuntimeException;
@@ -35,6 +36,31 @@ final class EdgeRepoCloner
     private const NETWORK_TIMEOUT_SECONDS = 300;
 
     /**
+     * Populating a mirror fetches every branch and tag, so it legitimately
+     * takes longer than a single-branch clone — 300s isn't enough for a repo
+     * with deep history on a contended link.
+     */
+    private const MIRROR_CLONE_TIMEOUT_SECONDS = 900;
+
+    /** Set for the duration of a clone() call so progress can stream out. */
+    private $onLine = null;
+
+    /**
+     * Record a line and push it to the live build log immediately.
+     *
+     * @param  list<string>  $log
+     *
+     * @param-out list<string> $log
+     */
+    private function note(array &$log, string $line): void
+    {
+        $log[] = $line;
+        if ($this->onLine !== null && trim($line) !== '') {
+            ($this->onLine)($line);
+        }
+    }
+
+    /**
      * Clone `$repoUrl` into `$checkout`, checking out `$branch` (and
      * optionally `$commitOverride`). When `$sparseRoot` is set (monorepo
      * package path), use a shallow + cone sparse-checkout so we don't
@@ -48,7 +74,12 @@ final class EdgeRepoCloner
         string $checkout,
         ?string $commitOverride = null,
         ?string $sparseRoot = null,
+        ?callable $onLine = null,
     ): array {
+        // Streamed as it happens: buffering the whole clone means a
+        // multi-minute mirror population shows the operator nothing but
+        // "[dply:step] clone", which reads as a hang.
+        $this->onLine = $onLine;
         $log = [];
         $sparseRoot = EdgeRepoRoot::normalize($sparseRoot);
 
@@ -91,15 +122,34 @@ final class EdgeRepoCloner
         $lockHandle = $this->acquireLock($cacheRoot.'/.'.basename($mirror).'.lock');
 
         try {
-            if (is_dir($mirror.'/objects')) {
-                $log[] = "[git-cache] Refreshing mirror at {$mirror}";
+            if ($this->mirrorIsUsable($mirror, $repoUrl)) {
+                $this->note($log, "[git-cache] Refreshing mirror at {$mirror}");
                 $this->runWithRetry(['git', '--git-dir='.$mirror, 'fetch', '--prune', '--tags', 'origin'], $log);
             } else {
+                // Populating a mirror pulls every branch and tag, so it costs
+                // far more than the --branch fallback clone. If it just timed
+                // out, don't pay that again on the next build — go straight to
+                // the direct clone until the cooldown lapses.
+                if (Cache::has(self::mirrorCooldownKey($repoUrl))) {
+                    throw new RuntimeException('mirror population failed recently; using direct clone');
+                }
+
                 if (is_dir($mirror)) {
+                    $this->note($log, "[git-cache] Discarding unusable mirror at {$mirror}");
                     File::deleteDirectory($mirror);
                 }
-                $log[] = "[git-cache] Cloning mirror {$repoUrl} → {$mirror}";
-                $this->runWithRetry(['git', 'clone', '--mirror', $repoUrl, $mirror], $log);
+                $this->note($log, "[git-cache] Cloning mirror {$repoUrl} → {$mirror}");
+
+                try {
+                    $this->runWithRetry(['git', 'clone', '--mirror', $repoUrl, $mirror], $log, null, self::MIRROR_CLONE_TIMEOUT_SECONDS);
+                } catch (\Throwable $e) {
+                    Cache::put(self::mirrorCooldownKey($repoUrl), true, now()->addMinutes(30));
+                    if (is_dir($mirror)) {
+                        File::deleteDirectory($mirror);
+                    }
+
+                    throw $e;
+                }
             }
 
             // The actual build checkout — clone from the local mirror.
@@ -107,7 +157,7 @@ final class EdgeRepoCloner
             // tree is created near-instantly and `--depth` is a no-op
             // (git warns about it). Keep history; it costs almost nothing.
             $this->ensureEmptyCheckout($checkout);
-            $log[] = "Cloning from local mirror @ {$branch}";
+            $this->note($log, "Cloning from local mirror @ {$branch}");
             if ($commitOverride !== null) {
                 $this->runWithRetry(['git', 'clone', $mirror, $checkout], $log, $checkout);
             } else {
@@ -131,6 +181,72 @@ final class EdgeRepoCloner
     }
 
     /**
+     * A mirror is only reusable if it can actually be fetched from.
+     *
+     * An interrupted `git clone --mirror` leaves objects/ behind with no
+     * remote configured, and the old `is_dir(objects)` test then chose the
+     * refresh path forever: every build failed with "'origin' does not appear
+     * to be a git repository", burned the fetch timeout, and left another
+     * tmp_pack. Nothing ever repaired it.
+     */
+    /**
+     * Fetch exactly one commit, no history.
+     *
+     * `git clone` cannot take a SHA, so init + fetch --depth 1 <sha> is the
+     * only way to avoid pulling the whole repo for a commit-pinned deploy.
+     * Returns false when the remote refuses (allowAnySHA1InWant off) so the
+     * caller can fall back.
+     *
+     * @param  list<string>  $log
+     *
+     * @param-out list<string> $log
+     */
+    private function shallowFetchCommit(string $repoUrl, string $sha, string $checkout, array &$log): bool
+    {
+        $this->ensureEmptyCheckout($checkout);
+        File::ensureDirectoryExists($checkout);
+
+        foreach ([
+            ['git', 'init', '-q', $checkout],
+            ['git', '-C', $checkout, 'remote', 'add', 'origin', $repoUrl],
+        ] as $command) {
+            if (! Process::timeout(60)->run($command)->successful()) {
+                return false;
+            }
+        }
+
+        $fetch = Process::timeout(self::NETWORK_TIMEOUT_SECONDS)
+            ->run(['git', '-C', $checkout, 'fetch', '--depth', '1', 'origin', $sha]);
+        $this->note($log, trim($fetch->output().$fetch->errorOutput()));
+        if (! $fetch->successful()) {
+            return false;
+        }
+
+        $checkoutResult = Process::timeout(60)->run(['git', '-C', $checkout, 'checkout', '-q', 'FETCH_HEAD']);
+        $this->note($log, trim($checkoutResult->output().$checkoutResult->errorOutput()));
+
+        return $checkoutResult->successful();
+    }
+
+    private static function mirrorCooldownKey(string $repoUrl): string
+    {
+        return 'edge-git-mirror-cooldown:'.hash('sha256', $repoUrl);
+    }
+
+    private function mirrorIsUsable(string $mirror, string $repoUrl): bool
+    {
+        if (! is_dir($mirror.'/objects')) {
+            return false;
+        }
+
+        $configured = Process::timeout(15)->run(
+            ['git', '--git-dir='.$mirror, 'config', '--get', 'remote.origin.url'],
+        );
+
+        return $configured->successful() && trim($configured->output()) === trim($repoUrl);
+    }
+
+    /**
      * @param  list<string>  $log
      * @return list<string>
      */
@@ -146,12 +262,20 @@ final class EdgeRepoCloner
         $useSparse = $sparseRoot !== '' && (bool) config('edge.build.sparse_checkout', true);
 
         if ($commitOverride !== null) {
-            $log[] = "Cloning {$repoUrl} (full history) for commit {$commitOverride}";
-            $this->runWithRetry(['git', 'clone', $repoUrl, $checkout], $log, $checkout);
-            $result = Process::timeout(60)->path($checkout)->run(['git', 'checkout', $commitOverride]);
-            $log[] = trim($result->output().$result->errorOutput());
-            if (! $result->successful()) {
-                throw new RuntimeException('Build failed: commit "'.$commitOverride.'" not found in repository.');
+            // Rollback/redeploy-at-commit is exactly when a full-history clone
+            // hurts most. GitHub allows fetching an arbitrary SHA, so ask for
+            // just that commit; fall back to the full clone if a remote
+            // refuses (allowAnySHA1InWant off).
+            $this->note($log, "Fetching {$repoUrl} @ {$commitOverride} (shallow)");
+            if (! $this->shallowFetchCommit($repoUrl, $commitOverride, $checkout, $log)) {
+                $this->note($log, 'Shallow commit fetch unavailable — falling back to full clone');
+                $this->ensureEmptyCheckout($checkout);
+                $this->runWithRetry(['git', 'clone', $repoUrl, $checkout], $log, $checkout);
+                $result = Process::timeout(60)->path($checkout)->run(['git', 'checkout', $commitOverride]);
+                $this->note($log, trim($result->output().$result->errorOutput()));
+                if (! $result->successful()) {
+                    throw new RuntimeException('Build failed: commit "'.$commitOverride.'" not found in repository.');
+                }
             }
             $this->applySparseCheckout($checkout, $sparseRoot, $log);
         } elseif ($useSparse) {
@@ -320,15 +444,15 @@ final class EdgeRepoCloner
      * @param  list<string>  $command
      * @param  list<string>  $log
      */
-    private function runWithRetry(array $command, array &$log, ?string $cleanPathOnRetry = null): void
+    private function runWithRetry(array $command, array &$log, ?string $cleanPathOnRetry = null, ?int $timeoutSeconds = null): void
     {
         $attempt = 0;
         $lastError = '';
 
         while ($attempt < self::NETWORK_RETRIES) {
             $attempt++;
-            $result = Process::timeout(self::NETWORK_TIMEOUT_SECONDS)->run($command);
-            $log[] = trim($result->output().$result->errorOutput());
+            $result = Process::timeout($timeoutSeconds ?? self::NETWORK_TIMEOUT_SECONDS)->run($command);
+            $this->note($log, trim($result->output().$result->errorOutput()));
             if ($result->successful()) {
                 return;
             }

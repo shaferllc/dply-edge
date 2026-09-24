@@ -6,6 +6,8 @@ namespace App\Modules\Edge\Jobs;
 
 use App\Models\EdgeDeployment;
 use App\Models\Site;
+use App\Modules\Edge\Actions\RedeployEdgeSite;
+use App\Modules\Edge\Support\EdgeContainerSettings;
 use App\Modules\Notifications\Services\NotificationPublisher;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -42,9 +44,12 @@ class CheckEdgeContainerHealthJob implements ShouldQueue
         }
 
         $started = microtime(true);
+        $body = '';
         try {
             // Allow a cold start: the image may still be rolling out.
-            $status = Http::timeout(90)->withoutRedirecting()->get($url)->status();
+            $response = Http::timeout(90)->withoutRedirecting()->get($url);
+            $status = $response->status();
+            $body = $response->body();
             $error = null;
         } catch (Throwable $e) {
             $status = null;
@@ -57,7 +62,7 @@ class CheckEdgeContainerHealthJob implements ShouldQueue
             'ok' => $ok,
             'status' => $status,
             'ms' => (int) round((microtime(true) - $started) * 1000),
-            'error' => $error,
+            'error' => $error ?? ($ok ? null : mb_substr($body, 0, 500)),
             'checked_at' => now()->toIso8601String(),
         ];
         $deployment->update(['meta' => $meta]);
@@ -66,13 +71,23 @@ class CheckEdgeContainerHealthJob implements ShouldQueue
             return;
         }
 
+        // A memory kill is raised one instance size and redeployed once per
+        // size. A missing database does not match, so it is not rebuilt.
+        if (EdgeContainerSettings::raiseForMemoryCrash($site, $body."\n".(string) $error)) {
+            try {
+                app(RedeployEdgeSite::class)->handle($site->fresh() ?? $site);
+            } catch (Throwable) {
+                // The failure notification below still fires.
+            }
+        }
+
         try {
             app(NotificationPublisher::class)->publish(
                 eventKey: 'edge.deploy.failed',
                 subject: $site,
                 title: "Container app unhealthy after deploy: {$site->name}",
                 body: $status !== null ? "{$url} answered HTTP {$status}." : "{$url} did not answer: {$error}",
-                url: route('sites.show', ['server' => $site->server_id, 'site' => $site->id, 'section' => 'edge-container']),
+                url: route('sites.show', ['server' => $site->server_id, 'site' => $site->id, 'section' => 'container']),
                 metadata: ['deployment_id' => (string) $deployment->id, 'status' => $status, 'phase' => 'health'],
             );
         } catch (Throwable) {

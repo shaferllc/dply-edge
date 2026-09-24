@@ -111,7 +111,7 @@ class Tags extends Component
         $repo = $this->edgeRepoConfigSection('tags');
 
         return view('livewire.sites.edge.workspace.tags', array_merge(
-            EdgeSiteViewData::context($this->site, 'edge-tags'),
+            EdgeSiteViewData::context($this->site, 'tags'),
             [
                 'server' => $this->server,
                 'site' => $this->site,

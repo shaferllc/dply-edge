@@ -26,7 +26,7 @@
         <div class="min-w-0">
             <p class="text-xs font-semibold uppercase tracking-[0.16em] text-brand-sage">{{ __('Domains') }}</p>
             <h3 class="mt-0.5 text-base font-semibold text-brand-ink">{{ __('Custom domains') }}</h3>
-            <p class="mt-1 max-w-2xl text-sm leading-relaxed text-brand-moss">{{ __('Point a CNAME at your Edge hostname, then verify DNS here. Managed delivery issues TLS via Custom Hostnames on the dply Edge zone; BYO Cloudflare uses your zone’s orange-cloud proxy.') }}</p>
+            <p class="mt-1 max-w-2xl text-sm leading-relaxed text-brand-moss">{{ __('Point a CNAME at your Edge hostname, then verify DNS here. Managed delivery issues TLS via Custom Hostnames on the dply Edge zone; Bring-your-own uses your zone’s proxy.') }}</p>
         </div>
     </div>
     <div class="space-y-4 px-6 py-5 sm:px-8">

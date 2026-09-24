@@ -23,19 +23,19 @@ test('guest is redirected from edge index', function () {
     Feature::define('surface.edge', fn () => true);
     Feature::flushCache();
 
-    $this->get(route('edge.index'))
+    $this->get(route('dashboard'))
         ->assertRedirect(route('login'));
 });
 
-test('returns 404 when surface edge inactive', function () {
+test('dashboard stays reachable when the retired surface edge flag is off', function () {
     Feature::define('surface.edge', fn () => false);
     Feature::flushCache();
 
     $user = ownerWithOrg();
 
     $this->actingAs($user)
-        ->get(route('edge.index'))
-        ->assertStatus(404);
+        ->get(route('dashboard'))
+        ->assertOk();
 });
 
 test('authenticated user sees edge sites index when surface edge active', function () {
@@ -45,9 +45,9 @@ test('authenticated user sees edge sites index when surface edge active', functi
     $user = ownerWithOrg();
 
     $this->actingAs($user)
-        ->get(route('edge.index'))
+        ->get(route('dashboard'))
         ->assertOk()
-        ->assertSee('Projects')
+        ->assertSee('Dashboard')
         ->assertSee('Launch your first Edge site');
 });
 
@@ -72,11 +72,10 @@ test('redesigned index renders richer edge site metadata', function () {
     ]);
 
     $this->actingAs($user)
-        ->get(route('edge.index'))
+        ->get(route('dashboard'))
         ->assertOk()
-        ->assertSee('Projects')
-        ->assertSee('Hybrid')
-        ->assertSee('Nextjs')
+        ->assertSee('Dashboard')
+        ->assertSee('Requests')
         ->assertSee('edge-portal.on-dply.site');
 });
 
@@ -110,7 +109,7 @@ test('delete site removes edge site from index', function () {
         ->call('openDeleteSiteModal', (string) $site->id)
         ->call('deleteSite')
         ->assertSet('confirmingDeleteSiteId', null)
-        ->assertRedirect(route('edge.index'));
+        ->assertRedirect(route('dashboard'));
 
     $this->assertDatabaseMissing('sites', ['id' => $site->id]);
 });
@@ -129,7 +128,7 @@ test('delete in 30 minutes queues delayed teardown for edge site', function () {
         ->call('openDeleteSiteModal', (string) $site->id)
         ->set('deleteMode', 'in_30')
         ->call('deleteSite')
-        ->assertRedirect(route('edge.index'));
+        ->assertRedirect(route('dashboard'));
 
     $site->refresh();
     expect(data_get($site->meta, 'edge.scheduled_deletion_at'))->not->toBeNull();
@@ -160,7 +159,7 @@ test('scheduled delete queues teardown for selected future date and time', funct
         ->set('deleteMode', 'scheduled')
         ->set('scheduledDeleteAt', $scheduledAt->format('Y-m-d\TH:i'))
         ->call('deleteSite')
-        ->assertRedirect(route('edge.index'));
+        ->assertRedirect(route('dashboard'));
 
     $site->refresh();
     expect(data_get($site->meta, 'edge.scheduled_deletion_at'))->not->toBeNull();

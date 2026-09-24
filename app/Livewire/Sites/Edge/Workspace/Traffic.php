@@ -24,8 +24,8 @@ class Traffic extends Component
     public function render(): View
     {
         return view('livewire.sites.edge.workspace.traffic', array_merge(
-            EdgeSiteViewData::context($this->site, 'edge-traffic'),
-            SiteSettingsViewData::edgeSectionAnalytics($this->site, 'edge-traffic'),
+            EdgeSiteViewData::context($this->site, 'traffic'),
+            SiteSettingsViewData::edgeSectionAnalytics($this->site, 'traffic'),
             [
                 'server' => $this->server,
                 'site' => $this->site,

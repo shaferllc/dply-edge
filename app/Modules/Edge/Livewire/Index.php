@@ -6,8 +6,10 @@ namespace App\Modules\Edge\Livewire;
 
 use App\Livewire\Concerns\DispatchesToastNotifications;
 use App\Models\EdgeDeployment;
+use App\Models\EdgeUsageSnapshot;
 use App\Models\Organization;
 use App\Models\Site;
+use App\Modules\Billing\Services\EdgeOrganizationUsageReader;
 use App\Modules\Edge\Jobs\TeardownEdgeSiteJob;
 use App\Modules\Edge\Services\EdgeSiteCanceller;
 use App\Support\Edge\EdgeIndexRow;
@@ -169,11 +171,13 @@ class Index extends Component
 
         $user = auth()->user();
         $previewChildLookup = array_flip($previewChildIds);
+        $statsBySite = $this->statsBySite($allSites->pluck('id')->all());
         $rows = $sites->map(
             fn (Site $site): EdgeIndexRow => EdgeIndexRow::fromSite(
                 $site,
                 isset($previewChildLookup[(string) $site->id]),
                 $user,
+                $statsBySite[(string) $site->id] ?? [],
             ),
         );
 
@@ -252,7 +256,7 @@ class Index extends Component
             }
             $this->closeDeleteSiteModal();
             $this->toastSuccess(__(':name will be deleted in 30 minutes.', ['name' => $siteName]));
-            $this->redirect(route('edge.index'), navigate: true);
+            $this->redirect(route('dashboard'), navigate: true);
 
             return;
         }
@@ -281,7 +285,7 @@ class Index extends Component
                 'name' => $siteName,
                 'date' => $scheduledFor->timezone(config('app.timezone'))->format('M j, Y g:i A'),
             ]));
-            $this->redirect(route('edge.index'), navigate: true);
+            $this->redirect(route('dashboard'), navigate: true);
 
             return;
         }
@@ -296,7 +300,7 @@ class Index extends Component
         }
         $this->closeDeleteSiteModal();
         $this->toastSuccess(__('Deleted Edge site ":name".', ['name' => $siteName]));
-        $this->redirect(route('edge.index'), navigate: true);
+        $this->redirect(route('dashboard'), navigate: true);
     }
 
     private function scheduleEdgeSiteDeletion(Site $site, Carbon $scheduledFor): void
@@ -320,6 +324,47 @@ class Index extends Component
         abort_if(! $org instanceof Organization, 403);
 
         return $this->edgeSitesQuery($org);
+    }
+
+    /**
+     * @param  list<mixed>  $siteIds
+     * @return array<string, array{requests: int, bytes: int, published_at: mixed}>
+     */
+    private function statsBySite(array $siteIds): array
+    {
+        if ($siteIds === []) {
+            return [];
+        }
+
+        [$periodStart, $periodEnd] = app(EdgeOrganizationUsageReader::class)->currentMonthWindow();
+        $usage = EdgeUsageSnapshot::query()
+            ->whereIn('site_id', $siteIds)
+            ->where('period_start', '>=', $periodStart->toDateString())
+            ->where('period_start', '<=', $periodEnd->toDateString())
+            ->groupBy('site_id')
+            ->selectRaw('site_id, COALESCE(SUM(requests), 0) AS requests, COALESCE(SUM(bytes_egress), 0) AS bytes_egress')
+            ->get()
+            ->keyBy(fn ($row) => (string) $row->site_id);
+
+        $published = EdgeDeployment::query()
+            ->whereIn('site_id', $siteIds)
+            ->whereNotNull('published_at')
+            ->groupBy('site_id')
+            ->selectRaw('site_id, MAX(published_at) AS published_at')
+            ->pluck('published_at', 'site_id');
+
+        $stats = [];
+        foreach ($siteIds as $siteId) {
+            $id = (string) $siteId;
+            $row = $usage->get($id);
+            $stats[$id] = [
+                'requests' => (int) ($row->requests ?? 0),
+                'bytes' => (int) ($row->bytes_egress ?? 0),
+                'published_at' => $published->get($siteId) ?? $published->get($id),
+            ];
+        }
+
+        return $stats;
     }
 
     /**

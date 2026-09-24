@@ -79,7 +79,7 @@
     <details class="mt-4 rounded-xl border border-brand-ink/10 px-3 py-2" @if ($errors->has('bulk_redirects')) open @endif>
         <summary class="cursor-pointer text-xs font-semibold text-brand-ink">{{ __('Import in bulk') }}</summary>
         <p class="mt-2 text-xs text-brand-moss">
-            {{ __('Paste a Cloudflare Bulk Redirects CSV (source_url,target_url,status_code) or a Netlify _redirects block (/from /to 301). One rule per line; the host is dropped because rules are scoped to this site.') }}
+            {{ __('Paste a bulk-redirects CSV (source_url,target_url,status_code) or a Netlify _redirects block (/from /to 301). One rule per line; the host is dropped because rules are scoped to this site.') }}
         </p>
 
         <form wire:submit.prevent="importRedirects" class="mt-2">

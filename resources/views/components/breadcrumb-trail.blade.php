@@ -120,12 +120,14 @@
 
         return $isLast ? $iconComponents['map-pin'] : $iconComponents['folder'];
     };
+
+    $breadcrumbSite = $site instanceof \App\Models\Site ? $site : request()->route('site');
 @endphp
 
 @if ($crumbs !== [])
     <div {{ $attributes->class(['flex flex-wrap items-center justify-between gap-x-4 gap-y-3', $wrapperClass]) }}>
         <nav class="min-w-0 flex-1 text-sm text-brand-moss" aria-label="{{ __('Breadcrumb') }}">
-            <ol class="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <ol class="flex flex-wrap items-center gap-x-2 gap-y-1 leading-none">
                 @foreach ($crumbs as $item)
                     @php
                         $href = $item['href'] ?? $item['url'] ?? null;
@@ -150,11 +152,24 @@
                         $crumbAvatarImage = isset($item['avatar_image']) && is_string($item['avatar_image']) && $item['avatar_image'] !== ''
                             ? $item['avatar_image']
                             : null;
+
+                        // A crumb that names the project always carries the project
+                        // logo, even when the caller only passed the label.
+                        if (
+                            $crumbAvatar === null
+                            && $breadcrumbSite instanceof \App\Models\Site
+                            && (string) ($item['label'] ?? '') !== ''
+                            && (string) $item['label'] === (string) $breadcrumbSite->name
+                        ) {
+                            $projectCrumb = \App\Support\Sites\SiteWorkspaceBreadcrumbs::projectItem($breadcrumbSite);
+                            $crumbAvatar = $projectCrumb['avatar'];
+                            $crumbAvatarImage ??= $projectCrumb['avatar_image'];
+                        }
                     @endphp
                     @if (! $loop->first)
-                        <li class="flex h-5 select-none items-center text-brand-mist" aria-hidden="true">/</li>
+                        <li class="flex h-5 select-none items-center self-center text-brand-mist" aria-hidden="true">/</li>
                     @endif
-                    <li class="min-w-0">
+                    <li class="flex min-w-0 items-center self-center">
                         @if ($hasHref)
                             <a
                                 href="{{ $href }}"
@@ -207,7 +222,6 @@
             </ol>
         </nav>
 
-        @php $breadcrumbSite = $site instanceof \App\Models\Site ? $site : request()->route('site'); @endphp
         @if ($showDocs || isset($trailing) || $breadcrumbSite instanceof \App\Models\Site)
             <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
                 @if ($docContextual)

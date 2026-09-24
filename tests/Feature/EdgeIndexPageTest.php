@@ -21,9 +21,9 @@ test('empty state when no edge sites', function () {
     $user = ownerWithOrg();
 
     $this->actingAs($user)
-        ->get(route('edge.index'))
+        ->get(route('dashboard'))
         ->assertOk()
-        ->assertSee('Projects')
+        ->assertSee('Dashboard')
         ->assertSee('Launch your first Edge site')
         ->assertSee('What Edge gives you')
         ->assertSee('Deploy an edge app')
@@ -43,7 +43,7 @@ test('lists only edge sites for current org', function () {
     makeVmSite($user, $org, 'PHP Site');
 
     $this->actingAs($user)
-        ->get(route('edge.index'))
+        ->get(route('dashboard'))
         ->assertOk()
         ->assertSee('My Edge App')
         ->assertDontSee('Other Org Edge')
@@ -76,10 +76,14 @@ test('status pill renders for active site with live url', function () {
     ]]);
 
     $this->actingAs($user)
-        ->get(route('edge.index'))
+        ->get(route('dashboard'))
         ->assertSee('Active')
         ->assertSee('live-app.dply.host')
-        ->assertSee('acme/web@main');
+        ->assertSee('acme/web@main')
+        ->assertSee('Requests')
+        ->assertSee('Bandwidth')
+        ->assertSee('Last deploy')
+        ->assertDontSee('All sites');
 });
 
 test('lists preview with pr badge', function () {
@@ -109,7 +113,7 @@ test('lists preview with pr badge', function () {
     ]);
 
     $this->actingAs($user)
-        ->get(route('edge.index'))
+        ->get(route('dashboard'))
         ->assertOk()
         ->assertSee('PR #42');
 });

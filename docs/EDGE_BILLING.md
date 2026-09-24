@@ -3,7 +3,7 @@ title: "Edge billing & usage"
 slug: edge-billing
 category: "Edge"
 order: 140
-description: "Summarizes per-site Edge charges including the platform fee and month-to-date CDN request and bandwidth usage, with a link to org-wide billing."
+description: "Summarizes this site's usage and any extra-site or SSR fee, with a link to org-wide billing."
 group: edge
 ---
 
@@ -37,7 +37,7 @@ Historical charts help spot traffic spikes after launches or marketing campaigns
 ## Managed vs BYO
 
 - **Managed delivery** — usage collected from dply’s Cloudflare analytics integration
-- **BYO Cloudflare** — pass-through usage may still apply for dply platform fees; CDN usage details may be in Cloudflare directly
+- **BYO Cloudflare** — Cloudflare bills delivery directly. dply does not add a site fee or a delivery meter for these sites.
 
 ## Suspended or deleted sites
 

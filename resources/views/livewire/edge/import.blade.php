@@ -1,18 +1,18 @@
 <div class="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
     <x-breadcrumb-trail :items="[
         ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
-        ['label' => __('Projects'), 'href' => route('edge.index'), 'icon' => 'globe-alt'],
+        ['label' => __('Projects'), 'href' => route('dashboard'), 'icon' => 'globe-alt'],
         ['label' => __('Import'), 'icon' => 'arrow-down-tray'],
     ]" />
 
     <x-profile-shell
         class="mt-4"
         :title="__('Import from another edge host')"
-        :description="__('Pull a project\'s build settings, env vars, and custom domains from Vercel, Netlify, or Cloudflare Pages — we hand you off to the Edge Create form with everything pre-filled. Nothing is created on dply until you confirm.')"
+        :description="__('Pull a project\'s build settings, env vars, and custom domains from Vercel, Netlify, or Pages — we hand you off to the Edge Create form with everything pre-filled. Nothing is created on dply until you confirm.')"
         icon="heroicon-o-arrow-down-tray"
     >
         <x-slot:actions>
-            <x-outline-link href="{{ route('edge.index') }}" wire:navigate size="sm">
+            <x-outline-link href="{{ route('dashboard') }}" wire:navigate size="sm">
                 <x-heroicon-o-arrow-left class="h-4 w-4 shrink-0 opacity-90" aria-hidden="true" />
                 {{ __('Back to projects') }}
             </x-outline-link>
@@ -69,7 +69,7 @@
             <div class="space-y-4 px-6 py-6 sm:px-7">
                 @if ($provider === 'cloudflare_pages')
                     <label class="block">
-                        <span class="text-xs font-semibold uppercase tracking-[0.14em] text-brand-mist">{{ __('Cloudflare account id') }}</span>
+                        <span class="text-xs font-semibold uppercase tracking-[0.14em] text-brand-mist">{{ __('Account id') }}</span>
                         <input type="text" wire:model.blur="secondaryId" class="mt-1.5 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 font-mono text-sm text-brand-ink shadow-sm focus:border-brand-sage focus:ring-1 focus:ring-brand-sage dark:border-brand-mist/20 dark:bg-zinc-800" placeholder="0123456789abcdef0123456789abcdef" />
                     </label>
                 @elseif ($provider === 'vercel')
@@ -199,7 +199,7 @@
                     $providerLabel = match ($provider) {
                         'vercel' => 'Vercel',
                         'netlify' => 'Netlify',
-                        'cloudflare_pages' => 'Cloudflare Pages',
+                        'cloudflare_pages' => 'Pages',
                         default => __('your source provider'),
                     };
                     $currentTargetHint = match ($provider) {
@@ -241,7 +241,7 @@
                         {{ __('Apex (root) domains: most providers require ALIAS/ANAME or a flattening CNAME — use the same target host as a normal CNAME.') }}
                     </p>
                     <div class="mt-2">
-                        <x-docs-link slug="edge-domains" :label="__('Edge domains docs')" />
+                        <x-docs-link slug="domains" :label="__('Edge domains docs')" />
                     </div>
                 </div>
             @endif

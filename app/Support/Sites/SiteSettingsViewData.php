@@ -212,7 +212,7 @@ final class SiteSettingsViewData
         }
 
         // Nested children load these via {@see edgeSectionAnalytics()}.
-        if (in_array($section, ['edge-traffic', 'edge-billing'], true)) {
+        if (in_array($section, ['traffic', 'billing'], true)) {
             return self::edgeAnalyticsFlagsOnly();
         }
 
@@ -241,9 +241,9 @@ final class SiteSettingsViewData
 
         $flags = self::edgeAnalyticsFlagsOnly();
 
-        $needsBillingSnapshot = $section === 'edge-billing';
-        $needsTrafficSnapshot = $section === 'edge-traffic';
-        $needsAccessSnapshot = $section === 'edge-traffic';
+        $needsBillingSnapshot = $section === 'billing';
+        $needsTrafficSnapshot = $section === 'traffic';
+        $needsAccessSnapshot = $section === 'traffic';
 
         if (! $needsBillingSnapshot && ! $needsTrafficSnapshot && ! $needsAccessSnapshot) {
             return $flags;
@@ -333,14 +333,11 @@ final class SiteSettingsViewData
     {
         $items = [
             ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
-            ['label' => __('Edge'), 'href' => route('edge.index'), 'icon' => 'globe-alt'],
-            [
-                'label' => $site->name,
-                'href' => $section === 'general' ? null : route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'general']),
-                'icon' => 'globe-alt',
-                'avatar' => $site->name ?: (string) $site->id,
-                'avatar_image' => $site->logoUrl(),
-            ],
+            SiteWorkspaceBreadcrumbs::projectsItem(),
+            SiteWorkspaceBreadcrumbs::projectItem(
+                $site,
+                $section === 'general' ? null : route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'general']),
+            ),
         ];
 
         if ($section !== 'general') {

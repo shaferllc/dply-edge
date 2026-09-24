@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Console;
 
+use App\Modules\Edge\Services\Containers\EdgeContainerDockerfile;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
 
 /**
@@ -14,9 +16,10 @@ use Illuminate\Support\Facades\Process;
 class WarmEdgeBuildImagesCommand extends Command
 {
     protected $signature = 'dply:edge:warm-build-images
-                            {--image=* : Specific image(s); defaults to config edge.build.warm_images}';
+                            {--image=* : Specific image(s); defaults to config edge.build.warm_images}
+                            {--no-layers : Skip pre-building the PHP extension layer}';
 
-    protected $description = 'Pre-pull Edge Docker build images (node:20 / node:22) on this worker';
+    protected $description = 'Pre-pull Edge Docker build images and warm the PHP extension layer on this worker';
 
     public function handle(): int
     {
@@ -54,6 +57,43 @@ class WarmEdgeBuildImagesCommand extends Command
             }
         }
 
+        if (! $this->option('no-layers')) {
+            $failed += $this->warmPhpExtensionLayer();
+        }
+
         return $failed > 0 ? self::FAILURE : self::SUCCESS;
+    }
+
+    /**
+     * Pre-build the FROM + install-php-extensions layer for each supported PHP.
+     * Compiling intl/zip/redis is ~5 min of a cold container build; BuildKit
+     * reuses the layer as long as the two lines match byte for byte, which is
+     * why both sides read them from EdgeContainerDockerfile.
+     */
+    private function warmPhpExtensionLayer(): int
+    {
+        $dir = sys_get_temp_dir().'/dply-edge-warm-php';
+        File::ensureDirectoryExists($dir);
+        $failed = 0;
+
+        foreach (EdgeContainerDockerfile::PHP_VERSIONS as $version) {
+            File::put($dir.'/Dockerfile', implode("\n", EdgeContainerDockerfile::phpBaseSourceLines($version))."\n");
+
+            $this->info("Warming PHP {$version} extension layer…");
+            $build = Process::timeout(1800)
+                ->env(['BUILDKIT_PROGRESS' => 'plain'])
+                ->run(['docker', 'build', '-t', "dply-edge-warm-php{$version}", $dir]);
+
+            if ($build->successful()) {
+                $this->line("  ok — php {$version}");
+            } else {
+                $failed++;
+                $this->error('  failed: '.trim(substr($build->errorOutput() ?: $build->output(), -300)));
+            }
+        }
+
+        File::deleteDirectory($dir);
+
+        return $failed;
     }
 }

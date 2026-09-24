@@ -38,7 +38,7 @@
                     {{ $isOver ? __('Over') : __('Warn') }}
                 </span>
                 <a
-                    href="{{ route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'edge-billing']) }}"
+                    href="{{ route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'billing']) }}"
                     wire:navigate
                     class="text-xs font-semibold {{ $tone['title'] }} underline hover:no-underline"
                 >

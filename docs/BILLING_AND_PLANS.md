@@ -15,17 +15,18 @@ dply Edge bills a **monthly plan** plus **usage past what the plan includes**. P
 | | Free | Pro | Team |
 |---|---|---|---|
 | Price | $0 | $20/mo | $49/mo |
-| Sites | 1 | 10, then $2 each | 50, then $2 each |
+| Sites | Unlimited | 10, then $2 each | 50, then $2 each |
 | Worker SSR sites | — | $7 each | $7 each |
-| Seats | 1 | 3 | 5, then $5 each |
-| Build minutes / mo | 300, then builds pause | 1,000, then $0.006/min | 3,000, then $0.005/min |
+| Seats | Unlimited | 3 | 5, then $5 each |
+| Build minutes / mo | Unlimited (draws the $5 credit) | 1,000, then $0.006/min | 3,000, then $0.005/min |
 | Concurrent builds | 1 | 2 | 5 |
 | Build timeout | 20 min | 45 min | 60 min |
 | Requests / mo | 1M | 10M | 50M |
 | Egress / mo | 10 GB | 500 GB | 2 TB |
-| Custom domains per site | 1 | 100 | 100 |
-| Container apps (PHP, Rails, Node) | — | $5 compute included | $20 compute included |
-| Load balancing ($8/endpoint) | — | Yes | Yes |
+| Custom domains per site | 10 | 100 | 100 |
+| Container apps (PHP, Rails, Node) | $5 compute included, sleeps when idle | $5 compute included | $20 compute included |
+| Usage credit | $5, then apps pause | Billed as overage | Billed as overage |
+| Managed queues | 1 | 10 | 50 |
 | Audit log | — | — | Yes |
 
 Allowances are per organization, per calendar month. A site counts once it is live (`edge_active`) and older than `min_billable_age_days`. Plans are **monthly only** for now.
@@ -44,7 +45,7 @@ On Pro and Team, requests and egress past the plan are billed at a cost-floor ra
 
 Container compute is billed per second after the plan's credit: vCPU $0.020/hour, memory $0.0025/GiB-hour, disk $0.00007/GB-hour, egress $0.025/GB (Cloudflare list price), plus the same markup. It is collected hourly from Cloudflare's `containersUsageAdaptiveGroups`.
 
-Rates live under `edge.usage_billing` in `config/product/dply.php` (`DPLY_EDGE_USAGE_*`). Build-minute and delivery overage are billed together on the `edge_usage` line, in cents. Free orgs are never billed usage; their builds pause when the month's minutes run out.
+Rates live under `edge.usage_billing` in `config/product/dply.php` (`DPLY_EDGE_USAGE_*`). Build-minute and delivery overage are billed together on the `edge_usage` line, in cents. Free orgs are never invoiced; compute, delivery past the allowance, and build minutes draw a $5 credit. When it is used up, new builds pause and managed container apps stop accepting traffic so Cloudflare stops billing an awake container.
 
 Usage billing applies to **managed (`dply_edge`) sites only**. BYO Cloudflare (`org_cloudflare`) sites pay Cloudflare directly.
 

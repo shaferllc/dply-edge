@@ -407,7 +407,7 @@ class Routing extends Component
             : 'dply.yaml';
 
         return view('livewire.sites.edge.workspace.routing', array_merge(
-            EdgeSiteViewData::context($this->site, 'edge-routing'),
+            EdgeSiteViewData::context($this->site, 'routing'),
             [
                 'server' => $this->server,
                 'site' => $this->site,

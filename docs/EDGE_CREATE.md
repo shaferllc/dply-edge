@@ -82,4 +82,4 @@ In local development you may see **Fake-edge mode is on**: builds use an in-memo
 
 ## Sidebar pricing
 
-The create sidebar summarizes the per-site fee and included usage allowances. Use **Browse documentation** for this guide anytime during create.
+The create sidebar summarizes the plan and included usage allowances. Sites past the plan and Worker SSR sites are billed on the organization invoice. Use **Browse documentation** for this guide anytime during create.

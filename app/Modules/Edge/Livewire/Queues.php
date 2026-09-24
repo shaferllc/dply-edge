@@ -52,7 +52,7 @@ class Queues extends Component
         try {
             $created = $this->client()->createQueue($cloudflareName);
         } catch (Throwable $e) {
-            $this->addError('name', __('Cloudflare: :error', ['error' => $e->getMessage()]));
+            $this->addError('name', __('Dply Edge: :error', ['error' => $e->getMessage()]));
 
             return;
         }
@@ -77,7 +77,7 @@ class Queues extends Component
             $this->client()->sendQueueMessage($queue->cloudflare_id, ['dply_test' => true, 'sent_at' => now()->toIso8601String()]);
             session()->flash('status', __('Test message sent to :queue.', ['queue' => $queue->name]));
         } catch (Throwable $e) {
-            $this->addError('queue', __('Cloudflare: :error', ['error' => $e->getMessage()]));
+            $this->addError('queue', __('Dply Edge: :error', ['error' => $e->getMessage()]));
         }
     }
 
@@ -110,7 +110,7 @@ class Queues extends Component
         try {
             $this->client()->deleteQueue($queue->cloudflare_id);
         } catch (Throwable $e) {
-            $this->addError('queue', __('Cloudflare: :error', ['error' => $e->getMessage()]));
+            $this->addError('queue', __('Dply Edge: :error', ['error' => $e->getMessage()]));
 
             return;
         }

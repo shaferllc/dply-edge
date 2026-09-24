@@ -95,7 +95,7 @@ class Import extends Component
             return;
         }
         if ($this->provider === 'cloudflare_pages' && trim($this->secondaryId) === '') {
-            $this->probeResult = ['ok' => false, 'message' => __('Cloudflare account id is required.')];
+            $this->probeResult = ['ok' => false, 'message' => __('Account id is required.')];
 
             return;
         }
@@ -204,7 +204,7 @@ class Import extends Component
             'providers' => [
                 ['key' => 'vercel', 'label' => 'Vercel', 'hint' => __('Personal access token (Account → Tokens). Team accounts also need the team id.')],
                 ['key' => 'netlify', 'label' => 'Netlify', 'hint' => __('Personal access token (User settings → Applications → Personal access tokens).')],
-                ['key' => 'cloudflare_pages', 'label' => 'Cloudflare Pages', 'hint' => __('API token with Pages:Read + account id from the Cloudflare dashboard.')],
+                ['key' => 'cloudflare_pages', 'label' => 'Pages', 'hint' => __('API token with Pages:Read plus the account id.')],
             ],
         ]);
     }

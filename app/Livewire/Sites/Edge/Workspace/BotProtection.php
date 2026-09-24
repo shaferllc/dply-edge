@@ -152,7 +152,7 @@ class BotProtection extends Component
     public function render(): View
     {
         return view('livewire.sites.edge.workspace.bot-protection', array_merge(
-            EdgeSiteViewData::context($this->site, 'edge-bot-protection'),
+            EdgeSiteViewData::context($this->site, 'bot-protection'),
             [
                 'server' => $this->server,
                 'site' => $this->site,

@@ -40,7 +40,7 @@ class Build extends Component
     public function render(): View
     {
         $viewData = array_merge(
-            EdgeSiteViewData::context($this->site, 'edge-build'),
+            EdgeSiteViewData::context($this->site, 'build'),
             [
                 'server' => $this->server,
                 'site' => $this->site,

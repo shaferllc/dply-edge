@@ -2,11 +2,11 @@
     <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
         @include('livewire.sites.edge.workspace.partials.feature-guide', [
             'docSlug' => 'edge-containers',
-            'what' => __('Your app runs on Cloudflare Containers. Pick how big each container is, how many can run at once, and how long an idle one stays warm.'),
+            'what' => __('Your app runs on Dply Edge. Pick how big each container is, how many can run at once, and how long an idle one stays warm.'),
             'steps' => [
                 __('Choose an instance size that fits your app’s memory.'),
                 __('Set max instances: traffic is spread across up to this many containers.'),
-                __('Save and redeploy to roll the new settings out.'),
+                __('Save and redeploy to roll the new settings out. Deploys are gradual — the previous container keeps serving until the new one is up.'),
             ],
             'tips' => [
                 __('Compute is billed per second while containers run; they sleep when idle and the meter stops.'),

@@ -30,17 +30,15 @@ class EdgeDeploymentDetail extends Component
 
     public EdgeDeployment $deployment;
 
-    public string $section = 'edge-deploys';
+    public string $section = 'deploys';
 
     public string $tab = 'overview';
 
-    public function mount(Server $server, Site $site, EdgeDeployment $deployment, ?string $tab = null): void
+    public function mount(Site $site, EdgeDeployment $deployment, ?string $tab = null): void
     {
-        if (! $site->usesEdgeRuntime()) {
-            abort(404);
-        }
+        $server = $site->server;
 
-        if ($site->server_id !== $server->id) {
+        if (! $site->usesEdgeRuntime() || $server === null) {
             abort(404);
         }
 
@@ -48,7 +46,7 @@ class EdgeDeploymentDetail extends Component
             abort(404);
         }
 
-        if ($server->organization_id !== auth()->user()?->currentOrganization()?->id) {
+        if ($site->organization_id !== auth()->user()?->currentOrganization()?->id) {
             abort(404);
         }
 
@@ -117,7 +115,7 @@ class EdgeDeploymentDetail extends Component
             SiteSettingsViewData::for(
                 $this->server,
                 $this->site,
-                'edge-deploys',
+                'deploys',
                 null,
                 [],
                 auth()->user(),

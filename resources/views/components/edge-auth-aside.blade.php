@@ -52,7 +52,7 @@
         default => [
             'kicker' => 'SIGN_IN',
             'title' => __('Push a repo. Get a site on the edge.'),
-            'body' => __('Static, hybrid or Worker SSR — built in a clean container and published to Cloudflare R2 and Workers.'),
+            'body' => __('Static, hybrid or Worker SSR — built in a clean container and published on Dply Edge.'),
             'trace' => [
                 ['✓', __('clone').' <span class="text-edge-faint">4.2s</span>'],
                 ['✓', __('build').' <span class="text-edge-faint">38.1s</span>'],

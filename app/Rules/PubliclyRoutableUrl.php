@@ -45,7 +45,7 @@ final class PubliclyRoutableUrl implements ValidationRule
 
         if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
             if (PublicOutboundUrl::isBlockedIp($host)) {
-                $fail(__(':host is a private address — the origin must be reachable from the public internet. To expose a backend with no public IP, put it behind a Cloudflare Tunnel and use the tunnel hostname.', ['host' => $host]));
+                $fail(__(':host is a private address — the origin must be reachable from the public internet. To expose a backend with no public IP, put it behind a tunnel and use the tunnel hostname.', ['host' => $host]));
             }
 
             return;

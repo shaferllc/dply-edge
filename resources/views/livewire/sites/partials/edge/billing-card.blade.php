@@ -19,12 +19,12 @@
                             'requests' => number_format($billing['requests'] ?? 0),
                         ]) }}
                     @else
-                        {{ __('Platform fee plus metered delivery when enabled.') }}
+                        {{ __('Usage this month. Extra sites and SSR sites are billed on the organization plan.') }}
                     @endif
                 </p>
             </div>
             <a
-                href="{{ route('sites.show', ['server' => $server ?? $site->server, 'site' => $site, 'section' => 'edge-billing']) }}"
+                href="{{ route('sites.show', ['server' => $server ?? $site->server, 'site' => $site, 'section' => 'billing']) }}"
                 wire:navigate
                 class="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-brand-forest hover:underline dark:text-brand-sage"
             >

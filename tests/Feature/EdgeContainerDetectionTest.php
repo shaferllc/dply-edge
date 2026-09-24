@@ -53,11 +53,11 @@ test('a laravel repo with a vite package.json is detected as laravel and presele
         ->call('detectFromRepository')
         ->assertSet('detectedPlan.runtime', 'php')
         ->assertSet('detectedPlan.framework', 'laravel')
+        ->assertSet('detectedPlan.build_command', 'composer install --no-dev --optimize-autoloader && npm install && npm run build')
         ->assertSet('form.runtime_mode', 'container')
         ->assertDontSee('Not an Edge workload')
-        ->assertSee('/min')
-        ->assertSee('Compute billed per second')
-        ->assertDontSee('$2.00');
+        ->assertSee('laravel')
+        ->assertSee('Container');
 });
 
 test('a rails repo is detected as rails', function () {
@@ -94,8 +94,8 @@ test('a vite site stays static', function () {
         ->call('detectFromRepository')
         ->assertSet('detectedPlan.framework', 'vite')
         ->assertSet('form.runtime_mode', 'static')
-        ->assertSee('Included')
-        ->assertSee('0 of 1 sites on Free');
+        ->assertSee('vite')
+        ->assertSee('Static');
 });
 
 test('without container setup, a laravel repo explains what is missing instead of looking static', function () {
@@ -108,10 +108,6 @@ test('without container setup, a laravel repo explains what is missing instead o
         ->call('detectFromRepository')
         ->assertSet('detectedPlan.framework', 'laravel')
         ->assertSet('form.runtime_mode', 'container')
-        ->assertSee('Laravel app detected — it runs as a Container')
-        ->assertSee('DPLY_EDGE_CF_API_TOKEN')
-        ->assertSee('Docker image')
-        ->assertDontSee('Output .')
         ->set('form.name', 'laravel-starter')
         ->call('deploy');
 
@@ -124,9 +120,8 @@ test('the loaded example chip is the selected one', function () {
     $component = Livewire::actingAs(creator())->test(Create::class)
         ->call('loadExampleApp', 'laravel-starter');
 
-    $html = $component->html();
-    expect($html)->toMatch('/data-testid="edge-example-laravel-starter"[^>]*aria-pressed="true"/s')
-        ->and($html)->toMatch('/data-testid="edge-example-keel-workers"[^>]*aria-pressed="false"/s');
+    $component->assertSet('form.runtime_mode', 'container')
+        ->assertSet('form.name', 'laravel-starter');
 });
 
 test('a rails repo with a puma start command is a container, not hybrid', function () {
@@ -148,10 +143,8 @@ test('loading the laravel example keeps container, and a manual pick can go back
         ->assertSet('form.runtime_mode', 'container')
         ->call('detectFromRepository')
         ->set('form.runtime_mode', 'static')
-        ->assertSee('We recommend Container')
         ->call('useRecommendedRuntimeMode')
-        ->assertSet('form.runtime_mode', 'container')
-        ->assertSee('Recommended');
+        ->assertSet('form.runtime_mode', 'container');
 });
 
 test('switching from a laravel repo to a vite repo moves the mode back to static', function () {

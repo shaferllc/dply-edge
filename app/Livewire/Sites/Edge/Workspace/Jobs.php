@@ -129,7 +129,7 @@ class Jobs extends Component
         ));
 
         return view('livewire.sites.edge.workspace.jobs', array_merge(
-            EdgeSiteViewData::context($this->site, 'edge-jobs'),
+            EdgeSiteViewData::context($this->site, 'jobs'),
             [
                 'server' => $this->server,
                 'site' => $this->site,
@@ -140,7 +140,7 @@ class Jobs extends Component
                 'bindingsUrl' => route('sites.show', [
                     'server' => $this->server,
                     'site' => $this->site,
-                    'section' => 'edge-bindings',
+                    'section' => 'bindings',
                 ]),
             ],
         ));

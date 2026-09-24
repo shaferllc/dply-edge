@@ -59,21 +59,4 @@
         @endif
     </div>
 
-    <dl class="grid gap-px border-t border-brand-ink/10 bg-brand-ink/[0.07] text-xs sm:grid-cols-2">
-        <div class="bg-white px-5 py-3.5 sm:px-6 dark:bg-zinc-900/60">
-            <dt class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Latest deploy') }}</dt>
-            <dd class="mt-1 text-brand-ink">
-                @if ($edgeLatestDeployment)
-                    <span class="font-medium capitalize">{{ str_replace('_', ' ', (string) $edgeLatestDeployment->status) }}</span>
-                    <span class="text-brand-moss"> · {{ optional($edgeLatestDeployment->published_at ?? $edgeLatestDeployment->created_at)->diffForHumans() ?? '—' }}</span>
-                @else
-                    <span class="text-brand-moss">{{ __('No deploys yet') }}</span>
-                @endif
-            </dd>
-        </div>
-        <div class="bg-white px-5 py-3.5 sm:px-6 dark:bg-zinc-900/60">
-            <dt class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Auto deploy') }}</dt>
-            <dd class="mt-1 font-medium text-brand-ink">{{ $edgeDeployOnPush ? __('On push to :branch', ['branch' => $edgeBranch]) : __('Manual only') }}</dd>
-        </div>
-    </dl>
 </section>

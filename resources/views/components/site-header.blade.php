@@ -107,6 +107,16 @@
                                 <x-heroicon-o-magnifying-glass class="h-4 w-4 shrink-0" />
                                 <kbd class="hidden items-center font-terminal text-2xs font-semibold tracking-tight text-brand-mist lg:inline-flex">⌘K</kbd>
                             </button>
+                            @if (auth()->user()->currentOrganization() && \Illuminate\Support\Facades\Route::has('edge.create'))
+                                <a
+                                    href="{{ route('edge.create') }}"
+                                    wire:navigate
+                                    class="me-2 inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-ink px-3 py-1.5 text-xs font-semibold text-brand-cream hover:bg-brand-forest"
+                                >
+                                    <x-heroicon-o-plus class="h-4 w-4 shrink-0" aria-hidden="true" />
+                                    {{ __('New app') }}
+                                </a>
+                            @endif
                             <x-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
                                 <x-slot name="icon">
                                     <x-heroicon-o-squares-2x2 class="{{ $hi }}" />
@@ -200,13 +210,6 @@
                         <x-heroicon-o-squares-2x2 class="{{ $hi }}" />
                     </x-slot>
                     {{ __('Dashboard') }}
-                </x-responsive-nav-link>
-                <p class="px-4 pt-2 pb-1 text-xs font-semibold uppercase tracking-wider text-brand-mist">{{ __('Compute') }}</p>
-                <x-responsive-nav-link :href="route('edge.index')" :active="request()->routeIs('edge.*')">
-                    <x-slot name="icon">
-                        <x-heroicon-o-globe-alt class="{{ $hi }}" />
-                    </x-slot>
-                    {{ __('Projects') }}
                 </x-responsive-nav-link>
                 <p class="px-4 pt-2 pb-1 text-xs font-semibold uppercase tracking-wider text-brand-mist">{{ __('Org') }}</p>
                 <x-responsive-nav-link :href="route('organizations.index')" :active="request()->routeIs('organizations.*')">

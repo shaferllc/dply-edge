@@ -49,7 +49,7 @@
                  pointing at a parked surface: the workspace stays reachable for
                  existing sites, but its index is gated. --}}
             @feature('surface.edge')
-                <a href="{{ route('edge.index') }}" wire:navigate
+                <a href="{{ route('dashboard') }}" wire:navigate
                     class="-ms-1 mb-3 inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs font-medium text-brand-moss transition-colors hover:bg-brand-sand/50 hover:text-brand-ink">
                     <x-heroicon-o-arrow-left class="h-4 w-4 shrink-0" aria-hidden="true" />
                     {{ __('Back to projects') }}
@@ -252,7 +252,7 @@
                             $href = route($item['route'], $routeArgs + ($item['route_query'] ?? []));
                         } else {
                             $sectionQuery = array_merge(
-                                $item['id'] === 'routing' ? ['tab' => $routingTab] : [],
+                                ($item['id'] === 'routing' && isset($routingTab)) ? ['tab' => $routingTab] : [],
                                 $item['id'] === 'laravel-stack' ? ['laravel_tab' => $laravel_tab ?? 'commands'] : [],
                             );
                             $href = route('sites.show', array_merge([
@@ -266,6 +266,9 @@
                         href="{{ $href }}"
                         wire:navigate
                         data-nav-link
+                        @if ($item['id'] === 'deploys')
+                            data-nav-match="{{ route('sites.edge.deployments.show', ['site' => $site, 'deployment' => '0']) }}"
+                        @endif
                         {{-- In the collapsed icon rail the label is hidden, so show
                              it as a native tooltip on hover; no tooltip when expanded. --}}
                         :title="($store.wsnav && $store.wsnav.collapsed) ? @js($item['label']) : null"
@@ -318,7 +321,7 @@
         <div class="ws-hide-collapsed border-t border-brand-ink/10 p-3">
             @if ($site->usesEdgeRuntime())
                 <a
-                    href="{{ route('edge.index') }}"
+                    href="{{ route('dashboard') }}"
                     wire:navigate
                     class="flex items-center gap-2 text-xs font-medium text-brand-moss hover:text-brand-ink"
                 >
@@ -368,12 +371,23 @@
                     const links = Array.from(document.querySelectorAll('a[data-nav-link]'));
                     let best = null;
                     let bestLen = -1;
+                    const consider = (a, path) => {
+                        if (here === path) { best = a; bestLen = Infinity; return true; }
+                        const prefix = path.endsWith('/') ? path : path + '/';
+                        if (here.startsWith(prefix) && path.length > bestLen) { best = a; bestLen = path.length; }
+                        return false;
+                    };
                     for (const a of links) {
                         let path;
                         try { path = new URL(a.href).pathname; } catch (e) { continue; }
-                        if (here === path) { best = a; bestLen = Infinity; break; }
-                        const prefix = path.endsWith('/') ? path : path + '/';
-                        if (here.startsWith(prefix) && path.length > bestLen) { best = a; bestLen = path.length; }
+                        if (consider(a, path)) break;
+                        const extra = a.getAttribute('data-nav-match');
+                        if (!extra) continue;
+                        try {
+                            // The match URL carries a placeholder id; the section prefix is what matters.
+                            const matchPath = new URL(extra, location.origin).pathname.replace(/\/[^/]+$/, '');
+                            if (consider(a, matchPath)) break;
+                        } catch (e) { /* ignore a bad match URL */ }
                     }
                     for (const a of links) {
                         const on = a === best;

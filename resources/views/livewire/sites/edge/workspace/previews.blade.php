@@ -16,12 +16,12 @@
                 'setupLinks' => [
                     [
                         'label' => __('Deploy triggers / webhook'),
-                        'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'edge-deploy-triggers']),
+                        'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'deploy-triggers']),
                     ],
                 ],
                 'tips' => [
                     __('Same commit SHA reuses the preview; a new SHA gets its own URL.'),
-                    __('Protection and the comment widget apply to preview URLs only — production stays public.'),
+                    __('Protection locks preview URLs and the live site. The comment widget stays on preview URLs only.'),
                 ],
             ])
         </section>

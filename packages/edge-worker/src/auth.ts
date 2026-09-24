@@ -170,8 +170,8 @@ function renderGateHtml(gate: AccessGateConfig, hostname: string, error?: string
 </head>
 <body>
 <main>
-  <h1>Preview protected</h1>
-  <p>This URL (<code>${escapeHtml(hostname)}</code>) requires access. Production traffic on the live site is unaffected.</p>
+  <h1>Site protected</h1>
+  <p>This site (<code>${escapeHtml(hostname)}</code>) requires access before it will load.</p>
   ${errorBlock}
   ${passwordForm}
   ${accountBlock}
@@ -198,10 +198,6 @@ function buildAccountLoginUrl(gate: AccessGateConfig, hostname: string): string 
 }
 
 function gateApplies(entry: HostMapEntryWithAccess): entry is HostMapEntryWithAccess & { access_gate: AccessGateConfig } {
-  if (entry.is_production) {
-    return false;
-  }
-
   const gate = entry.access_gate;
   if (!gate) {
     return false;

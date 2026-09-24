@@ -37,15 +37,18 @@
                     <span class="text-sm text-brand-moss">{{ __('/mo') }}</span>
                 </p>
                 <ul class="mt-3 flex-1 space-y-1.5 text-sm text-brand-moss">
-                    <li>{{ trans_choice(':count site|:count sites', $tier['sites'], ['count' => $num($tier['sites'])]) }}@if ($key !== 'free'){{ __(', then :price each', ['price' => $extraSite]) }}@endif</li>
+                    <li>{{ $tier['sites'] === null ? __('Unlimited sites') : trans_choice(':count site|:count sites', (int) $tier['sites'], ['count' => $num($tier['sites'])]) }}@if ($key !== 'free'){{ __(', then :price each', ['price' => $extraSite]) }}@endif</li>
                     <li>{{ $tier['ssr'] ? __('SSR sites :price each', ['price' => $ssrSite]) : __('Static and hybrid sites only') }}</li>
                     <li>
-                        {{ trans_choice(':count seat|:count seats', $tier['seats'], ['count' => $num($tier['seats'])]) }}@if ($tier['extra_seat_cents']){{ __(', then $:price each', ['price' => number_format($tier['extra_seat_cents'] / 100, 0)]) }}@endif
+                        {{ $tier['seats'] === null ? __('Unlimited seats') : trans_choice(':count seat|:count seats', (int) $tier['seats'], ['count' => $num($tier['seats'])]) }}@if ($tier['extra_seat_cents']){{ __(', then $:price each', ['price' => number_format($tier['extra_seat_cents'] / 100, 0)]) }}@endif
                     </li>
                     <li>{{ __(':minutes build minutes · :concurrent concurrent · :timeout-min timeout', ['minutes' => $num($tier['build_minutes']), 'concurrent' => $tier['concurrent_builds'], 'timeout' => $tier['build_timeout_minutes']]) }}</li>
-                    <li>{{ __(':requests requests · :egress GB egress', ['requests' => $tier['requests'] >= 1_000_000 ? ($tier['requests'] / 1_000_000).'M' : $num($tier['requests']), 'egress' => $num($tier['egress_gb'])]) }}</li>
-                    <li>{{ $tier['containers'] ? __('Container apps with :credit compute included', ['credit' => '$'.number_format(($tier['compute_credit_cents'] ?? 0) / 100, 0)]) : __('No container apps') }}</li>
-                    <li>{{ $tier['addons'] ? __('Load balancing and other paid add-ons') : __('No paid add-ons') }}</li>
+                    <li>{{ __(':requests requests · :egress GB egress', ['requests' => $tier['requests'] !== null && $tier['requests'] >= 1_000_000 ? ($tier['requests'] / 1_000_000).'M' : $num($tier['requests']), 'egress' => $tier['egress_gb'] === null ? __('Unlimited') : $num($tier['egress_gb'])]) }}</li>
+                    <li>{{ __(':n custom domains · :queues managed queues', ['n' => $num($tier['custom_domains_per_site']), 'queues' => $num($tier['queues'] ?? null)]) }}</li>
+                    @if (($tier['spending_limit_cents'] ?? null) !== null)
+                        <li>{{ __('$ :amount usage credit, then apps pause', ['amount' => number_format(((int) $tier['spending_limit_cents']) / 100, 0)]) }}</li>
+                    @endif
+                    <li>{{ $tier['containers'] ? __('Container apps with :credit compute included. Sleeps when idle.', ['credit' => '$'.number_format(($tier['compute_credit_cents'] ?? 0) / 100, 0)]) : __('No container apps') }}</li>
                     @if ($tier['audit_log'])
                         <li>{{ __('Audit log') }}</li>
                     @endif

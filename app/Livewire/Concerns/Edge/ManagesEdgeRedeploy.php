@@ -38,11 +38,11 @@ trait ManagesEdgeRedeploy
         // Land on Deploys so the build journey + history are visible (BYO opens
         // the Deploy Console; Edge progress lives on this section).
         $section = $this->currentEdgeSection();
-        if ($section !== null && $section !== 'edge-deploys') {
+        if ($section !== null && $section !== 'deploys') {
             $this->redirect(route('sites.show', [
                 'server' => $this->server,
                 'site' => $this->site,
-                'section' => 'edge-deploys',
+                'section' => 'deploys',
             ]), navigate: true);
         }
     }

@@ -16,7 +16,7 @@ use Stripe\StripeClient;
  * Each Stripe Checkout line item displays its Product's name, so to keep the
  * invoice readable we use *separate Products* for each kind of line item:
  *
- *   - `dply Edge site` / `dply Edge SSR site` — the per-site platform fees
+ *   - `dply Edge site` / `dply Edge SSR site` — extra sites and SSR sites
  *   - `dply Edge delivery usage` — metered usage (per-cent units)
  *   - `dply Enterprise` — sales-led
  *
@@ -75,7 +75,7 @@ class StripeBillingProvisioner
         if ($edgeCents > 0) {
             $edgeProduct = $this->upsertProduct(
                 name: 'dply Edge site',
-                description: 'Per-site fee for dply Edge — static, SSG, and hybrid sites on dply-owned CDN infrastructure. Covers builds, deploys, previews, and global delivery. Billed per live production site. Worker-native SSR uses a separate line.',
+                description: 'Extra static, SSG, and hybrid sites beyond the sites a Pro or Team plan includes. Billed monthly per extra live site. Worker-native SSR uses a separate line.',
                 role: self::ROLE_EDGE_PRODUCT,
             );
             $result[self::ROLE_EDGE_PRODUCT] = $edgeProduct->id;

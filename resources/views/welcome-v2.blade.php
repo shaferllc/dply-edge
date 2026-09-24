@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <x-seo-meta
         full-title="{{ config('app.name') }} – Push a repo, get a site on the edge"
-        description="dply edge builds your Git repository and publishes it to Cloudflare R2 and Workers. Static, hybrid or Worker SSR — with an HTTPS hostname before the first build finishes." />
+        description="dply edge builds your Git repository and publishes it on Dply Edge. Static, hybrid or Worker SSR — with an HTTPS hostname before the first build finishes." />
     <meta name="csrf-token" content="{{ csrf_token() }}">
 
     @include('partials.theme-head')
@@ -47,7 +47,7 @@
                     </h1>
 
                     <p class="reveal mt-7 max-w-xl text-base leading-7 text-edge-dim" style="transition-delay:.12s">
-                        dply edge builds your Git repository in a clean container and publishes the output to Cloudflare R2 and Workers. You get an HTTPS hostname before the first build finishes.
+                        dply edge builds your Git repository in a clean container and publishes the output on Dply Edge. You get an HTTPS hostname before the first build finishes.
                     </p>
 
                     <div class="reveal mt-9 flex flex-col items-start gap-4 sm:flex-row sm:items-center" style="transition-delay:.18s">
@@ -58,7 +58,7 @@
                     </div>
 
                     <p class="reveal mt-6 text-sm text-edge-mute" style="transition-delay:.24s">
-                        Already on Vercel, Netlify or Cloudflare Pages?
+                        Already on Vercel, Netlify or Pages?
                         <a href="{{ route('register') }}" class="border-b border-edge-lime/50 pb-0.5 text-edge-text transition-colors hover:border-edge-lime hover:text-edge-lime">Import the project</a>
                         and keep your build settings.
                     </p>
@@ -154,7 +154,7 @@
                         ['Instant rollback', 'Every deploy is kept. Promote an old one back in a click — no rebuild.'],
                         ['Access rules', 'Password-gate a staging site, allow-list an office, rate-limit a path.'],
                         ['Real request logs', 'Live tail, CSV export, and Core Web Vitals from actual visitors.'],
-                        ['Your Cloudflare, optionally', 'Run on our account, or bring a credential and keep the zone yourself.'],
+                        ['Your account, optionally', 'Run on our account, or bring a credential and keep the zone yourself.'],
                         ['dply.yaml, if you want it', 'Export what you configured in the UI and check it into the repo.'],
                     ] as $i => [$title, $body])
                         <div class="reveal bg-edge-void p-5" style="transition-delay:{{ .04 * $i + .16 }}s">
@@ -170,9 +170,9 @@
         <section>
             <div class="mx-auto flex max-w-6xl flex-col items-start justify-between gap-10 px-6 py-20 lg:flex-row lg:items-center lg:px-10">
                 <div class="reveal">
-                    <h2 class="text-3xl font-bold tracking-[-0.035em] sm:text-[2.5rem] sm:leading-[1.1]">$2 per site, per month</h2>
+                    <h2 class="text-3xl font-bold tracking-[-0.035em] sm:text-[2.5rem] sm:leading-[1.1]">Free, then Pro and Team</h2>
                     <p class="mt-4 max-w-2xl text-base leading-7 text-edge-dim">
-                        Plus what you actually serve — requests, egress and storage, metered and shown on the site’s own billing tab. Worker SSR sites are $7 instead. Preview branches are free.
+                        Free includes unlimited sites, seats, and builds, with $5 of usage credit and container apps that sleep when idle. Pro and Team include more traffic and compute, then $2/mo for each site past the plan. Worker SSR sites are $7/mo. Preview branches count as usage.
                     </p>
                 </div>
                 <div class="reveal flex shrink-0 flex-col items-stretch gap-3" style="transition-delay:.08s">

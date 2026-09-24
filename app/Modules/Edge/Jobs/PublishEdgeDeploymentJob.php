@@ -399,7 +399,7 @@ class PublishEdgeDeploymentJob implements ShouldQueue
                 subject: $site->fresh(),
                 title: "Edge deploy failed: {$site->name}",
                 body: $message,
-                url: route('sites.show', ['server' => $site->server_id, 'site' => $site->id, 'section' => 'edge-deploys']),
+                url: route('sites.show', ['server' => $site->server_id, 'site' => $site->id, 'section' => 'deploys']),
                 metadata: [
                     'deployment_id' => (string) $deployment->id,
                     'commit' => $deployment->git_commit,

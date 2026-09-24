@@ -22,11 +22,11 @@
             'setupLinks' => [
                 [
                     'label' => __('Rate limits'),
-                    'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'edge-rate-limits']),
+                    'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'rate-limits']),
                 ],
                 [
                     'label' => __('Bot protection'),
-                    'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'edge-bot-protection']),
+                    'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'bot-protection']),
                 ],
             ],
             'tips' => [
@@ -71,9 +71,9 @@
 
             <div class="mt-4 rounded-xl border border-dashed border-brand-ink/15 bg-brand-sand/15 px-4 py-3">
                 <p class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('What blocked visitors see') }}</p>
-                <div class="mt-2 rounded-lg border border-brand-ink/10 bg-brand-ink/95 px-3 py-3 font-mono text-xs leading-relaxed text-brand-sand">
-                    <span class="text-rose-300">HTTP/1.1 403 Forbidden</span><br>
-                    <span class="text-zinc-400">Forbidden — content is not available in this region (XX).</span>
+                <div class="mt-2 rounded-lg border border-brand-ink/10 bg-brand-ink/95 px-3 py-3 font-mono text-xs leading-relaxed">
+                    <span class="font-semibold text-rose-300 dark:text-rose-950">HTTP/1.1 403 Forbidden</span><br>
+                    <span class="text-zinc-300 dark:text-zinc-800">Forbidden — content is not available in this region (XX).</span>
                 </div>
                 <p class="mt-2 text-xs text-brand-moss">{{ __('Plain text from Edge (not your build). Custom branded block pages are not available yet.') }}</p>
             </div>

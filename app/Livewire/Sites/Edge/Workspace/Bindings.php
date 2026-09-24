@@ -36,7 +36,7 @@ class Bindings extends Component
     public function render(): View
     {
         return view('livewire.sites.edge.workspace.bindings', array_merge(
-            EdgeSiteViewData::context($this->site, 'edge-bindings'),
+            EdgeSiteViewData::context($this->site, 'bindings'),
             [
                 'server' => $this->server,
                 'site' => $this->site,

@@ -284,14 +284,14 @@ return [
     | Edge: usage-based billing (pass-through + margin)
     |--------------------------------------------------------------------------
     |
-    | When enabled, live Edge sites keep the flat platform fee (edge_cents /
-    | edge_ssr_cents in config/subscription.php) plus metered delivery usage
-    | on top. Snapshots are collected by `dply:edge:collect-usage` (scheduled
-    | daily).
+    | When enabled, delivery past the plan allowance is metered on top of the
+    | plan. Extra sites and SSR sites are separate lines (edge_cents /
+    | edge_ssr_cents in config/subscription.php). Snapshots are collected by
+    | `dply:edge:collect-usage` (scheduled daily).
     |
     | Unit rates are ~Cloudflare list (cost floor). `markup_percent` is applied
-    | on the metered subtotal (default 40%) so overage is profitable. Per-site included allowances keep quiet sites
-    | on the flat platform fee only ($2 static/hybrid, $7 Worker SSR).
+    | on the metered subtotal (default 40%) so overage is profitable. Plan
+    | allowances cover quiet sites; only extras and SSR add a site fee.
     |
     | Approx CF list (2026): Workers requests ~$0.30/M, R2 storage ~$0.015/GB-mo,
     | Class A $4.50/M, Class B $0.36/M. Egress is charged as CDN delivery.
@@ -325,7 +325,7 @@ return [
             // org-wide. Class B (reads) stays generous — cache hits never touch
             // R2, so the allowance is nearly free to give. Class A (writes) is
             // sized to a real deploy cadence instead.
-            // 100k writes is $0.45 at list — 22% of the platform fee — for an
+            // 100k writes is $0.45 at list — small next to a plan — for an
             // allowance nothing reaches: a 2,000-file site deploying ten times
             // a month writes 20k objects.
             'included_r2_class_a_ops_per_site' => (int) env('DPLY_EDGE_USAGE_INCLUDED_R2_CLASS_A_OPS_PER_SITE', 20_000),

@@ -9,7 +9,7 @@
                 __('Click Delete Edge site, then confirm in the modal to queue teardown.'),
             ],
             'tips' => [
-                __('This cannot be undone. Platform per-site billing stops once teardown finishes.'),
+                __('This cannot be undone. This site stops counting toward your plan once teardown finishes.'),
                 __('Preview deployments for this site are removed with the parent.'),
             ],
         ])

@@ -17,7 +17,7 @@ use Illuminate\Validation\ValidationException;
 
 uses(RefreshDatabase::class);
 
-test('sync stores password verifier and publishes access gate on aliases only', function () {
+test('sync stores password verifier and publishes the access gate on the live hostname', function () {
     config(['edge.fake.enabled' => true]);
 
     [$site, $deployment] = scaffoldEdgeSiteWithLiveDeploy();
@@ -33,7 +33,7 @@ test('sync stores password verifier and publishes access gate on aliases only', 
     $alias = collect($map)->first(fn (array $entry, string $host): bool => ($entry['is_production'] ?? null) === false);
 
     expect($primary['is_production'] ?? null)->toBeTrue();
-    expect($primary['access_gate'] ?? null)->toBeNull();
+    expect($primary['access_gate']['mode'] ?? null)->toBe('password');
     expect($alias)->not->toBeNull();
     expect($alias['access_gate']['mode'] ?? null)->toBe('password');
     expect($alias['access_gate']['password_verifier'] ?? null)->toBe($rule->password_verifier);

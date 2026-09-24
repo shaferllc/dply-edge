@@ -205,7 +205,7 @@ class Delivery extends Component
         }
 
         return view('livewire.sites.edge.workspace.delivery', array_merge(
-            EdgeSiteViewData::context($this->site, 'edge-delivery'),
+            EdgeSiteViewData::context($this->site, 'delivery'),
             [
                 'server' => $this->server,
                 'site' => $this->site,

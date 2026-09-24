@@ -18,11 +18,11 @@
             'setupLinks' => [
                 [
                     'label' => __('Bot protection'),
-                    'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'edge-bot-protection']),
+                    'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'bot-protection']),
                 ],
                 [
                     'label' => __('Waiting room'),
-                    'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'edge-waiting-room']),
+                    'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'waiting-room']),
                 ],
             ],
             'tips' => [

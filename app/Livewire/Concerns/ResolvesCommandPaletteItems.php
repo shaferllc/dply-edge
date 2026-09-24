@@ -41,7 +41,7 @@ trait ResolvesCommandPaletteItems
             ],
             'go' => [
                 ['Dashboard', 'home overview', 'dashboard', 'squares-2x2'],
-                ['Projects', 'workers cdn edge sites apps applications projects', 'edge.index', 'globe-alt'],
+                ['Projects', 'workers cdn edge sites apps applications projects', 'dashboard', 'globe-alt'],
                 ['Status pages', 'status incident uptime', 'status-pages.index', 'document-text'],
                 ['Notifications', 'inbox alerts', 'notifications.index', 'bell'],
             ],

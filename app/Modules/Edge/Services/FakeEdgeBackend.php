@@ -191,6 +191,11 @@ class FakeEdgeBackend implements EdgeBackend
             'comment_widget_enabled' => $widgetEnabled,
         ];
 
+        $footerMeta = is_array($edgeMeta['deploy_footer'] ?? null) ? $edgeMeta['deploy_footer'] : [];
+        if ((bool) ($footerMeta['enabled'] ?? false)) {
+            $payload['deploy_footer'] = true;
+        }
+
         if ($widgetEnabled) {
             $token = is_string($widgetMeta['token'] ?? null) ? trim((string) $widgetMeta['token']) : '';
             if ($token !== '') {

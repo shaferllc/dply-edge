@@ -140,7 +140,7 @@ class Crons extends Component
         $repoCrons = array_values(array_filter($effective, static fn (array $e): bool => $e['source'] === 'repo'));
 
         return view('livewire.sites.edge.workspace.crons', array_merge(
-            EdgeSiteViewData::context($this->site, 'edge-crons'),
+            EdgeSiteViewData::context($this->site, 'crons'),
             [
                 'server' => $this->server,
                 'site' => $this->site,

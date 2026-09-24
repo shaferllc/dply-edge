@@ -17,8 +17,9 @@
         <div class="min-w-0 lg:col-span-9">
             <x-breadcrumb-trail :site="$site" :items="[
                 ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
-                ['label' => __('Projects'), 'href' => route('edge.index'), 'icon' => 'globe-alt'],
-                ['label' => $site->name, 'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'edge-deploys'])],
+                ['label' => __('Projects'), 'href' => route('dashboard'), 'icon' => 'globe-alt'],
+                \App\Support\Sites\SiteWorkspaceBreadcrumbs::projectItem($site, route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'general'])),
+                ['label' => __('Deploys'), 'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'deploys']), 'icon' => 'code-bracket-square'],
                 ['label' => __('Deployment'), 'icon' => 'code-bracket-square'],
             ]" class="mb-6" />
 
@@ -43,7 +44,7 @@
                             <span class="inline-flex rounded-full bg-brand-sand/60 px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Pruned') }}</span>
                         @endif
                         <a
-                            href="{{ route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'edge-deploys']) }}"
+                            href="{{ route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'deploys']) }}"
                             wire:navigate
                             class="inline-flex items-center gap-1.5 rounded-lg border border-brand-ink/15 bg-white/80 px-2.5 py-1.5 text-xs font-semibold text-brand-ink hover:bg-white dark:border-brand-mist/25 dark:bg-zinc-800"
                         >

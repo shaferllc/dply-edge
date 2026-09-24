@@ -154,6 +154,23 @@ final class EdgeHostMapAddons
             }
         }
 
+        $cache = is_array($meta['cache'] ?? null) ? $meta['cache'] : null;
+        $cacheMode = is_array($cache) && in_array(($cache['mode'] ?? 'assets'), ['off', 'assets', 'standard', 'everything'], true)
+            ? (string) ($cache['mode'] ?? 'assets')
+            : null;
+        if (is_array($cache) && $cacheMode !== null && $cacheMode !== 'off') {
+            $edgeTtl = self::allowedTtl((int) ($cache['edge_ttl_seconds'] ?? 86400), 86400);
+            $browserTtl = in_array((int) ($cache['browser_ttl_seconds'] ?? 86400), [0, 300, 3600, 86400, 604800, 2592000, 31536000], true)
+                ? (int) ($cache['browser_ttl_seconds'] ?? 86400)
+                : 86400;
+            $payload['cache'] = [
+                'mode' => $cacheMode,
+                'edge_ttl_seconds' => $edgeTtl,
+                'browser_ttl_seconds' => $browserTtl,
+                'query_string' => ($cache['query_string'] ?? 'ignore') === 'include' ? 'include' : 'ignore',
+            ];
+        }
+
         $jobs = is_array($meta['jobs'] ?? null) ? $meta['jobs'] : [];
         if ((bool) ($jobs['enabled'] ?? false)) {
             $payload['jobs'] = [
@@ -168,6 +185,13 @@ final class EdgeHostMapAddons
     /**
      * @return list<string>
      */
+    private static function allowedTtl(int $seconds, int $fallback): int
+    {
+        $allowed = [60, 300, 3600, 14400, 86400, 604800, 2592000, 31536000];
+
+        return in_array($seconds, $allowed, true) ? $seconds : $fallback;
+    }
+
     private static function stringList(mixed $value): array
     {
         if (! is_array($value)) {

@@ -7,6 +7,7 @@ namespace App\Models;
 use App\Modules\Edge\Services\EdgeArtifactPublisher;
 use App\Modules\Edge\Services\EdgeDeliveryContextResolver;
 use App\Modules\Edge\Support\EdgeLiveBuildLog;
+use App\Modules\Edge\Support\EdgeLogCopy;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -229,7 +230,7 @@ class EdgeDeployment extends Model
                     $context = app(EdgeDeliveryContextResolver::class)->forSite($site);
                     $body = app(EdgeArtifactPublisher::class)->readFile($this->build_log_path, $context->diskName);
                     if (is_string($body) && $body !== '') {
-                        return $body;
+                        return EdgeLogCopy::forCustomer($body);
                     }
                 } catch (\Throwable) {
                     try {
@@ -238,7 +239,7 @@ class EdgeDeployment extends Model
                             (string) config('edge.disk.name', 'edge_r2'),
                         );
                         if (is_string($body) && $body !== '') {
-                            return $body;
+                            return EdgeLogCopy::forCustomer($body);
                         }
                     } catch (\Throwable) {
                         // Fall through to local file.
@@ -256,7 +257,7 @@ class EdgeDeployment extends Model
 
         $body = @file_get_contents($local);
 
-        return is_string($body) && $body !== '' ? $body : null;
+        return is_string($body) && $body !== '' ? EdgeLogCopy::forCustomer($body) : null;
     }
 
     /**

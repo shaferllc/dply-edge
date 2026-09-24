@@ -77,7 +77,7 @@ class RateLimits extends Component
     public function render(): View
     {
         return view('livewire.sites.edge.workspace.rate-limits', array_merge(
-            EdgeSiteViewData::context($this->site, 'edge-rate-limits'),
+            EdgeSiteViewData::context($this->site, 'rate-limits'),
             [
                 'server' => $this->server,
                 'site' => $this->site,

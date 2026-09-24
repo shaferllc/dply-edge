@@ -66,7 +66,7 @@ class Databases extends Component
         try {
             $created = $this->client()->createD1Database(EdgeDatabase::cloudflareName($org, $this->name), $this->location);
         } catch (Throwable $e) {
-            $this->addError('name', __('Cloudflare: :error', ['error' => $e->getMessage()]));
+            $this->addError('name', __('Dply Edge: :error', ['error' => $e->getMessage()]));
 
             return;
         }
@@ -140,7 +140,7 @@ class Databases extends Component
         try {
             $this->client()->deleteD1Database($database->cloudflare_id);
         } catch (Throwable $e) {
-            $this->addError('delete', __('Cloudflare: :error', ['error' => $e->getMessage()]));
+            $this->addError('delete', __('Dply Edge: :error', ['error' => $e->getMessage()]));
 
             return;
         }

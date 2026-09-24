@@ -1,7 +1,7 @@
 @php
-    $trafficSectionUrl = route('sites.show', ['server' => $server ?? $site->server, 'site' => $site, 'section' => 'edge-traffic']);
-    $logsSectionUrl = route('sites.show', ['server' => $server ?? $site->server, 'site' => $site, 'section' => 'edge-logs']);
-    $billingSectionUrl = route('sites.show', ['server' => $server ?? $site->server, 'site' => $site, 'section' => 'edge-billing']);
+    $trafficSectionUrl = route('sites.show', ['server' => $server ?? $site->server, 'site' => $site, 'section' => 'traffic']);
+    $logsSectionUrl = route('sites.show', ['server' => $server ?? $site->server, 'site' => $site, 'section' => 'logs']);
+    $billingSectionUrl = route('sites.show', ['server' => $server ?? $site->server, 'site' => $site, 'section' => 'billing']);
     $active = $activeObservabilitySection ?? null;
 @endphp
 
@@ -54,7 +54,7 @@
                     <x-heroicon-o-chart-bar @class(['h-4 w-4', 'text-brand-forest dark:text-brand-sage' => $active === 'billing', 'text-brand-moss' => $active !== 'billing']) />
                     <span class="text-sm font-medium text-brand-ink">{{ __('Billing & usage') }}</span>
                 </div>
-                <p class="mt-1 text-xs text-brand-moss">{{ __('Platform fee and metered delivery costs') }}</p>
+                <p class="mt-1 text-xs text-brand-moss">{{ __('Usage this month, plus extra-site and SSR fees') }}</p>
             </a>
         @endif
     </div>

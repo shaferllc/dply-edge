@@ -14,7 +14,7 @@
                 <h3 class="mt-0.5 text-base font-semibold text-brand-ink">{{ __('Traffic & analytics') }}</h3>
                 <p class="mt-1 max-w-2xl text-sm leading-relaxed text-brand-moss">
                     @if ($traffic !== null && ($traffic['byo_cloudflare'] ?? false))
-                        {{ __('View CDN analytics in your Cloudflare dashboard.') }}
+                        {{ __('View CDN analytics in your provider dashboard.') }}
                     @elseif ($traffic !== null && (int) ($traffic['requests'] ?? 0) > 0)
                         {{ __(':requests requests MTD · :bandwidth GB bandwidth', [
                             'requests' => number_format($traffic['requests'] ?? 0),
@@ -26,7 +26,7 @@
                 </p>
             </div>
             <a
-                href="{{ route('sites.show', ['server' => $server ?? $site->server, 'site' => $site, 'section' => 'edge-traffic']) }}"
+                href="{{ route('sites.show', ['server' => $server ?? $site->server, 'site' => $site, 'section' => 'traffic']) }}"
                 wire:navigate
                 class="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-brand-forest hover:underline dark:text-brand-sage"
             >

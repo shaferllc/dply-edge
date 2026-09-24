@@ -6,6 +6,7 @@ namespace App\Modules\Edge\Services\Containers;
 
 use App\Models\EdgeSiteEnvVar;
 use App\Models\Site;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Str;
 
 /**
@@ -28,6 +29,10 @@ final class EdgeContainerEnvDefaults
                 'APP_ENV' => 'production',
                 'APP_DEBUG' => 'false',
                 'APP_URL' => (string) ($site->edgeLiveUrl() ?? ''),
+                // Vite reads asset_url. Without it, Laravel builds stylesheet
+                // links from the container's plain-HTTP request and the
+                // browser drops them as mixed content.
+                'ASSET_URL' => (string) ($site->edgeLiveUrl() ?? ''),
                 'LOG_CHANNEL' => 'stderr',
                 // No shared disk between containers: keep sessions in cookies.
                 'SESSION_DRIVER' => 'cookie',
@@ -48,16 +53,34 @@ final class EdgeContainerEnvDefaults
             if (array_key_exists($key, $env) || $value === '') {
                 continue;
             }
-            EdgeSiteEnvVar::query()->create([
-                'site_id' => $site->id,
-                'key' => $key,
-                'value' => $value,
-                'scope' => EdgeSiteEnvVar::SCOPE_PRODUCTION,
-            ]);
-            $env[$key] = $value;
+
+            $env[$key] = self::persistDefault($site, $key, $value);
         }
 
         return $env;
+    }
+
+    /**
+     * Persist a missing default, or reuse the row another deploy already wrote.
+     * Build jobs snapshot env before clone, so a later create() races the unique
+     * (site_id, scope, key) index — firstOrCreate plus a 23505 retry covers both
+     * the stale-snapshot and two-workers-at-once cases.
+     */
+    private static function persistDefault(Site $site, string $key, string $value): string
+    {
+        $match = [
+            'site_id' => $site->id,
+            'scope' => EdgeSiteEnvVar::SCOPE_PRODUCTION,
+            'key' => $key,
+        ];
+
+        try {
+            $row = EdgeSiteEnvVar::query()->firstOrCreate($match, ['value' => $value]);
+        } catch (UniqueConstraintViolationException) {
+            $row = EdgeSiteEnvVar::query()->where($match)->firstOrFail();
+        }
+
+        return (string) $row->value;
     }
 
     /** Masked for build logs. */

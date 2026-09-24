@@ -9,7 +9,7 @@
         // These carry a `feature` key because their routes stay registered
         // while the surface is parked — only the feature middleware rejects
         // — so Route::has() alone would keep linking them into a 400.
-        ['route' => 'edge.index', 'match' => ['edge.index', 'edge.create', 'edge.import', 'edge.templates', 'edge.usage'], 'label' => __('Projects'), 'icon' => 'bolt', 'feature' => 'surface.edge'],
+        ['route' => 'dashboard', 'match' => ['dashboard', 'edge.create', 'edge.import', 'edge.templates', 'edge.usage'], 'label' => __('Dashboard'), 'icon' => 'bolt', 'feature' => 'surface.edge'],
         ['route' => 'edge.databases', 'match' => 'edge.databases', 'label' => __('Databases'), 'icon' => 'circle-stack', 'feature' => 'surface.edge'],
         ['route' => 'edge.queues', 'match' => 'edge.queues', 'label' => __('Queues'), 'icon' => 'queue-list', 'feature' => 'surface.edge'],
         ['route' => 'serverless.index', 'match' => 'serverless.*', 'label' => __('Serverless'), 'icon' => 'cpu-chip', 'feature' => 'surface.serverless'],

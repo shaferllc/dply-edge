@@ -189,7 +189,7 @@ class CheckEdgeRumAlertsCommand extends Command
                     (string) $breach['threshold'],
                     $breach['unit'] === '%' ? '%' : ' '.$breach['unit'],
                 ),
-                url: route('sites.show', ['server' => $site->server_id, 'site' => $site->id, 'section' => 'edge-traffic']),
+                url: route('sites.show', ['server' => $site->server_id, 'site' => $site->id, 'section' => 'traffic']),
                 metadata: [
                     'kind' => $breach['kind'],
                     'observed' => $breach['observed'],

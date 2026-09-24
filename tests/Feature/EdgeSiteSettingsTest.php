@@ -28,7 +28,7 @@ test('edge site workspace route renders full app layout shell', function () {
     [$user, $server, $site] = makeEdgeSiteForSettings();
 
     $this->actingAs($user)
-        ->get(route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'edge-deploys']))
+        ->get(route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'deploys']))
         ->assertOk()
         ->assertSee('Deploy history', false);
 });
@@ -62,13 +62,12 @@ test('edge overview shows live url redeploy and no nginx references', function (
         ->assertSee('https://edge-app.dply.host')
         ->assertSee('Open')
         ->assertSee('acme/web')
-        ->assertSee('Latest deploy')
         ->assertDontSee('nginx')
         ->assertDontSee('Webserver')
         ->assertDontSee('PHP-FPM');
 });
 
-test('edge breadcrumbs use edge not servers or infrastructure path', function () {
+test('edge breadcrumbs skip the edge product crumb', function () {
     [$user, $server, $site] = makeEdgeSiteForSettings();
 
     $labels = array_column(
@@ -77,14 +76,15 @@ test('edge breadcrumbs use edge not servers or infrastructure path', function ()
     );
 
     expect($labels)
-        ->toContain(__('Edge'))
+        ->toBe([__('Dashboard'), __('Projects'), $site->name, __('Overview')])
+        ->not->toContain(__('Edge'))
         ->not->toContain(__('Infrastructure'))
         ->not->toContain(__('Servers'));
 
     $this->actingAs($user)
         ->get(route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'general']))
         ->assertOk()
-        ->assertSee('Edge');
+        ->assertSee(__('Dashboard'));
 });
 
 test('edge deploys section renders deploy history table', function () {
@@ -155,14 +155,16 @@ test('edge billing section shows usage stats and org analytics link', function (
     ]);
 
     Livewire::actingAs($user)
-        ->test(EdgeSettings::class, ['server' => $server, 'site' => $site, 'section' => 'edge-billing'])
+        ->test(EdgeSettings::class, ['server' => $server, 'site' => $site, 'section' => 'billing'])
         ->assertSee('Billing & usage')
-        ->assertSee('Platform fee')
+        ->assertSee('Site fee')
+        ->assertSee('Included')
+        ->assertDontSee('month per live site')
         ->assertSee('42,000')
         ->assertSee('Open org billing');
 
     $this->actingAs($user)
-        ->get(route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'edge-billing']))
+        ->get(route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'billing']))
         ->assertOk()
         ->assertSee(route('billing.show', $site->organization_id), false);
 });
@@ -184,7 +186,7 @@ test('edge traffic section shows request and bandwidth stats', function () {
     ]);
 
     Livewire::actingAs($user)
-        ->test(EdgeSettings::class, ['server' => $server, 'site' => $site, 'section' => 'edge-traffic'])
+        ->test(EdgeSettings::class, ['server' => $server, 'site' => $site, 'section' => 'traffic'])
         ->assertSee('Traffic & analytics')
         ->assertSee('Requests MTD')
         ->assertSee('Requests 7d')
@@ -198,7 +200,7 @@ test('edge logs section clarifies build logs vs visitor traffic', function () {
     [$user, $server, $site] = makeEdgeSiteForSettings();
 
     Livewire::actingAs($user)
-        ->test(EdgeSettings::class, ['server' => $server, 'site' => $site, 'section' => 'edge-logs'])
+        ->test(EdgeSettings::class, ['server' => $server, 'site' => $site, 'section' => 'logs'])
         ->assertSee('Build & deploy logs')
         ->assertSee('not visitor HTTP logs')
         ->assertSee('Recent deploys')

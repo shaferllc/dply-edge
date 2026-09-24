@@ -1,6 +1,4 @@
 <div class="contents">
-    <x-workspace-nav />
-
     <x-edge-index-page
         :rows="$rows"
         :totals="$totals"
@@ -11,10 +9,7 @@
         :show-create-action="true"
         :show-secondary-actions="true"
         empty-state="local"
-        :breadcrumbs="[
-            ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
-            ['label' => __('Projects'), 'icon' => 'globe-alt'],
-        ]"
+        :org-name="$org?->name"
     >
         <x-slot:modals>
             <x-modal

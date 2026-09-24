@@ -11,7 +11,7 @@
             'setupLinks' => [
                 [
                     'label' => __('Prefer Tags for remote scripts'),
-                    'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'edge-tags']),
+                    'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'tags']),
                 ],
             ],
             'tips' => [

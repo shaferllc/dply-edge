@@ -8,12 +8,13 @@ use App\Models\EdgeUsageSnapshot;
 use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
+use App\Modules\Billing\Models\Subscription;
 use App\Modules\Billing\Services\EdgeSiteBillingAnalytics;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
 
-test('edge site billing includes platform fee and usage for active site', function () {
+test('a site inside the plan has no site fee', function () {
     config(['dply.edge.usage_billing.enabled' => true]);
 
     $org = Organization::factory()->create();
@@ -40,10 +41,10 @@ test('edge site billing includes platform fee and usage for active site', functi
     $row = app(EdgeSiteBillingAnalytics::class)->forSite($site->fresh());
 
     expect($row)->not->toBeNull()
-        ->and($row['platform_cents'])->toBe(200)
+        ->and($row['platform_cents'])->toBe(0)
+        ->and($row['platform_kind'])->toBe('included')
         ->and($row['requests'])->toBe(50_000)
-        ->and($row['daily'])->not->toBeEmpty()
-        ->and($row['total_cents'])->toBeGreaterThanOrEqual(200);
+        ->and($row['daily'])->not->toBeEmpty();
 });
 
 test('sites for organization lists all billable edge sites', function () {
@@ -60,5 +61,49 @@ test('sites for organization lists all billable edge sites', function () {
 
     expect($sites)->toHaveCount(1)
         ->and($sites[0]['site_name'])->toBe('Marketing')
-        ->and($sites[0]['platform_cents'])->toBe(200);
+        ->and($sites[0]['platform_cents'])->toBe(0)
+        ->and($sites[0]['platform_kind'])->toBe('included');
+});
+
+test('sites past the plan count and every ssr site carry a fee on pro', function () {
+    config([
+        'subscription.standard.stripe.tier_pro' => 'price_test_tier_pro',
+        'subscription.standard.tiers.pro.sites' => 1,
+    ]);
+
+    $org = Organization::factory()->create();
+    Subscription::factory()->withPrice('price_test_tier_pro')->active()->create(['organization_id' => $org->id]);
+    $server = Server::factory()->for($org)->create();
+
+    $included = Site::factory()->for($org)->for($server)->create([
+        'name' => 'Included',
+        'status' => Site::STATUS_EDGE_ACTIVE,
+        'edge_backend' => 'dply_edge',
+        'created_at' => now()->subDays(10),
+    ]);
+    $extra = Site::factory()->for($org)->for($server)->create([
+        'name' => 'Extra',
+        'status' => Site::STATUS_EDGE_ACTIVE,
+        'edge_backend' => 'dply_edge',
+        'created_at' => now()->subDays(4),
+    ]);
+    $ssr = Site::factory()->for($org)->for($server)->create([
+        'name' => 'Ssr',
+        'status' => Site::STATUS_EDGE_ACTIVE,
+        'edge_backend' => 'dply_edge',
+        'meta' => ['edge' => ['runtime_mode' => 'ssr']],
+        'created_at' => now()->subDays(3),
+    ]);
+
+    $rows = collect(app(EdgeSiteBillingAnalytics::class)->sitesForOrganization($org))->keyBy('site_name');
+
+    expect($rows['Included']['platform_cents'])->toBe(0)
+        ->and($rows['Included']['platform_kind'])->toBe('included')
+        ->and($rows['Extra']['platform_cents'])->toBe(200)
+        ->and($rows['Extra']['platform_kind'])->toBe('extra')
+        ->and($rows['Ssr']['platform_cents'])->toBe(700)
+        ->and($rows['Ssr']['platform_kind'])->toBe('ssr')
+        ->and(app(EdgeSiteBillingAnalytics::class)->forSite($included->fresh())['platform_cents'])->toBe(0)
+        ->and(app(EdgeSiteBillingAnalytics::class)->forSite($extra->fresh())['platform_cents'])->toBe(200)
+        ->and(app(EdgeSiteBillingAnalytics::class)->forSite($ssr->fresh())['platform_cents'])->toBe(700);
 });

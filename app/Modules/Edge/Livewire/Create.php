@@ -61,6 +61,13 @@ class Create extends Component
 
     public string $branch = 'main';
 
+    /** Set once Deploy has created the site, so this page becomes the build log. */
+    public string $launchedSiteId = '';
+
+    public string $launchedServerId = '';
+
+    public string $launchedDeploymentId = '';
+
     /**
      * @var list<array{label: string, url: string, branch: string}>
      */
@@ -136,6 +143,8 @@ class Create extends Component
 
             return;
         }
+
+        $this->form->deploy_on_push = true;
 
         $this->linkedSourceControlAccounts = $repositoryBrowser->accountsForUser(auth()->user());
         if ($this->linkedSourceControlAccounts !== []) {

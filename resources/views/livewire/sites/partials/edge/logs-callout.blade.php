@@ -8,7 +8,7 @@
             </p>
             <div class="mt-3 flex flex-wrap gap-3">
                 <a
-                    href="{{ route('sites.show', ['server' => $server ?? $site->server, 'site' => $site, 'section' => 'edge-traffic']) }}"
+                    href="{{ route('sites.show', ['server' => $server ?? $site->server, 'site' => $site, 'section' => 'traffic']) }}"
                     wire:navigate
                     class="inline-flex items-center gap-1.5 text-sm font-medium text-brand-forest hover:underline dark:text-brand-sage"
                 >

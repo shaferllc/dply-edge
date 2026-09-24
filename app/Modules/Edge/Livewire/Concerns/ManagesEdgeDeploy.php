@@ -47,13 +47,13 @@ trait ManagesEdgeDeploy
         }
 
         if ($this->form->runtime_mode === 'container' && ! EdgeSsrAvailability::isAvailable()) {
-            $this->toastError(__('Container delivery isn’t set up on this install yet: it needs the Edge platform Cloudflare API token (with Containers access) and a dispatch namespace.'));
+            $this->toastError(__('Container delivery isn’t set up on this install yet: it needs the Edge platform API token (with container access) and a dispatch namespace.'));
 
             return;
         }
 
         if ($this->form->runtime_mode === 'container' && ! ($org->tierAllowances()['containers'] ?? false) && ! $org->isBeta()) {
-            $this->toastError(__('Container apps (PHP, Rails) are on Pro and Team. Choose a plan on the billing page.'));
+            $this->toastError(__('Container apps are not included on this plan. Choose a plan on the billing page.'));
 
             return;
         }
@@ -118,10 +118,16 @@ trait ManagesEdgeDeploy
         $importedCount = $this->persistImportedEnvVars($site);
         if ($importedCount > 0) {
             $this->toastSuccess(__('Edge app build queued — :count env var(s) imported.', ['count' => $importedCount]));
-        } else {
-            $this->toastSuccess(__('Edge app build queued. We\'ll keep the site workspace updated as it goes live.'));
         }
-        $this->redirect(route('sites.show', ['server' => $site->server, 'site' => $site]), navigate: true);
+
+        $deployment = $site->edgeDeployments()->latest('id')->first();
+        $this->launchedSiteId = (string) $site->id;
+        $this->launchedServerId = (string) $site->server_id;
+        $this->launchedDeploymentId = (string) ($deployment?->id ?? '');
+
+        if ($this->launchedDeploymentId === '') {
+            $this->redirect(route('sites.show', ['server' => $site->server, 'site' => $site]), navigate: true);
+        }
     }
 
     /**

@@ -586,7 +586,7 @@ class RunSiteUptimeMonitorCheckJob implements ShouldBeUnique, ShouldQueue
         $state = $outcome['state'];
         $label = (string) $monitor->label;
         $checkedUrl = $outcome['checked_url'];
-        $url = route('sites.show', [$site->server, $site, 'edge-alerts'], absolute: true);
+        $url = route('sites.show', [$site->server, $site, 'alerts'], absolute: true);
 
         $baseMeta = [
             'site_id' => $site->id,

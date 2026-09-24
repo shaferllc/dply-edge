@@ -29,8 +29,8 @@ final class EdgeProvisioningViewData
             'site' => $site,
             'siteHeaderBreadcrumbs' => [
                 ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
-                ['label' => __('Edge'), 'href' => route('edge.index'), 'icon' => 'globe-alt'],
-                ['label' => $site->name, 'icon' => 'globe-alt', 'avatar' => $site->name ?: (string) $site->id, 'avatar_image' => $site->logoUrl()],
+                SiteWorkspaceBreadcrumbs::projectsItem(),
+                SiteWorkspaceBreadcrumbs::projectItem($site),
             ],
         ]);
     }

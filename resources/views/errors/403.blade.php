@@ -13,7 +13,7 @@
         @auth
             <div class="flex flex-wrap items-center justify-center gap-2 text-sm">
                 <span class="text-brand-moss">{{ __('Quick links:') }}</span>
-                <a href="{{ route('edge.index') }}" class="text-brand-ink underline decoration-brand-ink/30 underline-offset-2 hover:text-brand-forest">
+                <a href="{{ route('dashboard') }}" class="text-brand-ink underline decoration-brand-ink/30 underline-offset-2 hover:text-brand-forest">
                     {{ __('Servers') }}
                 </a>
                 <span class="text-brand-moss/50">|</span>

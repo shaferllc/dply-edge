@@ -64,15 +64,15 @@ class EdgePreviewComments extends Component
         $this->confirmWaiveDeployContract((string) $this->site->id);
     }
 
-    public function mount(Server $server, Site $site): void
+    public function mount(Site $site): void
     {
         $this->authorize('view', $site);
 
-        if (! $site->usesEdgeRuntime() || ! $site->isEdgePreview()) {
+        if (! $site->usesEdgeRuntime() || ! $site->isEdgePreview() || $site->server === null) {
             abort(404);
         }
 
-        $this->server = $server;
+        $this->server = $site->server;
         $this->site = $site;
     }
 

@@ -26,7 +26,34 @@ final class SiteWorkspaceBreadcrumbs
     }
 
     /**
-     * @return list<array{label: string, href?: string|null, icon?: string|null}>
+     * @return array{label: string, href: string, icon: string}
+     */
+    public static function projectsItem(): array
+    {
+        return ['label' => __('Projects'), 'href' => route('dashboard'), 'icon' => 'globe-alt'];
+    }
+
+    /**
+     * Crumb for the project. Shows the uploaded logo when one is set, and the
+     * same initials mark as the workspace sidebar when it is not.
+     *
+     * @return array{label: string, href: string|null, icon: string, avatar: string, avatar_image: string|null}
+     */
+    public static function projectItem(Site $site, ?string $href = null): array
+    {
+        $name = (string) $site->name;
+
+        return [
+            'label' => $name,
+            'href' => $href,
+            'icon' => 'globe-alt',
+            'avatar' => $name !== '' ? $name : (string) $site->id,
+            'avatar_image' => $site->logoUrl(),
+        ];
+    }
+
+    /**
+     * @return list<array{label: string, href?: string|null, icon?: string|null, avatar?: string, avatar_image?: string|null}>
      */
     private static function edgeItems(
         Server $server,
@@ -34,23 +61,15 @@ final class SiteWorkspaceBreadcrumbs
         string $currentLabel,
         ?string $currentIcon,
     ): array {
-        $items = [
+        return [
             ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
-            ['label' => __('Edge'), 'href' => route('edge.index'), 'icon' => 'globe-alt'],
-            [
-                'label' => $site->name,
-                'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'general']),
-                'icon' => 'globe-alt',
-                'avatar' => $site->name ?: (string) $site->id,
-                'avatar_image' => $site->logoUrl(),
-            ],
+            self::projectsItem(),
+            self::projectItem($site, route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'general'])),
             [
                 'label' => $currentLabel,
                 'icon' => $currentIcon ?? 'map-pin',
             ],
         ];
-
-        return $items;
     }
 
     public static function iconKeyFromSection(string $section, Site $site, Server $server): string

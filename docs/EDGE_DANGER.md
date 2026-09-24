@@ -45,7 +45,7 @@ Only members with permission to delete the site see the delete button. Deployers
 
 ## Billing after delete
 
-Platform per-site billing stops once teardown completes and the site is removed from active inventory. Past invoices are unchanged.
+The site stops counting toward the plan once teardown completes and it leaves the active inventory. Past invoices are unchanged.
 
 ## Before you delete
 

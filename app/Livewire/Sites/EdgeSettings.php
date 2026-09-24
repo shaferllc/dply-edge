@@ -58,14 +58,70 @@ class EdgeSettings extends Component
             $section = 'general';
         }
 
-        // BYO uses `/routing`; Edge's section is `edge-routing`. Domains merged
-        // into Routing as ?tab=domains — alias old URLs.
-        if ($section === 'routing' || $section === 'edge-domains') {
+        if ($section === 'edge-delivery' && ($site->edgeMeta()['runtime_mode'] ?? '') === 'container') {
             $this->redirect(route('sites.show', [
                 'server' => $server,
                 'site' => $site,
-                'section' => 'edge-routing',
-                'tab' => $section === 'edge-domains' ? 'domains' : request()->query('tab', 'domains'),
+                'section' => 'general',
+            ]), navigate: true);
+
+            return;
+        }
+
+        if ($section === 'edge-load-balancing') {
+            $this->redirect(route('sites.show', [
+                'server' => $server,
+                'site' => $site,
+                'section' => 'general',
+            ]), navigate: true);
+
+            return;
+        }
+
+        if ($section === 'edge-domains') {
+            $this->redirect(route('sites.show', [
+                'server' => $server,
+                'site' => $site,
+                'section' => 'routing',
+                'tab' => 'domains',
+            ]), navigate: true);
+
+            return;
+        }
+
+        $legacySections = [
+            'edge-alerts' => 'alerts',
+            'edge-audit' => 'audit',
+            'edge-billing' => 'billing',
+            'edge-bindings' => 'bindings',
+            'edge-bot-protection' => 'bot-protection',
+            'edge-build' => 'build',
+            'edge-container' => 'container',
+            'edge-crons' => 'crons',
+            'edge-delivery' => 'delivery',
+            'edge-deploy-triggers' => 'deploy-triggers',
+            'edge-deploys' => 'deploys',
+            'edge-environment' => 'environment',
+            'edge-error-pages' => 'error-pages',
+            'edge-firewall' => 'firewall',
+            'edge-forms' => 'forms',
+            'edge-jobs' => 'jobs',
+            'edge-logs' => 'logs',
+            'edge-members' => 'members',
+            'edge-previews' => 'previews',
+            'edge-rate-limits' => 'rate-limits',
+            'edge-routing' => 'routing',
+            'edge-snippets' => 'snippets',
+            'edge-tags' => 'tags',
+            'edge-traffic' => 'traffic',
+            'edge-waiting-room' => 'waiting-room',
+        ];
+        if (isset($legacySections[$section])) {
+            $this->redirect(route('sites.show', [
+                'server' => $server,
+                'site' => $site,
+                'section' => $legacySections[$section],
+                ...collect(request()->query())->all(),
             ]), navigate: true);
 
             return;

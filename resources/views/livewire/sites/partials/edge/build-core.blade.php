@@ -164,6 +164,27 @@
             </dl>
         @endcan
 
+        @can('update', $site)
+            <form wire:submit.prevent="saveEdgeDeployFooter" class="flex flex-wrap items-center justify-between gap-3 border-t border-brand-ink/10 px-5 py-4 sm:px-6">
+                <label class="flex min-w-0 items-start gap-3 text-sm text-brand-ink">
+                    <input type="checkbox" wire:model="buildForm.edge_deploy_footer_enabled" class="mt-0.5 rounded border-brand-ink/20 text-brand-sage shadow-sm focus:ring-brand-sage/40" />
+                    <span>
+                        <span class="font-medium">{{ __('Show deploy id in the site footer') }}</span>
+                        <span class="mt-0.5 block text-xs text-brand-moss">{{ __('Prints the live deployment id at the bottom of HTML pages.') }}</span>
+                    </span>
+                </label>
+                <button
+                    type="submit"
+                    wire:loading.attr="disabled"
+                    wire:target="saveEdgeDeployFooter"
+                    class="inline-flex items-center gap-1.5 rounded-lg border border-brand-ink/15 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-brand-sand/40 disabled:cursor-wait disabled:opacity-60"
+                >
+                    <span wire:loading.remove wire:target="saveEdgeDeployFooter">{{ __('Save') }}</span>
+                    <span wire:loading wire:target="saveEdgeDeployFooter">{{ __('Saving…') }}</span>
+                </button>
+            </form>
+        @endcan
+
         <div class="border-t border-brand-ink/10 px-5 py-5 sm:px-6">
             <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Retention') }}</p>
             <p class="mt-1 text-xs text-brand-moss">{{ __('Older deploy artifacts beyond this count are deleted from storage.') }}</p>

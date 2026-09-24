@@ -1,13 +1,13 @@
 <div class="dply-page-shell space-y-4 pt-6">
     <x-breadcrumb-trail :items="[
         ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
-        ['label' => __('Projects'), 'href' => route('edge.index'), 'icon' => 'globe-alt'],
+        ['label' => __('Projects'), 'href' => route('dashboard'), 'icon' => 'globe-alt'],
         ['label' => __('Queues'), 'icon' => 'queue-list'],
     ]" />
 
     <x-profile-shell
         :title="__('Queues')"
-        :description="__('Background jobs on Cloudflare Queues. Bind a queue to a project; container apps process it with dply/laravel or dply-rails.')"
+        :description="__('Background jobs on Dply Edge. Bind a queue to a project; container apps process it with dply/laravel or dply-rails.')"
         icon="heroicon-o-queue-list"
     >
         @if (session('status'))

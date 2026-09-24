@@ -64,8 +64,8 @@ use App\Modules\Edge\Http\Controllers\GithubEdgeWebhookController;
 use App\Modules\Edge\Livewire\Create as EdgeCreate;
 use App\Modules\Edge\Livewire\Databases;
 use App\Modules\Edge\Livewire\Import;
-use App\Modules\Edge\Livewire\Queues;
 use App\Modules\Edge\Livewire\Index as EdgeIndex;
+use App\Modules\Edge\Livewire\Queues;
 use App\Modules\Edge\Livewire\Templates;
 use App\Modules\Edge\Livewire\Usage;
 use App\Modules\Secrets\Livewire\Secrets as OrganizationsSecrets;
@@ -182,12 +182,10 @@ Route::livewire('invitations/accept/{token}', InvitationsAccept::class)
     ->name('invitations.accept');
 
 Route::middleware(['auth', 'verified', 'org'])->group(function () {
-    // dply-edge has one product surface — the projects list is the dashboard.
-    // Kept as a named route so every route('dashboard') call site still resolves.
-    // /projects (not /apps or /applications): Reverb/Pusher owns /app and
-    // /apps/ on the public vhost, and nginx `^~ /app` also swallows
-    // /applications. Route names stay edge.*.
-    Route::redirect('/dashboard', '/projects')->name('dashboard');
+    // One product surface: the app list lives at /dashboard (route name
+    // dashboard). /projects redirects there. Create, import, and the other
+    // project tools stay under /projects/* with edge.* names. Not /apps or
+    // /applications — nginx `^~ /app` on the public vhost swallows those.
     // OAuth-style device-flow approval page for the dply CLI. The CLI
     // prints a short code; user lands here (deep link or paste),
     // confirms scopes + org, and we mint an ApiToken that the polling
@@ -259,6 +257,7 @@ Route::middleware(['auth', 'verified', 'org'])->group(function () {
     // carries the same sections under the same anchors.
     Route::redirect('organizations/{organization}/automation', 'organizations/{organization}/settings')
         ->name('organizations.automation');
+
     Route::livewire('organizations/{organization}/notification-channels', OrganizationsNotificationChannels::class)->name('organizations.notification-channels');
     Route::livewire('organizations/{organization}/teams/{team}/notification-channels', TeamsNotificationChannels::class)->name('teams.notification-channels');
     Route::livewire('organizations/{organization}/billing', BillingShow::class)->name('billing.show');
@@ -267,6 +266,7 @@ Route::middleware(['auth', 'verified', 'org'])->group(function () {
     Route::livewire('organizations/{organization}/subscription', BillingShow::class)->name('subscription.show');
     Route::redirect('organizations/{organization}/invoices', 'organizations/{organization}/billing')
         ->name('billing.invoices');
+
     Route::livewire('organizations/{organization}/credentials', CredentialsIndex::class)->name('organizations.credentials');
     // Session-scoped shortcut into the current org's credentials page. Kept as
     // its own name because the OAuth callbacks and the CLI land here without an
@@ -279,7 +279,8 @@ Route::middleware(['auth', 'verified', 'org'])->group(function () {
     })->name('credentials.index');
     Route::livewire('organizations/{organization}/secrets', OrganizationsSecrets::class)->name('organizations.secrets');
 
-    Route::livewire('projects', EdgeIndex::class)->name('edge.index');
+    Route::permanentRedirect('projects', '/dashboard');
+    Route::livewire('dashboard', EdgeIndex::class)->name('dashboard');
     Route::livewire('projects/create', EdgeCreate::class)->name('edge.create');
     Route::livewire('projects/import', Import::class)->name('edge.import');
     Route::livewire('projects/templates', Templates::class)->name('edge.templates');
@@ -288,49 +289,48 @@ Route::middleware(['auth', 'verified', 'org'])->group(function () {
     Route::livewire('projects/queues', Queues::class)->name('edge.queues');
 
     /*
-     * Legacy /edge/*, /apps/*, /applications/* URLs. The section is
-     * "Projects". /edge named where the code runs; /apps and
-     * /applications collide with Reverb (`^~ /app`). Route NAMES stay
-     * edge.* on purpose. Permanent so bookmarks move over.
+     * Legacy /edge/*, /apps/*, /applications/* URLs. The list moved to
+     * /dashboard. Nested tools stay under /projects/*. /apps and
+     * /applications collide with Reverb (`^~ /app`).
      */
-    Route::permanentRedirect('/edge', '/projects');
+    Route::permanentRedirect('/edge', '/dashboard');
     Route::permanentRedirect('/edge/{path}', '/projects/{path}')->where('path', '.*');
-    Route::permanentRedirect('/apps', '/projects');
+    Route::permanentRedirect('/apps', '/dashboard');
     Route::permanentRedirect('/apps/{path}', '/projects/{path}')->where('path', '.*');
-    Route::permanentRedirect('/applications', '/projects');
+    Route::permanentRedirect('/applications', '/dashboard');
     Route::permanentRedirect('/applications/{path}', '/projects/{path}')->where('path', '.*');
 
     Route::livewire('status-pages', StatusPagesIndex::class)->name('status-pages.index');
     Route::livewire('status-pages/{statusPage}', StatusPagesManage::class)->name('status-pages.manage');
 
     // Edge site workspace. Every edge site hangs off a placeholder `Server`
-    // row (host_kind=dply_edge) created with it, so the URLs keep the
-    // /servers/{server}/sites/{site} shape the workspace was built on.
-    Route::livewire('servers/{server}/sites/{site}/edge/deployments/{deployment}', EdgeDeploymentDetail::class)->name('sites.edge.deployments.show');
-    Route::livewire('servers/{server}/sites/{site}/preview-comments', EdgePreviewComments::class)->name('sites.preview-comments');
+    // row (host_kind=dply_edge) created with it. The public path is
+    // /projects/{site}; /servers/… redirects here.
+    Route::livewire('projects/{site}/edge/deployments/{deployment}', EdgeDeploymentDetail::class)->name('sites.edge.deployments.show');
+    Route::livewire('projects/{site}/preview-comments', EdgePreviewComments::class)->name('sites.preview-comments');
 
     // Edge access log CSV download — session-authed (Gate view-checked
     // inside the controller) so the dashboard "Download CSV" button
     // works without minting an API token. Stays out of the section
     // dispatcher because the .csv extension wouldn't match.
-    Route::get('servers/{server}/sites/{site}/edge/logs.csv', EdgeLogCsvDownloadController::class)
+    Route::get('projects/{site}/edge/logs.csv', EdgeLogCsvDownloadController::class)
         ->name('sites.edge.logs.csv');
 
-    Route::get('servers/{server}/sites/{site}/edge/logs/live.json', EdgeLiveAccessLogPollController::class)
+    Route::get('projects/{site}/edge/logs/live.json', EdgeLiveAccessLogPollController::class)
         ->name('sites.edge.logs.live');
 
     // Per-site audit-log export (CSV/JSON) — session-authed, no row cap,
     // mirrors the on-screen Audit log panel filters.
-    Route::get('servers/{server}/sites/{site}/edge/audit.export', EdgeAuditLogExportController::class)
+    Route::get('projects/{site}/edge/audit.export', EdgeAuditLogExportController::class)
         ->name('sites.edge.audit.export');
 
     // Generate dply.yaml from the site's current declarative config
     // (redirects / rewrites / headers / crons). Lets a user export
     // dashboard-managed state to a repo-checked file.
-    Route::get('servers/{server}/sites/{site}/edge/dply.yaml', EdgeRepoConfigYamlDownloadController::class)
+    Route::get('projects/{site}/edge/dply.yaml', EdgeRepoConfigYamlDownloadController::class)
         ->name('sites.edge.dply-yaml');
 
-    Route::get('servers/{server}/sites/{site}/{section?}', SiteWorkspaceController::class)
+    Route::get('projects/{site}/{section?}', SiteWorkspaceController::class)
         ->where('section', '[a-z0-9-]+')
         ->defaults('section', 'general')
         ->name('sites.show');
@@ -352,5 +352,29 @@ Route::middleware(['auth', 'verified', 'org'])->group(function () {
     Route::get('notifications/oauth/discord/callback', [DiscordOAuthController::class, 'callback'])
         ->name('notifications.oauth.discord.callback');
 });
+
+Route::get('projects/{project}/sites/{site}/{path?}', function (string $project, string $site, ?string $path = null) {
+    $target = '/projects/'.$site.(($path ?? '') !== '' ? '/'.$path : '');
+    $query = request()->getQueryString();
+    if (is_string($query) && $query !== '') {
+        $target .= '?'.$query;
+    }
+
+    return redirect($target, 301);
+})->where('path', '.*');
+
+Route::get('servers/{path}', function (string $path) {
+    if (preg_match('#^[^/]+/sites/([^/]+)(?:/(.*))?$#', $path, $matches) === 1) {
+        $target = '/projects/'.$matches[1].((isset($matches[2]) && $matches[2] !== '') ? '/'.$matches[2] : '');
+    } else {
+        $target = '/projects/'.$path;
+    }
+    $query = request()->getQueryString();
+    if (is_string($query) && $query !== '') {
+        $target .= '?'.$query;
+    }
+
+    return redirect($target, 301);
+})->where('path', '.*');
 
 require __DIR__.'/auth.php';

@@ -53,7 +53,14 @@ final class PhpRuntimeDetector implements RuntimeDetector
         $framework = $this->detectFramework($packages, $root, $detectedFiles, $reasons);
 
         $buildCommand = 'composer install --no-dev --optimize-autoloader';
-        $reasons[] = "Suggested build: `{$buildCommand}`.";
+        $assets = FrontendAssetBuild::commandForDirectory($root);
+        if ($assets !== null) {
+            $detectedFiles[] = 'package.json';
+            $buildCommand .= ' && '.$assets;
+            $reasons[] = "Suggested build: `{$buildCommand}` (composer plus frontend assets from `package.json`).";
+        } else {
+            $reasons[] = "Suggested build: `{$buildCommand}`.";
+        }
 
         $processes = $this->detectProcesses($packages, $root, $framework, $detectedFiles, $reasons);
 

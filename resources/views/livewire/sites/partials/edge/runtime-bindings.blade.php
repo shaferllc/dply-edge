@@ -107,7 +107,7 @@
             </div>
             @if ($kvCfUrl)
                 <a href="{{ $kvCfUrl }}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-xs font-medium text-brand-sage hover:underline">
-                    {{ __('View on Cloudflare') }}
+                    {{ __('View namespace') }}
                     <x-heroicon-o-arrow-top-right-on-square class="h-3 w-3" aria-hidden="true" />
                 </a>
             @endif

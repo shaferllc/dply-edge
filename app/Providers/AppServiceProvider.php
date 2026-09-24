@@ -41,6 +41,7 @@ use App\Policies\SitePolicy;
 use App\Policies\StatusPagePolicy;
 use App\Policies\TeamPolicy;
 use App\Policies\WorkspacePolicy;
+use App\Routing\ProjectUrlGenerator;
 use App\Services\Sites\EnsuresDefaultUptimeMonitors;
 use App\Services\Sites\RepositoryWebhookProvisioner;
 use App\Services\Sites\TestingHostnameProvisioner;
@@ -69,6 +70,29 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         ConfigDirectoryAliases::apply();
+
+        $this->app->extend('url', function ($url, $app) {
+            if ($url instanceof ProjectUrlGenerator) {
+                return $url;
+            }
+
+            $generator = new ProjectUrlGenerator(
+                $app['router']->getRoutes(),
+                $app['request'],
+                config('app.asset_url'),
+            );
+
+            $session = (new \ReflectionClass($url))->getProperty('sessionResolver');
+            $key = (new \ReflectionClass($url))->getProperty('keyResolver');
+            if ($session->getValue($url) !== null) {
+                $generator->setSessionResolver($session->getValue($url));
+            }
+            if ($key->getValue($url) !== null) {
+                $generator->setKeyResolver($key->getValue($url));
+            }
+
+            return $generator;
+        });
 
         // Scoped (reset per request/job) so its per-instance identity memo
         // dedupes the repeated social_accounts/git_provider_tokens lookups a

@@ -347,14 +347,13 @@ final class BillingAnalytics
 
         foreach ($sites as $site) {
             if ($site->status === Site::STATUS_EDGE_ACTIVE && $site->edge_backend === 'dply_edge' && ! $site->isEdgePreview()) {
-                $runtimeMode = strtolower((string) ($site->edgeMeta()['runtime_mode'] ?? 'static'));
+                $fee = $this->edgeSiteBillingAnalytics->platformFee($site);
                 $edge[] = [
                     'id' => $site->id,
                     'name' => $site->name,
                     'live_url' => $site->edgeLiveUrl(),
-                    'unit_cents' => $runtimeMode === 'ssr'
-                        ? (int) config('subscription.standard.edge_ssr_cents', 700)
-                        : (int) config('subscription.standard.edge_cents', 200),
+                    'unit_cents' => $fee['cents'],
+                    'platform_kind' => $fee['kind'],
                 ];
             }
         }

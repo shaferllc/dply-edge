@@ -21,7 +21,7 @@ const hostEntry = {
 };
 
 describe('handleAccessGate', () => {
-  it('shows auth page for protected preview hostnames without a cookie', async () => {
+  it('shows auth page for a protected hostname without a cookie', async () => {
     const response = await handleAccessGate(
       new Request('https://preview.example.test/'),
       new URL('https://preview.example.test/'),
@@ -30,17 +30,18 @@ describe('handleAccessGate', () => {
 
     expect(response).not.toBeNull();
     expect(response?.status).toBe(401);
-    expect(await response?.text()).toContain('Preview protected');
+    expect(await response?.text()).toContain('Site protected');
   });
 
-  it('skips gate for production hostnames', async () => {
+  it('gates the live hostname when an access rule is set', async () => {
     const response = await handleAccessGate(
-      new Request('https://preview.example.test/'),
-      new URL('https://preview.example.test/'),
+      new Request('https://app.example.test/'),
+      new URL('https://app.example.test/'),
       { is_production: true, access_gate: gate },
     );
 
-    expect(response).toBeNull();
+    expect(response?.status).toBe(401);
+    expect(await response?.text()).toContain('Site protected');
   });
 
   it('accepts the shared password and sets an access cookie', async () => {

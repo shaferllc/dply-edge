@@ -96,7 +96,7 @@ class Container extends Component
 
     protected function currentEdgeSection(): ?string
     {
-        return 'edge-container';
+        return 'container';
     }
 
     public function render(EdgeContainerComputeCost $cost): View
@@ -109,7 +109,7 @@ class Container extends Component
         [$vcpu, $memory, $disk] = EdgeContainerSettings::INSTANCE_TYPES[$this->instance_type] ?? EdgeContainerSettings::INSTANCE_TYPES['basic'];
 
         return view('livewire.sites.edge.workspace.container', array_merge(
-            EdgeSiteViewData::context($this->site, 'edge-container'),
+            EdgeSiteViewData::context($this->site, 'container'),
             [
                 'server' => $this->server,
                 'site' => $this->site,

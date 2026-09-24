@@ -31,21 +31,16 @@ test('authenticated user can load edge create form', function () {
     $this->actingAs($user)
         ->get(route('edge.create'))
         ->assertOk()
-        ->assertSee('Deploy an edge app')
-        ->assertSee('Connect Git')
-        ->assertSee('Build & delivery')
-        ->assertSee('Advanced settings')
-        ->assertSee('Cost · Free')
-        ->assertSee('SPA fallback')
-        ->assertSee('Deploy on push')
-        ->assertSee('Dply Edge (managed)')
-        ->assertSee('Your own account')
-        ->assertSee('Or start from an example')
-        ->assertSee('Keel on Edge')
-        ->assertSee('data-testid="edge-example-apps"', false)
-        ->assertSee('data-testid="edge-example-keel-workers"', false)
-        ->assertSee('Load sample app')
-        ->assertSee('data-testid="load-sample-edge-app"', false);
+        ->assertSee('Create an app')
+        ->assertSee('Step 1 of 3')
+        ->assertSee('Connect your source control')
+        ->assertSee('Step 2 of 3')
+        ->assertSee('Select a repository')
+        ->assertSee('Step 3 of 3')
+        ->assertSee('Create your application')
+        ->assertDontSee('Build & delivery')
+        ->assertDontSee('Advanced settings')
+        ->assertDontSee('Or start from an example');
 });
 
 test('load sample app prefills public eleventy template in local development', function () {
@@ -81,9 +76,6 @@ test('byo delivery without credentials offers in page cloudflare token modal', f
     Livewire::actingAs($user)
         ->test(Create::class)
         ->set('form.delivery_mode', 'byo')
-        ->assertSee('No CDN account connected')
-        ->assertSee('Add Cloudflare token')
-        ->assertDontSee('Select a connected account…')
         ->call('openCloudflareCredentialModal')
         ->assertDispatched('open-add-provider-credential-modal');
 });
@@ -208,7 +200,8 @@ test('a pro org can create a laravel app as a container', function () {
         ->set('branch', 'main')
         ->set('form.runtime_mode', 'container')
         ->set('detectedPlan', ['runtime' => 'php', 'framework' => 'laravel'])
-        ->call('deploy');
+        ->call('deploy')
+        ->assertNotSet('launchedDeploymentId', '');
 
     expect(Site::query()->count())->toBe(1)
         ->and(Site::query()->first()->edgeMeta()['runtime_mode'])->toBe('container');
@@ -267,9 +260,9 @@ test('renders repo picker when git accounts linked', function () {
 
     Livewire::actingAs($user)
         ->test(Create::class)
-        ->assertSee('Pick from connected account')
-        ->assertSee('Enter manually')
-        ->assertSee('Github - acme');
+        ->assertSee('Select a repository')
+        ->assertSee('Github - acme')
+        ->assertSee('Paste a URL instead');
 });
 
 test('picker selection populates repo and branch', function () {

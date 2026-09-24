@@ -274,62 +274,66 @@ final class SiteSettingsSidebar
         // looks wrong). Bindings / Crons / Jobs need a per-site Worker.
         $items = [
             ['id' => 'general', 'label' => __('Overview'), 'icon' => 'heroicon-o-home', 'group' => 'ship'],
-            ['id' => 'edge-deploys', 'label' => __('Deploys'), 'icon' => 'heroicon-o-code-bracket-square', 'group' => 'ship'],
-            ['id' => 'edge-build', 'label' => __('Build'), 'icon' => 'heroicon-o-wrench-screwdriver', 'group' => 'ship'],
-            ['id' => 'edge-environment', 'label' => __('Environment'), 'icon' => 'heroicon-o-command-line', 'group' => 'ship'],
+            ['id' => 'deploys', 'label' => __('Deploys'), 'icon' => 'heroicon-o-code-bracket-square', 'group' => 'ship'],
+            ['id' => 'build', 'label' => __('Build'), 'icon' => 'heroicon-o-wrench-screwdriver', 'group' => 'ship'],
+            ['id' => 'environment', 'label' => __('Environment'), 'icon' => 'heroicon-o-command-line', 'group' => 'ship'],
         ];
 
         if (! $isPreviewChild) {
-            $items[] = ['id' => 'edge-previews', 'label' => __('Previews'), 'icon' => 'heroicon-o-sparkles', 'group' => 'ship'];
+            $items[] = ['id' => 'previews', 'label' => __('Previews'), 'icon' => 'heroicon-o-sparkles', 'group' => 'ship'];
         }
 
         if (($site->edgeMeta()['runtime_mode'] ?? '') === 'container') {
-            $items[] = ['id' => 'edge-container', 'label' => __('Container'), 'icon' => 'heroicon-o-cube', 'group' => 'ship'];
+            $items[] = ['id' => 'container', 'label' => __('Container'), 'icon' => 'heroicon-o-cube', 'group' => 'ship'];
         }
 
-        $items[] = ['id' => 'edge-deploy-triggers', 'label' => __('Deploy triggers'), 'icon' => 'heroicon-o-bolt', 'group' => 'ship'];
-        $items[] = ['id' => 'edge-logs', 'label' => __('Build & deploy logs'), 'icon' => 'heroicon-o-clipboard-document-list', 'group' => 'ship'];
+        $items[] = ['id' => 'deploy-triggers', 'label' => __('Deploy triggers'), 'icon' => 'heroicon-o-bolt', 'group' => 'ship'];
+        $items[] = ['id' => 'logs', 'label' => __('Build & deploy logs'), 'icon' => 'heroicon-o-clipboard-document-list', 'group' => 'ship'];
 
         // ── Traffic ──────────────────────────────────────────────────────
-        $items[] = ['id' => 'edge-routing', 'label' => __('Routing'), 'icon' => 'heroicon-o-arrows-right-left', 'group' => 'traffic'];
+        $items[] = ['id' => 'routing', 'label' => __('Routing'), 'icon' => 'heroicon-o-arrows-right-left', 'group' => 'traffic'];
 
         if (! $isPreviewChild) {
-            $items[] = ['id' => 'edge-delivery', 'label' => __('Delivery'), 'icon' => 'heroicon-o-cloud', 'group' => 'traffic'];
-            $items[] = ['id' => 'edge-load-balancing', 'label' => __('Load balancing'), 'icon' => 'heroicon-o-server-stack', 'group' => 'traffic'];
-            $items[] = ['id' => 'edge-traffic', 'label' => __('Traffic & analytics'), 'icon' => 'heroicon-o-signal', 'group' => 'traffic'];
+            $items[] = ['id' => 'cache', 'label' => __('Cache'), 'icon' => 'heroicon-o-circle-stack', 'group' => 'traffic'];
+            // Hybrid origin and image resizing. A container already serves the
+            // whole app, and Convert to hybrid would overwrite that runtime.
+            if (($site->edgeMeta()['runtime_mode'] ?? '') !== 'container') {
+                $items[] = ['id' => 'delivery', 'label' => __('Delivery'), 'icon' => 'heroicon-o-cloud', 'group' => 'traffic'];
+            }
+            $items[] = ['id' => 'traffic', 'label' => __('Traffic & analytics'), 'icon' => 'heroicon-o-signal', 'group' => 'traffic'];
         }
 
         // ── Protect ──────────────────────────────────────────────────────
         $items = [
             ...$items,
-            ['id' => 'edge-firewall', 'label' => __('Firewall'), 'icon' => 'heroicon-o-shield-check', 'group' => 'protect'],
-            ['id' => 'edge-bot-protection', 'label' => __('Bot protection'), 'icon' => 'heroicon-o-finger-print', 'group' => 'protect'],
-            ['id' => 'edge-rate-limits', 'label' => __('Rate limits'), 'icon' => 'heroicon-o-no-symbol', 'group' => 'protect'],
-            ['id' => 'edge-waiting-room', 'label' => __('Waiting room'), 'icon' => 'heroicon-o-queue-list', 'group' => 'protect'],
-            ['id' => 'edge-members', 'label' => __('Members'), 'icon' => 'heroicon-o-user-group', 'group' => 'protect'],
+            ['id' => 'firewall', 'label' => __('Firewall'), 'icon' => 'heroicon-o-shield-check', 'group' => 'protect'],
+            ['id' => 'bot-protection', 'label' => __('Bot protection'), 'icon' => 'heroicon-o-finger-print', 'group' => 'protect'],
+            ['id' => 'rate-limits', 'label' => __('Rate limits'), 'icon' => 'heroicon-o-no-symbol', 'group' => 'protect'],
+            ['id' => 'waiting-room', 'label' => __('Waiting room'), 'icon' => 'heroicon-o-queue-list', 'group' => 'protect'],
+            ['id' => 'members', 'label' => __('Members'), 'icon' => 'heroicon-o-user-group', 'group' => 'protect'],
         ];
 
         // ── Extend ───────────────────────────────────────────────────────
         if ($hasWorker) {
-            $items[] = ['id' => 'edge-bindings', 'label' => __('Bindings'), 'icon' => 'heroicon-o-puzzle-piece', 'group' => 'extend'];
-            $items[] = ['id' => 'edge-crons', 'label' => __('Crons'), 'icon' => 'heroicon-o-clock', 'group' => 'extend'];
-            $items[] = ['id' => 'edge-jobs', 'label' => __('Jobs'), 'icon' => 'heroicon-o-rectangle-stack', 'group' => 'extend'];
+            $items[] = ['id' => 'bindings', 'label' => __('Bindings'), 'icon' => 'heroicon-o-puzzle-piece', 'group' => 'extend'];
+            $items[] = ['id' => 'crons', 'label' => __('Crons'), 'icon' => 'heroicon-o-clock', 'group' => 'extend'];
+            $items[] = ['id' => 'jobs', 'label' => __('Jobs'), 'icon' => 'heroicon-o-rectangle-stack', 'group' => 'extend'];
         }
 
         $items = [
             ...$items,
-            ['id' => 'edge-error-pages', 'label' => __('Error pages'), 'icon' => 'heroicon-o-exclamation-circle', 'group' => 'extend'],
-            ['id' => 'edge-forms', 'label' => __('Forms'), 'icon' => 'heroicon-o-inbox', 'group' => 'extend'],
-            ['id' => 'edge-snippets', 'label' => __('Snippets'), 'icon' => 'heroicon-o-code-bracket', 'group' => 'extend'],
-            ['id' => 'edge-tags', 'label' => __('Tags'), 'icon' => 'heroicon-o-tag', 'group' => 'extend'],
+            ['id' => 'error-pages', 'label' => __('Error pages'), 'icon' => 'heroicon-o-exclamation-circle', 'group' => 'extend'],
+            ['id' => 'forms', 'label' => __('Forms'), 'icon' => 'heroicon-o-inbox', 'group' => 'extend'],
+            ['id' => 'snippets', 'label' => __('Snippets'), 'icon' => 'heroicon-o-code-bracket', 'group' => 'extend'],
+            ['id' => 'tags', 'label' => __('Tags'), 'icon' => 'heroicon-o-tag', 'group' => 'extend'],
         ];
 
         // ── Manage ───────────────────────────────────────────────────────
-        $items[] = ['id' => 'edge-alerts', 'label' => __('Alerts'), 'icon' => 'heroicon-o-bell-alert', 'group' => 'manage'];
-        $items[] = ['id' => 'edge-audit', 'label' => __('Audit log'), 'icon' => 'heroicon-o-clipboard-document-list', 'group' => 'manage'];
+        $items[] = ['id' => 'alerts', 'label' => __('Alerts'), 'icon' => 'heroicon-o-bell-alert', 'group' => 'manage'];
+        $items[] = ['id' => 'audit', 'label' => __('Audit log'), 'icon' => 'heroicon-o-clipboard-document-list', 'group' => 'manage'];
 
         if (! $isPreviewChild) {
-            $items[] = ['id' => 'edge-billing', 'label' => __('Billing & usage'), 'icon' => 'heroicon-o-chart-bar', 'group' => 'manage'];
+            $items[] = ['id' => 'billing', 'label' => __('Billing & usage'), 'icon' => 'heroicon-o-chart-bar', 'group' => 'manage'];
         }
 
         $items[] = ['id' => 'danger', 'label' => __('Danger zone'), 'icon' => 'heroicon-o-exclamation-triangle', 'group' => 'manage'];

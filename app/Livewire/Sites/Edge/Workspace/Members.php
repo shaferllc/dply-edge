@@ -134,7 +134,7 @@ class Members extends Component
             ->values();
 
         return view('livewire.sites.edge.workspace.members', array_merge(
-            EdgeSiteViewData::context($this->site, 'edge-members'),
+            EdgeSiteViewData::context($this->site, 'members'),
             [
                 'server' => $this->server,
                 'site' => $this->site,

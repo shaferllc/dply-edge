@@ -7,6 +7,7 @@ namespace App\Modules\Edge\Livewire\Concerns;
 use App\Jobs\DetectRepositoryRuntimeJob;
 use App\Livewire\Forms\EdgeCreateForm;
 use App\Modules\Edge\Services\EdgeMonorepoDetector;
+use App\Modules\Edge\Services\RuntimeDetection\FrontendAssetBuild;
 use App\Modules\Edge\Support\EdgeSitePackageHeuristics;
 use App\Modules\SourceControl\Services\GitIdentityResolver;
 use App\Modules\SourceControl\Services\SourceControlRepositoryBrowser;
@@ -394,7 +395,19 @@ trait ManagesEdgeRepoDetection
                 default => 'php',
             };
 
-            return $plan('php', $framework, 'composer.json', 'composer install --no-dev --optimize-autoloader', null);
+            $build = 'composer install --no-dev --optimize-autoloader';
+            $packageRaw = $this->fetchGitHubFile($owner, $repo, $branch, 'package.json', $subdir);
+            $package = is_string($packageRaw) ? json_decode($packageRaw, true) : null;
+            $assets = FrontendAssetBuild::commandForPackage(
+                is_array($package) ? $package : [],
+                null,
+                is_array($json) ? $json : null,
+            );
+            if ($assets !== null) {
+                $build .= ' && '.$assets;
+            }
+
+            return $plan('php', $framework, 'composer.json', $build, null);
         }
 
         $gemfile = $this->fetchGitHubFile($owner, $repo, $branch, 'Gemfile', $subdir);

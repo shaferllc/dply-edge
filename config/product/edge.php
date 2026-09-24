@@ -128,9 +128,17 @@ return [
         // specific deploy.
         'docker_image' => env('DPLY_EDGE_BUILD_IMAGE', 'node:22-bookworm'),
         // Images pre-pulled on worker boot / schedule (skip per-deploy pull when present).
+        // These must be the exact tags EdgeContainerDockerfile emits — warming
+        // `node:22-bookworm` while generated images say `node:22-bookworm-slim`
+        // pulls an image no build ever references.
         'warm_images' => array_values(array_filter(array_map(
             'trim',
-            explode(',', (string) env('DPLY_EDGE_BUILD_WARM_IMAGES', 'node:20-bookworm,node:22-bookworm')),
+            explode(',', (string) env(
+                'DPLY_EDGE_BUILD_WARM_IMAGES',
+                'node:22-bookworm,node:22-bookworm-slim,composer:2,'
+                .'php:8.4-fpm-alpine,php:8.3-fpm-alpine,php:8.2-fpm-alpine,'
+                .'ruby:3.3-slim',
+            )),
         ))),
         'warm_images_on_schedule' => filter_var(env('DPLY_EDGE_BUILD_WARM_IMAGES_SCHEDULE', true), FILTER_VALIDATE_BOOLEAN),
         // Skip `docker pull` when `docker image inspect` succeeds locally.
@@ -147,6 +155,18 @@ return [
             'max_instances' => (int) env('DPLY_EDGE_CONTAINER_MAX_INSTANCES', 5),
             'sleep_after' => env('DPLY_EDGE_CONTAINER_SLEEP_AFTER', '10m'),
             'default_port' => 8080,
+            /*
+             * Prebuilt PHP base with the extensions already compiled, e.g.
+             * ghcr.io/dply/edge-php — tagged by PHP minor (:8.4). Set it and
+             * generated Dockerfiles pull instead of spending ~5min on
+             * install-php-extensions, on every build host rather than only
+             * ones warmed locally. Publish with dply:edge:publish-base-images.
+             * Empty = build the extension layer per host (previous behaviour).
+             */
+            'php_base_repo' => trim((string) env('DPLY_EDGE_CONTAINER_PHP_BASE_REPO', '')),
+            // Same for Rails/Ruby: the prebuilt image carries the native gem
+            // toolchain (pg, nokogiri) so bundle install doesn't compile it.
+            'ruby_base_repo' => trim((string) env('DPLY_EDGE_CONTAINER_RUBY_BASE_REPO', '')),
         ],
         'timeout_seconds' => 900,
         'artifact_max_bytes' => 524_288_000,
@@ -281,7 +301,7 @@ return [
             'label' => 'Dply Edge (managed)',
         ],
         'org_cloudflare' => [
-            'label' => 'Your Cloudflare account',
+            'label' => 'Your connected account',
         ],
     ],
 

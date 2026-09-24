@@ -5,12 +5,16 @@ declare(strict_types=1);
 namespace App\Modules\Edge\Jobs;
 
 use App\Models\EdgeDeployment;
+use App\Models\Organization;
 use App\Models\Site;
+use App\Modules\Billing\Services\StarterTrafficGate;
+use App\Modules\Billing\Services\StarterUsageBudget;
 use App\Modules\Edge\Services\EdgeArtifactPublisher;
 use App\Modules\Edge\Services\EdgeBuildRunner;
 use App\Modules\Edge\Services\EdgeDeliveryContextResolver;
 use App\Modules\Edge\Services\EdgeProductionEnv;
 use App\Modules\Edge\Support\EdgeBuildMinutes;
+use App\Modules\Edge\Support\EdgeBuildSlots;
 use App\Modules\Edge\Support\EdgeLiveBuildLog;
 use App\Modules\Edge\Support\EdgeRepoRoot;
 use App\Modules\Notifications\Services\NotificationPublisher;
@@ -65,28 +69,37 @@ class BuildEdgeSiteJob implements ShouldQueue
 
         $tier = $organization->tierAllowances();
         if (EdgeBuildMinutes::exhausted(EdgeBuildMinutes::usedThisMonth($organization), $tier)) {
-            $message = __('This month’s :minutes build minutes are used up. Upgrade to Pro for more, or wait until the 1st.', ['minutes' => number_format((int) $tier['build_minutes'])]);
-            if ($site->status === Site::STATUS_EDGE_ACTIVE) {
-                // Keep the live site as it is; only this deploy fails.
-                $deployment->update(['status' => EdgeDeployment::STATUS_FAILED, 'failed_at' => now(), 'failure_reason' => $message]);
-            } else {
-                $this->markFailed($site, $deployment, $message);
-            }
+            $this->pauseDeploy($site, $deployment, __('This month’s :minutes build minutes are used up. Upgrade to Pro for more, or wait until the 1st.', ['minutes' => number_format((int) $tier['build_minutes'])]));
+
+            return;
+        }
+
+        $budget = app(StarterUsageBudget::class);
+        $spend = $budget->status($organization);
+        $this->notifyStarterBudget($organization, $site, $spend);
+        if ($spend['exhausted']) {
+            app(StarterTrafficGate::class)->syncOrganization($organization);
+            $limit = number_format(((int) $spend['limit_cents']) / 100, 0);
+            $this->pauseDeploy($site, $deployment, __('This month’s $:limit usage credit is used up. Builds and traffic pause until the 1st, or upgrade to Pro.', ['limit' => $limit]));
 
             return;
         }
 
         $timeoutSeconds = (int) $tier['build_timeout_minutes'] * 60;
-        $slot = null;
-        for ($i = 0; $i < max(1, (int) $tier['concurrent_builds']); $i++) {
-            // Expires on its own if a worker dies mid-build.
-            $lock = Cache::lock('edge-build-slot:'.$organization->id.':'.$i, $timeoutSeconds + 900);
-            if ($lock->get()) {
-                $slot = $lock;
-                break;
-            }
-        }
+        // Expires on its own if a worker dies mid-build; cancelling force-releases
+        // it, because that TTL otherwise stalls every later build silently.
+        $slot = EdgeBuildSlots::acquire($organization, $timeoutSeconds + 900);
         if ($slot === null) {
+            // Without this the journey card just says "Waiting for log output…",
+            // which reads as a hang when the truth is "queued behind another
+            // build". Once per deployment — this path retries every 20s.
+            if (Cache::add('edge-build-queued-notice:'.$this->deploymentId, true, now()->addMinutes(10))) {
+                EdgeLiveBuildLog::append(
+                    $this->deploymentId,
+                    __('Queued — waiting for an earlier build in this organization to finish.')."\n",
+                );
+            }
+
             $this->release(20);
 
             return;
@@ -350,6 +363,48 @@ class BuildEdgeSiteJob implements ShouldQueue
         return $storageKey;
     }
 
+    /**
+     * Stop this deploy without taking a live site offline.
+     */
+    private function pauseDeploy(Site $site, EdgeDeployment $deployment, string $message): void
+    {
+        if ($site->status === Site::STATUS_EDGE_ACTIVE) {
+            $deployment->update(['status' => EdgeDeployment::STATUS_FAILED, 'failed_at' => now(), 'failure_reason' => $message]);
+
+            return;
+        }
+
+        $this->markFailed($site, $deployment, $message);
+    }
+
+    /**
+     * @param  array{used_cents: int, limit_cents: int|null, exhausted: bool}  $spend
+     */
+    private function notifyStarterBudget(Organization $organization, Site $site, array $spend): void
+    {
+        $kind = app(StarterUsageBudget::class)->alertKind($spend);
+        if ($kind === null) {
+            return;
+        }
+        if (! Cache::add('starter-spend:'.$organization->id.':'.now()->format('Y-m').':'.$kind, true, now()->endOfMonth())) {
+            return;
+        }
+
+        $limit = number_format(((int) $spend['limit_cents']) / 100, 0);
+        $used = number_format($spend['used_cents'] / 100, 2);
+        try {
+            app(NotificationPublisher::class)->publish(
+                eventKey: 'edge.usage.over_budget',
+                subject: $site,
+                title: $kind === 'over' ? __('Usage credit used up') : __('Usage credit almost used up'),
+                body: __('This month’s usage is $:used of the $:limit credit.', ['used' => $used, 'limit' => $limit]),
+                url: route('billing.show', ['organization' => $organization->id]),
+            );
+        } catch (Throwable) {
+            // A missing billing route or a channel failure must not block the deploy decision.
+        }
+    }
+
     private function markFailed(Site $site, EdgeDeployment $deployment, string $message): void
     {
         $meta = $site->edgeMeta();
@@ -375,7 +430,7 @@ class BuildEdgeSiteJob implements ShouldQueue
                 subject: $site->fresh(),
                 title: "Edge deploy failed: {$site->name}",
                 body: $message,
-                url: route('sites.show', ['server' => $site->server_id, 'site' => $site->id, 'section' => 'edge-deploys']),
+                url: route('sites.show', ['server' => $site->server_id, 'site' => $site->id, 'section' => 'deploys']),
                 metadata: [
                     'deployment_id' => (string) $deployment->id,
                     'commit' => $deployment->git_commit,

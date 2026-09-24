@@ -17,11 +17,12 @@ uses(RefreshDatabase::class);
  * User: "we are allowd 1 free site until we have to pay"
  */
 
-test('an org without a subscription is capped at the free allowance', function () {
+test('an org without a subscription can create edge apps', function () {
     $org = Organization::factory()->create();
 
-    expect($org->quotaLimit(QuotaSurface::Edge))->toBe(1)
-        ->and($org->quotaLimitMessage(QuotaSurface::Edge))->toContain('Upgrade to Pro');
+    expect($org->quotaLimit(QuotaSurface::Edge))->toBeNull()
+        ->and($org->canCreateOnSurface(QuotaSurface::Edge))->toBeTrue()
+        ->and($org->quotaLimitMessage(QuotaSurface::Edge))->toBe('');
 });
 
 test('a paying org has no edge ceiling', function () {

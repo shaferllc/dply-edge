@@ -13,7 +13,6 @@ use App\Modules\Edge\Support\EdgeEffectiveImages;
 use App\Modules\Edge\Support\EdgeEffectiveOrigin;
 use App\Modules\Edge\Support\EdgeEffectiveRouting;
 use App\Modules\Edge\Support\EdgeHostMapAddons;
-use App\Modules\Edge\Support\EdgeLoadBalancing;
 use App\Modules\Edge\Support\FakeEdgeProvision;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -104,6 +103,50 @@ class EdgeHostMapPublisher
     }
 
     /**
+     * A plain KV flag the edge worker reads without a host-map republish.
+     * Used to stop a free container from waking after the usage credit is gone.
+     */
+    public function putText(string $key, string $value, ?EdgeDeliveryContext $context = null): void
+    {
+        if (FakeEdgeProvision::enabled()) {
+            $map = Cache::get('edge:fake:kv-text', []);
+            $map[$key] = $value;
+            Cache::put('edge:fake:kv-text', $map, now()->addDay());
+
+            return;
+        }
+
+        if ($context === null || $context->kvNamespaceId === '' || $context->apiToken === '' || $context->accountId === '') {
+            return;
+        }
+
+        Http::withToken($context->apiToken)
+            ->withBody($value, 'text/plain')
+            ->put($this->kvValueUrl($context, $key))
+            ->throw();
+    }
+
+    public function deleteText(string $key, ?EdgeDeliveryContext $context = null): void
+    {
+        if (FakeEdgeProvision::enabled()) {
+            $map = Cache::get('edge:fake:kv-text', []);
+            unset($map[$key]);
+            Cache::put('edge:fake:kv-text', $map, now()->addDay());
+
+            return;
+        }
+
+        if ($context === null || $context->kvNamespaceId === '' || $context->apiToken === '' || $context->accountId === '') {
+            return;
+        }
+
+        $response = Http::withToken($context->apiToken)->delete($this->kvValueUrl($context, $key));
+        if ($response->status() !== 404) {
+            $response->throw();
+        }
+    }
+
+    /**
      * @param  array<string, mixed>  $payload
      */
     private function writeKv(string $key, array $payload, EdgeDeliveryContext $context): void
@@ -183,6 +226,11 @@ class EdgeHostMapPublisher
             'comment_widget_enabled' => $widgetEnabled,
         ];
 
+        $footerMeta = is_array($edgeMeta['deploy_footer'] ?? null) ? $edgeMeta['deploy_footer'] : [];
+        if ((bool) ($footerMeta['enabled'] ?? false)) {
+            $payload['deploy_footer'] = true;
+        }
+
         // Skew protection (P51). Surface the last few SUPERSEDED
         // deploys' R2 prefixes so the Worker can fall back through
         // them when a hashed-asset URL 404s in the current prefix.
@@ -206,11 +254,11 @@ class EdgeHostMapPublisher
             $payload['recent_storage_prefixes'] = $recentPrefixes;
         }
 
-        if (! $isProduction) {
-            $accessGate = app(EdgeAccessGate::class)->kvPayloadForSite($site);
-            if ($accessGate !== null) {
-                $payload['access_gate'] = $accessGate;
-            }
+        // Protection covers the live hostname too. The Previews form warns
+        // before save that visitors must pass the gate before the app loads.
+        $accessGate = app(EdgeAccessGate::class)->kvPayloadForSite($site);
+        if ($accessGate !== null) {
+            $payload['access_gate'] = $accessGate;
         }
 
         // Routing rules — merge dply.yaml + dashboard overrides via
@@ -340,9 +388,7 @@ class EdgeHostMapPublisher
             // EdgeEffectiveOrigin helper. Dashboard wins for url +
             // failover_html (commonly env-specific); routes are unioned.
             $effOrigin = EdgeEffectiveOrigin::for($site, $deployment);
-            // An active load balancer fronts the origin endpoints; the Worker
-            // proxies to its hostname instead of the single origin URL.
-            $originUrl = EdgeLoadBalancing::originUrl($site) ?? $effOrigin['url'];
+            $originUrl = $effOrigin['url'];
             if (is_string($originUrl) && $originUrl !== '') {
                 $payload['origin_url'] = $originUrl;
                 $payload['origin_routes'] = $effOrigin['routes'];

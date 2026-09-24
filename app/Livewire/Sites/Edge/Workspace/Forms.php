@@ -176,7 +176,7 @@ class Forms extends Component
         $repo = $this->edgeRepoConfigSection('forms');
 
         return view('livewire.sites.edge.workspace.forms', array_merge(
-            EdgeSiteViewData::context($this->site, 'edge-forms'),
+            EdgeSiteViewData::context($this->site, 'forms'),
             [
                 'server' => $this->server,
                 'site' => $this->site,

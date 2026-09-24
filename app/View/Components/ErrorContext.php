@@ -38,7 +38,7 @@ class ErrorContext
         ];
 
         // Extract server ID from URL patterns like /servers/{id} or /servers/{id}/...
-        if (preg_match('#servers/([a-zA-Z0-9]+)#', $path, $matches)) {
+        if (preg_match('#(?:servers|projects)/([a-zA-Z0-9]+)#', $path, $matches)) {
             $serverId = $matches[1];
             $server = Server::find($serverId);
 
@@ -46,14 +46,14 @@ class ErrorContext
                 $context['server'] = $server;
                 $context['suggestions'][] = [
                     'label' => 'Projects',
-                    'url' => route('edge.index'),
+                    'url' => route('dashboard'),
                     'primary' => true,
                 ];
             } elseif ($server) {
                 // Server exists but user can't view it
                 $context['suggestions'][] = [
                     'label' => 'Projects',
-                    'url' => route('edge.index'),
+                    'url' => route('dashboard'),
                 ];
             }
         }
@@ -78,7 +78,7 @@ class ErrorContext
                 // Site exists but user can't view it
                 $context['suggestions'][] = [
                     'label' => 'Projects',
-                    'url' => route('edge.index'),
+                    'url' => route('dashboard'),
                 ];
             }
         }
@@ -138,7 +138,7 @@ class ErrorContext
             ];
             $suggestions[] = [
                 'label' => 'Projects',
-                'url' => route('edge.index'),
+                'url' => route('dashboard'),
             ];
         } else {
             $suggestions[] = [

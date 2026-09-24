@@ -108,7 +108,7 @@
         <div class="shrink-0 border-b border-brand-ink/10 px-5 py-4 sm:px-6">
             <p class="text-xs font-semibold uppercase tracking-[0.16em] text-brand-sage">{{ __('Bindings') }}</p>
             <h2 class="mt-1 text-lg font-semibold text-brand-ink">{{ __('Queue bindings') }}</h2>
-            <p class="mt-1 text-sm text-brand-moss">{{ __('Create or attach a Cloudflare Queue, then use its binding name as the default below. Applies on the next deploy.') }}</p>
+            <p class="mt-1 text-sm text-brand-moss">{{ __('Create or attach a queue, then use its binding name as the default below. Applies on the next deploy.') }}</p>
         </div>
 
         <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4 sm:px-6">

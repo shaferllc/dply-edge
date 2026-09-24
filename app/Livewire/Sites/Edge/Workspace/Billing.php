@@ -24,8 +24,8 @@ class Billing extends Component
     public function render(): View
     {
         return view('livewire.sites.edge.workspace.billing', array_merge(
-            EdgeSiteViewData::context($this->site, 'edge-billing'),
-            SiteSettingsViewData::edgeSectionAnalytics($this->site, 'edge-billing'),
+            EdgeSiteViewData::context($this->site, 'billing'),
+            SiteSettingsViewData::edgeSectionAnalytics($this->site, 'billing'),
             [
                 'server' => $this->server,
                 'site' => $this->site,

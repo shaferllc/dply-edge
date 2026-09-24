@@ -67,7 +67,8 @@ test('edge deployment detail page renders overview and aliases tabs', function (
         ->assertSee('Full SHA', false)
         ->assertSee($deployment->git_commit, false)
         ->assertSee('Storage prefix', false)
-        ->assertSee($deployment->id, false);
+        ->assertSee($deployment->id, false)
+        ->assertSee(route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'deploys']), false);
 
     $this->actingAs($user)
         ->get(route('sites.edge.deployments.show', [
@@ -118,7 +119,7 @@ test('deploys table links deployment id to edge deployment detail', function () 
     [$user, $server, $site, $deployment] = makeEdgeDeploymentDetailFixtures();
 
     $this->actingAs($user)
-        ->get(route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'edge-deploys']))
+        ->get(route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'deploys']))
         ->assertOk()
         ->assertSee(route('sites.edge.deployments.show', [
             'server' => $server,

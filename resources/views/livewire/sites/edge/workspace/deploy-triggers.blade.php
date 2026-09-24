@@ -11,11 +11,11 @@
             'setupLinks' => [
                 [
                     'label' => __('Build settings'),
-                    'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'edge-build']),
+                    'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'build']),
                 ],
                 [
                     'label' => __('Previews'),
-                    'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'edge-previews']),
+                    'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'previews']),
                 ],
             ],
             'tips' => [

@@ -40,8 +40,8 @@ test('the container tab only appears for container sites', function () {
 
     $ids = fn (Site $site, Server $server) => collect(SiteSettingsSidebar::items($site, $server))->pluck('id')->all();
 
-    expect($ids($container, $server))->toContain('edge-container')
-        ->and($ids($static, $staticServer))->not->toContain('edge-container');
+    expect($ids($container, $server))->toContain('container')
+        ->and($ids($static, $staticServer))->not->toContain('container');
 });
 
 test('saved settings reach the generated wrangler config and worker', function () {
@@ -62,7 +62,7 @@ test('saved settings reach the generated wrangler config and worker', function (
     $worker = File::get($dir.'/src/index.js');
     File::deleteDirectory($dir);
 
-    expect($config['containers'][0])->toMatchArray(['instance_type' => 'standard-2', 'max_instances' => 8, 'constraints' => ['jurisdiction' => 'eu']])
+    expect($config['containers'][0])->toMatchArray(['instance_type' => 'standard-2', 'max_instances' => 9, 'constraints' => ['jurisdiction' => 'eu']])
         ->and($worker)->toContain('sleepAfter = "30m"')
         ->and($worker)->toContain('getRandom(env.APP, 8)');
 });

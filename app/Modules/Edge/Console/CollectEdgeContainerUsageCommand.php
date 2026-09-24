@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Console;
 
+use App\Modules\Billing\Services\StarterTrafficGate;
 use App\Modules\Edge\Services\Containers\EdgeContainerUsageCollector;
 use Illuminate\Console\Command;
 
@@ -23,7 +24,7 @@ class CollectEdgeContainerUsageCommand extends Command
 
     protected $description = 'Collect Cloudflare Containers compute usage for per-minute billing.';
 
-    public function handle(EdgeContainerUsageCollector $collector): int
+    public function handle(EdgeContainerUsageCollector $collector, StarterTrafficGate $traffic): int
     {
         $date = match (true) {
             (bool) $this->option('today') => now()->startOfDay(),
@@ -31,7 +32,11 @@ class CollectEdgeContainerUsageCommand extends Command
             default => now()->subDay()->startOfDay(),
         };
 
-        $result = $collector->collectForDate($date, (bool) $this->option('dry-run'));
+        $dryRun = (bool) $this->option('dry-run');
+        $result = $collector->collectForDate($date, $dryRun);
+        if (! $dryRun) {
+            $traffic->syncAll();
+        }
         $this->info(sprintf('%s container usage for %s — %d site(s) from %d application(s).',
             $this->option('dry-run') ? '[dry-run]' : 'Collected', $date->toDateString(), $result['sites'], $result['applications']));
 

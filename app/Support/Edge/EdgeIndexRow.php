@@ -6,6 +6,8 @@ namespace App\Support\Edge;
 
 use App\Models\Site;
 use App\Models\User;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Number;
 
 /**
  * View-model for the shared Edge index list UI — built from a local
@@ -33,9 +35,15 @@ final readonly class EdgeIndexRow
         public ?int $previewPrNumber,
         public bool $canDelete,
         public bool $canQuickLook,
+        public string $requestsLabel,
+        public string $bandwidthLabel,
+        public string $lastDeployLabel,
     ) {}
 
-    public static function fromSite(Site $site, bool $isPreviewChild = false, ?User $user = null): self
+    /**
+     * @param  array{requests?: int, bytes?: int, published_at?: mixed}  $stats
+     */
+    public static function fromSite(Site $site, bool $isPreviewChild = false, ?User $user = null, array $stats = []): self
     {
         $edgeMeta = $site->edgeMeta();
         $sourceSpec = is_array($edgeMeta['source'] ?? null) ? $edgeMeta['source'] : null;
@@ -79,6 +87,11 @@ final readonly class EdgeIndexRow
             previewPrNumber: is_numeric($previewPr) ? (int) $previewPr : null,
             canDelete: $user !== null && $user->can('delete', $site),
             canQuickLook: true,
+            requestsLabel: Number::abbreviate((int) ($stats['requests'] ?? 0), maxPrecision: 1),
+            bandwidthLabel: Number::fileSize((int) ($stats['bytes'] ?? 0), precision: 1),
+            lastDeployLabel: filled($stats['published_at'] ?? null)
+                ? Carbon::parse($stats['published_at'])->diffForHumans()
+                : '—',
         );
     }
 

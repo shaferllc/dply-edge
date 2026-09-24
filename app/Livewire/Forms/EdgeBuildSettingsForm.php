@@ -50,6 +50,8 @@ class EdgeBuildSettingsForm extends Form
 
     public bool $edge_comment_widget_enabled = false;
 
+    public bool $edge_deploy_footer_enabled = false;
+
     public string $edge_preview_protection_mode = EdgeSiteAccessRule::MODE_OFF;
 
     public string $edge_preview_protection_password = '';
@@ -93,6 +95,9 @@ class EdgeBuildSettingsForm extends Form
 
         $widget = is_array($edge['comment_widget'] ?? null) ? $edge['comment_widget'] : [];
         $this->edge_comment_widget_enabled = (bool) ($widget['enabled'] ?? false);
+
+        $footer = is_array($edge['deploy_footer'] ?? null) ? $edge['deploy_footer'] : [];
+        $this->edge_deploy_footer_enabled = (bool) ($footer['enabled'] ?? false);
 
         $accessRule = $site->edgeSiteAccessRule;
         $this->edge_preview_protection_mode = is_string($accessRule?->mode)

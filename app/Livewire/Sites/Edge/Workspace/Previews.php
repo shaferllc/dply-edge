@@ -80,7 +80,7 @@ class Previews extends Component
         }
 
         return view('livewire.sites.edge.workspace.previews', array_merge(
-            EdgeSiteViewData::context($this->site, 'edge-previews'),
+            EdgeSiteViewData::context($this->site, 'previews'),
             [
                 'server' => $this->server,
                 'site' => $this->site,

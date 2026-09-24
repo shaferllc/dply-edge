@@ -41,7 +41,7 @@
 
         <div class="mt-10 flex flex-col gap-3 border-t border-edge-line pt-6 sm:flex-row sm:items-center sm:justify-between">
             <p class="font-terminal text-xs text-edge-faint">&copy; {{ date('Y') }} dply</p>
-            <p class="font-terminal text-xs text-edge-faint">{{ __('Built on Cloudflare R2 + Workers') }}</p>
+            <p class="font-terminal text-xs text-edge-faint">{{ __('Built on Dply Edge') }}</p>
         </div>
     </div>
 </footer>

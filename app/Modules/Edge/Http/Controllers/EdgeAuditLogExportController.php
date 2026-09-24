@@ -6,7 +6,6 @@ namespace App\Modules\Edge\Http\Controllers;
 
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
-use App\Models\Server;
 use App\Models\Site;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,13 +20,9 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class EdgeAuditLogExportController extends Controller
 {
-    public function __invoke(Request $request, Server $server, Site $site): StreamedResponse|JsonResponse
+    public function __invoke(Request $request, Site $site): StreamedResponse|JsonResponse
     {
         Gate::authorize('view', $site);
-
-        if ((string) $site->server_id !== (string) $server->id) {
-            abort(404);
-        }
 
         if (! $site->usesEdgeRuntime()) {
             abort(404, 'Not an Edge site.');

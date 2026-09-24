@@ -134,7 +134,7 @@ class Firewall extends Component
         }
 
         return view('livewire.sites.edge.workspace.firewall', array_merge(
-            EdgeSiteViewData::context($this->site, 'edge-firewall'),
+            EdgeSiteViewData::context($this->site, 'firewall'),
             [
                 'server' => $this->server,
                 'site' => $this->site,

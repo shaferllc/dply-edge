@@ -27,7 +27,7 @@
                 @endif
             </div>
             <a
-                href="{{ route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'edge-routing', 'tab' => 'domains']) }}"
+                href="{{ route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'routing', 'tab' => 'domains']) }}"
                 wire:navigate
                 class="shrink-0 text-xs font-medium text-brand-sage hover:underline"
             >
@@ -69,9 +69,9 @@
                     </div>
 
                     <div class="sm:col-span-2">
-                        <p class="text-xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Cloudflare Access service token') }}</p>
+                        <p class="text-xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Origin access token') }}</p>
                         <p class="mt-1 text-xs text-brand-moss">
-                            {{ __('Optional. Set this when the origin sits behind Cloudflare Access — typically a Cloudflare Tunnel hostname, which has no public IP but is still reachable by anyone who learns it. The Worker sends the token on every origin request.') }}
+                            {{ __('Optional. Set this when the origin sits behind an access gateway — typically a tunnel hostname, which has no public IP but is still reachable by anyone who learns it. Dply Edge sends the token on every origin request.') }}
                         </p>
                         <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
                             <div>

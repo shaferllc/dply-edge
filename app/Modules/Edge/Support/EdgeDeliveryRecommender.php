@@ -52,7 +52,7 @@ final class EdgeDeliveryRecommender
         // repo (OpenNext etc.) and a paid plan, so it stays an explicit choice.
         if ($serverRendered) {
             return ['mode' => 'hybrid', 'reason' => in_array($framework, self::WORKER_SSR_FRAMEWORKS, true)
-                ? __(':framework renders on the server: static assets from the edge, server routes from your origin. Worker SSR also works if the repo has a Cloudflare adapter.', ['framework' => $label])
+                ? __(':framework renders on the server: static assets from the edge, server routes from your origin. Worker SSR also works if the repo has an edge adapter.', ['framework' => $label])
                 : __(':framework renders on the server: static assets from the edge, server routes from your origin.', ['framework' => $label])];
         }
 

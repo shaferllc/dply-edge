@@ -28,11 +28,11 @@
             'setupLinks' => [
                 [
                     'label' => __('Bot protection setup'),
-                    'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'edge-bot-protection']),
+                    'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'bot-protection']),
                 ],
                 [
                     'label' => __('Rate limits (optional)'),
-                    'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'edge-rate-limits']),
+                    'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'rate-limits']),
                 ],
             ],
             'tips' => [

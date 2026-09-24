@@ -46,10 +46,27 @@ test('laravel gets a stable app key and production defaults, without overriding 
     expect($first['APP_KEY'])->toStartWith('base64:')
         ->and($first['APP_DEBUG'])->toBe('true')
         ->and($first['APP_URL'])->toBe('https://shop.on-dply.live')
+        ->and($first['ASSET_URL'])->toBe('https://shop.on-dply.live')
         ->and($first['SESSION_DRIVER'])->toBe('cookie')
         ->and($second['APP_KEY'])->toBe($first['APP_KEY'])
         ->and(EdgeSiteEnvVar::query()->where('site_id', $site->id)->where('key', 'APP_KEY')->count())->toBe(1)
         ->and(EdgeContainerEnvDefaults::describe(['APP_DEBUG' => 'true'], $first))->toContain('APP_KEY (generated)')->not->toContain($first['APP_KEY']);
+
+    File::deleteDirectory($dir);
+});
+
+test('laravel defaults reuse the persisted key when the deploy env snapshot is stale', function () {
+    $site = site();
+    $dir = repo(['artisan' => '', 'composer.json' => '{}']);
+
+    $first = EdgeContainerEnvDefaults::ensure($site, $dir, []);
+    // BuildEdgeSiteJob snapshots production env before clone. A parallel or
+    // earlier deploy can persist APP_KEY while this job is still cloning —
+    // the in-memory snapshot then misses the key and a blind create() 23505s.
+    $second = EdgeContainerEnvDefaults::ensure($site, $dir, []);
+
+    expect($second['APP_KEY'])->toBe($first['APP_KEY'])
+        ->and(EdgeSiteEnvVar::query()->where('site_id', $site->id)->where('key', 'APP_KEY')->where('scope', EdgeSiteEnvVar::SCOPE_PRODUCTION)->count())->toBe(1);
 
     File::deleteDirectory($dir);
 });

@@ -18,7 +18,7 @@
             </h2>
             <p class="mt-2 text-sm leading-6 text-brand-moss">
                 @if (($capability ?? null) === 'cdn' && ($active_provider ?? '') === 'cloudflare')
-                    {{ __('Paste a Cloudflare API token with Workers and object-storage (R2) permissions. It’s saved encrypted for this organization — you stay on this page.') }}
+                    {{ __('Paste an API token with Workers and object-storage permissions. It’s saved encrypted for this organization — you stay on this page.') }}
                 @else
                     {{ __('Save an encrypted API token for this organization. We verify tokens when possible before storing them.') }}
                 @endif

@@ -48,7 +48,7 @@ class Domains extends Component
             : 'dply.yaml';
 
         return view('livewire.sites.edge.workspace.domains', array_merge(
-            EdgeSiteViewData::context($this->site, 'edge-domains'),
+            EdgeSiteViewData::context($this->site, 'domains'),
             [
                 'server' => $this->server,
                 'site' => $this->site,

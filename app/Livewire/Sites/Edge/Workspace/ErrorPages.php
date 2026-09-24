@@ -164,7 +164,7 @@ class ErrorPages extends Component
         }
 
         return view('livewire.sites.edge.workspace.error-pages', array_merge(
-            EdgeSiteViewData::context($this->site, 'edge-error-pages'),
+            EdgeSiteViewData::context($this->site, 'error-pages'),
             [
                 'server' => $this->server,
                 'site' => $this->site,

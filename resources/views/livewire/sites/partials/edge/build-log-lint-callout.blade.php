@@ -31,7 +31,7 @@
             </div>
             @if (isset($deployment) && $deployment !== null)
                 <a
-                    href="{{ route('sites.show', ['server' => $server ?? $site->server, 'site' => $site, 'section' => 'edge-build']) }}#edge-build-routing"
+                    href="{{ route('sites.show', ['server' => $server ?? $site->server, 'site' => $site, 'section' => 'build']) }}#edge-build-routing"
                     wire:navigate
                     class="text-xs font-semibold underline underline-offset-2"
                 >

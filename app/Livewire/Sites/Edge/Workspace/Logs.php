@@ -29,7 +29,7 @@ class Logs extends Component
     public function render(): View
     {
         return view('livewire.sites.edge.workspace.logs', array_merge(
-            EdgeSiteViewData::context($this->site, 'edge-logs'),
+            EdgeSiteViewData::context($this->site, 'logs'),
             [
                 'server' => $this->server,
                 'site' => $this->site,

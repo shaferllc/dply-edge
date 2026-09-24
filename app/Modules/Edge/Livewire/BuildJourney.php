@@ -37,6 +37,9 @@ class BuildJourney extends Component
     #[Locked]
     public string $deploymentId = '';
 
+    /** Create-flow log: one scrolling output plus Cancel / Go to app. */
+    public bool $logOnly = false;
+
     /** Raw log buffer, fed by tail(); split on render. */
     public string $buffer = '';
 
@@ -61,6 +64,65 @@ class BuildJourney extends Component
         // tail() loads once, authorizes, and seeds the log; render()
         // reuses the same request-memoized deployment row.
         $this->tail();
+    }
+
+    /**
+     * Stop the in-flight build from the create page without queueing another.
+     */
+    public function confirmCancelBuild(): void
+    {
+        $deployment = $this->deployment();
+
+        if ($deployment === null || $deployment->site === null) {
+            $this->polling = false;
+
+            return;
+        }
+
+        Gate::authorize('update', $deployment->site);
+
+        if (! in_array($deployment->status, [
+            EdgeDeployment::STATUS_BUILDING,
+            EdgeDeployment::STATUS_PUBLISHING,
+        ], true)) {
+            $this->polling = false;
+
+            return;
+        }
+
+        $this->openConfirmActionModal(
+            'cancelBuild',
+            [],
+            __('Cancel this build?'),
+            __('This deploy will be marked failed and will not be published.'),
+            __('Cancel build'),
+            true,
+        );
+    }
+
+    public function cancelBuild(): void
+    {
+        $this->forgetResolvedDeployment();
+        $deployment = $this->deployment();
+
+        if ($deployment === null || $deployment->site === null) {
+            $this->polling = false;
+
+            return;
+        }
+
+        Gate::authorize('update', $deployment->site);
+
+        try {
+            app(CancelStuckEdgeDeployment::class)->abandon($deployment->site, $deployment);
+        } catch (\Throwable $e) {
+            $this->toastError($e->getMessage());
+
+            return;
+        }
+
+        $this->polling = false;
+        $this->toastSuccess(__('Build cancelled.'));
     }
 
     /**
@@ -210,6 +272,13 @@ class BuildJourney extends Component
 
         $journey = SiteShowViewData::edgeDeploymentJourney($deployment);
         $sections = $this->splitBufferBySteps($this->buffer);
+        // Container deploys used to mark the image build as `[dply:step] deploy`,
+        // which no row renders — so npm, Vite, and composer output vanished
+        // while "Installing dependencies" looked stuck. Fold it into build.
+        if (isset($sections['deploy'])) {
+            $sections['build'] = trim(($sections['build'] ?? '')."\n".$sections['deploy']);
+            unset($sections['deploy']);
+        }
 
         // Fallback: if the runner is older code (no `[dply:step]` markers)
         // OR the build died before emitting one, attribute the whole

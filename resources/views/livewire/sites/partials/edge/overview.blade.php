@@ -45,7 +45,7 @@
         </dl>
         @if ($edgeUsesManagedBackend && ! $edgeFakeMode)
             <div class="border-t border-brand-ink/10 bg-brand-sand/15 px-6 py-3 text-xs text-brand-moss sm:px-8">
-                {{ __('Operator checklist: worker deployed (`dply:edge:worker-deploy`), routes match your testing domain, DNS proxied through Cloudflare, and `dply:edge:doctor --probe` passes.') }}
+                {{ __('Operator checklist: worker deployed (`dply:edge:worker-deploy`), routes match your testing domain, DNS proxied through Dply Edge, and `dply:edge:doctor --probe` passes.') }}
             </div>
         @endif
     </section>
@@ -86,7 +86,7 @@
         </dl>
         @if (! $edgeIsPreviewChild)
             <div class="border-t border-brand-ink/10 bg-brand-sand/15 px-6 py-3 sm:px-8">
-                <a href="{{ route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'edge-build']) }}" wire:navigate class="text-xs font-medium text-brand-forest hover:underline dark:text-brand-sage">
+                <a href="{{ route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'build']) }}" wire:navigate class="text-xs font-medium text-brand-forest hover:underline dark:text-brand-sage">
                     {{ __('View build settings & webhook →') }}
                 </a>
             </div>
@@ -103,7 +103,7 @@
                 <h3 class="mt-0.5 text-base font-semibold text-brand-ink">{{ __('Custom domains') }}</h3>
                 <p class="mt-1 max-w-2xl text-sm leading-relaxed text-brand-moss">{{ __('Hostnames routed to this Edge site.') }}</p>
             </div>
-            <a href="{{ route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'edge-routing', 'tab' => 'domains']) }}" wire:navigate class="shrink-0 text-xs font-medium text-brand-sage hover:underline">
+            <a href="{{ route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'routing', 'tab' => 'domains']) }}" wire:navigate class="shrink-0 text-xs font-medium text-brand-sage hover:underline">
                 {{ __('Manage') }}
             </a>
         </div>

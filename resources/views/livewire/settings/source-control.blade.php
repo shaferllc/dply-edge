@@ -230,7 +230,7 @@
                                         @endif
                                         @if ($count > 0)
                                             <span class="text-brand-mist">·</span>
-                                            <a href="{{ route('edge.index') }}" wire:navigate class="font-semibold text-brand-sage hover:text-brand-ink">{{ trans_choice(':n site|:n sites', $count, ['n' => $count]) }}</a>
+                                            <a href="{{ route('dashboard') }}" wire:navigate class="font-semibold text-brand-sage hover:text-brand-ink">{{ trans_choice(':n site|:n sites', $count, ['n' => $count]) }}</a>
                                         @endif
                                     </p>
                                 </div>

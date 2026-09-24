@@ -35,7 +35,7 @@ When dply detects an SSR framework during create, **Hybrid** is suggested automa
 
 ## Pricing (summary)
 
-- **Flat per-site fee** while the Edge app is live (see create sidebar and Billing & usage).
+- **Included in the plan.** Free includes unlimited sites and $5 of usage. On Pro and Team, sites past the included count are $2/mo and Worker SSR sites are $7/mo. Usage past a paid plan is metered.
 - **Branch/PR previews** don't take a site slot; their builds, traffic and compute count as usage.
 - Optional **usage pass-through** (CDN requests and bandwidth) may apply when enabled for your organization.
 

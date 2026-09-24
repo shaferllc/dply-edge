@@ -54,7 +54,20 @@
                 </div>
                 <div>
                     <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Bandwidth MTD') }}</dt>
-                    <dd class="mt-1 text-xl font-semibold tabular-nums text-brand-ink">{{ number_format(($traffic['bytes_egress'] ?? 0) / (1024 ** 3), 2) }} <span class="text-sm font-medium text-brand-moss">GB</span></dd>
+                    @php
+                        $bytesMtd = (int) ($traffic['bytes_egress'] ?? 0);
+                        if ($bytesMtd >= 1024 ** 3) {
+                            $bandwidthValue = number_format($bytesMtd / (1024 ** 3), 2);
+                            $bandwidthUnit = 'GB';
+                        } elseif ($bytesMtd >= 1024 ** 2) {
+                            $bandwidthValue = number_format($bytesMtd / (1024 ** 2), 1);
+                            $bandwidthUnit = 'MB';
+                        } else {
+                            $bandwidthValue = number_format($bytesMtd / 1024, 0);
+                            $bandwidthUnit = 'KB';
+                        }
+                    @endphp
+                    <dd class="mt-1 text-xl font-semibold tabular-nums text-brand-ink">{{ $bandwidthValue }} <span class="text-sm font-medium text-brand-moss">{{ $bandwidthUnit }}</span></dd>
                 </div>
                 <div>
                     <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Peak day 30d') }}</dt>
@@ -156,7 +169,7 @@
             <div class="flex flex-wrap items-baseline justify-between gap-2">
                 <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Edge cache') }}</p>
                 <a
-                    href="{{ route('sites.show', ['server' => $server ?? $site->server, 'site' => $site, 'section' => 'edge-delivery']) }}"
+                    href="{{ route('sites.show', ['server' => $server ?? $site->server, 'site' => $site, 'section' => 'delivery']) }}"
                     wire:navigate
                     class="text-xs font-medium text-brand-sage hover:underline"
                 >
@@ -220,7 +233,7 @@
                         </div>
                     </dl>
                 @else
-                    <p class="mt-1 text-sm text-brand-moss">{{ __('Appears after visitors hit the live site with log ingest enabled.') }}</p>
+                    <p class="mt-1 text-sm text-brand-moss">{{ __('No response times in the last 7 days.') }}</p>
                 @endif
             </div>
             <div>
@@ -245,7 +258,7 @@
                         </div>
                     </dl>
                 @else
-                    <p class="mt-1 text-sm text-brand-moss">{{ __('Collected from HTML pages after visitors open the live site.') }}</p>
+                    <p class="mt-1 text-sm text-brand-moss">{{ __('No browser samples in the last 7 days.') }}</p>
                 @endif
             </div>
         </div>

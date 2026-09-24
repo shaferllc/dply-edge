@@ -161,139 +161,139 @@ final class SiteSettingsHeader
                 'description' => __('Live URL, source repository, deploy status, and quick actions for this Edge site.'),
                 'icon' => 'heroicon-o-home',
             ],
-            'edge-deploys' => [
+            'deploys' => [
                 'title' => __('Deploys'),
                 'description' => __('Build and publish history — redeploy production or roll back to a previous release.'),
                 'icon' => 'heroicon-o-code-bracket-square',
             ],
-            'edge-domains' => [
+            'domains' => [
                 'title' => __('Routing'),
                 'description' => __('Domains, redirects, rewrites, and headers.'),
                 'icon' => 'heroicon-o-arrows-right-left',
             ],
-            'edge-build' => [
+            'build' => [
                 'title' => __('Build'),
                 'description' => __('Command and output directory for each deploy.'),
                 'icon' => 'heroicon-o-wrench-screwdriver',
             ],
-            'edge-routing' => [
+            'routing' => [
                 'title' => __('Routing'),
                 'description' => __('Domains, redirects, rewrites, and headers.'),
                 'icon' => 'heroicon-o-arrows-right-left',
             ],
-            'edge-environment' => [
+            'environment' => [
                 'title' => __('Environment'),
                 'description' => __('Set production env vars for builds and runtime.'),
                 'icon' => 'heroicon-o-command-line',
             ],
-            'edge-deploy-triggers' => [
+            'deploy-triggers' => [
                 'title' => __('Deploy triggers'),
                 'description' => __('GitHub auto-deploy and CMS deploy hooks.'),
                 'icon' => 'heroicon-o-bolt',
             ],
-            'edge-bindings' => [
+            'bindings' => [
                 'title' => __('Bindings'),
                 'description' => __('Attach KV, R2, D1, and queues for your worker.'),
                 'icon' => 'heroicon-o-puzzle-piece',
             ],
-            'edge-members' => [
+            'members' => [
                 'title' => __('Members'),
                 'description' => __('Grant site access without changing org roles.'),
                 'icon' => 'heroicon-o-user-group',
             ],
-            'edge-delivery' => [
+            'delivery' => [
                 'title' => __('Delivery'),
                 'description' => __('Hybrid origin, image optimization, and cache tools.'),
                 'icon' => 'heroicon-o-cloud',
             ],
-            'edge-crons' => [
+            'crons' => [
                 'title' => __('Crons'),
                 'description' => __('Scheduled worker invocations.'),
                 'icon' => 'heroicon-o-clock',
             ],
-            'edge-firewall' => [
+            'firewall' => [
                 'title' => __('Firewall'),
                 'description' => __('Allow or block by country at the Edge. Blocked visitors get HTTP 403 before your site runs.'),
                 'icon' => 'heroicon-o-shield-check',
             ],
-            'edge-bot-protection' => [
+            'bot-protection' => [
                 'title' => __('Bot protection'),
-                'description' => __('Cloudflare Turnstile on forms or every HTML page. Create a widget in Turnstile, paste site + secret keys, then Save.'),
+                'description' => __('Turnstile on forms or every HTML page. Create a widget in Turnstile, paste site + secret keys, then Save.'),
                 'icon' => 'heroicon-o-finger-print',
             ],
-            'edge-rate-limits' => [
+            'rate-limits' => [
                 'title' => __('Rate limits'),
                 'description' => __('Cap requests per IP on a path. Excess traffic gets HTTP 429 or a bot challenge — not a waiting-room queue.'),
                 'icon' => 'heroicon-o-no-symbol',
             ],
-            'edge-waiting-room' => [
+            'waiting-room' => [
                 'title' => __('Waiting room'),
                 'description' => __('Hold excess visitors on a “You’re in line” page on your Edge URL until capacity opens.'),
                 'icon' => 'heroicon-o-queue-list',
             ],
-            'edge-forms' => [
+            'forms' => [
                 'title' => __('Forms'),
                 'description' => __('POST to an Edge path; Dply emails the fields — no backend app required.'),
                 'icon' => 'heroicon-o-inbox',
             ],
-            'edge-jobs' => [
+            'jobs' => [
                 'title' => __('Jobs'),
                 'description' => __('Point middleware/SSR at a queue binding so workers can enqueue background work.'),
                 'icon' => 'heroicon-o-rectangle-stack',
             ],
-            'edge-snippets' => [
+            'snippets' => [
                 'title' => __('Snippets'),
                 'description' => __('Inject HTML into matching pages without rebuilding — banners, meta, small widgets.'),
                 'icon' => 'heroicon-o-code-bracket',
             ],
-            'edge-container' => [
+            'container' => [
                 'title' => __('Container'),
                 'description' => __('Instance size, scaling and sleep for your PHP, Rails or Node app.'),
                 'icon' => 'heroicon-o-cube',
             ],
-            'edge-load-balancing' => [
-                'title' => __('Load balancing'),
-                'description' => __('Spread origin traffic across servers with health checks and automatic failover.'),
-                'icon' => 'heroicon-o-server-stack',
-            ],
-            'edge-tags' => [
+            'tags' => [
                 'title' => __('Tags'),
                 'description' => __('Load analytics and pixel scripts from the Edge; optional consent gate via your CMP.'),
                 'icon' => 'heroicon-o-tag',
             ],
-            'edge-error-pages' => [
+            'error-pages' => [
                 'title' => __('Error pages'),
                 'description' => __('Brand 404/500 HTML and flip maintenance (503) without a redeploy.'),
                 'icon' => 'heroicon-o-exclamation-circle',
             ],
-            'edge-alerts' => [
+            'alerts' => [
                 'title' => __('Alerts'),
                 'description' => __('Route Edge events to notification channels, and set RUM / error thresholds.'),
                 'icon' => 'heroicon-o-bell-alert',
             ],
-            'edge-audit' => [
+            'audit' => [
                 'title' => __('Audit log'),
                 'description' => __('Who changed what on this Edge site.'),
                 'icon' => 'heroicon-o-clipboard-document-list',
             ],
-            'edge-previews' => [
+            'previews' => [
                 'title' => __('Previews'),
                 'description' => __('PR and ad-hoc preview deploys.'),
                 'icon' => 'heroicon-o-sparkles',
             ],
-            'edge-billing' => [
+            'billing' => [
                 'title' => __('Billing & usage'),
-                'description' => __('Platform fee, usage, and monthly quota for this Edge site.'),
+                'description' => __('Usage and any extra-site or SSR fee for this Edge site.'),
                 'icon' => 'heroicon-o-chart-bar',
             ],
-            'edge-traffic' => [
+            'cache' => [
+                'title' => __('Cache'),
+                'description' => __('Stored public responses, and a way to drop a path or a tag.'),
+                'icon' => 'heroicon-o-circle-stack',
+            ],
+            'traffic' => [
                 'title' => __('Traffic & analytics'),
                 'description' => __('CDN requests, bandwidth, performance, and a live request tail.'),
                 'icon' => 'heroicon-o-signal',
             ],
-            'edge-logs' => [
+            'logs' => [
                 'title' => __('Build & deploy logs'),
-                'description' => __('Recent deploys and build output for this Edge site.'),
+                'description' => __('Commit, branch, build time, container health, and build output for recent deploys.'),
                 'icon' => 'heroicon-o-clipboard-document-list',
             ],
             'danger' => [

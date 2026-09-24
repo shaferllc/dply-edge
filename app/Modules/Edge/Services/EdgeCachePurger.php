@@ -92,6 +92,54 @@ class EdgeCachePurger
     }
 
     /**
+     * Cached paths for this site, capped so the page does not scan the namespace.
+     *
+     * @return array{ok: bool, entries: list<array{path: string, expires_at: int|null}>, message: string}
+     */
+    public function listEntries(Site $site, int $limit = 100): array
+    {
+        $context = $this->contextResolver->forSite($site);
+        if ($context->cacheKvNamespaceId === '') {
+            return ['ok' => false, 'entries' => [], 'message' => 'Edge cache namespace not configured for this site.'];
+        }
+
+        $limit = max(1, min(100, $limit));
+        $prefix = 'edge_cache:'.((string) $site->id).':';
+        $response = $this->http
+            ->withToken($context->apiToken)
+            ->timeout(10)
+            ->get($this->kvKeysUrl($context->accountId, $context->cacheKvNamespaceId), [
+                'prefix' => $prefix,
+                'limit' => $limit,
+            ]);
+
+        if (! $response->successful()) {
+            Log::warning('EdgeCachePurger: list failed', ['site' => $site->id, 'status' => $response->status()]);
+
+            return ['ok' => false, 'entries' => [], 'message' => "Cloudflare KV list failed (HTTP {$response->status()})."];
+        }
+
+        $rows = $response->json('result');
+        $entries = [];
+        foreach (is_array($rows) ? $rows : [] as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $name = (string) ($row['name'] ?? '');
+            if (! str_starts_with($name, $prefix)) {
+                continue;
+            }
+            $expiration = $row['expiration'] ?? null;
+            $entries[] = [
+                'path' => substr($name, strlen($prefix)) ?: '/',
+                'expires_at' => is_numeric($expiration) ? (int) $expiration : null,
+            ];
+        }
+
+        return ['ok' => true, 'entries' => $entries, 'message' => ''];
+    }
+
+    /**
      * Purge cache entries for a specific path (ISR on-demand
      * revalidation, P53). Deletes the direct `edge_cache:{site}:{path}`
      * KV key — the next request for that path re-fetches from origin
@@ -142,6 +190,14 @@ class EdgeCachePurger
             'purged_keys' => $purged,
             'message' => sprintf('Purged %d of %d path(s).', count($purged), count($paths)),
         ];
+    }
+
+    private function kvKeysUrl(string $accountId, string $namespaceId): string
+    {
+        return self::BASE
+            .'/accounts/'.$accountId
+            .'/storage/kv/namespaces/'.$namespaceId
+            .'/keys';
     }
 
     private function kvValueUrl(string $accountId, string $namespaceId, string $key): string

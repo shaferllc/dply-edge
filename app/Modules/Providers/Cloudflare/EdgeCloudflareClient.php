@@ -194,7 +194,8 @@ class EdgeCloudflareClient
     public function dispatchNamespaceIdByName(string $name): ?string
     {
         foreach ($this->listDispatchNamespaces() as $namespace) {
-            if (($namespace['name'] ?? null) === $name) {
+            // The list endpoint returns namespace_name / namespace_id.
+            if (($namespace['namespace_name'] ?? $namespace['name'] ?? null) === $name) {
                 $id = $namespace['namespace_id'] ?? $namespace['id'] ?? null;
                 if (is_string($id) && $id !== '') {
                     return $id;
@@ -733,7 +734,11 @@ class EdgeCloudflareClient
             ->post(self::BASE.'/accounts/'.$this->accountId.'/analytics_engine/sql');
 
         $json = $response->json();
-        if (! is_array($json) || ($json['success'] ?? false) !== true) {
+        if (! is_array($json)) {
+            throw new RuntimeException('Analytics Engine SQL failed.');
+        }
+
+        if (array_key_exists('success', $json) && $json['success'] !== true) {
             $message = is_array($json['errors'][0] ?? null)
                 ? (string) ($json['errors'][0]['message'] ?? 'Analytics Engine SQL failed.')
                 : 'Analytics Engine SQL failed.';
@@ -741,12 +746,12 @@ class EdgeCloudflareClient
             throw new RuntimeException($message);
         }
 
-        $rows = $json['result']['data'] ?? $json['result'] ?? [];
+        $rows = $json['result']['data'] ?? $json['data'] ?? (is_array($json['result'] ?? null) && array_is_list($json['result']) ? $json['result'] : []);
         if (! is_array($rows)) {
             return [];
         }
 
-        $meta = $json['result']['meta'] ?? [];
+        $meta = $json['result']['meta'] ?? $json['meta'] ?? [];
         if (is_array($meta) && $meta !== [] && isset($rows[0]) && is_array($rows[0]) && ! array_is_list($rows[0])) {
             return array_values(array_filter($rows, is_array(...)));
         }
@@ -1159,6 +1164,44 @@ class EdgeCloudflareClient
             static fn (array $app): array => ['id' => (string) ($app['id'] ?? ''), 'name' => (string) ($app['name'] ?? '')],
             array_filter($rows, 'is_array'),
         ));
+    }
+
+    /**
+     * Full state for one container application.
+     *
+     * The list endpoint returns only id/name, so rollout progress — `health`
+     * (active/healthy/failed/starting counts), `version`, `configuration` — is
+     * only visible here. Without it a deploy looks "done" the moment wrangler
+     * returns, which says nothing about whether the container came up.
+     *
+     * @return array<string, mixed>
+     */
+    public function containerApplication(string $applicationId): array
+    {
+        return $this->decode(
+            Http::withToken($this->apiToken)
+                ->get(self::BASE.'/accounts/'.$this->accountId.'/containers/applications/'.$applicationId),
+        );
+    }
+
+    /**
+     * Rollouts for one application, newest first.
+     *
+     * `status` is `completed` once the new image is fully in place.
+     * `progress.version_distribution.target_version_percentage` is 0 while
+     * the dashboard still says "Rollout in progress". Instance health can
+     * read idle at that point.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function containerRollouts(string $applicationId): array
+    {
+        $rows = $this->decode(
+            Http::withToken($this->apiToken)
+                ->get(self::BASE.'/accounts/'.$this->accountId.'/containers/applications/'.$applicationId.'/rollouts'),
+        );
+
+        return array_values(array_filter($rows, 'is_array'));
     }
 
     public function deleteContainerApplication(string $applicationId): void

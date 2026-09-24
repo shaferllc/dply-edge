@@ -110,7 +110,7 @@ class Alerts extends Component
         }
 
         return view('livewire.sites.edge.workspace.alerts', array_merge(
-            EdgeSiteViewData::context($this->site, 'edge-alerts'),
+            EdgeSiteViewData::context($this->site, 'alerts'),
             [
                 'server' => $this->server,
                 'site' => $this->site,

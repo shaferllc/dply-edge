@@ -2,7 +2,7 @@
     <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
         @include('livewire.sites.edge.workspace.partials.feature-guide', [
             'docSlug' => 'edge-crons',
-            'what' => __('Schedule your Edge Worker on a UTC cron expression. Dashboard rows merge with dply.yaml on the next deploy — Cloudflare then calls scheduled() in your middleware (or SSR) Worker.'),
+            'what' => __('Schedule your Edge Worker on a UTC cron expression. Dashboard rows merge with dply.yaml on the next deploy — Dply Edge then calls scheduled() in your middleware (or SSR) Worker.'),
             'steps' => [
                 __('Add middleware (src/middleware.ts) that exports scheduled — see Use in code below.'),
                 __('Add a schedule (5-field cron, UTC) here or in dply.yaml.'),
@@ -184,7 +184,7 @@ crons:
             <p class="text-xs font-semibold uppercase tracking-[0.16em] text-brand-sage">{{ __('Use in code') }}</p>
             <h2 class="mt-1 text-lg font-semibold text-brand-ink">{{ __('Middleware cron handler') }}</h2>
             <p class="mt-1 text-sm text-brand-moss">
-                {{ __('1) Commit middleware. 2) Add schedules above (or in dply.yaml). 3) Redeploy. Cloudflare invokes scheduled() on each match.') }}
+                {{ __('1) Commit middleware. 2) Add schedules above (or in dply.yaml). 3) Redeploy. Dply Edge invokes scheduled() on each match.') }}
             </p>
         </div>
         <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4 sm:px-6">

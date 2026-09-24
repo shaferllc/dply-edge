@@ -142,7 +142,7 @@
                                     @endif
                                     @if (\App\Modules\Edge\Support\FakeEdgeProvision::enabled())
                                         <p class="text-xs text-amber-800 dark:text-raw-amber-200">
-                                            {{ __('Local Fake Edge: the preview URL must resolve to this app (e.g. *.edge.test / *.dply.test via Valet). Public on-dply.live hostnames hit Cloudflare and will not see this build.') }}
+                                            {{ __('Local Fake Edge: the preview URL must resolve to this app (e.g. *.edge.test / *.dply.test via Valet). Public on-dply.live hostnames hit the public edge and will not see this build.') }}
                                         </p>
                                     @endif
                                 </div>
@@ -174,7 +174,7 @@
             <x-heroicon-o-sparkles class="mx-auto h-8 w-8 text-brand-mist" />
             <p class="mt-3 font-medium text-brand-ink">{{ __('No active previews') }}</p>
             <p class="mt-1">{{ __('Pick a commit above to spin up a one-off preview, or open a pull request against :branch to have the GitHub webhook create one.', ['branch' => $edgeBranch]) }}</p>
-            <a href="{{ route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'edge-deploy-triggers']) }}" wire:navigate class="mt-3 inline-block text-sm font-medium text-brand-forest hover:underline dark:text-brand-sage">
+            <a href="{{ route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'deploy-triggers']) }}" wire:navigate class="mt-3 inline-block text-sm font-medium text-brand-forest hover:underline dark:text-brand-sage">
                 {{ __('View webhook setup →') }}
             </a>
         </div>
@@ -231,7 +231,7 @@
                         : route('sites.show', [
                             'server' => $preview->server_id,
                             'site' => $preview,
-                            'section' => 'edge-logs',
+                            'section' => 'logs',
                         ]);
                 @endphp
                 <li class="flex flex-wrap items-center justify-between gap-4 px-6 py-4 sm:px-8">

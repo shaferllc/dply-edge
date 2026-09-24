@@ -22,7 +22,7 @@
                 'setupLinks' => [
                     [
                         'label' => __('Deploys'),
-                        'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'edge-deploys']),
+                        'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'deploys']),
                     ],
                 ],
                 'tips' => [
