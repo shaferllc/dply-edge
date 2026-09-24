@@ -8,13 +8,18 @@ use App\Enums\SiteType;
 use App\Livewire\Sites\Edge\Workspace\Container;
 use App\Livewire\Sites\Edge\Workspace\Resources;
 use App\Livewire\Sites\Edge\Workspace\Security;
+use App\Models\EdgeKvUsage;
 use App\Models\EdgeSiteEnvVar;
 use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
+use App\Modules\Billing\Models\Subscription;
+use App\Modules\Billing\Services\EdgeDeliveryCost;
+use App\Modules\Billing\Services\EdgeKvCost;
 use App\Modules\Billing\Services\EdgeRedisCost;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
+use App\Modules\Edge\Services\EdgeKvUsageCollector;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeContainerSettings;
 use App\Support\SiteSettingsSidebar;
@@ -249,10 +254,11 @@ test('state is one durable object the app calls by host', function () {
     $worker = File::get($dir.'/src/index.js');
     File::deleteDirectory($dir);
 
+    $host = EdgeContainerConnections::resourceHost($site, 'visits');
     expect(EdgeContainerConnections::for($site)[0])->toMatchArray([
         'kind' => 'durable_object',
         'name' => 'VISITS',
-        'host' => 'visits.internal',
+        'host' => $host,
         'target' => '',
     ])->and($config['durable_objects']['bindings'])->toContain([
         'name' => 'VISITS',
@@ -260,7 +266,7 @@ test('state is one durable object the app calls by host', function () {
     ])->and($config['migrations'])->toContain([
         'tag' => 'v2',
         'new_sqlite_classes' => ['EdgeState'],
-    ])->and($worker)->toContain('visits.internal')
+    ])->and($worker)->toContain($host)
         ->and($worker)->toContain('idFromName')
         ->and($worker)->toContain('incr/');
 });
@@ -289,8 +295,275 @@ test('redis stores an encrypted address and does not ride the worker', function 
     expect($env->value)->toBe($url)
         ->and($env->getRawOriginal('value_encrypted'))->not->toBe($url)
         ->and(json_encode($config))->not->toContain('s3cret')
-        ->and(EdgeContainerConnections::redisDriverEnv($site))->toBe([])
+        ->and(EdgeContainerConnections::redisDriverEnv($site))->toMatchArray([
+            'REDIS_URL' => $url,
+            'REDIS_USERNAME' => 'default',
+            'REDIS_PASSWORD' => 's3cret',
+            'REDIS_HOST' => 'cache.example',
+            'REDIS_PORT' => '6379',
+        ])
+        ->and(json_encode(EdgeContainerConnections::redisInjectionPreview($site)))->not->toContain('s3cret')
         ->and(json_encode($site->edgeMeta()))->not->toContain('s3cret');
+
+    $host = collect(EdgeContainerConnections::for($site))->firstWhere('kind', 'redis')['host'];
+    Livewire::actingAs($user)
+        ->test(Resources::class, ['server' => $server, 'site' => $site])
+        ->call('sleepConnection', $host, true);
+
+    $site->refresh();
+    $asleep = collect(EdgeContainerConnections::for($site))->firstWhere('kind', 'redis');
+
+    expect($asleep)->not->toBeNull()
+        ->and($asleep['asleep'])->toBeTrue()
+        ->and($site->edgeEnvVars()->where('key', 'REDIS_URL')->first()->value)->toBe($url)
+        ->and(EdgeContainerConnections::redisDriverEnv($site))->toBe([])
+        ->and(EdgeContainerConnections::omitAsleepRedis($site, ['REDIS_URL' => $url, 'APP_NAME' => 'book']))->toBe(['APP_NAME' => 'book']);
+});
+
+test('starting redis requires a card', function () {
+    config([
+        'edge.upstash.email' => 'ops@example.com',
+        'edge.upstash.api_key' => 'secret-key',
+    ]);
+    Http::fake();
+    [$user, $server, $site] = containerSite();
+
+    Livewire::actingAs($user)
+        ->test(Resources::class, ['server' => $server, 'site' => $site])
+        ->set('connectionKind', 'redis')
+        ->set('connectionMode', 'create')
+        ->set('connectionLabel', 'Cache')
+        ->call('saveConnection')
+        ->assertHasErrors('connection')
+        ->assertSee('Add a card before starting Redis');
+
+    Http::assertNothingSent();
+
+    $site->mergeEdgeMeta(['connections' => [[
+        'kind' => 'redis',
+        'name' => 'CACHE',
+        'host' => 'cache.internal',
+        'target' => '96ad0856-03b1-4ee7-9666-e81abd0349e1',
+    ]]]);
+    $site->save();
+    (new EdgeSiteEnvVar([
+        'site_id' => $site->id,
+        'key' => 'REDIS_URL',
+        'value' => 'rediss://default:s3cret@cache.upstash.io:6379',
+        'scope' => EdgeSiteEnvVar::SCOPE_PRODUCTION,
+        'created_by_user_id' => $user->id,
+    ]))->save();
+
+    expect(EdgeContainerConnections::redisDriverEnv($site->fresh()))->toBe([])
+        ->and(EdgeContainerConnections::omitAsleepRedis($site->fresh(), ['REDIS_URL' => 'rediss://x', 'APP_NAME' => 'book']))->toBe(['APP_NAME' => 'book']);
+});
+
+test('key value requires a card and bills reads writes and storage', function () {
+    config([
+        'edge.cloudflare.account_id' => 'acct',
+        'edge.cloudflare.api_token' => 'token',
+        'dply.edge.usage_billing.kv_reads_millicents_per_million' => 100_000,
+        'dply.edge.usage_billing.kv_writes_millicents_per_million' => 1_000_000,
+        'dply.edge.usage_billing.kv_storage_millicents_per_gb_month' => 100_000,
+    ]);
+    [$user, $server, $site] = containerSite();
+
+    Livewire::actingAs($user)
+        ->test(Resources::class, ['server' => $server, 'site' => $site])
+        ->set('connectionKind', 'key_value')
+        ->set('connectionMode', 'create')
+        ->set('connectionLabel', 'Flags')
+        ->call('saveConnection')
+        ->assertHasErrors('connection')
+        ->assertSee('Add a card before starting a key-value store');
+
+    Http::assertNothingSent();
+
+    $cost = app(EdgeKvCost::class);
+    expect($cost->cents(1_000_000, 0, 0, 0, 0))->toBe(100)
+        ->and($cost->cents(0, 1_000_000, 0, 0, 0))->toBe(1000)
+        ->and($cost->cents(0, 0, 0, 0, 2 * 1024 ** 3))->toBe(100)
+        ->and($cost->cents(0, 0, 0, 0, 1024 ** 3))->toBe(0);
+
+    $site->mergeEdgeMeta(['connections' => [[
+        'kind' => 'key_value',
+        'name' => 'FLAGS',
+        'host' => 'flags.internal',
+        'target' => 'ns-1',
+    ]]]);
+    $site->save();
+
+    Http::fake([
+        'api.cloudflare.com/client/v4/graphql' => Http::response([
+            'data' => ['viewer' => ['accounts' => [[
+                'kvOperationsAdaptiveGroups' => [[
+                    'dimensions' => ['namespaceId' => 'ns-1', 'actionType' => 'read'],
+                    'sum' => ['requests' => 1_000_000],
+                ]],
+                'kvStorageAdaptiveGroups' => [[
+                    'dimensions' => ['namespaceId' => 'ns-1'],
+                    'max' => ['byteCount' => 2 * 1024 ** 3],
+                ]],
+            ]]]],
+        ]),
+    ]);
+
+    expect(app(EdgeKvUsageCollector::class)->collectForDate(now())['sites'])->toBe(1)
+        ->and((int) EdgeKvUsage::query()->where('namespace_id', 'ns-1')->value('reads'))->toBe(1_000_000)
+        ->and($cost->forOrganization($site->organization, now()->startOfMonth(), now()->endOfMonth())['cents'])->toBe(200);
+});
+
+test('key value settings show how it works and rename the store', function () {
+    config([
+        'edge.cloudflare.account_id' => 'acct',
+        'edge.cloudflare.api_token' => 'token',
+        'dply.edge.usage_billing.kv_reads_millicents_per_million' => 100_000,
+        'dply.edge.usage_billing.kv_writes_millicents_per_million' => 1_000_000,
+        'dply.edge.usage_billing.kv_storage_millicents_per_gb_month' => 100_000,
+    ]);
+    Http::fake(function ($request) {
+        if ($request->method() === 'PUT') {
+            return Http::response(['success' => true, 'result' => []]);
+        }
+
+        return Http::response(['success' => true, 'result' => [['name' => 'session']]]);
+    });
+    [$user, $server, $site] = containerSite();
+    $site->mergeEdgeMeta(['connections' => [[
+        'kind' => 'key_value',
+        'name' => 'FLAGS',
+        'host' => 'flags.internal',
+        'target' => 'ns-1',
+    ]]]);
+    $site->save();
+    EdgeKvUsage::query()->create([
+        'organization_id' => $site->organization_id,
+        'site_id' => $site->id,
+        'namespace_id' => 'ns-1',
+        'date' => now()->toDateString(),
+        'reads' => 1_000_000,
+        'writes' => 0,
+        'deletes' => 0,
+        'lists' => 0,
+        'storage_bytes' => 0,
+    ]);
+
+    $host = EdgeContainerConnections::resourceHost($site, 'flags');
+
+    Livewire::actingAs($user)
+        ->test(Resources::class, ['server' => $server, 'site' => $site->fresh()])
+        ->call('openKv', $host)
+        ->assertSee('GET http://'.$host.'/ lists up to 100 keys.')
+        ->assertSee('Reads are $1 per million')
+        ->assertSee('Implementation')
+        ->assertSee('The next deploy adds dply/laravel')
+        ->assertSee('dply-rails')
+        ->assertSee("Cache::store('flags')")
+        ->assertSee('Rails.cache.write')
+        ->assertSee('session')
+        ->assertSee('1,000,000')
+        ->assertSee('Cost estimate · $1.00')
+        ->assertSee('$1.00')
+        ->set('kvName', 'Notes')
+        ->call('saveKvSettings')
+        ->assertHasNoErrors();
+
+    $fresh = $site->fresh();
+    expect(collect(EdgeContainerConnections::for($fresh))->firstWhere('kind', 'key_value')['host'])->toBe(EdgeContainerConnections::resourceHost($fresh, 'notes'))
+        ->and(EdgeContainerConnections::kvDriverEnv($fresh)['DPLY_KV_HOST'])->toBe(EdgeContainerConnections::resourceHost($fresh, 'notes'))
+        ->and(EdgeContainerConnections::kvDriverEnv($fresh)['DPLY_KV_STORE'])->toBe('notes');
+});
+
+test('an asleep key value store drops its env and is not billed', function () {
+    config([
+        'edge.cloudflare.account_id' => 'acct',
+        'edge.cloudflare.api_token' => 'token',
+        'dply.edge.usage_billing.kv_reads_millicents_per_million' => 100_000,
+    ]);
+    Http::fake(['*' => Http::response(['success' => true, 'result' => []])]);
+    [$user, $server, $site] = containerSite();
+    $site->mergeEdgeMeta(['connections' => [[
+        'kind' => 'key_value',
+        'name' => 'FLAGS',
+        'host' => 'flags.internal',
+        'target' => 'ns-sleep',
+        'asleep' => true,
+    ]]]);
+    $site->save();
+    EdgeKvUsage::query()->create([
+        'organization_id' => $site->organization_id,
+        'site_id' => $site->id,
+        'namespace_id' => 'ns-sleep',
+        'date' => now()->toDateString(),
+        'reads' => 1_000_000,
+        'writes' => 0,
+        'deletes' => 0,
+        'lists' => 0,
+        'storage_bytes' => 2 * 1024 ** 3,
+    ]);
+
+    $fresh = $site->fresh();
+    expect(EdgeContainerConnections::kvDriverEnv($fresh))->toBe([])
+        ->and(app(EdgeKvCost::class)->forOrganization($fresh->organization, now()->startOfMonth(), now()->endOfMonth())['cents'])->toBe(0);
+
+    Livewire::actingAs($user)
+        ->test(Resources::class, ['server' => $server, 'site' => $fresh])
+        ->call('openKv', EdgeContainerConnections::resourceHost($fresh, 'flags'))
+        ->call('runKvDemo', 'write')
+        ->assertSee('This store is asleep')
+        ->assertSee('Cost estimate · $0.00');
+
+    Http::assertNotSent(fn ($request): bool => $request->method() === 'PUT');
+});
+
+test('http delivery requires a card and bills messages', function () {
+    config([
+        'edge.upstash.email' => 'ops@example.com',
+        'edge.upstash.api_key' => 'secret-key',
+        'edge.upstash.qstash_token' => 'qstash-token',
+        'dply.edge.usage_billing.delivery_messages_millicents_per_100k' => 200_000,
+        'dply.edge.usage_billing.delivery_bandwidth_millicents_per_gb' => 10_000,
+    ]);
+    Http::fake(function ($request) {
+        if (str_contains($request->url(), '/qstash/users')) {
+            return Http::response([['id' => 'qstash-user', 'type' => 'free', 'reserved_type' => '']]);
+        }
+
+        return Http::response('OK');
+    });
+    [$user, $server, $site] = containerSite();
+
+    Livewire::actingAs($user)
+        ->test(Resources::class, ['server' => $server, 'site' => $site])
+        ->set('connectionKind', 'http_delivery')
+        ->set('connectionMode', 'create')
+        ->set('connectionLabel', 'Hooks')
+        ->call('saveConnection')
+        ->assertHasErrors('connection')
+        ->assertSee('Add a card before starting HTTP delivery');
+
+    Http::assertNothingSent();
+
+    config(['subscription.standard.stripe.tier_pro' => 'price_tier_pro']);
+    Subscription::factory()->withPrice('price_tier_pro')->active()->create(['organization_id' => $site->organization_id]);
+
+    Livewire::actingAs($user)
+        ->test(Resources::class, ['server' => $server, 'site' => $site->fresh()])
+        ->set('connectionKind', 'http_delivery')
+        ->set('connectionMode', 'create')
+        ->set('connectionLabel', 'Hooks')
+        ->call('saveConnection')
+        ->assertHasNoErrors();
+
+    expect(EdgeContainerConnections::for($site->fresh())[0]['kind'])->toBe('http_delivery')
+        ->and(app(EdgeDeliveryCost::class)->cents(100_000, 0))->toBe(200)
+        ->and(app(EdgeDeliveryCost::class)->cents(0, 2 * 1024 ** 3))->toBe(10);
+
+    $this->post(route('hooks.edge.delivery', $site), ['messages' => 1, 'bytes' => 40], [
+        'x-dply-queue-token' => EdgeContainerDeployer::queueToken($site),
+    ])->assertNoContent();
+
+    expect(app(EdgeDeliveryCost::class)->forOrganization($site->organization, now()->startOfMonth(), now()->endOfMonth())['cents'])->toBe(1);
 });
 
 test('starting redis provisions an address and bills commands', function () {
@@ -308,6 +581,8 @@ test('starting redis provisions an address and bills commands', function () {
         ]),
     ]);
     [$user, $server, $site] = containerSite();
+    config(['subscription.standard.stripe.tier_pro' => 'price_tier_pro']);
+    Subscription::factory()->withPrice('price_tier_pro')->active()->create(['organization_id' => $site->organization_id]);
 
     Livewire::actingAs($user)
         ->test(Resources::class, ['server' => $server, 'site' => $site])
@@ -327,11 +602,17 @@ test('starting redis provisions an address and bills commands', function () {
         ->and($site->edgeEnvVars()->where('key', 'REDIS_USERNAME')->first()->value)->toBe('default')
         ->and($site->edgeEnvVars()->where('key', 'REDIS_PASSWORD')->first()->value)->toBe('s3cret')
         ->and(json_encode($site->edgeMeta()))->not->toContain('s3cret')
-        ->and(app(EdgeRedisCost::class)->cents(100_000, 1024 ** 3, 0))->toBe(20);
+        ->and(app(EdgeRedisCost::class)->cents(100_000, 1024 ** 3, 0))->toBe(20)
+        ->and(app(EdgeRedisCost::class)->cents(0, 2 * 1024 ** 3, 0))->toBe(50)
+        ->and(app(EdgeRedisCost::class)->cents(0, 0, 201 * 1024 ** 3))->toBe(5)
+        ->and(app(EdgeRedisCost::class)->planCents('fixed_250mb'))->toBe(2000)
+        ->and(app(EdgeRedisCost::class)->planCents('fixed_250mb', 1))->toBe(3000)
+        ->and($connection['plan'])->toBe('payg');
 
     Http::assertSent(function ($request) use ($site): bool {
         return $request->url() === 'https://api.upstash.com/v2/redis/database'
             && $request['primary_region'] === 'eu-west-1'
+            && $request['plan'] === 'payg'
             && $request['database_name'] === $site->slug.'-cache';
     });
 });
@@ -365,6 +646,8 @@ test('redis settings show the username and save eviction', function () {
             'connection_count' => [['x' => '2026-09-24', 'y' => 1]],
         ]),
         'https://api.upstash.com/v2/redis/enable-eviction/'.$id => Http::response('OK'),
+        'https://api.upstash.com/v2/redis/list-backup/'.$id => Http::response([]),
+        'https://cache.upstash.io' => Http::response(['result' => 'PONG']),
     ]);
     [$user, $server, $site] = containerSite();
     $site->mergeEdgeMeta(['connections' => [[
@@ -384,11 +667,16 @@ test('redis settings show the username and save eviction', function () {
 
     Livewire::actingAs($user)
         ->test(Resources::class, ['server' => $server, 'site' => $site])
-        ->call('openRedis', 'cache.internal')
+        ->call('openRedis', EdgeContainerConnections::resourceHost($site, 'cache'))
         ->assertSet('redisUser', 'default')
         ->assertSet('redisPassword', 's3cret')
         ->assertSee('Commands today')
         ->assertSee('7')
+        ->assertSee('This month')
+        ->assertSee('$'.number_format(app(EdgeRedisCost::class)->cents(9, 1024, 0) / 100, 2))
+        ->call('runRedisTest')
+        ->assertSet('redisTestResult', 'PONG')
+        ->assertDontSee('s3cret')
         ->set('redisEviction', true)
         ->call('saveRedisSettings')
         ->assertHasNoErrors();

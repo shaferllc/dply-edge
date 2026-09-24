@@ -15,6 +15,7 @@ use App\Modules\Edge\Services\EdgeAccessGate;
 use App\Modules\Edge\Services\EdgeCachePurger;
 use App\Modules\Edge\Services\EdgeGithubWebhookProvisioner;
 use App\Modules\Edge\Services\EdgeHostMapPublisher;
+use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeRepoRoot;
 use App\Modules\SourceControl\Services\GitIdentityResolver;
 use App\Rules\PubliclyRoutableUrl;
@@ -791,6 +792,7 @@ trait ManagesEdgeBuildSettings
         return $this->site->edgeEnvVars()
             ->where('scope', EdgeSiteEnvVar::SCOPE_PRODUCTION)
             ->get(['key', 'updated_at'])
+            ->reject(fn (EdgeSiteEnvVar $v): bool => in_array($v->key, EdgeContainerConnections::MANAGED_REDIS_KEYS, true))
             ->map(fn (EdgeSiteEnvVar $v): array => [
                 'key' => (string) $v->key,
                 'updated_at' => $v->updated_at?->diffForHumans(),

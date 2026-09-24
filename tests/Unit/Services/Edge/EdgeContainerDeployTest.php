@@ -170,6 +170,23 @@ test('php assets follow composer and package.json instead of a hardcoded npm bui
         ->and($dockerfile)->not->toContain('@php artisan migrate');
 });
 
+test('a php app compiles the workspace vite package into public', function () {
+    $dir = checkout([
+        'composer.json' => '{"require":{"php":"^8.3"}}',
+        'artisan' => '',
+        'package.json' => '{"workspaces":["resources/assets/v3"]}',
+        'package-lock.json' => '{}',
+        'resources/assets/v3/package.json' => '{"scripts":{"build":"vite build"}}',
+    ]);
+
+    $dockerfile = File::get(EdgeContainerDockerfile::prepare($dir)['path']);
+
+    expect($dockerfile)->toContain('FROM node:22-bookworm-slim AS assets')
+        ->and($dockerfile)->toContain('COPY . .')
+        ->and($dockerfile)->toContain('npm ci && npm run build --prefix resources/assets/v3')
+        ->and($dockerfile)->toContain('COPY --from=assets /app/public /app/public');
+});
+
 test('a pnpm php app compiles assets with pnpm', function () {
     $dir = checkout([
         'composer.json' => '{"require":{"php":"^8.3"}}',
@@ -221,6 +238,8 @@ test('the generated worker project wires the container, queues and the token-gua
         ->and($config['queues']['producers'][0])->toBe(['binding' => 'JOBS', 'queue' => 'site-jobs'])
         ->and($config['queues']['consumers'][0]['queue'])->toBe('site-jobs')
         ->and($worker)->toContain("headers.set('x-forwarded-proto'")
+        ->and($worker)->toContain("url.protocol = 'http:'")
+        ->and($worker)->toContain("redirect: 'manual'")
         ->and($worker)->toContain('defaultPort = 8080')
         ->and($worker)->toContain('const INSTANCES = 3')
         ->and($worker)->toContain('getRandom(env.APP, INSTANCES)')
@@ -234,7 +253,24 @@ test('the generated worker project wires the container, queues and the token-gua
         ->and($worker)->toContain('"/_dply/queue/send"')
         ->and($worker)->toContain("request.headers.get('x-dply-queue-token') !== env.DPLY_QUEUE_TOKEN")
         ->and($worker)->toContain('{"site-jobs":"JOBS"}')
+        ->and($worker)->not->toContain('puppeteer')
         ->and($worker)->not->toContain('__');
+});
+
+test('a browser resource imports puppeteer and a site without one does not', function () {
+    $site = new Site(['meta' => ['edge' => ['browser' => true]]]);
+    $site->id = '01BROWSER';
+    $dir = sys_get_temp_dir().'/dply-container-test-'.bin2hex(random_bytes(4));
+
+    (new EdgeContainerDeployer)->scaffold($dir, $site, '/x/Dockerfile', 8080, []);
+
+    $worker = File::get($dir.'/src/index.js');
+    $package = json_decode(File::get($dir.'/package.json'), true);
+    File::deleteDirectory($dir);
+
+    expect($worker)->toContain("import puppeteer from '@cloudflare/puppeteer';")
+        ->and($worker)->toContain('puppeteer.launch(env.BROWSER)')
+        ->and($package['dependencies'])->toHaveKey('@cloudflare/puppeteer');
 });
 
 test('the queue token is stable per site and differs between sites', function () {
@@ -305,6 +341,32 @@ test('a rollout at 0 percent is still in progress', function () {
         ->and(EdgeContainerRollout::healthSettled($rolling, ['starting' => 0], true))->toBeFalse()
         ->and(EdgeContainerRollout::healthSettled($missingPercent, ['starting' => 0], true))->toBeTrue()
         ->and(EdgeContainerRollout::healthSettled($missingPercent, ['starting' => 0], false))->toBeFalse();
+});
+
+test('a laravel app that needs the package gets dply/laravel in the image', function () {
+    $dir = checkout([
+        'composer.json' => '{"require":{"php":"^8.3"}}',
+        'artisan' => '',
+    ]);
+    $site = new Site;
+    $site->meta = ['edge' => ['connections' => [[
+        'kind' => 'key_value',
+        'name' => 'FLAGS',
+        'host' => 'flags.internal',
+        'target' => 'ns-1',
+    ]]]];
+
+    expect(EdgeContainerDeployer::needsLaravelPackage($site, $dir))->toBeTrue();
+
+    $dockerfile = File::get(EdgeContainerDockerfile::prepare($dir, true)['path']);
+
+    expect($dockerfile)->toContain('COPY dply-laravel /opt/dply/laravel')
+        ->and($dockerfile)->toContain('composer require dply/laravel:^1.0')
+        ->and(File::exists($dir.'/dply-laravel/src/DplyServiceProvider.php'))->toBeTrue()
+        ->and(File::get(EdgeContainerDockerfile::prepare(checkout([
+            'composer.json' => '{"require":{"php":"^8.3","dply/laravel":"^1.0"}}',
+            'artisan' => '',
+        ]), true)['path']))->not->toContain('COPY dply-laravel');
 });
 
 test('wrangler gets a spare instance so a gradual rollout can start the new image', function () {

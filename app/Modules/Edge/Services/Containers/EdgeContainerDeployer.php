@@ -17,6 +17,7 @@ use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Contracts\Process\ProcessResult;
 use Illuminate\Process\PendingProcess;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Process;
 use RuntimeException;
 use Throwable;
@@ -139,6 +140,35 @@ class EdgeContainerDeployer
         return trim($text) !== '' ? trim($text) : 'no output captured';
     }
 
+    /**
+     * A Laravel app gets dply/laravel on the next image when a key-value
+     * store, bucket, queue, or the scheduler is attached and the app does
+     * not already require the package. Redis uses Laravel's own client.
+     */
+    public static function needsLaravelPackage(Site $site, string $checkout): bool
+    {
+        if (! is_file($checkout.'/artisan') || is_file($checkout.'/Dockerfile') || ! is_file($checkout.'/composer.json')) {
+            return false;
+        }
+        $composer = json_decode((string) file_get_contents($checkout.'/composer.json'), true);
+        if (is_array($composer) && isset($composer['require']['dply/laravel'])) {
+            return false;
+        }
+        if (EdgeContainerSettings::for($site)['scheduler']) {
+            return true;
+        }
+        foreach (EdgeContainerConnections::for($site) as $connection) {
+            if ($connection['asleep']) {
+                continue;
+            }
+            if (in_array($connection['kind'], ['key_value', 'object_storage', 'queue'], true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** Deterministic so CancelStuckEdgeDeployment can `docker kill` it. */
     public static function buildContainerName(EdgeDeployment $deployment): string
     {
@@ -159,7 +189,11 @@ class EdgeContainerDeployer
     public function deploy(Site $site, EdgeDeployment $deployment, string $checkout, string $workRoot, array $env, callable $log, ?int $timeoutSeconds = null): array
     {
         EdgePhpBaseImage::ensure($checkout, $log);
-        $image = EdgeContainerDockerfile::prepare($checkout);
+        $injectLaravel = self::needsLaravelPackage($site, $checkout);
+        $image = EdgeContainerDockerfile::prepare($checkout, $injectLaravel);
+        if ($injectLaravel) {
+            $log("Added dply/laravel so this app can use the attached resources.\n");
+        }
         if (EdgeContainerSettings::raiseForMemoryCrash($site, $this->memoryEvidence($site))) {
             $log("Logs show the container ran out of memory. Raised the instance size one step.\n");
             $site->refresh();
@@ -200,7 +234,8 @@ class EdgeContainerDeployer
             }
         }
 
-        File::put($project.'/secrets.json', json_encode(array_merge(EdgeContainerConnections::redisDriverEnv($site), EdgeContainerConnections::storageDriverEnv($site), $queueEnv, $env, [
+        $env = EdgeContainerConnections::omitAsleepRedis($site, $env);
+        File::put($project.'/secrets.json', json_encode(array_merge(EdgeContainerConnections::redisDriverEnv($site), EdgeContainerConnections::storageDriverEnv($site), EdgeContainerConnections::kvDriverEnv($site), $queueEnv, $env, [
             'DPLY_QUEUE_TOKEN' => self::queueToken($site),
             'DPLY_APP_URL' => (string) ($site->edgeLiveUrl() ?? ''),
             'DPLY_MIGRATE_ON_BOOT' => $migrateOnBoot ? '1' : '0',
@@ -249,6 +284,20 @@ class EdgeContainerDeployer
         if ($rollout['settled'] && ! $rollout['ok']) {
             throw new RuntimeException('Container deploy failed: '.(string) $rollout['reason'].' — '.(string) json_encode($rollout['health']));
         }
+
+        // Cloudflare can report the rollout idle while the public URL never
+        // answers. Any HTTP status is enough — a 500 is the app. A hang is not.
+        $url = $site->edgeLiveUrl();
+        if (! is_string($url) || $url === '') {
+            throw new RuntimeException('Container deploy failed: the app has no live URL to check.');
+        }
+        $log("Checking {$url} answers.\n");
+        try {
+            $response = Http::timeout(90)->withoutRedirecting()->get($url);
+        } catch (Throwable $e) {
+            throw new RuntimeException("Container deploy failed: {$url} did not answer: ".$e->getMessage(), previous: $e);
+        }
+        $log(sprintf("App answered HTTP %d.\n", $response->status()));
 
         return [
             'script_name' => self::scriptName($site),
@@ -392,9 +441,38 @@ class EdgeContainerDeployer
             '__CRON_HANDLERS__' => json_encode((object) $crons, JSON_UNESCAPED_SLASHES),
             '__PAUSE_KEY__' => json_encode(StarterTrafficGate::KEY_PREFIX.$site->id),
             '__CONNECTIONS__' => json_encode($this->workerConnections($site), JSON_UNESCAPED_SLASHES),
+            '__QSTASH_TOKEN__' => json_encode((string) config('edge.upstash.qstash_token')),
+            '__DELIVERY_USAGE_URL__' => json_encode(rtrim((string) config('app.url'), '/').'/hooks/edge/'.$site->id.'/delivery'),
             '__CLIENT_CERT__' => json_encode(EdgeContainerConnections::clientCertificateId($site) !== '' ? 'CLIENT_CERT' : ''),
             '__BROWSER__' => EdgeContainerConnections::browserEnabled($site) ? 'true' : 'false',
             '__BROWSER_HOST__' => json_encode(EdgeContainerConnections::browserHost($site)),
+            '__BROWSER_IMPORT__' => EdgeContainerConnections::browserEnabled($site)
+                ? "import puppeteer from '@cloudflare/puppeteer';\n"
+                : '',
+            '__BROWSER_FETCH__' => EdgeContainerConnections::browserEnabled($site)
+                ? <<<'JS'
+async function browserFetch(request, env) {
+  if (request.method !== 'POST') return new Response('Send {"url"} as JSON.', { status: 405 });
+  const body = await request.json();
+  if (!body.url) return new Response('Missing url.', { status: 400 });
+  const browser = await puppeteer.launch(env.BROWSER);
+  const page = await browser.newPage();
+  await page.goto(body.url, { waitUntil: 'networkidle0' });
+  const path = new URL(request.url).pathname;
+  const response = path.endsWith('/pdf')
+    ? new Response(await page.pdf(), { headers: { 'content-type': 'application/pdf' } })
+    : path.endsWith('/screenshot')
+      ? new Response(await page.screenshot(), { headers: { 'content-type': 'image/png' } })
+      : new Response(await page.content(), { headers: { 'content-type': 'text/html; charset=utf-8' } });
+  await browser.close();
+  return response;
+}
+JS
+                : <<<'JS'
+async function browserFetch() {
+  return new Response('Browser is off.', { status: 404 });
+}
+JS,
         ];
 
         return strtr(<<<'JS'
@@ -402,16 +480,44 @@ class EdgeContainerDeployer
 import { Container, getContainer, getRandom } from '@cloudflare/containers';
 import { DurableObject } from 'cloudflare:workers';
 export { ContainerProxy } from '@cloudflare/containers';
+__BROWSER_IMPORT__
 
 const QUEUE_BINDINGS = __QUEUE_BINDINGS__; // queue name -> binding name
 const CRON_HANDLERS = __CRON_HANDLERS__; // schedule -> [artisan command / rake task]
 
 const CONNECTIONS = __CONNECTIONS__;
+const QSTASH_TOKEN = __QSTASH_TOKEN__;
+const DELIVERY_USAGE_URL = __DELIVERY_USAGE_URL__;
 
 export class App extends Container {
   defaultPort = __PORT__;
   sleepAfter = __SLEEP__;
   interceptHttps = __CLIENT_CERT__ !== '';
+
+  // The SDK probes http://ping and follows redirects. An app that answers
+  // with a Location: https://… makes the runtime reject the probe
+  // ("Connecting to a container using HTTPS is not currently supported").
+  // A redirect means the port is open; the browser follows it, not this hop.
+  async waitForPort(waitOptions) {
+    const port = waitOptions.portToCheck;
+    const tcpPort = this.container.getTcpPort(port);
+    const pollInterval = waitOptions.waitInterval ?? 300;
+    const tries = waitOptions.retries ?? Math.ceil(20000 / pollInterval);
+    for (let i = 0; i < tries; i++) {
+      try {
+        await tcpPort.fetch('http://' + this.pingEndpoint, { redirect: 'manual' });
+        return tries;
+      } catch (e) {
+        if (!this.container.running || i === tries - 1) {
+          const message = e instanceof Error ? e.message : String(e);
+          throw new Error('Failed to verify port ' + port + ' is available after ' + ((i + 1) * pollInterval) + 'ms, last error: ' + message);
+        }
+        await new Promise((resolve) => setTimeout(resolve, pollInterval));
+        if (waitOptions.signal?.aborted) throw new Error('Container request aborted.', { cause: e });
+      }
+    }
+    return tries;
+  }
 
   constructor(ctx, env) {
     super(ctx, env);
@@ -458,7 +564,8 @@ async function connectionFetch(c, request, env) {
       return new Response(value, { status: value == null ? 404 : 200, headers: { 'content-type': 'text/plain; charset=utf-8' } });
     }
     if (request.method === 'PUT') {
-      await binding.put(path, await request.arrayBuffer());
+      const ttl = Number(request.headers.get('x-dply-ttl') || 0);
+      await binding.put(path, await request.arrayBuffer(), ttl >= 60 ? { expirationTtl: Math.floor(ttl) } : {});
       return new Response(null, { status: 204 });
     }
     if (request.method === 'DELETE') {
@@ -490,6 +597,20 @@ async function connectionFetch(c, request, env) {
     return Response.json(await binding.prepare(body.sql).bind(...(body.params || [])).all());
   }
   if (c.kind === 'queue' && request.method === 'POST') { await binding.send(await request.text()); return new Response(null, { status: 202 }); }
+  if (c.kind === 'http_delivery' && request.method === 'POST') {
+    if (!QSTASH_TOKEN) return new Response('HTTP delivery is not ready.', { status: 503 });
+    const parsed = await json();
+    const target = String(parsed.url || '');
+    if (!target.startsWith('https://')) return new Response('Name an https address.', { status: 400 });
+    const payload = typeof parsed.body === 'string' ? parsed.body : JSON.stringify(parsed.body ?? {});
+    const headers = { authorization: 'Bearer ' + QSTASH_TOKEN, 'content-type': 'application/json' };
+    if (parsed.delay) headers['upstash-delay'] = String(parsed.delay);
+    const published = await fetch('https://qstash.upstash.io/v2/publish/' + target, { method: 'POST', headers, body: payload });
+    if (published.ok) {
+      await fetch(DELIVERY_USAGE_URL, { method: 'POST', headers: { 'content-type': 'application/json', 'x-dply-queue-token': env.DPLY_QUEUE_TOKEN }, body: JSON.stringify({ messages: 1, bytes: payload.length }) }).catch(() => {});
+    }
+    return new Response(await published.text(), { status: published.status });
+  }
   if (c.kind === 'ai' && request.method === 'POST') { const body = await json(); return Response.json(await binding.run(body.model, body.input)); }
   if (c.kind === 'vectors' && request.method === 'POST') { const body = await json(); return Response.json(await binding.query(body.vector, { topK: body.topK || 5 })); }
   if (c.kind === 'images' && request.method === 'POST') return Response.json(await binding.info(await request.arrayBuffer()));
@@ -537,23 +658,7 @@ export class EdgeState extends DurableObject {
   }
 }
 
-async function browserFetch(request, env) {
-  if (request.method !== 'POST') return new Response('Send {"url"} as JSON.', { status: 405 });
-  const body = await request.json();
-  if (!body.url) return new Response('Missing url.', { status: 400 });
-  const { launch } = await import('@cloudflare/puppeteer');
-  const browser = await launch(env.BROWSER);
-  const page = await browser.newPage();
-  await page.goto(body.url, { waitUntil: 'networkidle0' });
-  const path = new URL(request.url).pathname;
-  const response = path.endsWith('/pdf')
-    ? new Response(await page.pdf(), { headers: { 'content-type': 'application/pdf' } })
-    : path.endsWith('/screenshot')
-      ? new Response(await page.screenshot(), { headers: { 'content-type': 'image/png' } })
-      : new Response(await page.content(), { headers: { 'content-type': 'text/html; charset=utf-8' } });
-  await browser.close();
-  return response;
-}
+__BROWSER_FETCH__
 
 const INSTANCES = __INSTANCES__;
 const STICKY = __STICKY__;
@@ -599,7 +704,21 @@ async function trafficOpen(env) {
 // A rollout or a cold start can exit the process before the port is open.
 // container.fetch turns that into a 500 ("not running, consider calling start()")
 // on the first try. Start again and give FrankenPHP time to listen.
+function httpRequest(request) {
+  const url = new URL(request.url);
+  url.protocol = 'http:';
+  const init = {
+    method: request.method,
+    headers: new Headers(request.headers),
+    redirect: 'manual',
+  };
+  if (request.method !== 'GET' && request.method !== 'HEAD') init.body = request.body;
+  return new Request(url, init);
+}
+
 async function proxy(env, request, target) {
+  // The public URL stays HTTPS. The container only accepts HTTP on this hop.
+  request = httpRequest(request);
   const container = target.container;
   try {
     await container.startAndWaitForPorts({
@@ -613,7 +732,7 @@ async function proxy(env, request, target) {
   for (let attempt = 0; attempt < 2 && response.status >= 500; attempt++) {
     const preview = await response.clone().text();
     if (!/not running|Failed to start container|Container crashed|suddenly disconnected/.test(preview)) {
-      return response;
+      return revealAppErrors(env, response);
     }
     try {
       await container.startAndWaitForPorts({

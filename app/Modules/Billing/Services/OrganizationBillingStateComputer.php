@@ -22,6 +22,9 @@ class OrganizationBillingStateComputer
         private EdgeContainerComputeCost $computeCost,
         private EdgeDataUsageCost $dataUsageCost,
         private EdgeRedisCost $redisCost,
+        private EdgeDeliveryCost $deliveryCost,
+        private EdgeKvCost $kvCost,
+        private EdgeAppDatabaseCost $databaseCost,
     ) {}
 
     /**
@@ -127,6 +130,9 @@ class OrganizationBillingStateComputer
         $compute = $this->computeCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd);
         $data = $this->dataUsageCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd);
         $redis = $this->redisCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd);
+        $delivery = $this->deliveryCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd);
+        $kv = $this->kvCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd);
+        $databases = $this->databaseCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd);
 
         return DesiredBillingState::fromPlanAndUsage(
             plan: ['key' => $tierKey, 'label' => (string) $tier['label'], 'price_cents' => (int) $tier['price_cents']],
@@ -146,7 +152,7 @@ class OrganizationBillingStateComputer
             buildMinuteOverageCents: $billable ? EdgeBuildMinutes::overageCents($buildMinutes, $tier) : 0,
             containerComputeCents: $compute['cents'],
             computeCreditCents: $billable ? (int) ($tier['compute_credit_cents'] ?? 0) : null,
-            dataUsageCents: $billable ? $data['cents'] + $redis['cents'] : 0,
+            dataUsageCents: $billable ? $data['cents'] + $redis['cents'] + $delivery['cents'] + $kv['cents'] + $databases['cents'] : 0,
         );
     }
 

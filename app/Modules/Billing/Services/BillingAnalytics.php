@@ -157,7 +157,7 @@ final class BillingAnalytics
                 : null);
         }
         if ($state->dataUsageCents > 0) {
-            $items[] = $line(__('Databases & queues'), 1, $state->dataUsageCents, __('D1 rows and storage, Queues operations, Redis commands and storage'));
+            $items[] = $line(__('Databases & queues'), 1, $state->dataUsageCents, __('D1 rows and storage, Queues operations, Redis commands and storage, HTTP delivery messages, key-value reads and storage, Postgres compute and storage, MySQL clusters'));
         }
         if ($state->edgeUsageSubtotalCents > 0) {
             $items[] = $line(__('Delivery usage over allowance'), 1, $state->edgeUsageSubtotalCents, $this->formatEdgeUsageDetail($state->edgeUsageEstimate));

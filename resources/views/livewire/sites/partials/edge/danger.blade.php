@@ -15,7 +15,20 @@
         ])
     </section>
 
-    @can('delete', $site)
+    @if ($site->status === \App\Models\Site::STATUS_EDGE_DELETING)
+        <section class="border-b border-rose-200 last:border-b-0">
+            <div class="flex items-start gap-3 bg-rose-50/60 px-5 py-4 sm:px-6 dark:bg-rose-950/20">
+                <span class="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center"><x-spinner size="sm" /></span>
+                <div class="min-w-0">
+                    <p class="text-xs font-semibold uppercase tracking-[0.16em] text-rose-700 dark:text-rose-300">{{ __('Deleting') }}</p>
+                    <h3 class="mt-0.5 text-base font-semibold text-rose-900 dark:text-raw-rose-100">{{ __('This app is being removed') }}</h3>
+                    <p class="mt-1 max-w-2xl text-sm leading-relaxed text-brand-moss">
+                        {{ __('Deployments, the live URL, and routing are coming down. This page leaves when that finishes.') }}
+                    </p>
+                </div>
+            </div>
+        </section>
+    @elseif (auth()->user()?->can('delete', $site))
         <section class="border-b border-rose-200 last:border-b-0">
             <div class="flex flex-col gap-4 bg-rose-50/60 px-5 py-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6 sm:px-6 dark:bg-rose-950/20">
                 <div class="flex min-w-0 items-start gap-3">
@@ -44,7 +57,7 @@
         <div class="px-5 py-5 sm:px-6">
             <p class="text-sm leading-relaxed text-brand-moss">{{ __('You don’t have permission to delete this Edge site.') }}</p>
         </div>
-    @endcan
+    @endif
 </div>
 
 <x-modal

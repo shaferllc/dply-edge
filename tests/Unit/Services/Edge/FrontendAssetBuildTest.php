@@ -85,6 +85,17 @@ test('composer setup npm lines are the compile step and migrate is left out', fu
         ->toBe(['php artisan vendor:publish --tag=laravel-assets --ansi --force']);
 });
 
+test('a workspace package build runs when the root package.json has no build script', function () {
+    $dir = checkout([
+        'package.json' => '{"scripts":{"postinstall":"patch-package"},"workspaces":["resources/assets/v3"]}',
+        'package-lock.json' => '{}',
+        'resources/assets/v3/package.json' => '{"scripts":{"build":"vite build"}}',
+    ]);
+
+    expect(FrontendAssetBuild::commandForDirectory($dir))
+        ->toBe('npm ci && npm run build --prefix resources/assets/v3');
+});
+
 test('a pnpm lockfile runs the build with pnpm', function () {
     $dir = checkout([
         'package.json' => '{"scripts":{"build":"vite build"}}',

@@ -95,7 +95,8 @@ final class EdgeContainerEnvDefaults
         if (isset($env['DB_CONNECTION']) || isset($env['DB_URL']) || isset($env['DATABASE_URL'])) {
             return [];
         }
-        if ((string) ($site->edgeMeta()['database']['engine'] ?? '') === 'none') {
+        $engine = (string) ($site->edgeMeta()['database']['engine'] ?? '');
+        if (in_array($engine, ['none', 'postgres', 'mysql'], true)) {
             return [];
         }
 

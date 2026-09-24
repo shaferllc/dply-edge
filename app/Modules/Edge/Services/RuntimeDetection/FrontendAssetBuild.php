@@ -90,9 +90,18 @@ final class FrontendAssetBuild
         }
 
         $script = self::scriptName($package);
-        $build = $script !== null
-            ? self::runScript($root, $script)
-            : self::buildFromScripts(self::readJson($root.'/composer.json') ?? []);
+        $workspaces = [];
+        if ($script !== null) {
+            $build = self::runScript($root, $script);
+        } else {
+            $workspaces = self::workspacePackages($root, $package);
+            $build = $workspaces === []
+                ? self::buildFromScripts(self::readJson($root.'/composer.json') ?? [])
+                : implode(' && ', array_map(
+                    static fn (string $dir): string => self::runScript($root, self::scriptName(self::readJson($root.'/'.$dir.'/package.json') ?? []) ?? 'build', $dir),
+                    $workspaces,
+                ));
+        }
 
         if ($build === null) {
             return null;
@@ -101,7 +110,50 @@ final class FrontendAssetBuild
         return [
             'install' => self::installCommand($root),
             'build' => $build,
+            'workspaces' => $workspaces,
         ];
+    }
+
+    /**
+     * Workspace directories whose package.json has a compile script.
+     * The root package.json often only lists workspaces and a postinstall hook.
+     *
+     * @param  array<string, mixed>  $package
+     * @return list<string>
+     */
+    private static function workspacePackages(string $root, array $package): array
+    {
+        $workspaces = $package['workspaces'] ?? null;
+        $patterns = [];
+        if (is_array($workspaces)) {
+            $patterns = isset($workspaces['packages']) && is_array($workspaces['packages'])
+                ? $workspaces['packages']
+                : (array_is_list($workspaces) ? $workspaces : []);
+        }
+
+        $dirs = [];
+        foreach ($patterns as $pattern) {
+            if (! is_string($pattern) || str_contains($pattern, '..')) {
+                continue;
+            }
+            $pattern = trim($pattern, '/');
+            $matches = glob($root.'/'.$pattern, GLOB_ONLYDIR) ?: [];
+            if ($matches === [] && is_dir($root.'/'.$pattern)) {
+                $matches = [$root.'/'.$pattern];
+            }
+            foreach ($matches as $dir) {
+                $relative = ltrim(substr($dir, strlen($root)), '/');
+                if ($relative === '' || str_starts_with($relative, 'node_modules/') || str_starts_with($relative, 'vendor/')) {
+                    continue;
+                }
+                $nested = self::readJson($dir.'/package.json');
+                if ($nested !== null && self::scriptName($nested) !== null) {
+                    $dirs[] = $relative;
+                }
+            }
+        }
+
+        return array_values(array_unique($dirs));
     }
 
     /**
@@ -161,12 +213,20 @@ final class FrontendAssetBuild
         return $lines;
     }
 
-    private static function runScript(?string $root, string $name): string
+    private static function runScript(?string $root, string $name, ?string $directory = null): string
     {
+        if ($directory === null) {
+            return match (self::packageManager($root)) {
+                'pnpm' => "pnpm run {$name}",
+                'yarn' => "yarn run {$name}",
+                default => "npm run {$name}",
+            };
+        }
+
         return match (self::packageManager($root)) {
-            'pnpm' => "pnpm run {$name}",
-            'yarn' => "yarn run {$name}",
-            default => "npm run {$name}",
+            'pnpm' => "pnpm --dir {$directory} run {$name}",
+            'yarn' => "yarn --cwd {$directory} run {$name}",
+            default => "npm run {$name} --prefix {$directory}",
         };
     }
 

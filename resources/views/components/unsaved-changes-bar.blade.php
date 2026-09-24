@@ -6,6 +6,7 @@
     'targets' => null,
     'saveDisabled' => false,
     'saveLabel' => null,
+    'savePendingLabel' => null,
     'discardLabel' => null,
     /** Optional third action, shown as the primary button beside Save. */
     'extraAction' => null,
@@ -26,6 +27,7 @@
 
 @php
     $saveLabel = $saveLabel ?? __('Save');
+    $savePendingLabel = $savePendingLabel ?? __('Saving…');
     $discardLabel = $discardLabel ?? __('Discard');
     $useClientDirty = $clientDirty && filled($targets);
     $targetList = filled($targets)
@@ -129,7 +131,7 @@
                 ])
             >
                 <span wire:loading.remove wire:target="{{ $saveAction }}">{{ $saveLabel }}</span>
-                <span wire:loading wire:target="{{ $saveAction }}" class="inline-flex items-center gap-1.5">{{ __('Saving…') }}</span>
+                <span wire:loading wire:target="{{ $saveAction }}" class="inline-flex items-center gap-1.5">{{ $savePendingLabel }}</span>
             </button>
             @if (filled($extraAction))
                 <button

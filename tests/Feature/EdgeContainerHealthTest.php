@@ -42,15 +42,28 @@ test('a healthy container records the check and stays quiet', function () {
         ->and(NotificationEvent::query()->count())->toBe(0);
 });
 
-test('a 5xx container is reported as a failed deploy', function () {
+test('a 5xx answer keeps the deploy live', function () {
     Http::fake(['*' => Http::response('boom', 500)]);
     $deployment = liveContainer();
 
     (new CheckEdgeContainerHealthJob($deployment->id))->handle();
 
-    expect($deployment->fresh()->meta['container']['health'])->toMatchArray(['ok' => false, 'status' => 500])
+    expect($deployment->fresh()->meta['container']['health'])->toMatchArray(['ok' => true, 'status' => 500])
+        ->and($deployment->fresh()->status)->toBe(EdgeDeployment::STATUS_LIVE)
+        ->and(NotificationEvent::query()->where('event_key', 'edge.deploy.failed')->count())->toBe(0);
+});
+
+test('a container that never answers is a failed deploy', function () {
+    Http::fake(function () {
+        throw new \Illuminate\Http\Client\ConnectionException('cURL error 28: Operation timed out after 90000 milliseconds with 0 bytes received');
+    });
+    $deployment = liveContainer();
+
+    (new CheckEdgeContainerHealthJob($deployment->id))->handle();
+
+    expect($deployment->fresh()->meta['container']['health'])->toMatchArray(['ok' => false, 'status' => null])
         ->and($deployment->fresh()->status)->toBe(EdgeDeployment::STATUS_FAILED)
-        ->and($deployment->fresh()->failed_at)->not->toBeNull()
+        ->and($deployment->fresh()->failure_reason)->toContain('did not answer')
         ->and(NotificationEvent::query()->where('event_key', 'edge.deploy.failed')->count())->toBe(1);
 });
 

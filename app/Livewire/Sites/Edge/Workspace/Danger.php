@@ -24,6 +24,21 @@ class Danger extends Component
         $this->mountEdgeWorkspaceSection($server, $site);
     }
 
+    public function watchTeardown(): void
+    {
+        if ($this->site->status !== Site::STATUS_EDGE_DELETING) {
+            return;
+        }
+
+        if (Site::query()->whereKey($this->site->id)->doesntExist()) {
+            $this->redirect(route('dashboard'), navigate: true);
+
+            return;
+        }
+
+        $this->site->refresh();
+    }
+
     public function render(): View
     {
         return view('livewire.sites.edge.workspace.danger', array_merge(

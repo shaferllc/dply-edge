@@ -21,6 +21,9 @@ final class StarterUsageBudget
         private EdgeOrganizationUsageReader $usage,
         private EdgeUsageCostCalculator $calculator,
         private EdgeRedisCost $redis,
+        private EdgeDeliveryCost $deliveryMessages,
+        private EdgeKvCost $kv,
+        private EdgeAppDatabaseCost $databases,
     ) {}
 
     /**
@@ -69,11 +72,14 @@ final class StarterUsageBudget
         [$start, $end] = $this->usage->currentMonthWindow();
         $compute = $this->compute->forOrganization($organization, $start, $end)['cents'];
         $redis = $this->redis->forOrganization($organization, $start, $end)['cents'];
+        $httpDelivery = $this->deliveryMessages->forOrganization($organization, $start, $end)['cents'];
+        $kv = $this->kv->forOrganization($organization, $start, $end)['cents'];
+        $databases = $this->databases->forOrganization($organization, $start, $end)['cents'];
         $totals = $this->usage->totalsForOrganization($organization, $start, $end);
         $delivery = $this->calculator->estimate($totals, 1, $tier)['subtotal_cents'];
         $millicents = (int) ($tier['build_minute_credit_millicents'] ?? 1000);
         $builds = (int) ceil(EdgeBuildMinutes::usedThisMonth($organization) * $millicents / 1000);
 
-        return $compute + $delivery + $builds + $redis;
+        return $compute + $delivery + $builds + $redis + $httpDelivery + $kv + $databases;
     }
 }

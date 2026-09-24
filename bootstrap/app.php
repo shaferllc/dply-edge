@@ -7,7 +7,9 @@ use App\Http\Middleware\EnsureApiTokenAbility;
 use App\Http\Middleware\RedirectGuestsToComingSoon;
 use App\Http\Middleware\SetCurrentOrganization;
 use App\Http\Middleware\StampDebugReference;
+use App\Models\Site;
 use App\Modules\Edge\Http\Middleware\ResolveEdgeCustomDomain;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use App\Support\Debug\DebugExceptionDetail;
 use App\Support\DplyRuntime;
 use App\Support\Http\ScannerProbePaths;
@@ -89,6 +91,21 @@ return Application::configure(basePath: dirname(__DIR__))
             return null;
         });
 
+        // The workspace is still open when teardown deletes the app. The next
+        // Livewire update looks the site up by id and would otherwise render
+        // the exception page. Send that request to the dashboard.
+        $exceptions->render(function (ModelNotFoundException $e, Request $request) {
+            if ($e->getModel() !== Site::class) {
+                return null;
+            }
+
+            if (! $request->is('projects/*') && ! $request->hasHeader('X-Livewire') && ! $request->hasHeader('X-Livewire-Navigate')) {
+                return null;
+            }
+
+            return redirect()->route('dashboard');
+        });
+
         // Friendly handler for cache/queue backend connection failures. With
         // CACHE_STORE=redis (or QUEUE_CONNECTION=redis) pointing at a managed
         // Redis box, an outage means every page render touches a dead Redis
@@ -132,6 +149,11 @@ return Application::configure(basePath: dirname(__DIR__))
         // stale snapshot pointing at a route/resource that has since moved.
         // (API callers still fall through to Laravel's JSON 404.)
         $exceptions->render(function (NotFoundHttpException $e, Request $request) {
+            $previous = $e->getPrevious();
+            if ($previous instanceof ModelNotFoundException && $previous->getModel() === Site::class) {
+                return redirect()->route('dashboard');
+            }
+
             // Known scanner/bot probes (wp-*, *.env, /actuator, leaked-secret
             // fishing, …) flood Lookout's RequestHandled 404 reporter with noise.
             // That reporter fires ONLY on status === 404, so we answer probes with

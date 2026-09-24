@@ -184,6 +184,13 @@ class EdgeCloudflareClient
         }
     }
 
+    public function renameKvNamespace(string $namespaceId, string $title): void
+    {
+        $this->decode(
+            Http::withToken($this->apiToken)->put($this->kvNamespaceUrl($namespaceId), ['title' => $title]),
+        );
+    }
+
     /**
      * @return list<string>
      */
@@ -1315,6 +1322,70 @@ class EdgeCloudflareClient
         }
 
         return ['d1' => $d1, 'queues' => $queues];
+    }
+
+    /**
+     * One day of key-value operations and stored bytes, keyed by namespace id.
+     *
+     * @return array<string, array{reads: int, writes: int, deletes: int, lists: int, storage_bytes: int}>
+     */
+    public function kvUsageForDate(CarbonInterface $date): array
+    {
+        $query = <<<'GRAPHQL'
+        query KvUsage($accountTag: string!, $date: Date!) {
+          viewer {
+            accounts(filter: { accountTag: $accountTag }) {
+              kvOperationsAdaptiveGroups(limit: 10000, filter: { date_geq: $date, date_leq: $date }) {
+                dimensions { namespaceId actionType }
+                sum { requests }
+              }
+              kvStorageAdaptiveGroups(limit: 10000, filter: { date_geq: $date, date_leq: $date }) {
+                dimensions { namespaceId }
+                max { byteCount }
+              }
+            }
+          }
+        }
+        GRAPHQL;
+
+        $response = Http::withToken($this->apiToken)->post(self::BASE.'/graphql', [
+            'query' => $query,
+            'variables' => ['accountTag' => $this->accountId, 'date' => $date->toDateString()],
+        ]);
+        $json = $response->json();
+        if (! is_array($json) || ! empty($json['errors'])) {
+            throw new RuntimeException('Cloudflare key-value GraphQL request failed: '.Str::limit(json_encode($json['errors'] ?? $response->body()) ?: '', 500));
+        }
+
+        $account = (array) data_get($json, 'data.viewer.accounts.0', []);
+        $blank = ['reads' => 0, 'writes' => 0, 'deletes' => 0, 'lists' => 0, 'storage_bytes' => 0];
+        $stores = [];
+        foreach ((array) ($account['kvOperationsAdaptiveGroups'] ?? []) as $group) {
+            $id = (string) data_get($group, 'dimensions.namespaceId', '');
+            $action = (string) data_get($group, 'dimensions.actionType', '');
+            $column = match ($action) {
+                'read' => 'reads',
+                'write' => 'writes',
+                'delete' => 'deletes',
+                'list' => 'lists',
+                default => null,
+            };
+            if ($id === '' || $column === null) {
+                continue;
+            }
+            $stores[$id] ??= $blank;
+            $stores[$id][$column] += (int) data_get($group, 'sum.requests', 0);
+        }
+        foreach ((array) ($account['kvStorageAdaptiveGroups'] ?? []) as $group) {
+            $id = (string) data_get($group, 'dimensions.namespaceId', '');
+            if ($id === '') {
+                continue;
+            }
+            $stores[$id] ??= $blank;
+            $stores[$id]['storage_bytes'] = max($stores[$id]['storage_bytes'], (int) data_get($group, 'max.byteCount', 0));
+        }
+
+        return $stores;
     }
 
     /**

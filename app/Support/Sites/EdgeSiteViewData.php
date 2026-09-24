@@ -74,12 +74,14 @@ final class EdgeSiteViewData
             Site::STATUS_EDGE_ACTIVE => 'bg-emerald-100 text-emerald-800 ring-emerald-200/60 dark:bg-raw-emerald-950/40 dark:text-emerald-300 dark:ring-raw-emerald-800/40',
             Site::STATUS_EDGE_PROVISIONING => 'bg-sky-100 text-sky-800 ring-sky-200/60 dark:bg-sky-950/40 dark:text-sky-300 dark:ring-raw-sky-800/40',
             Site::STATUS_EDGE_FAILED => 'bg-rose-100 text-rose-800 ring-rose-200/60 dark:bg-rose-950/40 dark:text-rose-300 dark:ring-raw-rose-800/40',
+            Site::STATUS_EDGE_DELETING => 'bg-rose-100 text-rose-800 ring-rose-200/60 dark:bg-rose-950/40 dark:text-rose-300 dark:ring-raw-rose-800/40',
             default => 'bg-brand-sand/80 text-brand-moss ring-brand-ink/10',
         };
         $edgeStatusLabel = match ($site->status) {
             Site::STATUS_EDGE_ACTIVE => __('Live'),
             Site::STATUS_EDGE_PROVISIONING => __('Building'),
             Site::STATUS_EDGE_FAILED => __('Failed'),
+            Site::STATUS_EDGE_DELETING => __('Deleting'),
             default => str_replace('_', ' ', (string) $site->status),
         };
         $edgeGithubRepoUrl = $edgeRepo !== '' ? 'https://github.com/'.$edgeRepo : null;

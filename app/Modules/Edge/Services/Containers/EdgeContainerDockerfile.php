@@ -84,7 +84,7 @@ final class EdgeContainerDockerfile
     private const BUNDLED_PHP_EXTENSIONS = [
         'ctype', 'curl', 'dom', 'fileinfo', 'filter', 'hash', 'iconv', 'json',
         'libxml', 'mbstring', 'openssl', 'pcre', 'phar', 'posix', 'reflection',
-        'session', 'simplexml', 'sodium', 'spl', 'tokenizer', 'xml', 'xmlreader',
+        'pdo', 'session', 'simplexml', 'sodium', 'spl', 'tokenizer', 'xml', 'xmlreader',
         'xmlwriter', 'zlib',
     ];
 
@@ -321,6 +321,34 @@ final class EdgeContainerDockerfile
      * install-php-extensions always prints #StandWithUkraine. Drop that line
      * and keep the installer's exit code.
      */
+    private static function composerRequires(string $checkout, string $package): bool
+    {
+        $composer = json_decode((string) file_get_contents($checkout.'/composer.json'), true);
+
+        return is_array($composer) && isset($composer['require'][$package]);
+    }
+
+    /**
+     * Copies the in-repo package into the build context so the image can
+     * require it from a path repository. The app's composer.json is untouched.
+     */
+    private static function stageLaravelPackage(string $checkout): void
+    {
+        $source = base_path('packages/laravel-dply');
+        $dest = $checkout.'/dply-laravel';
+        if (! is_dir($source)) {
+            throw new RuntimeException('dply/laravel is not available to inject into this image.');
+        }
+        if (is_dir($dest)) {
+            return;
+        }
+        mkdir($dest.'/src', 0775, true);
+        copy($source.'/composer.json', $dest.'/composer.json');
+        foreach (glob($source.'/src/*.php') ?: [] as $file) {
+            copy($file, $dest.'/src/'.basename($file));
+        }
+    }
+
     private static function installPhpExtensions(string $extensions): string
     {
         return 'RUN install-php-extensions '.$extensions
@@ -330,7 +358,7 @@ final class EdgeContainerDockerfile
     /**
      * @return array{path: string, port: int, stack: string, generated: bool, server: string}
      */
-    public static function prepare(string $checkout): array
+    public static function prepare(string $checkout, bool $injectLaravel = false): array
     {
         $default = (int) config('edge.build.containers.default_port', 8080);
 
@@ -345,7 +373,7 @@ final class EdgeContainerDockerfile
         }
 
         [$stack, $contents] = match (true) {
-            is_file($checkout.'/composer.json') => ['php', self::php($checkout)],
+            is_file($checkout.'/composer.json') => ['php', self::php($checkout, $injectLaravel)],
             is_file($checkout.'/Gemfile') => ['ruby', self::ruby($checkout)],
             is_file($checkout.'/package.json') => ['node', self::node($checkout)],
             default => throw new RuntimeException('Container sites need a Dockerfile, composer.json (PHP), Gemfile (Ruby) or package.json (Node) at the repository root.'),
@@ -433,13 +461,18 @@ final class EdgeContainerDockerfile
      * Lockfiles are copied only when they exist — a glob that matches
      * nothing fails the build, and `npm ci` cannot run without one.
      *
-     * @param  array{install: string, build: string}|null  $assets
+     * @param  array{install: string, build: string, workspaces?: list<string>}|null  $assets
      * @return list<string>
      */
     private static function assetStageLines(string $checkout, ?array $assets): array
     {
         if ($assets === null) {
             return [];
+        }
+
+        $install = $assets['install'];
+        if (preg_match('/^(pnpm|yarn)\s/', $install) === 1) {
+            $install = 'corepack enable && '.$install;
         }
 
         $manifests = ['package.json'];
@@ -449,23 +482,40 @@ final class EdgeContainerDockerfile
             }
         }
 
-        $install = $assets['install'];
-        if (preg_match('/^(pnpm|yarn)\s/', $install) === 1) {
-            $install = 'corepack enable && '.$install;
-        }
-
-        return [
+        $lines = [
             'FROM node:22-bookworm-slim AS assets',
             'WORKDIR /app',
             'COPY '.implode(' ', $manifests).' ./',
-            'RUN '.$install,
-            'COPY . .',
-            'RUN '.$assets['build'],
-            '',
         ];
+        foreach ($assets['workspaces'] ?? [] as $dir) {
+            $lines[] = 'COPY '.$dir.'/package.json '.$dir.'/package.json';
+        }
+        if (is_dir($checkout.'/patches')) {
+            $lines[] = 'COPY patches patches';
+        }
+        $lines[] = self::cachedRun($install, self::nodeCacheDir($install));
+        $lines[] = 'COPY . .';
+        $lines[] = 'RUN '.$assets['build'];
+        $lines[] = '';
+
+        return $lines;
     }
 
-    private static function php(string $checkout): string
+    private static function cachedRun(string $command, string $cacheDir): string
+    {
+        return 'RUN --mount=type=cache,target='.$cacheDir.' '.$command;
+    }
+
+    private static function nodeCacheDir(string $install): string
+    {
+        return match (true) {
+            str_contains($install, 'pnpm') => '/pnpm/store',
+            str_contains($install, 'yarn') => '/usr/local/share/.cache/yarn',
+            default => '/root/.npm',
+        };
+    }
+
+    private static function php(string $checkout, bool $injectLaravel = false): string
     {
         $composer = json_decode((string) file_get_contents($checkout.'/composer.json'), true);
         $identity = self::phpIdentity($checkout);
@@ -495,7 +545,13 @@ final class EdgeContainerDockerfile
         $lines[] = is_file($checkout.'/composer.lock')
             ? 'COPY composer.json composer.lock ./'
             : 'COPY composer.json ./';
-        $lines[] = 'RUN composer install --no-dev --no-interaction --no-progress --no-scripts --no-autoloader';
+        if ($injectLaravel && $laravel && ! self::composerRequires($checkout, 'dply/laravel')) {
+            self::stageLaravelPackage($checkout);
+            $lines[] = 'COPY dply-laravel /opt/dply/laravel';
+            $lines[] = self::cachedRun('composer config repositories.dply \'{"type":"path","url":"/opt/dply/laravel","options":{"symlink":false}}\' && composer require dply/laravel:^1.0 --no-dev --no-interaction --no-progress --no-scripts --no-plugins --no-install && composer install --no-dev --no-interaction --no-progress --no-scripts --no-autoloader', '/root/.composer/cache');
+        } else {
+            $lines[] = self::cachedRun('composer install --no-dev --no-interaction --no-progress --no-scripts --no-autoloader', '/root/.composer/cache');
+        }
         $lines[] = 'COPY . .';
         if ($assets !== null) {
             $lines[] = 'COPY --from=assets /app/public /app/public';
@@ -582,7 +638,7 @@ final class EdgeContainerDockerfile
             "FROM node:{$major}-bookworm-slim",
             'WORKDIR /app',
             'COPY . .',
-            'RUN '.$run,
+            self::cachedRun($run, self::nodeCacheDir($run)),
             'ENV NODE_ENV=production PORT=8080 HOST=0.0.0.0',
             'EXPOSE 8080',
             'CMD ["sh", "-c", '.json_encode("exec {$start}", JSON_UNESCAPED_SLASHES).']',
@@ -604,7 +660,7 @@ final class EdgeContainerDockerfile
             'WORKDIR /app',
             'ENV RAILS_ENV=production RACK_ENV=production BUNDLE_WITHOUT="development:test" RAILS_LOG_TO_STDOUT=1 RAILS_SERVE_STATIC_FILES=1 PORT=8080 DPLY_MIGRATE_ON_BOOT=0',
             is_file($checkout.'/Gemfile.lock') ? 'COPY Gemfile Gemfile.lock ./' : 'COPY Gemfile ./',
-            'RUN bundle install --jobs 4',
+            self::cachedRun('bundle install --jobs 4', '/usr/local/bundle/cache'),
             'COPY . .',
         ];
         if ($assets !== null) {

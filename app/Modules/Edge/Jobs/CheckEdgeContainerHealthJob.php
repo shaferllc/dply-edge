@@ -19,8 +19,9 @@ use Throwable;
 /**
  * One request to a container site's live URL right after it goes live, so a
  * crashing app (missing DATABASE_URL, bad migration) is reported now instead
- * of by the first visitor. Records the result on the deployment; a 5xx or no
- * response marks that deploy failed and publishes edge.deploy.failed.
+ * of by the first visitor. Records the result on the deployment. Any HTTP
+ * status is an answer (a 500 is the app). No response marks that deploy
+ * failed and publishes edge.deploy.failed.
  */
 class CheckEdgeContainerHealthJob implements ShouldQueue
 {
@@ -55,7 +56,7 @@ class CheckEdgeContainerHealthJob implements ShouldQueue
             $status = null;
             $error = $e->getMessage();
         }
-        $ok = $status !== null && $status < 500;
+        $ok = $status !== null;
 
         $meta = is_array($deployment->meta) ? $deployment->meta : [];
         $meta['container']['health'] = [

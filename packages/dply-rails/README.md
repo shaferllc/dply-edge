@@ -23,5 +23,19 @@ No Sidekiq or worker process to run:
 Crons added under **Crons** run their handler as a rake task (POST
 `/_dply/schedule` from a Cloudflare Cron Trigger).
 
+## Key-value store
+
+Attach a key-value store under Resources. The next deploy injects
+`DPLY_KV_HOST`. Unless `REDIS_URL` is set, `Rails.cache` uses that store:
+
+```ruby
+Rails.cache.write("session", "hello")
+Rails.cache.read("session")
+Rails.cache.delete("session")
+```
+
+`Dply::Rails::Kv` is the same store when you want it by name. A counter that
+must be exact belongs on State.
+
 `queue_as` names map to queue bindings (default `JOBS`, set `DPLY_QUEUE` to change).
 Limits: 128 KB per job, 24 h max `wait`.

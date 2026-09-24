@@ -164,10 +164,10 @@
 
             <div class="flex flex-wrap items-center justify-between gap-3">
                 <p class="font-mono text-xs text-brand-mist">{{ $scriptName }}</p>
-                <div class="flex gap-2">
-                    <x-secondary-button type="button" wire:click="save">{{ __('Save') }}</x-secondary-button>
-                    <x-primary-button type="button" wire:click="save(true)" wire:loading.attr="disabled">{{ __('Save and redeploy') }}</x-primary-button>
-                </div>
+                <x-primary-button type="button" wire:click="save(true)" wire:loading.attr="disabled" wire:target="save">
+                    <span wire:loading.remove wire:target="save">{{ __('Save and redeploy') }}</span>
+                    <span wire:loading wire:target="save">{{ __('Deploying…') }}</span>
+                </x-primary-button>
             </div>
         </div>
     </section>

@@ -17,8 +17,7 @@
                     ? __('Encrypted production secrets for this app. The next deploy puts each one in the container environment.')
                     : __('Encrypted production secrets for this Edge site — injected into the build and middleware/SSR workers on the next deploy.'),
                 'steps' => [
-                    __('Edit the KEY=value lines, then save.'),
-                    __('Redeploy so the new values reach the app.'),
+                    __('Edit the KEY=value lines, then save and redeploy so the new values reach the app.'),
                 ],
                 'setupLinks' => [
                     [
@@ -122,12 +121,11 @@ env:
 
         @can('update', $site)
             <x-unsaved-changes-bar
-                :message="__('Save these environment changes, or redeploy to apply them now.')"
-                saveAction="saveEdgeEnvText"
-                :saveLabel="__('Save')"
+                :message="__('Save and redeploy to apply these environment changes.')"
+                saveAction="redeployEdgeEnv"
+                :saveLabel="__('Save and redeploy')"
+                :savePendingLabel="__('Deploying…')"
                 discardAction="discardEdgeEnv"
-                extraAction="redeployEdgeEnv"
-                :extraLabel="__('Redeploy')"
                 targets="edgeEnvText"
                 formPendingWire="pending"
                 clientDirty

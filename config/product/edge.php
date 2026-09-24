@@ -338,6 +338,7 @@ return [
     | Preview review hub — approve-to-promote workflow on Edge previews.
     */
     /*
+    | https://upstash.com
     | Platform Redis account. Read by UpstashRedisClient. A pasted address
     | does not use it. User request: "ok so how can we implement upstash and bill for it".
     */
@@ -345,8 +346,40 @@ return [
         'email' => env('DPLY_UPSTASH_EMAIL'),
         'api_key' => env('DPLY_UPSTASH_API_KEY'),
         'region' => env('DPLY_UPSTASH_REGION', 'us-east-1'),
+        'qstash_token' => env('DPLY_QSTASH_TOKEN'),
     ],
 
+    /*
+    | https://neon.tech
+    | Neon is a Postgres database that suspends compute when idle.
+    */
+    'neon' => [
+        'api_key' => env('DPLY_NEON_API_KEY'),
+        'region' => env('DPLY_NEON_REGION', 'aws-us-east-1'),
+        'organization' => env('DPLY_NEON_ORGANIZATION'),
+        'min_cu' => (float) env('DPLY_NEON_MIN_CU', 0.25),
+        'max_cu' => (float) env('DPLY_NEON_MAX_CU', 2),
+        'suspend_seconds' => (int) env('DPLY_NEON_SUSPEND_SECONDS', 300),
+    ],
+
+    /*
+    | https://planetscale.com
+    | PlanetScale is a MySQL database that stays on.
+    */
+    'planetscale' => [
+        'organization' => env('DPLY_PLANETSCALE_ORGANIZATION'),
+        'id' => env('DPLY_PLANETSCALE_ID'),
+        'secret' => env('DPLY_PLANETSCALE_SECRET'),
+        'token_id' => env('DPLY_PLANETSCALE_TOKEN_ID'),
+        'token' => env('DPLY_PLANETSCALE_TOKEN'),
+        'region' => env('DPLY_PLANETSCALE_REGION', ''),
+        'cluster_size' => env('DPLY_PLANETSCALE_CLUSTER_SIZE', 'PS_10'),
+        'monthly_cents' => (int) env('DPLY_PLANETSCALE_MONTHLY_CENTS', 3900),
+    ],
+
+    /*
+    | Preview review hub — approve-to-promote workflow on Edge previews.
+    */
     'preview_review' => [
         'min_approvals' => max(1, (int) env('DPLY_EDGE_PREVIEW_REVIEW_MIN_APPROVALS', 1)),
         'require_approval' => filter_var(env('DPLY_EDGE_PREVIEW_REVIEW_REQUIRE_APPROVAL', false), FILTER_VALIDATE_BOOLEAN),

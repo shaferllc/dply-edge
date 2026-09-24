@@ -15,6 +15,7 @@ use App\Models\EdgeDeployment;
 use App\Models\EdgeSiteEnvVar;
 use App\Models\Server;
 use App\Models\Site;
+use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeContainerSettings;
 use App\Services\Sites\DotEnvFileParser;
 use App\Support\Sites\EdgeSiteViewData;
@@ -55,9 +56,13 @@ class Environment extends Component
             return false;
         }
 
+        $managed = array_flip(EdgeContainerConnections::MANAGED_REDIS_KEYS);
         $pairs = [];
         foreach ($parsed['variables'] as $rawKey => $value) {
             $key = strtoupper((string) $rawKey);
+            if (isset($managed[$key])) {
+                continue;
+            }
             $reason = EdgeSiteEnvVar::rejectionReason($key);
             if ($reason !== null) {
                 $this->addError('edgeEnvText', $reason);
@@ -88,7 +93,9 @@ class Environment extends Component
             }
         }
 
-        $removed = $existing->keys()->diff(array_keys($pairs));
+        $removed = $existing->keys()->diff(array_keys($pairs))->reject(
+            static fn (string $key): bool => isset($managed[$key]),
+        );
         if ($removed->isNotEmpty()) {
             $this->site->edgeEnvVars()
                 ->where('scope', EdgeSiteEnvVar::SCOPE_PRODUCTION)
@@ -129,6 +136,7 @@ class Environment extends Component
             ->where('scope', EdgeSiteEnvVar::SCOPE_PRODUCTION)
             ->orderBy('key')
             ->get()
+            ->reject(fn (EdgeSiteEnvVar $row): bool => in_array($row->key, EdgeContainerConnections::MANAGED_REDIS_KEYS, true))
             ->map(fn (EdgeSiteEnvVar $row): string => $row->key.'='.$this->quoteEnvValue($row->value))
             ->implode("\n");
     }
@@ -149,10 +157,19 @@ class Environment extends Component
 
         $rows = [];
         $engine = (string) ($meta['database']['engine'] ?? 'sql');
-        if ($engine !== 'none') {
-            $rows[] = ['key' => 'DB_CONNECTION', 'value' => 'sqlite', 'from' => __('SQL database')];
-            $rows[] = ['key' => 'DB_DATABASE', 'value' => '/tmp/database.sqlite', 'from' => __('SQL database')];
-            $rows[] = ['key' => 'DPLY_MIGRATE_ON_BOOT', 'value' => '1', 'from' => __('SQL database')];
+        $databaseHost = (string) ($meta['database']['host'] ?? '');
+        if ($engine === 'postgres' && $databaseHost !== '') {
+            $rows[] = ['key' => 'DB_CONNECTION', 'value' => 'pgsql', 'from' => __('Postgres')];
+            $rows[] = ['key' => 'DB_HOST', 'value' => $databaseHost, 'from' => __('Postgres')];
+            $rows[] = ['key' => 'DB_PASSWORD', 'value' => '••••', 'from' => __('Postgres')];
+        } elseif ($engine === 'mysql' && $databaseHost !== '') {
+            $rows[] = ['key' => 'DB_CONNECTION', 'value' => 'mysql', 'from' => __('MySQL')];
+            $rows[] = ['key' => 'DB_HOST', 'value' => $databaseHost, 'from' => __('MySQL')];
+            $rows[] = ['key' => 'DB_PASSWORD', 'value' => '••••', 'from' => __('MySQL')];
+        } elseif ($engine !== 'none' && $engine !== 'postgres' && $engine !== 'mysql') {
+            $rows[] = ['key' => 'DB_CONNECTION', 'value' => 'sqlite', 'from' => __('SQLite')];
+            $rows[] = ['key' => 'DB_DATABASE', 'value' => '/tmp/database.sqlite', 'from' => __('SQLite')];
+            $rows[] = ['key' => 'DPLY_MIGRATE_ON_BOOT', 'value' => '1', 'from' => __('SQLite')];
         }
 
         $url = (string) ($this->site->edgeLiveUrl() ?? '');
@@ -169,8 +186,13 @@ class Environment extends Component
             $rows[] = ['key' => 'DPLY_PHP_MEMORY_LIMIT', 'value' => $pool['memory_limit'], 'from' => __('App size')];
         }
 
+        foreach (EdgeContainerConnections::redisInjectionPreview($this->site) as $row) {
+            $rows[] = $row;
+        }
+
         return array_map(function (array $row) use ($dashboardKeys): array {
-            $row['overridden'] = in_array($row['key'], $dashboardKeys, true);
+            $row['overridden'] = in_array($row['key'], $dashboardKeys, true)
+                && ! in_array($row['key'], EdgeContainerConnections::MANAGED_REDIS_KEYS, true);
 
             return $row;
         }, $rows);

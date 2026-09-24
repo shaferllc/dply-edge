@@ -102,6 +102,14 @@ test('workspace is not reachable for a non edge site', function () {
         ->assertNotFound();
 });
 
+test('a removed edge app sends the open page to the dashboard', function () {
+    [$user] = makeEdgeSite();
+
+    $this->actingAs($user)
+        ->get('/projects/01missingedgeapp/danger')
+        ->assertRedirect(route('dashboard'));
+});
+
 test('preview teardown dispatches job', function () {
     Queue::fake();
     [$user, $server, $parent] = makeEdgeSite();

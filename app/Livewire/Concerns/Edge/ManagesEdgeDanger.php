@@ -34,8 +34,10 @@ trait ManagesEdgeDanger
         }
         $this->authorize('delete', $this->site);
 
+        $this->site->forceFill(['status' => Site::STATUS_EDGE_DELETING])->save();
         TeardownEdgeSiteJob::dispatch($this->site->id);
 
-        $this->toastSuccess(__('Edge site teardown queued.'));
+        $this->dispatch('close-modal', 'edge-teardown-confirmation');
+        $this->toastSuccess(__('Deleting :name.', ['name' => $this->site->name]));
     }
 }

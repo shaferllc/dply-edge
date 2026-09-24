@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Edge\Services\Containers;
 
 use Illuminate\Contracts\Process\ProcessResult;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
 
@@ -29,6 +30,16 @@ final class EdgePhpBaseImage
         $lock = is_file($checkout.'/composer.lock')
             ? json_decode((string) file_get_contents($checkout.'/composer.lock'), true)
             : [];
+        $identity = EdgeContainerDockerfile::phpIdentity($checkout);
+        $current = EdgeContainerDockerfile::publishedPhpExtensions();
+        $from = $repo.':'.EdgeContainerDockerfile::baseTag($identity['version'], $current, $identity['server']);
+        if ($current !== EdgeContainerDockerfile::PHP_EXTENSIONS
+            && Process::timeout(30)->run(['docker', 'info'])->successful()
+            && ! Process::timeout(30)->run(['docker', 'manifest', 'inspect', $from])->successful()) {
+            Cache::forget(EdgeContainerDockerfile::EXTRA_EXTENSIONS_CACHE_KEY);
+            $log("Shared PHP image {$from} is not published. This build uses the standard image.\n");
+        }
+
         $delta = EdgeContainerDockerfile::extraPhpExtensions(
             is_array($composer) ? $composer : [],
             is_array($lock) ? $lock : [],
@@ -37,7 +48,6 @@ final class EdgePhpBaseImage
             return;
         }
 
-        $identity = EdgeContainerDockerfile::phpIdentity($checkout);
         $current = EdgeContainerDockerfile::publishedPhpExtensions();
         $names = [];
         foreach (preg_split('/\s+/', $current.' '.$delta) ?: [] as $name) {

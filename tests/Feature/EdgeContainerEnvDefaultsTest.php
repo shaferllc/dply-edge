@@ -83,6 +83,18 @@ test('an app that already has a database keeps it', function () {
     File::deleteDirectory($dir);
 });
 
+test('postgres and mysql skip the sqlite default', function (string $engine) {
+    $site = site();
+    $site->mergeEdgeMeta(['database' => ['engine' => $engine, 'name' => 'production', 'status' => 'provisioning']]);
+    $site->save();
+    $dir = repo(['artisan' => '']);
+
+    $env = EdgeContainerEnvDefaults::ensure($site, $dir, []);
+
+    expect($env)->not->toHaveKey('DB_CONNECTION')->not->toHaveKey('DB_DATABASE');
+    File::deleteDirectory($dir);
+})->with(['postgres', 'mysql']);
+
 test('none skips the sqlite default', function () {
     $site = site();
     $site->mergeEdgeMeta(['database' => ['engine' => 'none', 'name' => 'production']]);

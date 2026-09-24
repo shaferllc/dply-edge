@@ -393,19 +393,33 @@ Match remaining questions to the layer that still exists:
 - **Resources** (container connections / bindings) use a **create-or-attach
   builder** (Laravel Cloud-style), not raw name/host/target fields. Prefer the
   full set of Cloudflare-native Resources the product supports; hide provider
-  jargon in customer copy. Platform-managed static assets **auto-provision** —
-  no operator-facing binding values. **Attaching** a queue, Redis, or similar
-  must **auto-inject** connection env at deploy (same spirit as queues),
-  surface those injected vars clearly, and show framework examples (Laravel
-  Redis/queue/cache, etc.). **Managed Redis** for containers is **Upstash**
-  (or equivalent TCP/HTTP Redis) — create/attach on Resources and **bill with
-  markup**; Durable Objects are **not** a Redis stand-in for app
-  cache/session/queue. A **client certificate** is outbound identity on
-  **Security**, not a Resource — per-app, with injected env keys prefixed
-  (`dply.` / `_dply`) so they never clash with app vars; show usage examples
-  (and a demo) in-product. Once the cert is provisioned, drop the Deploy CTA.
-  Versions / app-router style controls are deploy mechanics, not Resources the
-  operator configures.
+  jargon in customer copy (**never name Upstash / Neon / PlanetScale** — say
+  managed Redis / KV / queue / Postgres / MySQL). Choosing a resource type must
+  open plan/size/settings before create — not a dead-end tile click. Platform-
+  managed static assets **auto-provision** — no operator-facing binding values.
+  **Attaching** a queue, Redis, KV, database, or similar must **auto-inject**
+  connection env at deploy, surface those injected vars clearly, and put
+  Laravel/Rails/PHP usage on an **Implementation** tab (not buried in the
+  overview card). Auto-require framework helpers (`laravel-dply` / `dply-rails`)
+  when a resource needs them. Resource cards show a **cost estimate**; omit
+  cards for disabled capabilities (e.g. no Cache card when cache is off).
+  **Managed Redis** and **managed KV** are Upstash-backed (TCP/HTTP Redis; KV
+  via platform SDKs) — create/attach on Resources, **bill with markup**, and
+  require a payment method when billed. **Managed HTTP queues** use QStash the
+  same way. **Managed Postgres** is Neon-backed (ship first); **managed MySQL**
+  is PlanetScale-backed and stays **Coming soon** until wired. Create UIs must
+  explain plans/compute (not opaque expensive defaults). **Sleep** on a managed
+  store **detaches injected env** so the app cannot read/write and is not
+  charged — it does **not** tear down the store. Prefixed internal/testing keys
+  use the site name plus a `dply` namespace. Durable Objects are **not** a Redis
+  stand-in for app cache/session/queue. A **client certificate** is outbound
+  identity on **Security**, not a Resource — per-app, with injected env keys
+  prefixed (`dply.` / `_dply`) so they never clash with app vars; show usage
+  examples (and a demo) in-product. Once the cert is provisioned, drop the
+  Deploy CTA. Versions / app-router style controls are deploy mechanics, not
+  Resources the operator configures. Queued resource/app deletes must show an
+  in-progress / deleting state — not a silent “queued” toast that leaves the
+  row looking live.
 - **PHP + frontend assets:** when `package.json` has `scripts.build`, detection
   appends the frontend asset step (`FrontendAssetBuild`) beside Composer so the
   stored build command matches the image's Node assets stage (default
@@ -491,8 +505,9 @@ Match remaining questions to the layer that still exists:
   stay free.**   Customer-facing compute pricing **never shows platform margin**;
   cost figures are **estimates**, and sleep/savings context belongs beside them
   where helpful. Larger compute tiers should carry a **lower** relative take so
-  bigger apps stay competitive. **Managed Redis (Upstash)** is billed the same
-  way — meter usage, apply markup, never show the platform take to customers.
+  bigger apps stay competitive.   **Managed Redis, KV, QStash queues, and app databases (Postgres/MySQL)** are
+  billed the same way — meter usage, apply markup, never show the platform take
+  or the underlying vendor name to customers.
 - **Lifecycle:** `StandardSubscriptionCreator` **will not create** a
   subscription for a zero-dollar bill — Stripe rejects $0 subs, so free-zone
   orgs need no card. Note the asymmetry: there is **no automatic cancellation**
@@ -556,7 +571,8 @@ Match remaining questions to the layer that still exists:
   secrets** previews key names only, skips already-linked keys, and the
   **Linked secrets** list matches env-variable rows (mono key, masked value,
   Unlink), collapsible and grouped by note. Environment editors also accept
-  pasted `.env` blocks and auto-render rows.
+  pasted `.env` blocks and auto-render rows. Saving env changes should open the
+  same **redeploy** confirmation modal Resources uses — not silent apply.
 - **Residency** is the org **age** key for secrets moved out of `.env`:
   *dply-managed* stores both halves (`dply_identity` wrapped with `APP_KEY`;
   the UI never shows the private identity), *customer-held* means dply cannot

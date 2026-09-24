@@ -35,7 +35,7 @@ final class EdgeLogCopy
                 'dply-edge',
                 $line,
             );
-            $line = preg_replace('/(?<![A-Za-z0-9_])cloudflare(?![A-Za-z0-9_])/i', 'Dply Edge', $line) ?? $line;
+            $line = preg_replace('/(?<![A-Za-z0-9_@])cloudflare(?![A-Za-z0-9_])/i', 'Dply Edge', $line) ?? $line;
             $kept[] = $line;
         }
 

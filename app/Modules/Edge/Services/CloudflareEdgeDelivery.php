@@ -76,7 +76,11 @@ class CloudflareEdgeDelivery
         $context = $this->contextResolver->forSite($site);
 
         foreach ($site->edgeDeployments as $deployment) {
-            $this->artifactPublisher->deletePrefix($deployment->storage_prefix, $context->diskName);
+            $prefix = $deployment->storage_prefix;
+            if (! is_string($prefix) || trim($prefix) === '') {
+                continue;
+            }
+            $this->artifactPublisher->deletePrefix($prefix, $context->diskName);
         }
 
         $this->hostMapPublisher->unpublish($site, $context);

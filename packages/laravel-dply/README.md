@@ -19,6 +19,21 @@ there is no `queue:work` process:
 The queue binding defaults to `JOBS` (Edge → Jobs); pick another with
 `DPLY_QUEUE=MY_BINDING` or `->onQueue('MY_BINDING')`.
 
+## Key-value store
+
+Attach a key-value store under Resources. The next deploy injects
+`DPLY_KV_HOST` and, unless Redis is attached, `CACHE_STORE`. Then:
+
+```php
+Cache::put('session', 'hello');
+Cache::get('session');
+Cache::forget('session');
+```
+
+The store name is the resource name, lowercased: `Cache::store('testing')`.
+A counter that must be exact belongs on State. Values expire only when the
+TTL is at least 60 seconds.
+
 ## Object storage
 
 Attach a bucket under Resources. The next deploy injects `DPLY_STORAGE_HOST`

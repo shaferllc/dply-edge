@@ -20,6 +20,8 @@ class EdgeSiteCanceller
             throw new \InvalidArgumentException('Site is not an Edge site.');
         }
 
+        $site->forceFill(['status' => Site::STATUS_EDGE_DELETING])->save();
+
         if ($sync) {
             TeardownEdgeSiteJob::dispatchSync($site->id);
 

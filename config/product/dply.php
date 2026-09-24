@@ -345,13 +345,52 @@ return [
             'd1_rows_written_millicents_per_million' => (int) env('DPLY_EDGE_D1_WRITE_MC_PER_MILLION', 100_000),
             'd1_storage_millicents_per_gb_month' => (int) env('DPLY_EDGE_D1_STORAGE_MC_PER_GB_MONTH', 75_000),
             'queue_operations_millicents_per_million' => (int) env('DPLY_EDGE_QUEUE_OPS_MC_PER_MILLION', 40_000),
-            // Redis started for an app. List price: $0.20 / 100K commands,
-            // $0.25 / GB-month after 1 GB, $0.03 / GB after 200 GB.
+            // HTTP delivery. Customer prices, no second markup: $2 per 100k
+            // messages, $0.10 per GB after the first 1 GB. Recorded by the
+            // delivery usage hook. Read by EdgeDeliveryCost.
+            'delivery_messages_millicents_per_100k' => (int) env('DPLY_EDGE_DELIVERY_MESSAGES_MC_PER_100K', 200_000),
+            'delivery_bandwidth_millicents_per_gb' => (int) env('DPLY_EDGE_DELIVERY_BANDWIDTH_MC_PER_GB', 10_000),
+            'delivery_included_bandwidth_bytes' => (int) env('DPLY_EDGE_DELIVERY_INCLUDED_BANDWIDTH_BYTES', 1024 ** 3),
+            // Key-value stores. Customer prices, no second markup: reads $1
+            // per million; writes, deletes, and lists $10 per million; storage
+            // $1 per GB-month after the first 1 GB. Collected by
+            // dply:edge:collect-kv-usage. Read by EdgeKvCost.
+            'kv_reads_millicents_per_million' => (int) env('DPLY_EDGE_KV_READS_MC_PER_MILLION', 100_000),
+            'kv_writes_millicents_per_million' => (int) env('DPLY_EDGE_KV_WRITES_MC_PER_MILLION', 1_000_000),
+            'kv_storage_millicents_per_gb_month' => (int) env('DPLY_EDGE_KV_STORAGE_MC_PER_GB_MONTH', 100_000),
+            // Redis started for an app. Commands are the provider rate, then
+            // markup_percent. Storage and bandwidth are the customer prices
+            // ($0.50 / GB-month after 1 GB, $0.05 / GB after 200 GB). The first
+            // 10 databases are included; each one after that is $1 / month.
             // Collected by dply:edge:collect-redis-usage. Read by EdgeRedisCost.
-            // User request: "ok so how can we implement upstash and bill for it".
             'redis_commands_millicents_per_100k' => (int) env('DPLY_EDGE_REDIS_COMMANDS_MC_PER_100K', 20_000),
-            'redis_storage_millicents_per_gb_month' => (int) env('DPLY_EDGE_REDIS_STORAGE_MC_PER_GB_MONTH', 25_000),
-            'redis_bandwidth_millicents_per_gb' => (int) env('DPLY_EDGE_REDIS_BANDWIDTH_MC_PER_GB', 3_000),
+            'redis_storage_millicents_per_gb_month' => (int) env('DPLY_EDGE_REDIS_STORAGE_MC_PER_GB_MONTH', 50_000),
+            'redis_bandwidth_millicents_per_gb' => (int) env('DPLY_EDGE_REDIS_BANDWIDTH_MC_PER_GB', 5_000),
+            'redis_included_databases' => (int) env('DPLY_EDGE_REDIS_INCLUDED_DATABASES', 10),
+            'redis_database_cents' => (int) env('DPLY_EDGE_REDIS_DATABASE_CENTS', 100),
+            // Postgres compute and storage at Launch list price, then
+            // markup_percent. $0.106/CU-hour, $0.35/GB-month storage,
+            // $0.20/GB-month history, $0.09/GB-month snapshots, $0.10/GB
+            // public transfer after 500 GB. Collected by
+            // dply:edge:collect-postgres-usage. Read by EdgeAppDatabaseCost.
+            'postgres_compute_millicents_per_cu_hour' => (int) env('DPLY_EDGE_POSTGRES_COMPUTE_MC_PER_CU_HOUR', 10_600),
+            'postgres_storage_millicents_per_gb_month' => (int) env('DPLY_EDGE_POSTGRES_STORAGE_MC_PER_GB_MONTH', 35_000),
+            'postgres_history_millicents_per_gb_month' => (int) env('DPLY_EDGE_POSTGRES_HISTORY_MC_PER_GB_MONTH', 20_000),
+            'postgres_snapshot_millicents_per_gb_month' => (int) env('DPLY_EDGE_POSTGRES_SNAPSHOT_MC_PER_GB_MONTH', 9_000),
+            'postgres_transfer_millicents_per_gb' => (int) env('DPLY_EDGE_POSTGRES_TRANSFER_MC_PER_GB', 10_000),
+            'postgres_transfer_included_bytes' => (int) env('DPLY_EDGE_POSTGRES_TRANSFER_INCLUDED_BYTES', 500 * 1024 ** 3),
+            // Fixed sizes are the customer monthly price: double the provider
+            // fee. An extra read region is half of that price. Pay as you go
+            // still uses the command, storage, and bandwidth rates above.
+            'redis_fixed_cents' => [
+                'fixed_250mb' => (int) env('DPLY_EDGE_REDIS_FIXED_250MB_CENTS', 2_000),
+                'fixed_1gb' => (int) env('DPLY_EDGE_REDIS_FIXED_1GB_CENTS', 4_000),
+                'fixed_5gb' => (int) env('DPLY_EDGE_REDIS_FIXED_5GB_CENTS', 20_000),
+                'fixed_10gb' => (int) env('DPLY_EDGE_REDIS_FIXED_10GB_CENTS', 40_000),
+                'fixed_50gb' => (int) env('DPLY_EDGE_REDIS_FIXED_50GB_CENTS', 80_000),
+                'fixed_100gb' => (int) env('DPLY_EDGE_REDIS_FIXED_100GB_CENTS', 160_000),
+                'fixed_500gb' => (int) env('DPLY_EDGE_REDIS_FIXED_500GB_CENTS', 300_000),
+            ],
         ],
     ],
 

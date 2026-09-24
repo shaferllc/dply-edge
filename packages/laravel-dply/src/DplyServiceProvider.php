@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Dply\Laravel;
 
+use Illuminate\Cache\CacheManager;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Queue\QueueManager;
 use Illuminate\Support\Facades\Route;
@@ -25,6 +26,7 @@ class DplyServiceProvider extends ServiceProvider
         }
 
         $this->registerStorageDisks();
+        $this->registerKvStores();
     }
 
     public function boot(): void
@@ -32,6 +34,11 @@ class DplyServiceProvider extends ServiceProvider
         /** @var QueueManager $manager */
         $manager = $this->app['queue'];
         $manager->addConnector('dply', fn () => new DplyConnector);
+        /** @var CacheManager $cache */
+        $cache = $this->app['cache'];
+        $cache->extend('dply', function ($app, array $config) {
+            return $app['cache']->repository(new DplyKvStore((string) ($config['host'] ?? '')));
+        });
         Storage::extend('dply', function ($app, array $config) {
             $adapter = new DplyAdapter((string) ($config['host'] ?? ''));
 
@@ -75,6 +82,32 @@ class DplyServiceProvider extends ServiceProvider
         }
         if ($primary !== '' && env('FILESYSTEM_DISK') === null) {
             $this->app['config']->set('filesystems.default', $primary);
+        }
+    }
+
+    /**
+     * One cache store per attached key-value store. CACHE_STORE names the
+     * default when Redis is not attached.
+     */
+    private function registerKvStores(): void
+    {
+        $stores = [];
+        foreach (explode(',', (string) env('DPLY_KV_STORES', '')) as $pair) {
+            [$name, $host] = array_pad(explode('=', trim($pair), 2), 2, '');
+            if ($name !== '' && $host !== '') {
+                $stores[$name] = $host;
+            }
+        }
+        $host = (string) env('DPLY_KV_HOST', '');
+        $primary = (string) env('DPLY_KV_STORE', '');
+        if ($host !== '' && $primary !== '' && ! isset($stores[$primary])) {
+            $stores[$primary] = $host;
+        }
+        foreach ($stores as $name => $storeHost) {
+            $this->app['config']->set('cache.stores.'.$name, [
+                'driver' => 'dply',
+                'host' => $storeHost,
+            ]);
         }
     }
 }

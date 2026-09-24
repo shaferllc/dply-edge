@@ -34,6 +34,7 @@ module Dply
 end
 
 require "dply/rails/storage"
+require "dply/rails/kv"
 require "dply/rails/queue_middleware"
 require "active_job/queue_adapters/dply_adapter"
 require "dply/rails/railtie" if defined?(::Rails::Railtie)

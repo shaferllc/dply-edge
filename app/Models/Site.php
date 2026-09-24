@@ -152,6 +152,8 @@ class Site extends Model
 
     public const STATUS_EDGE_FAILED = 'edge_failed';
 
+    public const STATUS_EDGE_DELETING = 'edge_deleting';
+
     /**
      * Serverless function resource limits. These map onto the OpenWhisk
      * action `limits` block DigitalOcean Functions is built on, and are

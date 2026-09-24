@@ -216,6 +216,56 @@
         .resource-flow::before { animation: none; opacity: 1; left: 50%; top: 50%; }
     }
 
+    .resource-flow-asleep {
+        opacity: 0.4;
+    }
+    .resource-flow-asleep::before {
+        animation-duration: 4.2s;
+    }
+    .resource-snore {
+        position: relative;
+        display: inline-block;
+        width: 1.35rem;
+        height: 0.9rem;
+        margin-left: 0.15rem;
+        color: var(--color-brand-moss, #5f7d62);
+        font-family: ui-serif, Georgia, serif;
+        font-weight: 600;
+        line-height: 1;
+        vertical-align: 0.15rem;
+    }
+    .resource-snore span {
+        display: inline-block;
+        font-size: 0.7rem;
+        opacity: 0.8;
+    }
+    .resource-snore span:nth-child(2) { font-size: 0.8rem; }
+    .resource-snore span:nth-child(3) { font-size: 0.9rem; }
+    @media (prefers-reduced-motion: no-preference) {
+        .resource-asleep {
+            animation: resource-breathe 4.6s ease-in-out infinite;
+        }
+        .resource-snore span {
+            position: absolute;
+            right: 0;
+            bottom: 0;
+            opacity: 0;
+            animation: resource-snore 3.4s ease-in infinite;
+        }
+        .resource-snore span:nth-child(1) { animation-delay: 0s; }
+        .resource-snore span:nth-child(2) { animation-delay: 0.85s; }
+        .resource-snore span:nth-child(3) { animation-delay: 1.7s; }
+    }
+    @keyframes resource-breathe {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(2px); }
+    }
+    @keyframes resource-snore {
+        0% { opacity: 0; transform: translate(0, 2px) scale(0.65); }
+        18% { opacity: 0.9; }
+        100% { opacity: 0; transform: translate(8px, -18px) scale(1.2); }
+    }
+
     /** Same horizontal bounds as the dashboard (`mx-auto max-w-7xl px-4 sm:px-6 lg:px-8`). */
     .dply-page-shell {
         @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;

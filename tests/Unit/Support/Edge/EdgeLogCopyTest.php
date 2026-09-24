@@ -23,6 +23,12 @@ LOG;
         ->and($clean)->not->toContain('telemetry');
 });
 
+test('customer logs keep npm package specifiers', function () {
+    $clean = EdgeLogCopy::forCustomer("Could not resolve \"@cloudflare/puppeteer\"\n");
+
+    expect($clean)->toContain('@cloudflare/puppeteer');
+});
+
 test('customer logs drop the docker credential-store warning', function () {
     $raw = <<<'LOG'
 WARNING! Your password will be stored unencrypted in /root/.docker/config.json.

@@ -64,17 +64,23 @@ final class UpstashRedisClient
     /**
      * @return array{id: string, url: string}
      */
-    public function create(string $name, ?string $region = null): array
+    /** @var list<string> */
+    public const PLANS = ['payg', 'fixed_250mb', 'fixed_1gb', 'fixed_5gb', 'fixed_10gb', 'fixed_50gb', 'fixed_100gb', 'fixed_500gb'];
+
+    public function create(string $name, ?string $region = null, string $plan = 'payg'): array
     {
         $region = $region !== null && $region !== '' ? $region : $this->region;
         if (! isset(self::REGIONS[$region])) {
             throw new \InvalidArgumentException('Pick a region.');
         }
+        if (! in_array($plan, self::PLANS, true)) {
+            $plan = 'payg';
+        }
         $created = $this->http()->post('/redis/database', [
             'database_name' => $name,
             'platform' => 'aws',
             'primary_region' => $region,
-            'plan' => 'payg',
+            'plan' => $plan,
             'tls' => true,
             'eviction' => true,
         ])->throw()->json();
@@ -137,11 +143,6 @@ final class UpstashRedisClient
         $this->http()->post('/redis/'.($enabled ? 'enable-eviction' : 'disable-eviction').'/'.$id)->throw();
     }
 
-    public function setAutoUpgrade(string $id, bool $enabled): void
-    {
-        $this->http()->post('/redis/'.($enabled ? 'enable-autoupgrade' : 'disable-autoupgrade').'/'.$id)->throw();
-    }
-
     public function setDailyBackup(string $id, bool $enabled): void
     {
         $this->http()->patch('/redis/'.($enabled ? 'enable-dailybackup' : 'disable-dailybackup').'/'.$id)->throw();
@@ -150,6 +151,51 @@ final class UpstashRedisClient
     public function updateBudget(string $id, int $budget): void
     {
         $this->http()->patch('/redis/update-budget/'.$id, ['budget' => $budget])->throw();
+    }
+
+    public function changePlan(string $id, string $plan): void
+    {
+        if (! in_array($plan, self::PLANS, true)) {
+            throw new \InvalidArgumentException('Pick a plan.');
+        }
+        $this->http()->post('/redis/'.$id.'/change-plan', [
+            'plan_name' => $plan,
+            'auto_upgrade' => false,
+        ])->throw();
+    }
+
+    /**
+     * @param  list<string>  $regions
+     */
+    public function updateReadRegions(string $id, array $regions): void
+    {
+        $regions = array_values(array_filter($regions, static fn (string $region): bool => isset(self::REGIONS[$region])));
+        $this->http()->post('/redis/update-regions/'.$id, ['read_regions' => $regions])->throw();
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function backups(string $id): array
+    {
+        $body = $this->http()->get('/redis/list-backup/'.$id)->throw()->json();
+
+        return is_array($body) ? array_values(array_filter($body, 'is_array')) : [];
+    }
+
+    public function createBackup(string $id, string $name): void
+    {
+        $this->http()->post('/redis/create-backup/'.$id, ['name' => $name])->throw();
+    }
+
+    public function deleteBackup(string $id, string $backupId): void
+    {
+        $this->http()->delete('/redis/delete-backup/'.$id.'/'.$backupId)->throw();
+    }
+
+    public function restoreBackup(string $id, string $backupId): void
+    {
+        $this->http()->post('/redis/restore-backup/'.$id, ['backup_id' => $backupId])->throw();
     }
 
     /**
