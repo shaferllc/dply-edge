@@ -61,6 +61,9 @@ class Create extends Component
 
     public string $branch = 'main';
 
+    /** 1 = connect, 2 = repository, 3 = name and deploy. Advances only via Next. */
+    public int $wizardStep = 1;
+
     /** Set once Deploy has created the site, so this page becomes the build log. */
     public string $launchedSiteId = '';
 
@@ -72,6 +75,9 @@ class Create extends Component
      * @var list<array{label: string, url: string, branch: string}>
      */
     public array $availableRepositories = [];
+
+    /** Set when the selected token is rejected, so the picker does not look empty. */
+    public ?string $repositoryLoadError = null;
 
     public bool $runtimeModeTouched = false;
 
@@ -125,6 +131,15 @@ class Create extends Component
 
     public bool $refPickerLoading = false;
 
+    /** @var list<string> */
+    public array $repoBranches = [];
+
+    /** @var list<string> */
+    public array $repoTags = [];
+
+    /** `branch:name` or `tag:name`, bound to the create-page ref select. */
+    public string $gitRef = '';
+
     /**
      * Env vars handed over from the Import wizard, pending persistence
      * until the site is actually created. Keyed by env name, values are
@@ -134,6 +149,36 @@ class Create extends Component
      * @var array<string, string|int|float>
      */
     public array $pendingImportedEnvVars = [];
+
+    public function nextStep(): void
+    {
+        if ($this->wizardStep >= 3 || $this->launchedDeploymentId !== '') {
+            return;
+        }
+
+        if ($this->wizardStep === 1) {
+            $connected = $this->linkedSourceControlAccounts !== [];
+            if (! $connected && trim($this->repo) === '') {
+                $this->addError('repo', __('Connect an account or paste a repository.'));
+
+                return;
+            }
+        }
+
+        if ($this->wizardStep === 2 && trim($this->repo) === '') {
+            $this->addError('repo', __('Enter a repository URL or pick one from the list.'));
+
+            return;
+        }
+
+        $this->resetErrorBag('repo');
+        $this->wizardStep++;
+    }
+
+    public function updatedFormContainerPlan(): void
+    {
+        $this->form->applyContainerPlan();
+    }
 
     public function mount(SourceControlRepositoryBrowser $repositoryBrowser): void
     {

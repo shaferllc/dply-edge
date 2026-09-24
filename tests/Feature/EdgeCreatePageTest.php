@@ -204,7 +204,8 @@ test('a pro org can create a laravel app as a container', function () {
         ->assertNotSet('launchedDeploymentId', '');
 
     expect(Site::query()->count())->toBe(1)
-        ->and(Site::query()->first()->edgeMeta()['runtime_mode'])->toBe('container');
+        ->and(Site::query()->first()->edgeMeta()['runtime_mode'])->toBe('container')
+        ->and(Site::query()->first()->edgeMeta()['database'])->toBe(['engine' => 'sql', 'name' => 'production']);
 });
 
 test('a nest api must be deployed as a container', function () {
@@ -260,9 +261,11 @@ test('renders repo picker when git accounts linked', function () {
 
     Livewire::actingAs($user)
         ->test(Create::class)
+        ->call('nextStep')
         ->assertSee('Select a repository')
         ->assertSee('Github - acme')
-        ->assertSee('Paste a URL instead');
+        ->assertSee('Repository URL')
+        ->assertSee('https://github.com/owner/repo');
 });
 
 test('picker selection populates repo and branch', function () {
@@ -300,6 +303,40 @@ test('picker selection populates repo and branch', function () {
         ->set('repository_selection', 'https://github.com/acme/marketing.git')
         ->assertSet('repo', 'acme/marketing')
         ->assertSet('branch', 'develop');
+});
+
+test('pasting a repository url works while an account is linked', function () {
+    $user = ownerWithOrg();
+
+    $browser = new class extends SourceControlRepositoryBrowser
+    {
+        public function __construct() {}
+
+        public function accountsForUser($user): array
+        {
+            return [['id' => 'acct-1', 'provider' => 'github', 'label' => 'Github - acme']];
+        }
+
+        public function repositoriesForAccount($account): array
+        {
+            return [];
+        }
+
+        public function repositoryError(): ?string
+        {
+            return 'Github rejected this token (HTTP 401 — Bad credentials). Replace it under Source control.';
+        }
+    };
+    app()->instance(SourceControlRepositoryBrowser::class, $browser);
+
+    Livewire::actingAs($user)
+        ->test(Create::class)
+        ->call('nextStep')
+        ->assertSee('Repository URL')
+        ->set('repo', 'https://github.com/BookStackApp/BookStack')
+        ->assertSet('repo', 'BookStackApp/BookStack')
+        ->assertSet('repo_source', 'manual')
+        ->assertSet('form.name', 'bookstack');
 });
 
 test('auto detects when a complete manual repo is entered', function () {

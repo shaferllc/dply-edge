@@ -32,15 +32,6 @@ class EdgeWranglerConfigGenerator
             'ENVIRONMENT = "production"',
         ];
 
-        $logIngestBase = rtrim((string) config('edge.log_ingest.base_url', config('app.url')), '/');
-        $logIngestKey = (string) config('edge.log_ingest.key', '');
-        if ($logIngestBase !== '') {
-            $lines[] = 'LOG_INGEST_BASE_URL = '.json_encode($logIngestBase, JSON_UNESCAPED_SLASHES);
-        }
-        if ($logIngestKey !== '') {
-            $lines[] = 'LOG_INGEST_KEY = '.json_encode($logIngestKey, JSON_UNESCAPED_SLASHES);
-        }
-
         $analyticsDataset = trim((string) config('edge.cloudflare.analytics_dataset', ''));
         if ($analyticsDataset !== '') {
             $lines[] = '';

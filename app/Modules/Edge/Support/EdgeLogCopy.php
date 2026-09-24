@@ -13,7 +13,7 @@ final class EdgeLogCopy
 {
     public static function forCustomer(string $text): string
     {
-        if ($text === '' || stripos($text, 'cloudflare') === false) {
+        if ($text === '') {
             return $text;
         }
 
@@ -23,6 +23,10 @@ final class EdgeLogCopy
 
         foreach ($lines as $line) {
             if (preg_match('/anonymous telemetry|workers-sdk/i', $line) === 1) {
+                continue;
+            }
+
+            if (preg_match('/password will be stored unencrypted|credential helper to remove this warning|credential-stores/i', $line) === 1) {
                 continue;
             }
 

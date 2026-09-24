@@ -244,36 +244,6 @@ export async function handleEdgeForm(
     }
   }
 
-  if (!config.ingest_url || !config.ingest_key) {
-    return jsonFormError('Form delivery is not configured', 503);
-  }
-
-  const payload = {
-    path: endpoint.path,
-    to_email: endpoint.to_email,
-    fields: Object.fromEntries(
-      Object.entries(fields).filter(([k]) => !['cf-turnstile-response', 'turnstile_token', honeypot].includes(k)),
-    ),
-    submitted_at: new Date().toISOString(),
-  };
-  const body = JSON.stringify(payload);
-  const sig = await hmacHex(config.ingest_key, body);
-  try {
-    const res = await fetch(config.ingest_url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Dply-Edge-Form-Signature': sig,
-      },
-      body,
-    });
-    if (!res.ok) {
-      return jsonFormError('Could not deliver form', 502);
-    }
-  } catch {
-    return jsonFormError('Could not deliver form', 502);
-  }
-
   const wantsHtml = (request.headers.get('accept') || '').includes('text/html');
   if (wantsHtml) {
     return new Response('<!doctype html><html><body><p>Thanks — we received your message.</p></body></html>', {
@@ -296,18 +266,6 @@ function jsonFormError(message: string, status: number): Response {
     status,
     headers: { 'Content-Type': 'application/json' },
   });
-}
-
-async function hmacHex(secret: string, body: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
-  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body));
-  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 const WR_COOKIE = 'dply_wr';

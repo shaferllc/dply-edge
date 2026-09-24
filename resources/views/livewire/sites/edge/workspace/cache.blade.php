@@ -16,42 +16,42 @@
                 <label class="block text-xs text-brand-moss">
                     {{ __('What to store') }}
                     <select wire:model="mode" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink dark:border-brand-mist/20 dark:bg-zinc-900">
-                        <option value="off">{{ __('Off') }}</option>
-                        <option value="assets">{{ __('Static assets') }}</option>
-                        <option value="standard">{{ __('Honor response cache headers') }}</option>
-                        <option value="everything">{{ __('Public GET responses') }}</option>
+                        <option value="off" @selected($mode === 'off')>{{ __('Off') }}</option>
+                        <option value="assets" @selected($mode === 'assets')>{{ __('Static assets') }}</option>
+                        <option value="standard" @selected($mode === 'standard')>{{ __('Honor response cache headers') }}</option>
+                        <option value="everything" @selected($mode === 'everything')>{{ __('Public GET responses') }}</option>
                     </select>
                 </label>
                 <label class="block text-xs text-brand-moss">
                     {{ __('Query string') }}
                     <select wire:model="queryString" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink dark:border-brand-mist/20 dark:bg-zinc-900">
-                        <option value="ignore">{{ __('Ignore') }}</option>
-                        <option value="include">{{ __('Include in the cache key') }}</option>
+                        <option value="ignore" @selected($queryString === 'ignore')>{{ __('Ignore') }}</option>
+                        <option value="include" @selected($queryString === 'include')>{{ __('Include in the cache key') }}</option>
                     </select>
                 </label>
                 <label class="block text-xs text-brand-moss">
                     {{ __('Edge TTL') }}
                     <select wire:model="edgeTtl" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink dark:border-brand-mist/20 dark:bg-zinc-900">
-                        <option value="60">{{ __('1 minute') }}</option>
-                        <option value="300">{{ __('5 minutes') }}</option>
-                        <option value="3600">{{ __('1 hour') }}</option>
-                        <option value="14400">{{ __('4 hours') }}</option>
-                        <option value="86400">{{ __('1 day') }}</option>
-                        <option value="604800">{{ __('7 days') }}</option>
-                        <option value="2592000">{{ __('30 days') }}</option>
-                        <option value="31536000">{{ __('1 year') }}</option>
+                        <option value="60" @selected($edgeTtl === '60')>{{ __('1 minute') }}</option>
+                        <option value="300" @selected($edgeTtl === '300')>{{ __('5 minutes') }}</option>
+                        <option value="3600" @selected($edgeTtl === '3600')>{{ __('1 hour') }}</option>
+                        <option value="14400" @selected($edgeTtl === '14400')>{{ __('4 hours') }}</option>
+                        <option value="86400" @selected($edgeTtl === '86400')>{{ __('1 day') }}</option>
+                        <option value="604800" @selected($edgeTtl === '604800')>{{ __('7 days') }}</option>
+                        <option value="2592000" @selected($edgeTtl === '2592000')>{{ __('30 days') }}</option>
+                        <option value="31536000" @selected($edgeTtl === '31536000')>{{ __('1 year') }}</option>
                     </select>
                 </label>
                 <label class="block text-xs text-brand-moss">
                     {{ __('Browser TTL') }}
                     <select wire:model="browserTtl" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink dark:border-brand-mist/20 dark:bg-zinc-900">
-                        <option value="0">{{ __('Revalidate each visit') }}</option>
-                        <option value="300">{{ __('5 minutes') }}</option>
-                        <option value="3600">{{ __('1 hour') }}</option>
-                        <option value="86400">{{ __('1 day') }}</option>
-                        <option value="604800">{{ __('7 days') }}</option>
-                        <option value="2592000">{{ __('30 days') }}</option>
-                        <option value="31536000">{{ __('1 year') }}</option>
+                        <option value="0" @selected($browserTtl === '0')>{{ __('Revalidate each visit') }}</option>
+                        <option value="300" @selected($browserTtl === '300')>{{ __('5 minutes') }}</option>
+                        <option value="3600" @selected($browserTtl === '3600')>{{ __('1 hour') }}</option>
+                        <option value="86400" @selected($browserTtl === '86400')>{{ __('1 day') }}</option>
+                        <option value="604800" @selected($browserTtl === '604800')>{{ __('7 days') }}</option>
+                        <option value="2592000" @selected($browserTtl === '2592000')>{{ __('30 days') }}</option>
+                        <option value="31536000" @selected($browserTtl === '31536000')>{{ __('1 year') }}</option>
                     </select>
                 </label>
             </div>
@@ -64,7 +64,18 @@
         </form>
 
         <div class="mb-4">
-            <p class="text-xs font-semibold text-brand-ink">{{ __('Stored copies') }}</p>
+            <div class="flex items-center justify-between gap-3">
+                <p class="text-xs font-semibold text-brand-ink">{{ __('Stored copies') }}</p>
+                @can('update', $site)
+                    <button
+                        type="button"
+                        wire:click="openConfirmActionModal('clearAll', [], @js(__('Clear all cache')), @js(__('Drop every stored copy for this app. The next visit fetches a fresh response.')), @js(__('Clear all')), true)"
+                        class="rounded-lg border border-brand-ink/15 px-2 py-1 text-xs font-semibold text-brand-ink hover:bg-brand-sand/40"
+                    >
+                        {{ __('Clear all') }}
+                    </button>
+                @endcan
+            </div>
             @if ($listMessage !== '')
                 <p class="mt-1 text-sm text-brand-moss">{{ $listMessage }}</p>
             @elseif ($entries === [])
@@ -119,7 +130,7 @@
 
             <form wire:submit="purgeByTag" class="rounded-2xl border border-brand-ink/10 px-4 py-4">
                 <p class="text-xs font-semibold text-brand-ink">{{ __('Purge a tag') }}</p>
-                <p class="mt-1 text-sm text-brand-moss">{{ __('Drop entries marked with a cache tag, such as article-42.') }}</p>
+                <p class="mt-1 text-sm text-brand-moss">{{ __('Send Cache-Tag: assets on the response, then purge that name. This drops the latest copy stored under the tag.') }}</p>
                 <div class="mt-3 flex flex-wrap items-center gap-2">
                     <input
                         type="text"
@@ -140,4 +151,6 @@
             </form>
         </div>
     </section>
+
+    @include('livewire.partials.confirm-action-modal')
 </div>

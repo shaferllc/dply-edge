@@ -47,6 +47,7 @@ final class EdgeContainerRollout
         $last = [];
         $version = null;
         $id = null;
+        $sawStarting = false;
 
         while (microtime(true) < $deadline) {
             try {
@@ -70,6 +71,9 @@ final class EdgeContainerRollout
             $failed = (int) ($last['failed'] ?? 0);
             $starting = (int) ($last['starting'] ?? 0) + (int) ($last['scheduling'] ?? 0);
             $progress = self::rolloutProgress($client->containerRollouts($id));
+            if ($starting > 0) {
+                $sawStarting = true;
+            }
 
             if ($failed > 0) {
                 $log(sprintf("Rollout reports %d failed instance(s) — %s\n", $failed, (string) json_encode($last)));
@@ -77,19 +81,20 @@ final class EdgeContainerRollout
                 return ['ok' => false, 'settled' => true, 'health' => $last, 'version' => $version, 'reason' => 'container instances failed to start'];
             }
 
-            // Health can sit at starting=0 while Cloudflare's rollout is still
-            // at 0% (instances 0/N). That is not settled.
-            if ($starting === 0 && ! $progress['in_progress']) {
-                $log(sprintf("Rollout settled (version %s, %d%%) — %s\n", $version ?? '?', $progress['percentage'] ?? 100, (string) json_encode($last)));
+            // A reported 0% with nothing starting is still a rollout. A missing
+            // percent is not: once instances have started and then gone idle,
+            // the new image is up.
+            if ($starting === 0 && self::healthSettled($progress, $last, $sawStarting)) {
+                $percent = $progress['percentage'] ?? 100;
+                $log(sprintf("Rollout settled (version %s, %d%%) — %s\n", $version ?? '?', $percent, (string) json_encode($last)));
 
                 return ['ok' => true, 'settled' => true, 'health' => $last, 'version' => $version, 'reason' => null];
             }
 
-            $log(sprintf(
-                "Rollout in progress — %s%%, %d instance(s) starting…\n",
-                $progress['percentage'] === null ? '?' : (string) $progress['percentage'],
-                $starting,
-            ));
+            $detail = $progress['percentage'] === null
+                ? sprintf('%d instance(s) starting', $starting)
+                : sprintf('%d%%, %d instance(s) starting', $progress['percentage'], $starting);
+            $log("Rollout in progress — {$detail}…\n");
             sleep($pollSeconds);
         }
 
@@ -119,7 +124,9 @@ final class EdgeContainerRollout
         }
 
         $status = (string) ($latest['status'] ?? '');
-        $percentage = data_get($latest, 'progress.version_distribution.target_version_percentage');
+        $percentage = data_get($latest, 'progress.version_distribution.target_version_percentage')
+            ?? data_get($latest, 'progress.percentage')
+            ?? ($latest['percentage'] ?? null);
         $percentage = is_numeric($percentage) ? (int) $percentage : null;
         $stepsDone = true;
         foreach (is_array($latest['steps'] ?? null) ? $latest['steps'] : [] as $step) {
@@ -131,6 +138,29 @@ final class EdgeContainerRollout
         $done = $status === 'completed' && $stepsDone && ($percentage === null || $percentage >= 100);
 
         return ['in_progress' => ! $done, 'percentage' => $percentage, 'status' => $status !== '' ? $status : null];
+    }
+
+    /**
+     * @param  array{in_progress: bool, percentage: int|null, status: ?string}  $progress
+     * @param  array<string, mixed>  $health
+     */
+    public static function healthSettled(array $progress, array $health, bool $sawStarting): bool
+    {
+        $starting = (int) ($health['starting'] ?? 0) + (int) ($health['scheduling'] ?? 0);
+        if ($starting > 0 || (int) ($health['failed'] ?? 0) > 0) {
+            return false;
+        }
+        if (! $progress['in_progress']) {
+            return true;
+        }
+        // An explicit 0% is Cloudflare still moving traffic. A missing percent
+        // after instances have started means the field was absent, not 0%.
+        if ($progress['percentage'] === 0) {
+            return false;
+        }
+        $up = (int) ($health['active'] ?? 0) + (int) ($health['healthy'] ?? 0);
+
+        return $progress['percentage'] === null && ($sawStarting || $up > 0);
     }
 
     private function applicationId(EdgeCloudflareClient $client, string $name): ?string

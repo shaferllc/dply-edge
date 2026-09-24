@@ -82,13 +82,69 @@
                 </div>
                 <div>
                     <x-input-label for="ctr-jurisdiction" :value="__('Run only in')" />
-                    <select id="ctr-jurisdiction" wire:model="jurisdiction" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm dark:bg-zinc-900">
+                    <select id="ctr-jurisdiction" wire:model.live="jurisdiction" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm dark:bg-zinc-900">
                         <option value="">{{ __('Anywhere (fastest)') }}</option>
-                        <option value="eu">{{ __('EU') }}</option>
-                        <option value="fedramp">{{ __('FedRAMP') }}</option>
+                        <option value="eu">{{ __('EU only') }}</option>
+                        <option value="fedramp">{{ __('US FedRAMP only') }}</option>
                     </select>
+                    <p class="mt-1 text-xs text-brand-moss">
+                        @if ($jurisdiction === 'eu')
+                            {{ __('The app wakes only in Europe. Use this when data has to stay in the EU. Visitors outside Europe wait longer for a cold start.') }}
+                        @elseif ($jurisdiction === 'fedramp')
+                            {{ __('The app wakes only in the US FedRAMP locations. Use this when the workload has to stay inside that boundary.') }}
+                        @else
+                            {{ __('The app wakes in the nearest region. That is the fastest start after sleep.') }}
+                        @endif
+                    </p>
                 </div>
             </div>
+            <fieldset>
+                <legend class="text-xs font-semibold text-brand-ink">{{ __('Regions') }}</legend>
+                <p class="mt-1 text-xs text-brand-moss">{{ __('Leave all unchecked to use every region inside the choice above.') }}</p>
+                <div class="mt-2 grid gap-2 sm:grid-cols-3">
+                    @foreach (\App\Modules\Edge\Support\EdgeContainerSettings::REGIONS as $code => $label)
+                        @continue($jurisdiction !== '' && ! in_array($code, \App\Modules\Edge\Support\EdgeContainerSettings::JURISDICTION_REGIONS[$jurisdiction] ?? [], true))
+                        <label class="flex items-center gap-2 text-xs text-brand-ink">
+                            <input type="checkbox" value="{{ $code }}" wire:model="regions" class="rounded border-brand-ink/20 text-brand-sage" />
+                            <span>{{ $code }} · {{ __($label) }}</span>
+                        </label>
+                    @endforeach
+                </div>
+            </fieldset>
+
+            <fieldset class="space-y-3">
+                <legend class="text-xs font-semibold text-brand-ink">{{ __('Rollout') }}</legend>
+                <div>
+                    <x-input-label for="ctr-rollout" :value="__('How a deploy replaces instances')" />
+                    <select id="ctr-rollout" wire:model.live="rollout_mode" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm dark:bg-zinc-900">
+                        <option value="gradual">{{ __('Gradual') }}</option>
+                        <option value="immediate">{{ __('Immediate') }}</option>
+                        <option value="none">{{ __('None') }}</option>
+                    </select>
+                    <p class="mt-1 text-xs text-brand-moss">
+                        @if ($rollout_mode === 'immediate')
+                            {{ __('Every instance moves to the new image in one step. A replaced instance is asked to stop and has 15 minutes to exit.') }}
+                        @elseif ($rollout_mode === 'none')
+                            {{ __('The next deploy updates Worker code only. Running instances keep the current image until you pick Gradual or Immediate.') }}
+                        @else
+                            {{ __('Instances move to the new image in steps. One extra instance is reserved so the new image can start before an old one stops. A replaced instance is asked to stop and has 15 minutes to exit.') }}
+                        @endif
+                    </p>
+                </div>
+                <div class="grid gap-3 sm:grid-cols-2">
+                    <div>
+                        <x-input-label for="ctr-rollout-steps" :value="__('Steps')" />
+                        <x-text-input id="ctr-rollout-steps" wire:model="rollout_steps" type="text" placeholder="10, 100" class="mt-1 block w-full text-sm" />
+                        <p class="mt-1 text-xs text-brand-moss">{{ __('Leave blank for the default: 100 when you run one instance, otherwise 10 then 100. The last step must be 100.') }}</p>
+                        <x-input-error :messages="$errors->get('rollout_steps')" class="mt-1" />
+                    </div>
+                    <div>
+                        <x-input-label for="ctr-rollout-grace" :value="__('Wait before replacing (seconds)')" />
+                        <x-text-input id="ctr-rollout-grace" wire:model="rollout_active_grace_period" type="number" min="0" max="3600" class="mt-1 block w-full text-sm" />
+                        <p class="mt-1 text-xs text-brand-moss">{{ __('0 replaces an instance as soon as the rollout reaches it.') }}</p>
+                    </div>
+                </div>
+            </fieldset>
 
             <label class="flex items-start gap-3">
                 <input type="checkbox" wire:model="migrate_on_boot" class="mt-0.5 rounded border-brand-ink/20 text-brand-sage" />

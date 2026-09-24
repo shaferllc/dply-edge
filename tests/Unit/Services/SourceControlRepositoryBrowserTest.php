@@ -136,3 +136,19 @@ test('it stops paging github at the page cap', function () {
 
     Http::assertSentCount(10);
 });
+
+test('it reports a provider rejection instead of an empty repository list', function () {
+    Http::fake([
+        'https://api.github.com/user/repos*' => Http::response(['message' => 'Bad credentials'], 401),
+    ]);
+
+    $browser = new SourceControlRepositoryBrowser;
+    $pat = new GitProviderToken([
+        'provider' => 'github',
+        'access_token' => 'github_pat_dead',
+    ]);
+
+    expect($browser->repositoriesForAccount($pat))->toBe([])
+        ->and($browser->repositoryError())->toContain('401')
+        ->and($browser->repositoryError())->toContain('Bad credentials');
+});

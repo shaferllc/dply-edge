@@ -38,7 +38,23 @@ class Container extends Component
 
     public string $jurisdiction = '';
 
+    /** @var list<string> */
+    public array $regions = [];
+
     public bool $scheduler = false;
+
+    public bool $sticky_sessions = true;
+
+    public bool $dedicated_jobs = true;
+
+    public string $rollout_mode = 'gradual';
+
+    /** @var list<int> */
+    public array $rollout_step_percentage = [];
+
+    public int $rollout_active_grace_period = 0;
+
+    public string $rollout_steps = '';
 
     /** @var list<array{at: ?string, level: string, message: string}>|null */
     public ?array $logs = null;
@@ -51,26 +67,39 @@ class Container extends Component
         foreach (EdgeContainerSettings::for($site) as $key => $value) {
             $this->{$key} = $value;
         }
+        $this->rollout_steps = implode(', ', $this->rollout_step_percentage);
     }
 
     public function save(bool $redeploy = false): void
     {
         $this->authorize('update', $this->site);
         $this->validate([
-            'instance_type' => ['required', Rule::in(array_keys(EdgeContainerSettings::INSTANCE_TYPES))],
+            'instance_type' => ['required', Rule::in([...array_keys(EdgeContainerSettings::INSTANCE_TYPES), 'custom'])],
             'max_instances' => ['required', 'integer', 'between:1,'.EdgeContainerSettings::MAX_INSTANCES],
             'sleep_after' => ['required', Rule::in(EdgeContainerSettings::SLEEP_AFTER)],
             'jurisdiction' => [Rule::in(EdgeContainerSettings::JURISDICTIONS)],
+            'rollout_mode' => ['required', Rule::in(EdgeContainerSettings::ROLLOUT_MODES)],
+            'rollout_active_grace_period' => ['integer', 'between:0,'.EdgeContainerSettings::ROLLOUT_GRACE_MAX],
         ]);
+        $stepsError = EdgeContainerSettings::rolloutStepsError($this->rollout_steps);
+        if ($stepsError !== null) {
+            $this->addError('rollout_steps', $stepsError);
 
-        $this->site->mergeEdgeMeta(['container' => [
-            'instance_type' => $this->instance_type,
-            'max_instances' => $this->max_instances,
-            'sleep_after' => $this->sleep_after,
-            'migrate_on_boot' => $this->migrate_on_boot,
-            'jurisdiction' => $this->jurisdiction,
-            'scheduler' => $this->scheduler,
-        ]]);
+            return;
+        }
+
+        $current = is_array($this->site->edgeMeta()['container'] ?? null) ? $this->site->edgeMeta()['container'] : [];
+        $current['instance_type'] = $this->instance_type;
+        $current['max_instances'] = $this->max_instances;
+        $current['sleep_after'] = $this->sleep_after;
+        $current['migrate_on_boot'] = $this->migrate_on_boot;
+        $current['jurisdiction'] = $this->jurisdiction;
+        $current['regions'] = EdgeContainerSettings::normalizeRegions($this->regions, $this->jurisdiction);
+        $current['scheduler'] = $this->scheduler;
+        $current['rollout_mode'] = $this->rollout_mode;
+        $current['rollout_step_percentage'] = EdgeContainerSettings::parseRolloutSteps($this->rollout_steps);
+        $current['rollout_active_grace_period'] = $this->rollout_active_grace_period;
+        $this->site->mergeEdgeMeta(['container' => $current]);
         $this->site->save();
 
         if ($redeploy) {
@@ -106,7 +135,12 @@ class Container extends Component
             ->where('date', '>=', now()->startOfMonth()->toDateString())
             ->selectRaw('COALESCE(SUM(cpu_seconds),0) cpu, COALESCE(SUM(memory_gib_seconds),0) mem, COALESCE(SUM(disk_gb_seconds),0) disk, COALESCE(SUM(tx_bytes),0) tx')
             ->first();
-        [$vcpu, $memory, $disk] = EdgeContainerSettings::INSTANCE_TYPES[$this->instance_type] ?? EdgeContainerSettings::INSTANCE_TYPES['basic'];
+        if ($this->instance_type === 'custom') {
+            $shape = EdgeContainerSettings::shape($this->site);
+            [$vcpu, $memory, $disk] = [$shape['vcpu'], $shape['memory_gib'], $shape['disk_gb']];
+        } else {
+            [$vcpu, $memory, $disk] = EdgeContainerSettings::INSTANCE_TYPES[$this->instance_type] ?? EdgeContainerSettings::INSTANCE_TYPES['basic'];
+        }
 
         return view('livewire.sites.edge.workspace.container', array_merge(
             EdgeSiteViewData::context($this->site, 'container'),

@@ -23,6 +23,21 @@ LOG;
         ->and($clean)->not->toContain('telemetry');
 });
 
+test('customer logs drop the docker credential-store warning', function () {
+    $raw = <<<'LOG'
+WARNING! Your password will be stored unencrypted in /root/.docker/config.json.
+Configure a credential helper to remove this warning. See
+https://docs.docker.com/engine/reference/commandline/login/#credential-stores
+Image pushed.
+LOG;
+
+    $clean = EdgeLogCopy::forCustomer($raw);
+
+    expect($clean)->toBe('Image pushed.')
+        ->and($clean)->not->toContain('password')
+        ->and($clean)->not->toContain('config.json');
+});
+
 test('rendered build output hides the vendor name', function () {
     $html = AnsiHtml::toHtml("Waiting for Cloudflare to roll the container out.\n");
 

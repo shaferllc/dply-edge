@@ -136,6 +136,8 @@ has **no breadcrumb**.
   header previews update per keystroke (plain `wire:model` only syncs on blur).
 - **Git repo pickers must not auto-select the first repo** when the list loads.
   Leave it unselected until the operator picks.
+- **Detect branches and tags** from the repo; never assume `main`. Let the
+  operator pick a ref (branch or tag) when the default is missing or wrong.
 - Auto-detect build command and output dir on a complete repo paste
   (debounced), with **Detect runtime** for manual retry. Filter out
   framework/tooling monorepo roots that will not emit a site `dist/` — prefer
@@ -150,7 +152,14 @@ has **no breadcrumb**.
   (the `AddProviderCredentialModal` pattern) — never an empty dropdown, never a
   forced trip to `/credentials`.
 - **Edge customer copy hides Cloudflare internals** — the UI label is
-  **Bindings**, not "Cloudflare bindings".
+  **Bindings**, not "Cloudflare bindings". Never surface provider jargon
+  (Workers connections, binding types, dash URLs) in customer copy.
+- Accept a **pasted repository URL** as well as the picker. Multi-step create
+  uses an explicit **Next** per step.
+- Compute **size tile pickers** must let the operator deselect back to the
+  default/lite plan — selecting a larger size must not trap them. Show an
+  **estimated price** on the selected size (customer-facing estimate, never
+  platform margin).
 
 ### Edge workspace IA
 
@@ -159,8 +168,16 @@ has **no breadcrumb**.
   Projects / {app}**; crumbs that include the project name show the **project
   logo**. On a deployment detail page, the crumb points back to **Deploys** and
   the Deploys nav item stays highlighted.
+- **Workspace section URLs drop the `edge-` prefix** — `/traffic`, `/logs`,
+  `/cache`, `/environment`, `/members`, `/waiting-room`, `/rate-limits`, and
+  peers — not `/edge-traffic` and the like. Keep redirects from legacy
+  `/edge-*` paths.
 - There is **no org-level Compute hub**. Databases and Queues belong **per app**,
   not as org-wide Projects leaves.
+- **Cache** is a first-class workspace section (CDN/cache options, tags, purge,
+  and stored-copy listing when the edge worker actually writes cache). Settings
+  that only take effect after a worker redeploy must say so — do not imply the
+  list will fill from Save alone.
 - **Overview** = status + URL + actions + shortcuts into dedicated leaves. Not
   a dump of delivery/domains/bindings/traffic/billing, and **no overlapping
   copies** of Traffic, Deploys or other leaf content.
@@ -361,10 +378,34 @@ Match remaining questions to the layer that still exists:
   Containers via `Services/Containers/*`. Rollouts are **gradual**
   (zero-downtime); wrangler gets `max_instances + 1` spare while traffic
   `getRandom` stays at the operator setting — `max_instances: 1` alone cannot
-  finish an overlapping deploy. New deploys apply Container tab settings
-  automatically (no special Save-and-redeploy for the next build). Block a new
-  deploy while a rollout is still in progress. Scale-to-zero / cold start must
-  **not** surface as a raw visitor **500** — wake or retry cleanly.
+  finish an overlapping deploy. Expose the full Cloudflare Containers
+  **scaling and routing** surface the product supports (not a single hidden
+  default). New deploys apply Container tab settings automatically (no special
+  Save-and-redeploy for the next build). Block a new deploy while a rollout is
+  still in progress. A **failed or incomplete** deploy must **not** present
+  the app as live. Scale-to-zero / cold start must **not** surface as a raw
+  visitor **500** — wake or retry cleanly; visitor errors use a **branded**
+  page (not raw provider/nginx text), and when the app's debug mode is on,
+  surface the app's own error output. An app-origin **HTTP 500** is the app's
+  response, not a platform deploy/health failure. Platform **PHP base images**
+  (`EdgePhpBaseImage`) are reused/updated so common extensions stay preinstalled
+  and builds stay quiet (no duplicate "module already installed" noise).
+- **Resources** (container connections / bindings) use a **create-or-attach
+  builder** (Laravel Cloud-style), not raw name/host/target fields. Prefer the
+  full set of Cloudflare-native Resources the product supports; hide provider
+  jargon in customer copy. Platform-managed static assets **auto-provision** —
+  no operator-facing binding values. **Attaching** a queue, Redis, or similar
+  must **auto-inject** connection env at deploy (same spirit as queues),
+  surface those injected vars clearly, and show framework examples (Laravel
+  Redis/queue/cache, etc.). **Managed Redis** for containers is **Upstash**
+  (or equivalent TCP/HTTP Redis) — create/attach on Resources and **bill with
+  markup**; Durable Objects are **not** a Redis stand-in for app
+  cache/session/queue. A **client certificate** is outbound identity on
+  **Security**, not a Resource — per-app, with injected env keys prefixed
+  (`dply.` / `_dply`) so they never clash with app vars; show usage examples
+  (and a demo) in-product. Once the cert is provisioned, drop the Deploy CTA.
+  Versions / app-router style controls are deploy mechanics, not Resources the
+  operator configures.
 - **PHP + frontend assets:** when `package.json` has `scripts.build`, detection
   appends the frontend asset step (`FrontendAssetBuild`) beside Composer so the
   stored build command matches the image's Node assets stage (default
@@ -403,11 +444,15 @@ Match remaining questions to the layer that still exists:
   over `Site::edgeUsageHostnames()` with a per-host `analytics_zone`, through
   the Cloudflare GraphQL API. **Build & deploy logs** are CI/build output only,
   not visitor HTTP.
-- Worker **Analytics Engine** plus HMAC log/vitals ingest
-  (`DPLY_EDGE_LOG_INGEST_*`, `DPLY_EDGE_CF_ANALYTICS_DATASET`), optional
+- Prefer **Cloudflare APIs** (GraphQL analytics, Workers/Containers observability)
+  for traffic and runtime logs — **not** tunnel-posted live-request ingest via
+  `DPLY_EDGE_LOG_INGEST_*`. Do not depend on a public tunnel URL for access-log
+  rows to appear.
+- Worker **Analytics Engine** (`DPLY_EDGE_CF_ANALYTICS_DATASET`), optional
   **Logpush** (`dply:edge:ensure-logpush`), AE SQL rollup
   (`dply:edge:rollup-analytics-engine`), R2 in usage snapshots, Core Web Vitals
-  RUM, and `dply:edge:prune-analytics` for retention.
+  RUM, and `dply:edge:prune-analytics` for retention remain where they still
+  apply.
 - Stats count **Worker-routed Edge hostnames only**, never the Laravel app URL.
 - **Core Web Vitals need browser RUM beacons** to `/hooks/edge/{site}/vitals`.
   CDN "live requests" alone leave the vitals panel empty.
@@ -441,9 +486,13 @@ Match remaining questions to the layer that still exists:
   reduced from an earlier 5M — the config comment explains why), then metered
   **overage** when usage billing is on (`DPLY_EDGE_USAGE_BILLING_ENABLED`,
   `edge_usage_snapshots`, `dply:edge:collect-usage`). Overage = billable units
-  × cost-floor rates × **`dply.edge.usage_billing.markup_percent`** (~40%, read
+  × cost-floor rates × **`dply.edge.usage_billing.markup_percent`** (25%, read
   by `EdgeUsageCostCalculator`) into the Stripe `edge_usage` price. **Previews
-  stay free.**
+  stay free.**   Customer-facing compute pricing **never shows platform margin**;
+  cost figures are **estimates**, and sleep/savings context belongs beside them
+  where helpful. Larger compute tiers should carry a **lower** relative take so
+  bigger apps stay competitive. **Managed Redis (Upstash)** is billed the same
+  way — meter usage, apply markup, never show the platform take to customers.
 - **Lifecycle:** `StandardSubscriptionCreator` **will not create** a
   subscription for a zero-dollar bill — Stripe rejects $0 subs, so free-zone
   orgs need no card. Note the asymmetry: there is **no automatic cancellation**
@@ -502,11 +551,12 @@ Match remaining questions to the layer that still exists:
 - Org **Secrets** is key custody plus external stores (Vault, AWS SM, Doppler)
   and site-linked write-never secrets an operator pastes (single key or a bulk
   `.env`; comments, headers and `${VAR}` are fine) that inject on the next
-  deploy. On the Environment step, **Paste or link secrets** previews key names
-  only, skips already-linked keys, and the **Linked secrets** list matches
-  env-variable rows (mono key, masked value, Unlink), collapsible and grouped
-  by note. Environment editors also accept pasted `.env` blocks and
-  auto-render rows.
+  deploy. **Container env stays on dply secrets** — do not make Cloudflare
+  Secrets Store the primary store. On the Environment step, **Paste or link
+  secrets** previews key names only, skips already-linked keys, and the
+  **Linked secrets** list matches env-variable rows (mono key, masked value,
+  Unlink), collapsible and grouped by note. Environment editors also accept
+  pasted `.env` blocks and auto-render rows.
 - **Residency** is the org **age** key for secrets moved out of `.env`:
   *dply-managed* stores both halves (`dply_identity` wrapped with `APP_KEY`;
   the UI never shows the private identity), *customer-held* means dply cannot

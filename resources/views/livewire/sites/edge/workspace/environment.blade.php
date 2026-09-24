@@ -13,11 +13,12 @@
         <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
             @include('livewire.sites.edge.workspace.partials.feature-guide', [
                 'docSlug' => 'edge-environment',
-                'what' => __('Encrypted production secrets for this Edge site — injected into the build and middleware/SSR workers on the next deploy.'),
+                'what' => ($site->edgeMeta()['runtime_mode'] ?? '') === 'container'
+                    ? __('Encrypted production secrets for this app. The next deploy puts each one in the container environment.')
+                    : __('Encrypted production secrets for this Edge site — injected into the build and middleware/SSR workers on the next deploy.'),
                 'steps' => [
-                    __('Set a key and value, then click Set.'),
-                    __('Values are write-only after save — you cannot read them back from the dashboard.'),
-                    __('Redeploy so the new secrets reach the build and Worker.'),
+                    __('Edit the KEY=value lines, then save.'),
+                    __('Redeploy so the new values reach the app.'),
                 ],
                 'setupLinks' => [
                     [
@@ -118,6 +119,20 @@ env:
                 </x-edge-yaml-example>
             </div>
         </details>
+
+        @can('update', $site)
+            <x-unsaved-changes-bar
+                :message="__('Save these environment changes, or redeploy to apply them now.')"
+                saveAction="saveEdgeEnvText"
+                :saveLabel="__('Save')"
+                discardAction="discardEdgeEnv"
+                extraAction="redeployEdgeEnv"
+                :extraLabel="__('Redeploy')"
+                targets="edgeEnvText"
+                formPendingWire="pending"
+                clientDirty
+            />
+        @endcan
     @endif
 
     @include('livewire.partials.confirm-action-modal')

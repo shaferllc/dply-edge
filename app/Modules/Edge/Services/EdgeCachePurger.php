@@ -17,11 +17,9 @@ use Illuminate\Support\Facades\Log;
  * cached key for that tag. {@see purgeByTag()} reads the pointer,
  * deletes the referenced cache entry, then deletes the pointer itself.
  *
- * Per-site purge wipes the cache pointers for *known* tags only — we
- * don't list/scan all keys because KV `list` is rate-limited and
- * iteration is expensive on busy namespaces. For full per-site wipe
- * the operator should redeploy with a different storage prefix, which
- * causes natural cache misses on the new prefix.
+ * {@see purgeAll()} lists this site's cache keys and tag pointers
+ * (prefix + cursor, capped) and deletes them. It does not scan the
+ * rest of the namespace.
  */
 class EdgeCachePurger
 {
@@ -190,6 +188,93 @@ class EdgeCachePurger
             'purged_keys' => $purged,
             'message' => sprintf('Purged %d of %d path(s).', count($purged), count($paths)),
         ];
+    }
+
+    /**
+     * Delete every stored copy and tag pointer for this site.
+     *
+     * @return array{ok: bool, purged_keys: list<string>, message: string}
+     */
+    public function purgeAll(Site $site): array
+    {
+        $context = $this->contextResolver->forSite($site);
+        if ($context->cacheKvNamespaceId === '') {
+            return ['ok' => false, 'purged_keys' => [], 'message' => 'Edge cache namespace not configured for this site.'];
+        }
+
+        $siteId = (string) $site->id;
+        $keys = [];
+        foreach (["edge_cache:{$siteId}:", "edge_cache_tag:{$siteId}:"] as $prefix) {
+            $listed = $this->listKeys($context->accountId, $context->apiToken, $context->cacheKvNamespaceId, $prefix);
+            if ($listed === null) {
+                return ['ok' => false, 'purged_keys' => [], 'message' => 'Cloudflare KV list failed.'];
+            }
+            array_push($keys, ...$listed);
+        }
+
+        $keys = array_values(array_unique($keys));
+        if ($keys === []) {
+            return ['ok' => true, 'purged_keys' => [], 'message' => 'Nothing stored to clear.'];
+        }
+
+        $purged = [];
+        foreach ($keys as $key) {
+            $del = $this->http
+                ->withToken($context->apiToken)
+                ->timeout(10)
+                ->delete($this->kvValueUrl($context->accountId, $context->cacheKvNamespaceId, $key));
+            if ($del->successful() || $del->status() === 404) {
+                $purged[] = $key;
+            } else {
+                Log::warning('EdgeCachePurger: clear failed', ['site' => $siteId, 'key' => $key, 'status' => $del->status()]);
+            }
+        }
+
+        return [
+            'ok' => count($purged) === count($keys),
+            'purged_keys' => $purged,
+            'message' => sprintf('Cleared %d stored %s.', count($purged), count($purged) === 1 ? 'copy' : 'copies'),
+        ];
+    }
+
+    /**
+     * @return list<string>|null
+     */
+    private function listKeys(string $accountId, string $apiToken, string $namespaceId, string $prefix): ?array
+    {
+        $keys = [];
+        $cursor = null;
+        for ($page = 0; $page < 5; $page++) {
+            $query = ['prefix' => $prefix, 'limit' => 100];
+            if (is_string($cursor) && $cursor !== '') {
+                $query['cursor'] = $cursor;
+            }
+            $response = $this->http
+                ->withToken($apiToken)
+                ->timeout(10)
+                ->get($this->kvKeysUrl($accountId, $namespaceId), $query);
+            if (! $response->successful()) {
+                Log::warning('EdgeCachePurger: list failed', ['prefix' => $prefix, 'status' => $response->status()]);
+
+                return null;
+            }
+            foreach (is_array($response->json('result')) ? $response->json('result') : [] as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+                $name = (string) ($row['name'] ?? '');
+                if (str_starts_with($name, $prefix)) {
+                    $keys[] = $name;
+                }
+            }
+            $next = $response->json('result_info.cursor');
+            if (! is_string($next) || $next === '' || $next === $cursor) {
+                break;
+            }
+            $cursor = $next;
+        }
+
+        return $keys;
     }
 
     private function kvKeysUrl(string $accountId, string $namespaceId): string

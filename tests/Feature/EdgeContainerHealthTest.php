@@ -49,6 +49,8 @@ test('a 5xx container is reported as a failed deploy', function () {
     (new CheckEdgeContainerHealthJob($deployment->id))->handle();
 
     expect($deployment->fresh()->meta['container']['health'])->toMatchArray(['ok' => false, 'status' => 500])
+        ->and($deployment->fresh()->status)->toBe(EdgeDeployment::STATUS_FAILED)
+        ->and($deployment->fresh()->failed_at)->not->toBeNull()
         ->and(NotificationEvent::query()->where('event_key', 'edge.deploy.failed')->count())->toBe(1);
 });
 

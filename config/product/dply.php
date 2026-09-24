@@ -290,8 +290,8 @@ return [
     | `dply:edge:collect-usage` (scheduled daily).
     |
     | Unit rates are ~Cloudflare list (cost floor). `markup_percent` is applied
-    | on the metered subtotal (default 40%) so overage is profitable. Plan
-    | allowances cover quiet sites; only extras and SSR add a site fee.
+    | on the metered subtotal (default 25%). Plan allowances cover quiet
+    | sites; only extras and SSR add a site fee.
     |
     | Approx CF list (2026): Workers requests ~$0.30/M, R2 storage ~$0.015/GB-mo,
     | Class A $4.50/M, Class B $0.36/M. Egress is charged as CDN delivery.
@@ -300,7 +300,7 @@ return [
         'usage_billing' => [
             'enabled' => filter_var(env('DPLY_EDGE_USAGE_BILLING_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
             // Blanket margin on overage.
-            'markup_percent' => (int) env('DPLY_EDGE_USAGE_MARKUP_PERCENT', 40),
+            'markup_percent' => (int) env('DPLY_EDGE_USAGE_MARKUP_PERCENT', 25),
             // Cost-floor unit rates (cents). Customer pays rate × (1 + markup%).
             'requests_cents_per_million' => (int) env('DPLY_EDGE_USAGE_REQUESTS_CENTS_PER_MILLION', 50),
             'egress_cents_per_gb' => (int) env('DPLY_EDGE_USAGE_EGRESS_CENTS_PER_GB', 5),
@@ -345,6 +345,13 @@ return [
             'd1_rows_written_millicents_per_million' => (int) env('DPLY_EDGE_D1_WRITE_MC_PER_MILLION', 100_000),
             'd1_storage_millicents_per_gb_month' => (int) env('DPLY_EDGE_D1_STORAGE_MC_PER_GB_MONTH', 75_000),
             'queue_operations_millicents_per_million' => (int) env('DPLY_EDGE_QUEUE_OPS_MC_PER_MILLION', 40_000),
+            // Redis started for an app. List price: $0.20 / 100K commands,
+            // $0.25 / GB-month after 1 GB, $0.03 / GB after 200 GB.
+            // Collected by dply:edge:collect-redis-usage. Read by EdgeRedisCost.
+            // User request: "ok so how can we implement upstash and bill for it".
+            'redis_commands_millicents_per_100k' => (int) env('DPLY_EDGE_REDIS_COMMANDS_MC_PER_100K', 20_000),
+            'redis_storage_millicents_per_gb_month' => (int) env('DPLY_EDGE_REDIS_STORAGE_MC_PER_GB_MONTH', 25_000),
+            'redis_bandwidth_millicents_per_gb' => (int) env('DPLY_EDGE_REDIS_BANDWIDTH_MC_PER_GB', 3_000),
         ],
     ],
 

@@ -188,7 +188,7 @@ describe('handleRequest', () => {
     expect(await response.text()).not.toContain('data-dply-deploy');
   });
 
-  it('injects RUM script into html when log ingest is configured', async () => {
+  it('injects RUM script into html when analytics engine is bound', async () => {
     const env: Env = {
       HOST_MAP: createMockKv({ 'preview.example.test': hostEntry }),
       ARTIFACTS: createMockR2({
@@ -197,8 +197,7 @@ describe('handleRequest', () => {
           contentType: 'text/html; charset=utf-8',
         },
       }),
-      LOG_INGEST_BASE_URL: 'https://dply.test',
-      LOG_INGEST_KEY: 'secret',
+      EDGE_ANALYTICS: { writeDataPoint: () => undefined } as AnalyticsEngineDataset,
     };
 
     const response = await handleRequest(new Request('https://preview.example.test/'), env);
@@ -207,37 +206,35 @@ describe('handleRequest', () => {
     expect(await response.text()).toContain('/__dply/vitals');
   });
 
-  it('accepts vitals beacon posts on worker path', async () => {
+  it('writes vitals beacons to analytics engine', async () => {
+    const points: AnalyticsEngineDataPoint[] = [];
     const env: Env = {
       HOST_MAP: createMockKv({ 'preview.example.test': hostEntry }),
       ARTIFACTS: createMockR2({}),
-      LOG_INGEST_BASE_URL: 'https://dply.test',
-      LOG_INGEST_KEY: 'secret',
+      EDGE_ANALYTICS: {
+        writeDataPoint: (point: AnalyticsEngineDataPoint) => {
+          points.push(point);
+        },
+      } as AnalyticsEngineDataset,
     };
 
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-      expect(url).toContain('/hooks/edge/site-1/vitals');
-      expect(init?.method).toBe('POST');
+    const response = await handleRequest(
+      new Request('https://preview.example.test/__dply/vitals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: '/', lcp_ms: 1200, cls: 0.02 }),
+      }),
+      env,
+    );
 
-      return new Response('{"message":"Recorded."}', { status: 202 });
-    }) as typeof fetch;
-
-    try {
-      const response = await handleRequest(
-        new Request('https://preview.example.test/__dply/vitals', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path: '/', lcp_ms: 1200 }),
-        }),
-        env,
-      );
-
-      expect(response.status).toBe(204);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+    expect(response.status).toBe(204);
+    expect(points).toEqual([
+      {
+        indexes: ['vsite1'],
+        doubles: [1200, 0.02, 0, 0, 0],
+        blobs: ['site-1', 'preview.example.test', '/'],
+      },
+    ]);
   });
 
   it('returns 404 for unknown hosts', async () => {
@@ -505,6 +502,104 @@ describe('container sites', () => {
     expect(await response.text()).toBe('from laravel');
   });
 
+  it('replaces an html 500 from the container with the edge error page', async () => {
+    const env: Env = {
+      HOST_MAP: createMockKv({
+        'app.example.test': {
+          site_id: 'site-1',
+          deployment_id: 'deploy-9',
+          storage_prefix: 'edge/site-1/deploy-9',
+          runtime_mode: 'container',
+          ssr_worker_script: 'dply-ctr-site-1',
+        } as HostMapEntry,
+      }),
+      ARTIFACTS: createMockR2({}),
+      DISPATCHER: {
+        get: () => ({
+          fetch: async () => new Response('<h1>Oops! An Error Occurred</h1>', {
+            status: 500,
+            headers: { 'content-type': 'text/html; charset=utf-8' },
+          }),
+        }),
+      } as unknown as DispatchNamespace,
+    };
+
+    const response = await handleRequest(new Request('https://app.example.test/'), env);
+    const body = await response.text();
+
+    expect(response.status).toBe(500);
+    expect(body).toContain('Something went wrong');
+    expect(body).toContain('rel="icon"');
+    expect(body).not.toContain('Oops! An Error Occurred');
+  });
+
+  it('keeps the app 500 when APP_DEBUG is on', async () => {
+    const env: Env = {
+      HOST_MAP: createMockKv({
+        'app.example.test': {
+          site_id: 'site-1',
+          deployment_id: 'deploy-9',
+          storage_prefix: 'edge/site-1/deploy-9',
+          runtime_mode: 'container',
+          ssr_worker_script: 'dply-ctr-site-1',
+        } as HostMapEntry,
+      }),
+      ARTIFACTS: createMockR2({}),
+      DISPATCHER: {
+        get: () => ({
+          fetch: async () => new Response('<h1>SQLSTATE connection refused</h1>', {
+            status: 500,
+            headers: { 'content-type': 'text/html', 'x-dply-app-debug': '1' },
+          }),
+        }),
+      } as unknown as DispatchNamespace,
+    };
+
+    const response = await handleRequest(new Request('https://app.example.test/'), env);
+
+    expect(response.status).toBe(500);
+    expect(response.headers.get('x-dply-app-debug')).toBeNull();
+    expect(await response.text()).toContain('SQLSTATE connection refused');
+  });
+
+  it('uses the site 500 html when one is set and leaves json alone', async () => {
+    const host = {
+      site_id: 'site-1',
+      deployment_id: 'deploy-9',
+      storage_prefix: 'edge/site-1/deploy-9',
+      runtime_mode: 'container',
+      ssr_worker_script: 'dply-ctr-site-1',
+      error_500_html: '<p>BookStack is down</p>',
+    } as HostMapEntry;
+    const json = await handleRequest(new Request('https://app.example.test/api'), {
+      HOST_MAP: createMockKv({ 'app.example.test': host }),
+      ARTIFACTS: createMockR2({}),
+      DISPATCHER: {
+        get: () => ({
+          fetch: async () => new Response('{"error":true}', {
+            status: 500,
+            headers: { 'content-type': 'application/json' },
+          }),
+        }),
+      } as unknown as DispatchNamespace,
+    });
+    expect(await json.text()).toBe('{"error":true}');
+
+    const html = await handleRequest(new Request('https://app.example.test/'), {
+      HOST_MAP: createMockKv({ 'app.example.test': host }),
+      ARTIFACTS: createMockR2({}),
+      DISPATCHER: {
+        get: () => ({
+          fetch: async () => new Response('<h1>Oops</h1>', {
+            status: 500,
+            headers: { 'content-type': 'text/html' },
+          }),
+        }),
+      } as unknown as DispatchNamespace,
+    });
+    expect(await html.text()).toBe('<p>BookStack is down</p>');
+  });
+
   it('returns 503 and does not start the container when the usage credit is used up', async () => {
     const seen: string[] = [];
     const host: HostMapEntry = {
@@ -571,5 +666,117 @@ describe('container sites', () => {
 
     expect(html).toContain('data-dply-deploy="deploy-9"');
     expect(html.indexOf('data-dply-deploy')).toBeLessThan(html.indexOf('</body>'));
+  });
+
+  it('injects the vitals script into container html when log ingest is configured', async () => {
+    const env: Env = {
+      HOST_MAP: createMockKv({
+        'app.example.test': {
+          site_id: 'site-1',
+          deployment_id: 'deploy-9',
+          storage_prefix: 'edge/site-1/deploy-9',
+          runtime_mode: 'container',
+          ssr_worker_script: 'dply-ctr-site-1',
+        } as HostMapEntry,
+      }),
+      ARTIFACTS: createMockR2({}),
+      DISPATCHER: {
+        get: () => ({
+          fetch: async () => new Response('<html><body>from laravel</body></html>', {
+            status: 200,
+            headers: { 'Content-Type': 'text/html; charset=utf-8' },
+          }),
+        }),
+      } as unknown as DispatchNamespace,
+      EDGE_ANALYTICS: { writeDataPoint: () => undefined } as AnalyticsEngineDataset,
+    };
+
+    const response = await handleRequest(new Request('https://app.example.test/dashboard'), env);
+    const html = await response.text();
+
+    expect(html).toContain('/__dply/vitals');
+    expect(html.indexOf('/__dply/vitals')).toBeLessThan(html.indexOf('</body>'));
+  });
+
+  it('leaves container json untouched when log ingest is configured', async () => {
+    const env: Env = {
+      HOST_MAP: createMockKv({
+        'app.example.test': {
+          site_id: 'site-1',
+          deployment_id: 'deploy-9',
+          storage_prefix: 'edge/site-1/deploy-9',
+          runtime_mode: 'container',
+          ssr_worker_script: 'dply-ctr-site-1',
+        } as HostMapEntry,
+      }),
+      ARTIFACTS: createMockR2({}),
+      DISPATCHER: {
+        get: () => ({
+          fetch: async () => new Response('{"ok":true}', {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        }),
+      } as unknown as DispatchNamespace,
+      EDGE_ANALYTICS: { writeDataPoint: () => undefined } as AnalyticsEngineDataset,
+    };
+
+    const response = await handleRequest(new Request('https://app.example.test/api/health'), env);
+
+    expect(await response.text()).toBe('{"ok":true}');
+  });
+
+  it('stores a static asset from the container when cache mode is assets', async () => {
+    const puts: string[] = [];
+    const pending: Promise<unknown>[] = [];
+    const env: Env = {
+      HOST_MAP: createMockKv({
+        'app.example.test': {
+          site_id: 'site-1',
+          deployment_id: 'deploy-9',
+          storage_prefix: 'edge/site-1/deploy-9',
+          runtime_mode: 'container',
+          ssr_worker_script: 'dply-ctr-site-1',
+          cache: {
+            mode: 'assets',
+            edge_ttl_seconds: 86400,
+            browser_ttl_seconds: 86400,
+            query_string: 'ignore',
+          },
+        } as HostMapEntry,
+      }),
+      ARTIFACTS: createMockR2({}),
+      EDGE_CACHE: {
+        get: async () => null,
+        put: async (key: string) => {
+          puts.push(key);
+        },
+      } as KVNamespace,
+      DISPATCHER: {
+        get: () => ({
+          fetch: async () => new Response('console.log(1)', {
+            status: 200,
+            headers: { 'Content-Type': 'application/javascript' },
+          }),
+        }),
+      } as unknown as DispatchNamespace,
+    };
+    const ctx = {
+      waitUntil: (promise: Promise<unknown>) => {
+        pending.push(promise);
+      },
+    } as ExecutionContext;
+
+    const response = await handleRequest(
+      new Request('https://app.example.test/build/assets/app-abc123.js?id=1'),
+      env,
+      ctx,
+    );
+    await Promise.all(pending);
+
+    expect(response.headers.get('Cache-Control')).toContain('s-maxage=86400');
+    expect(response.headers.get('Cache-Tag')).toBe('assets');
+    expect(await response.text()).toBe('console.log(1)');
+    expect(puts).toContain('edge_cache:site-1:/build/assets/app-abc123.js');
   });
 });

@@ -20,7 +20,7 @@ use Throwable;
  * One request to a container site's live URL right after it goes live, so a
  * crashing app (missing DATABASE_URL, bad migration) is reported now instead
  * of by the first visitor. Records the result on the deployment; a 5xx or no
- * response publishes edge.deploy.failed (the deploy stays live).
+ * response marks that deploy failed and publishes edge.deploy.failed.
  */
 class CheckEdgeContainerHealthJob implements ShouldQueue
 {
@@ -65,7 +65,13 @@ class CheckEdgeContainerHealthJob implements ShouldQueue
             'error' => $error ?? ($ok ? null : mb_substr($body, 0, 500)),
             'checked_at' => now()->toIso8601String(),
         ];
-        $deployment->update(['meta' => $meta]);
+        $failure = $status !== null ? "{$url} answered HTTP {$status}." : "{$url} did not answer: {$error}";
+        $deployment->update($ok || $deployment->status !== EdgeDeployment::STATUS_LIVE ? ['meta' => $meta] : [
+            'meta' => $meta,
+            'status' => EdgeDeployment::STATUS_FAILED,
+            'failed_at' => now(),
+            'failure_reason' => $failure,
+        ]);
 
         if ($ok) {
             return;

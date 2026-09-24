@@ -153,6 +153,8 @@
             </p>
         @endif
 
+        @include('livewire.sites.partials.edge.traffic-today')
+
         @if ($trackedHostnames !== [])
             <details class="group border-b border-brand-ink/10">
                 <summary class="flex cursor-pointer list-none items-center justify-between gap-3 bg-brand-sand/10 px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-brand-sand/20 sm:px-6 [&::-webkit-details-marker]:hidden">
@@ -265,6 +267,8 @@
     </section>
 
     @unless (($traffic['byo_cloudflare'] ?? false))
-        @include('livewire.sites.partials.edge.live-request-tail')
+        @include('livewire.sites.partials.edge.live-request-tail', [
+            'liveSeed' => is_array($access['dataset']['recent'] ?? null) ? $access['dataset']['recent'] : [],
+        ])
     @endunless
 </div>

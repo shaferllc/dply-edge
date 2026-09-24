@@ -9,6 +9,7 @@ use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Services\Containers\EdgeContainerDockerfile;
 use App\Modules\Edge\Services\Containers\EdgeContainerRollout;
 use App\Modules\Edge\Support\EdgeContainerSettings;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 
 function checkout(array $files): string
@@ -22,7 +23,10 @@ function checkout(array $files): string
     return $dir;
 }
 
-afterEach(fn () => collect(glob(sys_get_temp_dir().'/dply-container-test-*'))->each(fn ($d) => File::deleteDirectory($d)));
+afterEach(function () {
+    Cache::forget(EdgeContainerDockerfile::EXTRA_EXTENSIONS_CACHE_KEY);
+    collect(glob(sys_get_temp_dir().'/dply-container-test-*'))->each(fn ($d) => File::deleteDirectory($d));
+});
 
 test('a repo Dockerfile wins and its EXPOSE port is used', function () {
     $dir = checkout(['Dockerfile' => "FROM ruby:3.3\nEXPOSE 3000\n", 'Gemfile' => '']);
@@ -59,10 +63,49 @@ test('laravel gets a php-fpm image with assets, migrations on boot and port 8080
         ->and($dockerfile)->not->toContain('/dev/stdout')
         ->and($dockerfile)->not->toContain('error_log /dev/stderr')
         ->and($dockerfile)->toContain('composer install --no-dev')
+        ->and($dockerfile)->toContain('chmod 666')
         ->and($dockerfile)->toContain('php artisan migrate --force --isolated')
         ->and($dockerfile)->toContain('RUN npm run build')
         ->and($dockerfile)->toContain('SERVER_NAME=":8080"')
         ->and(EdgeContainerDockerfile::logSummary($dockerfile))->toContain('RUN npm run build');
+});
+
+test('a published base that already has the extension is reused', function () {
+    config(['edge.build.containers.php_base_repo' => 'ghcr.io/example/edge-php']);
+    EdgeContainerDockerfile::rememberExtraExtensions('gd');
+
+    $dir = checkout([
+        'composer.json' => '{"require":{"php":"^8.2","ext-gd":"*","ext-exif":"*"},"config":{"platform":{"php":"8.2.12"}}}',
+        'artisan' => '',
+    ]);
+
+    $dockerfile = File::get(EdgeContainerDockerfile::prepare($dir)['path']);
+    $tag = EdgeContainerDockerfile::baseTag('8.2', EdgeContainerDockerfile::publishedPhpExtensions(), 'fpm');
+
+    expect($dockerfile)->toContain('FROM ghcr.io/example/edge-php:'.$tag)
+        ->and($dockerfile)->toContain('install-php-extensions exif')
+        ->and($dockerfile)->not->toContain('install-php-extensions exif gd')
+        ->and($dockerfile)->not->toContain('install-php-extensions gd');
+});
+
+test('a required php extension missing from the base image is installed before composer', function () {
+    $dir = checkout([
+        'composer.json' => '{"require":{"php":"^8.2","ext-gd":"*"}}',
+        'composer.lock' => '{"packages":[{"name":"some/lib","require":{"ext-exif":"*","ext-intl":"*","ext-ctype":"*","ext-mbstring":"*"}}]}',
+        'artisan' => '',
+    ]);
+
+    $dockerfile = File::get(EdgeContainerDockerfile::prepare($dir)['path']);
+    $install = strpos($dockerfile, 'RUN install-php-extensions exif gd');
+    $composer = strpos($dockerfile, 'RUN composer install --no-dev');
+
+    expect($install)->not->toBeFalse()
+        ->and($composer)->not->toBeFalse()
+        ->and($install)->toBeLessThan($composer)
+        ->and($dockerfile)->not->toContain('install-php-extensions exif gd intl')
+        ->and($dockerfile)->not->toContain(' ctype')
+        ->and($dockerfile)->not->toContain(' mbstring')
+        ->and($dockerfile)->toContain('grep -v StandWithUkraine');
 });
 
 test('an explicit platform pin is honoured instead of the newest supported php', function () {
@@ -173,19 +216,21 @@ test('the generated worker project wires the container, queues and the token-gua
     $worker = File::get($dir.'/src/index.js');
 
     expect($config['name'])->toBe('dply-ctr-01siteabc')
-        ->and($config['containers'][0])->toMatchArray(['class_name' => 'App', 'image' => '/build/src/Dockerfile.dply', 'max_instances' => 4])
+        ->and($config['containers'][0])->toMatchArray(['class_name' => 'App', 'image' => '/build/src/Dockerfile.dply', 'max_instances' => 5])
         ->and($config['migrations'][0]['new_sqlite_classes'])->toBe(['App'])
         ->and($config['queues']['producers'][0])->toBe(['binding' => 'JOBS', 'queue' => 'site-jobs'])
         ->and($config['queues']['consumers'][0]['queue'])->toBe('site-jobs')
         ->and($worker)->toContain("headers.set('x-forwarded-proto'")
         ->and($worker)->toContain('defaultPort = 8080')
-        ->and($worker)->toContain('getRandom(env.APP, 3)')
-        ->and($worker)->toContain('async function proxy(env, request)')
+        ->and($worker)->toContain('const INSTANCES = 3')
+        ->and($worker)->toContain('getRandom(env.APP, INSTANCES)')
+        ->and($worker)->toContain('const STICKY = true')
+        ->and($worker)->toContain('const DEDICATED_JOBS = true')
+        ->and($worker)->toContain("getContainer(env.APP, 'jobs')")
+        ->and($worker)->toContain('startAndWaitForPorts')
+        ->and($worker)->toContain('async function proxy(env, request, target)')
         ->and($worker)->toContain('portReadyTimeoutMS: 45000')
-        ->and($worker)->toContain('return proxy(env, new Request(request, { headers }))')
-        ->and($worker)->toContain('async function proxy(env, request)')
-        ->and($worker)->toContain('portReadyTimeoutMS: 45000')
-        ->and($worker)->toContain('return proxy(env, new Request(request, { headers }))')
+        ->and($worker)->toContain('return proxy(env, new Request(request, { headers }), await webTarget(env, request))')
         ->and($worker)->toContain('"/_dply/queue/send"')
         ->and($worker)->toContain("request.headers.get('x-dply-queue-token') !== env.DPLY_QUEUE_TOKEN")
         ->and($worker)->toContain('{"site-jobs":"JOBS"}')
@@ -228,10 +273,10 @@ test('previews enqueue but never consume queues or run crons', function () {
         ->and($config)->not->toHaveKey('triggers');
 });
 
-test('a laravel site on lite is raised to basic and the fpm pool fits that memory', function () {
+test('a laravel site keeps the size the operator picked and the fpm pool fits that memory', function () {
     $site = new Site(['meta' => ['edge' => ['build' => ['framework' => 'laravel'], 'container' => ['instance_type' => 'lite']]]]);
 
-    expect(EdgeContainerSettings::for($site)['instance_type'])->toBe('basic')
+    expect(EdgeContainerSettings::for($site)['instance_type'])->toBe('lite')
         ->and(EdgeContainerSettings::phpFpmPool('basic'))->toBe(['max_children' => 2, 'memory_limit' => '128M'])
         ->and(EdgeContainerSettings::phpFpmPool('lite'))->toBe(['max_children' => 1, 'memory_limit' => '128M'])
         ->and(EdgeContainerSettings::looksLikeMemoryCrash('php-fpm: Killed process'))->toBeTrue()
@@ -250,10 +295,16 @@ test('a rollout at 0 percent is still in progress', function () {
         'steps' => [['status' => 'completed'], ['status' => 'completed']],
     ]]);
 
+    $missingPercent = EdgeContainerRollout::rolloutProgress([['status' => 'in_progress', 'steps' => [['status' => 'in_progress']]]]);
+
     expect($rolling['in_progress'])->toBeTrue()
         ->and($rolling['percentage'])->toBe(0)
         ->and($done['in_progress'])->toBeFalse()
-        ->and(EdgeContainerRollout::rolloutProgress([])['in_progress'])->toBeTrue();
+        ->and(EdgeContainerRollout::rolloutProgress([])['in_progress'])->toBeTrue()
+        ->and($missingPercent['percentage'])->toBeNull()
+        ->and(EdgeContainerRollout::healthSettled($rolling, ['starting' => 0], true))->toBeFalse()
+        ->and(EdgeContainerRollout::healthSettled($missingPercent, ['starting' => 0], true))->toBeTrue()
+        ->and(EdgeContainerRollout::healthSettled($missingPercent, ['starting' => 0], false))->toBeFalse();
 });
 
 test('wrangler gets a spare instance so a gradual rollout can start the new image', function () {

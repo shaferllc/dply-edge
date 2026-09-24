@@ -24,6 +24,8 @@ class Databases extends Component
 {
     public const LOCATIONS = ['' => 'Automatic', 'wnam' => 'Western North America', 'enam' => 'Eastern North America', 'weur' => 'Western Europe', 'eeur' => 'Eastern Europe', 'apac' => 'Asia-Pacific', 'oc' => 'Oceania'];
 
+    public bool $compact = false;
+
     public string $name = '';
 
     public string $location = '';

@@ -89,6 +89,96 @@ final class DefaultBranchResolver
         return null;
     }
 
+    /**
+     * Branches, tags, and the default branch from one `git ls-remote`.
+     * Pass a null account for a public repo so a rejected token is not sent.
+     *
+     * @return array{default: ?string, branches: list<string>, tags: list<string>}
+     */
+    public function list(string $repositoryUrl, ?GitIdentity $account = null): array
+    {
+        $empty = ['default' => null, 'branches' => [], 'tags' => []];
+        $repositoryUrl = trim($repositoryUrl);
+        if ($repositoryUrl === '') {
+            return $empty;
+        }
+
+        $url = $account !== null
+            ? $this->browser->authenticatedCloneUrl($account, $repositoryUrl)
+            : $repositoryUrl;
+
+        $process = new Process(['git', 'ls-remote', '--symref', $url]);
+        $process->setTimeout($this->timeoutSeconds);
+
+        try {
+            $process->run();
+        } catch (Throwable $e) {
+            Log::debug('DefaultBranchResolver: ls-remote threw', [
+                'url' => $repositoryUrl,
+                'message' => $e->getMessage(),
+            ]);
+
+            return $empty;
+        }
+
+        if (! $process->isSuccessful()) {
+            Log::debug('DefaultBranchResolver: ls-remote non-zero', [
+                'url' => $repositoryUrl,
+                'exit' => $process->getExitCode(),
+                'stderr' => $this->sanitize($process->getErrorOutput(), $repositoryUrl),
+            ]);
+
+            return $empty;
+        }
+
+        return $this->parseLsRemoteOutput($process->getOutput());
+    }
+
+    /**
+     * @return array{default: ?string, branches: list<string>, tags: list<string>}
+     */
+    public function parseLsRemoteOutput(string $stdout): array
+    {
+        $default = null;
+        if (preg_match('#^ref:\s+refs/heads/(\S+)\s+HEAD#m', $stdout, $match) === 1) {
+            $default = $match[1];
+        }
+
+        $branches = [];
+        $tags = [];
+        foreach (preg_split("/\r\n|\n|\r/", $stdout) ?: [] as $line) {
+            if (! preg_match('#^[0-9a-f]{7,}\s+refs/(heads|tags)/(\S+)$#i', trim($line), $match)) {
+                continue;
+            }
+            $name = $match[2];
+            if (str_ends_with($name, '^{}')) {
+                continue;
+            }
+            if ($match[1] === 'heads') {
+                $branches[] = $name;
+            } else {
+                $tags[] = $name;
+            }
+        }
+
+        $branches = array_values(array_unique($branches));
+        $tags = array_values(array_unique($tags));
+        natcasesort($branches);
+        natcasesort($tags);
+        $branches = array_values($branches);
+        $tags = array_reverse(array_values($tags));
+
+        if (is_string($default) && $default !== '') {
+            $branches = array_values(array_unique(array_merge([$default], $branches)));
+        }
+
+        return [
+            'default' => $default,
+            'branches' => array_slice($branches, 0, 200),
+            'tags' => array_slice($tags, 0, 80),
+        ];
+    }
+
     private function sanitize(string $stderr, string $url): string
     {
         $sanitized = preg_replace('#(https?://)[^/@\s]*@#', '$1', $stderr);

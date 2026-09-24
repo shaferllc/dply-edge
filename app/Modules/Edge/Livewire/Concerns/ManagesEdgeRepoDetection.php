@@ -9,6 +9,8 @@ use App\Livewire\Forms\EdgeCreateForm;
 use App\Modules\Edge\Services\EdgeMonorepoDetector;
 use App\Modules\Edge\Services\RuntimeDetection\FrontendAssetBuild;
 use App\Modules\Edge\Support\EdgeSitePackageHeuristics;
+use App\Modules\SourceControl\Contracts\GitIdentity;
+use App\Modules\SourceControl\Services\DefaultBranchResolver;
 use App\Modules\SourceControl\Services\GitIdentityResolver;
 use App\Modules\SourceControl\Services\SourceControlRepositoryBrowser;
 use Carbon\Carbon;
@@ -109,8 +111,9 @@ trait ManagesEdgeRepoDetection
 
     public function updatedRepo(): void
     {
-        if ($this->repo_source !== 'manual') {
-            return;
+        // A typed URL is the manual path even while an account picker is open.
+        if (trim($this->repo) !== '') {
+            $this->repo_source = 'manual';
         }
 
         // Operators commonly paste a full GitHub URL (browser tab, README badge,
@@ -144,6 +147,8 @@ trait ManagesEdgeRepoDetection
 
                 return;
             }
+
+            $this->syncRemoteRefs();
         }
 
         $this->maybeAutoDetectFromRepository();
@@ -225,8 +230,35 @@ trait ManagesEdgeRepoDetection
         return false;
     }
 
+    public function updatedGitRef(): void
+    {
+        if (preg_match('/^(branch|tag):(.+)$/', $this->gitRef, $match) !== 1) {
+            return;
+        }
+
+        if ($this->branch === $match[2] && $this->form->ref_kind === $match[1]) {
+            return;
+        }
+
+        $this->form->ref_kind = $match[1];
+        $this->branch = $match[2];
+        $this->lastDetectionFingerprint = '';
+        $this->maybeAutoDetectFromRepository();
+    }
+
+    public function loadRepoRefs(): void
+    {
+        if (trim($this->repo) === '') {
+            return;
+        }
+
+        $this->syncRemoteRefs();
+    }
+
     public function updatedBranch(): void
     {
+        $this->applyRefKindForBranch($this->branch);
+
         if ($this->repo_source === 'connected') {
             if (trim($this->repo) !== '') {
                 $this->detectFromRepository();
@@ -261,7 +293,64 @@ trait ManagesEdgeRepoDetection
             : 'main';
 
         $this->maybeSeedAppNameFromRepo();
+        $this->syncRemoteRefs();
         $this->detectFromRepository();
+    }
+
+    private function applyRefKindForBranch(string $branch): void
+    {
+        $branch = trim($branch);
+        $kind = in_array($branch, $this->repoTags, true) && ! in_array($branch, $this->repoBranches, true)
+            ? 'tag'
+            : 'branch';
+        $this->form->ref_kind = $kind;
+        $next = $branch !== '' ? $kind.':'.$branch : '';
+        if ($this->gitRef !== $next) {
+            $this->gitRef = $next;
+        }
+    }
+
+    private function syncRemoteRefs(): void
+    {
+        $url = $this->normalizeToCloneUrl(trim($this->repo));
+        if ($url === '') {
+            $this->repoBranches = [];
+            $this->repoTags = [];
+
+            return;
+        }
+
+        $refs = app(DefaultBranchResolver::class)->list($url, $this->gitIdentityForRemoteRefs());
+        $this->repoBranches = $refs['branches'];
+        $this->repoTags = $refs['tags'];
+
+        $current = trim($this->branch);
+        $known = in_array($current, $this->repoBranches, true) || in_array($current, $this->repoTags, true);
+        if (! $known && is_string($refs['default']) && $refs['default'] !== '') {
+            $this->branch = $refs['default'];
+            $this->form->ref_kind = 'branch';
+        }
+
+        $this->applyRefKindForBranch($this->branch);
+    }
+
+    private function gitIdentityForRemoteRefs(): ?GitIdentity
+    {
+        $user = auth()->user();
+        if ($user === null) {
+            return null;
+        }
+
+        $resolver = app(GitIdentityResolver::class);
+        $identity = $this->source_control_account_id !== ''
+            ? $resolver->forId($user, $this->source_control_account_id)
+            : $resolver->forUserProvider($user, 'github');
+
+        if (! $identity instanceof GitIdentity || $identity->accessToken() === '' || $resolver->isKnownBad($identity)) {
+            return null;
+        }
+
+        return $identity;
     }
 
     public function detectFromRepository(): void
@@ -772,6 +861,7 @@ trait ManagesEdgeRepoDetection
     {
         if ($this->source_control_account_id === '') {
             $this->availableRepositories = [];
+            $this->repositoryLoadError = null;
 
             return;
         }
@@ -779,8 +869,10 @@ trait ManagesEdgeRepoDetection
         $account = auth()->user() !== null
             ? app(GitIdentityResolver::class)->forId(auth()->user(), $this->source_control_account_id)
             : null;
+        $browser = app(SourceControlRepositoryBrowser::class);
         $this->availableRepositories = $account
-            ? app(SourceControlRepositoryBrowser::class)->repositoriesForAccount($account)
+            ? $browser->repositoriesForAccount($account)
             : [];
+        $this->repositoryLoadError = $account ? $browser->repositoryError() : null;
     }
 }

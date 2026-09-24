@@ -27,6 +27,16 @@ test('compute is priced per second of vcpu, memory, disk and egress', function (
         ->and(round($cost->perMinuteMillicents(0.25, 1, 4), 2))->toBe(46.67); // basic, all vCPU busy
 });
 
+test('larger containers keep a smaller share of the markup', function () {
+    config(['dply.edge.usage_billing.markup_percent' => 25]);
+    $cost = app(EdgeContainerComputeCost::class);
+
+    expect($cost->sizeMarkup(1))->toBe(25)
+        ->and($cost->sizeMarkup(4))->toBe(16)
+        ->and($cost->sizeMarkup(6))->toBe(12)
+        ->and($cost->sizeMarkup(12))->toBe(8);
+});
+
 test('the tier credit covers compute first, and enterprise never pays through sync', function () {
     $pro = DesiredBillingState::fromPlanAndUsage(plan: ['key' => 'pro', 'label' => 'Pro', 'price_cents' => 2000], containerComputeCents: 730, computeCreditCents: 500);
     $enterprise = DesiredBillingState::fromPlanAndUsage(plan: ['key' => 'enterprise', 'label' => 'Enterprise', 'price_cents' => 0], containerComputeCents: 99_999, computeCreditCents: null);

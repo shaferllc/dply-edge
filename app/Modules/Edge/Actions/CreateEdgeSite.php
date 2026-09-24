@@ -12,6 +12,7 @@ use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
 use App\Modules\Edge\Jobs\BuildEdgeSiteJob;
+use App\Modules\Edge\Support\EdgeContainerPlans;
 use App\Modules\Edge\Support\EdgeOrgCredentialConfig;
 use App\Modules\Edge\Support\EdgeRepoRoot;
 use App\Modules\Edge\Support\EdgeSsrAvailability;
@@ -128,6 +129,14 @@ class CreateEdgeSite
                         'hostname' => $hostname,
                     ],
                     'live_url' => 'https://'.$hostname,
+                    'container' => $runtimeMode === 'container'
+                        ? (is_array($payload['container'] ?? null)
+                            ? $payload['container']
+                            : EdgeContainerPlans::settings((string) ($payload['container_plan'] ?? EdgeContainerPlans::DEFAULT)))
+                        : null,
+                    'database' => $runtimeMode === 'container'
+                        ? ['engine' => 'sql', 'name' => 'production']
+                        : null,
                 ],
             ],
         ]);

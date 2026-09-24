@@ -6,6 +6,7 @@ namespace App\Modules\SourceControl\Services;
 
 use App\Models\User;
 use App\Modules\SourceControl\Contracts\GitIdentity;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 
 class SourceControlRepositoryBrowser
@@ -22,6 +23,8 @@ class SourceControlRepositoryBrowser
      * past that the "paste a URL" path is the sane way in.
      */
     private const MAX_PAGES = 10;
+
+    private ?string $repositoryError = null;
 
     public function __construct(
         private ?GitIdentityResolver $resolver = null,
@@ -60,12 +63,29 @@ class SourceControlRepositoryBrowser
      */
     public function repositoriesForAccount(GitIdentity $account): array
     {
+        $this->repositoryError = null;
+
+        if ($account->accessToken() === '') {
+            $this->repositoryError = __('This token could not be read. Replace it under Source control.');
+
+            return [];
+        }
+
         return match ($account->provider()) {
             'github' => $this->githubRepositories($account),
             'gitlab' => $this->gitlabRepositories($account),
             'bitbucket' => $this->bitbucketRepositories($account),
             default => [],
         };
+    }
+
+    /**
+     * Why the last {@see repositoriesForAccount()} call returned nothing.
+     * Null when the provider answered, including an empty list.
+     */
+    public function repositoryError(): ?string
+    {
+        return $this->repositoryError;
     }
 
     public function authenticatedCloneUrl(GitIdentity $account, string $repositoryUrl): string
@@ -122,6 +142,8 @@ class SourceControlRepositoryBrowser
                 ]);
 
             if (! $response->successful()) {
+                $this->rememberFailure($account, $response, $rows);
+
                 break;
             }
 
@@ -168,6 +190,8 @@ class SourceControlRepositoryBrowser
                 ]);
 
             if (! $response->successful()) {
+                $this->rememberFailure($account, $response, $rows);
+
                 break;
             }
 
@@ -213,6 +237,8 @@ class SourceControlRepositoryBrowser
                 ->get($url, $query);
 
             if (! $response->successful()) {
+                $this->rememberFailure($account, $response, $rows);
+
                 break;
             }
 
@@ -253,5 +279,27 @@ class SourceControlRepositoryBrowser
             ->sortBy('label')
             ->values()
             ->all();
+    }
+
+    /**
+     * @param  list<mixed>  $rows
+     */
+    private function rememberFailure(GitIdentity $account, Response $response, array $rows): void
+    {
+        if ($rows !== []) {
+            return;
+        }
+
+        $message = $response->json('message');
+        $detail = is_string($message) ? trim($message) : '';
+        if ($detail === '') {
+            $detail = trim($response->reason()) ?: 'request failed';
+        }
+
+        $this->repositoryError = __(':provider rejected this token (HTTP :status — :detail). Replace it under Source control.', [
+            'provider' => ucfirst($account->provider()),
+            'status' => (string) $response->status(),
+            'detail' => $detail,
+        ]);
     }
 }

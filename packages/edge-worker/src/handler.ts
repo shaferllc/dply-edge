@@ -210,6 +210,13 @@ export interface HostMapEntry {
   waiting_room?: WaitingRoomConfig;
   snippets?: SnippetsConfig;
   tags?: TagsConfig;
+  /** Workspace cache policy. Absent or off leaves container responses uncached. */
+  cache?: {
+    mode?: 'off' | 'assets' | 'standard' | 'everything';
+    edge_ttl_seconds?: number;
+    browser_ttl_seconds?: number;
+    query_string?: 'ignore' | 'include';
+  };
 }
 
 function looksLikeAssetPath(requestPath: string): boolean {
@@ -271,8 +278,6 @@ export interface Env {
    */
   DISPATCHER?: DispatchNamespace;
   ENVIRONMENT?: string;
-  LOG_INGEST_BASE_URL?: string;
-  LOG_INGEST_KEY?: string;
 }
 
 // Workers for Platforms binding shape. Cloudflare's official types
@@ -588,12 +593,32 @@ async function handleRequestInner(
         return pausedResponse;
       }
     }
-    const ssrResponse = await dispatchSsrRequest(request, env, hostEntry);
-    const stamped = stampVariantCookie(applyRepoHeaderRules(ssrResponse, requestPath, hostEntry));
-    const finalResponse = await maybeInjectDeployFooter(stamped, hostEntry);
-    recordRequest(ctx, env, request, finalResponse, hostEntry, url, requestPath, started, hostEntry.runtime_mode === 'container' ? 'container' : 'ssr');
+    if (cacheMode(hostEntry) !== 'off') {
+      const cached = await readEdgeCache(env, hostEntry, request);
+      if (cached && !cached.stale) {
+        recordRequest(ctx, env, request, cached.response, hostEntry, url, requestPath, started, 'cache-hit');
 
-    return finalResponse;
+        return cached.response;
+      }
+    }
+
+    const ssrResponse = await dispatchSsrRequest(request, env, hostEntry);
+    const presented = presentAppServerError(ssrResponse, hostEntry);
+    const stamped = stampVariantCookie(applyRepoHeaderRules(presented, requestPath, hostEntry));
+    const withHtml = await maybeInjectEdgeHtml(stamped, hostEntry, env);
+    const configured = applyConfiguredCache(withHtml, request, requestPath, hostEntry);
+    const [forClient, forCache] = teeIfCacheable(configured, request);
+    if (forCache) {
+      ctx?.waitUntil(writeEdgeCache(env, hostEntry, request, forCache));
+    }
+    const cacheStatus = forCache
+      ? 'cache-miss'
+      : hostEntry.runtime_mode === 'container'
+        ? 'container'
+        : 'ssr';
+    recordRequest(ctx, env, request, forClient, hostEntry, url, requestPath, started, cacheStatus);
+
+    return forClient;
   }
 
   // dply.yaml rewrites: path-form rewrites update the lookup key;
@@ -724,7 +749,7 @@ async function handleRequestInner(
     headers.set(name, value);
   }
 
-  const hasIngest = Boolean(env.LOG_INGEST_BASE_URL && env.LOG_INGEST_KEY && hostEntry.site_id);
+  const hasIngest = Boolean(env.EDGE_ANALYTICS && hostEntry.site_id);
   const contentType = headers.get('Content-Type') ?? '';
   const isHtml = contentType.includes('text/html') || requestPath.endsWith('.html') || requestPath === 'index.html';
 
@@ -1046,10 +1071,7 @@ async function reportVitals(
   hostEntry: HostMapEntry,
   url: URL,
 ): Promise<void> {
-  const baseUrl = (env.LOG_INGEST_BASE_URL ?? '').replace(/\/+$/, '');
-  const ingestKey = env.LOG_INGEST_KEY ?? '';
-
-  if (baseUrl === '' || ingestKey === '' || !hostEntry.site_id) {
+  if (!env.EDGE_ANALYTICS || !hostEntry.site_id) {
     return;
   }
 
@@ -1061,32 +1083,18 @@ async function reportVitals(
     return;
   }
 
-  const payload = JSON.stringify({
-    deployment_id: hostEntry.deployment_id,
-    hostname: url.hostname,
-    path: typeof body.path === 'string' ? body.path : '/',
-    lcp_ms: body.lcp_ms ?? null,
-    cls: body.cls ?? null,
-    inp_ms: body.inp_ms ?? null,
-    fcp_ms: body.fcp_ms ?? null,
-    ttfb_ms: body.ttfb_ms ?? null,
-    country: request.headers.get('CF-IPCountry') ?? '',
-    occurred_at: new Date().toISOString(),
-  });
-
-  const signature = await hmacSha256Hex(`${hostEntry.site_id}.${payload}`, ingestKey);
+  const metric = (value: unknown): number =>
+    typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
+  const cls = typeof body.cls === 'number' && Number.isFinite(body.cls) && body.cls >= 0 ? body.cls : 0;
 
   try {
-    await fetch(`${baseUrl}/hooks/edge/${hostEntry.site_id}/vitals`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Dply-Signature': signature,
-      },
-      body: payload,
+    env.EDGE_ANALYTICS.writeDataPoint({
+      indexes: [`v${hostEntry.site_id.replace(/[^A-Za-z0-9]/g, '')}`],
+      doubles: [metric(body.lcp_ms), cls, metric(body.inp_ms), metric(body.fcp_ms), metric(body.ttfb_ms)],
+      blobs: [hostEntry.site_id, url.hostname, typeof body.path === 'string' ? body.path : '/'],
     });
   } catch {
-    // Fire-and-forget vitals ingest.
+    // Non-fatal — the page already loaded.
   }
 }
 
@@ -1143,43 +1151,6 @@ async function reportRequest(
     } catch {
       // Non-fatal — delivery must not fail when analytics errors.
     }
-  }
-
-  const baseUrl = (env.LOG_INGEST_BASE_URL ?? '').replace(/\/+$/, '');
-  const ingestKey = env.LOG_INGEST_KEY ?? '';
-
-  if (baseUrl === '' || ingestKey === '' || !hostEntry.site_id) {
-    return;
-  }
-
-  const payload = JSON.stringify({
-    deployment_id: hostEntry.deployment_id,
-    hostname: url.hostname,
-    method: request.method,
-    path: url.pathname === '' ? '/' : url.pathname,
-    status,
-    duration_ms: durationMs,
-    bytes_egress: Number.isFinite(bytes) ? bytes : 0,
-    country: request.headers.get('CF-IPCountry') ?? '',
-    cache_status: cacheStatus,
-    referrer: request.headers.get('Referer') ?? '',
-    user_agent: request.headers.get('User-Agent') ?? '',
-    occurred_at: new Date().toISOString(),
-  });
-
-  const signature = await hmacSha256Hex(`${hostEntry.site_id}.${payload}`, ingestKey);
-
-  try {
-    await fetch(`${baseUrl}/hooks/edge/${hostEntry.site_id}/log`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Dply-Signature': signature,
-      },
-      body: payload,
-    });
-  } catch {
-    // Fire-and-forget ingest.
   }
 }
 
@@ -1351,12 +1322,60 @@ async function proxyToOrigin(
  */
 function edgeCacheKey(hostEntry: HostMapEntry, request: Request): string {
   const url = new URL(request.url);
+  const includeQuery = hostEntry.cache?.query_string !== 'ignore';
   const params = [...url.searchParams.entries()].sort(([a], [b]) => a.localeCompare(b));
-  const qs = params.length === 0
+  const qs = !includeQuery || params.length === 0
     ? ''
     : '?' + params.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
 
   return `edge_cache:${hostEntry.site_id}:${url.pathname}${qs}`;
+}
+
+function cacheMode(hostEntry: HostMapEntry): 'off' | 'assets' | 'standard' | 'everything' {
+  const mode = hostEntry.cache?.mode;
+  if (mode === 'assets' || mode === 'standard' || mode === 'everything') {
+    return mode;
+  }
+
+  return 'off';
+}
+
+function applyConfiguredCache(
+  response: Response,
+  request: Request,
+  requestPath: string,
+  hostEntry: HostMapEntry,
+): Response {
+  const mode = cacheMode(hostEntry);
+  if (mode === 'off' || mode === 'standard') return response;
+  if (request.method.toUpperCase() !== 'GET') return response;
+  if (response.status !== 200) return response;
+  if (response.headers.has('Set-Cookie')) return response;
+  if (mode === 'assets' && !looksLikeAssetPath(requestPath)) return response;
+  if (resolveCacheFreshness(response.headers) !== null) return response;
+
+  const edge = configuredTtl(hostEntry.cache?.edge_ttl_seconds, 86400);
+  if (edge <= 0) return response;
+  const browser = configuredTtl(hostEntry.cache?.browser_ttl_seconds, 86400);
+  const headers = new Headers(response.headers);
+  headers.set('Cache-Control', `public, max-age=${browser}, s-maxage=${edge}`);
+  if (!headers.get('Cache-Tag') && !headers.get('X-Dply-Cache-Tag')) {
+    headers.set('Cache-Tag', 'assets');
+  }
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+function configuredTtl(value: number | undefined, fallback: number): number {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+    return Math.floor(value);
+  }
+
+  return fallback;
 }
 
 interface CachedEntry {
@@ -1734,21 +1753,27 @@ function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-async function maybeInjectDeployFooter(response: Response, hostEntry: HostMapEntry): Promise<Response> {
-  if (hostEntry.deploy_footer !== true) return response;
-  const id = (hostEntry.deployment_id ?? '').trim();
-  if (id === '') return response;
+async function maybeInjectEdgeHtml(response: Response, hostEntry: HostMapEntry, env: Env): Promise<Response> {
   const contentType = response.headers.get('Content-Type') ?? '';
   if (!contentType.includes('text/html')) return response;
 
-  const html = await response.text();
-  const next = injectDeployFooter(html, id);
-  if (next === html) return new Response(next, response);
+  const deploymentId = (hostEntry.deployment_id ?? '').trim();
+  const wantsFooter = hostEntry.deploy_footer === true && deploymentId !== '';
+  const wantsRum = Boolean(env.EDGE_ANALYTICS && hostEntry.site_id);
+  if (!wantsFooter && !wantsRum) return response;
+
+  let html = await response.text();
+  if (wantsRum) {
+    html = injectRumScript(html);
+  }
+  if (wantsFooter) {
+    html = injectDeployFooter(html, deploymentId);
+  }
 
   const headers = new Headers(response.headers);
   headers.delete('Content-Length');
 
-  return new Response(next, { status: response.status, statusText: response.statusText, headers });
+  return new Response(html, { status: response.status, statusText: response.statusText, headers });
 }
 
 /**
@@ -1914,6 +1939,188 @@ function notFound(message: string, hostEntry: HostMapEntry | undefined): Respons
       'Content-Type': 'text/plain; charset=utf-8',
       ...SECURITY_HEADERS,
     },
+  });
+}
+
+const DEFAULT_APP_500_HTML = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>500 — Something went wrong</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'%3E%3Crect x='4' y='4' width='88' height='88' rx='22' fill='%23171a0e'/%3E%3Ctext x='48' y='67' font-size='56' font-weight='700' fill='%23cda942' text-anchor='middle' font-family='sans-serif'%3Ed%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.bunny.net">
+<link href="https://fonts.bunny.net/css?family=fraunces:500,620|instrument-sans:400,500,600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    color-scheme: light dark;
+    --ink: #171a0e;
+    --cream: #fdfcf9;
+    --sand: #e1d8ac;
+    --sage: #688479;
+    --forest: #32482c;
+    --rust: #9a6215;
+    --card: rgba(253, 252, 249, 0.86);
+    --line: rgba(23, 26, 14, 0.1);
+    --muted: #5c6454;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #e8ece3;
+      --cream: #0b0d0a;
+      --sand: #1b2018;
+      --sage: #c3f53c;
+      --forest: #c3f53c;
+      --rust: #e2a06a;
+      --card: rgba(18, 22, 16, 0.82);
+      --line: rgba(232, 236, 227, 0.12);
+      --muted: #a8b0a0;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+    color: var(--ink);
+    background: var(--cream);
+    display: grid;
+    place-items: center;
+    min-height: 100dvh;
+    padding: 1.5rem;
+  }
+  .wash, .wash::before, .wash::after {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+  }
+  .wash::before, .wash::after { content: ""; }
+  .wash::before {
+    background:
+      radial-gradient(48rem 32rem at 85% 0%, color-mix(in srgb, var(--sage) 22%, transparent), transparent 62%),
+      radial-gradient(36rem 28rem at 8% 100%, color-mix(in srgb, var(--rust) 24%, transparent), transparent 64%),
+      radial-gradient(28rem 20rem at 50% 45%, color-mix(in srgb, var(--sand) 35%, transparent), transparent 70%);
+  }
+  .wash::after {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='.35'/></svg>");
+    opacity: .07;
+    mix-blend-mode: multiply;
+  }
+  main {
+    position: relative;
+    width: min(34rem, 100%);
+    padding: 2.75rem 2.25rem 2.25rem;
+    text-align: center;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 1.75rem;
+    box-shadow: 0 30px 80px -36px color-mix(in srgb, var(--forest) 55%, transparent);
+    backdrop-filter: blur(10px);
+    animation: rise .7s cubic-bezier(.16, 1, .3, 1) both;
+  }
+  .mark {
+    display: inline-flex;
+    align-items: center;
+    gap: .55rem;
+    margin: 0;
+    font-size: .72rem;
+    font-weight: 600;
+    letter-spacing: .22em;
+    text-transform: uppercase;
+    color: var(--sage);
+  }
+  .mark i {
+    width: .45rem;
+    height: .45rem;
+    border-radius: 999px;
+    background: var(--rust);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--rust) 18%, transparent);
+  }
+  .num {
+    margin: 1.1rem 0 .35rem;
+    font-family: Fraunces, ui-serif, Georgia, serif;
+    font-weight: 500;
+    font-size: clamp(5.5rem, 18vw, 8.5rem);
+    line-height: .85;
+    letter-spacing: -.05em;
+    color: var(--forest);
+  }
+  h1 {
+    margin: .35rem 0 .6rem;
+    font-family: Fraunces, ui-serif, Georgia, serif;
+    font-weight: 500;
+    font-size: clamp(1.7rem, 4vw, 2.15rem);
+    letter-spacing: -.03em;
+    line-height: 1.15;
+  }
+  p { margin: 0 auto; max-width: 26rem; color: var(--muted); font-size: 1.02rem; line-height: 1.55; }
+  button {
+    margin-top: 1.6rem;
+    appearance: none;
+    border: 0;
+    cursor: pointer;
+    border-radius: .85rem;
+    padding: .8rem 1.25rem;
+    font: 600 .95rem/1 "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+    color: var(--cream);
+    background: var(--ink);
+    box-shadow: 0 10px 24px -16px var(--ink);
+    transition: transform .18s ease, background .18s ease;
+  }
+  button:hover { transform: translateY(-1px); background: var(--forest); }
+  button:focus-visible { outline: 2px solid var(--sage); outline-offset: 3px; }
+  @media (prefers-color-scheme: dark) {
+    button { color: #0b0d0a; }
+    .wash::after { mix-blend-mode: screen; opacity: .12; }
+  }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(14px) scale(.985); }
+    to { opacity: 1; transform: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    main { animation: none; }
+    button { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wash" aria-hidden="true"></div>
+<main>
+  <p class="mark"><i></i> dply</p>
+  <p class="num">500</p>
+  <h1>Something went wrong</h1>
+  <p>This app hit an error before it could finish the page. Give it another try.</p>
+  <button type="button" onclick="location.reload()">Try again</button>
+</main>
+</body>
+</html>
+`;
+
+function presentAppServerError(response: Response, hostEntry: HostMapEntry): Response {
+  if (response.status < 500) {
+    return response;
+  }
+  if ((response.headers.get('x-dply-app-debug') ?? '') === '1') {
+    const headers = new Headers(response.headers);
+    headers.delete('x-dply-app-debug');
+
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
+  const type = (response.headers.get('content-type') ?? '').toLowerCase();
+  if (!type.includes('text/html')) {
+    return response;
+  }
+  const custom = (hostEntry.error_500_html ?? '').trim();
+  const headers = new Headers(response.headers);
+  headers.set('content-type', 'text/html; charset=utf-8');
+  headers.set('cache-control', 'no-store');
+  return new Response(custom !== '' ? custom : DEFAULT_APP_500_HTML, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
   });
 }
 

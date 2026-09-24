@@ -8,6 +8,7 @@ use App\Models\EdgeDeployment;
 use App\Models\Site;
 use App\Modules\Billing\Services\StarterTrafficGate;
 use App\Modules\Edge\Services\EdgeDeliveryContextResolver;
+use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeContainerSettings;
 use App\Modules\Edge\Support\EdgeEffectiveBindings;
 use App\Modules\Edge\Support\EdgeEffectiveCrons;
@@ -48,6 +49,31 @@ class EdgeContainerDeployer
     public static function scriptName(Site $site): string
     {
         return 'dply-ctr-'.strtolower((string) $site->id);
+    }
+
+    /**
+     * Connections for the worker. Another-app rows carry the other app's
+     * script name and public origin so the worker can call it directly.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function workerConnections(Site $site): array
+    {
+        $peers = [];
+        foreach (EdgeContainerConnections::peerApps($site) as $peer) {
+            $peers[$peer['id']] = $peer;
+        }
+
+        return array_map(static function (array $connection) use ($peers): array {
+            if ($connection['kind'] !== 'service') {
+                return $connection;
+            }
+            $peer = $peers[$connection['target']] ?? null;
+            $connection['script'] = $peer['script'] ?? '';
+            $connection['origin'] = $peer['origin'] ?? '';
+
+            return $connection;
+        }, EdgeContainerConnections::for($site));
     }
 
     /**
@@ -132,6 +158,7 @@ class EdgeContainerDeployer
      */
     public function deploy(Site $site, EdgeDeployment $deployment, string $checkout, string $workRoot, array $env, callable $log, ?int $timeoutSeconds = null): array
     {
+        EdgePhpBaseImage::ensure($checkout, $log);
         $image = EdgeContainerDockerfile::prepare($checkout);
         if (EdgeContainerSettings::raiseForMemoryCrash($site, $this->memoryEvidence($site))) {
             $log("Logs show the container ran out of memory. Raised the instance size one step.\n");
@@ -145,24 +172,38 @@ class EdgeContainerDeployer
             $log($summary);
         }
         $log(sprintf(
-            "Container settings: %s, %d instance(s) (+1 deploy slot), sleep %s\n",
+            "Container settings: %s, %d instance(s) (+1 deploy slot), sleep %s, rollout %s\n",
             $settings['instance_type'],
             $settings['max_instances'],
             $settings['sleep_after'],
+            $settings['rollout_mode'],
         ));
 
+        $broughtOwnDatabase = isset($env['DB_CONNECTION']) || isset($env['DB_URL']) || isset($env['DATABASE_URL']);
         $withDefaults = EdgeContainerEnvDefaults::ensure($site, $checkout, $env);
         $log(EdgeContainerEnvDefaults::describe($env, $withDefaults));
         $env = $withDefaults;
+        $migrateOnBoot = $settings['migrate_on_boot'] || (! $broughtOwnDatabase && ($env['DB_CONNECTION'] ?? '') === 'sqlite');
 
         $project = $workRoot.'/container-worker';
         $queues = $this->queueBindings($site, $deployment);
         $this->scaffold($project, $site, $image['path'], $image['port'], $queues, self::cronHandlers($site, $deployment), $this->billingKvNamespaceId($site));
+        if ($this->attachStaticAssets($project, $checkout, $site)) {
+            $log("CSS, JavaScript, and images from public/ are served automatically.\n");
+        }
 
-        File::put($project.'/secrets.json', json_encode(array_merge($env, [
+        $queueEnv = EdgeContainerConnections::queueDriverEnv($site);
+        if (! isset($queueEnv['DPLY_QUEUE']) && $queues !== []) {
+            $queueEnv['DPLY_QUEUE'] = (string) array_key_first($queues);
+            if ($site->isLaravelFrameworkDetected()) {
+                $queueEnv['QUEUE_CONNECTION'] = 'dply';
+            }
+        }
+
+        File::put($project.'/secrets.json', json_encode(array_merge(EdgeContainerConnections::redisDriverEnv($site), EdgeContainerConnections::storageDriverEnv($site), $queueEnv, $env, [
             'DPLY_QUEUE_TOKEN' => self::queueToken($site),
             'DPLY_APP_URL' => (string) ($site->edgeLiveUrl() ?? ''),
-            'DPLY_MIGRATE_ON_BOOT' => EdgeContainerSettings::for($site)['migrate_on_boot'] ? '1' : '0',
+            'DPLY_MIGRATE_ON_BOOT' => $migrateOnBoot ? '1' : '0',
         ]), JSON_THROW_ON_ERROR));
 
         $this->ensureDeployerImage($log);
@@ -190,8 +231,9 @@ class EdgeContainerDeployer
             // looks frozen in the log. Plain mode appends one line per event.
             '-e', 'BUILDKIT_PROGRESS=plain',
             (string) config('edge.build.containers.deployer_image'),
-            'sh', '-c', 'npm install --silent --no-audit --no-fund && wrangler deploy --dispatch-namespace "$0" --secrets-file secrets.json --containers-rollout gradual',
+            'sh', '-c', 'npm install --silent --no-audit --no-fund && wrangler deploy --dispatch-namespace "$0" --secrets-file secrets.json --containers-rollout "$1"',
             $namespace,
+            $settings['rollout_mode'],
         ]);
 
         File::delete($project.'/secrets.json');
@@ -223,6 +265,49 @@ class EdgeContainerDeployer
      * @param  array<string, string>  $queues  binding name => queue name
      * @param  array<string, list<?string>>  $crons  schedule => handlers (artisan command / rake task)
      */
+    /**
+     * Copy committed files from the app's public directory into the worker
+     * so CSS, JavaScript, and images are served without waking the app.
+     */
+    public function attachStaticAssets(string $project, string $checkout, Site $site): bool
+    {
+        $root = trim((string) ($site->edgeMeta()['build']['repo_root'] ?? ''), '/');
+        $public = $checkout.($root !== '' ? '/'.$root : '').'/public';
+        if (! is_dir($public)) {
+            return false;
+        }
+
+        $dest = $project.'/public';
+        File::ensureDirectoryExists($dest);
+        $copied = 0;
+        $iterator = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($public, \FilesystemIterator::SKIP_DOTS));
+        foreach ($iterator as $file) {
+            if (! $file->isFile()) {
+                continue;
+            }
+            $relative = substr($file->getPathname(), strlen($public) + 1);
+            if ($relative === false || str_starts_with($relative, 'storage/') || str_starts_with($relative, 'hot') || str_ends_with($relative, '.php')) {
+                continue;
+            }
+            if (! preg_match('/\.(css|js|mjs|map|png|jpe?g|gif|webp|avif|svg|ico|woff2?|ttf|eot|txt|xml|webmanifest)$/i', $relative)) {
+                continue;
+            }
+            $target = $dest.'/'.$relative;
+            File::ensureDirectoryExists(dirname($target));
+            File::copy($file->getPathname(), $target);
+            $copied++;
+        }
+        if ($copied === 0) {
+            return false;
+        }
+
+        $config = json_decode(File::get($project.'/wrangler.jsonc'), true);
+        $config['assets'] = ['directory' => './public', 'binding' => 'ASSETS', 'run_worker_first' => true];
+        File::put($project.'/wrangler.jsonc', json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+
+        return true;
+    }
+
     public function scaffold(string $dir, Site $site, string $dockerfile, int $port, array $queues, array $crons = [], string $kvNamespaceId = ''): void
     {
         File::ensureDirectoryExists($dir.'/src');
@@ -237,12 +322,17 @@ class EdgeContainerDeployer
             'containers' => [array_filter([
                 'class_name' => 'App',
                 'image' => $dockerfile,
-                'instance_type' => $settings['instance_type'],
-                'max_instances' => EdgeContainerSettings::wranglerMaxInstances($settings['max_instances']),
-                'constraints' => $settings['jurisdiction'] !== '' ? ['jurisdiction' => $settings['jurisdiction']] : null,
+                'instance_type' => EdgeContainerSettings::wranglerInstanceType($site),
+                'max_instances' => EdgeContainerSettings::wranglerMaxInstances($settings['max_instances'], $settings['dedicated_jobs']),
+                'constraints' => EdgeContainerSettings::constraints($site),
+                'rollout_step_percentage' => $settings['rollout_step_percentage'] !== [] ? $settings['rollout_step_percentage'] : null,
+                'rollout_active_grace_period' => $settings['rollout_active_grace_period'] > 0 ? $settings['rollout_active_grace_period'] : null,
             ])],
             'durable_objects' => ['bindings' => [['name' => 'APP', 'class_name' => 'App']]],
-            'migrations' => [['tag' => 'v1', 'new_sqlite_classes' => ['App']]],
+            'migrations' => [
+                ['tag' => 'v1', 'new_sqlite_classes' => ['App']],
+                ['tag' => 'v2', 'new_sqlite_classes' => ['EdgeState']],
+            ],
             // Workers Logs: Worker + container stdout/stderr, read back by the
             // Container tab through the telemetry query API.
             'observability' => ['enabled' => true],
@@ -266,14 +356,18 @@ class EdgeContainerDeployer
             $config['kv_namespaces'] = [['binding' => 'BILLING', 'id' => $kvNamespaceId]];
         }
 
+        $config = EdgeContainerConnections::mergeWrangler($config, $site);
+
         File::put($dir.'/wrangler.jsonc', json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
         File::put($dir.'/package.json', json_encode([
             'name' => self::scriptName($site),
             'private' => true,
             'type' => 'module',
-            'dependencies' => ['@cloudflare/containers' => '^0'],
+            'dependencies' => EdgeContainerConnections::browserEnabled($site)
+                ? ['@cloudflare/containers' => '^0', '@cloudflare/puppeteer' => '^1']
+                : ['@cloudflare/containers' => '^0'],
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-        File::put($dir.'/src/index.js', $this->workerSource($port, array_flip($queues), $settings, $crons, (string) $site->id));
+        File::put($dir.'/src/index.js', $this->workerSource($port, array_flip($queues), $settings, $crons, $site));
     }
 
     /**
@@ -281,32 +375,43 @@ class EdgeContainerDeployer
      * @param  array{instance_type: string, max_instances: int, sleep_after: string, migrate_on_boot: bool, jurisdiction: string, scheduler: bool}  $settings
      * @param  array<string, list<?string>>  $crons
      */
-    private function workerSource(int $port, array $queueBindings, array $settings, array $crons, string $siteId): string
+    private function workerSource(int $port, array $queueBindings, array $settings, array $crons, Site $site): string
     {
         $replace = [
             '__PORT__' => (string) $port,
             '__SLEEP__' => json_encode($settings['sleep_after']),
             '__INSTANCES__' => (string) $settings['max_instances'],
-            '__FPM_CHILDREN__' => (string) EdgeContainerSettings::phpFpmPool($settings['instance_type'])['max_children'],
-            '__FPM_LIMIT__' => json_encode(EdgeContainerSettings::phpFpmPool($settings['instance_type'])['memory_limit']),
+            '__STICKY__' => $settings['sticky_sessions'] ? 'true' : 'false',
+            '__DEDICATED_JOBS__' => $settings['dedicated_jobs'] ? 'true' : 'false',
+            '__FPM_CHILDREN__' => (string) EdgeContainerSettings::phpFpmPool($settings['instance_type'], $site)['max_children'],
+            '__FPM_LIMIT__' => json_encode(EdgeContainerSettings::phpFpmPool($settings['instance_type'], $site)['memory_limit']),
             '__QUEUE_PATH__' => json_encode(self::QUEUE_PATH, JSON_UNESCAPED_SLASHES),
             '__QUEUE_SEND_PATH__' => json_encode(self::QUEUE_SEND_PATH, JSON_UNESCAPED_SLASHES),
             '__QUEUE_BINDINGS__' => json_encode((object) $queueBindings, JSON_UNESCAPED_SLASHES),
             '__SCHEDULE_PATH__' => json_encode(self::SCHEDULE_PATH, JSON_UNESCAPED_SLASHES),
             '__CRON_HANDLERS__' => json_encode((object) $crons, JSON_UNESCAPED_SLASHES),
-            '__PAUSE_KEY__' => json_encode(StarterTrafficGate::KEY_PREFIX.$siteId),
+            '__PAUSE_KEY__' => json_encode(StarterTrafficGate::KEY_PREFIX.$site->id),
+            '__CONNECTIONS__' => json_encode($this->workerConnections($site), JSON_UNESCAPED_SLASHES),
+            '__CLIENT_CERT__' => json_encode(EdgeContainerConnections::clientCertificateId($site) !== '' ? 'CLIENT_CERT' : ''),
+            '__BROWSER__' => EdgeContainerConnections::browserEnabled($site) ? 'true' : 'false',
+            '__BROWSER_HOST__' => json_encode(EdgeContainerConnections::browserHost($site)),
         ];
 
         return strtr(<<<'JS'
 // Generated by dply (EdgeContainerDeployer). Edits are overwritten on deploy.
-import { Container, getRandom } from '@cloudflare/containers';
+import { Container, getContainer, getRandom } from '@cloudflare/containers';
+import { DurableObject } from 'cloudflare:workers';
+export { ContainerProxy } from '@cloudflare/containers';
 
 const QUEUE_BINDINGS = __QUEUE_BINDINGS__; // queue name -> binding name
 const CRON_HANDLERS = __CRON_HANDLERS__; // schedule -> [artisan command / rake task]
 
+const CONNECTIONS = __CONNECTIONS__;
+
 export class App extends Container {
   defaultPort = __PORT__;
   sleepAfter = __SLEEP__;
+  interceptHttps = __CLIENT_CERT__ !== '';
 
   constructor(ctx, env) {
     super(ctx, env);
@@ -321,8 +426,166 @@ export class App extends Container {
   }
 }
 
-const app = (env) => getRandom(env.APP, __INSTANCES__);
+const CLIENT_CERT = __CLIENT_CERT__;
+const BROWSER = __BROWSER__;
+App.outboundByHost = Object.fromEntries([
+  ...CONNECTIONS.map((c) => [c.host, (request, env) => connectionFetch(c, request, env)]),
+  ...(BROWSER ? [[__BROWSER_HOST__, (request, env) => browserFetch(request, env)]] : []),
+]);
+App.outbound = async (request, env) => {
+  if (!CLIENT_CERT) return fetch(request);
+  const presented = await env[CLIENT_CERT].fetch(request);
+  return presented.status === 520 ? fetch(request) : presented;
+};
+
+async function connectionFetch(c, request, env) {
+  if (c.asleep) return new Response('This resource is asleep.', { status: 503 });
+  const binding = env[c.name];
+  const url = new URL(request.url);
+  const path = decodeURIComponent(url.pathname.replace(/^\//, ''));
+  const json = async () => request.headers.get('content-type')?.includes('json') ? request.json() : {};
+  if (c.kind === 'durable_object') {
+    return binding.get(binding.idFromName('store')).fetch(request);
+  }
+  if (c.kind === 'key_value') {
+    if (request.method === 'GET' && path === '') {
+      const listed = await binding.list({ limit: 100 });
+      return Response.json({ keys: (listed.keys || []).map((key) => key.name) });
+    }
+    if (path === '') return new Response('Name a key.', { status: 400 });
+    if (request.method === 'GET') {
+      const value = await binding.get(path, 'text');
+      return new Response(value, { status: value == null ? 404 : 200, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+    }
+    if (request.method === 'PUT') {
+      await binding.put(path, await request.arrayBuffer());
+      return new Response(null, { status: 204 });
+    }
+    if (request.method === 'DELETE') {
+      await binding.delete(path);
+      return new Response(null, { status: 204 });
+    }
+  }
+  if (c.kind === 'object_storage') {
+    if (request.method === 'GET' && path === '') {
+      const listed = await binding.list({ limit: 100 });
+      return Response.json({ objects: (listed.objects || []).map((object) => ({ key: object.key, size: object.size })) });
+    }
+    if (path === '') return new Response('Name an object.', { status: 400 });
+    if (request.method === 'GET') {
+      const value = await binding.get(path);
+      if (value == null) return new Response(null, { status: 404 });
+      const headers = new Headers();
+      if (value.httpMetadata?.contentType) headers.set('content-type', value.httpMetadata.contentType);
+      return new Response(value.body, { status: 200, headers });
+    }
+    if (request.method === 'PUT') {
+      await binding.put(path, await request.arrayBuffer(), { httpMetadata: { contentType: request.headers.get('content-type') || 'application/octet-stream' } });
+      return new Response(null, { status: 204 });
+    }
+    if (request.method === 'DELETE') { await binding.delete(path); return new Response(null, { status: 204 }); }
+  }
+  if (c.kind === 'sql' && request.method === 'POST') {
+    const body = await json();
+    return Response.json(await binding.prepare(body.sql).bind(...(body.params || [])).all());
+  }
+  if (c.kind === 'queue' && request.method === 'POST') { await binding.send(await request.text()); return new Response(null, { status: 202 }); }
+  if (c.kind === 'ai' && request.method === 'POST') { const body = await json(); return Response.json(await binding.run(body.model, body.input)); }
+  if (c.kind === 'vectors' && request.method === 'POST') { const body = await json(); return Response.json(await binding.query(body.vector, { topK: body.topK || 5 })); }
+  if (c.kind === 'images' && request.method === 'POST') return Response.json(await binding.info(await request.arrayBuffer()));
+  if (c.kind === 'workflow' && request.method === 'POST') { const body = await json(); return Response.json(await binding.create({ id: body.id, params: body.params })); }
+  if (c.kind === 'database_pool' && request.method === 'GET') return Response.json({ connectionString: binding.connectionString });
+  if (c.kind === 'service') {
+    if (!env.DISPATCHER || !c.script || !c.origin) return new Response('This app is not connected.', { status: 404 });
+    const incoming = new URL(request.url);
+    const target = new URL(c.origin);
+    target.pathname = incoming.pathname;
+    target.search = incoming.search;
+    return env.DISPATCHER.get(c.script).fetch(new Request(target, request));
+  }
+  return new Response('This connection does not accept that request.', { status: 405 });
+}
+
+export class EdgeState extends DurableObject {
+  async fetch(request) {
+    const path = decodeURIComponent(new URL(request.url).pathname.replace(/^\//, ''));
+    if (request.method === 'GET' && path === '') {
+      const listed = await this.ctx.storage.list({ limit: 100 });
+      return Response.json({ keys: [...listed.keys()] });
+    }
+    if (path === '') return new Response('Name a key.', { status: 400 });
+    if (request.method === 'POST' && path.startsWith('incr/')) {
+      const key = path.slice(5);
+      const current = Number(await this.ctx.storage.get(key) ?? 0);
+      const next = Number.isFinite(current) ? current + 1 : 1;
+      await this.ctx.storage.put(key, String(next));
+      return new Response(String(next), { headers: { 'content-type': 'text/plain; charset=utf-8' } });
+    }
+    if (request.method === 'GET') {
+      const value = await this.ctx.storage.get(path);
+      return new Response(value == null ? null : String(value), { status: value == null ? 404 : 200, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+    }
+    if (request.method === 'PUT') {
+      await this.ctx.storage.put(path, await request.text());
+      return new Response(null, { status: 204 });
+    }
+    if (request.method === 'DELETE') {
+      await this.ctx.storage.delete(path);
+      return new Response(null, { status: 204 });
+    }
+    return new Response('This connection does not accept that request.', { status: 405 });
+  }
+}
+
+async function browserFetch(request, env) {
+  if (request.method !== 'POST') return new Response('Send {"url"} as JSON.', { status: 405 });
+  const body = await request.json();
+  if (!body.url) return new Response('Missing url.', { status: 400 });
+  const { launch } = await import('@cloudflare/puppeteer');
+  const browser = await launch(env.BROWSER);
+  const page = await browser.newPage();
+  await page.goto(body.url, { waitUntil: 'networkidle0' });
+  const path = new URL(request.url).pathname;
+  const response = path.endsWith('/pdf')
+    ? new Response(await page.pdf(), { headers: { 'content-type': 'application/pdf' } })
+    : path.endsWith('/screenshot')
+      ? new Response(await page.screenshot(), { headers: { 'content-type': 'image/png' } })
+      : new Response(await page.content(), { headers: { 'content-type': 'text/html; charset=utf-8' } });
+  await browser.close();
+  return response;
+}
+
+const INSTANCES = __INSTANCES__;
+const STICKY = __STICKY__;
+const DEDICATED_JOBS = __DEDICATED_JOBS__;
 const PAUSE_KEY = __PAUSE_KEY__;
+
+function stickyId(request) {
+  const match = (request.headers.get('cookie') ?? '').match(/(?:^|;\s*)dply_instance=(\d+)/);
+  if (match) {
+    const id = Number(match[1]);
+    if (id >= 0 && id < INSTANCES) return String(id);
+  }
+  return null;
+}
+
+async function webTarget(env, request) {
+  if (!STICKY) return { container: await getRandom(env.APP, INSTANCES), cookie: null };
+  const existing = stickyId(request);
+  const id = existing ?? String(Math.floor(Math.random() * INSTANCES));
+  return { container: getContainer(env.APP, id), cookie: existing === null ? id : null };
+}
+
+async function jobsTarget(env) {
+  if (!DEDICATED_JOBS) return { container: await getRandom(env.APP, INSTANCES), cookie: null };
+  return { container: getContainer(env.APP, 'jobs'), cookie: null };
+}
+
+function withStickyCookie(response, id) {
+  const headers = new Headers(response.headers);
+  headers.append('set-cookie', 'dply_instance=' + id + '; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800');
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
 
 async function trafficOpen(env) {
   if (!env.BILLING) return true;
@@ -336,8 +599,16 @@ async function trafficOpen(env) {
 // A rollout or a cold start can exit the process before the port is open.
 // container.fetch turns that into a 500 ("not running, consider calling start()")
 // on the first try. Start again and give FrankenPHP time to listen.
-async function proxy(env, request) {
-  const container = await app(env);
+async function proxy(env, request, target) {
+  const container = target.container;
+  try {
+    await container.startAndWaitForPorts({
+      ports: [__PORT__],
+      cancellationOptions: { portReadyTimeoutMS: 45000 },
+    });
+  } catch {
+    // fetch() below starts the container again.
+  }
   let response = await container.fetch(request);
   for (let attempt = 0; attempt < 2 && response.status >= 500; attempt++) {
     const preview = await response.clone().text();
@@ -354,7 +625,16 @@ async function proxy(env, request) {
     }
     response = await container.fetch(request);
   }
-  return response;
+  if (target.cookie !== null) response = withStickyCookie(response, target.cookie);
+  return revealAppErrors(env, response);
+}
+
+function revealAppErrors(env, response) {
+  const flag = String(env.APP_DEBUG ?? '').trim().toLowerCase();
+  if (flag !== 'true' && flag !== '1' && flag !== '(true)') return response;
+  const headers = new Headers(response.headers);
+  headers.set('x-dply-app-debug', '1');
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
 export default {
@@ -376,13 +656,18 @@ export default {
       return new Response('Not found', { status: 404 });
     }
 
+    if ((request.method === 'GET' || request.method === 'HEAD') && env.ASSETS && /\.(css|js|mjs|map|png|jpe?g|gif|webp|avif|svg|ico|woff2?|ttf|eot|txt|xml|webmanifest)$/i.test(url.pathname)) {
+      const asset = await env.ASSETS.fetch(request);
+      if (asset.status !== 404) return asset;
+    }
+
     if (!(await trafficOpen(env))) {
       return new Response('This app is paused. The workspace usage credit is used up.', { status: 503, headers: { 'content-type': 'text/plain; charset=utf-8', 'retry-after': '3600' } });
     }
     const headers = new Headers(request.headers);
     headers.set('x-forwarded-proto', url.protocol.replace(':', ''));
     headers.set('x-forwarded-host', url.host);
-    return proxy(env, new Request(request, { headers }));
+    return proxy(env, new Request(request, { headers }), await webTarget(env, request));
   },
 
   // Cron Triggers: ask the app to run each handler for this schedule.
@@ -393,7 +678,7 @@ export default {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-dply-queue-token': env.DPLY_QUEUE_TOKEN },
         body: JSON.stringify({ cron: controller.cron, handler }),
-      })))());
+      }), await jobsTarget(env)))());
     }
   },
 
@@ -410,7 +695,7 @@ export default {
         queue: QUEUE_BINDINGS[batch.queue] ?? batch.queue,
         messages: batch.messages.map((m) => ({ id: m.id, body: m.body, attempts: m.attempts })),
       }),
-    }));
+    }), await jobsTarget(env));
     if (!response.ok) {
       batch.retryAll({ delaySeconds: 30 });
       return;

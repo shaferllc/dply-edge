@@ -20,6 +20,7 @@ final class StarterUsageBudget
         private EdgeContainerComputeCost $compute,
         private EdgeOrganizationUsageReader $usage,
         private EdgeUsageCostCalculator $calculator,
+        private EdgeRedisCost $redis,
     ) {}
 
     /**
@@ -67,11 +68,12 @@ final class StarterUsageBudget
     {
         [$start, $end] = $this->usage->currentMonthWindow();
         $compute = $this->compute->forOrganization($organization, $start, $end)['cents'];
+        $redis = $this->redis->forOrganization($organization, $start, $end)['cents'];
         $totals = $this->usage->totalsForOrganization($organization, $start, $end);
         $delivery = $this->calculator->estimate($totals, 1, $tier)['subtotal_cents'];
         $millicents = (int) ($tier['build_minute_credit_millicents'] ?? 1000);
         $builds = (int) ceil(EdgeBuildMinutes::usedThisMonth($organization) * $millicents / 1000);
 
-        return $compute + $delivery + $builds;
+        return $compute + $delivery + $builds + $redis;
     }
 }

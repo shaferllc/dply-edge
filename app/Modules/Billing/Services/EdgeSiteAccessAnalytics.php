@@ -8,6 +8,7 @@ use App\Models\EdgeAccessLog;
 use App\Models\EdgePerformanceHourly;
 use App\Models\EdgeWebVital;
 use App\Models\Site;
+use App\Modules\Edge\Support\EdgeAnalyticsEngineTraffic;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -92,6 +93,9 @@ final class EdgeSiteAccessAnalytics
                 'fcp_p75_ms' => $this->percentile($vitals->pluck('fcp_ms')->filter()->values(), 75),
                 'ttfb_p75_ms' => $this->percentile($vitals->pluck('ttfb_ms')->filter()->values(), 75),
             ],
+            'dataset' => $site->edge_backend === 'dply_edge'
+                ? app(EdgeAnalyticsEngineTraffic::class)->overview($site)
+                : EdgeAnalyticsEngineTraffic::empty(),
         ];
 
         if (app()->bound('request')) {

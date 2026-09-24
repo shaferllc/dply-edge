@@ -48,6 +48,8 @@ test('laravel gets a stable app key and production defaults, without overriding 
         ->and($first['APP_URL'])->toBe('https://shop.on-dply.live')
         ->and($first['ASSET_URL'])->toBe('https://shop.on-dply.live')
         ->and($first['SESSION_DRIVER'])->toBe('cookie')
+        ->and($first['DB_CONNECTION'])->toBe('sqlite')
+        ->and($first['DB_DATABASE'])->toBe('/tmp/database.sqlite')
         ->and($second['APP_KEY'])->toBe($first['APP_KEY'])
         ->and(EdgeSiteEnvVar::query()->where('site_id', $site->id)->where('key', 'APP_KEY')->count())->toBe(1)
         ->and(EdgeContainerEnvDefaults::describe(['APP_DEBUG' => 'true'], $first))->toContain('APP_KEY (generated)')->not->toContain($first['APP_KEY']);
@@ -68,6 +70,28 @@ test('laravel defaults reuse the persisted key when the deploy env snapshot is s
     expect($second['APP_KEY'])->toBe($first['APP_KEY'])
         ->and(EdgeSiteEnvVar::query()->where('site_id', $site->id)->where('key', 'APP_KEY')->where('scope', EdgeSiteEnvVar::SCOPE_PRODUCTION)->count())->toBe(1);
 
+    File::deleteDirectory($dir);
+});
+
+test('an app that already has a database keeps it', function () {
+    $site = site();
+    $dir = repo(['artisan' => '']);
+
+    $env = EdgeContainerEnvDefaults::ensure($site, $dir, ['DB_URL' => 'postgres://db']);
+
+    expect($env)->not->toHaveKey('DB_CONNECTION');
+    File::deleteDirectory($dir);
+});
+
+test('none skips the sqlite default', function () {
+    $site = site();
+    $site->mergeEdgeMeta(['database' => ['engine' => 'none', 'name' => 'production']]);
+    $site->save();
+    $dir = repo(['artisan' => '']);
+
+    $env = EdgeContainerEnvDefaults::ensure($site, $dir, []);
+
+    expect($env)->not->toHaveKey('DB_CONNECTION');
     File::deleteDirectory($dir);
 });
 

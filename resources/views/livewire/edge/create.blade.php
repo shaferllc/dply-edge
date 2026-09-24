@@ -2,9 +2,9 @@
     $gitConnected = $linkedSourceControlAccounts !== [];
     $repoChosen = trim($repo) !== '';
     $launched = $launchedDeploymentId !== '';
-    $step1Done = $gitConnected || $repoChosen;
-    $step2Done = $repoChosen;
-    $currentStep = $launched ? 3 : ($step2Done ? 3 : ($step1Done ? 2 : 1));
+    $currentStep = $launched ? 3 : $wizardStep;
+    $step1Done = $currentStep > 1;
+    $step2Done = $currentStep > 2;
     $matchedAccount = collect($linkedSourceControlAccounts)->firstWhere('id', $source_control_account_id);
     $accountLabel = is_array($matchedAccount)
         ? (string) ($matchedAccount['label'] ?? '')
@@ -59,6 +59,9 @@
                             <p class="mt-1 text-xs text-brand-mist">{{ __('owner/repo or a full GitHub URL') }}</p>
                             <x-input-error :messages="$errors->get('repo')" class="mt-2" />
                         </div>
+                        <x-primary-button type="button" wire:click="nextStep" :disabled="! $gitConnected && ! $repoChosen">
+                            {{ __('Next') }}
+                        </x-primary-button>
                     </div>
                 @endif
             </li>
@@ -87,7 +90,10 @@
                         @endif
 
                         @if ($repo_source === 'connected')
-                            @if ($availableRepositories !== [])
+                            @if ($repositoryLoadError)
+                                <p class="text-sm font-medium text-rose-600">{{ $repositoryLoadError }}</p>
+                                <a href="{{ route('profile.source-control') }}" wire:navigate class="text-xs font-semibold text-brand-forest underline hover:text-brand-ink dark:text-brand-sage">{{ __('Open Source control') }}</a>
+                            @elseif ($availableRepositories !== [])
                                 <x-repo-combobox
                                     :repositories="$availableRepositories"
                                     property="repository_selection"
@@ -99,20 +105,19 @@
                             @else
                                 <p class="text-sm text-brand-moss">{{ __('No repositories returned for this account. Paste the repository URL instead.') }}</p>
                             @endif
-                            <x-repo-access-hint :accounts="$linkedSourceControlAccounts" :selected="$source_control_account_id" />
-                            <button type="button" wire:click="$set('repo_source', 'manual')" class="text-xs font-semibold text-brand-forest hover:underline dark:text-brand-sage">
-                                {{ __('Paste a URL instead') }}
-                            </button>
-                        @else
-                            <x-text-input id="repo" wire:model.live.debounce.500ms="repo" type="text" class="block w-full font-mono text-sm" placeholder="owner/repo" />
-                            <p class="text-xs text-brand-mist">{{ __('owner/repo or a full GitHub URL') }}</p>
-                            @if ($gitConnected)
-                                <button type="button" wire:click="$set('repo_source', 'connected')" class="text-xs font-semibold text-brand-forest hover:underline dark:text-brand-sage">
-                                    {{ __('Pick from your account') }}
-                                </button>
+                            @if (! $repositoryLoadError)
+                                <x-repo-access-hint :accounts="$linkedSourceControlAccounts" :selected="$source_control_account_id" />
                             @endif
                         @endif
+                        <div>
+                            <x-input-label for="repo" :value="__('Repository URL')" />
+                            <x-text-input id="repo" wire:model.live.debounce.500ms="repo" type="text" class="mt-1 block w-full font-mono text-sm" placeholder="https://github.com/owner/repo" />
+                            <p class="mt-1 text-xs text-brand-mist">{{ __('A GitHub, GitLab, or Bitbucket URL, or owner/name.') }}</p>
+                        </div>
                         <x-input-error :messages="$errors->get('repo')" class="mt-2" />
+                        <x-primary-button type="button" wire:click="nextStep" :disabled="! $repoChosen">
+                            {{ __('Next') }}
+                        </x-primary-button>
                     </div>
                 @elseif ($step2Done)
                     <p class="mt-0.5 font-mono text-xs text-brand-moss">{{ $repo }}</p>
@@ -130,7 +135,12 @@
                 </p>
 
                 @if ($launched)
-                    <div class="mt-4">
+                    <div class="mt-4 space-y-4" wire:init="loadRepoRefs">
+                        @include('livewire.edge.partials.repo-ref-select')
+                        <x-secondary-button type="button" wire:click="redeploySelectedRef" wire:loading.attr="disabled" wire:target="redeploySelectedRef">
+                            <span wire:loading.remove wire:target="redeploySelectedRef">{{ __('Deploy this branch or tag') }}</span>
+                            <span wire:loading wire:target="redeploySelectedRef">{{ __('Deploying…') }}</span>
+                        </x-secondary-button>
                         <livewire:edge.build-journey
                             :deployment-id="$launchedDeploymentId"
                             :log-only="true"
@@ -139,7 +149,8 @@
                     </div>
                 @elseif ($currentStep === 3)
                     <div class="mt-4 space-y-4">
-                        <p class="text-sm text-brand-moss">{{ __('Name it. Everything else is detected.') }}</p>
+                        <p class="text-sm text-brand-moss">{{ __('Name it. Pick the branch or tag to deploy.') }}</p>
+                        @include('livewire.edge.partials.repo-ref-select')
                         <div>
                             <x-input-label for="name" :value="__('App name')" />
                             <x-text-input id="name" wire:model.live="form.name" type="text" class="mt-1 block w-full" required placeholder="marketing-site" />

@@ -47,6 +47,8 @@
                 >
                     @if ($section === 'general')
                         @livewire('sites.edge.workspace.overview', ['server' => $server, 'site' => $site], key('edge-section-overview-'.$site->id))
+                    @elseif ($section === 'resources')
+                        @livewire('sites.edge.workspace.resources', ['server' => $server, 'site' => $site], key('edge-section-resources-'.$site->id))
                     @elseif ($section === 'deploys')
                         @livewire('sites.edge.workspace.deploys', ['server' => $server, 'site' => $site], key('edge-section-deploys-'.$site->id))
                     @elseif ($section === 'build')
@@ -65,6 +67,8 @@
                         @livewire('sites.edge.workspace.bindings', ['server' => $server, 'site' => $site], key('edge-section-bindings-'.$site->id))
                     @elseif ($section === 'crons')
                         @livewire('sites.edge.workspace.crons', ['server' => $server, 'site' => $site], key('edge-section-crons-'.$site->id))
+                    @elseif ($section === 'security')
+                        @livewire('sites.edge.workspace.security', ['server' => $server, 'site' => $site], key('edge-section-security-'.$site->id))
                     @elseif ($section === 'firewall')
                         @livewire('sites.edge.workspace.firewall', ['server' => $server, 'site' => $site], key('edge-section-firewall-'.$site->id))
                     @elseif ($section === 'bot-protection')

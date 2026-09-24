@@ -19,6 +19,21 @@ there is no `queue:work` process:
 The queue binding defaults to `JOBS` (Edge → Jobs); pick another with
 `DPLY_QUEUE=MY_BINDING` or `->onQueue('MY_BINDING')`.
 
+## Object storage
+
+Attach a bucket under Resources. The next deploy injects `DPLY_STORAGE_HOST`
+and, unless you already set it, `FILESYSTEM_DISK`. Then the same calls you
+use for S3 talk to that bucket:
+
+```php
+Storage::put('uploads/photo.jpg', $bytes);
+Storage::get('uploads/photo.jpg');
+Storage::disk('s3')->delete('uploads/photo.jpg');
+```
+
+A saved `AWS_ACCESS_KEY_ID` keeps your own `s3` disk. The bucket is still
+`Storage::disk('uploads')` (the name you gave the resource, lowercased).
+
 ## Scheduler
 
 Turn on **Container → Run the Laravel scheduler every minute** and dply calls

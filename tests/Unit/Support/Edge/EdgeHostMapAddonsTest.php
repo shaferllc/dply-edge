@@ -69,8 +69,7 @@ test('managed edge site addons flatten into host map fields', function () {
 
     expect($payload['turnstile']['site_key'])->toBe('site')
         ->and($payload['rate_limit']['rules'][0]['action'])->toBe('challenge')
-        ->and($payload['forms']['ingest_url'])->toContain('/hooks/edge/')
-        ->and($payload['forms']['ingest_url'])->toContain('/forms')
+        ->and($payload['forms']['endpoints'][0]['path'])->toBe('/contact')
         ->and($payload['waiting_room']['total_active_users'])->toBe(50)
         ->and($payload['snippets']['items'][0]['html'])->toBe('<!-- x -->')
         ->and($payload['tags']['tools'][0]['src'])->toStartWith('https://')

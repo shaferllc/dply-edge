@@ -75,7 +75,9 @@ Cloudflare allows 5 schedules per site.
 ## Environment
 
 Every production variable from **Environment** is passed to the container as a
-Worker secret.
+Worker secret, then copied into the container process environment before the
+app starts. The app reads the name with its normal environment API. A container
+cannot fetch these values over HTTP.
 
 On the first deploy, dply fills in what the framework needs to boot, but only
 where you haven't set a value. The values are saved under **Environment**, so

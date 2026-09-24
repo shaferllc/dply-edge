@@ -44,6 +44,8 @@ return [
         'routing' => ['label' => 'Routing'],
         'error-pages' => ['label' => 'Error pages'],
         'crons' => ['label' => 'Crons'],
+        'resources' => ['label' => 'Resources'],
+        'security' => ['label' => 'Security'],
         'firewall' => ['label' => 'Firewall'],
         'bot-protection' => ['label' => 'Bot protection'],
         'rate-limits' => ['label' => 'Rate limits'],

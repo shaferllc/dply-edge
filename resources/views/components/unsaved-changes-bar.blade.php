@@ -7,6 +7,9 @@
     'saveDisabled' => false,
     'saveLabel' => null,
     'discardLabel' => null,
+    /** Optional third action, shown as the primary button beside Save. */
+    'extraAction' => null,
+    'extraLabel' => null,
     /**
      * Livewire bool property (e.g. pipeline_form_edits_pending) for modal / conditional forms.
      * Uses Alpine x-bind alongside wire:dirty so the bar is not hidden when only the modal is dirty.
@@ -119,11 +122,25 @@
                 type="button"
                 wire:click="{{ $saveAction }}"
                 @disabled($saveDisabled)
-                class="inline-flex items-center justify-center rounded-xl bg-brand-sage px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-sage/90 focus:outline-none focus:ring-2 focus:ring-brand-sage/50 disabled:cursor-not-allowed disabled:opacity-50"
+                @class([
+                    'inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold shadow-sm transition focus:outline-none focus:ring-2 focus:ring-brand-sage/50 disabled:cursor-not-allowed disabled:opacity-50',
+                    'border border-brand-ink/20 bg-white text-brand-ink hover:bg-brand-sand/40' => filled($extraAction),
+                    'bg-brand-sage text-white hover:bg-brand-sage/90' => ! filled($extraAction),
+                ])
             >
                 <span wire:loading.remove wire:target="{{ $saveAction }}">{{ $saveLabel }}</span>
                 <span wire:loading wire:target="{{ $saveAction }}" class="inline-flex items-center gap-1.5">{{ __('Saving…') }}</span>
             </button>
+            @if (filled($extraAction))
+                <button
+                    type="button"
+                    wire:click="{{ $extraAction }}"
+                    class="inline-flex items-center justify-center rounded-xl bg-brand-sage px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-sage/90 focus:outline-none focus:ring-2 focus:ring-brand-sage/50"
+                >
+                    <span wire:loading.remove wire:target="{{ $extraAction }}">{{ $extraLabel }}</span>
+                    <span wire:loading wire:target="{{ $extraAction }}" class="inline-flex items-center gap-1.5">{{ __('Redeploying…') }}</span>
+                </button>
+            @endif
         </div>
     </div>
 </div>

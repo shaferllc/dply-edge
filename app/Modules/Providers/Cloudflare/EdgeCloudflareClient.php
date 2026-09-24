@@ -136,6 +136,196 @@ class EdgeCloudflareClient
         );
     }
 
+    /**
+     * @param  array{name: string, certificates: string, private_key: string, ca: bool}  $body
+     * @return array<string, mixed>
+     */
+    public function uploadMtlsCertificate(array $body): array
+    {
+        return $this->decode(
+            Http::withToken($this->apiToken)
+                ->post(self::BASE.'/accounts/'.$this->accountId.'/mtls_certificates', $body),
+        );
+    }
+
+    /**
+     * @return array{type: string, body: string}
+     */
+    public function renderBrowser(string $kind, string $url): array
+    {
+        $path = match ($kind) {
+            'content' => 'content',
+            'pdf' => 'pdf',
+            default => 'screenshot',
+        };
+        $response = Http::withToken($this->apiToken)
+            ->post(self::BASE.'/accounts/'.$this->accountId.'/browser-rendering/'.$path, ['url' => $url]);
+        if (! $response->successful()) {
+            $message = $response->json('errors.0.message');
+            throw new RuntimeException(is_string($message) && $message !== '' ? $message : 'The page could not be opened.');
+        }
+
+        return ['type' => (string) $response->header('Content-Type'), 'body' => $response->body()];
+    }
+
+    public function deleteMtlsCertificate(string $certificateId): void
+    {
+        $response = Http::withToken($this->apiToken)->delete(self::BASE.'/accounts/'.$this->accountId.'/mtls_certificates/'.$certificateId);
+        if ($response->status() !== 404) {
+            $this->decode($response);
+        }
+    }
+
+    public function deleteKvNamespace(string $namespaceId): void
+    {
+        $response = Http::withToken($this->apiToken)->delete(self::BASE.'/accounts/'.$this->accountId.'/storage/kv/namespaces/'.$namespaceId);
+        if ($response->status() !== 404) {
+            $this->decode($response);
+        }
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function listKvKeys(string $namespaceId): array
+    {
+        $payload = $this->decode(
+            Http::withToken($this->apiToken)->get($this->kvNamespaceUrl($namespaceId).'/keys'),
+        );
+        $rows = isset($payload['value']) && is_array($payload['value']) ? $payload['value'] : $payload;
+        if (! is_array($rows) || ! array_is_list($rows)) {
+            return [];
+        }
+
+        $names = [];
+        foreach ($rows as $row) {
+            $name = is_array($row) ? (string) ($row['name'] ?? '') : '';
+            if ($name !== '') {
+                $names[] = $name;
+            }
+        }
+
+        return $names;
+    }
+
+    public function getKvValue(string $namespaceId, string $key): ?string
+    {
+        $response = Http::withToken($this->apiToken)->get($this->kvNamespaceUrl($namespaceId).'/values/'.rawurlencode($key));
+        if ($response->status() === 404) {
+            return null;
+        }
+        if (! $response->successful()) {
+            $message = $response->json('errors.0.message');
+            throw new RuntimeException(is_string($message) && $message !== '' ? $message : 'The key could not be read.');
+        }
+
+        return $response->body();
+    }
+
+    public function putKvValue(string $namespaceId, string $key, string $value): void
+    {
+        $response = Http::withToken($this->apiToken)
+            ->withBody($value, 'text/plain')
+            ->put($this->kvNamespaceUrl($namespaceId).'/values/'.rawurlencode($key));
+        if (! $response->successful()) {
+            $message = $response->json('errors.0.message');
+            throw new RuntimeException(is_string($message) && $message !== '' ? $message : 'The key could not be saved.');
+        }
+    }
+
+    public function deleteKvValue(string $namespaceId, string $key): void
+    {
+        $response = Http::withToken($this->apiToken)->delete($this->kvNamespaceUrl($namespaceId).'/values/'.rawurlencode($key));
+        if ($response->status() !== 404 && ! $response->successful()) {
+            $message = $response->json('errors.0.message');
+            throw new RuntimeException(is_string($message) && $message !== '' ? $message : 'The key could not be deleted.');
+        }
+    }
+
+    private function kvNamespaceUrl(string $namespaceId): string
+    {
+        return self::BASE.'/accounts/'.$this->accountId.'/storage/kv/namespaces/'.rawurlencode($namespaceId);
+    }
+
+    public function deleteR2Bucket(string $name): void
+    {
+        $response = Http::withToken($this->apiToken)->delete(self::BASE.'/accounts/'.$this->accountId.'/r2/buckets/'.$name);
+        if ($response->status() !== 404) {
+            $this->decode($response);
+        }
+    }
+
+    /**
+     * @return list<array{key: string, size: int}>
+     */
+    public function listR2Objects(string $bucket): array
+    {
+        $payload = $this->decode(
+            Http::withToken($this->apiToken)
+                ->get($this->r2ObjectsUrl($bucket), ['per_page' => 100]),
+        );
+        $rows = array_is_list($payload) ? $payload : (is_array($payload['objects'] ?? null) ? $payload['objects'] : []);
+        $objects = [];
+        foreach ($rows as $row) {
+            if (! is_array($row) || ! is_string($row['key'] ?? null) || $row['key'] === '') {
+                continue;
+            }
+            $objects[] = ['key' => $row['key'], 'size' => (int) ($row['size'] ?? 0)];
+        }
+
+        return $objects;
+    }
+
+    public function getR2Object(string $bucket, string $key): ?string
+    {
+        $response = Http::withToken($this->apiToken)->get($this->r2ObjectUrl($bucket, $key));
+        if ($response->status() === 404) {
+            return null;
+        }
+        if (! $response->successful()) {
+            $message = $response->json('errors.0.message');
+            throw new RuntimeException(is_string($message) && $message !== '' ? $message : 'The object could not be read.');
+        }
+        $json = $response->json();
+        if (is_array($json) && array_key_exists('result', $json) && is_string($json['result'])) {
+            return $json['result'];
+        }
+
+        return $response->body();
+    }
+
+    public function putR2Object(string $bucket, string $key, string $body): void
+    {
+        $response = Http::withToken($this->apiToken)
+            ->withBody($body, 'application/octet-stream')
+            ->put($this->r2ObjectUrl($bucket, $key));
+        if (! $response->successful()) {
+            $message = $response->json('errors.0.message');
+            throw new RuntimeException(is_string($message) && $message !== '' ? $message : 'The object could not be saved.');
+        }
+    }
+
+    public function deleteR2Object(string $bucket, string $key): void
+    {
+        $response = Http::withToken($this->apiToken)->delete($this->r2ObjectUrl($bucket, $key));
+        if ($response->status() !== 404 && ! $response->successful()) {
+            $message = $response->json('errors.0.message');
+            throw new RuntimeException(is_string($message) && $message !== '' ? $message : 'The object could not be deleted.');
+        }
+    }
+
+    private function r2ObjectsUrl(string $bucket): string
+    {
+        return self::BASE.'/accounts/'.$this->accountId.'/r2/buckets/'.rawurlencode($bucket).'/objects';
+    }
+
+    private function r2ObjectUrl(string $bucket, string $key): string
+    {
+        $encoded = implode('/', array_map(rawurlencode(...), explode('/', $key)));
+
+        return $this->r2ObjectsUrl($bucket).'/'.$encoded;
+    }
+
     public function kvNamespaceIdByTitle(string $title): ?string
     {
         foreach ($this->listKvNamespaces() as $namespace) {
@@ -179,6 +369,14 @@ class EdgeCloudflareClient
         );
 
         return array_values(array_filter($payload, 'is_array'));
+    }
+
+    public function deleteDispatchNamespace(string $name): void
+    {
+        $response = Http::withToken($this->apiToken)->delete(self::BASE.'/accounts/'.$this->accountId.'/workers/dispatch/namespaces/'.$name);
+        if ($response->status() !== 404) {
+            $this->decode($response);
+        }
     }
 
     public function createDispatchNamespace(string $name): array

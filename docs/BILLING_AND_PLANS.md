@@ -33,7 +33,7 @@ Allowances are per organization, per calendar month. A site counts once it is li
 
 ## Usage past the plan
 
-On Pro and Team, requests and egress past the plan are billed at a cost-floor rate plus a markup (default **40%**). R2 storage and operations keep per-site allowances (5 GB, 20k writes, 1M reads per site).
+On Pro and Team, requests and egress past the plan are billed at a cost-floor rate plus a markup (default **25%**). R2 storage and operations keep per-site allowances (5 GB, 20k writes, 1M reads per site).
 
 | Meter | Cost-floor rate |
 |-------|-----------------|

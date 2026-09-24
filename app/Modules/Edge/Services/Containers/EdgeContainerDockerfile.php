@@ -6,6 +6,7 @@ namespace App\Modules\Edge\Services\Containers;
 
 use App\Modules\Edge\Services\NodeVersionDetector;
 use App\Modules\Edge\Services\RuntimeDetection\FrontendAssetBuild;
+use Illuminate\Support\Facades\Cache;
 use RuntimeException;
 
 /**
@@ -76,6 +77,18 @@ final class EdgeContainerDockerfile
     public const PHP_EXTENSIONS = 'pdo_pgsql pdo_mysql redis intl zip bcmath pcntl opcache';
 
     /**
+     * Compiled into the official PHP images this generator builds on.
+     * Asking install-php-extensions for them only prints
+     * "Module already installed".
+     */
+    private const BUNDLED_PHP_EXTENSIONS = [
+        'ctype', 'curl', 'dom', 'fileinfo', 'filter', 'hash', 'iconv', 'json',
+        'libxml', 'mbstring', 'openssl', 'pcre', 'phar', 'posix', 'reflection',
+        'session', 'simplexml', 'sodium', 'spl', 'tokenizer', 'xml', 'xmlreader',
+        'xmlwriter', 'zlib',
+    ];
+
+    /**
      * What a generated PHP image builds on.
      *
      * With `containers.php_base_repo` set, that prebuilt image already carries
@@ -94,7 +107,7 @@ final class EdgeContainerDockerfile
         // not the digest. Hashing it too would change the default server's
         // existing tag and point every build at an unpublished image.
         return $repo !== ''
-            ? ['FROM '.$repo.':'.self::baseTag($version, self::PHP_EXTENSIONS, $server)]
+            ? ['FROM '.$repo.':'.self::baseTag($version, self::publishedPhpExtensions(), $server)]
             : self::phpBaseSourceLines($version, $server);
     }
 
@@ -153,12 +166,12 @@ final class EdgeContainerDockerfile
             'swoole' => [
                 "FROM php:{$version}-cli-alpine",
                 'COPY --from=mlocati/php-extension-installer /usr/bin/install-php-extensions /usr/local/bin/',
-                'RUN install-php-extensions '.self::PHP_EXTENSIONS.' swoole',
+                self::installPhpExtensions(self::PHP_EXTENSIONS.' swoole'),
             ],
             'roadrunner' => [
                 "FROM php:{$version}-cli-alpine",
                 'COPY --from=mlocati/php-extension-installer /usr/bin/install-php-extensions /usr/local/bin/',
-                'RUN install-php-extensions '.self::PHP_EXTENSIONS.' sockets',
+                self::installPhpExtensions(self::PHP_EXTENSIONS.' sockets'),
                 'COPY --from=ghcr.io/roadrunner-server/roadrunner:latest /usr/bin/rr /usr/local/bin/rr',
             ],
             // nginx fronts php-fpm; s6/supervisor would be another moving part,
@@ -166,12 +179,12 @@ final class EdgeContainerDockerfile
             'fpm' => [
                 "FROM php:{$version}-fpm-alpine",
                 'COPY --from=mlocati/php-extension-installer /usr/bin/install-php-extensions /usr/local/bin/',
-                'RUN install-php-extensions '.self::PHP_EXTENSIONS,
+                self::installPhpExtensions(self::PHP_EXTENSIONS),
                 'RUN apk add --no-cache nginx && mkdir -p /run/nginx',
             ],
             default => [
                 'FROM '.sprintf(self::PHP_BASE_IMAGE, $version),
-                'RUN install-php-extensions '.self::PHP_EXTENSIONS,
+                self::installPhpExtensions(self::PHP_EXTENSIONS),
             ],
         };
     }
@@ -204,6 +217,114 @@ final class EdgeContainerDockerfile
         }
 
         return 'swoole';
+    }
+
+    /**
+     * Every ext-* the root package or a locked production dependency requires
+     * that the base image does not already ship. Installed before
+     * `composer install` so the platform check passes.
+     *
+     * @param  array<string, mixed>  $composer
+     * @param  array<string, mixed>  $lock
+     */
+    public static function extraPhpExtensions(array $composer, array $lock = []): string
+    {
+        $baked = array_fill_keys(preg_split('/\s+/', self::publishedPhpExtensions()) ?: [], true);
+        foreach (self::BUNDLED_PHP_EXTENSIONS as $bundled) {
+            $baked[$bundled] = true;
+        }
+        $requires = [];
+        if (is_array($composer['require'] ?? null)) {
+            $requires[] = $composer['require'];
+        }
+        foreach (is_array($lock['packages'] ?? null) ? $lock['packages'] : [] as $package) {
+            if (is_array($package) && is_array($package['require'] ?? null)) {
+                $requires[] = $package['require'];
+            }
+        }
+
+        $extra = [];
+        foreach ($requires as $require) {
+            foreach (array_keys($require) as $name) {
+                $name = strtolower((string) $name);
+                if (! str_starts_with($name, 'ext-')) {
+                    continue;
+                }
+                $extension = substr($name, 4);
+                if ($extension === '' || isset($baked[$extension]) || isset($extra[$extension])) {
+                    continue;
+                }
+                $extra[$extension] = true;
+            }
+        }
+
+        ksort($extra);
+
+        return implode(' ', array_keys($extra));
+    }
+
+    /**
+     * Extensions the published base image already contains. Empty cache keeps
+     * the original PHP_EXTENSIONS string so the existing tag still resolves.
+     */
+    public const EXTRA_EXTENSIONS_CACHE_KEY = 'edge:php-base-extra-extensions';
+
+    public static function publishedPhpExtensions(): string
+    {
+        $extra = trim((string) Cache::get(self::EXTRA_EXTENSIONS_CACHE_KEY, ''));
+        if ($extra === '') {
+            return self::PHP_EXTENSIONS;
+        }
+
+        $names = [];
+        foreach (preg_split('/\s+/', self::PHP_EXTENSIONS.' '.$extra) ?: [] as $name) {
+            if ($name !== '') {
+                $names[$name] = true;
+            }
+        }
+        $sorted = array_keys($names);
+        sort($sorted);
+
+        return implode(' ', $sorted);
+    }
+
+    public static function rememberExtraExtensions(string $extensions): void
+    {
+        $current = trim((string) Cache::get(self::EXTRA_EXTENSIONS_CACHE_KEY, ''));
+        $names = [];
+        foreach (preg_split('/\s+/', trim($current.' '.$extensions)) ?: [] as $name) {
+            if ($name !== '') {
+                $names[$name] = true;
+            }
+        }
+        $sorted = array_keys($names);
+        sort($sorted);
+        Cache::forever(self::EXTRA_EXTENSIONS_CACHE_KEY, implode(' ', $sorted));
+    }
+
+    /**
+     * @return array{version: string, server: string}
+     */
+    public static function phpIdentity(string $checkout): array
+    {
+        $composer = json_decode((string) file_get_contents($checkout.'/composer.json'), true);
+        $composer = is_array($composer) ? $composer : [];
+        $platform = (string) ($composer['config']['platform']['php'] ?? '');
+        $version = $platform !== ''
+            ? (preg_match('/(8\.\d)/', $platform, $m) === 1 ? $m[1] : self::PHP_DEFAULT_MAX)
+            : self::newestAllowedPhp((string) ($composer['require']['php'] ?? ''));
+
+        return ['version' => $version, 'server' => self::detectPhpServer($composer)];
+    }
+
+    /**
+     * install-php-extensions always prints #StandWithUkraine. Drop that line
+     * and keep the installer's exit code.
+     */
+    private static function installPhpExtensions(string $extensions): string
+    {
+        return 'RUN install-php-extensions '.$extensions
+            .' > /tmp/ipe.log 2>&1; code=$?; grep -v StandWithUkraine /tmp/ipe.log || true; rm -f /tmp/ipe.log; exit $code';
     }
 
     /**
@@ -347,14 +468,11 @@ final class EdgeContainerDockerfile
     private static function php(string $checkout): string
     {
         $composer = json_decode((string) file_get_contents($checkout.'/composer.json'), true);
-        $platform = (string) ($composer['config']['platform']['php'] ?? '');
-        $version = $platform !== ''
-            // An explicit platform pin is what the app is tested against — honour it.
-            ? (preg_match('/(8\.\d)/', $platform, $m) === 1 ? $m[1] : self::PHP_DEFAULT_MAX)
-            : self::newestAllowedPhp((string) ($composer['require']['php'] ?? ''));
+        $identity = self::phpIdentity($checkout);
+        $version = $identity['version'];
+        $server = $identity['server'];
         $laravel = is_file($checkout.'/artisan');
         $assets = FrontendAssetBuild::stepsForDirectory($checkout);
-        $server = self::detectPhpServer(is_array($composer) ? $composer : []);
 
         $lines = self::assetStageLines($checkout, $assets);
         foreach (self::phpBaseLines($version, $server) as $line) {
@@ -362,6 +480,14 @@ final class EdgeContainerDockerfile
         }
         $lines[] = 'COPY --from=composer:2 /usr/bin/composer /usr/bin/composer';
         $lines[] = 'WORKDIR /app';
+        $lock = is_file($checkout.'/composer.lock')
+            ? json_decode((string) file_get_contents($checkout.'/composer.lock'), true)
+            : [];
+        $extraExtensions = self::extraPhpExtensions(is_array($composer) ? $composer : [], is_array($lock) ? $lock : []);
+        if ($extraExtensions !== '') {
+            $lines[] = 'COPY --from=mlocati/php-extension-installer /usr/bin/install-php-extensions /usr/local/bin/';
+            $lines[] = self::installPhpExtensions($extraExtensions);
+        }
         // Dependencies before code: this layer survives every deploy that
         // doesn't touch composer.json/lock, so a code-only change skips the
         // whole vendor install. --no-scripts/--no-autoloader because Laravel's
@@ -423,7 +549,7 @@ final class EdgeContainerDockerfile
             default => 'exec frankenphp run --config /etc/frankenphp/Caddyfile',
         };
         $boot = $laravel
-            ? 'if [ "$DPLY_MIGRATE_ON_BOOT" = "1" ]; then php artisan migrate --force --isolated || true; fi; '.$start
+            ? 'if [ "$DPLY_MIGRATE_ON_BOOT" = "1" ]; then if [ "$DB_CONNECTION" = "sqlite" ] && [ -n "$DB_DATABASE" ]; then mkdir -p "$(dirname "$DB_DATABASE")" && touch "$DB_DATABASE" && chmod 666 "$DB_DATABASE"; fi; php artisan migrate --force --isolated || true; fi; '.$start
             : $start;
         $lines[] = 'CMD ["sh", "-c", '.json_encode($boot, JSON_UNESCAPED_SLASHES).']';
 

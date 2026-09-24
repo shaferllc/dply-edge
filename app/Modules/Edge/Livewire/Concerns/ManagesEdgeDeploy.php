@@ -8,6 +8,7 @@ use App\Enums\QuotaSurface;
 use App\Models\EdgeSiteEnvVar;
 use App\Models\Site;
 use App\Modules\Edge\Actions\CreateEdgeSite;
+use App\Modules\Edge\Actions\RedeployEdgeSite;
 use App\Modules\Edge\Support\EdgeEligibility;
 use App\Modules\Edge\Support\EdgeSsrAvailability;
 use App\Modules\Edge\Support\EdgeSsrDetection;
@@ -27,6 +28,34 @@ trait ManagesEdgeDeploy
         ]);
 
         $this->form->validate();
+    }
+
+    public function redeploySelectedRef(): void
+    {
+        $site = Site::query()->find($this->launchedSiteId);
+        if ($site === null) {
+            return;
+        }
+
+        $this->validate([
+            'branch' => ['required', 'string', 'max:120'],
+        ]);
+
+        $meta = is_array($site->meta) ? $site->meta : [];
+        $edge = is_array($meta['edge'] ?? null) ? $meta['edge'] : [];
+        $source = is_array($edge['source'] ?? null) ? $edge['source'] : [];
+        $source['branch'] = $this->branch;
+        $source['ref_kind'] = $this->form->ref_kind;
+        $edge['source'] = $source;
+        $meta['edge'] = $edge;
+
+        $site->forceFill([
+            'git_branch' => $this->branch,
+            'meta' => $meta,
+        ])->save();
+
+        $deployment = app(RedeployEdgeSite::class)->handle($site);
+        $this->launchedDeploymentId = (string) $deployment->id;
     }
 
     public function deploy(): void
@@ -125,9 +154,11 @@ trait ManagesEdgeDeploy
         $this->launchedServerId = (string) $site->server_id;
         $this->launchedDeploymentId = (string) ($deployment?->id ?? '');
 
-        if ($this->launchedDeploymentId === '') {
-            $this->redirect(route('sites.show', ['server' => $site->server, 'site' => $site]), navigate: true);
-        }
+        $this->redirect(route('sites.show', [
+            'server' => $site->server,
+            'site' => $site,
+            'section' => 'resources',
+        ]), navigate: true);
     }
 
     /**

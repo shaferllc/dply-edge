@@ -3,36 +3,30 @@
 
     $tailSiteId = (string) $site->id;
     $pollUrl = route('sites.edge.logs.live', ['server' => $server ?? $site->server, 'site' => $site]);
-    $ingestBase = rtrim((string) config('edge.log_ingest.base_url', ''), '/');
-    $ingestKeySet = filled(config('edge.log_ingest.key'));
-    $ingestHost = $ingestBase !== '' ? (string) (parse_url($ingestBase, PHP_URL_HOST) ?: '') : '';
-    $ingestLooksPrivate = $ingestHost !== '' && (
-        str_ends_with($ingestHost, '.test')
-        || str_ends_with($ingestHost, '.local')
-        || in_array($ingestHost, ['localhost', '127.0.0.1', '::1'], true)
-    );
 
-    $seedRows = EdgeAccessLog::query()
-        ->where('site_id', $site->id)
-        ->orderByDesc('occurred_at')
-        ->limit(50)
-        ->get()
-        ->map(fn (EdgeAccessLog $row) => [
-            'occurred_at' => $row->occurred_at?->toIso8601String(),
-            'deployment_id' => $row->edge_deployment_id,
-            'hostname' => $row->hostname,
-            'method' => $row->method,
-            'path' => $row->path,
-            'status' => $row->status_code,
-            'duration_ms' => $row->duration_ms,
-            'bytes_egress' => $row->bytes_egress,
-            'cache_status' => $row->cache_status,
-            'country' => $row->country,
-            'referrer' => $row->referrer,
-            'user_agent' => $row->user_agent,
-        ])
-        ->values()
-        ->all();
+    $seedRows = array_key_exists('liveSeed', get_defined_vars())
+        ? (is_array($liveSeed) ? $liveSeed : [])
+        : EdgeAccessLog::query()
+            ->where('site_id', $site->id)
+            ->orderByDesc('occurred_at')
+            ->limit(50)
+            ->get()
+            ->map(fn (EdgeAccessLog $row) => [
+                'occurred_at' => $row->occurred_at?->toIso8601String(),
+                'deployment_id' => $row->edge_deployment_id,
+                'hostname' => $row->hostname,
+                'method' => $row->method,
+                'path' => $row->path,
+                'status' => $row->status_code,
+                'duration_ms' => $row->duration_ms,
+                'bytes_egress' => $row->bytes_egress,
+                'cache_status' => $row->cache_status,
+                'country' => $row->country,
+                'referrer' => $row->referrer,
+                'user_agent' => $row->user_agent,
+            ])
+            ->values()
+            ->all();
 @endphp
 
 {{-- wire:ignore: Alpine owns this DOM (x-for rows). Livewire morph from
@@ -45,8 +39,6 @@
         'max' => 200,
         'pollUrl' => $pollUrl,
         'seed' => $seedRows,
-        'ingestLooksPrivate' => $ingestLooksPrivate,
-        'ingestConfigured' => $ingestKeySet && $ingestBase !== '',
     ]) }})"
     x-init="connect()"
     x-on:beforeunload.window="disconnect()"
@@ -132,7 +124,7 @@
                     <tr>
                         <td colspan="7" class="px-5 py-8 text-center text-xs text-brand-moss">
                             <span x-show="status === 'connected' && rows.length === 0">
-                                {{ __('No requests in the last hour. Visit the live site and they will show up here.') }}
+                                {{ __('No requests yet today. Visit the live site and they will show up here.') }}
                             </span>
                             <span x-show="status === 'connecting'" x-cloak>{{ __('Connecting…') }}</span>
                             <span x-show="status === 'disconnected'" x-cloak>{{ __('No live stream.') }}</span>
@@ -166,8 +158,6 @@
                     siteId: opts.siteId,
                     max: opts.max || 200,
                     pollUrl: opts.pollUrl || '',
-                    ingestLooksPrivate: !! opts.ingestLooksPrivate,
-                    ingestConfigured: opts.ingestConfigured !== false,
                     status: 'connecting',
                     rows: [],
                     filter: '',
@@ -210,7 +200,7 @@
                     },
 
                     connect() {
-                        (opts.seed || []).forEach((payload) => this.ingestRow(payload, { highlight: false }));
+                        [...(opts.seed || [])].reverse().forEach((payload) => this.ingestRow(payload, { highlight: false }));
 
                         if (window.Echo) {
                             try {

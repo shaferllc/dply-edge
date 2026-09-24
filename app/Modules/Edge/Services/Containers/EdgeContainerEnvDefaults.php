@@ -27,8 +27,8 @@ final class EdgeContainerEnvDefaults
             is_file($checkout.'/artisan') => [
                 'APP_KEY' => 'base64:'.base64_encode(random_bytes(32)),
                 'APP_ENV' => 'production',
-                'APP_DEBUG' => 'false',
                 'APP_URL' => (string) ($site->edgeLiveUrl() ?? ''),
+                ...self::sqliteDefaults($site, $env),
                 // Vite reads asset_url. Without it, Laravel builds stylesheet
                 // links from the container's plain-HTTP request and the
                 // browser drops them as mixed content.
@@ -81,6 +81,28 @@ final class EdgeContainerEnvDefaults
         }
 
         return (string) $row->value;
+    }
+
+    /**
+     * A container app with no database of its own boots on a file SQLite
+     * database. The file is created and migrated on each start.
+     *
+     * @param  array<string, string>  $env
+     * @return array<string, string>
+     */
+    private static function sqliteDefaults(Site $site, array $env): array
+    {
+        if (isset($env['DB_CONNECTION']) || isset($env['DB_URL']) || isset($env['DATABASE_URL'])) {
+            return [];
+        }
+        if ((string) ($site->edgeMeta()['database']['engine'] ?? '') === 'none') {
+            return [];
+        }
+
+        return [
+            'DB_CONNECTION' => 'sqlite',
+            'DB_DATABASE' => '/tmp/database.sqlite',
+        ];
     }
 
     /** Masked for build logs. */

@@ -7,6 +7,7 @@ namespace App\Modules\Edge;
 use App\Modules\Edge\Console\CheckEdgeRumAlertsCommand;
 use App\Modules\Edge\Console\CollectEdgeContainerUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeDataUsageCommand;
+use App\Modules\Edge\Console\CollectEdgeRedisUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeUsageCommand;
 use App\Modules\Edge\Console\EdgeDoctorCommand;
 use App\Modules\Edge\Console\EdgeEnsureBuildDockerCommand;
@@ -52,6 +53,7 @@ class EdgeServiceProvider extends ServiceProvider
                 CheckEdgeRumAlertsCommand::class,
                 CollectEdgeContainerUsageCommand::class,
                 CollectEdgeDataUsageCommand::class,
+                CollectEdgeRedisUsageCommand::class,
                 CollectEdgeUsageCommand::class,
                 EdgeDoctorCommand::class,
                 EdgeEnsureBuildDockerCommand::class,

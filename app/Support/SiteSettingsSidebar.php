@@ -274,6 +274,7 @@ final class SiteSettingsSidebar
         // looks wrong). Bindings / Crons / Jobs need a per-site Worker.
         $items = [
             ['id' => 'general', 'label' => __('Overview'), 'icon' => 'heroicon-o-home', 'group' => 'ship'],
+            ['id' => 'resources', 'label' => __('Resources'), 'icon' => 'heroicon-o-squares-2x2', 'group' => 'ship'],
             ['id' => 'deploys', 'label' => __('Deploys'), 'icon' => 'heroicon-o-code-bracket-square', 'group' => 'ship'],
             ['id' => 'build', 'label' => __('Build'), 'icon' => 'heroicon-o-wrench-screwdriver', 'group' => 'ship'],
             ['id' => 'environment', 'label' => __('Environment'), 'icon' => 'heroicon-o-command-line', 'group' => 'ship'],
@@ -306,6 +307,7 @@ final class SiteSettingsSidebar
         // ── Protect ──────────────────────────────────────────────────────
         $items = [
             ...$items,
+            ['id' => 'security', 'label' => __('Security'), 'icon' => 'heroicon-o-lock-closed', 'group' => 'protect'],
             ['id' => 'firewall', 'label' => __('Firewall'), 'icon' => 'heroicon-o-shield-check', 'group' => 'protect'],
             ['id' => 'bot-protection', 'label' => __('Bot protection'), 'icon' => 'heroicon-o-finger-print', 'group' => 'protect'],
             ['id' => 'rate-limits', 'label' => __('Rate limits'), 'icon' => 'heroicon-o-no-symbol', 'group' => 'protect'],

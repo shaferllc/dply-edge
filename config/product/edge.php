@@ -79,7 +79,8 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Worker log ingest (access logs + performance rollups)
+    | Form submission signature. Request logs and Core Web Vitals go to
+    | Analytics Engine, not this webhook.
     |--------------------------------------------------------------------------
     */
     'log_ingest' => [
@@ -97,7 +98,7 @@ return [
     |--------------------------------------------------------------------------
     */
     'logpush' => [
-        'enabled' => true,
+        'enabled' => false,
         'secret' => env('DPLY_EDGE_LOGPUSH_SECRET'),
         'destination_url' => env('DPLY_EDGE_LOGPUSH_DESTINATION_URL', rtrim((string) env('APP_URL', ''), '/').'/hooks/edge/logpush'),
     ],
@@ -336,6 +337,16 @@ return [
     /*
     | Preview review hub — approve-to-promote workflow on Edge previews.
     */
+    /*
+    | Platform Redis account. Read by UpstashRedisClient. A pasted address
+    | does not use it. User request: "ok so how can we implement upstash and bill for it".
+    */
+    'upstash' => [
+        'email' => env('DPLY_UPSTASH_EMAIL'),
+        'api_key' => env('DPLY_UPSTASH_API_KEY'),
+        'region' => env('DPLY_UPSTASH_REGION', 'us-east-1'),
+    ],
+
     'preview_review' => [
         'min_approvals' => max(1, (int) env('DPLY_EDGE_PREVIEW_REVIEW_MIN_APPROVALS', 1)),
         'require_approval' => filter_var(env('DPLY_EDGE_PREVIEW_REVIEW_REQUIRE_APPROVAL', false), FILTER_VALIDATE_BOOLEAN),

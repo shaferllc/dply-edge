@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Livewire\Forms;
 
 use App\Modules\Edge\Livewire\Create;
+use App\Modules\Edge\Support\EdgeContainerPlans;
+use App\Modules\Edge\Support\EdgeContainerSettings;
 use App\Modules\Edge\Support\EdgeRepoRoot;
 use Livewire\Form;
 
@@ -36,6 +38,21 @@ class EdgeCreateForm extends Form
     public bool $deploy_on_push = false;
 
     public string $runtime_mode = 'static';
+
+    /** Container bundle chosen before the first deploy. Ignored for other runtimes. */
+    public string $container_plan = 'flex';
+
+    public string $container_instance_type = 'basic';
+
+    public int $container_max_instances = 1;
+
+    public string $container_sleep_after = '10m';
+
+    public bool $container_scheduler = false;
+
+    public bool $container_migrate_on_boot = false;
+
+    public string $container_jurisdiction = '';
 
     public string $origin_url = '';
 
@@ -69,6 +86,13 @@ class EdgeCreateForm extends Form
             'deploy_on_push' => ['boolean'],
             'repo_root' => ['nullable', 'string', 'max:255'],
             'runtime_mode' => ['required', 'in:static,hybrid,ssr,container'],
+            'container_plan' => ['nullable', 'in:flex,small,medium'],
+            'container_instance_type' => ['nullable', 'in:'.implode(',', array_keys(EdgeContainerSettings::INSTANCE_TYPES))],
+            'container_max_instances' => ['nullable', 'integer', 'between:1,'.EdgeContainerSettings::MAX_INSTANCES],
+            'container_sleep_after' => ['nullable', 'in:'.implode(',', EdgeContainerSettings::SLEEP_AFTER)],
+            'container_scheduler' => ['boolean'],
+            'container_migrate_on_boot' => ['boolean'],
+            'container_jurisdiction' => ['nullable', 'in:,eu,fedramp'],
             'origin_url' => ['nullable', 'string', 'max:500'],
             'delivery_mode' => ['required', 'in:managed,byo'],
             'edge_provider_credential_id' => ['required_if:delivery_mode,byo', 'nullable', 'string'],
@@ -80,6 +104,31 @@ class EdgeCreateForm extends Form
         $buildCommand = trim($this->build_command);
 
         return $buildCommand !== '' ? $buildCommand : self::DEFAULT_BUILD_COMMAND;
+    }
+
+    public function applyContainerPlan(): void
+    {
+        $settings = EdgeContainerPlans::settings($this->container_plan);
+        $this->container_instance_type = $settings['instance_type'];
+        $this->container_max_instances = $settings['max_instances'];
+        $this->container_sleep_after = $settings['sleep_after'];
+        $this->container_scheduler = $settings['scheduler'];
+        $this->container_migrate_on_boot = $settings['migrate_on_boot'];
+    }
+
+    /**
+     * @return array{plan: string, instance_type: string, max_instances: int, sleep_after: string, scheduler: bool, migrate_on_boot: bool, jurisdiction: string}
+     */
+    public function containerSettings(): array
+    {
+        return EdgeContainerPlans::settings($this->container_plan, [
+            'instance_type' => $this->container_instance_type,
+            'max_instances' => $this->container_max_instances,
+            'sleep_after' => $this->container_sleep_after,
+            'scheduler' => $this->container_scheduler,
+            'migrate_on_boot' => $this->container_migrate_on_boot,
+            'jurisdiction' => $this->container_jurisdiction,
+        ]);
     }
 
     public function resolvedOutputDir(): string
@@ -118,6 +167,8 @@ class EdgeCreateForm extends Form
             'repo_root' => EdgeRepoRoot::normalize($this->repo_root) ?: null,
             'framework' => $framework,
             'runtime_mode' => $this->runtime_mode,
+            'container_plan' => $this->container_plan,
+            'container' => $this->containerSettings(),
             'origin_url' => trim($this->origin_url),
             'cloud_site_id' => $this->origin_cloud_site_id !== '' ? $this->origin_cloud_site_id : null,
             'origin_routes' => ['/_next/*', '/api/*'],

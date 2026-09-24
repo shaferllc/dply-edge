@@ -51,15 +51,11 @@ use App\Livewire\TwoFactor\Page as TwoFactorPage;
 use App\Modules\Billing\Livewire\Show as BillingShow;
 use App\Modules\Edge\Http\Controllers\EdgeAuditLogExportController;
 use App\Modules\Edge\Http\Controllers\EdgeDeployHookController;
-use App\Modules\Edge\Http\Controllers\EdgeFormIngestController;
 use App\Modules\Edge\Http\Controllers\EdgeLiveAccessLogPollController;
 use App\Modules\Edge\Http\Controllers\EdgeLogCsvDownloadController;
-use App\Modules\Edge\Http\Controllers\EdgeLogIngestController;
-use App\Modules\Edge\Http\Controllers\EdgeLogpushIngestController;
 use App\Modules\Edge\Http\Controllers\EdgePreviewAccessController;
 use App\Modules\Edge\Http\Controllers\EdgePreviewCommentsController;
 use App\Modules\Edge\Http\Controllers\EdgeRepoConfigYamlDownloadController;
-use App\Modules\Edge\Http\Controllers\EdgeVitalsIngestController;
 use App\Modules\Edge\Http\Controllers\GithubEdgeWebhookController;
 use App\Modules\Edge\Livewire\Create as EdgeCreate;
 use App\Modules\Edge\Livewire\Databases;
@@ -102,22 +98,6 @@ Route::match(['post', 'options'], '/hooks/edge/{site}/github', GithubEdgeWebhook
 Route::post('/hooks/telegram', TelegramWebhookController::class)
     ->middleware(['throttle:site-webhook'])
     ->name('hooks.telegram');
-
-Route::post('/hooks/edge/{site}/log', EdgeLogIngestController::class)
-    ->middleware(['throttle:function-log-ingest'])
-    ->name('hooks.edge.log');
-
-Route::post('/hooks/edge/{site}/vitals', EdgeVitalsIngestController::class)
-    ->middleware(['throttle:function-log-ingest'])
-    ->name('hooks.edge.vitals');
-
-Route::post('/hooks/edge/{site}/forms', EdgeFormIngestController::class)
-    ->middleware(['throttle:function-log-ingest'])
-    ->name('hooks.edge.forms');
-
-Route::post('/hooks/edge/logpush', EdgeLogpushIngestController::class)
-    ->middleware(['throttle:function-log-ingest'])
-    ->name('hooks.edge.logpush');
 
 // Per-site deploy hooks (P10b). Match POST + GET so CMSes that only
 // emit GET pings (Sanity, some Webflow integrations) still work.

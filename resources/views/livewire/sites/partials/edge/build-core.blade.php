@@ -133,13 +133,15 @@
                         <p class="mt-1 text-xs text-rose-700">{{ $message }}</p>
                     @enderror
                 </label>
-                <label class="flex items-start gap-3 text-sm text-brand-ink">
-                    <input type="checkbox" wire:model="buildForm.edge_spa_fallback" class="mt-0.5 rounded border-brand-ink/20 text-brand-sage shadow-sm focus:ring-brand-sage/40" />
-                    <span>
-                        <span class="font-medium">{{ __('SPA fallback') }}</span>
-                        <span class="mt-0.5 block text-xs text-brand-moss">{{ __('Unknown paths serve index.html after a 404.') }}</span>
-                    </span>
-                </label>
+                @if (! in_array($edgeRuntimeMode ?? 'static', ['container', 'ssr'], true))
+                    <label class="flex items-start gap-3 text-sm text-brand-ink">
+                        <input type="checkbox" wire:model="buildForm.edge_spa_fallback" class="mt-0.5 rounded border-brand-ink/20 text-brand-sage shadow-sm focus:ring-brand-sage/40" />
+                        <span>
+                            <span class="font-medium">{{ __('SPA fallback') }}</span>
+                            <span class="mt-0.5 block text-xs text-brand-moss">{{ __('Unknown paths serve index.html after a 404.') }}</span>
+                        </span>
+                    </label>
+                @endif
                 <button
                     type="submit"
                     wire:loading.attr="disabled"
@@ -157,10 +159,12 @@
                     <dt class="w-36 shrink-0 text-xs uppercase tracking-wide text-brand-mist">{{ __('Repository root') }}</dt>
                     <dd class="min-w-0 flex-1 font-mono text-xs text-brand-ink">{{ ($edgeRepoRoot ?? $site->edgeRepoRoot()) ?: '—' }}</dd>
                 </div>
-                <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-3">
-                    <dt class="w-36 shrink-0 text-xs uppercase tracking-wide text-brand-mist">{{ __('SPA fallback') }}</dt>
-                    <dd class="min-w-0 flex-1 text-brand-ink">{{ $edgeSpaFallback ? __('Enabled') : __('Disabled') }}</dd>
-                </div>
+                @if (! in_array($edgeRuntimeMode ?? 'static', ['container', 'ssr'], true))
+                    <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-3">
+                        <dt class="w-36 shrink-0 text-xs uppercase tracking-wide text-brand-mist">{{ __('SPA fallback') }}</dt>
+                        <dd class="min-w-0 flex-1 text-brand-ink">{{ $edgeSpaFallback ? __('Enabled') : __('Disabled') }}</dd>
+                    </div>
+                @endif
             </dl>
         @endcan
 

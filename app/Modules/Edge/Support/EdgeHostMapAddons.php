@@ -85,16 +85,9 @@ final class EdgeHostMapAddons
                 ];
             }
             if ($endpoints !== []) {
-                $ingestBase = rtrim((string) (config('edge.log_ingest.base_url')
-                    ?: config('dply.public_app_url')
-                    ?: config('app.url')), '/');
                 $payload['forms'] = [
                     'enabled' => true,
                     'endpoints' => $endpoints,
-                    'ingest_url' => $ingestBase !== ''
-                        ? $ingestBase.'/hooks/edge/'.((string) $site->id).'/forms'
-                        : null,
-                    'ingest_key' => (string) config('edge.log_ingest.key', ''),
                 ];
             }
         }
