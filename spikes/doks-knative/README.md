@@ -49,6 +49,33 @@ curl -H "Host: laravel-spike.apps.example.com" "http://$IP/"
    (a privileged installer DaemonSet that edits containerd config)? If not, the
    options are Kata on self-managed nodes, or not running untrusted code on shared nodes.
 
+## Local results (OrbStack, 2026-09-25)
+
+`./local.sh install`, then the generated image for a fresh
+`laravel/vue-starter-kit` app (php-fpm, Inertia SSR) at containerConcurrency 2,
+max-scale 3. Knative Serving 1.18, Kubernetes 1.35, arm64.
+
+| | Result |
+|---|---|
+| Cold wake from zero pods | 5/5 HTTP 200, p50 3.7s, max 6.6s |
+| Warm request | ~20ms (`/whoami`), 620ms home page with SSR |
+| Scale to zero | ~62s after the last request (30s grace + stable window) |
+| 6 concurrent 4s requests | all 200, but 2 pods split 4/2, 9.1s total: the third pod came up after the requests were already queued |
+| gVisor | not tested (OrbStack's node is not DOKS) |
+
+What it found:
+
+- **Every cold start 502'd** until this was fixed: the generated fpm
+  image started nginx before php-fpm listened, and readiness only checks
+  port 8080. Fixed in `EdgeContainerDockerfile` (nginx waits for :9000); the
+  Cloudflare Worker's `waitForPort` had the same blind spot.
+- Knative's autoscaler reacts to observed concurrency, so a burst waits in the
+  queue. The Cloudflare Worker gives out slots immediately and put the same six
+  requests on three instances, 2/2/2, in ~4s.
+- Cold wakes are about the same as Cloudflare Containers locally (3.2s),
+  well off Laravel Cloud's claimed <500ms. Getting there needs the warm-pool
+  or snapshot work in T-026 on either platform.
+
 ## Destroy
 
 ```sh

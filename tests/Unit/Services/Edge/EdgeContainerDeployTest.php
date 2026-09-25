@@ -51,6 +51,8 @@ test('laravel gets a php-fpm image with assets, migrations on boot and port 8080
         ->and($dockerfile)->toContain('FROM php:8.4-fpm-alpine')
         ->and($dockerfile)->toContain('pm = ondemand')
         ->and($dockerfile)->toContain('php-fpm -F -y /tmp/php-fpm.conf')
+        // nginx must not open 8080 before php-fpm listens, or cold starts 502.
+        ->and(strpos($dockerfile, 'fsockopen(\\"127.0.0.1\\", 9000)'))->toBeInt()->toBeLessThan(strpos($dockerfile, 'exec nginx'))
         ->and($dockerfile)->toContain('pid /tmp/nginx.pid')
         ->and($dockerfile)->toContain('pid = /tmp/php-fpm.pid')
         ->and($dockerfile)->toContain('VIEW_COMPILED_PATH=/tmp/views')
