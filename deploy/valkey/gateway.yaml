@@ -39,7 +39,8 @@ subjects:
     name: valkey-gateway
     namespace: dply-valkey
 ---
-# Wildcard cert from Let's Encrypt, proven through DigitalOcean DNS.
+# Wildcard cert from Let's Encrypt, proven through Cloudflare DNS (the zone
+# for __DOMAIN__ is on Cloudflare; the *.cache record must be DNS only).
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
@@ -52,10 +53,10 @@ spec:
       name: letsencrypt-account
     solvers:
       - dns01:
-          digitalocean:
-            tokenSecretRef:
-              name: digitalocean-dns
-              key: access-token
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-dns
+              key: api-token
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -68,6 +69,7 @@ spec:
     name: letsencrypt
   dnsNames:
     - "*.cache.__DOMAIN__"
+    - "*.db.__DOMAIN__"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -96,8 +98,11 @@ spec:
           image: __IMAGE__
           env:
             - { name: DOMAIN, value: "cache.__DOMAIN__" }
+            - { name: DB_DOMAIN, value: "db.__DOMAIN__" }
             - { name: API_TLS, value: "1" }
-            - { name: S3_BUCKET, value: dply-valkey }
+            # The edge R2 bucket: snapshots live under tenants/, sites under edge/.
+            - name: S3_BUCKET
+              valueFrom: { secretKeyRef: { name: valkey-gateway-r2, key: bucket } }
             - { name: S3_REGION, value: auto }
             - name: S3_ENDPOINT
               valueFrom: { secretKeyRef: { name: valkey-gateway-r2, key: endpoint } }
@@ -109,10 +114,23 @@ spec:
               valueFrom: { secretKeyRef: { name: valkey-gateway-api, key: token } }
             - name: ADMIN_PASSWORD
               valueFrom: { secretKeyRef: { name: valkey-gateway-admin, key: password } }
-            # Warm pods per size (MB), matching EdgeValkey's flex classes.
-            - { name: POOL, value: "250:2,1024:1" }
+            # Warm pods per size (MB). Each one reserves its memory all the time,
+            # and a 4 GB node only has ~2.9 GiB allocatable: one 250 MB pod keeps
+            # the common size instant; 1 GB and up start fresh (~1-2 s).
+            - { name: POOL, value: "250:1" }
+            # Databases (ruling r-67chv2jdx2ha025q): one pod per app, data on a
+            # DigitalOcean volume so it survives node upgrades and replacement.
+            - { name: POSTGRES_IMAGE, value: "registry.digitalocean.com/dply-cloud/postgres:17-202609251346" }
+            - { name: MONGO_IMAGE, value: "registry.digitalocean.com/dply-cloud/mongodb:7-202609251346" }
+            - { name: MYSQL_IMAGE, value: "registry.digitalocean.com/dply-cloud/mysql:8-202609251346" }
+            - { name: DB_STORAGE_CLASS, value: do-block-storage }
+            # wal-g backups for databases: keys from this secret, by reference.
+            - { name: DB_BACKUP_SECRET, value: valkey-gateway-r2 }
           ports:
             - { containerPort: 6380, name: valkey }
+            - { containerPort: 5432, name: postgres }
+            - { containerPort: 27017, name: mongodb }
+            - { containerPort: 3306, name: mysql }
             - { containerPort: 8080, name: api }
           readinessProbe:
             tcpSocket: { port: 6380 }
@@ -125,8 +143,8 @@ spec:
         - name: tls
           secret: { secretName: valkey-gateway-tls }
 ---
-# Public: 6380 (Valkey, TLS + per-tenant password) and 8080 (control API,
-# TLS + bearer token). Postgres (5432) stays closed until databases ship.
+# Public: 6380 (Valkey), 5432 (Postgres), 27017 (MongoDB), 3306 (MySQL), all TLS + per-app password, and
+# 8080 (control API, TLS + bearer token). 5432 approved by the owner 2026-09-25.
 apiVersion: v1
 kind: Service
 metadata:
@@ -137,4 +155,7 @@ spec:
   selector: { app: valkey-gateway }
   ports:
     - { name: valkey, port: 6380, targetPort: 6380 }
+    - { name: postgres, port: 5432, targetPort: 5432 }
+    - { name: mongodb, port: 27017, targetPort: 27017 }
+    - { name: mysql, port: 3306, targetPort: 3306 }
     - { name: api, port: 8080, targetPort: 8080 }

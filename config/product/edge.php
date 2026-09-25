@@ -361,6 +361,104 @@ return [
         'api_url' => env('DPLY_VALKEY_API_URL'),
         'token' => env('DPLY_VALKEY_TOKEN'),
         'domain' => env('DPLY_VALKEY_DOMAIN', 'cache.dply.local'),
+        // dply databases answer on {id}.{db_domain} (5432 / 3306 / 27017; the gateway's DB_DOMAIN).
+        'db_domain' => env('DPLY_VALKEY_DB_DOMAIN', 'db.dply.local'),
+        'port' => (int) env('DPLY_VALKEY_PORT', 6380),
+    ],
+
+    /*
+    | Preview review hub — approve-to-promote workflow on Edge previews.
+    */
+    /*
+    | https://upstash.com
+    | QStash only: the HTTP delivery resource (UpstashQstashClient). Redis
+    | is dply's own Valkey now (edge.valkey below).
+    */
+    'upstash' => [
+        'email' => env('DPLY_UPSTASH_EMAIL'),
+        'api_key' => env('DPLY_UPSTASH_API_KEY'),
+        'qstash_token' => env('DPLY_QSTASH_TOKEN'),
+    ],
+
+    /*
+    | dply's own Valkey (packages/valkey-gateway, T-021). When api_url and
+    | token are set, "Create new" Redis on the Resources page starts one of
+    | these instead of an Upstash database.
+    */
+    // Local testing only: start paid resources without a card. Ignored
+    // unless APP_ENV=local (Resources::cardOnFile).
+    'skip_card_check' => (bool) env('DPLY_EDGE_SKIP_CARD_CHECK', false),
+
+    'valkey' => [
+        'api_url' => env('DPLY_VALKEY_API_URL'),
+        'token' => env('DPLY_VALKEY_TOKEN'),
+        'domain' => env('DPLY_VALKEY_DOMAIN', 'cache.dply.local'),
+        // dply databases answer on {id}.{db_domain} (5432 / 3306 / 27017; the gateway's DB_DOMAIN).
+        'db_domain' => env('DPLY_VALKEY_DB_DOMAIN', 'db.dply.local'),
+        'port' => (int) env('DPLY_VALKEY_PORT', 6380),
+    ],
+
+    /*
+    | Preview review hub — approve-to-promote workflow on Edge previews.
+    */
+    /*
+    | https://upstash.com
+    | QStash only: the HTTP delivery resource (UpstashQstashClient). Redis
+    | is dply's own Valkey now (edge.valkey below).
+    */
+    'upstash' => [
+        'email' => env('DPLY_UPSTASH_EMAIL'),
+        'api_key' => env('DPLY_UPSTASH_API_KEY'),
+        'qstash_token' => env('DPLY_QSTASH_TOKEN'),
+    ],
+
+    /*
+    | dply's own Valkey (packages/valkey-gateway, T-021). When api_url and
+    | token are set, "Create new" Redis on the Resources page starts one of
+    | these instead of an Upstash database.
+    */
+    // Local testing only: start paid resources without a card. Ignored
+    // unless APP_ENV=local (Resources::cardOnFile).
+    'skip_card_check' => (bool) env('DPLY_EDGE_SKIP_CARD_CHECK', false),
+
+    'valkey' => [
+        'api_url' => env('DPLY_VALKEY_API_URL'),
+        'token' => env('DPLY_VALKEY_TOKEN'),
+        'domain' => env('DPLY_VALKEY_DOMAIN', 'cache.dply.local'),
+        // dply databases answer on {id}.{db_domain} (5432 / 3306 / 27017; the gateway's DB_DOMAIN).
+        'db_domain' => env('DPLY_VALKEY_DB_DOMAIN', 'db.dply.local'),
+        'port' => (int) env('DPLY_VALKEY_PORT', 6380),
+    ],
+
+    /*
+    | Preview review hub — approve-to-promote workflow on Edge previews.
+    */
+    /*
+    | https://upstash.com
+    | QStash only: the HTTP delivery resource (UpstashQstashClient). Redis
+    | is dply's own Valkey now (edge.valkey below).
+    */
+    'upstash' => [
+        'email' => env('DPLY_UPSTASH_EMAIL'),
+        'api_key' => env('DPLY_UPSTASH_API_KEY'),
+        'qstash_token' => env('DPLY_QSTASH_TOKEN'),
+    ],
+
+    /*
+    | dply's own Valkey (packages/valkey-gateway, T-021). When api_url and
+    | token are set, "Create new" Redis on the Resources page starts one of
+    | these instead of an Upstash database.
+    */
+    // Local testing only: start paid resources without a card. Ignored
+    // unless APP_ENV=local (Resources::cardOnFile).
+    'skip_card_check' => (bool) env('DPLY_EDGE_SKIP_CARD_CHECK', false),
+
+    'valkey' => [
+        'api_url' => env('DPLY_VALKEY_API_URL'),
+        'token' => env('DPLY_VALKEY_TOKEN'),
+        'domain' => env('DPLY_VALKEY_DOMAIN', 'cache.dply.local'),
+        // dply databases answer on {id}.{db_domain} (5432 / 3306 / 27017; the gateway's DB_DOMAIN).
+        'db_domain' => env('DPLY_VALKEY_DB_DOMAIN', 'db.dply.local'),
         'port' => (int) env('DPLY_VALKEY_PORT', 6380),
     ],
 

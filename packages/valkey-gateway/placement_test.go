@@ -16,3 +16,29 @@ func TestProPlacement(t *testing.T) {
 		}
 	}
 }
+
+func TestCPURequest(t *testing.T) {
+	for _, c := range []struct {
+		mb         int
+		persistent bool
+		want       string
+	}{{250, false, "25m"}, {2560, false, "25m"}, {5120, true, "500m"}, {12288, true, "1200m"}, {25600, true, "2500m"}, {51200, true, "5000m"}} {
+		if got := cpuRequest(c.mb, c.persistent); got != c.want {
+			t.Fatalf("%d MB persistent=%v: got %s, want %s", c.mb, c.persistent, got, c.want)
+		}
+	}
+}
+
+func TestTenantFromName(t *testing.T) {
+	for name, want := range map[string]string{
+		"pg-abc123.db.dply.io":     "pg-abc123",
+		"pg-abc123.cache.dply.io":  "", // a database name on the cache domain is not a database
+		"db.dply.io":               "",
+		"evil.db.dply.io.attacker": "",
+	} {
+		got, ok := tenantFromName(name, "db.dply.io")
+		if (want == "") == ok || got != want && want != "" {
+			t.Fatalf("%s: got %q ok=%v, want %q", name, got, ok, want)
+		}
+	}
+}

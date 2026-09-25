@@ -21,21 +21,24 @@ use App\Modules\Billing\Services\EdgeContainerComputeCost;
 use App\Modules\Billing\Services\EdgeDataUsageCost;
 use App\Modules\Billing\Services\EdgeDeliveryCost;
 use App\Modules\Billing\Services\EdgeKvCost;
-use App\Modules\Billing\Services\EdgeRedisCost;
+use App\Modules\Edge\Jobs\RestoreEdgeDplyPostgresJob;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Edge\Services\EdgeQueueConsumers;
+use App\Modules\Edge\Services\EdgeValkeyUsageCollector;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeContainerPlans;
 use App\Modules\Edge\Support\EdgeContainerSettings;
+use App\Modules\Edge\Support\EdgeDplyDatabase;
 use App\Modules\Edge\Support\EdgeEffectiveBindings;
 use App\Modules\Edge\Support\EdgeValkey;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
-use App\Modules\Providers\Neon\NeonClient;
+use App\Modules\Providers\Valkey\ValkeyGatewayClient;
 use App\Support\Http\PublicOutboundUrl;
 use App\Support\Http\UnsafeOutboundUrlException;
 use App\Support\Sites\EdgeSiteViewData;
 use Illuminate\Contracts\View\View;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Livewire\Component;
 
@@ -110,17 +113,19 @@ class Resources extends Component
 
     public bool $databaseVisible = true;
 
-    public string $draftMysqlSize = 'PS_10';
-
     public string $draftPostgresPlan = 'sleep';
 
     public string $draftPostgresSize = '0.25';
 
-    public string $draftPostgresRegion = '';
-
     public int $draftPostgresSuspend = 300;
 
-    public int $draftPostgresHistory = 86400;
+    /** dply Postgres volume size in GB (EdgeDplyDatabase::DISKS). */
+    public int $draftPostgresDisk = 1;
+
+    /** Point-in-time restore target (datetime-local, UTC); progress is on the database record. */
+    public string $postgresRestoreAt = '';
+
+    public ?string $postgresRestoreResult = null;
 
     public string $connectionKind = '';
 
@@ -144,12 +149,28 @@ class Resources extends Component
      * Change a dply Valkey's size or sleep time. It restarts on its next
      * connection with its data.
      */
+    /**
+     * The app's Valkey password, read from REDIS_URL only when asked for, so
+     * it is not in the page until someone who can edit the app clicks Show.
+     */
+    public function valkeyPassword(string $host): string
+    {
+        $this->authorize('update', $this->site);
+        $connection = collect(EdgeContainerConnections::for($this->site))->firstWhere('host', $host);
+        if (! is_array($connection) || ! EdgeValkey::isTarget($connection['target'])) {
+            return '';
+        }
+        $url = (string) ($this->site->edgeEnvVars()->where('scope', 'production')->where('key', 'REDIS_URL')->first()?->value ?? '');
+
+        return rawurldecode((string) (parse_url($url, PHP_URL_PASS) ?? ''));
+    }
+
     public function saveValkey(string $host, string $class, int $sleep): void
     {
         $this->authorize('update', $this->site);
         $rows = EdgeContainerConnections::for($this->site);
         foreach ($rows as $index => $connection) {
-            if ($connection['host'] !== $host || ! EdgeValkey::isTarget($connection['target']) || ! isset(EdgeValkey::CLASSES[$class])) {
+            if ($connection['host'] !== $host || ! EdgeValkey::isTarget($connection['target']) || ! isset(EdgeValkey::offered()[$class])) {
                 continue;
             }
             $url = (string) ($this->site->edgeEnvVars()->where('scope', 'production')->where('key', 'REDIS_URL')->first()?->value ?? '');
@@ -185,6 +206,131 @@ class Resources extends Component
     public string $kvHost = '';
 
     public string $imagesHost = '';
+
+    /** dply Valkey whose settings modal is open. */
+    public string $valkeyHost = '';
+
+    /** Last Test-tab result for $valkeyHost (EdgeValkey::probe). */
+    public ?array $valkeyTest = null;
+
+    /** Last Test-tab result measured inside the app (dply/laravel redis-probe). */
+    public ?array $valkeyAppTest = null;
+
+    /** Statistics tab: gateway status (never wakes it) and live INFO numbers (wakes it). */
+    public ?array $valkeyStatus = null;
+
+    public ?array $valkeyStats = null;
+
+    public ?string $valkeyStatsError = null;
+
+    public function updatedValkeyHost(): void
+    {
+        if ($this->valkeyHost !== '') {
+            $this->refreshValkeyAwake();
+        }
+        $this->valkeyTest = null;
+        $this->valkeyAppTest = null;
+        $this->valkeyStatus = null;
+        $this->valkeyStats = null;
+        $this->valkeyStatsError = null;
+    }
+
+    /**
+     * Awake time is collected hourly; this brings this app's up to date (the
+     * modal does it on open, the Refresh button on demand). The collector is
+     * locked and counts only the change since last time, so it never bills
+     * twice.
+     */
+    public function refreshValkeyAwake(): void
+    {
+        $this->authorize('view', $this->site);
+        try {
+            app(EdgeValkeyUsageCollector::class)->collect(false, (string) $this->site->id);
+        } catch (\Throwable) {
+            // The hourly run catches up.
+        }
+    }
+
+    public function loadValkeyStatus(): void
+    {
+        $this->authorize('view', $this->site);
+        $connection = collect(EdgeContainerConnections::for($this->site))->firstWhere('host', $this->valkeyHost);
+        if (! is_array($connection) || ! EdgeValkey::isTarget($connection['target'])) {
+            return;
+        }
+        try {
+            $this->valkeyStatus = ValkeyGatewayClient::fromConfig()->get(EdgeValkey::tenantId($connection['target']));
+            $this->valkeyStatsError = null;
+        } catch (\Throwable $e) {
+            $this->valkeyStatsError = $e->getMessage();
+        }
+    }
+
+    public function loadValkeyStats(): void
+    {
+        $password = $this->valkeyPassword($this->valkeyHost);
+        $connection = collect(EdgeContainerConnections::for($this->site))->firstWhere('host', $this->valkeyHost);
+        if (! is_array($connection) || $password === '') {
+            $this->valkeyStatsError = __('No password on this app yet. Deploy once so REDIS_URL is set.');
+
+            return;
+        }
+        try {
+            $this->valkeyStats = EdgeValkey::stats($connection['target'], $password);
+            $this->valkeyStatsError = null;
+        } catch (\Throwable $e) {
+            $this->valkeyStatsError = $e->getMessage();
+        }
+        $this->loadValkeyStatus();
+    }
+
+    /**
+     * Test tab, "From the app": the app times its own Redis connection
+     * (dply/laravel's redis-probe command), so the numbers are what the app
+     * gets from where Cloudflare runs it. Laravel apps with dply/laravel only.
+     */
+    public function testValkeyFromApp(): void
+    {
+        $this->authorize('update', $this->site);
+        $url = $this->site->edgeLiveUrl();
+        $fail = fn (string $error) => $this->valkeyAppTest = ['ok' => false, 'error' => $error, 'steps' => []];
+        if (! is_string($url) || $url === '') {
+            $fail(__('This app has no live URL yet. Deploy it first.'));
+
+            return;
+        }
+        try {
+            $response = Http::timeout(60)
+                ->withHeaders(['x-dply-queue-token' => EdgeContainerDeployer::queueToken($this->site)])
+                ->post(rtrim($url, '/').'/_dply/command', ['command' => 'redis-probe']);
+        } catch (\Throwable $e) {
+            $fail($e->getMessage());
+
+            return;
+        }
+        $body = $response->json();
+        if (! is_array($body) || ! array_key_exists('steps', $body)) {
+            $fail($response->status() === 422 || $response->status() === 404
+                ? __('The app does not answer this test yet. It needs dply/laravel from the next deploy (Laravel apps only).')
+                : __('The app answered HTTP :status.', ['status' => $response->status()]));
+
+            return;
+        }
+        $this->valkeyAppTest = $body;
+    }
+
+    /** Test tab: connect like the app does and time a few commands. */
+    public function testValkey(): void
+    {
+        $password = $this->valkeyPassword($this->valkeyHost);
+        $connection = collect(EdgeContainerConnections::for($this->site))->firstWhere('host', $this->valkeyHost);
+        if (! is_array($connection) || $password === '') {
+            $this->valkeyTest = ['ok' => false, 'error' => __('No password on this app yet. Deploy once so REDIS_URL is set.'), 'steps' => [], 'ping_median_ms' => null, 'ping_max_ms' => null];
+
+            return;
+        }
+        $this->valkeyTest = EdgeValkey::probe($connection['target'], $password);
+    }
 
     public string $kvDemoKey = 'hello';
 
@@ -267,7 +413,7 @@ class Resources extends Component
             $this->regions = EdgeContainerSettings::normalizeRegions($this->regions, $this->jurisdiction);
         }
 
-        if (in_array($name, ['draftInstanceType', 'sleepAfter', 'jurisdiction', 'scheduler', 'stickySessions', 'dedicatedJobs', 'migrateOnBoot', 'customVcpu', 'customMemoryGib', 'customDiskGb', 'rolloutMode', 'rolloutSteps', 'rolloutGraceSeconds', 'draftMysqlSize'], true) || str_starts_with($name, 'regions')) {
+        if (in_array($name, ['draftInstanceType', 'sleepAfter', 'jurisdiction', 'scheduler', 'stickySessions', 'dedicatedJobs', 'migrateOnBoot', 'customVcpu', 'customMemoryGib', 'customDiskGb', 'rolloutMode', 'rolloutSteps', 'rolloutGraceSeconds'], true) || str_starts_with($name, 'regions')) {
             $this->refreshPending();
         }
     }
@@ -1231,6 +1377,45 @@ class Resources extends Component
         $this->panel = '';
     }
 
+    /**
+     * Restore dply Postgres to a moment within backup retention (7 days) from
+     * its wal-g backups. The current data is kept aside by the database until
+     * the next restore.
+     */
+    public function restorePostgres(): void
+    {
+        $this->authorize('update', $this->site);
+        $database = is_array($this->site->edgeMeta()['database'] ?? null) ? $this->site->edgeMeta()['database'] : [];
+        if (! EdgeAppDatabase::isDply($database) || (string) ($database['remote_id'] ?? '') === '') {
+            $this->postgresRestoreResult = __('Only a dply database can be restored here.');
+
+            return;
+        }
+        try {
+            $at = Carbon::parse($this->postgresRestoreAt, 'UTC');
+        } catch (\Throwable) {
+            $this->postgresRestoreResult = __('Pick a date and time.');
+
+            return;
+        }
+        if ($at->isFuture() || $at->lt(now()->subDays(7))) {
+            $this->postgresRestoreResult = __('Pick a time in the last 7 days.');
+
+            return;
+        }
+        if (($database['restore']['status'] ?? '') === 'running') {
+            $this->postgresRestoreResult = __('A restore is already running.');
+
+            return;
+        }
+        // Minutes of work (fetch a backup, replay or load it): a queued job, not this request.
+        $target = $at->utc()->format('Y-m-d\TH:i:s\Z');
+        $this->site->mergeEdgeMeta(['database' => array_merge($database, ['restore' => ['status' => 'running', 'target' => $target]])]);
+        $this->site->save();
+        RestoreEdgeDplyPostgresJob::dispatch((string) $this->site->id, $target);
+        $this->postgresRestoreResult = null;
+    }
+
     public function runDatabaseCommand(string $action): void
     {
         $this->authorize('update', $this->site);
@@ -1293,10 +1478,10 @@ class Resources extends Component
     public function selectDatabase(string $engine): void
     {
         $this->authorize('update', $this->site);
-        if (! in_array($engine, EdgeAppDatabase::ENGINES, true) || $engine === 'mysql') {
+        if (! in_array($engine, EdgeAppDatabase::ENGINES, true)) {
             return;
         }
-        if ($engine === 'postgres' && ! $this->cardOnFile()) {
+        if (in_array($engine, EdgeAppDatabase::DPLY_ENGINES, true) && (! $this->cardOnFile() || ! EdgeDplyDatabase::enabled())) {
             return;
         }
 
@@ -1307,17 +1492,6 @@ class Resources extends Component
             $this->dispatch('database-tab', 'settings');
             $this->dispatch('open-modal', 'resources-app-database');
         }
-    }
-
-    public function selectMysqlSize(string $size): void
-    {
-        $this->authorize('update', $this->site);
-        if (! array_key_exists($size, EdgeAppDatabase::MYSQL_SIZES)) {
-            return;
-        }
-
-        $this->draftMysqlSize = $size;
-        $this->refreshPending();
     }
 
     public function selectPostgresPlan(string $plan): void
@@ -1343,26 +1517,21 @@ class Resources extends Component
         if (! array_key_exists($size, EdgeAppDatabase::POSTGRES_SIZES)) {
             return;
         }
+        if (! in_array($size, EdgeDplyDatabase::OFFERED_SIZES, true)) {
+            return;
+        }
 
         $this->draftPostgresSize = $size;
         $this->refreshPending();
     }
 
-    public function selectPostgresRegion(string $region): void
+    public function selectPostgresDisk(int $gb): void
     {
         $this->authorize('update', $this->site);
-        if (! $this->cardOnFile()) {
+        if (! array_key_exists($gb, EdgeDplyDatabase::DISKS)) {
             return;
         }
-        if (! array_key_exists($region, NeonClient::REGIONS)) {
-            return;
-        }
-        $database = is_array($this->site->edgeMeta()['database'] ?? null) ? $this->site->edgeMeta()['database'] : [];
-        if ($this->draftDatabase === 'postgres' && (string) ($database['engine'] ?? '') === 'postgres' && (string) ($database['remote_id'] ?? '') !== '') {
-            return;
-        }
-
-        $this->draftPostgresRegion = $region;
+        $this->draftPostgresDisk = $gb;
         $this->refreshPending();
     }
 
@@ -1378,20 +1547,6 @@ class Resources extends Component
 
         $this->draftPostgresSuspend = $seconds;
         $this->draftPostgresPlan = $seconds === -1 ? 'awake' : 'sleep';
-        $this->refreshPending();
-    }
-
-    public function selectPostgresHistory(int $seconds): void
-    {
-        $this->authorize('update', $this->site);
-        if (! $this->cardOnFile()) {
-            return;
-        }
-        if (! array_key_exists($seconds, EdgeAppDatabase::POSTGRES_HISTORY)) {
-            return;
-        }
-
-        $this->draftPostgresHistory = $seconds;
         $this->refreshPending();
     }
 
@@ -1441,6 +1596,14 @@ class Resources extends Component
      * @param  list<array{kind: string, host: string, target: string, asleep: bool, plan: string, read_regions: int}>  $connections
      * @return array<string, int>
      */
+    /** Awake seconds for this app's Valkey this month (collected hourly). */
+    private function valkeyAwakeSeconds(): int
+    {
+        return (int) EdgeRedisUsage::query()->where('site_id', $this->site->id)
+            ->whereBetween('date', [now()->startOfMonth()->toDateString(), now()->endOfMonth()->toDateString()])
+            ->sum('awake_seconds');
+    }
+
     private function connectionCostEstimates(array $connections): array
     {
         $from = now()->startOfMonth()->toDateString();
@@ -1489,10 +1652,13 @@ class Resources extends Component
             );
         }
 
-        $valkeySeconds = (int) EdgeRedisUsage::query()->where('site_id', $this->site->id)->whereBetween('date', [$from, $to])->sum('awake_seconds');
+        $valkeySeconds = $this->valkeyAwakeSeconds();
         foreach ($connections as $connection) {
             if ($connection['kind'] === 'redis' && EdgeValkey::isTarget($connection['target']) && $this->site->organization !== null) {
-                $estimates[$connection['host']] = app(EdgeRedisCost::class)->valkeyCents($this->site->organization, [$this->site->id => $valkeySeconds]);
+                // Exact (fractional) cents for display: the bill rounds the
+                // month's total to a cent, but a few minutes is $0.0017, not $0.01.
+                $class = EdgeValkey::CLASSES[$connection['plan']] ?? EdgeValkey::CLASSES[EdgeValkey::DEFAULT_CLASS];
+                $estimates[$connection['host']] = min((float) $class['cap_cents'], $valkeySeconds * $class['per_second'] * 100);
             }
         }
 
@@ -1603,9 +1769,8 @@ class Resources extends Component
         $databaseEngine = $this->draftDatabase;
         $databaseCost = app(EdgeAppDatabaseCost::class);
         $postgres = $databaseCost->presentation();
-        $postgresStored = $databaseCost->stored($this->site);
         $postgresSizes = [];
-        foreach (EdgeAppDatabase::POSTGRES_SIZES as $key => $size) {
+        foreach (EdgeDplyDatabase::sizes() as $key => $size) {
             $size['hour'] = $databaseCost->hourly($size['cu']);
             $size['day'] = $databaseCost->daily($size['cu']);
             $size['month'] = $databaseCost->monthly($size['cu']);
@@ -1613,9 +1778,7 @@ class Resources extends Component
         }
         $postgresSuspend = EdgeAppDatabase::postgresSuspend($this->draftPostgresSuspend, $this->draftPostgresPlan);
         $postgresPlan = $postgresSuspend === -1 ? 'awake' : 'sleep';
-        $postgresSize = EdgeAppDatabase::postgresSize($this->draftPostgresSize);
-        $postgresRegion = EdgeAppDatabase::postgresRegion($this->draftPostgresRegion);
-        $postgresHistory = EdgeAppDatabase::postgresHistory($this->draftPostgresHistory);
+        $postgresSize = EdgeDplyDatabase::size($this->draftPostgresSize);
         $awakeHours = max(0, min(24, $this->awakeHours));
         foreach ($postgresSizes as $key => $size) {
             $hours = $postgresSuspend === -1 ? 24 : $awakeHours;
@@ -1653,6 +1816,7 @@ class Resources extends Component
                 'showBrowser' => $hasCode,
                 'connectionKinds' => EdgeContainerConnections::KINDS,
                 'cardOnFile' => $this->cardOnFile(),
+                'valkeyAwakeSeconds' => $this->valkeyAwakeSeconds(),
                 'allowedKinds' => $allowedKinds,
                 'hasCode' => $hasCode,
                 'isWorker' => in_array($runtime, ['ssr', 'hybrid'], true),
@@ -1662,27 +1826,18 @@ class Resources extends Component
                 'databaseName' => (string) ($storedDatabase['name'] ?? 'production'),
                 'databaseHost' => $databaseEngine === (string) ($storedDatabase['engine'] ?? '') ? (string) ($storedDatabase['host'] ?? '') : '',
                 'databaseStatus' => $databaseEngine === (string) ($storedDatabase['engine'] ?? '') ? (string) ($storedDatabase['status'] ?? '') : '',
-                'mysqlMonthly' => number_format(EdgeAppDatabase::mysqlCents($this->draftMysqlSize) / 100, 2),
-                'mysqlSizes' => EdgeAppDatabase::MYSQL_SIZES,
-                'mysqlSize' => EdgeAppDatabase::mysqlSize($this->draftMysqlSize),
                 'postgresHour' => $postgres['hour'],
                 'postgresGigabyte' => $postgres['gigabyte'],
-                'postgresHistoryRate' => $postgres['history'],
-                'postgresStored' => $postgresStored,
                 'postgresPlans' => EdgeAppDatabase::POSTGRES_PLANS,
                 'postgresSizes' => $postgresSizes,
                 'postgresPlan' => $postgresPlan,
                 'postgresSize' => $postgresSize,
-                'postgresRegion' => $postgresRegion,
                 'postgresSuspend' => $postgresSuspend,
                 'postgresSleeps' => EdgeAppDatabase::POSTGRES_SLEEPS,
-                'postgresHistory' => $postgresHistory,
-                'postgresHistories' => EdgeAppDatabase::POSTGRES_HISTORY,
                 'postgresAwakeHours' => $awakeHours,
-                'postgresRegions' => NeonClient::REGIONS,
-                'postgresRegionLocked' => $databaseEngine === 'postgres'
-                    && (string) ($storedDatabase['engine'] ?? '') === 'postgres'
-                    && (string) ($storedDatabase['remote_id'] ?? '') !== '',
+                'dplyDatabases' => EdgeDplyDatabase::enabled(),
+                'postgresDisks' => EdgeDplyDatabase::DISKS,
+                'postgresDisk' => EdgeDplyDatabase::disk($this->draftPostgresDisk),
                 'deployments' => $this->site->edgeDeployments()->orderByDesc('created_at')->limit(5)->get(),
             ],
         ));
@@ -1701,12 +1856,10 @@ class Resources extends Component
         $this->draftCacheMode = $state['cache'];
         $this->draftDatabase = $state['database'];
         $this->databaseVisible = $state['database'] !== 'none';
-        $this->draftMysqlSize = $state['mysql_size'];
         $this->draftPostgresPlan = $state['postgres_plan'];
         $this->draftPostgresSize = $state['postgres_size'];
-        $this->draftPostgresRegion = $state['postgres_region'];
         $this->draftPostgresSuspend = $state['postgres_suspend'];
-        $this->draftPostgresHistory = $state['postgres_history'];
+        $this->draftPostgresDisk = $state['postgres_disk'];
         $this->draftPostgresPlan = $state['postgres_suspend'] === -1 ? 'awake' : 'sleep';
         $this->pending = false;
     }
@@ -1748,12 +1901,10 @@ class Resources extends Component
             'rollout_grace' => (int) ($settings['rollout_active_grace_period'] ?? 0),
             'cache' => in_array($cacheMode, ['off', 'assets', 'standard', 'everything'], true) ? $cacheMode : 'off',
             'database' => in_array($engine, EdgeAppDatabase::ENGINES, true) ? $engine : ($runtime === 'container' ? 'sql' : 'none'),
-            'mysql_size' => EdgeAppDatabase::mysqlSize((string) ($database['size'] ?? '')),
             'postgres_plan' => EdgeAppDatabase::postgresPlan((string) ($database['plan'] ?? '')),
-            'postgres_size' => EdgeAppDatabase::postgresSize($engine === 'postgres' ? (string) ($database['size'] ?? '') : ''),
-            'postgres_region' => EdgeAppDatabase::postgresRegion((string) ($database['region'] ?? '')),
+            'postgres_size' => EdgeAppDatabase::postgresSize(in_array($engine, EdgeAppDatabase::DPLY_ENGINES, true) ? (string) ($database['size'] ?? '') : ''),
             'postgres_suspend' => EdgeAppDatabase::postgresSuspend((int) ($database['suspend'] ?? 0), (string) ($database['plan'] ?? '')),
-            'postgres_history' => EdgeAppDatabase::postgresHistory((int) ($database['history'] ?? 0)),
+            'postgres_disk' => EdgeDplyDatabase::disk((int) ($database['disk_gb'] ?? 0)),
         ];
     }
 
@@ -1783,12 +1934,10 @@ class Resources extends Component
             'rollout_grace' => $this->rolloutGraceSeconds,
             'cache' => $this->draftCacheMode,
             'database' => $this->draftDatabase,
-            'mysql_size' => EdgeAppDatabase::mysqlSize($this->draftMysqlSize),
             'postgres_plan' => EdgeAppDatabase::postgresPlan($this->draftPostgresPlan),
             'postgres_size' => EdgeAppDatabase::postgresSize($this->draftPostgresSize),
-            'postgres_region' => EdgeAppDatabase::postgresRegion($this->draftPostgresRegion),
             'postgres_suspend' => EdgeAppDatabase::postgresSuspend($this->draftPostgresSuspend, $this->draftPostgresPlan),
-            'postgres_history' => EdgeAppDatabase::postgresHistory($this->draftPostgresHistory),
+            'postgres_disk' => EdgeDplyDatabase::disk($this->draftPostgresDisk),
         ];
     }
 
@@ -1867,12 +2016,10 @@ class Resources extends Component
             $this->site,
             (string) ($this->persistedState()['database'] ?? 'sql'),
             $this->draftDatabase,
-            $this->draftMysqlSize,
             $this->draftPostgresPlan,
             $this->draftPostgresSize,
-            $this->draftPostgresRegion,
             $this->draftPostgresSuspend,
-            $this->draftPostgresHistory,
+            $this->draftPostgresDisk,
         );
         if ($databaseError !== null) {
             $this->addError('database', $databaseError);

@@ -1,0 +1,19 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-25",
+  "id": "r-67chv2jdx2ha025q",
+  "recordedBy": {
+    "client": "claude",
+    "id": "95774c96-6df0-4328-a1ac-c8453749ff1d"
+  },
+  "scopeTags": [
+    "databases",
+    "postgres",
+    "mysql",
+    "mongodb",
+    "kubernetes",
+    "storage"
+  ],
+  "supersedes": "r-r5h70qp951w28qrh",
+  "text": "Supersedes r-r5h70qp951w28qrh (restated; item 2 changed by the owner on 2026-09-25). Amends r-72p0gkdn9dqwxqha item 9: databases are NOT DigitalOcean managed clusters.\n1. Postgres, MySQL and MongoDB all run as dply-managed pods on Kubernetes that scale to zero; Neon and PlanetScale are removed once replaced. MySQL needs an auth-terminating proxy (server speaks first) and is in scope.\n2. CHANGED: data lives on DigitalOcean block storage volumes (do-block-storage, DB_STORAGE_CLASS), not node-local disk. Reason: the DOKS cluster auto-upgrades weekly and autoscales, both of which replace nodes, and node-local data is lost with its node before any backup exists. A woken database reattaches its volume on whichever node it lands on (the gateway recreates a missing pod on wake). Limits: 1 GiB minimum, ~$0.10/GiB-month, 15 volumes per node. wal-g streaming WAL/binlog/oplog to R2 is still wanted, later, for point-in-time restore and off-cluster copies. Owner chose \"Block storage now\" over \"node-local, as ruled\".\n3. Sleep = \"parked pod\": the database process stops cleanly, the pod stays with a tiny supervisor, and its memory reservation is shrunk with Kubernetes in-place resize; wake grows it back and starts the process (target ~0.5-1s Postgres, ~1-2s MySQL/Mongo). Gateway holds client connections during wake, as with Valkey.\n4. Pricing grows with GB used: per-second compute while awake by size, plus storage per GB-month.\n5. Owner approved exposing Postgres port 5432 on the gateway's public load balancer (TLS required, per-app password), 2026-09-25.\nProve on OrbStack Kubernetes first, then production."
+}

@@ -6,39 +6,28 @@ namespace App\Modules\Edge\Services;
 
 use App\Models\EdgeSiteEnvVar;
 use App\Models\Site;
-use App\Modules\Edge\Jobs\FinishEdgeMysqlDatabaseJob;
-use App\Modules\Providers\Neon\NeonClient;
-use App\Modules\Providers\PlanetScale\PlanetScaleClient;
+use App\Modules\Edge\Support\EdgeDplyDatabase;
 use RuntimeException;
 
 /**
- * The app database on the Resources card. Postgres is a Neon project that
- * suspends compute when idle. MySQL is a PlanetScale cluster that stays on.
- * SQLite stays a file in the container.
+ * The app database on the Resources card. Postgres, MySQL and MongoDB are
+ * dply databases (EdgeDplyDatabase: one pod per app on the dply cluster,
+ * ruling r-67chv2jdx2ha025q); SQLite stays a file in the container. Neon and
+ * PlanetScale were removed on 2026-09-25 (no app used them).
  *
- * Called from Resources::persistPending and FinishEdgeMysqlDatabaseJob.
- * Credentials are encrypted site env vars. The remote id lives on edge meta
- * database.remote_id. No schema change.
+ * Called from Resources::persistPending. Credentials are encrypted site env
+ * vars; the database id lives on edge meta database.remote_id.
  */
 final class EdgeAppDatabase
 {
     /** @var list<string> */
-    public const ENGINES = ['sql', 'none', 'postgres', 'mysql'];
+    public const ENGINES = ['sql', 'none', 'postgres', 'mysql', 'mongodb'];
+
+    /** Engines that run as a dply database. */
+    public const DPLY_ENGINES = ['postgres', 'mysql', 'mongodb'];
 
     /**
-     * Customer-facing MySQL sizes. Keys are the cluster names the API expects.
-     *
-     * @var array<string, array{cpu: string, memory: string, cents: int}>
-     */
-    public const MYSQL_SIZES = [
-        'PS_10' => ['cpu' => '1/8 vCPU', 'memory' => '1 GiB', 'cents' => 3900],
-        'PS_20' => ['cpu' => '1/4 vCPU', 'memory' => '2 GiB', 'cents' => 5900],
-        'PS_40' => ['cpu' => '1/2 vCPU', 'memory' => '4 GiB', 'cents' => 9900],
-        'PS_80' => ['cpu' => '1 vCPU', 'memory' => '8 GiB', 'cents' => 17900],
-    ];
-
-    /**
-     * Postgres plans. Sleep stops compute after 5 idle minutes. Awake stays on.
+     * Sleep stops compute after the idle time. Awake stays on.
      *
      * @var array<string, string>
      */
@@ -60,17 +49,8 @@ final class EdgeAppDatabase
     ];
 
     /**
-     * How far back a change can be restored.
-     *
-     * @var array<int, string>
-     */
-    public const POSTGRES_HISTORY = [
-        86400 => '1 day',
-        604800 => '7 days',
-    ];
-
-    /**
-     * Postgres compute sizes. One unit is about 4 GB of memory.
+     * Compute sizes and their compute units (1 CU = 4 GB), which the usage
+     * rates are priced in. EdgeDplyDatabase::OFFERED_SIZES is what fits today.
      *
      * @var array<string, array{cpu: string, memory: string, cu: float}>
      */
@@ -93,60 +73,41 @@ final class EdgeAppDatabase
         'DB_SSLMODE',
         'MYSQL_ATTR_SSL_CA',
         'DATABASE_URL',
+        'MONGODB_URI',
+        'MONGO_URL',
+        'MONGODB_DATABASE',
     ];
 
     /**
-     * Move the app from one engine to another. Returns an error the page can show.
+     * Move the app from one engine to another, or change the size, sleep time
+     * or disk of the one it has. Returns an error the page can show.
      */
-    public static function sync(Site $site, string $from, string $to, string $mysqlSize = '', string $postgresPlan = '', string $postgresSize = '', string $postgresRegion = '', int $postgresSuspend = 0, int $postgresHistory = 0): ?string
+    public static function sync(Site $site, string $from, string $to, string $plan = '', string $size = '', int $suspend = 0, int $disk = 0): ?string
     {
         if (! in_array($to, self::ENGINES, true)) {
             return 'Pick a database.';
         }
 
-        $mysqlSize = self::mysqlSize($mysqlSize);
         $current = self::record($site);
         $sameRemote = $from === $to && (string) ($current['remote_id'] ?? '') !== '';
         if ($from === $to && ($to === 'sql' || $to === 'none' || ($sameRemote && ($current['status'] ?? '') !== 'failed'))) {
-            if ($to === 'mysql' && $sameRemote && self::mysqlSize((string) ($current['size'] ?? '')) !== $mysqlSize) {
-                try {
-                    self::requireCard($site);
-                    PlanetScaleClient::fromConfig()->resize((string) $current['remote_id'], $mysqlSize);
-                    self::remember($site, array_merge($current, ['size' => $mysqlSize]));
-                } catch (RuntimeException $e) {
-                    return $e->getMessage();
-                }
-            }
-            if ($to === 'postgres' && $sameRemote) {
-                $error = self::applyPostgresPlan($site, $current, $postgresPlan, $postgresSize, $postgresRegion, $postgresSuspend, $postgresHistory);
-                if ($error !== null) {
-                    return $error;
-                }
-            }
-
-            return null;
+            return $sameRemote && in_array($to, self::DPLY_ENGINES, true)
+                ? self::applyDply($site, $current, $plan, $size, $suspend, $disk)
+                : null;
         }
 
         try {
-            if ($to === 'postgres' || $to === 'mysql') {
+            if (in_array($to, self::DPLY_ENGINES, true)) {
                 self::requireCard($site);
-                if ($to === 'postgres' && ! NeonClient::configured()) {
-                    throw new RuntimeException('Postgres cannot be started from here yet.');
-                }
-                if ($to === 'mysql' && ! PlanetScaleClient::configured()) {
-                    throw new RuntimeException('MySQL cannot be started from here yet.');
+                if (! EdgeDplyDatabase::enabled()) {
+                    throw new RuntimeException('Databases cannot be started from here yet.');
                 }
             }
-            self::release($site, $from, $current);
-            if ($to === 'postgres') {
-                self::startPostgres($site, $postgresPlan, $postgresSize, $postgresRegion, $postgresSuspend, $postgresHistory);
-            } elseif ($to === 'mysql') {
-                self::startMysql($site, $mysqlSize);
+            self::release($site, $current);
+            if (in_array($to, self::DPLY_ENGINES, true)) {
+                self::startDply($site, $to, $plan, $size, $suspend, $disk);
             } else {
-                self::remember($site, [
-                    'engine' => $to,
-                    'name' => 'production',
-                ]);
+                self::remember($site, ['engine' => $to, 'name' => 'production']);
             }
         } catch (RuntimeException $e) {
             return $e->getMessage();
@@ -160,13 +121,16 @@ final class EdgeAppDatabase
      */
     public static function storeCredentials(Site $site, string $engine, array $credentials): void
     {
-        $user = rawurlencode($credentials['username']);
-        $password = rawurlencode($credentials['password']);
-        $auth = $user.':'.$password;
+        $auth = rawurlencode($credentials['username']).':'.rawurlencode($credentials['password']);
         $database = rawurlencode($credentials['database']);
-        if ($engine === 'postgres') {
-            $url = 'postgresql://'.$auth.'@'.$credentials['host'].':'.$credentials['port'].'/'.$database.'?sslmode=require';
-            $pairs = [
+        $address = $credentials['host'].':'.$credentials['port'];
+        $pairs = match ($engine) {
+            'mongodb' => [
+                'MONGODB_URI' => $url = 'mongodb://'.$auth.'@'.$address.'/'.$database.'?tls=true&authSource='.$database,
+                'MONGO_URL' => $url,
+                'MONGODB_DATABASE' => $credentials['database'],
+            ],
+            'postgres' => [
                 'DB_CONNECTION' => 'pgsql',
                 'DB_HOST' => $credentials['host'],
                 'DB_PORT' => $credentials['port'],
@@ -174,11 +138,9 @@ final class EdgeAppDatabase
                 'DB_USERNAME' => $credentials['username'],
                 'DB_PASSWORD' => $credentials['password'],
                 'DB_SSLMODE' => 'require',
-                'DATABASE_URL' => $url,
-            ];
-        } else {
-            $url = 'mysql://'.$auth.'@'.$credentials['host'].':'.$credentials['port'].'/'.$database.'?ssl-mode=REQUIRED';
-            $pairs = [
+                'DATABASE_URL' => 'postgresql://'.$auth.'@'.$address.'/'.$database.'?sslmode=require',
+            ],
+            default => [
                 'DB_CONNECTION' => 'mysql',
                 'DB_HOST' => $credentials['host'],
                 'DB_PORT' => $credentials['port'],
@@ -186,9 +148,9 @@ final class EdgeAppDatabase
                 'DB_USERNAME' => $credentials['username'],
                 'DB_PASSWORD' => $credentials['password'],
                 'MYSQL_ATTR_SSL_CA' => '/etc/ssl/certs/ca-certificates.crt',
-                'DATABASE_URL' => $url,
-            ];
-        }
+                'DATABASE_URL' => 'mysql://'.$auth.'@'.$address.'/'.$database.'?ssl-mode=REQUIRED',
+            ],
+        };
 
         foreach ($pairs as $key => $value) {
             self::writeEnv($site, $key, $value);
@@ -203,137 +165,10 @@ final class EdgeAppDatabase
             ->delete();
     }
 
-    /**
-     * @param  array<string, mixed>  $record
-     */
-    public static function finishMysql(Site $site, array $record): bool
+    /** @param  array<string, mixed>  $record */
+    public static function isDply(array $record): bool
     {
-        $client = PlanetScaleClient::fromConfig();
-        $remote = $client->database((string) $record['remote_id']);
-        if (! $remote['ready']) {
-            return false;
-        }
-
-        $credentials = $client->createPassword($remote['name'], $remote['branch']);
-        self::storeCredentials($site, 'mysql', $credentials);
-        self::remember($site, [
-            'engine' => 'mysql',
-            'name' => 'production',
-            'status' => 'ready',
-            'remote_id' => $remote['name'],
-            'host' => $credentials['host'],
-            'size' => self::mysqlSize((string) ($record['size'] ?? '')),
-        ]);
-        $site->save();
-
-        return true;
-    }
-
-    /**
-     * @param  array<string, mixed>  $current
-     */
-    private static function release(Site $site, string $from, array $current): void
-    {
-        $remoteId = (string) ($current['remote_id'] ?? '');
-        if ($remoteId === '') {
-            return;
-        }
-        if ($from === 'postgres') {
-            NeonClient::fromConfig()->delete($remoteId);
-        } elseif ($from === 'mysql') {
-            PlanetScaleClient::fromConfig()->delete($remoteId);
-        }
-        self::forgetCredentials($site);
-    }
-
-    private static function startPostgres(Site $site, string $plan, string $size, string $region, int $suspend, int $history): void
-    {
-        self::requireCard($site);
-        $suspend = self::postgresSuspend($suspend, $plan);
-        $plan = $suspend === -1 ? 'awake' : 'sleep';
-        $size = self::postgresSize($size);
-        $region = self::postgresRegion($region);
-        $history = self::postgresHistory($history);
-        $limits = self::postgresLimits($plan, $size, $suspend);
-        $created = NeonClient::fromConfig()->create(self::resourceName($site, 'pg'), $limits['min'], $limits['max'], $limits['suspend'], $region, $history);
-        self::storeCredentials($site, 'postgres', $created);
-        self::remember($site, [
-            'engine' => 'postgres',
-            'name' => 'production',
-            'status' => 'ready',
-            'remote_id' => $created['id'],
-            'endpoint_id' => $created['endpoint_id'],
-            'host' => $created['host'],
-            'plan' => $plan,
-            'size' => $size,
-            'region' => $region,
-            'suspend' => $suspend,
-            'history' => $history,
-        ]);
-    }
-
-    /**
-     * @param  array<string, mixed>  $current
-     */
-    private static function applyPostgresPlan(Site $site, array $current, string $plan, string $size, string $region, int $suspend, int $history): ?string
-    {
-        $suspend = self::postgresSuspend($suspend, $plan);
-        $plan = $suspend === -1 ? 'awake' : 'sleep';
-        $size = self::postgresSize($size);
-        $region = self::postgresRegion($region);
-        $history = self::postgresHistory($history);
-        $storedRegion = self::postgresRegion((string) ($current['region'] ?? ''));
-        if ((string) ($current['remote_id'] ?? '') !== '' && $region !== $storedRegion) {
-            return 'The database stays where it was created. Remove it and add it again to use another location.';
-        }
-        $limits = self::postgresLimits($plan, $size, $suspend);
-        $storedSuspend = self::postgresSuspend((int) ($current['suspend'] ?? 0), (string) ($current['plan'] ?? ''));
-        $storedHistory = self::postgresHistory((int) ($current['history'] ?? 0));
-        $storedPlan = $storedSuspend === -1 ? 'awake' : 'sleep';
-        $storedSize = self::postgresSize((string) ($current['size'] ?? ''));
-        $stored = self::postgresLimits($storedPlan, $storedSize, $storedSuspend);
-        $same = $limits === $stored && $storedSize === $size && $storedHistory === $history;
-        if ($same) {
-            if (($current['plan'] ?? '') !== $plan || (string) ($current['size'] ?? '') !== $size || (string) ($current['region'] ?? '') === '' || ! isset($current['suspend']) || ! isset($current['history'])) {
-                self::remember($site, array_merge($current, [
-                    'plan' => $plan,
-                    'size' => $size,
-                    'region' => $storedRegion,
-                    'suspend' => $suspend,
-                    'history' => $history,
-                ]));
-            }
-
-            return null;
-        }
-
-        try {
-            self::requireCard($site);
-            $client = NeonClient::fromConfig();
-            if ($limits !== $stored || $storedSize !== $size) {
-                $client->configure(
-                    (string) $current['remote_id'],
-                    $limits['min'],
-                    $limits['max'],
-                    $limits['suspend'],
-                    (string) ($current['endpoint_id'] ?? ''),
-                );
-            }
-            if ($storedHistory !== $history) {
-                $client->retain((string) $current['remote_id'], $history);
-            }
-            self::remember($site, array_merge($current, [
-                'plan' => $plan,
-                'size' => $size,
-                'region' => $storedRegion,
-                'suspend' => $suspend,
-                'history' => $history,
-            ]));
-        } catch (RuntimeException $e) {
-            return $e->getMessage();
-        }
-
-        return null;
+        return ($record['provider'] ?? '') === 'dply';
     }
 
     public static function postgresPlan(string $plan): string
@@ -346,16 +181,6 @@ final class EdgeAppDatabase
         return array_key_exists($size, self::POSTGRES_SIZES) ? $size : '0.25';
     }
 
-    public static function postgresRegion(string $region): string
-    {
-        if (array_key_exists($region, NeonClient::REGIONS)) {
-            return $region;
-        }
-        $configured = (string) config('edge.neon.region', 'aws-us-east-1');
-
-        return array_key_exists($configured, NeonClient::REGIONS) ? $configured : 'aws-us-east-1';
-    }
-
     public static function postgresSuspend(int $seconds, string $plan = 'sleep'): int
     {
         if (array_key_exists($seconds, self::POSTGRES_SLEEPS)) {
@@ -365,87 +190,93 @@ final class EdgeAppDatabase
         return self::postgresPlan($plan) === 'awake' ? -1 : 300;
     }
 
-    public static function postgresHistory(int $seconds): int
+    /** @param  array<string, mixed>  $current */
+    private static function release(Site $site, array $current): void
     {
-        return array_key_exists($seconds, self::POSTGRES_HISTORY) ? $seconds : 86400;
+        $remoteId = (string) ($current['remote_id'] ?? '');
+        if ($remoteId === '') {
+            return;
+        }
+        if (self::isDply($current)) {
+            EdgeDplyDatabase::destroy($remoteId);
+        }
+        self::forgetCredentials($site);
+    }
+
+    private static function startDply(Site $site, string $engine, string $plan, string $size, int $suspend, int $disk): void
+    {
+        $suspend = self::postgresSuspend($suspend, $plan);
+        $size = EdgeDplyDatabase::size($size);
+        $disk = EdgeDplyDatabase::disk($disk);
+        $created = EdgeDplyDatabase::provision($site, $size, $suspend, $disk, $engine);
+        self::storeCredentials($site, $engine, $created);
+        self::remember($site, [
+            'engine' => $engine,
+            'provider' => 'dply',
+            'name' => 'production',
+            'status' => 'ready',
+            'remote_id' => $created['id'],
+            'host' => $created['host'],
+            'plan' => $suspend === -1 ? 'awake' : 'sleep',
+            'size' => $size,
+            'suspend' => $suspend,
+            'disk_gb' => $disk,
+            // Storage is billed per hour from here (EdgeValkeyUsageCollector).
+            'storage_at' => now()->timestamp,
+        ]);
     }
 
     /**
-     * @return array{min: float, max: float, suspend: int}
+     * New size, sleep time or disk. The password is read back from the app's
+     * env; memory applies on the next wake, a bigger disk grows now.
+     *
+     * @param  array<string, mixed>  $current
      */
-    public static function postgresLimits(string $plan, string $size, int $suspend = 0): array
+    private static function applyDply(Site $site, array $current, string $plan, string $size, int $suspend, int $disk): ?string
     {
-        $cu = self::POSTGRES_SIZES[self::postgresSize($size)]['cu'];
         $suspend = self::postgresSuspend($suspend, $plan);
-        if ($suspend === -1) {
-            return ['min' => $cu, 'max' => $cu, 'suspend' => -1];
+        $size = EdgeDplyDatabase::size($size);
+        $disk = EdgeDplyDatabase::disk($disk);
+        $storedDisk = EdgeDplyDatabase::disk((int) ($current['disk_gb'] ?? 0));
+        if ($disk < $storedDisk) {
+            return sprintf('A database disk only grows. Pick %d GB or more.', $storedDisk);
         }
-
-        return ['min' => 0.25, 'max' => $cu, 'suspend' => $suspend];
-    }
-
-    public static function mysqlSize(string $size): string
-    {
-        $normalized = str_starts_with($size, 'PS-') ? 'PS_'.substr($size, 3) : $size;
-
-        return array_key_exists($normalized, self::MYSQL_SIZES) ? $normalized : 'PS_10';
-    }
-
-    public static function mysqlCents(string $size): int
-    {
-        return self::MYSQL_SIZES[self::mysqlSize($size)]['cents'];
-    }
-
-    private static function startMysql(Site $site, string $size): void
-    {
-        self::requireCard($site);
-        $size = self::mysqlSize($size);
-        $created = PlanetScaleClient::fromConfig()->create(self::resourceName($site, 'mysql'), $size);
-        if ($created['ready']) {
-            $credentials = PlanetScaleClient::fromConfig()->createPassword($created['name'], $created['branch']);
-            self::storeCredentials($site, 'mysql', $credentials);
-            self::remember($site, [
-                'engine' => 'mysql',
-                'name' => 'production',
-                'status' => 'ready',
-                'remote_id' => $created['name'],
-                'host' => $credentials['host'],
+        if ($size === (string) ($current['size'] ?? '') && $suspend === (int) ($current['suspend'] ?? 0) && $disk === $storedDisk) {
+            return null;
+        }
+        try {
+            self::requireCard($site);
+            $engine = (string) ($current['engine'] ?? 'postgres');
+            $env = fn (string $key): string => (string) ($site->edgeEnvVars()->where('scope', EdgeSiteEnvVar::SCOPE_PRODUCTION)->where('key', $key)->first()?->value ?? '');
+            $password = $engine === 'mongodb'
+                ? rawurldecode((string) (parse_url($env('MONGODB_URI'), PHP_URL_PASS) ?? ''))
+                : $env('DB_PASSWORD');
+            EdgeDplyDatabase::update((string) $current['remote_id'], $password, $size, $suspend, $disk, $engine);
+            self::remember($site, array_merge($current, [
+                'plan' => $suspend === -1 ? 'awake' : 'sleep',
                 'size' => $size,
-            ]);
-
-            return;
+                'suspend' => $suspend,
+                'disk_gb' => $disk,
+            ]));
+        } catch (\Throwable $e) {
+            return $e->getMessage();
         }
 
-        self::remember($site, [
-            'engine' => 'mysql',
-            'name' => 'production',
-            'status' => 'provisioning',
-            'remote_id' => $created['name'],
-            'host' => '',
-            'size' => $size,
-        ]);
-        FinishEdgeMysqlDatabaseJob::dispatch((string) $site->id);
+        return null;
     }
 
     private static function requireCard(Site $site): void
     {
+        // Local-only escape hatch, the same as Resources::cardOnFile.
+        if (app()->isLocal() && config('edge.skip_card_check')) {
+            return;
+        }
         if (! $site->organization?->onAnyPaidPlan()) {
             throw new RuntimeException('Add a card before starting a database. It is billed to that card.');
         }
     }
 
-    private static function resourceName(Site $site, string $suffix): string
-    {
-        $slug = strtolower((string) ($site->slug !== '' ? $site->slug : $site->name));
-        $slug = trim((string) preg_replace('/[^a-z0-9]+/', '-', $slug), '-');
-        $name = trim($slug.'-'.substr((string) $site->id, -8).'-'.$suffix, '-');
-
-        return substr($name !== '' ? $name : 'app-'.$suffix, 0, 40);
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
+    /** @return array<string, mixed> */
     private static function record(Site $site): array
     {
         $database = $site->edgeMeta()['database'] ?? null;
@@ -453,9 +284,7 @@ final class EdgeAppDatabase
         return is_array($database) ? $database : [];
     }
 
-    /**
-     * @param  array<string, mixed>  $database
-     */
+    /** @param  array<string, mixed>  $database */
     private static function remember(Site $site, array $database): void
     {
         $site->mergeEdgeMeta(['database' => $database]);

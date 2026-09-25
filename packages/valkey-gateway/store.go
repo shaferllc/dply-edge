@@ -32,6 +32,20 @@ func newSnapshotStore() (*snapshotStore, error) {
 
 func key(id string) string { return "tenants/" + id + "/keys.dump" }
 
+// removePrefix deletes every object under prefix (a deleted database's wal-g
+// backups: tenants/{id}/pg/).
+func (s *snapshotStore) removePrefix(ctx context.Context, prefix string) error {
+	for obj := range s.client.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
+		if obj.Err != nil {
+			return obj.Err
+		}
+		if err := s.client.RemoveObject(ctx, s.bucket, obj.Key, minio.RemoveObjectOptions{}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // put streams a snapshot of unknown length into the bucket.
 func (s *snapshotStore) put(ctx context.Context, id string, body io.Reader) error {
 	upload := func() error {

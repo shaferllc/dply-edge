@@ -365,10 +365,6 @@ return [
             // dply:edge:collect-postgres-usage. Read by EdgeAppDatabaseCost.
             'postgres_compute_millicents_per_cu_hour' => (int) env('DPLY_EDGE_POSTGRES_COMPUTE_MC_PER_CU_HOUR', 10_600),
             'postgres_storage_millicents_per_gb_month' => (int) env('DPLY_EDGE_POSTGRES_STORAGE_MC_PER_GB_MONTH', 35_000),
-            'postgres_history_millicents_per_gb_month' => (int) env('DPLY_EDGE_POSTGRES_HISTORY_MC_PER_GB_MONTH', 20_000),
-            'postgres_snapshot_millicents_per_gb_month' => (int) env('DPLY_EDGE_POSTGRES_SNAPSHOT_MC_PER_GB_MONTH', 9_000),
-            'postgres_transfer_millicents_per_gb' => (int) env('DPLY_EDGE_POSTGRES_TRANSFER_MC_PER_GB', 10_000),
-            'postgres_transfer_included_bytes' => (int) env('DPLY_EDGE_POSTGRES_TRANSFER_INCLUDED_BYTES', 500 * 1024 ** 3),
         ],
     ],
 

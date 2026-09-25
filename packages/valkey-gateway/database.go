@@ -7,11 +7,13 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -34,15 +36,23 @@ const (
 
 var dbImages = map[string]string{
 	"postgres": env("POSTGRES_IMAGE", "dply/postgres:17"),
+	"mongodb":  env("MONGO_IMAGE", "dply/mongodb:7"),
+	"mysql":    env("MYSQL_IMAGE", "dply/mysql:8"),
 }
 
 var dbPorts = map[string]string{
 	"postgres": "5432",
+	"mongodb":  "27017",
+	"mysql":    "3306",
 }
 
 func isDatabase(engine string) bool { _, ok := dbPorts[engine]; return ok }
 
 func dbPodName(id string) string { return "db-" + id }
+
+// wakeDeadline is how long a client connection may wait for its database to
+// wake or, the first time, to be built (volume, image, init).
+const wakeDeadline = 5 * time.Minute
 
 // ---- Postgres listener ----
 
@@ -53,14 +63,16 @@ const (
 
 // servePostgres accepts the SSLRequest dance (and PG17 direct TLS), reads the
 // SNI name, wakes the tenant, and pipes the decrypted stream to its pod.
-func (g *gateway) servePostgres(cert tls.Certificate) {
+func (g *gateway) servePostgres(certs *certReloader) {
 	addr := env("POSTGRES_ADDR", ":5432")
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Fatal(err)
 	}
 	log.Printf("postgres proxy on %s", addr)
-	cfg := &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12, NextProtos: []string{"postgresql"}}
+	// GetCertificate, not a fixed cert: renewals (and new names on the
+	// certificate) must reach this listener too.
+	cfg := &tls.Config{GetCertificate: certs.get, MinVersion: tls.VersionTLS12, NextProtos: []string{"postgresql"}}
 	for {
 		c, err := ln.Accept()
 		if err != nil {
@@ -98,12 +110,12 @@ func (g *gateway) servePostgres(cert tls.Certificate) {
 			if err := tc.Handshake(); err != nil {
 				return
 			}
-			id, ok := g.tenantFromSNI(tc.ConnectionState().ServerName)
+			id, ok := tenantFromName(tc.ConnectionState().ServerName, g.cfg.dbDomain)
 			if !ok {
 				writePgError(tc, "08004", "unknown database host; connect by its dply hostname")
 				return
 			}
-			g.pipeDatabase(tc, id, func(msg string) { writePgError(tc, "57P03", msg) })
+			g.pipeDatabase(tc, id, "postgres", func(msg string) { writePgError(tc, "57P03", msg) })
 		}()
 	}
 }
@@ -127,8 +139,48 @@ func writePgError(w io.Writer, code, msg string) {
 }
 
 // pipeDatabase wakes the tenant and copies bytes both ways, like Valkey.
-func (g *gateway) pipeDatabase(client net.Conn, id string, fail func(string)) {
+// serveMongo: MongoDB clients with tls=true open TLS straight away and send
+// the hostname as SNI, so this is the Valkey pattern on another port: read
+// the name, wake the tenant, pipe the decrypted stream.
+func (g *gateway) serveMongo(certs *certReloader) {
+	ln, err := tls.Listen("tcp", env("MONGO_ADDR", ":27017"), &tls.Config{GetCertificate: certs.get, MinVersion: tls.VersionTLS12})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("mongodb proxy on %s", env("MONGO_ADDR", ":27017"))
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			continue
+		}
+		go func() {
+			tc := conn.(*tls.Conn)
+			defer tc.Close()
+			_ = tc.SetDeadline(time.Now().Add(15 * time.Second))
+			if err := tc.Handshake(); err != nil {
+				return
+			}
+			id, ok := tenantFromName(tc.ConnectionState().ServerName, g.cfg.dbDomain)
+			if !ok {
+				return // a MongoDB client has no error channel before its handshake
+			}
+			g.pipeDatabase(tc, id, "mongodb", func(string) {})
+		}()
+	}
+}
+
+// pipeDatabase wakes the tenant and pipes the client to it. engine is the
+// protocol of the port the client came in on; a tenant of another engine is
+// refused before anything wakes.
+func (g *gateway) pipeDatabase(client net.Conn, id, engine string, fail func(string)) {
+	if t, err := g.getTenantRecord(context.Background(), id); err != nil || t.Engine != engine {
+		fail("no " + engine + " database at this address")
+		return
+	}
 	started := time.Now()
+	// A wake (or a brand-new database's first build) can outlast the
+	// listener's handshake deadline; the client just waits.
+	_ = client.SetDeadline(time.Now().Add(wakeDeadline))
 	ip, err := g.wakeDatabase(context.Background(), id)
 	if err != nil {
 		log.Printf("tenant %s: wake failed: %v", id, err)
@@ -215,20 +267,37 @@ func (g *gateway) wakeDatabase(ctx context.Context, id string) (string, error) {
 	return ip, nil
 }
 
-func (g *gateway) sleepDatabase(ctx context.Context, t tenant) error {
+// errBackingUp: an idle sleep was refused because the database is mid-backup.
+var errBackingUp = errors.New("backup running")
+
+// sleepDatabase stops the database. idle (the reaper) is refused while a
+// backup runs, and the database stays awake until a later tick; an explicit
+// sleep (resize, API) stops it regardless.
+func (g *gateway) sleepDatabase(ctx context.Context, t tenant, idle bool) error {
 	s := g.state(t.ID)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	pod, ok := g.databasePod(ctx, t.ID)
+	if ok && idle {
+		// Ask first, before dropping connections: the answer may be "not now".
+		if err := g.agent(pod.Status.PodIP, "/stop?unless_backing_up=1", nil); err != nil {
+			return err
+		}
+	}
 	for c := range s.conns {
 		_ = c.Close()
 	}
-	pod, ok := g.databasePod(ctx, t.ID)
 	if !ok {
+		// The pod is gone (node replaced): close the awake stretch anyway, or
+		// it would keep counting as awake until the next sleep.
 		s.ip = ""
+		g.markAsleep(ctx, t.ID)
 		return nil
 	}
-	if err := g.agent(pod.Status.PodIP, "/stop", nil); err != nil {
-		return err
+	if !idle {
+		if err := g.agent(pod.Status.PodIP, "/stop", nil); err != nil {
+			return err
+		}
 	}
 	s.ip = ""
 	if err := g.resizeDatabase(ctx, pod, t, false); err != nil {
@@ -282,7 +351,7 @@ func (g *gateway) ensureDatabasePod(ctx context.Context, t tenant) (*corev1.Pod,
 }
 
 func (g *gateway) databasePodSpec(t tenant) *corev1.Pod {
-	uid := int64(70) // postgres in the alpine image
+	uid := int64(999) // postgres in the Debian image (dbagent/Dockerfile.postgres)
 	grace := int64(30)
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -293,7 +362,11 @@ func (g *gateway) databasePodSpec(t tenant) *corev1.Pod {
 			RestartPolicy:                 corev1.RestartPolicyAlways,
 			TerminationGracePeriodSeconds: &grace, // dbagent stops the database cleanly on SIGTERM
 			AutomountServiceAccountToken:  new(bool),
-			SecurityContext:               &corev1.PodSecurityContext{RunAsUser: &uid, RunAsGroup: &uid, FSGroup: &uid},
+			// OnRootMismatch: only fix ownership when the volume root doesn't match.
+			// The default re-chmods every file on every attach (slow on big
+			// volumes), which also made a moved database's data directory
+			// group-readable and Postgres refused to start.
+			SecurityContext: &corev1.PodSecurityContext{RunAsUser: &uid, RunAsGroup: &uid, FSGroup: &uid, FSGroupChangePolicy: ptr(corev1.FSGroupChangeOnRootMismatch)},
 			Volumes: []corev1.Volume{{Name: "data", VolumeSource: corev1.VolumeSource{
 				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: dbPodName(t.ID)},
 			}}},
@@ -301,9 +374,9 @@ func (g *gateway) databasePodSpec(t tenant) *corev1.Pod {
 				Name:            "db",
 				Image:           dbImages[t.Engine],
 				ImagePullPolicy: corev1.PullIfNotPresent,
-				Env: []corev1.EnvVar{{Name: "AGENT_TOKEN", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
+				Env: append([]corev1.EnvVar{{Name: "AGENT_TOKEN", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
 					LocalObjectReference: corev1.LocalObjectReference{Name: g.cfg.adminSecret}, Key: "password",
-				}}}},
+				}}}}, backupEnv(t)...),
 				Ports:        []corev1.ContainerPort{{ContainerPort: int32(atoi(dbPorts[t.Engine]))}, {ContainerPort: 7000}},
 				VolumeMounts: []corev1.VolumeMount{{Name: "data", MountPath: "/data"}},
 				// Memory is resized in place on wake and sleep; no restart.
@@ -354,6 +427,10 @@ func (g *gateway) agentUp(ip string) bool {
 }
 
 func (g *gateway) agent(ip, path string, body any) error {
+	return g.agentWait(ip, path, body, 90*time.Second)
+}
+
+func (g *gateway) agentWait(ip, path string, body any, timeout time.Duration) error {
 	var payload io.Reader
 	if body != nil {
 		b, _ := json.Marshal(body)
@@ -361,11 +438,14 @@ func (g *gateway) agent(ip, path string, body any) error {
 	}
 	req, _ := http.NewRequest(http.MethodPost, "http://"+net.JoinHostPort(ip, agentPort)+path, payload)
 	req.Header.Set("Authorization", "Bearer "+g.cfg.adminPassword)
-	resp, err := (&http.Client{Timeout: 90 * time.Second}).Do(req)
+	resp, err := (&http.Client{Timeout: timeout}).Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusConflict {
+		return errBackingUp
+	}
 	if resp.StatusCode >= 300 {
 		msg, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("agent %s: %s", path, bytes.TrimSpace(msg))
@@ -377,6 +457,78 @@ func (g *gateway) deleteDatabase(ctx context.Context, id string) {
 	zero := int64(0)
 	_ = g.kube.CoreV1().Pods(g.cfg.namespace).Delete(ctx, dbPodName(id), metav1.DeleteOptions{GracePeriodSeconds: &zero})
 	_ = g.kube.CoreV1().PersistentVolumeClaims(g.cfg.namespace).Delete(ctx, dbPodName(id), metav1.DeleteOptions{})
+	// Its backups go with it (every engine's, under tenants/{id}/).
+	go func() {
+		if err := g.store.removePrefix(context.Background(), "tenants/"+id+"/"); err != nil {
+			log.Printf("tenant %s: removing backups: %v", id, err)
+		}
+	}()
+}
+
+// ---- backups (dbagent in the database pod, ruling r-67chv2jdx2ha025q) ----
+
+// backupPrefix: Postgres wal-g under tenants/{id}/pg, MongoDB and MySQL
+// daily dumps under tenants/{id}/{engine}.
+func backupPrefix(t tenant) string {
+	if t.Engine == "postgres" {
+		return "tenants/" + t.ID + "/pg"
+	}
+	return "tenants/" + t.ID + "/" + t.Engine
+}
+
+// backupEnv points a database pod's backups at backupPrefix in the same
+// bucket as Valkey snapshots. Keys come from DB_BACKUP_SECRET (the R2 secret)
+// by reference, never inlined. Unset (local), there are no backups.
+func backupEnv(t tenant) []corev1.EnvVar {
+	secret, bucket := os.Getenv("DB_BACKUP_SECRET"), os.Getenv("S3_BUCKET")
+	if secret == "" || bucket == "" {
+		return nil
+	}
+	fromSecret := func(name, key string) corev1.EnvVar {
+		return corev1.EnvVar{Name: name, ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: secret}, Key: key,
+		}}}
+	}
+	return []corev1.EnvVar{
+		{Name: "WALG_S3_PREFIX", Value: "s3://" + bucket + "/" + backupPrefix(t)},
+		{Name: "AWS_ENDPOINT", Value: os.Getenv("S3_ENDPOINT")},
+		{Name: "AWS_REGION", Value: env("S3_REGION", "auto")},
+		{Name: "AWS_S3_FORCE_PATH_STYLE", Value: "true"},
+		fromSecret("AWS_ACCESS_KEY_ID", "access-key"),
+		fromSecret("AWS_SECRET_ACCESS_KEY", "secret-key"),
+	}
+}
+
+// restoreDatabase wakes the database, has dbagent restore it (to target, an
+// RFC3339 time, or the latest point when empty), then re-applies the app's
+// current password, since the restored data carries the one from back then.
+func (g *gateway) restoreDatabase(ctx context.Context, t tenant, target string) error {
+	ip, err := g.wakeDatabase(ctx, t.ID)
+	if err != nil {
+		return err
+	}
+	s := g.state(t.ID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for c := range s.conns {
+		_ = c.Close()
+	}
+	if err := g.agentWait(ip, "/restore", map[string]string{"target_time": target}, 15*time.Minute); err != nil {
+		return err
+	}
+	return g.agent(ip, "/tenant", map[string]string{"password": t.Password})
+}
+
+// growDatabaseVolume raises the volume's size request. DigitalOcean block
+// storage expands online and the CSI driver grows the filesystem, so the
+// database keeps running.
+func (g *gateway) growDatabaseVolume(ctx context.Context, id string, diskGB int) error {
+	patch := fmt.Sprintf(`{"spec":{"resources":{"requests":{"storage":"%dGi"}}}}`, diskGB)
+	_, err := g.kube.CoreV1().PersistentVolumeClaims(g.cfg.namespace).Patch(ctx, dbPodName(id), types.MergePatchType, []byte(patch), metav1.PatchOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil // not created yet; the first wake creates it at the new size
+	}
+	return err
 }
 
 func ptr[T any](v T) *T { return &v }

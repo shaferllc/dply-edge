@@ -23,7 +23,6 @@ use App\Modules\Edge\Console\CheckEdgeRumAlertsCommand;
 use App\Modules\Edge\Console\CollectEdgeContainerUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeDataUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeKvUsageCommand;
-use App\Modules\Edge\Console\CollectEdgePostgresUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeValkeyUsageCommand;
 use App\Modules\Edge\Console\EvaluateEdgeGuardrailsCommand;
@@ -115,13 +114,6 @@ final class DplySchedule
         $schedule->command(CollectEdgeKvUsageCommand::class)
             ->dailyAt('02:00')
             ->name('edge-kv-usage-yesterday');
-        $schedule->command(CollectEdgePostgresUsageCommand::class, ['--today'])
-            ->hourly()
-            ->withoutOverlapping()
-            ->name('edge-postgres-usage-today');
-        $schedule->command(CollectEdgePostgresUsageCommand::class)
-            ->dailyAt('02:05')
-            ->name('edge-postgres-usage-yesterday');
 
         // Keep Node build images warm on workers so Edge deploys skip cold pulls.
         if ((bool) config('edge.build.warm_images_on_schedule', true)) {

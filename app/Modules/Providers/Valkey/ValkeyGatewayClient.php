@@ -37,14 +37,21 @@ final class ValkeyGatewayClient
      *
      * @return array<string, mixed>
      */
-    public function put(string $id, string $password, int $memoryMb, int $sleepAfter, bool $persistent): array
+    public function put(string $id, string $password, int $memoryMb, int $sleepAfter, bool $persistent, string $engine = 'valkey', int $diskGb = 0): array
     {
-        return $this->http()->put('/tenants/'.$id, [
+        $body = [
             'password' => $password,
             'memory_mb' => $memoryMb,
             'sleep_after' => $sleepAfter,
             'persistent' => $persistent,
-        ])->throw()->json() ?? [];
+        ];
+        if ($engine !== 'valkey') {
+            // Databases: a volume of disk_gb that can grow but not shrink.
+            $body['engine'] = $engine;
+            $body['disk_gb'] = $diskGb;
+        }
+
+        return $this->http()->put('/tenants/'.$id, $body)->throw()->json() ?? [];
     }
 
     /** @return array<string, mixed> */
@@ -63,6 +70,17 @@ final class ValkeyGatewayClient
         $totals = $this->http()->get('/usage')->throw()->json('awake_seconds');
 
         return is_array($totals) ? array_map('intval', $totals) : [];
+    }
+
+    /**
+     * Point-in-time restore of a database from its wal-g backups. Empty
+     * $targetTime restores to the latest point. Can take minutes.
+     *
+     * @return array<string, mixed>
+     */
+    public function restore(string $id, string $targetTime = ''): array
+    {
+        return $this->http()->timeout(1200)->post('/tenants/'.$id.'/restore', ['target_time' => $targetTime])->throw()->json() ?? [];
     }
 
     public function sleep(string $id): void

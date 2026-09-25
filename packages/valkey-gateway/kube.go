@@ -339,6 +339,7 @@ func (g *gateway) start(ctx context.Context, t tenant) (string, error) {
 // fillPool keeps cfg.pool[mb] ready pods per size. Called from the reaper.
 func (g *gateway) fillPool(ctx context.Context) {
 	pods := g.kube.CoreV1().Pods(g.cfg.namespace)
+	g.trimPool(ctx)
 	for mb, want := range g.cfg.pool {
 		list, err := pods.List(ctx, metav1.ListOptions{LabelSelector: "app=dply-valkey-pod,role=pool,memory=" + strconv.Itoa(mb)})
 		if err != nil {
@@ -358,6 +359,33 @@ func (g *gateway) fillPool(ctx context.Context) {
 				log.Printf("pool %dMB: %v", mb, err)
 				break
 			}
+		}
+	}
+}
+
+// trimPool deletes idle pool pods beyond POOL (a lowered count or a size no
+// longer listed): each one reserves its memory while it waits. The delete is
+// conditional on the pod's resourceVersion, so a pod a tenant adopted in the
+// meantime (adoption relabels it) is never removed.
+func (g *gateway) trimPool(ctx context.Context) {
+	pods := g.kube.CoreV1().Pods(g.cfg.namespace)
+	list, err := pods.List(ctx, metav1.ListOptions{LabelSelector: "app=dply-valkey-pod,role=pool"})
+	if err != nil {
+		return
+	}
+	kept := map[int]int{}
+	for _, p := range list.Items {
+		if p.DeletionTimestamp != nil {
+			continue
+		}
+		mb, _ := strconv.Atoi(p.Labels["memory"])
+		if kept[mb] < g.cfg.pool[mb] {
+			kept[mb]++
+			continue
+		}
+		version := p.ResourceVersion
+		if err := pods.Delete(ctx, p.Name, metav1.DeleteOptions{Preconditions: &metav1.Preconditions{ResourceVersion: &version}}); err == nil {
+			log.Printf("pool %dMB: removed extra warm pod %s", mb, p.Name)
 		}
 	}
 }
@@ -429,7 +457,7 @@ func (g *gateway) podSpec(name string, memoryMB int, persistent bool) *corev1.Po
 					PeriodSeconds: 2,
 				},
 				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse(mb + "Mi"), corev1.ResourceCPU: resource.MustParse("25m")},
+					Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse(mb + "Mi"), corev1.ResourceCPU: resource.MustParse(cpuRequest(memoryMB, persistent))},
 					Limits:   corev1.ResourceList{corev1.ResourceMemory: limit},
 				},
 			}},

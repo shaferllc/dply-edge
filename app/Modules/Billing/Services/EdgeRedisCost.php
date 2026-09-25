@@ -42,6 +42,10 @@ class EdgeRedisCost
      * app has now. ponytail: a mid-month resize prices the whole month at the
      * new class; keep seconds per class if that matters.
      *
+     * Exact per app, then rounded once to the nearest cent for the invoice
+     * (Stripe needs whole cents). Rounding each app up would bill minutes of
+     * use as a full cent.
+     *
      * @param  array<string, int>  $secondsBySite
      */
     public function valkeyCents(Organization $organization, array $secondsBySite): int
@@ -50,19 +54,19 @@ class EdgeRedisCost
         if ($secondsBySite === []) {
             return 0;
         }
-        $cents = 0;
+        $cents = 0.0;
         Site::query()->where('organization_id', $organization->id)->whereIn('id', array_keys($secondsBySite))->each(function (Site $site) use ($secondsBySite, &$cents): void {
             foreach (EdgeContainerConnections::for($site) as $connection) {
                 if ($connection['kind'] !== 'redis' || ! EdgeValkey::isTarget($connection['target'])) {
                     continue;
                 }
                 $class = EdgeValkey::CLASSES[$connection['plan']] ?? EdgeValkey::CLASSES[EdgeValkey::DEFAULT_CLASS];
-                $cents += min($class['cap_cents'], (int) ceil($secondsBySite[$site->id] * $class['per_second'] * 100));
+                $cents += min((float) $class['cap_cents'], $secondsBySite[$site->id] * $class['per_second'] * 100);
 
                 return;
             }
         });
 
-        return $cents;
+        return (int) round($cents);
     }
 }

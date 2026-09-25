@@ -191,6 +191,10 @@ final class EdgeContainerConnections
         if ($site->isLaravelFrameworkDetected()) {
             $env['CACHE_STORE'] = 'redis';
             $env['REDIS_CLIENT'] = 'phpredis';
+            // One TLS connection per php-fpm worker instead of a TLS handshake
+            // + AUTH on every request (Laravel 11+ reads it into phpredis'
+            // `persistent` option). The app's own env var still wins.
+            $env['REDIS_PERSISTENT'] = 'true';
         }
         $stored = $site->edgeEnvVars()
             ->where('scope', 'production')

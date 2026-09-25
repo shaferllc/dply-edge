@@ -9,9 +9,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 
 /**
- * Daily Postgres compute and storage for one project.
- * Written by EdgePostgresUsageCollector, read by EdgeAppDatabaseCost.
- * User request: "ok lets move ahead with imp,emeting neon and postgres first".
+ * Daily compute and storage for one dply database (Postgres, MySQL, MongoDB).
+ * Written by EdgeValkeyUsageCollector for dply databases, read by EdgeAppDatabaseCost.
  *
  * @property string $id
  * @property string $organization_id
