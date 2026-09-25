@@ -461,10 +461,13 @@ final class EdgeContainerDockerfile
      * Lockfiles are copied only when they exist — a glob that matches
      * nothing fails the build, and `npm ci` cannot run without one.
      *
+     * With `$vendor` the build also gets the Composer vendor directory: the
+     * Laravel Inertia starter kits import Ziggy from vendor/tightenco/ziggy.
+     *
      * @param  array{install: string, build: string, workspaces?: list<string>}|null  $assets
      * @return list<string>
      */
-    private static function assetStageLines(string $checkout, ?array $assets): array
+    private static function assetStageLines(string $checkout, ?array $assets, bool $vendor = false): array
     {
         if ($assets === null) {
             return [];
@@ -482,7 +485,21 @@ final class EdgeContainerDockerfile
             }
         }
 
+        $lines = [];
+        if ($vendor) {
+            $lock = is_file($checkout.'/composer.lock') ? ' composer.lock' : '';
+            $lines = [
+                'FROM composer:2 AS vendor',
+                'WORKDIR /app',
+                'COPY composer.json'.$lock.' ./',
+                // Only the files the JS imports are needed; the PHP image
+                // runs its own install against its own extensions.
+                self::cachedRun('composer install --no-dev --no-interaction --no-progress --no-scripts --no-autoloader --ignore-platform-reqs', '/tmp/cache'),
+                '',
+            ];
+        }
         $lines = [
+            ...$lines,
             'FROM node:22-bookworm-slim AS assets',
             'WORKDIR /app',
             'COPY '.implode(' ', $manifests).' ./',
@@ -495,6 +512,9 @@ final class EdgeContainerDockerfile
         }
         $lines[] = self::cachedRun($install, self::nodeCacheDir($install));
         $lines[] = 'COPY . .';
+        if ($vendor) {
+            $lines[] = 'COPY --from=vendor /app/vendor vendor';
+        }
         $lines[] = 'RUN '.$assets['build'];
         $lines[] = '';
 
@@ -529,7 +549,7 @@ final class EdgeContainerDockerfile
             $assets['build'] = $ssr;
         }
 
-        $lines = self::assetStageLines($checkout, $assets);
+        $lines = self::assetStageLines($checkout, $assets, self::composerRequires($checkout, 'tightenco/ziggy'));
         foreach (self::phpBaseLines($version, $server) as $line) {
             $lines[] = $line;
         }

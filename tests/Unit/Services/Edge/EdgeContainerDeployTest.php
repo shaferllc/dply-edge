@@ -197,6 +197,7 @@ test('an inertia app with build:ssr builds and runs the ssr server', function ()
         'composer.json' => '{"require":{"php":"^8.3"}}',
         'artisan' => '',
         'package.json' => '{"scripts":{"build":"vite build","build:ssr":"vite build && vite build --ssr"},"dependencies":{"@inertiajs/vue3":"^2"}}',
+        'resources/js/ssr.ts' => '',
     ]);
 
     $dockerfile = File::get(EdgeContainerDockerfile::prepare($dir)['path']);
@@ -205,6 +206,31 @@ test('an inertia app with build:ssr builds and runs the ssr server', function ()
         ->and($dockerfile)->toContain('RUN apk add --no-cache nodejs')
         ->and($dockerfile)->toContain('COPY --from=assets /app/bootstrap/ssr /app/bootstrap/ssr')
         ->and($dockerfile)->toContain('php artisan inertia:start-ssr & ');
+});
+
+test('an app that imports ziggy from vendor gets composer vendor in the asset build', function () {
+    $dir = checkout([
+        'composer.json' => '{"require":{"php":"^8.3","tightenco/ziggy":"^2.4"}}',
+        'artisan' => '',
+        'package.json' => '{"scripts":{"build":"vite build"}}',
+    ]);
+
+    $dockerfile = File::get(EdgeContainerDockerfile::prepare($dir)['path']);
+
+    expect($dockerfile)->toContain('FROM composer:2 AS vendor')
+        ->and(strpos($dockerfile, 'COPY --from=vendor /app/vendor vendor'))->toBeLessThan(strpos($dockerfile, 'RUN npm run build'));
+});
+
+test('build:ssr with inertia but no ssr entry is left alone', function () {
+    $dir = checkout([
+        'composer.json' => '{"require":{"php":"^8.3"}}',
+        'artisan' => '',
+        'package.json' => '{"scripts":{"build":"vite build","build:ssr":"vite build && vite build --ssr"},"dependencies":{"@inertiajs/vue3":"^2"}}',
+        'vite.config.ts' => "laravel({ input: ['resources/js/app.ts'] })",
+    ]);
+
+    expect(File::get(EdgeContainerDockerfile::prepare($dir)['path']))->not->toContain('inertia:start-ssr')
+        ->and(File::get(EdgeContainerDockerfile::prepare($dir)['path']))->toContain('RUN npm run build');
 });
 
 test('build:ssr without inertia is left alone', function () {
