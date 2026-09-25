@@ -6,8 +6,10 @@ namespace App\Modules\Edge\Services;
 
 use App\Models\EdgeDeployment;
 use App\Models\Site;
+use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeDeliveryContext;
 use App\Modules\Edge\Support\EdgeEffectiveCrons;
+use App\Modules\Edge\Support\EdgeWorkerEntryWrapper;
 use App\Modules\Edge\Support\FakeEdgeProvision;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Support\Facades\File;
@@ -62,6 +64,7 @@ class EdgeSsrBundleUploader
         if ($modules === []) {
             throw new RuntimeException('SSR bundle sidecar has no module sources.');
         }
+        [$entry, $modules] = EdgeWorkerEntryWrapper::wrap($site, $entry, $modules);
 
         $scriptName = $this->scriptNameFor($site, $deployment);
 
@@ -100,7 +103,7 @@ class EdgeSsrBundleUploader
             bindings: $this->bindingsFor($deployment, $context),
             metaExtras: [
                 'compatibility_date' => $context->ssrCompatibilityDate,
-                'compatibility_flags' => $context->ssrCompatibilityFlags,
+                'compatibility_flags' => EdgeWorkerEntryWrapper::compatibilityFlags($site, $context->ssrCompatibilityFlags),
                 'tags' => ['dply-edge', 'site:'.(string) $site->id],
             ],
         );
@@ -300,7 +303,7 @@ class EdgeSsrBundleUploader
         // RESERVED_NAMES on the model blocks platform-injected names.
         $site = $deployment->site;
         if ($site !== null) {
-            foreach (app(EdgeProductionEnv::class)->forSite($site) as $key => $value) {
+            foreach (EdgeContainerConnections::omitAsleepRedis($site, app(EdgeProductionEnv::class)->forSite($site)) as $key => $value) {
                 $bindings[] = [
                     'name' => $key,
                     'type' => 'secret_text',

@@ -108,6 +108,11 @@ class CreateEdgeSite
             'webhook_secret' => Str::random(48),
             'meta' => [
                 'runtime_profile' => 'edge_web',
+                'repository' => array_filter([
+                    'git_source_control_account_id' => is_string($payload['git_source_control_account_id'] ?? null) && $payload['git_source_control_account_id'] !== ''
+                        ? $payload['git_source_control_account_id']
+                        : null,
+                ]),
                 'edge' => [
                     'runtime_mode' => $runtimeMode,
                     'origin' => $originConfig,

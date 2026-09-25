@@ -1,0 +1,12 @@
+{
+  "blockedBy": [],
+  "completedDate": null,
+  "createdDate": "2026-09-25",
+  "description": "Optional tier for apps that outgrow Cloudflare Containers (20 instances, 4 vCPU / 12 GiB, no guaranteed always-on). The dply Worker stays the front door (domains, TLS, firewall, previews); it forwards to a DigitalOcean Kubernetes cluster instead of a Cloudflare container.\n\nCloudflare parity already shipped 2026-09-24: in-flight autoscaling (fill instances in order, spill when full), min instances (never sleep), /_dply/warm after deploy, Inertia SSR auto-detected. Build this tier only when a paying customer actually hits a Cloudflare limit.\n\nShape: Knative Serving (scale to zero, holds requests while a sleeping app starts, concurrency autoscaling with containerConcurrency = requestsPerInstance), gVisor RuntimeClass for untrusted code, one namespace per org with NetworkPolicy + ResourceQuota. Reuse Providers/DigitalOcean client. Same image generator (EdgeContainerDockerfile) and same /_dply/queue and /_dply/schedule contract.\n\nEffort: 1–2 weeks to a cluster that serves one app; 2–3 weeks to wire it into dply with metering; 1–2 months for wakes under a second; after that, ongoing ops work (upgrades, capacity, on-call).",
+  "id": "T-022",
+  "order": 10,
+  "phase": null,
+  "status": "open",
+  "title": "Dedicated compute tier: containers on our own Kubernetes (DOKS + Knative)",
+  "type": "feature"
+}

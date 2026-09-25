@@ -1,0 +1,42 @@
+# One app, shaped like a dply container site. Apply after the cluster is up:
+#   kubectl apply -f app.example.yaml
+# Build the image with EdgeContainerDockerfile (any Laravel repo) and push it
+# to registry.digitalocean.com/<registry>/<app>:<tag> first.
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: laravel-spike
+  namespace: apps
+spec:
+  template:
+    metadata:
+      annotations:
+        # 0 = scale to zero (our min_instances). max = our max_instances.
+        autoscaling.knative.dev/min-scale: "0"
+        autoscaling.knative.dev/max-scale: "5"
+        # Same idea as the Worker: a pod is full at requestsPerInstance.
+        autoscaling.knative.dev/metric: concurrency
+    spec:
+      # EdgeContainerSettings::phpFpmPool for 0.5 vCPU / 1 GiB (the
+      # resources below) is 4 php-fpm children. Knative's activator holds
+      # the rest until another pod is up.
+      containerConcurrency: 4
+      # runtimeClassName: gvisor   # only with enable_gvisor and runsc on the nodes
+      containers:
+        - image: registry.digitalocean.com/REPLACE_ME/laravel-spike:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: APP_KEY
+              value: base64:REPLACE_ME
+            - name: APP_ENV
+              value: production
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              memory: 1Gi
+          readinessProbe:
+            tcpSocket:
+              port: 8080

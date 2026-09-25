@@ -1,0 +1,16 @@
+{
+  "blockedBy": [],
+  "citesRulings": [
+    "r-72p0gkdn9dqwxqha"
+  ],
+  "completedDate": null,
+  "createdDate": "2026-09-25",
+  "description": "Blocked on the spike. Wrap every SSR/middleware upload; stable dply-state-{site} script; peer fetch shim; workflow by user class name; Upstash REST vars.",
+  "displayId": "T-018",
+  "id": "T-018",
+  "order": 30,
+  "phase": "resources-everywhere",
+  "status": "inprogress",
+  "title": "dply-entry.js wrapper: State, Another app, Workflow, Redis REST on Workers",
+  "type": "feature"
+}

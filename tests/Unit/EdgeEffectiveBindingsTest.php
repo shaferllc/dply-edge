@@ -17,10 +17,23 @@ use App\Modules\Edge\Support\EdgeEffectiveBindings;
  * reads `env.X` and finds undefined — or until Cloudflare rejects a script
  * upload because two bindings share a name and an otherwise-good deploy fails.
  */
+/**
+ * Resources-page rows, written the way the old Bindings tab described them.
+ */
 function siteWithOverrides(array $overrides): Site
 {
+    $kinds = ['kv' => 'key_value', 'r2' => 'object_storage', 'd1' => 'sql', 'queue' => 'queue'];
+    $connections = [];
+    foreach ($overrides as $i => $row) {
+        $connections[] = [
+            'kind' => $kinds[$row['kind']] ?? $row['kind'],
+            'name' => $row['name'],
+            'host' => 'dply.app.r'.$i.'.internal',
+            'target' => $row['value'],
+        ];
+    }
     $site = new Site;
-    $site->forceFill(['meta' => ['edge' => ['bindings_overrides' => $overrides]]]);
+    $site->forceFill(['meta' => ['edge' => ['connections' => $connections]]]);
 
     return $site;
 }
@@ -141,6 +154,7 @@ test('translator emits dashboard bindings so they actually reach the worker', fu
         'UPLOADS' => 'r2_bucket',
         'DB' => 'd1',
         'JOBS' => 'queue',
+        'DPLY_QUEUE_TOKEN' => 'secret_text',
     ]);
 });
 
@@ -162,4 +176,39 @@ test('translator drops reserved names even if they reach meta', function () {
     $deployment = deploymentWithRepoBindings([], $site);
 
     expect(array_column(translator()->bindingsFor($deployment), 'name'))->not->toContain('ASSETS');
+});
+
+test('translator emits worker-capable resources as upload-API bindings', function () {
+    $site = siteWithOverrides([
+        ['name' => 'AI', 'kind' => 'ai', 'value' => ''],
+        ['name' => 'SEARCH', 'kind' => 'vectors', 'value' => 'docs-index'],
+        ['name' => 'IMAGES', 'kind' => 'images', 'value' => ''],
+        ['name' => 'POOL', 'kind' => 'database_pool', 'value' => 'hd-1'],
+        ['name' => 'STATE', 'kind' => 'durable_object', 'value' => ''],
+    ]);
+    $deployment = deploymentWithRepoBindings([], $site);
+
+    $out = collect(translator()->bindingsFor($deployment))->keyBy('name');
+
+    expect($out['AI'])->toBe(['name' => 'AI', 'type' => 'ai'])
+        ->and($out['SEARCH'])->toBe(['name' => 'SEARCH', 'type' => 'vectorize', 'index_name' => 'docs-index'])
+        ->and($out['IMAGES'])->toBe(['name' => 'IMAGES', 'type' => 'images'])
+        ->and($out['POOL'])->toBe(['name' => 'POOL', 'type' => 'hyperdrive', 'id' => 'hd-1'])
+        ->and($out->has('STATE'))->toBeFalse();
+});
+
+test('names keep their case so env.myStore still resolves', function () {
+    $site = siteWithOverrides([['name' => 'myStore', 'kind' => 'kv', 'value' => 'kv-1']]);
+
+    expect(array_column(EdgeEffectiveBindings::dashboardOverrides($site), 'name'))->toBe(['myStore']);
+});
+
+test('overriddenByRepo names the Resources rows the repo shadows', function () {
+    $site = siteWithOverrides([
+        ['name' => 'SESSIONS', 'kind' => 'kv', 'value' => 'dashboard-kv'],
+        ['name' => 'UPLOADS', 'kind' => 'r2', 'value' => 'bucket'],
+    ]);
+    $deployment = deploymentWithRepoBindings(['kv' => ['SESSIONS' => 'repo-kv']], $site);
+
+    expect(EdgeEffectiveBindings::overriddenByRepo($site, $deployment))->toBe(['SESSIONS']);
 });

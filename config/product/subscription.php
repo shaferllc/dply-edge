@@ -77,7 +77,7 @@ return [
                 'build_minutes' => null, 'build_minute_overage_millicents' => null,
                 'concurrent_builds' => 1, 'build_timeout_minutes' => 20,
                 'requests' => 1_000_000, 'egress_gb' => 10,
-                'custom_domains_per_site' => 10, 'addons' => false, 'audit_log' => false, 'containers' => true, 'compute_credit_cents' => 500, 'spending_limit_cents' => 500, 'build_minute_credit_millicents' => 1000, 'databases' => 1, 'queues' => 1,
+                'custom_domains_per_site' => 10, 'addons' => false, 'audit_log' => false, 'containers' => true, 'compute_credit_cents' => 500, 'spending_limit_cents' => 500, 'build_minute_credit_millicents' => 1000, 'databases' => 1, 'queues' => 1, 'queue_concurrency' => 1, 'queue_batch_wait_seconds' => 5,
             ],
             'pro' => [
                 'label' => 'Pro', 'price_cents' => 2000,
@@ -85,7 +85,7 @@ return [
                 'build_minutes' => 1_000, 'build_minute_overage_millicents' => 600,
                 'concurrent_builds' => 2, 'build_timeout_minutes' => 45,
                 'requests' => 10_000_000, 'egress_gb' => 500,
-                'custom_domains_per_site' => 100, 'addons' => true, 'audit_log' => false, 'containers' => true, 'compute_credit_cents' => 500, 'databases' => 10, 'queues' => 10,
+                'custom_domains_per_site' => 100, 'addons' => true, 'audit_log' => false, 'containers' => true, 'compute_credit_cents' => 500, 'databases' => 10, 'queues' => 10, 'queue_concurrency' => 10, 'queue_batch_wait_seconds' => 2,
             ],
             'team' => [
                 'label' => 'Team', 'price_cents' => 4900,
@@ -93,7 +93,7 @@ return [
                 'build_minutes' => 3_000, 'build_minute_overage_millicents' => 500,
                 'concurrent_builds' => 5, 'build_timeout_minutes' => 60,
                 'requests' => 50_000_000, 'egress_gb' => 2_000,
-                'custom_domains_per_site' => 100, 'addons' => true, 'audit_log' => true, 'containers' => true, 'compute_credit_cents' => 2000, 'databases' => 50, 'queues' => 50,
+                'custom_domains_per_site' => 100, 'addons' => true, 'audit_log' => true, 'containers' => true, 'compute_credit_cents' => 2000, 'databases' => 50, 'queues' => 50, 'queue_concurrency' => 50, 'queue_batch_wait_seconds' => 1,
             ],
             // Sales-led: billed by hand in Stripe (subscription.enterprise), so
             // no fee or overage here — null allowances mean unlimited.
@@ -103,7 +103,7 @@ return [
                 'build_minutes' => null, 'build_minute_overage_millicents' => null,
                 'concurrent_builds' => 10, 'build_timeout_minutes' => 120,
                 'requests' => null, 'egress_gb' => null,
-                'custom_domains_per_site' => null, 'addons' => true, 'audit_log' => true, 'containers' => true, 'compute_credit_cents' => null, 'databases' => null, 'queues' => null,
+                'custom_domains_per_site' => null, 'addons' => true, 'audit_log' => true, 'containers' => true, 'compute_credit_cents' => null, 'databases' => null, 'queues' => null, 'queue_concurrency' => null, 'queue_batch_wait_seconds' => 0,
             ],
         ],
         // Extra static/hybrid site past the plan's included count.

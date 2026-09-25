@@ -6,8 +6,10 @@ namespace App\Modules\Edge\Services;
 
 use App\Models\EdgeDeployment;
 use App\Models\Site;
+use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeDeliveryContext;
 use App\Modules\Edge\Support\EdgeEffectiveCrons;
+use App\Modules\Edge\Support\EdgeWorkerEntryWrapper;
 use App\Modules\Edge\Support\FakeEdgeProvision;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Support\Facades\File;
@@ -53,6 +55,7 @@ class EdgeMiddlewareBundleUploader
         if ($modules === []) {
             return;
         }
+        [$entry, $modules] = EdgeWorkerEntryWrapper::wrap($site, $entry, $modules);
 
         $scriptName = $this->scriptNameFor($site, $deployment);
 
@@ -90,7 +93,7 @@ class EdgeMiddlewareBundleUploader
             bindings: $this->bindingsFor($deployment, $context),
             metaExtras: [
                 'compatibility_date' => $context->ssrCompatibilityDate,
-                'compatibility_flags' => $context->ssrCompatibilityFlags,
+                'compatibility_flags' => EdgeWorkerEntryWrapper::compatibilityFlags($site, $context->ssrCompatibilityFlags),
                 'tags' => ['dply-edge', 'dply-middleware', 'site:'.(string) $site->id],
             ],
         );
@@ -269,7 +272,7 @@ class EdgeMiddlewareBundleUploader
         // deployment's site to avoid a separate query when one is loaded.
         $site = $deployment->site;
         if ($site !== null) {
-            foreach (app(EdgeProductionEnv::class)->forSite($site) as $key => $value) {
+            foreach (EdgeContainerConnections::omitAsleepRedis($site, app(EdgeProductionEnv::class)->forSite($site)) as $key => $value) {
                 $bindings[] = [
                     'name' => $key,
                     'type' => 'secret_text',

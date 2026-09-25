@@ -1,0 +1,20 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-24",
+  "id": "r-72p0gkdn9dqwxqha",
+  "recordedBy": {
+    "client": "claude",
+    "id": "d618527f-a993-471d-8aa0-0bfd6623a00b"
+  },
+  "scopeTags": [
+    "resources",
+    "edge",
+    "workers",
+    "containers",
+    "databases",
+    "valkey",
+    "queues"
+  ],
+  "supersedes": null,
+  "text": "Resources for every runtime (grill session 2026-09-24; owner picked each option):\n1. Resources attach to every runtime that runs code (SSR, hybrid, container). Static sites show \"Resources need server code\". Show a type wherever it can actually be used (\"if we can use with just a node app and not container we should show it\").\n2. One store: meta.edge.connections. bindings_overrides migrates into it (kv->key_value, r2->object_storage, d1->sql, queue->queue); the Bindings tab is deleted; Databases/Queues/Jobs write connections.\n3. Worker sites use native env.NAME bindings. Durable Objects, Workflow and Another app must be made to work on Workers too (\"we want to figure out how to use this Durable Objects, Workflow and Another app\").\n4. Every Worker deploy is wrapped by a dply entry module (dply-entry.js) that re-exports the user's entry, adds EdgeState, and shims env for Another app.\n5. EdgeState lives in a stable per-site script dply-state-{site} in the dispatch namespace; deploy scripts bind it via script_name so State survives deploys.\n6. Name collision with repo wrangler.toml: repo wins, but visibly (card badge + deploy log line; form blocks known names).\n7. Queues on Workers send AND consume, via one platform-owned global consumer Worker (outside WfP) that forwards batches through DISPATCHER to /__dply/queue on the live script. Queue speed is tiered: queue_concurrency free 1 / pro 10 / team 50 / enterprise max; queue_batch_wait_seconds 5 / 2 / 1 / 0; max_batch_size 10. Re-applied on tier change and on container deploys.\n8. Redis on Workers: inject REDIS_URL plus UPSTASH_REDIS_REST_URL/TOKEN.\n9. Neon and PlanetScale are removed. Postgres, MySQL and MongoDB run on DigitalOcean managed clusters: shared (one db+user per app, quotas, ~$3-5/mo) and dedicated (pro). MongoDB is container-only. Existing Neon/PlanetScale DBs migrate via dump/restore jobs.\n10. dply runs its own managed Valkey on DigitalOcean Kubernetes: one memory-limited pod per app behind an SNI TLS proxy that wakes sleeping tenants. Flex classes (250MB/1GB/2.5GB) sleep; data snapshots to R2 on sleep and every 15 min awake. Sleep picker 5m/15m/1h/Stays on, default 5m. Pro classes (5-50GB) always on with AOF. Billed per second with monthly cap. Replaces Upstash Redis (QStash stays).\nBuild order: spike -> one store + Workers resources -> global queue consumer -> DO databases -> own Valkey."
+}

@@ -7,6 +7,14 @@ module Dply
     SEND_PATH = "/_dply/queue/send".freeze
     RECEIVE_PATH = "/_dply/queue".freeze
     SCHEDULE_PATH = "/_dply/schedule".freeze
+    COMMAND_PATH = "/_dply/command".freeze
+    COMMANDS = {
+      "migrate" => "db:migrate",
+      "status" => "db:migrate:status",
+      "seed" => "db:seed",
+      "rollback" => "db:rollback",
+      "prepare" => "db:prepare",
+    }.freeze
 
     def self.token
       ENV.fetch("DPLY_QUEUE_TOKEN", "")

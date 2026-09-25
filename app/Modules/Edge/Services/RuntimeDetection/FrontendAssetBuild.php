@@ -159,6 +159,43 @@ final class FrontendAssetBuild
     /**
      * @param  array<string, mixed>  $package
      */
+    /**
+     * `npm run build:ssr` for an Inertia app that has one (Laravel's starter
+     * kits do), else null. Detected, like Octane: the app opted in by
+     * writing the script and an SSR entry. The script alone is not enough:
+     * some starter kit versions ship `build:ssr` with no entry, and then
+     * `vite build --ssr` emits no bundle Inertia can start.
+     */
+    public static function inertiaSsrBuild(string $root): ?string
+    {
+        $package = self::readJson(rtrim($root, '/').'/package.json') ?? [];
+        $script = $package['scripts']['build:ssr'] ?? null;
+        $deps = array_keys(array_merge(
+            is_array($package['dependencies'] ?? null) ? $package['dependencies'] : [],
+            is_array($package['devDependencies'] ?? null) ? $package['devDependencies'] : [],
+        ));
+        $inertia = array_filter($deps, static fn ($name): bool => str_starts_with((string) $name, '@inertiajs/'));
+
+        return is_string($script) && trim($script) !== '' && $inertia !== [] && self::hasSsrEntry($root)
+            ? self::runScript($root, 'build:ssr')
+            : null;
+    }
+
+    private static function hasSsrEntry(string $root): bool
+    {
+        $root = rtrim($root, '/');
+        if (glob($root.'/resources/js/ssr.{ts,js,tsx,jsx}', GLOB_BRACE) !== []) {
+            return true;
+        }
+        foreach (glob($root.'/vite.config.{ts,js,mjs,mts}', GLOB_BRACE) ?: [] as $config) {
+            if (preg_match('/\bssr\s*:\s*[\'"]/', (string) file_get_contents($config)) === 1) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static function scriptName(array $package): ?string
     {
         $scripts = is_array($package['scripts'] ?? null) ? $package['scripts'] : [];

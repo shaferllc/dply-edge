@@ -7,13 +7,14 @@ namespace App\Livewire\Concerns\Edge;
 use App\Models\EdgeDeployment;
 use App\Models\Site;
 use App\Modules\Edge\Services\EdgeDashboardBindingProvisioner;
+use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeEffectiveBindings;
 use App\Modules\Edge\Support\EdgeSiteHasWorker;
 use Throwable;
 
 /**
- * Dashboard binding add/detach shared by Edge → Bindings and in-context modals
- * (e.g. Jobs). Persists to {@see Site} edgeMeta `bindings_overrides`.
+ * Dashboard binding add/detach for in-context modals
+ * (e.g. Jobs). Persists to {@see Site} edgeMeta `connections`.
  *
  * @property Site $site
  */
@@ -80,7 +81,7 @@ trait ManagesEdgeDashboardBindings
 
             return;
         }
-        foreach ($this->dashboard_bindings as $existing) {
+        foreach (EdgeContainerConnections::for($this->site) as $existing) {
             if ($existing['name'] === $name) {
                 $this->addError('new_name', __('A binding with that name already exists.'));
 
@@ -136,17 +137,28 @@ trait ManagesEdgeDashboardBindings
     protected function persistEdgeDashboardBindings(): void
     {
         $previous = EdgeEffectiveBindings::dashboardOverrides($this->site);
+        $kinds = array_flip(EdgeEffectiveBindings::KIND_FOR_CONNECTION);
+        $wanted = array_column($this->dashboard_bindings, null, 'name');
 
-        $this->site->mergeEdgeMeta(['bindings_overrides' => $this->dashboard_bindings]);
-        $this->site->save();
+        foreach ($previous as $row) {
+            if (! isset($wanted[$row['name']])) {
+                EdgeContainerConnections::detach($this->site, $row['name']);
+            }
+        }
+        $had = array_column($previous, 'name');
+        foreach ($this->dashboard_bindings as $row) {
+            if (! in_array($row['name'], $had, true)) {
+                EdgeContainerConnections::attach($this->site, $kinds[$row['kind']], $row['name'], $row['value']);
+            }
+        }
 
         audit_log(
             $this->site->organization,
             auth()->user(),
             'site.edge.bindings.updated',
             $this->site,
-            ['bindings_overrides' => $previous],
-            ['bindings_overrides' => $this->dashboard_bindings],
+            ['connections' => $previous],
+            ['connections' => $this->dashboard_bindings],
         );
 
         $this->refreshEdgeDashboardBindingsFromMeta();

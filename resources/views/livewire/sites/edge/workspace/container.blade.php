@@ -43,6 +43,9 @@
                 <p class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Worst case, per month') }}</p>
                 <p class="mt-1 font-mono text-lg font-semibold text-brand-ink">${{ number_format($maxPerMonth, 2) }}</p>
                 <p class="text-xs text-brand-moss">{{ trans_choice(':count instance always on|:count instances always on', $max_instances) }}</p>
+                @if ($min_instances > 0)
+                    <p class="text-xs text-brand-moss">{{ __('Always-on floor: $:amount/mo', ['amount' => number_format($minPerMonth, 2)]) }}</p>
+                @endif
             </div>
         </div>
 
@@ -66,11 +69,22 @@
                 </div>
             </div>
 
-            <div class="grid gap-3 sm:grid-cols-3">
+            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div>
+                    <x-input-label for="ctr-min" :value="__('Min instances')" />
+                    <x-text-input id="ctr-min" wire:model.live.debounce.400ms="min_instances" type="number" min="0" :max="$max_instances" class="mt-1 block w-full text-sm" />
+                    <x-input-error :messages="$errors->get('min_instances')" class="mt-1" />
+                    <p class="mt-1 text-xs text-brand-moss">
+                        {{ $min_instances > 0 ? __('Always awake. No cold starts for the first :count.', ['count' => $min_instances]) : __('0 scales to zero when idle.') }}
+                    </p>
+                </div>
                 <div>
                     <x-input-label for="ctr-max" :value="__('Max instances')" />
                     <x-text-input id="ctr-max" wire:model.live.debounce.400ms="max_instances" type="number" min="1" max="20" class="mt-1 block w-full text-sm" />
                     <x-input-error :messages="$errors->get('max_instances')" class="mt-1" />
+                    <p class="mt-1 text-xs text-brand-moss">
+                        {{ __('Another instance starts when each running one has :count requests in flight. The first start runs only this many. A later deploy can briefly run one extra so the new version starts before the current one stops.', ['count' => $requestsPerInstance]) }}
+                    </p>
                 </div>
                 <div>
                     <x-input-label for="ctr-sleep" :value="__('Sleep after idle')" />
@@ -98,6 +112,67 @@
                     </p>
                 </div>
             </div>
+
+            <fieldset class="space-y-2">
+                <div class="flex items-center justify-between gap-3">
+                    <legend class="text-xs font-semibold text-brand-ink">{{ __('Scaling windows') }}</legend>
+                    <x-secondary-button type="button" wire:click="addSchedule">{{ __('Add window') }}</x-secondary-button>
+                </div>
+                <p class="text-xs text-brand-moss">{{ __('Different min and max instances at set times, like business hours or a launch. A single date wins over a weekday, which wins over weekdays or weekends, which win over daily. Outside every window the numbers above apply.') }}</p>
+                @foreach ($schedules as $i => $window)
+                    <div wire:key="window-{{ $i }}" class="grid items-end gap-2 rounded-xl border border-brand-ink/10 bg-white p-3 sm:grid-cols-7 dark:bg-zinc-900">
+                        <div>
+                            <x-input-label :for="'win-days-'.$i" :value="__('Days')" />
+                            @php($oneDate = ! in_array($window['days'] ?? '', \App\Modules\Edge\Support\EdgeContainerSettings::SCHEDULE_DAYS, true))
+                            <select id="win-days-{{ $i }}" wire:model.live="schedules.{{ $i }}.days" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-2 py-2 text-sm dark:bg-zinc-900">
+                                @foreach (\App\Modules\Edge\Support\EdgeContainerSettings::SCHEDULE_DAYS as $day)
+                                    <option value="{{ $day }}">{{ ucfirst($day) }}</option>
+                                @endforeach
+                                <option value="{{ $oneDate ? $window['days'] : now()->toDateString() }}">{{ __('One date') }}</option>
+                            </select>
+                            @if ($oneDate)
+                                <x-text-input :id="'win-date-'.$i" wire:model.live="schedules.{{ $i }}.days" type="date" class="mt-1 block w-full text-sm" />
+                            @endif
+                        </div>
+                        <div>
+                            <x-input-label :for="'win-start-'.$i" :value="__('From')" />
+                            <x-text-input :id="'win-start-'.$i" wire:model="schedules.{{ $i }}.start" type="time" class="mt-1 block w-full text-sm" />
+                        </div>
+                        <div>
+                            <x-input-label :for="'win-end-'.$i" :value="__('Until')" />
+                            <x-text-input :id="'win-end-'.$i" wire:model="schedules.{{ $i }}.end" type="time" class="mt-1 block w-full text-sm" />
+                        </div>
+                        <div class="sm:col-span-2">
+                            <x-input-label :for="'win-tz-'.$i" :value="__('Time zone')" />
+                            <x-text-input :id="'win-tz-'.$i" wire:model="schedules.{{ $i }}.timezone" list="ctr-timezones" type="text" class="mt-1 block w-full text-sm" />
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <x-input-label :for="'win-min-'.$i" :value="__('Min')" />
+                                <x-text-input :id="'win-min-'.$i" wire:model="schedules.{{ $i }}.min" type="number" min="0" max="20" class="mt-1 block w-full text-sm" />
+                            </div>
+                            <div>
+                                <x-input-label :for="'win-max-'.$i" :value="__('Max')" />
+                                <x-text-input :id="'win-max-'.$i" wire:model="schedules.{{ $i }}.max" type="number" min="1" max="20" class="mt-1 block w-full text-sm" />
+                            </div>
+                        </div>
+                        <div class="flex justify-end">
+                            <button type="button" wire:click="removeSchedule({{ $i }})" class="rounded-lg px-2 py-2 text-xs font-medium text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30">{{ __('Remove') }}</button>
+                        </div>
+                        @foreach (['days', 'start', 'end', 'timezone', 'min', 'max'] as $field)
+                            <x-input-error :messages="$errors->get('schedules.'.$i.'.'.$field)" class="sm:col-span-7" />
+                        @endforeach
+                    </div>
+                @endforeach
+                @if ($schedules !== [])
+                    <datalist id="ctr-timezones">
+                        @foreach (timezone_identifiers_list() as $tz)
+                            <option value="{{ $tz }}"></option>
+                        @endforeach
+                    </datalist>
+                @endif
+            </fieldset>
+
             <fieldset>
                 <legend class="text-xs font-semibold text-brand-ink">{{ __('Regions') }}</legend>
                 <p class="mt-1 text-xs text-brand-moss">{{ __('Leave all unchecked to use every region inside the choice above.') }}</p>
@@ -161,6 +236,24 @@
                     <span class="block text-xs text-brand-moss">{{ __('Calls schedule:run through dply/laravel. For other jobs add a cron under Crons with an artisan command or rake task as the handler.') }}</span>
                 </span>
             </label>
+
+            <label class="flex items-start gap-3">
+                <input type="checkbox" wire:model.live="dedicated_jobs" class="mt-0.5 rounded border-brand-ink/20 text-brand-sage" />
+                <span class="text-sm">
+                    <span class="font-medium text-brand-ink">{{ __('Run queued jobs and scheduled tasks on their own instance') }}</span>
+                    <span class="block text-xs text-brand-moss">{{ __('Jobs never slow down web requests. Adds one instance to the bill while it runs.') }}</span>
+                </span>
+            </label>
+
+            @if ($dedicated_jobs)
+                <label class="ml-7 flex items-start gap-3">
+                    <input type="checkbox" wire:model="jobs_always_on" class="mt-0.5 rounded border-brand-ink/20 text-brand-sage" />
+                    <span class="text-sm">
+                        <span class="font-medium text-brand-ink">{{ __('Keep the jobs instance awake') }}</span>
+                        <span class="block text-xs text-brand-moss">{{ __('Off: it sleeps like the app and wakes for each batch. On: long-running workers are never cut off by sleep.') }}</span>
+                    </span>
+                </label>
+            @endif
 
             <div class="flex flex-wrap items-center justify-between gap-3">
                 <p class="font-mono text-xs text-brand-mist">{{ $scriptName }}</p>

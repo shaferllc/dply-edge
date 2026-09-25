@@ -7,6 +7,7 @@ namespace App\Modules\Edge\Livewire;
 use App\Models\EdgeQueue;
 use App\Models\Organization;
 use App\Models\Site;
+use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Cache;
@@ -93,11 +94,12 @@ class Queues extends Component
         $site = Site::query()->where('organization_id', $queue->organization_id)->findOrFail($this->attachSite);
         $this->authorize('update', $site);
 
-        $overrides = is_array($site->edgeMeta()['bindings_overrides'] ?? null) ? $site->edgeMeta()['bindings_overrides'] : [];
-        $overrides = array_values(array_filter($overrides, fn ($row) => ($row['name'] ?? null) !== $this->bindingName));
-        $overrides[] = ['name' => $this->bindingName, 'kind' => 'queue', 'value' => $queue->cloudflare_name];
-        $site->mergeEdgeMeta(['bindings_overrides' => $overrides]);
-        $site->save();
+        $error = EdgeContainerConnections::attach($site, 'queue', $this->bindingName, (string) $queue->cloudflare_name);
+        if ($error !== null) {
+            $this->addError('bindingName', $error);
+
+            return;
+        }
 
         session()->flash('status', __(':queue is bound to :site as :binding. Redeploy the project to use it.', ['queue' => $queue->name, 'site' => $site->name, 'binding' => $this->bindingName]));
     }
@@ -137,9 +139,9 @@ class Queues extends Component
         $boundTo = [];
         $sites = $org->sites()->whereNotNull('edge_backend')->orderBy('name')->get(['id', 'name', 'meta']);
         foreach ($sites as $site) {
-            foreach ((array) ($site->edgeMeta()['bindings_overrides'] ?? []) as $binding) {
-                if (($binding['kind'] ?? null) === 'queue') {
-                    $boundTo[(string) $binding['value']][] = $site->name.' ('.$binding['name'].')';
+            foreach (EdgeContainerConnections::for($site) as $connection) {
+                if ($connection['kind'] === 'queue') {
+                    $boundTo[$connection['target']][] = $site->name.' ('.$connection['name'].')';
                 }
             }
         }

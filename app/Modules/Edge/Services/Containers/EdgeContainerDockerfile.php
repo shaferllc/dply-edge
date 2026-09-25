@@ -461,10 +461,13 @@ final class EdgeContainerDockerfile
      * Lockfiles are copied only when they exist — a glob that matches
      * nothing fails the build, and `npm ci` cannot run without one.
      *
+     * With `$vendor` the build also gets the Composer vendor directory: the
+     * Laravel Inertia starter kits import Ziggy from vendor/tightenco/ziggy.
+     *
      * @param  array{install: string, build: string, workspaces?: list<string>}|null  $assets
      * @return list<string>
      */
-    private static function assetStageLines(string $checkout, ?array $assets): array
+    private static function assetStageLines(string $checkout, ?array $assets, bool $vendor = false): array
     {
         if ($assets === null) {
             return [];
@@ -482,7 +485,21 @@ final class EdgeContainerDockerfile
             }
         }
 
+        $lines = [];
+        if ($vendor) {
+            $lock = is_file($checkout.'/composer.lock') ? ' composer.lock' : '';
+            $lines = [
+                'FROM composer:2 AS vendor',
+                'WORKDIR /app',
+                'COPY composer.json'.$lock.' ./',
+                // Only the files the JS imports are needed; the PHP image
+                // runs its own install against its own extensions.
+                self::cachedRun('composer install --no-dev --no-interaction --no-progress --no-scripts --no-autoloader --ignore-platform-reqs', '/tmp/cache'),
+                '',
+            ];
+        }
         $lines = [
+            ...$lines,
             'FROM node:22-bookworm-slim AS assets',
             'WORKDIR /app',
             'COPY '.implode(' ', $manifests).' ./',
@@ -495,6 +512,9 @@ final class EdgeContainerDockerfile
         }
         $lines[] = self::cachedRun($install, self::nodeCacheDir($install));
         $lines[] = 'COPY . .';
+        if ($vendor) {
+            $lines[] = 'COPY --from=vendor /app/vendor vendor';
+        }
         $lines[] = 'RUN '.$assets['build'];
         $lines[] = '';
 
@@ -523,8 +543,13 @@ final class EdgeContainerDockerfile
         $server = $identity['server'];
         $laravel = is_file($checkout.'/artisan');
         $assets = FrontendAssetBuild::stepsForDirectory($checkout);
+        // Inertia SSR: build the server bundle too and run it next to PHP.
+        $ssr = $laravel && $assets !== null ? FrontendAssetBuild::inertiaSsrBuild($checkout) : null;
+        if ($ssr !== null) {
+            $assets['build'] = $ssr;
+        }
 
-        $lines = self::assetStageLines($checkout, $assets);
+        $lines = self::assetStageLines($checkout, $assets, self::composerRequires($checkout, 'tightenco/ziggy'));
         foreach (self::phpBaseLines($version, $server) as $line) {
             $lines[] = $line;
         }
@@ -537,6 +562,9 @@ final class EdgeContainerDockerfile
         if ($extraExtensions !== '') {
             $lines[] = 'COPY --from=mlocati/php-extension-installer /usr/bin/install-php-extensions /usr/local/bin/';
             $lines[] = self::installPhpExtensions($extraExtensions);
+        }
+        if ($ssr !== null) {
+            $lines[] = 'RUN apk add --no-cache nodejs';
         }
         // Dependencies before code: this layer survives every deploy that
         // doesn't touch composer.json/lock, so a code-only change skips the
@@ -555,6 +583,12 @@ final class EdgeContainerDockerfile
         $lines[] = 'COPY . .';
         if ($assets !== null) {
             $lines[] = 'COPY --from=assets /app/public /app/public';
+        }
+        if ($ssr !== null) {
+            // ponytail: the whole node_modules, since Vite leaves SSR deps
+            // external. Prune to production deps if image size starts to hurt.
+            $lines[] = 'COPY --from=assets /app/bootstrap/ssr /app/bootstrap/ssr';
+            $lines[] = 'COPY --from=assets /app/node_modules /app/node_modules';
         }
         // The Worker terminates TLS. Trust its X-Forwarded-Proto so Laravel
         // generates https asset URLs instead of mixed-content http links.
@@ -598,14 +632,22 @@ final class EdgeContainerDockerfile
 
         $lines[] = 'EXPOSE 8080';
         // Each server starts differently; only FrankenPHP has `frankenphp run`.
+        // fpm: nginx opens 8080 only once php-fpm accepts on 9000. Readiness
+        // checks (the Worker's port probe, Knative's) treat an open 8080 as
+        // ready, and before this every cold start's first request got a 502.
         $start = match ($server) {
             'swoole' => 'exec php artisan octane:start --server=swoole --host=0.0.0.0 --port=8080',
             'roadrunner' => 'exec php artisan octane:start --server=roadrunner --host=0.0.0.0 --port=8080 --rr-config=.rr.yaml',
-            'fpm' => 'children="${DPLY_PHP_FPM_MAX_CHILDREN:-2}"; limit="${DPLY_PHP_MEMORY_LIMIT:-128M}"; mkdir -p /tmp/views /tmp/client_body /tmp/fastcgi; chmod 1777 /tmp/views /tmp/client_body /tmp/fastcgi; export VIEW_COMPILED_PATH=/tmp/views; printf "[global]\npid = /tmp/php-fpm.pid\nerror_log = /tmp/php-fpm.log\ndaemonize = no\n[www]\nuser = www-data\ngroup = www-data\nlisten = 127.0.0.1:9000\npm = ondemand\npm.max_children = %s\npm.process_idle_timeout = 10s\npm.max_requests = 500\nclear_env = no\n" "$children" > /tmp/php-fpm.conf; php-fpm -F -y /tmp/php-fpm.conf -d "memory_limit=$limit" -d opcache.enable=1 -d opcache.memory_consumption=64 -d opcache.max_accelerated_files=10000 & nginx -g "daemon off;"',
+            'fpm' => 'children="${DPLY_PHP_FPM_MAX_CHILDREN:-2}"; limit="${DPLY_PHP_MEMORY_LIMIT:-128M}"; mkdir -p /tmp/views /tmp/client_body /tmp/fastcgi; chmod 1777 /tmp/views /tmp/client_body /tmp/fastcgi; export VIEW_COMPILED_PATH=/tmp/views; printf "[global]\npid = /tmp/php-fpm.pid\nerror_log = /tmp/php-fpm.log\ndaemonize = no\n[www]\nuser = www-data\ngroup = www-data\nlisten = 127.0.0.1:9000\npm = ondemand\npm.max_children = %s\npm.process_idle_timeout = 10s\npm.max_requests = 500\nclear_env = no\n" "$children" > /tmp/php-fpm.conf; php-fpm -F -y /tmp/php-fpm.conf -d "memory_limit=$limit" -d opcache.enable=1 -d opcache.memory_consumption=64 -d opcache.max_accelerated_files=10000 & until php -r \'exit(@fsockopen("127.0.0.1", 9000) ? 0 : 1);\'; do sleep 0.1; done; exec nginx -g "daemon off;"',
             default => 'exec frankenphp run --config /etc/frankenphp/Caddyfile',
         };
+        if ($ssr !== null) {
+            // Inertia's default SSR URL is http://127.0.0.1:13714, which this serves.
+            $start = 'php artisan inertia:start-ssr & '.$start;
+        }
+        $sqlite = 'if [ "$DB_CONNECTION" = "sqlite" ] && [ -n "$DB_DATABASE" ]; then mkdir -p "$(dirname "$DB_DATABASE")"; if [ "$DPLY_SQLITE_SYNC" = "1" ]; then php -r \'@copy("http://sqlite.dply/db", getenv("DB_DATABASE"));\'; fi; [ -f "$DB_DATABASE" ] || touch "$DB_DATABASE"; chmod 666 "$DB_DATABASE"; if [ "$DPLY_SQLITE_SYNC" = "1" ]; then ( while true; do php -r \'$p=getenv("DB_DATABASE"); if(!is_file($p)) exit; $b=file_get_contents($p); $c=stream_context_create(["http"=>["method"=>"PUT","header"=>"Content-Type: application/octet-stream\r\n","content"=>$b,"timeout"=>60]]); @file_get_contents("http://sqlite.dply/db", false, $c);\' ; sleep 20; done ) & fi; fi; ';
         $boot = $laravel
-            ? 'if [ "$DPLY_MIGRATE_ON_BOOT" = "1" ]; then if [ "$DB_CONNECTION" = "sqlite" ] && [ -n "$DB_DATABASE" ]; then mkdir -p "$(dirname "$DB_DATABASE")" && touch "$DB_DATABASE" && chmod 666 "$DB_DATABASE"; fi; php artisan migrate --force --isolated || true; fi; '.$start
+            ? $sqlite.'if [ "$DPLY_MIGRATE_ON_BOOT" = "1" ]; then php artisan migrate --force --isolated || true; fi; '.$start
             : $start;
         $lines[] = 'CMD ["sh", "-c", '.json_encode($boot, JSON_UNESCAPED_SLASHES).']';
 

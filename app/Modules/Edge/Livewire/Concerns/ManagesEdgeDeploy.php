@@ -127,6 +127,7 @@ trait ManagesEdgeDeploy
                     (string) ($this->detectedPlan['framework'] ?? ''),
                     $this->repo,
                     $this->branch,
+                    $this->source_control_account_id,
                 ),
             );
         } catch (\Throwable $e) {

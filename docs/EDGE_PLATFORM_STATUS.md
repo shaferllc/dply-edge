@@ -27,7 +27,7 @@ Branch `feat/edge-platform`. One feature per commit.
 | Billing | Free / Pro $20 / Team $49 plans + usage; existing per-site subscriptions auto-move on sync |
 | Containers | `container` runtime: PHP (Laravel, Symfony), Ruby (Rails, Sinatra), Node servers (Express, Nest, Fastify, Koa) on Cloudflare Containers |
 | Container build | Repo Dockerfile or generated one; `wrangler deploy --dispatch-namespace` in `docker/edge-container-deployer` |
-| Container ops | Container tab (size, max instances, sleep, jurisdiction, migrations, scheduler), rollback = rebuild commit, post-deploy health check, generated APP_KEY / SECRET_KEY_BASE |
+| Container ops | Container tab (size, min/max instances, sleep, jurisdiction, migrations, scheduler), rollback = rebuild commit, post-deploy health check, generated APP_KEY / SECRET_KEY_BASE |
 | Queues | `dply/laravel` + `dply-rails` drivers; Worker consumes Cloudflare Queues and POSTs batches to `/_dply/queue` |
 | Scheduler | Cron Triggers → `/_dply/schedule` → artisan command / rake task |
 | Databases | Projects → Databases: D1 create / query / attach / delete |
@@ -39,8 +39,20 @@ Branch `feat/edge-platform`. One feature per commit.
 
 - Unit and feature tests for every commit (Pest, vitest, Laravel/Rails driver smoke tests).
 - Locally with Docker 29 (OrbStack): `docker build` from inside the Node deployer image via the host socket; `wrangler dev` accepts the generated container Worker config, builds the image and starts.
+- 2026-09-24, against the live dispatch namespace (`php artisan dply:edge:spike-worker-bindings {site}`, T-016). Upload-level only; no request was routed to the scripts.
+  - A dispatch script can host a Durable Object: `migrations: {new_tag, new_sqlite_classes}` is accepted.
+  - Another dispatch script can bind that class with `script_name` **plus `dispatch_namespace`**. Without `dispatch_namespace` Cloudflare answers "class in script … does not exist".
+  - A `dply-entry.js` main module that does `export * from './worker.js'` and wraps the default export uploads fine.
+  - Workflows do not work in Workers for Platforms. A `workflow` binding uploads, but `PUT /workflows/{name}` for a dispatch script returns 500 and the workflow stays not-found. Workflow stays container-only.
 
 ## Not verified against a real Cloudflare account
+
+**Worker-site resources (T-018, 2026-09-24).** Uploads were proven by the T-016 spike, and the generated `dply-entry.js` was run under Node with stubbed `fetch` and Durable Object namespaces. No request has yet been routed to a wrapped Worker site. Still to see on a real SSR deploy with a State and an Another app attached:
+- a State read and write crossing into `dply-state-{site}`;
+- a peer call, with `global_fetch_strictly_public` added (a same-zone fetch otherwise fails with error 1042);
+- a Worker reaching dply Valkey through `REDIS_URL` with a socket-capable client (Upstash REST vars were removed with Upstash Redis on 2026-09-24).
+
+**Global queue consumer (T-019, 2026-09-24).** The platform Worker (`packages/edge-worker`, `src/queue.ts`) now has a `queue()` handler, and it has to be redeployed before Worker-site queues run. Unit-tested on both ends (vitest `queue.test.ts`, and the wrapper's `/__dply/queue` path run under Node). Not yet seen on Cloudflare: a message going from a queue to the platform Worker to a Worker site's `queue()` export and being acked.
 
 No platform API token was available, so none of this has touched Cloudflare:
 
@@ -52,6 +64,7 @@ No platform API token was available, so none of this has touched Cloudflare:
 6. **`--secrets-file` + `--containers-rollout immediate`** on a real deploy.
 7. **The generated FrankenPHP / Rails / Node images** building a real app end to end.
 8. **Container logs**: that Workers Logs includes container stdout, and the telemetry query response shape (`events.events[].$metadata.message`) the Container tab parses.
+9. **Autoscaling** (2026-09-24): the Worker fills `instance-0…N` in order via the `hasRoom()` RPC on each `App` DO and reads the SDK's internal `inflightRequests` (checked against @cloudflare/containers 0.3.7). Instances below the current minimum override `onActivityExpired` and never sleep. The minimum comes from `min_instances` or from a scaling window. Windows are recurring or one-date, set per time zone, and the Worker's `limits()` picks the one that applies. `dply:edge:warm-containers` (every 5 min) starts them, along with an always-on jobs instance. It has not run against real traffic yet, and the SSR image (`inertia:start-ssr`) has not been built end to end either.
 
 If (1) fails: deploy container Workers as normal scripts with a route or Custom Domain per site, and proxy from the Edge Worker by hostname. Only `EdgeContainerDeployer` (the `--dispatch-namespace` flag) and the `container` branch in `handler.ts` change.
 

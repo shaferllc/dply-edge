@@ -10,7 +10,7 @@
             ],
             'setupLinks' => [
                 [
-                    'label' => __('Full Bindings page'),
+                    'label' => __('Resources page'),
                     'href' => $bindingsUrl,
                 ],
             ],

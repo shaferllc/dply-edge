@@ -9,9 +9,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 
 /**
- * Daily Redis usage. Written by EdgeRedisUsageCollector, read by EdgeRedisCost.
- * Columns: organization_id, site_id, date, commands, storage_bytes, bandwidth_bytes.
- * User request: "ok so how can we implement upstash and bill for it".
+ * Daily dply Valkey awake seconds per app. Written by EdgeValkeyUsageCollector,
+ * read by EdgeRedisCost. commands, storage_bytes and bandwidth_bytes are left
+ * from the Upstash era and no longer written.
  *
  * @property string $id
  * @property string $organization_id
@@ -20,6 +20,7 @@ use Illuminate\Support\Carbon;
  * @property int $commands
  * @property int $storage_bytes
  * @property int $bandwidth_bytes
+ * @property int $awake_seconds dply Valkey only
  */
 class EdgeRedisUsage extends Model
 {
@@ -27,7 +28,7 @@ class EdgeRedisUsage extends Model
 
     protected $table = 'edge_redis_usage';
 
-    protected $fillable = ['organization_id', 'site_id', 'date', 'commands', 'storage_bytes', 'bandwidth_bytes'];
+    protected $fillable = ['organization_id', 'site_id', 'date', 'commands', 'storage_bytes', 'bandwidth_bytes', 'awake_seconds'];
 
     /** @return array<string, string> */
     protected function casts(): array
@@ -37,6 +38,7 @@ class EdgeRedisUsage extends Model
             'commands' => 'integer',
             'storage_bytes' => 'integer',
             'bandwidth_bytes' => 'integer',
+            'awake_seconds' => 'integer',
         ];
     }
 }

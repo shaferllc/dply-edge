@@ -1,0 +1,16 @@
+{
+  "blockedBy": [],
+  "citesRulings": [
+    "r-72p0gkdn9dqwxqha"
+  ],
+  "completedDate": null,
+  "createdDate": "2026-09-25",
+  "description": "Platform consumer outside WfP forwards batches via DISPATCHER to /__dply/queue. Tier keys queue_concurrency / queue_batch_wait_seconds; re-apply on tier change and container deploys. Ownership (owner default, 2026-09-24): the earliest-created production app attached to a queue consumes it; others only send.",
+  "displayId": "T-019",
+  "id": "T-019",
+  "order": 40,
+  "phase": "resources-everywhere",
+  "status": "inprogress",
+  "title": "Global queue consumer Worker with tiered concurrency",
+  "type": "feature"
+}

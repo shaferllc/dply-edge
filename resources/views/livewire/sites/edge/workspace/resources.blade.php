@@ -71,7 +71,7 @@
                             {{ __('Sleeps after') }}
                             <select wire:model.live="sleepAfter" class="rounded-md border border-brand-ink/15 bg-white py-0.5 ps-1.5 pe-6 text-xs font-semibold text-brand-ink dark:bg-zinc-900">
                                 @foreach (\App\Modules\Edge\Support\EdgeContainerSettings::SLEEP_AFTER as $option)
-                                    <option value="{{ $option }}">{{ $option }}</option>
+                                    <option value="{{ $option }}" @selected($sleepAfter === $option)>{{ $option }}</option>
                                 @endforeach
                             </select>
                         </label>
@@ -83,9 +83,9 @@
                             {{ __('Size') }}
                             <select wire:model.live="draftInstanceType" class="mt-1 block w-full rounded-md border border-brand-ink/15 bg-white py-1.5 ps-2 pe-8 text-xs font-semibold text-brand-ink dark:bg-zinc-900">
                                 @foreach ($sizes as $size)
-                                    <option value="{{ $size['key'] }}">{{ $size['label'] }} · {{ $size['vcpu'] }} · {{ $size['memory'] }} · {{ __('up to :price', ['price' => $size['price']]) }}</option>
+                                    <option value="{{ $size['key'] }}" @selected($draftInstanceType === $size['key'])>{{ $size['label'] }} · {{ $size['vcpu'] }} · {{ $size['memory'] }} · {{ __('up to :price', ['price' => $size['price']]) }}</option>
                                 @endforeach
-                                <option value="custom">{{ __('Custom · 1–4 vCPU · up to 12 GiB') }}</option>
+                                <option value="custom" @selected($draftInstanceType === 'custom')>{{ __('Custom · 1–4 vCPU · up to 12 GiB') }}</option>
                             </select>
                         </label>
                         @php
@@ -114,6 +114,7 @@
                                     <dd class="font-medium text-brand-ink">{{ $settings['max_instances'] }}</dd>
                                 </div>
                             </dl>
+                            <p class="mt-2 text-xs text-brand-moss">{{ __('The first start runs only this many, together. A later deploy can briefly run one extra instance so the new version starts before the current one stops. Queues run on these same instances.') }}</p>
                             @if (is_array($quote))
                                 <button type="button" wire:click="openPanel('estimate')" x-on:click="$dispatch('open-modal', 'resources-estimate')" class="mt-2 text-left text-xs font-semibold text-brand-ink underline">{{ __('Cost estimate · :price/mo', ['price' => $quote['awakeMonth']]) }}</button>
                             @endif
@@ -156,9 +157,7 @@
                     ])>
                         <div class="flex flex-col gap-2">
                             <p class="flex items-center gap-1.5 whitespace-nowrap text-xs font-semibold text-brand-ink">
-                                @if ($connection['kind'] === 'redis')
-                                    <x-redis-mark class="h-3.5 w-3.5 shrink-0" />
-                                @endif
+                                <x-resource-kind-icon :kind="$connection['kind']" class="h-3.5 w-3.5 shrink-0" />
                                 {{ __($connectionKinds[$connection['kind']]['label']) }}
                                 @if ($connection['asleep'])
                                     <span class="font-medium text-brand-moss">{{ __('Asleep') }}</span>
@@ -170,12 +169,12 @@
                                     <button type="button" wire:click="$set('explainConnectionHost', '{{ $connection['host'] }}')" x-on:click="$dispatch('open-modal', 'resources-service')" class="text-xs font-semibold text-brand-ink underline">{{ __('Open') }}</button>
                                 @elseif ($connection['kind'] === 'key_value')
                                     <button type="button" wire:click="openKv('{{ $connection['host'] }}')" wire:loading.attr="disabled" wire:target="openKv" class="text-xs font-semibold text-brand-ink underline disabled:opacity-50">{{ __('Settings') }}</button>
-                                @elseif ($connection['kind'] === 'durable_object')
-                                    <button type="button" wire:click="$set('stateHost', '{{ $connection['host'] }}')" x-on:click="$dispatch('open-modal', 'resources-state')" class="text-xs font-semibold text-brand-ink underline">{{ __('Open') }}</button>
                                 @elseif ($connection['kind'] === 'object_storage')
                                     <button type="button" wire:click="openObject('{{ $connection['host'] }}')" x-on:click="$dispatch('open-modal', 'resources-object')" class="text-xs font-semibold text-brand-ink underline">{{ __('Open') }}</button>
-                                @elseif ($connection['kind'] === 'redis')
-                                    <button type="button" wire:click="openRedis('{{ $connection['host'] }}')" x-on:click="$dispatch('open-modal', 'resources-redis')" class="text-xs font-semibold text-brand-ink underline">{{ __('Settings') }}</button>
+                                @elseif ($connection['kind'] === 'redis' && \App\Modules\Edge\Support\EdgeValkey::isTarget($connection['target']))
+                                    <button type="button" x-on:click="$refs['valkey-{{ md5($connection['host']) }}'].toggleAttribute('hidden')" class="text-xs font-semibold text-brand-ink underline">{{ __('Settings') }}</button>
+                                @elseif ($connection['kind'] === 'images')
+                                    <button type="button" wire:click="$set('imagesHost', '{{ $connection['host'] }}')" x-on:click="$dispatch('open-modal', 'resources-images')" class="text-xs font-semibold text-brand-ink underline">{{ __('Settings') }}</button>
                                 @endif
                                 <button type="button" wire:click="sleepConnection('{{ $connection['host'] }}', {{ $connection['asleep'] ? 'false' : 'true' }})" class="text-xs font-semibold text-brand-ink underline">{{ $connection['asleep'] ? __('Wake') : __('Sleep') }}</button>
                                 <button type="button" wire:click="askDeleteConnection('{{ $connection['host'] }}')" x-on:click="$dispatch('open-modal', 'resources-delete-connection')" class="text-xs font-semibold text-brand-ink underline">{{ __('Delete') }}</button>
@@ -184,7 +183,7 @@
                         </div>
                         @if ($connection['kind'] === 'object_storage')
                             <p class="mt-1 text-xs text-brand-moss">{{ __('Bucket :name', ['name' => $connection['target']]) }}</p>
-                        @elseif ($connection['kind'] === 'redis' && \App\Modules\Edge\Services\EdgeRedisUsageCollector::isProvisionedId($connection['target']) && ! $site->organization?->onAnyPaidPlan())
+                        @elseif ($connection['kind'] === 'redis' && \App\Modules\Edge\Support\EdgeValkey::isTarget($connection['target']) && ! $site->organization?->onAnyPaidPlan())
                             <p class="mt-1 text-xs text-brand-moss">{{ __('Add a card to keep using this Redis. It stays off the app until then.') }}</p>
                             @if ($site->organization)
                                 <a href="{{ route('billing.show', $site->organization) }}" class="text-xs font-semibold text-brand-ink underline">{{ __('Billing') }}</a>
@@ -193,7 +192,39 @@
                             <p class="mt-1 font-mono text-xs text-brand-moss">{{ $connection['host'] }}</p>
                             <p class="mt-1 text-xs text-brand-moss">{{ __('Asleep. The address comes off the app on the next deploy. Not billed until you wake it.') }}</p>
                         @elseif ($connection['kind'] !== 'redis')
-                            <p class="mt-1 font-mono text-xs text-brand-moss">{{ $connection['host'] }}</p>
+                            <p class="mt-1 font-mono text-xs text-brand-moss">{{ $isWorker ? 'env.'.$connection['name'] : $connection['host'] }}</p>
+                        @endif
+                        @if ($isWorker && ! in_array($connection['kind'], $allowedKinds, true))
+                            <p class="mt-1 text-xs font-semibold text-red-700 dark:text-red-400">{{ __('This app runs as a Worker. This resource needs a container app, so it is not attached.') }}</p>
+                        @endif
+                        @if ($connection['kind'] === 'redis' && \App\Modules\Edge\Support\EdgeValkey::isTarget($connection['target']))
+                            @php
+                                $valkeyClass = \App\Modules\Edge\Support\EdgeValkey::CLASSES[$connection['plan']] ?? \App\Modules\Edge\Support\EdgeValkey::CLASSES[\App\Modules\Edge\Support\EdgeValkey::DEFAULT_CLASS];
+                                $valkeySleepNow = (int) ($site->edgeMeta()['valkey_sleep'][$connection['target']] ?? ($valkeyClass['sleeps'] ? \App\Modules\Edge\Support\EdgeValkey::DEFAULT_SLEEP : 0));
+                            @endphp
+                            <p class="mt-1 text-xs text-brand-moss">
+                                {{ __($valkeyClass['label']) }} ·
+                                {{ $valkeySleepNow > 0 ? __('sleeps after :time idle', ['time' => __(\App\Modules\Edge\Support\EdgeValkey::SLEEPS[$valkeySleepNow] ?? '5 minutes')]) : __('stays on') }}
+                            </p>
+                            <form hidden x-ref="valkey-{{ md5($connection['host']) }}" x-data="{ size: @js($connection['plan'] ?: \App\Modules\Edge\Support\EdgeValkey::DEFAULT_CLASS), sleep: {{ $valkeySleepNow }} }" x-on:submit.prevent="$wire.saveValkey(@js($connection['host']), size, Number(sleep))" class="mt-2 space-y-2">
+                                <select x-model="size" class="block w-full rounded-md border border-brand-ink/15 bg-white px-2 py-1 text-xs text-brand-ink dark:bg-zinc-900">
+                                    @foreach (\App\Modules\Edge\Support\EdgeValkey::CLASSES as $id => $class)
+                                        <option value="{{ $id }}">{{ __($class['label']) }} · {{ __('up to $:price/mo', ['price' => number_format($class['cap_cents'] / 100, 0)]) }}</option>
+                                    @endforeach
+                                </select>
+                                <select x-model="sleep" x-show="size.startsWith('flex_')" class="block w-full rounded-md border border-brand-ink/15 bg-white px-2 py-1 text-xs text-brand-ink dark:bg-zinc-900">
+                                    @foreach (\App\Modules\Edge\Support\EdgeValkey::SLEEPS as $seconds => $label)
+                                        <option value="{{ $seconds }}">{{ __($label) }}</option>
+                                    @endforeach
+                                </select>
+                                <button type="submit" class="rounded-md bg-brand-ink px-2 py-1 text-xs font-semibold text-white">{{ __('Save') }}</button>
+                            </form>
+                        @endif
+                        @if ($connection['kind'] === 'queue' && isset($queueOwners[$connection['target']]))
+                            <p class="mt-1 text-xs text-brand-moss">{{ __('Sends only. :app runs these jobs.', ['app' => $queueOwners[$connection['target']]]) }}</p>
+                        @endif
+                        @if (in_array($connection['name'], $overriddenByRepo, true))
+                            <p class="mt-1 text-xs font-semibold text-brand-ink">{{ __('Overridden by wrangler.toml. The repo binding is used.') }}</p>
                         @endif
                         @if (isset($connectionEstimates[$connection['host']]))
                             <p class="mt-1 text-xs font-semibold tabular-nums text-brand-ink">{{ __('Cost estimate · $:price', ['price' => number_format($connectionEstimates[$connection['host']] / 100, 2)]) }}</p>
@@ -201,7 +232,11 @@
                     </div>
                 @endforeach
                 <div class="flex justify-center py-0.5" aria-hidden="true"><span class="resource-flow resource-flow-y"></span></div>
-                <button type="button" wire:click="openConnectionBuilder" x-on:click="$dispatch('open-modal', 'resources-connection')" class="rounded-xl border border-dashed border-brand-ink/25 px-3 py-2 text-left text-xs font-semibold text-brand-ink">{{ __('Add resource') }}</button>
+                @if ($hasCode)
+                    <button type="button" wire:click="openConnectionBuilder" x-on:click="$dispatch('open-modal', 'resources-connection')" class="rounded-xl border border-dashed border-brand-ink/25 px-3 py-2 text-left text-xs font-semibold text-brand-ink">{{ __('Add resource') }}</button>
+                @else
+                    <p class="rounded-xl border border-dashed border-brand-ink/25 px-3 py-2 text-xs text-brand-moss">{{ __('Resources need server code. Switch to SSR or a container app to attach them.') }}</p>
+                @endif
                 </div>
 
                 @if ($cacheMode !== 'off')
@@ -241,11 +276,16 @@
                             @if ($postgresPlan === 'awake')
                                 {{ __('Postgres. 1 compute · :cpu · :memory · stays on · about $:hour/hour, $:day/day, $:month/month. Storage about $:gigabyte/GB each month.', ['cpu' => $postgresSizes[$postgresSize]['cpu'], 'memory' => $postgresSizes[$postgresSize]['memory'], 'hour' => $postgresSizes[$postgresSize]['hour'], 'day' => $postgresSizes[$postgresSize]['day'], 'month' => $postgresSizes[$postgresSize]['month'], 'gigabyte' => $postgresGigabyte]) }}
                             @elseif ($postgresSize === '0.25')
-                                {{ __('Postgres. 1 compute · :cpu · :memory · sleeps · about $:hour/hour, $:day/day, or $:month/month if it stays awake. Storage about $:gigabyte/GB each month.', ['cpu' => $postgresSizes[$postgresSize]['cpu'], 'memory' => $postgresSizes[$postgresSize]['memory'], 'hour' => $postgresSizes[$postgresSize]['hour'], 'day' => $postgresSizes[$postgresSize]['day'], 'month' => $postgresSizes[$postgresSize]['month'], 'gigabyte' => $postgresGigabyte]) }}
+                                {{ __('Postgres. 1 compute · :cpu · :memory · sleeps after :sleep · about $:hour/hour, $:day/day, $:month/month at :hours hours awake. Storage about $:gigabyte/GB each month.', ['cpu' => $postgresSizes[$postgresSize]['cpu'], 'memory' => $postgresSizes[$postgresSize]['memory'], 'sleep' => __($postgresSleeps[$postgresSuspend]), 'hour' => $postgresSizes[$postgresSize]['hour'], 'day' => $postgresSizes[$postgresSize]['day'], 'month' => $postgresSizes[$postgresSize]['month'], 'hours' => $postgresAwakeHours, 'gigabyte' => $postgresGigabyte]) }}
                             @else
-                                {{ __('Postgres. 1 compute · 1/4 vCPU to :cpu · 1 GB to :memory · sleeps · about $:hour/hour, $:day/day, or $:month/month at full size if it stays awake. Storage about $:gigabyte/GB each month.', ['cpu' => $postgresSizes[$postgresSize]['cpu'], 'memory' => $postgresSizes[$postgresSize]['memory'], 'hour' => $postgresSizes[$postgresSize]['hour'], 'day' => $postgresSizes[$postgresSize]['day'], 'month' => $postgresSizes[$postgresSize]['month'], 'gigabyte' => $postgresGigabyte]) }}
+                                {{ __('Postgres. 1 compute · 1/4 vCPU to :cpu · 1 GB to :memory · sleeps after :sleep · about $:hour/hour, $:day/day, $:month/month at full size for :hours hours awake. Storage about $:gigabyte/GB each month.', ['cpu' => $postgresSizes[$postgresSize]['cpu'], 'memory' => $postgresSizes[$postgresSize]['memory'], 'sleep' => __($postgresSleeps[$postgresSuspend]), 'hour' => $postgresSizes[$postgresSize]['hour'], 'day' => $postgresSizes[$postgresSize]['day'], 'month' => $postgresSizes[$postgresSize]['month'], 'hours' => $postgresAwakeHours, 'gigabyte' => $postgresGigabyte]) }}
                             @endif
                             {{ __('In :location.', ['location' => $postgresRegions[$postgresRegion]]) }}
+                            @if ($postgresStored['recorded'])
+                                {{ __('Stored :gigabytes GB, about $:month this month.', ['gigabytes' => $postgresStored['gigabytes'], 'month' => $postgresStored['month']]) }}
+                            @else
+                                {{ __('No storage recorded yet.') }}
+                            @endif
                         </p>
                     @elseif ($databaseEngine === 'mysql')
                         <p class="mt-2 text-xs text-brand-moss">{{ __('MySQL. 3 nodes · :cpu · :memory · about $:price/mo. The nodes stay on while the app sleeps.', ['cpu' => $mysqlSizes[$mysqlSize]['cpu'], 'memory' => $mysqlSizes[$mysqlSize]['memory'], 'price' => $mysqlMonthly]) }}</p>
@@ -255,19 +295,30 @@
                             <p class="mt-1 text-xs text-brand-ink">{{ __('MySQL did not start. Save again to retry.') }}</p>
                         @endif
                     @elseif ($databaseEngine === 'sql')
-                        <p class="mt-2 text-xs text-brand-moss">{{ __('SQLite. A file inside the app. It is gone when the app sleeps.') }}</p>
+                        <p class="mt-2 text-xs text-brand-moss">{{ __('SQLite. A file inside the app. It is saved while the app runs and restored when the app wakes.') }}</p>
                     @else
                         <p class="mt-2 text-xs text-brand-moss">{{ __('No database.') }}</p>
                     @endif
                     @error('database')
                         <p class="mt-2 text-xs text-brand-ink">{{ $message }}</p>
                     @enderror
+                    @if (! $site->organization?->onAnyPaidPlan())
+                        <p class="mt-2 text-xs text-brand-ink">{{ __('Add a card before starting Postgres. It is billed to that card. SQLite does not need one.') }}</p>
+                        @if ($site->organization)
+                            <a href="{{ route('billing.show', $site->organization) }}" class="mt-1 inline-block text-xs font-semibold text-brand-ink underline">{{ __('Billing') }}</a>
+                        @endif
+                    @endif
                     <div class="mt-3 grid gap-1.5" role="radiogroup" aria-label="{{ __('Database') }}">
-                        @foreach (['postgres' => __('Postgres'), 'mysql' => __('MySQL'), 'sql' => __('SQLite'), 'none' => __('None')] as $engine => $label)
+                        @foreach (['postgres' => __('Postgres'), 'mysql' => __('MySQL'), 'sql' => __('SQLite')] as $engine => $label)
                             @if ($engine === 'mysql')
                                 <button type="button" disabled aria-disabled="true" class="flex items-center justify-between gap-2 rounded-lg border border-brand-ink/10 bg-white/70 px-2.5 py-1.5 text-left text-xs font-semibold text-brand-moss dark:bg-zinc-900/70">
                                     <span>{{ $label }}</span>
                                     <span class="shrink-0 rounded-full bg-brand-sand/60 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-brand-moss">{{ __('Coming soon') }}</span>
+                                </button>
+                            @elseif ($engine === 'postgres' && ! $site->organization?->onAnyPaidPlan())
+                                <button type="button" disabled aria-disabled="true" class="flex items-center justify-between gap-2 rounded-lg border border-brand-ink/10 bg-white/70 px-2.5 py-1.5 text-left text-xs font-semibold text-brand-moss dark:bg-zinc-900/70">
+                                    <span>{{ $label }}</span>
+                                    <span class="shrink-0 text-xs font-semibold">{{ __('Add a card') }}</span>
                                 </button>
                             @else
                                 <button type="button" wire:click="selectDatabase('{{ $engine }}')" @class([
@@ -296,7 +347,7 @@
             <div class="flex flex-wrap items-center justify-between gap-3">
                 <div>
                     <p class="text-xs font-semibold uppercase tracking-[0.16em] text-brand-sage">{{ __('Browser') }}</p>
-                    <p class="mt-1 text-xs text-brand-moss">{{ $browserOn ? $browserHost : __('Off') }}</p>
+                    <p class="mt-1 text-xs text-brand-moss">{{ $browserOn ? ($isWorker ? 'env.BROWSER' : $browserHost) : __('Off') }}</p>
                 </div>
                 <button type="button" wire:click="openPanel('browser')" x-on:click="$dispatch('open-modal', 'resources-browser')" class="rounded-md bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white">{{ __('Open') }}</button>
             </div>
@@ -380,258 +431,6 @@
         $kvHostName = is_array($kvConnection) ? $kvConnection['host'] : $kvHost;
         $kvStore = is_array($kvConnection) ? strtolower((string) $kvConnection['name']) : 'store';
     @endphp
-    <x-modal name="resources-redis" :show="$redisHost !== ''" maxWidth="3xl" focusable>
-        <div class="max-h-[80vh] overflow-y-auto bg-white p-5 dark:bg-zinc-900">
-            <div class="flex items-start justify-between gap-3">
-                <h2 class="text-xs font-semibold uppercase tracking-[0.16em] text-brand-sage">{{ __('Redis') }}</h2>
-                <button type="button" wire:click="closeRedis" x-on:click="$dispatch('close-modal', 'resources-redis')" class="text-xs font-semibold text-brand-ink underline">{{ __('Close') }}</button>
-            </div>
-            @if ($redisHost === '')
-                <div class="mt-4 space-y-4" role="status" aria-live="polite">
-                    <p class="text-xs text-brand-moss">{{ __('Loading Redis…') }}</p>
-                    <div class="flex gap-4 border-b border-brand-ink/10 pb-2">
-                        @foreach (['w-16', 'w-12', 'w-14', 'w-12', 'w-10', 'w-16', 'w-16'] as $width)
-                            <span class="{{ $width }} h-3 animate-pulse rounded bg-brand-ink/10 dark:bg-white/10"></span>
-                        @endforeach
-                    </div>
-                    <div class="space-y-3">
-                        <span class="block h-3 w-20 animate-pulse rounded bg-brand-ink/10 dark:bg-white/10"></span>
-                        <span class="block h-4 w-36 animate-pulse rounded bg-brand-ink/15 dark:bg-white/15"></span>
-                        <span class="block h-3 w-20 animate-pulse rounded bg-brand-ink/10 dark:bg-white/10"></span>
-                        <span class="block h-4 w-28 animate-pulse rounded bg-brand-ink/15 dark:bg-white/15"></span>
-                    </div>
-                </div>
-            @else
-            <div class="mt-4" x-data="{ tab: 'connection' }">
-                <div class="flex gap-4 overflow-x-auto border-b border-brand-ink/10" role="tablist">
-                    <button type="button" role="tab" x-on:click="tab = 'connection'" :aria-selected="tab === 'connection'" :class="tab === 'connection' ? 'border-brand-sage text-brand-ink' : 'border-transparent text-brand-moss'" class="-mb-px shrink-0 border-b-2 pb-2 text-xs font-semibold">{{ __('Connection') }}</button>
-                    <button type="button" role="tab" x-on:click="tab = 'implementation'" :aria-selected="tab === 'implementation'" :class="tab === 'implementation' ? 'border-brand-sage text-brand-ink' : 'border-transparent text-brand-moss'" class="-mb-px shrink-0 border-b-2 pb-2 text-xs font-semibold">{{ __('Implementation') }}</button>
-                    <button type="button" role="tab" x-on:click="tab = 'info'" :aria-selected="tab === 'info'" :class="tab === 'info' ? 'border-brand-sage text-brand-ink' : 'border-transparent text-brand-moss'" class="-mb-px shrink-0 border-b-2 pb-2 text-xs font-semibold">{{ __('Info') }}</button>
-                    @if ($redisManaged)
-                        <button type="button" role="tab" x-on:click="tab = 'usage'" :aria-selected="tab === 'usage'" :class="tab === 'usage' ? 'border-brand-sage text-brand-ink' : 'border-transparent text-brand-moss'" class="-mb-px border-b-2 pb-2 text-xs font-semibold">{{ __('Usage') }}</button>
-                        <button type="button" role="tab" x-on:click="tab = 'costs'" :aria-selected="tab === 'costs'" :class="tab === 'costs' ? 'border-brand-sage text-brand-ink' : 'border-transparent text-brand-moss'" class="-mb-px border-b-2 pb-2 text-xs font-semibold">{{ __('Costs') }}</button>
-                        <button type="button" role="tab" x-on:click="tab = 'test'" :aria-selected="tab === 'test'" :class="tab === 'test' ? 'border-brand-sage text-brand-ink' : 'border-transparent text-brand-moss'" class="-mb-px border-b-2 pb-2 text-xs font-semibold">{{ __('Test') }}</button>
-                        <button type="button" role="tab" x-on:click="tab = 'settings'" :aria-selected="tab === 'settings'" :class="tab === 'settings' ? 'border-brand-sage text-brand-ink' : 'border-transparent text-brand-moss'" class="-mb-px border-b-2 pb-2 text-xs font-semibold">{{ __('Settings') }}</button>
-                        <button type="button" role="tab" x-on:click="tab = 'backups'" :aria-selected="tab === 'backups'" :class="tab === 'backups' ? 'border-brand-sage text-brand-ink' : 'border-transparent text-brand-moss'" class="-mb-px border-b-2 pb-2 text-xs font-semibold">{{ __('Backups') }}</button>
-                    @endif
-                </div>
-                <x-input-error :messages="$errors->get('redisSettings')" class="mt-3" />
-                <div x-show="tab === 'connection'" class="mt-4">
-                    <p class="text-xs text-brand-moss">{{ __('The app connects with this username and password. They apply on the next deploy.') }}</p>
-                    <dl class="mt-4 space-y-3 text-xs">
-                        <div>
-                            <dt class="text-brand-moss">{{ __('Username') }}</dt>
-                            <dd class="mt-1 font-mono text-brand-ink">{{ $redisUser }}</dd>
-                        </div>
-                        <div>
-                            <dt class="text-brand-moss">{{ __('Password') }}</dt>
-                            <dd class="mt-1 flex items-center gap-2">
-                                <span class="font-mono text-brand-ink">{{ $redisShowPassword ? $redisPassword : '••••••••' }}</span>
-                                <button type="button" wire:click="$toggle('redisShowPassword')" class="font-semibold text-brand-ink underline">{{ $redisShowPassword ? __('Hide') : __('Show') }}</button>
-                            </dd>
-                        </div>
-                    </dl>
-                    @if ($redisManaged)
-                        <button type="button" wire:click="resetRedisPassword" class="mt-4 rounded-md border border-brand-ink/15 px-3 py-1.5 text-xs font-semibold text-brand-ink">{{ $redisResetArmed ? __('Reset password now') : __('Reset password') }}</button>
-                        @if ($redisResetArmed)
-                            <p class="mt-2 text-xs text-brand-moss">{{ __('This replaces the password. The running app keeps the old one until the next deploy.') }}</p>
-                        @endif
-                    @else
-                        <p class="mt-4 text-xs text-brand-moss">{{ __('Stats and settings are available for Redis started here. A pasted address keeps the username and password above.') }}</p>
-                    @endif
-                </div>
-                <div x-show="tab === 'implementation'" x-cloak class="mt-4">
-                    <p class="text-xs font-semibold text-brand-ink">{{ __('Laravel') }}</p>
-                    <p class="mt-1 max-w-xl text-xs text-brand-moss">{{ __('The next deploy sets REDIS_URL and the host, port, username, and password. When this address is awake, CACHE_STORE is redis.') }}</p>
-                    <pre class="mt-2 overflow-x-auto rounded-lg bg-brand-sand/40 p-3 text-xs text-brand-ink dark:bg-zinc-950">{{ "Cache::store('redis')->put('session', 'hello');\nCache::store('redis')->get('session');\nRedis::get('session');" }}</pre>
-                    <p class="mt-4 text-xs font-semibold text-brand-ink">{{ __('Rails') }}</p>
-                    <p class="mt-1 max-w-xl text-xs text-brand-moss">{{ __('Add dply-rails. The next deploy sets REDIS_URL. Rails.cache uses Redis when that is set.') }}</p>
-                    <pre class="mt-2 overflow-x-auto rounded-lg bg-brand-sand/40 p-3 text-xs text-brand-ink dark:bg-zinc-950">gem "dply-rails"</pre>
-                    <pre class="mt-2 overflow-x-auto rounded-lg bg-brand-sand/40 p-3 text-xs text-brand-ink dark:bg-zinc-950">{{ "Rails.cache.write('session', 'hello')\nRails.cache.read('session')\nRails.cache.delete('session')" }}</pre>
-                </div>
-                <div x-show="tab === 'info'" x-cloak class="mt-4">
-                    <p class="text-xs text-brand-moss">{{ __('These are injected on the next deploy.') }}</p>
-                    <ul class="mt-3 space-y-1 font-mono text-xs text-brand-ink">
-                        @foreach (\App\Modules\Edge\Support\EdgeContainerConnections::redisInjectionPreview($site) as $row)
-                            <li>{{ $row['key'] }}={{ $row['value'] }}</li>
-                        @endforeach
-                    </ul>
-                </div>
-            @if ($redisManaged)
-                <div x-show="tab === 'usage'" x-cloak class="mt-4">
-                    <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                        @foreach ($redisStats as $label => $value)
-                            <div>
-                                <p class="text-xs text-brand-moss">{{ $label }}</p>
-                                <p class="mt-1 text-xs font-semibold text-brand-ink">{{ $value }}</p>
-                            </div>
-                        @endforeach
-                    </div>
-                    @if ($redisState !== '' || $redisRegionLabel !== '')
-                        <p class="mt-3 text-xs text-brand-moss">{{ trim($redisState.' · '.$redisRegionLabel, ' ·') }}</p>
-                    @endif
-                </div>
-                <div x-show="tab === 'costs'" x-cloak class="mt-4">
-                    <p class="text-xs text-brand-moss">{{ __('This month') }}</p>
-                    <p class="mt-1 text-xl font-semibold tabular-nums text-brand-ink">${{ number_format($redisMonthCents / 100, 2) }}</p>
-                    @if ($redisPlan === 'free')
-                        <p class="mt-2 max-w-xl text-xs text-brand-moss">{{ __('This Redis is on the free size, so this month is $0. Pick a paid size under Settings to raise the limits.') }}</p>
-                    @elseif (str_starts_with($redisPlan, 'fixed_'))
-                        <p class="mt-2 max-w-xl text-xs text-brand-moss">{{ __('Flat price for this size. Commands are included. Storage and bandwidth are included up to the size. Each extra read region adds half of that price. The first 10 databases are included. Each database after that is $1 a month.') }}</p>
-                    @else
-                        <p class="mt-2 max-w-xl text-xs text-brand-moss">{{ __('Estimate for this month so far. The first 1 GB of storage and 200 GB of bandwidth are included, then storage is $0.50 per GB and bandwidth is $0.05 per GB. Commands are billed with usage. The first 10 databases are included. Each database after that is $1 a month.') }}</p>
-                    @endif
-                    <dl class="mt-4 grid max-w-xs grid-cols-[1fr_auto] gap-x-6 gap-y-2 text-xs">
-                        <dt class="text-brand-moss">{{ __('Commands this month') }}</dt>
-                        <dd class="font-semibold tabular-nums text-brand-ink">{{ $redisStats[__('Commands this month')] ?? '0' }}</dd>
-                        <dt class="text-brand-moss">{{ __('Storage') }}</dt>
-                        <dd class="font-semibold tabular-nums text-brand-ink">{{ $redisStats[__('Storage')] ?? '0 B' }}</dd>
-                        <dt class="text-brand-moss">{{ __('Bandwidth this month') }}</dt>
-                        <dd class="font-semibold tabular-nums text-brand-ink">{{ $redisStats[__('Bandwidth this month')] ?? '0 B' }}</dd>
-                    </dl>
-                </div>
-                <div x-show="tab === 'test'" x-cloak class="mt-4 space-y-3">
-                    <p class="text-xs text-brand-moss">{{ __('Run a command on this Redis. Ping checks the connection. Get, set, and delete use the key below.') }}</p>
-                    <label class="block text-xs text-brand-moss">
-                        {{ __('Command') }}
-                        <select wire:model.live="redisTestAction" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink dark:bg-zinc-900">
-                            <option value="ping">{{ __('Ping') }}</option>
-                            <option value="get">{{ __('Get') }}</option>
-                            <option value="set">{{ __('Set') }}</option>
-                            <option value="del">{{ __('Delete') }}</option>
-                        </select>
-                    </label>
-                    @if ($redisTestAction !== 'ping')
-                        <label class="block text-xs text-brand-moss">
-                            {{ __('Key') }}
-                            <input type="text" wire:model="redisTestKey" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink dark:bg-zinc-900" />
-                        </label>
-                    @endif
-                    @if ($redisTestAction === 'set')
-                        <label class="block text-xs text-brand-moss">
-                            {{ __('Value') }}
-                            <input type="text" wire:model="redisTestValue" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink dark:bg-zinc-900" />
-                        </label>
-                    @endif
-                    <button type="button" wire:click="runRedisTest" wire:loading.attr="disabled" wire:target="runRedisTest" class="rounded-md bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60">{{ __('Run') }}</button>
-                    @if ($redisTestResult !== '')
-                        <pre class="overflow-x-auto rounded-lg bg-brand-sand/40 p-3 text-xs text-brand-ink dark:bg-zinc-950">{{ $redisTestResult }}</pre>
-                    @endif
-                </div>
-                <div x-show="tab === 'settings'" x-cloak class="mt-4 space-y-5">
-                    <section class="space-y-2 border-b border-brand-ink/10 pb-4">
-                        <h3 class="text-xs font-semibold text-brand-ink">{{ __('Name') }}</h3>
-                        <p class="text-xs text-brand-moss">{{ __('How this Redis is labeled. Letters, numbers, dashes, and underscores.') }}</p>
-                        <input type="text" wire:model="redisName" class="block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink dark:bg-zinc-900" />
-                    </section>
-                    <section class="space-y-2 border-b border-brand-ink/10 pb-4">
-                        <h3 class="text-xs font-semibold text-brand-ink">{{ __('Size') }}</h3>
-                        @if ($redisPlan === 'free')
-                            <p class="text-xs text-brand-moss">{{ __('This is the free size, 256 MB. Pick a paid size to raise the limits.') }}</p>
-                        @elseif ($redisPlan === 'payg')
-                            <p class="text-xs text-brand-moss">{{ __('Pay as you go bills commands, storage, and bandwidth. A fixed size is one monthly price, and commands are included.') }}</p>
-                        @else
-                            @php $fixed = app(\App\Modules\Billing\Services\EdgeRedisCost::class)->fixedPlans()[$redisPlan] ?? null; @endphp
-                            <p class="text-xs text-brand-moss">{{ __('Holds :data and :bandwidth of bandwidth each month. Commands are included. When it is full, writes slow down.', ['data' => $fixed['data'] ?? '', 'bandwidth' => $fixed['bandwidth'] ?? '']) }}</p>
-                        @endif
-                        <select wire:model.live="redisPlan" class="block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink dark:bg-zinc-900">
-                            @if ($redisPlan === 'free')
-                                <option value="free">{{ __('Free') }}</option>
-                            @endif
-                            <option value="payg">{{ __('Pay as you go') }}</option>
-                            @foreach (app(\App\Modules\Billing\Services\EdgeRedisCost::class)->fixedPlans() as $id => $plan)
-                                <option value="{{ $id }}">{{ __($plan['label']) }} · ${{ number_format($plan['cents'] / 100, 0) }}/mo</option>
-                            @endforeach
-                        </select>
-                    </section>
-                    @if ($redisPlan === 'payg')
-                    <section class="space-y-2 border-b border-brand-ink/10 pb-4">
-                        <h3 class="text-xs font-semibold text-brand-ink">{{ __('Monthly budget') }}</h3>
-                        <p class="text-xs text-brand-moss">{{ __('0 means no cap. The smallest cap is $20. At the cap, Redis slows down so the month does not go past it.') }}</p>
-                        <label class="block text-xs text-brand-moss">
-                            {{ __('Dollars') }}
-                            <input type="number" min="0" max="10000" wire:model="redisBudget" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink dark:bg-zinc-900" />
-                        </label>
-                    </section>
-                    @endif
-                    <section class="space-y-3 border-b border-brand-ink/10 pb-4">
-                        <h3 class="text-xs font-semibold text-brand-ink">{{ __('Data') }}</h3>
-                        <label class="flex items-start justify-between gap-3 text-xs text-brand-ink">
-                            <span>
-                                <span class="font-semibold">{{ __('Drop keys when full') }}</span>
-                                <span class="mt-1 block text-brand-moss">{{ __('When Redis is full, drop the least recently used keys so new writes still succeed. Off means a write fails once it is full.') }}</span>
-                            </span>
-                            <input type="checkbox" wire:model="redisEviction" class="mt-0.5 rounded border-brand-ink/20" />
-                        </label>
-                        <label class="flex items-start justify-between gap-3 text-xs text-brand-ink">
-                            <span>
-                                <span class="font-semibold">{{ __('Daily backup') }}</span>
-                                <span class="mt-1 block text-brand-moss">{{ __('Save a copy of the data once a day. Take or restore a single backup on the Backups tab.') }}</span>
-                            </span>
-                            <input type="checkbox" wire:model="redisDailyBackup" class="mt-0.5 rounded border-brand-ink/20" />
-                        </label>
-                        <div class="flex items-start justify-between gap-3 text-xs text-brand-ink">
-                            <span>
-                                <span class="font-semibold">{{ __('TLS') }}</span>
-                                <span class="mt-1 block text-brand-moss">{{ __('Encrypts traffic between the app and Redis. Once it is on, it stays on.') }}</span>
-                            </span>
-                            @if ($redisTls)
-                                <span class="font-semibold">{{ __('On') }}</span>
-                            @else
-                                <input type="checkbox" wire:model="redisTls" class="mt-0.5 rounded border-brand-ink/20" />
-                            @endif
-                        </div>
-                    </section>
-                    <fieldset class="space-y-2 text-xs text-brand-ink">
-                        <legend class="text-xs font-semibold">{{ __('Read regions') }}</legend>
-                        <p class="text-brand-moss">{{ __('A read region answers reads closer to visitors. Writes still go to :region.', ['region' => $redisRegionLabel !== '' ? $redisRegionLabel : __('the primary region')]) }} @if (str_starts_with($redisPlan, 'fixed_')){{ __('Each extra region adds half the monthly price.') }}@else{{ __('Each extra region uses more storage and bandwidth.') }}@endif</p>
-                        <div class="mt-2 grid gap-1 sm:grid-cols-2">
-                            @foreach (\App\Modules\Providers\Upstash\UpstashRedisClient::REGIONS as $id => $label)
-                                @if ($id !== $redisPrimaryRegion)
-                                    <label class="flex items-center gap-2">
-                                        <input type="checkbox" value="{{ $id }}" wire:model="redisReadRegions" class="rounded border-brand-ink/20" />
-                                        <span>{{ $label }}</span>
-                                    </label>
-                                @endif
-                            @endforeach
-                        </div>
-                    </fieldset>
-                    <div class="flex flex-wrap gap-2">
-                        <button type="button" wire:click="saveRedisSettings" class="rounded-md bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white">{{ __('Save settings') }}</button>
-                    </div>
-                </div>
-                <div x-show="tab === 'backups'" x-cloak class="mt-4">
-                        <p class="text-xs font-semibold text-brand-ink">{{ __('Backups') }}</p>
-                        @if ($redisBackups === [])
-                            <p class="mt-1 text-xs text-brand-moss">{{ __('No backups yet.') }}</p>
-                        @else
-                            <ul class="mt-2 divide-y divide-brand-ink/10 text-xs">
-                                @foreach ($redisBackups as $backup)
-                                    <li class="flex flex-wrap items-center justify-between gap-2 py-2" wire:key="redis-backup-{{ $backup['id'] }}">
-                                        <span class="text-brand-ink">{{ $backup['name'] }} · {{ $backup['state'] }} · {{ $backup['size'] }}</span>
-                                        <span class="flex gap-2">
-                                            <button type="button" wire:click="restoreRedisBackup('{{ $backup['id'] }}')" class="font-semibold text-brand-ink underline">{{ $redisBackupArmed === 'restore:'.$backup['id'] ? __('Restore now') : __('Restore') }}</button>
-                                            <button type="button" wire:click="deleteRedisBackup('{{ $backup['id'] }}')" class="font-semibold text-brand-ink underline">{{ $redisBackupArmed === 'delete:'.$backup['id'] ? __('Delete now') : __('Delete') }}</button>
-                                        </span>
-                                    </li>
-                                @endforeach
-                            </ul>
-                        @endif
-                        @if ($redisBackupArmed !== '')
-                            <p class="mt-1 text-xs text-brand-moss">{{ __('Restore replaces the data in this Redis. Delete removes that backup only.') }}</p>
-                        @endif
-                        <label class="mt-2 block text-xs text-brand-moss">
-                            {{ __('Backup name') }}
-                            <input type="text" wire:model="redisBackupName" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink dark:bg-zinc-900" />
-                        </label>
-                        <button type="button" wire:click="createRedisBackup" class="mt-2 rounded-md border border-brand-ink/15 px-3 py-1.5 text-xs font-semibold text-brand-ink">{{ __('Take backup') }}</button>
-                </div>
-            @endif
-            </div>
-            @endif
-        </div>
-    </x-modal>
-
     <x-modal name="resources-kv" :show="$kvHost !== ''" maxWidth="3xl" focusable>
         <div class="max-h-[80vh] overflow-y-auto bg-white p-5 dark:bg-zinc-900">
             <div class="flex items-start justify-between gap-3">
@@ -663,7 +462,7 @@
                 </div>
                 <div x-show="tab === 'implementation'" x-cloak class="mt-4">
                     <p class="text-xs font-semibold text-brand-ink">{{ __('Laravel') }}</p>
-                    <p class="mt-1 max-w-xl text-xs text-brand-moss">{{ __('The next deploy adds dply/laravel when this app does not already have it, sets DPLY_KV_HOST, and registers a cache store named :store. A counter that must be exact belongs on State.', ['store' => $kvStore]) }}</p>
+                    <p class="mt-1 max-w-xl text-xs text-brand-moss">{{ __('The next deploy adds dply/laravel when this app does not already have it, sets DPLY_KV_HOST, and registers a cache store named :store.', ['store' => $kvStore]) }}</p>
                     <pre class="mt-2 overflow-x-auto rounded-lg bg-brand-sand/40 p-3 text-xs text-brand-ink dark:bg-zinc-950">{{ "Cache::store('{$kvStore}')->put('session', 'hello');\nCache::store('{$kvStore}')->get('session');\nCache::store('{$kvStore}')->forget('session');" }}</pre>
                     <p class="mt-4 text-xs font-semibold text-brand-ink">{{ __('Rails') }}</p>
                     <p class="mt-1 max-w-xl text-xs text-brand-moss">{{ __('Add dply-rails. The next deploy sets DPLY_KV_HOST. Rails.cache uses this store.') }}</p>
@@ -858,16 +657,16 @@
     </x-modal>
 
     @php
-        $stateConnection = collect($connections)->firstWhere('host', $stateHost);
-        $stateHostName = is_array($stateConnection) ? $stateConnection['host'] : $stateHost;
+        $imagesConnection = collect($connections)->firstWhere('host', $imagesHost);
+        $imagesHostName = is_array($imagesConnection) ? $imagesConnection['host'] : $imagesHost;
     @endphp
-    <x-modal name="resources-state" :show="$stateHost !== ''" maxWidth="3xl" focusable>
+    <x-modal name="resources-images" :show="$imagesHost !== ''" maxWidth="3xl" focusable>
         <div class="max-h-[80vh] overflow-y-auto bg-white p-5 dark:bg-zinc-900">
             <div class="flex items-start justify-between gap-3">
-                <h2 class="text-xs font-semibold uppercase tracking-[0.16em] text-brand-sage">{{ __('State') }}</h2>
-                <button type="button" wire:click="$set('stateHost', '')" x-on:click="$dispatch('close-modal', 'resources-state')" class="text-xs font-semibold text-brand-ink underline">{{ __('Close') }}</button>
+                <h2 class="text-xs font-semibold uppercase tracking-[0.16em] text-brand-sage">{{ __('Images') }}</h2>
+                <button type="button" wire:click="$set('imagesHost', '')" x-on:click="$dispatch('close-modal', 'resources-images')" class="text-xs font-semibold text-brand-ink underline">{{ __('Close') }}</button>
             </div>
-            <p class="mt-3 max-w-xl text-xs text-brand-moss">{{ __('One object owns every key at http://:host/. A counter changes one at a time, so two requests cannot both read the same number.', ['host' => $stateHostName]) }}</p>
+            <p class="mt-3 max-w-xl text-xs text-brand-moss">{{ __('This app reads and resizes pictures at http://:host/. The address belongs only to this app. Send the image bytes. The reply is either the details or a new image.', ['host' => $imagesHostName]) }}</p>
             <div class="mt-4" x-data="{ tab: 'how' }">
                 <div class="flex gap-4 border-b border-brand-ink/10" role="tablist">
                     <button type="button" role="tab" x-on:click="tab = 'how'" :aria-selected="tab === 'how'" :class="tab === 'how' ? 'border-brand-sage text-brand-ink' : 'border-transparent text-brand-moss'" class="-mb-px border-b-2 pb-2 text-xs font-semibold">{{ __('How it works') }}</button>
@@ -875,20 +674,25 @@
                 </div>
                 <div x-show="tab === 'how'" class="mt-4">
                     <ol class="list-decimal space-y-1 pl-4 text-xs text-brand-ink">
-                        <li>{{ __('GET http://:host/key reads a value. PUT stores the body. DELETE removes it.', ['host' => $stateHostName]) }}</li>
-                        <li>{{ __('POST http://:host/incr/key adds one and returns the new number.', ['host' => $stateHostName]) }}</li>
-                        <li>{{ __('This starts working after the next deploy.') }}</li>
+                        <li>{{ __('POST the image to http://:host/info. The reply is format, width, height, and file size.', ['host' => $imagesHostName]) }}</li>
+                        <li>{{ __('POST the image to http://:host/ with width, height, fit, format, and quality. The reply is the new image.', ['host' => $imagesHostName]) }}</li>
+                        <li>{{ __('Width and height are pixels, up to 8000. Fit is scale-down, contain, cover, crop, or pad.') }}</li>
+                        <li>{{ __('Format is jpeg, png, webp, avif, or gif. Quality is 1 to 100. A call with no format comes back as webp.') }}</li>
+                        <li>{{ __('An image can be up to 20 MB. This starts working after the next deploy.') }}</li>
                     </ol>
                 </div>
                 <div x-show="tab === 'implementation'" x-cloak class="mt-4">
-                    <p class="text-xs font-semibold text-brand-ink">{{ __('Laravel') }}</p>
-                    <p class="mt-1 max-w-xl text-xs text-brand-moss">{{ __('Call this address from the app. It is available after the next deploy. Use this for a counter that must be exact.') }}</p>
-                    <pre class="mt-2 overflow-x-auto rounded-lg bg-brand-sand/40 p-3 text-xs text-brand-ink dark:bg-zinc-950">{{ "Http::withBody('hello', 'text/plain')->put('http://{$stateHostName}/session');\nHttp::get('http://{$stateHostName}/session')->body();\nHttp::post('http://{$stateHostName}/incr/visits')->body();" }}</pre>
-                    <p class="mt-4 text-xs font-semibold text-brand-ink">{{ __('Rails') }}</p>
-                    <p class="mt-1 max-w-xl text-xs text-brand-moss">{{ __('Call this address from the app. It is available after the next deploy. Use this for a counter that must be exact.') }}</p>
-                    <pre class="mt-2 overflow-x-auto rounded-lg bg-brand-sand/40 p-3 text-xs text-brand-ink dark:bg-zinc-950">{{ "Faraday.put('http://{$stateHostName}/session', 'hello')\nFaraday.get('http://{$stateHostName}/session').body\nFaraday.post('http://{$stateHostName}/incr/visits').body" }}</pre>
+                    @if ($site->isLaravelFrameworkDetected())
+                        <p class="text-xs font-semibold text-brand-ink">{{ __('Laravel') }}</p>
+                        <p class="mt-1 max-w-xl text-xs text-brand-moss">{{ __('Send the file bytes. The address is on the app after the next deploy.') }}</p>
+                        <pre class="mt-2 overflow-x-auto rounded-lg bg-brand-sand/40 p-3 text-xs text-brand-ink dark:bg-zinc-950">{{ "\$bytes = file_get_contents(\$path);\n\$info = Http::withBody(\$bytes, 'application/octet-stream')->post('http://{$imagesHostName}/info')->json();\n\$image = Http::withBody(\$bytes, 'application/octet-stream')->post('http://{$imagesHostName}/?width=800&format=webp')->body();" }}</pre>
+                    @elseif ($site->isRailsFrameworkDetected())
+                        <p class="text-xs font-semibold text-brand-ink">{{ __('Rails') }}</p>
+                        <p class="mt-1 max-w-xl text-xs text-brand-moss">{{ __('Send the file bytes. The address is on the app after the next deploy.') }}</p>
+                        <pre class="mt-2 overflow-x-auto rounded-lg bg-brand-sand/40 p-3 text-xs text-brand-ink dark:bg-zinc-950">{{ "bytes = File.binread(path)\nFaraday.post('http://{$imagesHostName}/info', bytes, 'Content-Type' => 'application/octet-stream')\nFaraday.post('http://{$imagesHostName}/?width=800&format=webp', bytes, 'Content-Type' => 'application/octet-stream').body" }}</pre>
+                    @endif
                     <p class="mt-4 text-xs font-semibold text-brand-ink">{{ __('HTTP') }}</p>
-                    <pre class="mt-2 overflow-x-auto rounded-lg bg-brand-sand/40 p-3 text-xs text-brand-ink dark:bg-zinc-950">{{ "curl -X PUT http://{$stateHostName}/session -d 'hello'\ncurl http://{$stateHostName}/session\ncurl -X POST http://{$stateHostName}/incr/visits" }}</pre>
+                    <pre class="mt-2 overflow-x-auto rounded-lg bg-brand-sand/40 p-3 text-xs text-brand-ink dark:bg-zinc-950">{{ "curl -X POST http://{$imagesHostName}/info --data-binary @photo.jpg\ncurl -X POST 'http://{$imagesHostName}/?width=800&height=600&fit=cover&format=webp&quality=80' --data-binary @photo.jpg -o photo.webp" }}</pre>
                 </div>
             </div>
         </div>
@@ -912,7 +716,9 @@
                     @endif
                 </div>
                 <p class="mt-3 max-w-xl text-xs text-brand-moss">{{ __('This app gets its own browser at an address starting with dply, so it does not clash with a name the app already uses. Another app gets a different address.') }}</p>
-                @if ($browserOn)
+                @if ($browserOn && $isWorker)
+                    <p class="mt-4 max-w-xl text-xs text-brand-moss">{{ __('Your code reads it as env.BROWSER. Use it with @cloudflare/puppeteer: puppeteer.launch(env.BROWSER). It is added on the next deploy.') }}</p>
+                @elseif ($browserOn)
                     <div class="mt-4" x-data="{ tab: 'how' }">
                         <div class="flex gap-4 border-b border-brand-ink/10" role="tablist">
                             <button type="button" role="tab" x-on:click="tab = 'how'" :aria-selected="tab === 'how'" :class="tab === 'how' ? 'border-brand-sage text-brand-ink' : 'border-transparent text-brand-moss'" class="-mb-px border-b-2 pb-2 text-xs font-semibold">{{ __('How it works') }}</button>
@@ -1009,16 +815,16 @@
             @if ($connectionKind === '')
                 <div>
                     <h2 class="text-sm font-semibold text-brand-ink">{{ __('Add a resource') }}</h2>
-                    <p class="mt-1 text-xs text-brand-moss">{{ __('Pick what the app needs. You can create it here or attach one that already exists.') }}</p>
                 </div>
                 <div class="grid gap-2 sm:grid-cols-3">
-                    <button type="button" wire:click="addDatabase" x-on:click="$dispatch('close-modal', 'resources-connection')" class="rounded-xl border border-brand-ink/10 px-3 py-2 text-left text-xs font-semibold text-brand-ink hover:border-brand-sage">{{ __('Database') }}</button>
+                    <button type="button" wire:click="addDatabase" x-on:click="$dispatch('close-modal', 'resources-connection')" class="flex items-center gap-2 rounded-xl border border-brand-ink/10 px-3 py-2 text-left text-xs font-semibold text-brand-ink hover:border-brand-sage">
+                        <x-resource-kind-icon kind="database" />
+                        {{ __('Database') }}
+                    </button>
                     @foreach ($connectionKinds as $key => $kind)
-                        @continue(in_array($key, ['http_delivery', 'sql', 'database_pool'], true))
+                        @continue($key === 'http_delivery' || ! in_array($key, $allowedKinds, true))
                         <button type="button" wire:click="chooseConnectionKind('{{ $key }}')" class="flex items-center gap-2 rounded-xl border border-brand-ink/10 px-3 py-2 text-left text-xs font-semibold text-brand-ink hover:border-brand-sage">
-                            @if ($key === 'redis')
-                                <x-redis-mark class="h-4 w-4 shrink-0" />
-                            @endif
+                            <x-resource-kind-icon :kind="$key" />
                             {{ __($kind['label']) }}
                         </button>
                     @endforeach
@@ -1027,12 +833,14 @@
                 <div>
                     <button type="button" wire:click="$set('connectionKind', '')" class="text-xs font-semibold text-brand-ink underline">{{ __('All types') }}</button>
                     <h2 class="mt-2 flex items-center gap-2 text-sm font-semibold text-brand-ink">
-                        @if ($connectionKind === 'redis')
-                            <x-redis-mark class="h-4 w-4 shrink-0" />
-                        @endif
+                        <x-resource-kind-icon :kind="$connectionKind" />
                         {{ __($connectionKinds[$connectionKind]['label']) }}
                     </h2>
-                    <p class="mt-1 text-xs text-brand-moss">{{ __($connectionKinds[$connectionKind]['hint']) }}</p>
+                    @if ($isWorker)
+                        <p class="mt-1 text-xs text-brand-moss">{{ __(\App\Modules\Edge\Support\EdgeContainerConnections::WORKER_HINTS[$connectionKind] ?? 'Your code reads it as env.NAME, where NAME is the name you give it here.') }}</p>
+                    @else
+                        <p class="mt-1 text-xs text-brand-moss">{{ __($connectionKinds[$connectionKind]['hint']) }}</p>
+                    @endif
                 </div>
                 @if ($connectionKind === 'queue' && $queueStyle === '')
                     <div class="grid grid-cols-2 gap-2">
@@ -1091,22 +899,26 @@
                         </label>
                         <label class="block text-xs text-brand-moss">
                             {{ __('Size') }}
-                            <select wire:model="redisPlan" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink dark:bg-zinc-900">
-                                <option value="payg">{{ __('Pay as you go') }}</option>
-                                @foreach (app(\App\Modules\Billing\Services\EdgeRedisCost::class)->fixedPlans() as $id => $plan)
-                                    <option value="{{ $id }}">{{ __($plan['label']) }} · ${{ number_format($plan['cents'] / 100, 0) }}/mo</option>
+                            <select wire:model.live="valkeyClass" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink dark:bg-zinc-900">
+                                @foreach (\App\Modules\Edge\Support\EdgeValkey::CLASSES as $id => $class)
+                                    <option value="{{ $id }}">{{ __($class['label']) }} · {{ __('up to $:price/mo', ['price' => number_format($class['cap_cents'] / 100, 0)]) }}</option>
                                 @endforeach
                             </select>
                         </label>
-                        <label class="block text-xs text-brand-moss">
-                            {{ __('Region') }}
-                            <select wire:model="redisRegion" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink dark:bg-zinc-900">
-                                @foreach (\App\Modules\Edge\Support\EdgeContainerConnections::redisRegions() as $id => $label)
-                                    <option value="{{ $id }}">{{ __($label) }}</option>
-                                @endforeach
-                            </select>
-                        </label>
-                        <p class="text-xs text-brand-moss">{{ __('This starts a Redis for this app in the region you pick. Commands are billed with usage. The first 1 GB of storage and 200 GB of bandwidth each month are included, then storage is $0.50 per GB and bandwidth is $0.05 per GB. The first 10 databases are included. Each database after that is $1 a month. The address is set on the next deploy and is not shown.') }}</p>
+                        @if (\App\Modules\Edge\Support\EdgeValkey::CLASSES[$valkeyClass]['sleeps'] ?? false)
+                            <label class="block text-xs text-brand-moss">
+                                {{ __('Sleep when idle for') }}
+                                <select wire:model="valkeySleep" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink dark:bg-zinc-900">
+                                    @foreach (\App\Modules\Edge\Support\EdgeValkey::SLEEPS as $seconds => $label)
+                                        <option value="{{ $seconds }}">{{ __($label) }}</option>
+                                    @endforeach
+                                </select>
+                            </label>
+                            <p class="text-xs text-brand-moss">{{ __('Billed per second while awake, up to the monthly price. Asleep, it is not billed. Its data is saved and comes back on the next connection, which takes a few seconds.') }}</p>
+                        @else
+                            <p class="text-xs text-brand-moss">{{ __('Stays on and writes every change to disk. Billed per second, up to the monthly price.') }}</p>
+                        @endif
+                        <p class="text-xs text-brand-moss">{{ __('The address is set as REDIS_URL on the next deploy and is not shown.') }}</p>
                     @elseif ($connectionKind === 'redis')
                         <label class="block text-xs text-brand-moss">
                             {{ __('Name') }}
@@ -1313,7 +1125,7 @@
                 <input type="checkbox" wire:model.live="dedicatedJobs" class="mt-0.5 rounded border-brand-ink/20 text-brand-sage" />
                 <span class="text-sm">
                     <span class="font-medium text-brand-ink">{{ __('Run jobs on their own instance') }}</span>
-                    <span class="block text-xs text-brand-moss">{{ __('Queues and the scheduler use one container, separate from visitor traffic.') }}</span>
+                    <span class="block text-xs text-brand-moss">{{ __('Off, queues stay on the same instances as the site. On, they use one extra instance. Queue workers run background work on their own.') }}</span>
                 </span>
             </label>
             <label class="flex items-start gap-3">
@@ -1364,6 +1176,12 @@
                     <button type="button" role="tab" x-on:click="tab = 'settings'" :aria-selected="tab === 'settings'" :class="tab === 'settings' ? 'border-brand-sage text-brand-ink' : 'border-transparent text-brand-moss'" class="-mb-px shrink-0 border-b-2 pb-2 text-xs font-semibold">{{ __('Settings') }}</button>
                 @endif
             </div>
+            @if (in_array($databaseEngine, ['postgres', 'mysql'], true) && ! $site->organization?->onAnyPaidPlan())
+                <p class="mt-4 text-xs text-brand-ink">{{ __('Add a card before starting a database. It is billed to that card.') }}</p>
+                @if ($site->organization)
+                    <a href="{{ route('billing.show', $site->organization) }}" class="mt-1 inline-block text-xs font-semibold text-brand-ink underline">{{ __('Billing') }}</a>
+                @endif
+            @endif
             <div x-show="tab === 'how'" class="mt-4">
                 @if ($databaseEngine === 'postgres')
                     <ol class="list-decimal space-y-1 pl-4 text-xs text-brand-ink">
@@ -1371,9 +1189,9 @@
                         @if ($postgresPlan === 'awake')
                             <li>{{ __('This plan stays on at :memory, about $:hour/hour, $:day/day, $:month/month.', ['memory' => $postgresSizes[$postgresSize]['memory'], 'hour' => $postgresSizes[$postgresSize]['hour'], 'day' => $postgresSizes[$postgresSize]['day'], 'month' => $postgresSizes[$postgresSize]['month']]) }}</li>
                         @elseif ($postgresSize === '0.25')
-                            <li>{{ __('This plan sleeps about 5 minutes after the last connection. 1 GB is about $:hour/hour, $:day/day, or $:month/month if it stays awake.', ['hour' => $postgresSizes[$postgresSize]['hour'], 'day' => $postgresSizes[$postgresSize]['day'], 'month' => $postgresSizes[$postgresSize]['month']]) }}</li>
+                            <li>{{ __('This plan sleeps :sleep after the last connection. 1 GB is about $:hour/hour, $:day/day, $:month/month at :hours hours awake.', ['sleep' => __($postgresSleeps[$postgresSuspend]), 'hour' => $postgresSizes[$postgresSize]['hour'], 'day' => $postgresSizes[$postgresSize]['day'], 'month' => $postgresSizes[$postgresSize]['month'], 'hours' => $postgresAwakeHours]) }}</li>
                         @else
-                            <li>{{ __('This plan sleeps about 5 minutes after the last connection. It starts at 1 GB and grows to :memory, about $:hour/hour, $:day/day, or $:month/month at full size if it stays awake.', ['memory' => $postgresSizes[$postgresSize]['memory'], 'hour' => $postgresSizes[$postgresSize]['hour'], 'day' => $postgresSizes[$postgresSize]['day'], 'month' => $postgresSizes[$postgresSize]['month']]) }}</li>
+                            <li>{{ __('This plan sleeps :sleep after the last connection. It starts at 1 GB and grows to :memory, about $:hour/hour, $:day/day, $:month/month at full size for :hours hours awake.', ['sleep' => __($postgresSleeps[$postgresSuspend]), 'memory' => $postgresSizes[$postgresSize]['memory'], 'hour' => $postgresSizes[$postgresSize]['hour'], 'day' => $postgresSizes[$postgresSize]['day'], 'month' => $postgresSizes[$postgresSize]['month'], 'hours' => $postgresAwakeHours]) }}</li>
                         @endif
                         <li>{{ __('Storage is about $:gigabyte/GB each month, including while compute sleeps. Connections require TLS.', ['gigabyte' => $postgresGigabyte]) }}</li>
                     </ol>
@@ -1384,7 +1202,7 @@
                         <li>{{ __('Foreign keys are on. Connections require TLS.') }}</li>
                     </ol>
                 @elseif ($databaseEngine === 'sql')
-                    <p class="text-xs text-brand-ink">{{ __('SQLite is a file inside the app. It is created again when the app wakes, so data from the previous run is gone.') }}</p>
+                    <p class="text-xs text-brand-ink">{{ __('SQLite is a file inside the app. It is saved while the app runs and restored when the app wakes. One instance serves the app so that file stays consistent.') }}</p>
                 @else
                     <p class="text-xs text-brand-ink">{{ __('No database is attached. Pick Postgres, MySQL, or SQLite, then save and redeploy.') }}</p>
                 @endif
@@ -1412,93 +1230,92 @@
                             <span class="mt-1 block text-brand-moss">{{ __('Laravel: migrate --force --isolated. Rails: db:prepare.') }}</span>
                         </span>
                     </label>
+                    @if ($site->isLaravelFrameworkDetected() || $site->isRailsFrameworkDetected())
+                        <div class="border-t border-brand-ink/10 pt-3">
+                            <p class="text-xs font-semibold text-brand-ink">{{ __('Tools') }}</p>
+                            <div class="mt-2 flex flex-wrap gap-2">
+                                <button type="button" wire:click="runDatabaseCommand('migrate')" wire:loading.attr="disabled" wire:target="runDatabaseCommand,confirmDatabaseCommand" class="rounded-md border border-brand-ink/15 px-2.5 py-1.5 text-xs font-semibold text-brand-ink">{{ __('Migrate') }}</button>
+                                <button type="button" wire:click="runDatabaseCommand('status')" wire:loading.attr="disabled" wire:target="runDatabaseCommand,confirmDatabaseCommand" class="rounded-md border border-brand-ink/15 px-2.5 py-1.5 text-xs font-semibold text-brand-ink">{{ __('Status') }}</button>
+                                <button type="button" wire:click="runDatabaseCommand('seed')" wire:loading.attr="disabled" wire:target="runDatabaseCommand,confirmDatabaseCommand" class="rounded-md border border-brand-ink/15 px-2.5 py-1.5 text-xs font-semibold text-brand-ink">{{ __('Seed') }}</button>
+                                @if ($site->isRailsFrameworkDetected())
+                                    <button type="button" wire:click="runDatabaseCommand('prepare')" wire:loading.attr="disabled" wire:target="runDatabaseCommand,confirmDatabaseCommand" class="rounded-md border border-brand-ink/15 px-2.5 py-1.5 text-xs font-semibold text-brand-ink">{{ __('Prepare') }}</button>
+                                @endif
+                                <button type="button" wire:click="runDatabaseCommand('rollback')" wire:loading.attr="disabled" wire:target="runDatabaseCommand,confirmDatabaseCommand" class="rounded-md border border-brand-ink/15 px-2.5 py-1.5 text-xs font-semibold text-brand-ink">{{ __('Roll back') }}</button>
+                            </div>
+                            <p wire:loading wire:target="runDatabaseCommand,confirmDatabaseCommand" class="mt-2 text-xs text-brand-moss">{{ __('Running…') }}</p>
+                            @if ($pendingDatabaseCommand === 'rollback')
+                                <div class="mt-3 rounded-lg border border-brand-ink/10 p-3">
+                                    <p class="text-xs text-brand-ink">{{ __('Roll back the last migration on this database?') }}</p>
+                                    <div class="mt-2 flex gap-2">
+                                        <button type="button" wire:click="confirmDatabaseCommand" class="rounded-md bg-brand-ink px-2.5 py-1.5 text-xs font-semibold text-white">{{ __('Roll back') }}</button>
+                                        <button type="button" wire:click="$set('pendingDatabaseCommand', '')" class="rounded-md border border-brand-ink/15 px-2.5 py-1.5 text-xs font-semibold text-brand-ink">{{ __('Cancel') }}</button>
+                                    </div>
+                                </div>
+                            @endif
+                            @if ($databaseCommandOutput !== '')
+                                <pre class="mt-3 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-brand-sand/40 p-3 text-xs text-brand-ink dark:bg-zinc-950">{{ $databaseCommandOutput }}</pre>
+                            @endif
+                        </div>
+                    @endif
                     @if ($databaseEngine === 'postgres')
-                        <div>
-                            <label for="postgres-location" class="text-xs font-semibold text-brand-ink">{{ __('Location') }}</label>
-                            <select id="postgres-location" wire:change="selectPostgresRegion($event.target.value)" @disabled($postgresRegionLocked) class="mt-1.5 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-xs font-semibold text-brand-ink disabled:opacity-60 dark:bg-zinc-900">
-                                @foreach ($postgresRegions as $id => $label)
-                                    <option value="{{ $id }}" @selected($postgresRegion === $id)>{{ $label }}</option>
-                                @endforeach
-                            </select>
-                            <p class="mt-1 text-xs text-brand-moss">
-                                @if ($postgresRegionLocked)
-                                    {{ __('This database stays in :location. Remove it and add it again to use another location.', ['location' => $postgresRegions[$postgresRegion]]) }}
-                                @else
-                                    {{ __('The database is created in this location when you save. It cannot be moved later.') }}
-                                @endif
-                            </p>
+                        @php $postgresLocked = ! $site->organization?->onAnyPaidPlan(); @endphp
+                        <div class="grid gap-2 sm:grid-cols-2">
+                            <label for="postgres-location" class="block text-xs font-semibold text-brand-ink">
+                                {{ __('Location') }}
+                                <select id="postgres-location" wire:change="selectPostgresRegion($event.target.value)" @disabled($postgresRegionLocked || $postgresLocked) class="mt-1 block w-full rounded-md border border-brand-ink/15 bg-white py-1 ps-2 pe-6 text-xs font-semibold text-brand-ink disabled:opacity-60 dark:bg-zinc-900">
+                                    @foreach ($postgresRegions as $id => $label)
+                                        <option value="{{ $id }}" @selected($postgresRegion === $id)>{{ $label }}</option>
+                                    @endforeach
+                                </select>
+                            </label>
+                            <label for="postgres-sleep" class="block text-xs font-semibold text-brand-ink">
+                                {{ __('Sleep after') }}
+                                <select id="postgres-sleep" wire:change="selectPostgresSuspend(Number($event.target.value))" @disabled($postgresLocked) class="mt-1 block w-full rounded-md border border-brand-ink/15 bg-white py-1 ps-2 pe-6 text-xs font-semibold text-brand-ink disabled:opacity-60 dark:bg-zinc-900">
+                                    @foreach ($postgresSleeps as $seconds => $label)
+                                        <option value="{{ $seconds }}" @selected($postgresSuspend === $seconds)>{{ __($label) }}</option>
+                                    @endforeach
+                                </select>
+                            </label>
+                            <label for="postgres-history" class="block text-xs font-semibold text-brand-ink">
+                                {{ __('Restore') }}
+                                <select id="postgres-history" wire:change="selectPostgresHistory(Number($event.target.value))" @disabled($postgresLocked) class="mt-1 block w-full rounded-md border border-brand-ink/15 bg-white py-1 ps-2 pe-6 text-xs font-semibold text-brand-ink disabled:opacity-60 dark:bg-zinc-900">
+                                    @foreach ($postgresHistories as $seconds => $label)
+                                        <option value="{{ $seconds }}" @selected($postgresHistory === $seconds)>{{ __($label) }}</option>
+                                    @endforeach
+                                </select>
+                            </label>
+                            <label for="postgres-awake" class="block text-xs font-semibold text-brand-ink">
+                                {{ __('Hours awake') }}
+                                <input id="postgres-awake" type="number" min="0" max="24" wire:model.live="awakeHours" @disabled($postgresLocked) class="mt-1 block w-full rounded-md border border-brand-ink/15 bg-white py-1 ps-2 pe-2 text-xs font-semibold text-brand-ink disabled:opacity-60 dark:bg-zinc-900" />
+                            </label>
                         </div>
-                        <div>
-                            <p class="text-xs font-semibold text-brand-ink">{{ __('Plan') }}</p>
-                            <div class="mt-1.5 grid gap-1.5 sm:grid-cols-2" role="radiogroup" aria-label="{{ __('Plan') }}">
-                                @foreach ($postgresPlans as $key => $label)
-                                    <button type="button" wire:click="selectPostgresPlan('{{ $key }}')" @class([
-                                        'rounded-lg border px-2.5 py-2 text-left text-xs font-semibold',
-                                        'border-brand-sage bg-white text-brand-ink dark:bg-zinc-900' => $postgresPlan === $key,
-                                        'border-brand-ink/10 bg-white/70 text-brand-ink dark:bg-zinc-900/70' => $postgresPlan !== $key,
-                                    ])>
-                                        <span class="block">{{ $label }}</span>
-                                        <span class="mt-1 block font-normal text-brand-moss">
-                                            @if ($key === 'awake')
-                                                {{ __('Compute stays at the size you pick. You pay for every hour.') }}
-                                            @else
-                                                {{ __('Compute stops about 5 minutes after the last connection. You pay for the hours it is awake.') }}
-                                            @endif
-                                        </span>
-                                    </button>
-                                @endforeach
-                            </div>
+                        <p class="text-xs text-brand-moss">
+                            @if ($postgresRegionLocked)
+                                {{ __('Stays in :location.', ['location' => $postgresRegions[$postgresRegion]]) }}
+                            @else
+                                {{ __('Location is fixed after you save.') }}
+                            @endif
+                            @if ($postgresSuspend === -1)
+                                {{ __('Stays on bills every hour. Hours awake is only the estimate.') }}
+                            @else
+                                {{ __('Day and month assume :hours hours awake. That number does not change the database.', ['hours' => $postgresAwakeHours]) }}
+                            @endif
+                        </p>
+                        <div class="grid gap-1 sm:grid-cols-2" role="radiogroup" aria-label="{{ __('Size') }}">
+                            @foreach ($postgresSizes as $key => $size)
+                                <button type="button" wire:click="selectPostgresSize('{{ $key }}')" @disabled($postgresLocked) @class([
+                                    'rounded-md border px-2 py-1 text-left text-xs font-semibold',
+                                    'border-brand-sage bg-white text-brand-ink dark:bg-zinc-900' => $postgresSize === $key,
+                                    'border-brand-ink/10 bg-white/70 text-brand-ink dark:bg-zinc-900/70' => $postgresSize !== $key,
+                                ])>{{ $size['cpu'] }} · {{ $size['memory'] }} · ${{ $size['day'] }}/{{ __('day') }} · ${{ $size['month'] }}/{{ __('mo') }}</button>
+                            @endforeach
                         </div>
-                        <div>
-                            <p class="text-xs font-semibold text-brand-ink">{{ __('Size') }}</p>
-                            <div class="mt-1.5 grid gap-1.5 sm:grid-cols-2" role="radiogroup" aria-label="{{ __('Size') }}">
-                                @foreach ($postgresSizes as $key => $size)
-                                    <button type="button" wire:click="selectPostgresSize('{{ $key }}')" @class([
-                                        'rounded-lg border px-2.5 py-2 text-left text-xs font-semibold',
-                                        'border-brand-sage bg-white text-brand-ink dark:bg-zinc-900' => $postgresSize === $key,
-                                        'border-brand-ink/10 bg-white/70 text-brand-ink dark:bg-zinc-900/70' => $postgresSize !== $key,
-                                    ])>
-                                        <span class="block">{{ $size['cpu'] }} · {{ $size['memory'] }}</span>
-                                        <span class="mt-1 block font-normal text-brand-moss">${{ $size['hour'] }}/{{ __('hour') }} · ${{ $size['day'] }}/{{ __('day') }} · ${{ $size['month'] }}/{{ __('month') }}</span>
-                                    </button>
-                                @endforeach
-                            </div>
-                        </div>
-                        <div class="border-t border-brand-ink/10 pt-3">
-                            <p class="text-xs font-semibold text-brand-ink">{{ __('Compute') }}</p>
-                            <p class="mt-1 text-xs text-brand-moss">{{ __('Postgres is 1 compute. Storage sits beside it and is billed on its own.') }}</p>
-                            <ul class="mt-2 list-disc space-y-1 pl-4 text-xs text-brand-ink">
-                                <li>{{ __('That compute answers the app. Reads and writes go there.') }}</li>
-                                @if ($postgresPlan === 'awake')
-                                    <li>{{ __('It stays at :cpu and :memory. It does not sleep when the app does.', ['cpu' => $postgresSizes[$postgresSize]['cpu'], 'memory' => $postgresSizes[$postgresSize]['memory']]) }}</li>
-                                @elseif ($postgresSize === '0.25')
-                                    <li>{{ __('It stays at :cpu and :memory, and sleeps about 5 minutes after the last connection.', ['cpu' => $postgresSizes[$postgresSize]['cpu'], 'memory' => $postgresSizes[$postgresSize]['memory']]) }}</li>
-                                @else
-                                    <li>{{ __('It starts at 1/4 vCPU and 1 GB and grows to :cpu and :memory when the app is busy, then shrinks again.', ['cpu' => $postgresSizes[$postgresSize]['cpu'], 'memory' => $postgresSizes[$postgresSize]['memory']]) }}</li>
-                                    <li>{{ __('It sleeps about 5 minutes after the last connection.') }}</li>
-                                @endif
-                                <li>{{ __('You pay for the hours that compute is awake, plus about $:gigabyte/GB each month for storage.', ['gigabyte' => $postgresGigabyte]) }}</li>
-                            </ul>
-                        </div>
-                        <div class="border-t border-brand-ink/10 pt-3">
-                            <p class="text-xs font-semibold text-brand-ink">{{ __('How this is billed') }}</p>
-                            <ul class="mt-2 list-disc space-y-1 pl-4 text-xs text-brand-ink">
-                                @if ($postgresPlan === 'awake')
-                                    <li>{{ __('It stays at :memory. About $:hour/hour, $:day/day, $:month/month.', ['memory' => $postgresSizes[$postgresSize]['memory'], 'hour' => $postgresSizes[$postgresSize]['hour'], 'day' => $postgresSizes[$postgresSize]['day'], 'month' => $postgresSizes[$postgresSize]['month']]) }}</li>
-                                    <li>{{ __('The first query does not wait for a wake.') }}</li>
-                                @elseif ($postgresSize === '0.25')
-                                    <li>{{ __('It stays at 1 GB. About $:hour/hour, $:day/day, or $:month/month if it stays awake.', ['hour' => $postgresSizes[$postgresSize]['hour'], 'day' => $postgresSizes[$postgresSize]['day'], 'month' => $postgresSizes[$postgresSize]['month']]) }}</li>
-                                    <li>{{ __('The next connection after a sleep wakes it. That first query is slower.') }}</li>
-                                @else
-                                    <li>{{ __('It starts at 1 GB and grows to :memory when the app is busy, then shrinks again.', ['memory' => $postgresSizes[$postgresSize]['memory']]) }}</li>
-                                    <li>{{ __('About $:hour/hour, $:day/day, or $:month/month at :memory if it stays awake.', ['hour' => $postgresSizes[$postgresSize]['hour'], 'day' => $postgresSizes[$postgresSize]['day'], 'month' => $postgresSizes[$postgresSize]['month'], 'memory' => $postgresSizes[$postgresSize]['memory']]) }}</li>
-                                    <li>{{ __('The next connection after a sleep wakes it. That first query is slower.') }}</li>
-                                @endif
-                                <li>{{ __('Storage is about $:gigabyte/GB each month, including while compute sleeps.', ['gigabyte' => $postgresGigabyte]) }}</li>
-                                <li>{{ __('Connections require TLS. One day of changes can be restored.') }}</li>
-                            </ul>
-                        </div>
-                        <p class="text-xs text-brand-moss">{{ __('A plan, size, or location change applies when you save. The next deploy sets the connection on the app.') }}</p>
+                        <p class="text-xs text-brand-moss">
+                            {{ __('1 compute. Storage $:gigabyte/GB each month. Restore history $:history/GB each month.', ['gigabyte' => $postgresGigabyte, 'history' => $postgresHistoryRate]) }}
+                            @if ($postgresStored['recorded'])
+                                {{ __('Using :gigabytes GB, about $:month so far.', ['gigabytes' => $postgresStored['gigabytes'], 'month' => $postgresStored['month']]) }}
+                            @endif
+                        </p>
                     @elseif ($databaseEngine === 'mysql')
                         <p class="text-xs font-semibold text-brand-ink">{{ __('Size') }}</p>
                         <div class="grid gap-1.5" role="radiogroup" aria-label="{{ __('Size') }}">
@@ -1525,7 +1342,7 @@
                             <p class="text-xs text-brand-ink">{{ __('MySQL did not start. Save again to retry.') }}</p>
                         @endif
                     @else
-                        <p class="text-xs text-brand-moss">{{ __('SQLite is a file at /tmp/database.sqlite. It is created again when the app wakes.') }}</p>
+                        <p class="text-xs text-brand-moss">{{ __('SQLite is a file at /tmp/database.sqlite. It is saved while the app runs and restored when the app wakes.') }}</p>
                     @endif
                 </div>
             @endif
@@ -1551,5 +1368,6 @@
         :savePendingLabel="__('Deploying…')"
         discardAction="discardPending"
         formPendingWire="pending"
+        closeModal="resources-app-database"
     />
 </div>

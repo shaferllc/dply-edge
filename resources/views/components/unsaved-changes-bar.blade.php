@@ -23,6 +23,8 @@
      * Requires `targets`; ORs in `formPendingWire` when set.
      */
     'clientDirty' => false,
+    /** Modal name to close when Save or Discard is pressed, if that modal is open. */
+    'closeModal' => null,
 ])
 
 @php
@@ -115,6 +117,7 @@
             <button
                 type="button"
                 wire:click="{{ $discardAction }}"
+                @if (filled($closeModal)) x-on:click="$dispatch('close-modal', '{{ $closeModal }}')" @endif
                 class="inline-flex items-center justify-center rounded-xl border border-brand-ink/20 bg-white px-4 py-2 text-sm font-semibold text-brand-ink shadow-sm transition hover:bg-brand-sand/40 focus:outline-none focus:ring-2 focus:ring-brand-sage/40"
             >
                 <span wire:loading.remove wire:target="{{ $discardAction }}">{{ $discardLabel }}</span>
@@ -123,6 +126,7 @@
             <button
                 type="button"
                 wire:click="{{ $saveAction }}"
+                @if (filled($closeModal)) x-on:click="$dispatch('close-modal', '{{ $closeModal }}')" @endif
                 @disabled($saveDisabled)
                 @class([
                     'inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold shadow-sm transition focus:outline-none focus:ring-2 focus:ring-brand-sage/50 disabled:cursor-not-allowed disabled:opacity-50',

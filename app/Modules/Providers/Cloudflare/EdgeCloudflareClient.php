@@ -442,7 +442,7 @@ class EdgeCloudflareClient
      * @param  string  $entryModulePath  File name the metadata.main_module points at (e.g. "worker.js").
      * @param  array<string, mixed>  $modules  Map of module file name → module source. Must include $entryModulePath.
      * @param  list<array<string, mixed>>  $bindings  Cloudflare binding descriptors (kv_namespace, r2_bucket, plain_text, secret_text, etc.).
-     * @param  array{compatibility_date?: string, compatibility_flags?: list<string>, tags?: list<string>}  $metaExtras
+     * @param  array{compatibility_date?: string, compatibility_flags?: list<string>, tags?: list<string>, migrations?: array<string, mixed>}  $metaExtras
      * @return array<string, mixed>
      */
     public function uploadDispatchScript(
@@ -465,7 +465,7 @@ class EdgeCloudflareClient
                 'main_module' => $entryModulePath,
                 'bindings' => $bindings,
             ],
-            array_intersect_key($metaExtras, array_flip(['compatibility_date', 'compatibility_flags', 'tags'])),
+            array_intersect_key($metaExtras, array_flip(['compatibility_date', 'compatibility_flags', 'tags', 'migrations'])),
         );
 
         // Laravel HTTP's attach() converts to Guzzle multipart parts.
@@ -655,6 +655,32 @@ class EdgeCloudflareClient
     public function getQueue(string $queueId): array
     {
         return $this->decode(Http::withToken($this->apiToken)->get(self::BASE.'/accounts/'.$this->accountId.'/queues/'.$queueId));
+    }
+
+    /**
+     * Make $scriptName the queue's consumer with these settings. A queue has
+     * one consumer: a different one is replaced, the same one is updated.
+     *
+     * @param  array{batch_size: int, max_concurrency?: int, max_retries: int, max_wait_time_ms: int}  $settings
+     */
+    public function putQueueConsumer(string $queueId, string $scriptName, array $settings): void
+    {
+        $base = self::BASE.'/accounts/'.$this->accountId.'/queues/'.$queueId.'/consumers';
+        $consumers = $this->decode(Http::withToken($this->apiToken)->get($base));
+        $body = ['script_name' => $scriptName, 'type' => 'worker', 'settings' => $settings];
+        foreach (array_is_list($consumers) ? $consumers : [] as $consumer) {
+            $id = (string) ($consumer['consumer_id'] ?? '');
+            if ($id === '') {
+                continue;
+            }
+            if (($consumer['script'] ?? $consumer['script_name'] ?? '') === $scriptName) {
+                $this->decode(Http::withToken($this->apiToken)->put($base.'/'.$id, $body));
+
+                return;
+            }
+            $this->decode(Http::withToken($this->apiToken)->delete($base.'/'.$id));
+        }
+        $this->decode(Http::withToken($this->apiToken)->post($base, $body));
     }
 
     public function deleteQueue(string $queueId): void

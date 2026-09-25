@@ -9,8 +9,8 @@ use App\Modules\Edge\Console\CollectEdgeContainerUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeDataUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeKvUsageCommand;
 use App\Modules\Edge\Console\CollectEdgePostgresUsageCommand;
-use App\Modules\Edge\Console\CollectEdgeRedisUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeUsageCommand;
+use App\Modules\Edge\Console\CollectEdgeValkeyUsageCommand;
 use App\Modules\Edge\Console\EdgeDoctorCommand;
 use App\Modules\Edge\Console\EdgeEnsureBuildDockerCommand;
 use App\Modules\Edge\Console\EdgeEnsureDeliveryFeaturesCommand;
@@ -18,14 +18,17 @@ use App\Modules\Edge\Console\EdgeEnsureGithubPreviewsCommand;
 use App\Modules\Edge\Console\EdgeEnsureHybridOriginsCommand;
 use App\Modules\Edge\Console\EdgeInfraBootstrapCommand;
 use App\Modules\Edge\Console\EdgeInfraBootstrapOrgCommand;
+use App\Modules\Edge\Console\EdgeSpikeWorkerBindingsCommand;
 use App\Modules\Edge\Console\EdgeWorkerDeployCommand;
 use App\Modules\Edge\Console\EnsureEdgeLogpushCommand;
 use App\Modules\Edge\Console\EvaluateEdgeGuardrailsCommand;
 use App\Modules\Edge\Console\MigrateEdgeHostnamesCommand;
+use App\Modules\Edge\Console\MoveRedisToValkeyCommand;
 use App\Modules\Edge\Console\PruneEdgeAnalyticsCommand;
 use App\Modules\Edge\Console\PublishEdgeBaseImagesCommand;
 use App\Modules\Edge\Console\RollupEdgeAnalyticsEngineCommand;
 use App\Modules\Edge\Console\WarmEdgeBuildImagesCommand;
+use App\Modules\Edge\Console\WarmEdgeContainersCommand;
 use App\Modules\Edge\Livewire\BuildJourney;
 use App\Modules\Edge\Livewire\BuildLogStream;
 use App\Modules\Edge\Livewire\Create;
@@ -57,9 +60,11 @@ class EdgeServiceProvider extends ServiceProvider
                 CollectEdgeDataUsageCommand::class,
                 CollectEdgeKvUsageCommand::class,
                 CollectEdgePostgresUsageCommand::class,
-                CollectEdgeRedisUsageCommand::class,
+                CollectEdgeValkeyUsageCommand::class,
+                MoveRedisToValkeyCommand::class,
                 CollectEdgeUsageCommand::class,
                 EdgeDoctorCommand::class,
+                EdgeSpikeWorkerBindingsCommand::class,
                 EdgeEnsureBuildDockerCommand::class,
                 EdgeEnsureDeliveryFeaturesCommand::class,
                 EdgeEnsureGithubPreviewsCommand::class,
@@ -74,6 +79,7 @@ class EdgeServiceProvider extends ServiceProvider
                 PublishEdgeBaseImagesCommand::class,
                 RollupEdgeAnalyticsEngineCommand::class,
                 WarmEdgeBuildImagesCommand::class,
+                WarmEdgeContainersCommand::class,
             ]);
         }
     }

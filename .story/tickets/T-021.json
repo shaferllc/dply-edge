@@ -1,0 +1,16 @@
+{
+  "blockedBy": [],
+  "citesRulings": [
+    "r-72p0gkdn9dqwxqha"
+  ],
+  "completedDate": null,
+  "createdDate": "2026-09-25",
+  "description": "Per-app memory-limited pods, SNI proxy that holds connections while waking, operator (create/resize/sleep/wake/snapshot to R2), flex+pro classes billed per second, sleep picker.\n\n2026-09-24: gateway verified on OrbStack (17/17, 3 consecutive runs). Warm pool + ACL logins + key-dump snapshots: wake with restore 0.5-0.7s (was 2.5-3.2s). Laravel client, Resources, per-second billing done; Upstash Redis removed (QStash kept); dply:edge:move-redis-to-valkey written (unrun on real data). Remaining: pool informer, demand-based pool sizing, DOKS/R2 production deploy (set POOL=250:N,1024:N,2560:N to match EdgeValkey classes), multi-replica gateway.",
+  "displayId": "T-021",
+  "id": "T-021",
+  "order": 60,
+  "phase": "resources-everywhere",
+  "status": "inprogress",
+  "title": "Own managed Valkey on DOKS with sleep/wake",
+  "type": "feature"
+}

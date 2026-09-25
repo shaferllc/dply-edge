@@ -33,6 +33,27 @@
     <h1 class="text-2xl font-semibold tracking-tight text-brand-ink">{{ __('Create an app') }}</h1>
     <p class="mt-1 text-sm text-brand-moss">{{ __('Connect a repository. We detect the stack and deploy it.') }}</p>
 
+    <div
+        wire:loading.flex
+        wire:target="nextStep"
+        class="fixed inset-0 z-[80] items-center justify-center bg-black/50"
+    >
+        <div class="flex items-center gap-3 rounded-2xl px-5 py-4 text-sm font-semibold shadow-xl" style="background:#ffffff;color:#18181b">
+            <x-spinner size="sm" variant="zinc" style="color:#3f3f46" />
+            {{ $currentStep === 1 ? __('Loading repositories…') : __('Continuing to the next step…') }}
+        </div>
+    </div>
+    <div
+        wire:loading.flex
+        wire:target="reloadRepositories"
+        class="fixed inset-0 z-[80] items-center justify-center bg-black/50"
+    >
+        <div class="flex items-center gap-3 rounded-2xl px-5 py-4 text-sm font-semibold shadow-xl" style="background:#ffffff;color:#18181b">
+            <x-spinner size="sm" variant="zinc" style="color:#3f3f46" />
+            {{ __('Loading repositories…') }}
+        </div>
+    </div>
+
     <form wire:submit="deploy" class="mt-8">
         <ol>
             <li class="relative pb-8 ps-10">
@@ -50,8 +71,52 @@
                 @endif
                 @if ($currentStep === 1)
                     <div class="mt-4 space-y-4">
-                        <x-connect-provider-link class="!inline-flex !items-center !rounded-xl !bg-brand-ink !px-4 !py-2 !text-sm !font-semibold !text-brand-cream !no-underline hover:!bg-brand-forest">
-                            {{ __('Connect GitHub, GitLab, or Bitbucket') }}
+                        @if ($gitConnected)
+                            <ul class="divide-y divide-brand-ink/10 overflow-hidden rounded-xl border border-brand-ink/10">
+                                @foreach ($linkedSourceControlAccounts as $account)
+                                    @php
+                                        $accountConnected = ($account['connected'] ?? false) === true;
+                                        $accountSelected = $source_control_account_id === $account['id'];
+                                    @endphp
+                                    <li>
+                                        <button
+                                            type="button"
+                                            wire:click="selectSourceControlAccount('{{ $account['id'] }}')"
+                                            aria-pressed="{{ $accountSelected ? 'true' : 'false' }}"
+                                            @class([
+                                                'flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm text-brand-ink',
+                                                'bg-brand-sand/40' => $accountSelected,
+                                                'hover:bg-brand-sand/30' => ! $accountSelected,
+                                            ])
+                                        >
+                                            <span class="flex min-w-0 items-center gap-2">
+                                                <span @class([
+                                                    'flex h-4 w-4 shrink-0 items-center justify-center rounded-full border',
+                                                    'border-brand-ink bg-brand-ink text-brand-cream' => $accountSelected,
+                                                    'border-brand-ink/30' => ! $accountSelected,
+                                                ]) aria-hidden="true">
+                                                    @if ($accountSelected)
+                                                        <span class="h-1.5 w-1.5 rounded-full bg-brand-cream"></span>
+                                                    @endif
+                                                </span>
+                                                <span class="truncate font-medium">{{ $account['label'] }}</span>
+                                            </span>
+                                            <span @class([
+                                                'shrink-0 text-xs font-semibold',
+                                                'text-brand-moss' => $accountConnected,
+                                                'text-rose-600' => ! $accountConnected,
+                                            ])>{{ $accountConnected ? __('Connected') : __('Disconnected') }}</span>
+                                        </button>
+                                    </li>
+                                @endforeach
+                            </ul>
+                        @endif
+                        <x-connect-provider-link @class([
+                            '!inline-flex !items-center !rounded-xl !px-4 !py-2 !text-sm !font-semibold !no-underline',
+                            '!bg-brand-ink !text-brand-cream hover:!bg-brand-forest' => ! $gitConnected,
+                            '!border !border-brand-ink/15 !bg-transparent !text-brand-ink hover:!bg-brand-sand/30' => $gitConnected,
+                        ])>
+                            {{ $gitConnected ? __('Connect another account') : __('Connect GitHub, GitLab, or Bitbucket') }}
                         </x-connect-provider-link>
                         <div>
                             <x-input-label for="repo" :value="__('Or paste a repository')" />
@@ -78,14 +143,10 @@
                 </p>
                 @if ($currentStep === 2)
                     <div class="mt-4 space-y-3">
-                        @if (count($linkedSourceControlAccounts) > 1)
-                            <div>
-                                <x-input-label for="source_control_account_id" :value="__('Account')" />
-                                <select id="source_control_account_id" wire:model.live="source_control_account_id" class="dply-input mt-1 block w-full">
-                                    @foreach ($linkedSourceControlAccounts as $account)
-                                        <option value="{{ $account['id'] }}">{{ $account['label'] ?? $account['id'] }}</option>
-                                    @endforeach
-                                </select>
+                        @if ($accountLabel !== '')
+                            <div class="flex items-center justify-between gap-3">
+                                <p class="text-sm text-brand-ink">{{ $accountLabel }}</p>
+                                <button type="button" wire:click="reloadRepositories" class="text-xs font-semibold text-brand-forest underline hover:text-brand-ink dark:text-brand-sage">{{ __('Reload') }}</button>
                             </div>
                         @endif
 
@@ -97,7 +158,7 @@
                                 <x-repo-combobox
                                     :repositories="$availableRepositories"
                                     property="repository_selection"
-                                    target="source_control_account_id"
+                                    target="reloadRepositories"
                                     trigger-id="repository_selection"
                                     :selected="$repository_selection"
                                     :placeholder="__('Select a repository…')"

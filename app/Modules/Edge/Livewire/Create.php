@@ -173,6 +173,15 @@ class Create extends Component
 
         $this->resetErrorBag('repo');
         $this->wizardStep++;
+
+        if ($this->wizardStep === 2 && $this->source_control_account_id !== '') {
+            $this->loadRepositoriesForSelectedAccount();
+        }
+
+        if ($this->wizardStep === 3 && trim($this->repo) !== '') {
+            $this->syncRemoteRefs();
+            $this->detectFromRepository();
+        }
     }
 
     public function updatedFormContainerPlan(): void
@@ -192,9 +201,10 @@ class Create extends Component
         $this->form->deploy_on_push = true;
 
         $this->linkedSourceControlAccounts = $repositoryBrowser->accountsForUser(auth()->user());
-        if ($this->linkedSourceControlAccounts !== []) {
-            $this->source_control_account_id = (string) $this->linkedSourceControlAccounts[0]['id'];
-            $this->loadRepositoriesForSelectedAccount();
+        $preferred = collect($this->linkedSourceControlAccounts)->firstWhere('connected', true)
+            ?? ($this->linkedSourceControlAccounts[0] ?? null);
+        if (is_array($preferred)) {
+            $this->source_control_account_id = (string) $preferred['id'];
             $this->repo_source = 'connected';
         }
 
@@ -421,7 +431,9 @@ class Create extends Component
         }
 
         if ($this->source_control_account_id === '') {
-            $this->source_control_account_id = (string) $this->linkedSourceControlAccounts[0]['id'];
+            $preferred = collect($this->linkedSourceControlAccounts)->firstWhere('connected', true)
+                ?? $this->linkedSourceControlAccounts[0];
+            $this->source_control_account_id = (string) $preferred['id'];
         }
 
         $this->loadRepositoriesForSelectedAccount();

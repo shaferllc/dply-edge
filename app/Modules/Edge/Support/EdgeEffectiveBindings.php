@@ -13,7 +13,8 @@ use App\Models\Site;
  *
  *   1. `wrangler.toml` in the repo, extracted at build time and snapshotted
  *      onto `edge_deployments.repo_config['bindings']`
- *   2. dashboard rows on `site.meta.edge.bindings_overrides`
+ *   2. Resources-page rows on `site.meta.edge.connections` (key-value,
+ *      object storage, SQL, queue)
  *
  * Same contract as {@see EdgeEffectiveCrons}: the repo file is the primary
  * source of truth and dashboard rows are purely *additive*. On a name
@@ -88,35 +89,41 @@ final class EdgeEffectiveBindings
      */
     public static function dashboardOverrides(Site $site): array
     {
-        $meta = $site->edgeMeta();
-        $rows = is_array($meta['bindings_overrides'] ?? null) ? $meta['bindings_overrides'] : [];
-
         $out = [];
-        $seen = [];
-        foreach ($rows as $row) {
-            if (! is_array($row)) {
+        foreach (EdgeContainerConnections::for($site) as $connection) {
+            $kind = self::KIND_FOR_CONNECTION[$connection['kind']] ?? null;
+            if ($kind === null || $connection['asleep'] || $connection['target'] === '') {
                 continue;
             }
-            $name = is_string($row['name'] ?? null) ? trim($row['name']) : '';
-            $kind = is_string($row['kind'] ?? null) ? trim($row['kind']) : '';
-            $value = is_string($row['value'] ?? null) ? trim($row['value']) : '';
-
-            if ($name === '' || $value === '' || ! in_array($kind, self::KINDS, true)) {
-                continue;
-            }
-            if (in_array($name, self::RESERVED_NAMES, true)) {
-                continue;
-            }
-            if (in_array($name, $seen, true)) {
-                continue;
-            }
-            $seen[] = $name;
-
-            $out[] = ['name' => $name, 'kind' => $kind, 'value' => $value, 'source' => 'dashboard'];
+            $out[] = ['name' => $connection['name'], 'kind' => $kind, 'value' => $connection['target'], 'source' => 'dashboard'];
         }
 
         return $out;
     }
+
+    /**
+     * Resources-page names the repo's wrangler.toml also declares. The repo
+     * wins at deploy; the Resources card and the deploy log say so.
+     *
+     * @return list<string>
+     */
+    public static function overriddenByRepo(Site $site, ?EdgeDeployment $deployment): array
+    {
+        $repo = array_column(self::repoBindings($deployment), 'name');
+
+        return array_values(array_filter(
+            array_column(EdgeContainerConnections::for($site), 'name'),
+            static fn (string $name): bool => in_array($name, $repo, true),
+        ));
+    }
+
+    /** Connection kinds (Resources page) that are plain Cloudflare bindings. */
+    public const KIND_FOR_CONNECTION = [
+        'key_value' => 'kv',
+        'object_storage' => 'r2',
+        'sql' => 'd1',
+        'queue' => 'queue',
+    ];
 
     /**
      * @return list<array{name: string, kind: string, value: string, source: 'repo'}>

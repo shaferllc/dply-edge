@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\EdgeAppDatabaseTest;
 
+use App\Models\EdgePostgresUsage;
 use App\Models\EdgeSiteEnvVar;
 use App\Models\Organization;
 use App\Models\Server;
@@ -12,6 +13,7 @@ use App\Modules\Billing\Models\Subscription;
 use App\Modules\Billing\Services\EdgeAppDatabaseCost;
 use App\Modules\Edge\Jobs\FinishEdgeMysqlDatabaseJob;
 use App\Modules\Edge\Services\EdgeAppDatabase;
+use App\Modules\Edge\Services\EdgePostgresUsageCollector;
 use App\Modules\Providers\Neon\NeonClient;
 use App\Modules\Providers\PlanetScale\PlanetScaleClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -67,7 +69,37 @@ test('neon create reads the connection and delete ignores a missing project', fu
     Http::assertSent(fn ($request): bool => $request->method() === 'POST'
         && $request['project']['region_id'] === 'aws-us-east-2'
         && $request['project']['default_endpoint_settings']['autoscaling_limit_min_cu'] === 0.25
-        && $request['project']['default_endpoint_settings']['suspend_timeout_seconds'] === 300);
+        && ! isset($request['project']['default_endpoint_settings']['suspend_timeout_seconds']));
+});
+
+function fakeNeonCreate(array $organizations): void
+{
+    Http::fake([
+        'https://console.neon.tech/api/v2/users/me/organizations' => Http::response(['organizations' => $organizations]),
+        'https://console.neon.tech/api/v2/projects' => Http::response([
+            'project' => ['id' => 'proj-1'],
+            'connection_uris' => [['connection_parameters' => ['host' => 'h', 'database' => 'd', 'role' => 'r', 'password' => 'p']]],
+        ]),
+    ]);
+}
+
+test('neon create sends the key\'s only organization', function () {
+    config(['edge.neon.api_key' => 'neon-key', 'edge.neon.organization' => null]);
+    fakeNeonCreate([['id' => 'org-only', 'name' => 'Dply']]);
+
+    NeonClient::fromConfig()->create('book');
+
+    Http::assertSent(fn ($request): bool => $request->method() === 'POST' && $request['project']['org_id'] === 'org-only');
+});
+
+test('neon create prefers the configured organization and refuses to guess between several', function () {
+    config(['edge.neon.api_key' => 'neon-key', 'edge.neon.organization' => 'org-set']);
+    fakeNeonCreate([['id' => 'a'], ['id' => 'b']]);
+    NeonClient::fromConfig()->create('book');
+    Http::assertSent(fn ($request): bool => $request->method() === 'POST' && $request['project']['org_id'] === 'org-set');
+
+    config(['edge.neon.organization' => null]);
+    expect(fn () => NeonClient::fromConfig()->create('book'))->toThrow(\RuntimeException::class, 'DPLY_NEON_ORGANIZATION');
 });
 
 test('planetscale waits until the cluster is ready then returns a password', function () {
@@ -156,7 +188,7 @@ test('postgres stores the address and a tls url', function () {
         ->and($database['region'])->toBe('aws-us-east-2');
     Http::assertSent(fn ($request): bool => $request->method() === 'POST'
         && $request['project']['default_endpoint_settings']['autoscaling_limit_max_cu'] === 0.25
-        && $request['project']['default_endpoint_settings']['suspend_timeout_seconds'] === 300);
+        && ! isset($request['project']['default_endpoint_settings']['suspend_timeout_seconds']));
 });
 
 test('postgres sends the plan and size that were picked', function () {
@@ -194,7 +226,7 @@ test('postgres sends the plan and size that were picked', function () {
         && str_ends_with($request->url(), '/endpoints/ep-1')
         && $request['endpoint']['autoscaling_limit_min_cu'] === 0.25
         && $request['endpoint']['autoscaling_limit_max_cu'] === 2.0
-        && $request['endpoint']['suspend_timeout_seconds'] === 300);
+        && ! isset($request['endpoint']['suspend_timeout_seconds']));
     expect($site->edgeMeta()['database']['plan'])->toBe('sleep')
         ->and($site->edgeMeta()['database']['size'])->toBe('2');
 });
@@ -228,6 +260,51 @@ test('postgres is created in the location that was picked and cannot move later'
     expect(EdgeAppDatabase::sync($site, 'postgres', 'postgres', '', 'sleep', '0.25', 'aws-eu-west-2'))
         ->toBe('The database stays where it was created. Remove it and add it again to use another location.');
     expect($site->fresh()->edgeMeta()['database']['region'])->toBe('aws-eu-central-1');
+});
+
+test('postgres sleep delay and restore window are sent on create and update', function () {
+    config(['edge.neon.api_key' => 'neon-key']);
+    Http::fake([
+        'https://console.neon.tech/api/v2/projects' => Http::response([
+            'project' => ['id' => 'proj-1'],
+            'endpoints' => [['id' => 'ep-1']],
+            'connection_uris' => [[
+                'connection_parameters' => [
+                    'host' => 'ep.example.neon.tech',
+                    'database' => 'neondb',
+                    'role' => 'owner',
+                    'password' => 'secret',
+                ],
+            ]],
+        ]),
+        'https://console.neon.tech/api/v2/projects/proj-1/endpoints/ep-1' => Http::response(['endpoint' => ['id' => 'ep-1']]),
+        'https://console.neon.tech/api/v2/projects/proj-1' => Http::response(['project' => ['id' => 'proj-1']]),
+    ]);
+    $site = databaseSite();
+    payFor($site);
+
+    expect(EdgeAppDatabase::sync($site, 'sql', 'postgres', '', 'sleep', '0.25', 'aws-us-east-1', 60, 604800))->toBeNull();
+    $site->save();
+    $site->refresh();
+    expect($site->edgeMeta()['database']['suspend'])->toBe(60)
+        ->and($site->edgeMeta()['database']['history'])->toBe(604800)
+        ->and($site->edgeMeta()['database']['plan'])->toBe('sleep');
+    Http::assertSent(fn ($request): bool => $request->method() === 'POST'
+        && $request['project']['history_retention_seconds'] === 604800
+        && $request['project']['default_endpoint_settings']['suspend_timeout_seconds'] === 60);
+
+    expect(EdgeAppDatabase::sync($site, 'postgres', 'postgres', '', 'sleep', '0.25', 'aws-us-east-1', -1, 86400))->toBeNull();
+    $site->save();
+    $site->refresh();
+    expect($site->edgeMeta()['database']['suspend'])->toBe(-1)
+        ->and($site->edgeMeta()['database']['plan'])->toBe('awake')
+        ->and($site->edgeMeta()['database']['history'])->toBe(86400);
+    Http::assertSent(fn ($request): bool => $request->method() === 'PATCH'
+        && str_ends_with($request->url(), '/endpoints/ep-1')
+        && $request['endpoint']['suspend_timeout_seconds'] === -1);
+    Http::assertSent(fn ($request): bool => $request->method() === 'PATCH'
+        && str_ends_with($request->url(), '/projects/proj-1')
+        && $request['project']['history_retention_seconds'] === 86400);
 });
 
 test('mysql that is not ready is finished by the job', function () {
@@ -366,7 +443,7 @@ test('postgres usage is compute hours plus storage', function () {
     $site = databaseSite();
     $site->mergeEdgeMeta(['database' => ['engine' => 'postgres', 'remote_id' => 'proj-1', 'status' => 'ready']]);
     $site->save();
-    \App\Models\EdgePostgresUsage::query()->create([
+    EdgePostgresUsage::query()->create([
         'organization_id' => $site->organization_id,
         'site_id' => $site->id,
         'project_id' => 'proj-1',
@@ -379,6 +456,11 @@ test('postgres usage is compute hours plus storage', function () {
 
     expect($cost['postgres'])->toBe(1)
         ->and($cost['cents'])->toBe(11 + 35);
+
+    $stored = app(EdgeAppDatabaseCost::class)->stored($site);
+    expect($stored['recorded'])->toBeTrue()
+        ->and($stored['gigabytes'])->toBe(number_format(now()->daysInMonth, 2));
+    expect(app(EdgeAppDatabaseCost::class)->presentation()['history'])->toBe('0.20');
 });
 
 test('postgres consumption is stored for the app', function () {
@@ -404,10 +486,10 @@ test('postgres consumption is stored for the app', function () {
     $site->mergeEdgeMeta(['database' => ['engine' => 'postgres', 'remote_id' => 'proj-1', 'status' => 'ready']]);
     $site->save();
 
-    $result = app(\App\Modules\Edge\Services\EdgePostgresUsageCollector::class)->collectForDate($day);
+    $result = app(EdgePostgresUsageCollector::class)->collectForDate($day);
 
     expect($result['sites'])->toBe(1);
-    $row = \App\Models\EdgePostgresUsage::query()->where('project_id', 'proj-1')->first();
+    $row = EdgePostgresUsage::query()->where('project_id', 'proj-1')->first();
     expect($row)->not->toBeNull()
         ->and($row->compute_unit_seconds)->toBe(84)
         ->and($row->storage_byte_hours)->toBe(1000);
