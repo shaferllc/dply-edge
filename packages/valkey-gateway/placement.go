@@ -1,6 +1,10 @@
 package main
 
-import corev1 "k8s.io/api/core/v1"
+import (
+	"strconv"
+
+	corev1 "k8s.io/api/core/v1"
+)
 
 // Pro tenants run on their own node pools (deploy/valkey/terraform: pro-16,
 // pro-64). Both pools start at zero nodes and are tainted, so nothing else
@@ -27,4 +31,15 @@ func proPlacement(memoryMB int, persistent bool) (map[string]string, []corev1.To
 	}
 	return map[string]string{nodePoolKey: pool},
 		[]corev1.Toleration{{Key: proTaintKey, Operator: corev1.TolerationOpEqual, Value: "true", Effect: corev1.TaintEffectNoSchedule}}
+}
+
+// cpuRequest is the CPU a pod is guaranteed. Flex tenants share: a small
+// request, no limit, so they burst into idle CPU but slow down when
+// neighbours are busy. Pro tenants get CPU in step with their memory
+// (0.5 vCPU per 5 GB) on their own pools, so neighbours cannot slow them.
+func cpuRequest(memoryMB int, persistent bool) string {
+	if !persistent {
+		return "25m"
+	}
+	return strconv.Itoa(max(500, memoryMB*500/5120)) + "m"
 }

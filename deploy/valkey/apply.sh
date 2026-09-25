@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 # Deploy the dply Valkey gateway to the DOKS cluster made by terraform/.
 # Idempotent. Secrets come from .secrets/ and the app's .env, never the repo:
-#   .secrets/do.env        DIGITALOCEAN_TOKEN (cert-manager's DNS check)
+#   .secrets/do.env        DIGITALOCEAN_TOKEN (kubeconfig)
 #   .secrets/api-token     gateway control API bearer token (made on first run)
 #   .secrets/admin-password gateway admin password (made on first run)
-#   ../../.env             DPLY_EDGE_R2_* (sleep snapshots)
+#   ../../.env             DPLY_EDGE_R2_* (sleep snapshots), DPLY_EDGE_CF_API_TOKEN
+#                          (cert-manager's DNS check: needs Zone:DNS:Edit on $DOMAIN)
 #
-#   ./apply.sh <image>     e.g. registry.digitalocean.com/dply-cloud/valkey-gateway:202609250239
+#   ./apply.sh [image]     default: the last pushed gateway image
 set -euo pipefail
 cd "$(dirname "$0")"
-IMAGE=${1:?image}
-DOMAIN=${DOMAIN:-dply.cloud}
+IMAGE=${1:-registry.digitalocean.com/dply-cloud/valkey-gateway:202609250337}
+DOMAIN=${DOMAIN:-dply.io}
 CERT_MANAGER=v1.21.2
 # shellcheck source=/dev/null
 source .secrets/do.env
@@ -25,14 +26,17 @@ kubectl -n cert-manager wait --for=condition=Available deploy --all --timeout=30
 
 [ -s .secrets/api-token ] || openssl rand -hex 32 > .secrets/api-token
 [ -s .secrets/admin-password ] || openssl rand -hex 32 > .secrets/admin-password
-r2() { grep -E "^DPLY_EDGE_R2_$1=" ../../.env | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//'; }
+app_env() { grep -E "^$1=" ../../.env | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//'; }
+r2() { app_env "DPLY_EDGE_R2_$1"; }
 
 kubectl create namespace dply-valkey --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 secret() { kubectl -n dply-valkey create secret generic "$1" "${@:2}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null; }
-secret digitalocean-dns --from-literal=access-token="$DIGITALOCEAN_TOKEN"
-secret valkey-gateway-api --from-file=token=.secrets/api-token
-secret valkey-gateway-admin --from-file=password=.secrets/admin-password
-secret valkey-gateway-r2 --from-literal=endpoint="$(r2 ENDPOINT)" --from-literal=access-key="$(r2 ACCESS_KEY)" --from-literal=secret-key="$(r2 SECRET)"
+secret cloudflare-dns --from-literal=api-token="$(app_env DPLY_EDGE_CF_API_TOKEN)"
+# --from-literal, not --from-file: the files end in a newline, which Valkey
+# keeps as part of the password while the gateway trims it (WRONGPASS).
+secret valkey-gateway-api --from-literal=token="$(tr -d '[:space:]' < .secrets/api-token)"
+secret valkey-gateway-admin --from-literal=password="$(tr -d '[:space:]' < .secrets/admin-password)"
+secret valkey-gateway-r2 --from-literal=bucket="$(r2 BUCKET)" --from-literal=endpoint="$(r2 ENDPOINT)" --from-literal=access-key="$(r2 ACCESS_KEY)" --from-literal=secret-key="$(r2 SECRET)"
 
 sed -e "s#__DOMAIN__#$DOMAIN#g" -e "s#__IMAGE__#$IMAGE#g" gateway.yaml | kubectl apply -f -
 

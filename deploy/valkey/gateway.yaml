@@ -39,7 +39,8 @@ subjects:
     name: valkey-gateway
     namespace: dply-valkey
 ---
-# Wildcard cert from Let's Encrypt, proven through DigitalOcean DNS.
+# Wildcard cert from Let's Encrypt, proven through Cloudflare DNS (the zone
+# for __DOMAIN__ is on Cloudflare; the *.cache record must be DNS only).
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
@@ -52,10 +53,10 @@ spec:
       name: letsencrypt-account
     solvers:
       - dns01:
-          digitalocean:
-            tokenSecretRef:
-              name: digitalocean-dns
-              key: access-token
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-dns
+              key: api-token
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -97,7 +98,9 @@ spec:
           env:
             - { name: DOMAIN, value: "cache.__DOMAIN__" }
             - { name: API_TLS, value: "1" }
-            - { name: S3_BUCKET, value: dply-valkey }
+            # The edge R2 bucket: snapshots live under tenants/, sites under edge/.
+            - name: S3_BUCKET
+              valueFrom: { secretKeyRef: { name: valkey-gateway-r2, key: bucket } }
             - { name: S3_REGION, value: auto }
             - name: S3_ENDPOINT
               valueFrom: { secretKeyRef: { name: valkey-gateway-r2, key: endpoint } }

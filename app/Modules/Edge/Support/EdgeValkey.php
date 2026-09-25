@@ -96,6 +96,180 @@ final class EdgeValkey
         ValkeyGatewayClient::fromConfig()->delete(self::tenantId($target));
     }
 
+    /**
+     * Dollars for display from (fractional) cents: four decimals under $1 so
+     * minutes of use read $0.0017 rather than rounding to $0.01 or $0.00.
+     */
+    public static function money(float $cents): string
+    {
+        return number_format($cents / 100, $cents > 0 && $cents < 100 ? 4 : 2);
+    }
+
+    /** host:port an app connects to (TLS). */
+    public static function address(string $target): string
+    {
+        return self::tenantId($target).'.'.config('edge.valkey.domain', 'cache.dply.local').':'.(int) config('edge.valkey.port', 6380);
+    }
+
+    /**
+     * Connect the way an app does (TLS, user "default") and time a few
+     * commands. A sleeping database wakes on connect, so that time is part of
+     * "connect". Plain stream socket + RESP so no Redis extension is needed.
+     *
+     * @return array{ok: bool, error: ?string, steps: list<array{step: string, ms: float, result: string}>, ping_median_ms: ?float, ping_max_ms: ?float}
+     */
+    public static function probe(string $target, string $password): array
+    {
+        [$host, $port] = explode(':', self::address($target));
+        $steps = [];
+        $time = static function (string $step, callable $run) use (&$steps): string {
+            $start = hrtime(true);
+            try {
+                $result = $run();
+            } catch (\Throwable $e) {
+                $steps[] = ['step' => $step, 'ms' => round((hrtime(true) - $start) / 1e6, 1), 'result' => 'failed'];
+
+                throw $e;
+            }
+            $steps[] = ['step' => $step, 'ms' => round((hrtime(true) - $start) / 1e6, 1), 'result' => $result];
+
+            return $result;
+        };
+        $out = static function (?string $error, array $pings = []) use (&$steps): array {
+            return [
+                'ok' => $error === null,
+                'error' => $error,
+                'steps' => $steps,
+                'ping_median_ms' => $pings === [] ? null : $pings[intdiv(count($pings), 2)],
+                'ping_max_ms' => $pings === [] ? null : max($pings),
+            ];
+        };
+
+        try {
+            $socket = null;
+            $time('Connect (TLS, wakes it if asleep)', static function () use (&$socket, $host, $port): string {
+                $socket = self::open($host, (int) $port);
+
+                return 'connected';
+            });
+            $command = static fn (string ...$args): string => self::send($socket, ...$args);
+
+            $key = 'dply:test:'.bin2hex(random_bytes(4));
+            $value = bin2hex(random_bytes(8));
+            $time('AUTH', fn () => $command('AUTH', 'default', $password));
+            $time('SET (expires in 60s)', fn () => $command('SET', $key, $value, 'EX', '60'));
+            $read = $time('GET', fn () => $command('GET', $key));
+            if ($read !== $value) {
+                throw new \RuntimeException('GET returned a different value.');
+            }
+            $time('DEL', fn () => $command('DEL', $key));
+            $pings = [];
+            for ($i = 0; $i < 10; $i++) {
+                $start = hrtime(true);
+                $command('PING');
+                $pings[] = round((hrtime(true) - $start) / 1e6, 1);
+            }
+            sort($pings);
+            fclose($socket);
+
+            return $out(null, $pings);
+        } catch (\Throwable $e) {
+            return $out($e->getMessage());
+        }
+    }
+
+    /**
+     * Live numbers from INFO and DBSIZE. Connecting wakes a sleeping database.
+     *
+     * @return array<string, int|float|string|null>
+     */
+    public static function stats(string $target, string $password): array
+    {
+        [$host, $port] = explode(':', self::address($target));
+        $socket = self::open($host, (int) $port);
+        try {
+            self::send($socket, 'AUTH', 'default', $password);
+            $info = [];
+            foreach (explode("\n", self::send($socket, 'INFO')) as $line) {
+                if (str_contains($line, ':')) {
+                    [$key, $value] = explode(':', trim($line), 2);
+                    $info[$key] = $value;
+                }
+            }
+            $keys = (int) self::send($socket, 'DBSIZE');
+        } finally {
+            fclose($socket);
+        }
+        $hits = (int) ($info['keyspace_hits'] ?? 0);
+        $misses = (int) ($info['keyspace_misses'] ?? 0);
+
+        return [
+            'keys' => $keys,
+            'used_memory' => (int) ($info['used_memory'] ?? 0),
+            'max_memory' => (int) ($info['maxmemory'] ?? 0),
+            'hit_rate' => $hits + $misses > 0 ? round($hits / ($hits + $misses) * 100, 1) : null,
+            'hits' => $hits,
+            'misses' => $misses,
+            'commands' => (int) ($info['total_commands_processed'] ?? 0),
+            'ops_per_sec' => (int) ($info['instantaneous_ops_per_sec'] ?? 0),
+            'clients' => (int) ($info['connected_clients'] ?? 0),
+            'expired_keys' => (int) ($info['expired_keys'] ?? 0),
+            'evicted_keys' => (int) ($info['evicted_keys'] ?? 0),
+            'uptime_seconds' => (int) ($info['uptime_in_seconds'] ?? 0),
+            'version' => (string) ($info['valkey_version'] ?? $info['redis_version'] ?? ''),
+        ];
+    }
+
+    /** @return resource TLS socket to a tenant, as an app connects. */
+    private static function open(string $host, int $port)
+    {
+        $context = stream_context_create(['ssl' => ['peer_name' => $host, 'SNI_enabled' => true, 'verify_peer' => true]]);
+        $socket = @stream_socket_client("tls://{$host}:{$port}", $errno, $errstr, 15, STREAM_CLIENT_CONNECT, $context);
+        if ($socket === false) {
+            throw new \RuntimeException("Could not connect: {$errstr}");
+        }
+        stream_set_timeout($socket, 15);
+
+        return $socket;
+    }
+
+    /**
+     * One RESP command. Simple, integer and bulk replies are enough for
+     * AUTH/SET/GET/DEL/PING/INFO/DBSIZE.
+     *
+     * @param  resource  $socket
+     */
+    private static function send($socket, string ...$args): string
+    {
+        $payload = '*'.count($args)."\r\n";
+        foreach ($args as $arg) {
+            $payload .= '$'.strlen($arg)."\r\n".$arg."\r\n";
+        }
+        fwrite($socket, $payload);
+        $line = fgets($socket);
+        if ($line === false) {
+            throw new \RuntimeException('The connection closed.');
+        }
+        $line = rtrim($line, "\r\n");
+        if ($line[0] === '-') {
+            throw new \RuntimeException(substr($line, 1));
+        }
+        if ($line[0] === '$') {
+            $length = (int) substr($line, 1);
+            if ($length < 0) {
+                return '(nil)';
+            }
+            $body = '';
+            while (strlen($body) < $length + 2 && ! feof($socket)) {
+                $body .= (string) fread($socket, $length + 2 - strlen($body));
+            }
+
+            return substr($body, 0, $length);
+        }
+
+        return substr($line, 1);
+    }
+
     public static function url(string $id, string $password): string
     {
         $domain = (string) config('edge.valkey.domain', 'cache.dply.local');

@@ -9,6 +9,7 @@ use App\Models\Site;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeValkey;
 use App\Modules\Providers\Valkey\ValkeyGatewayClient;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -20,53 +21,75 @@ use Illuminate\Support\Facades\DB;
 class EdgeValkeyUsageCollector
 {
     /**
+     * Runs one at a time: two overlapping runs would both read the same last
+     * counter and bill a stretch twice. A run that finds the lock taken skips;
+     * nothing is lost, since the gateway's totals only go up and the next run
+     * adds the difference.
+     *
+     * @param  ?string  $siteId  Only this app (the workspace refreshes one on open).
      * @return array{sites: int, seconds: int}
      */
-    public function collect(bool $dryRun = false): array
+    public function collect(bool $dryRun = false, ?string $siteId = null): array
     {
         if (! ValkeyGatewayClient::configured()) {
             return ['sites' => 0, 'seconds' => 0];
         }
+        $lock = Cache::lock('edge-valkey-usage-collect', 120);
+        if (! $lock->get()) {
+            return ['sites' => 0, 'seconds' => 0];
+        }
+        try {
+            return $this->collectLocked($dryRun, $siteId);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /** @return array{sites: int, seconds: int} */
+    private function collectLocked(bool $dryRun, ?string $siteId): array
+    {
         $totals = ValkeyGatewayClient::fromConfig()->usage();
         $date = now()->utc()->toDateString();
         $sites = 0;
         $seconds = 0;
 
-        Site::query()->whereNotNull('edge_backend')->whereNotNull('organization_id')->each(function (Site $site) use ($totals, $date, $dryRun, &$sites, &$seconds): void {
-            $counters = (array) ($site->edgeMeta()['valkey_counter'] ?? []);
-            $added = 0;
-            foreach (EdgeContainerConnections::for($site) as $connection) {
-                if ($connection['kind'] !== 'redis' || ! EdgeValkey::isTarget($connection['target'])) {
-                    continue;
+        Site::query()->whereNotNull('edge_backend')->whereNotNull('organization_id')
+            ->when($siteId !== null, fn ($query) => $query->whereKey($siteId))
+            ->each(function (Site $site) use ($totals, $date, $dryRun, &$sites, &$seconds): void {
+                $counters = (array) ($site->edgeMeta()['valkey_counter'] ?? []);
+                $added = 0;
+                foreach (EdgeContainerConnections::for($site) as $connection) {
+                    if ($connection['kind'] !== 'redis' || ! EdgeValkey::isTarget($connection['target'])) {
+                        continue;
+                    }
+                    $total = $totals[EdgeValkey::tenantId($connection['target'])] ?? null;
+                    if ($total === null) {
+                        continue;
+                    }
+                    $last = (int) ($counters[$connection['target']] ?? 0);
+                    // A total below the last one means the tenant was recreated.
+                    $added += $total >= $last ? $total - $last : $total;
+                    $counters[$connection['target']] = $total;
                 }
-                $total = $totals[EdgeValkey::tenantId($connection['target'])] ?? null;
-                if ($total === null) {
-                    continue;
+                if ($added === 0 || $dryRun) {
+                    $sites += $added > 0 ? 1 : 0;
+                    $seconds += $added;
+
+                    return;
                 }
-                $last = (int) ($counters[$connection['target']] ?? 0);
-                // A total below the last one means the tenant was recreated.
-                $added += $total >= $last ? $total - $last : $total;
-                $counters[$connection['target']] = $total;
-            }
-            if ($added === 0 || $dryRun) {
-                $sites += $added > 0 ? 1 : 0;
+
+                DB::transaction(function () use ($site, $date, $added, $counters): void {
+                    $row = EdgeRedisUsage::query()->firstOrCreate(
+                        ['site_id' => $site->id, 'date' => $date],
+                        ['organization_id' => $site->organization_id],
+                    );
+                    $row->increment('awake_seconds', $added);
+                    $site->mergeEdgeMeta(['valkey_counter' => $counters]);
+                    $site->save();
+                });
+                $sites++;
                 $seconds += $added;
-
-                return;
-            }
-
-            DB::transaction(function () use ($site, $date, $added, $counters): void {
-                $row = EdgeRedisUsage::query()->firstOrCreate(
-                    ['site_id' => $site->id, 'date' => $date],
-                    ['organization_id' => $site->organization_id],
-                );
-                $row->increment('awake_seconds', $added);
-                $site->mergeEdgeMeta(['valkey_counter' => $counters]);
-                $site->save();
             });
-            $sites++;
-            $seconds += $added;
-        });
 
         return ['sites' => $sites, 'seconds' => $seconds];
     }

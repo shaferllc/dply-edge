@@ -21,10 +21,10 @@ use App\Modules\Billing\Services\EdgeContainerComputeCost;
 use App\Modules\Billing\Services\EdgeDataUsageCost;
 use App\Modules\Billing\Services\EdgeDeliveryCost;
 use App\Modules\Billing\Services\EdgeKvCost;
-use App\Modules\Billing\Services\EdgeRedisCost;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Edge\Services\EdgeQueueConsumers;
+use App\Modules\Edge\Services\EdgeValkeyUsageCollector;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeContainerPlans;
 use App\Modules\Edge\Support\EdgeContainerSettings;
@@ -32,6 +32,7 @@ use App\Modules\Edge\Support\EdgeEffectiveBindings;
 use App\Modules\Edge\Support\EdgeValkey;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use App\Modules\Providers\Neon\NeonClient;
+use App\Modules\Providers\Valkey\ValkeyGatewayClient;
 use App\Support\Http\PublicOutboundUrl;
 use App\Support\Http\UnsafeOutboundUrlException;
 use App\Support\Sites\EdgeSiteViewData;
@@ -144,6 +145,22 @@ class Resources extends Component
      * Change a dply Valkey's size or sleep time. It restarts on its next
      * connection with its data.
      */
+    /**
+     * The app's Valkey password, read from REDIS_URL only when asked for, so
+     * it is not in the page until someone who can edit the app clicks Show.
+     */
+    public function valkeyPassword(string $host): string
+    {
+        $this->authorize('update', $this->site);
+        $connection = collect(EdgeContainerConnections::for($this->site))->firstWhere('host', $host);
+        if (! is_array($connection) || ! EdgeValkey::isTarget($connection['target'])) {
+            return '';
+        }
+        $url = (string) ($this->site->edgeEnvVars()->where('scope', 'production')->where('key', 'REDIS_URL')->first()?->value ?? '');
+
+        return rawurldecode((string) (parse_url($url, PHP_URL_PASS) ?? ''));
+    }
+
     public function saveValkey(string $host, string $class, int $sleep): void
     {
         $this->authorize('update', $this->site);
@@ -185,6 +202,131 @@ class Resources extends Component
     public string $kvHost = '';
 
     public string $imagesHost = '';
+
+    /** dply Valkey whose settings modal is open. */
+    public string $valkeyHost = '';
+
+    /** Last Test-tab result for $valkeyHost (EdgeValkey::probe). */
+    public ?array $valkeyTest = null;
+
+    /** Last Test-tab result measured inside the app (dply/laravel redis-probe). */
+    public ?array $valkeyAppTest = null;
+
+    /** Statistics tab: gateway status (never wakes it) and live INFO numbers (wakes it). */
+    public ?array $valkeyStatus = null;
+
+    public ?array $valkeyStats = null;
+
+    public ?string $valkeyStatsError = null;
+
+    public function updatedValkeyHost(): void
+    {
+        if ($this->valkeyHost !== '') {
+            $this->refreshValkeyAwake();
+        }
+        $this->valkeyTest = null;
+        $this->valkeyAppTest = null;
+        $this->valkeyStatus = null;
+        $this->valkeyStats = null;
+        $this->valkeyStatsError = null;
+    }
+
+    /**
+     * Awake time is collected hourly; this brings this app's up to date (the
+     * modal does it on open, the Refresh button on demand). The collector is
+     * locked and counts only the change since last time, so it never bills
+     * twice.
+     */
+    public function refreshValkeyAwake(): void
+    {
+        $this->authorize('view', $this->site);
+        try {
+            app(EdgeValkeyUsageCollector::class)->collect(false, (string) $this->site->id);
+        } catch (\Throwable) {
+            // The hourly run catches up.
+        }
+    }
+
+    public function loadValkeyStatus(): void
+    {
+        $this->authorize('view', $this->site);
+        $connection = collect(EdgeContainerConnections::for($this->site))->firstWhere('host', $this->valkeyHost);
+        if (! is_array($connection) || ! EdgeValkey::isTarget($connection['target'])) {
+            return;
+        }
+        try {
+            $this->valkeyStatus = ValkeyGatewayClient::fromConfig()->get(EdgeValkey::tenantId($connection['target']));
+            $this->valkeyStatsError = null;
+        } catch (\Throwable $e) {
+            $this->valkeyStatsError = $e->getMessage();
+        }
+    }
+
+    public function loadValkeyStats(): void
+    {
+        $password = $this->valkeyPassword($this->valkeyHost);
+        $connection = collect(EdgeContainerConnections::for($this->site))->firstWhere('host', $this->valkeyHost);
+        if (! is_array($connection) || $password === '') {
+            $this->valkeyStatsError = __('No password on this app yet. Deploy once so REDIS_URL is set.');
+
+            return;
+        }
+        try {
+            $this->valkeyStats = EdgeValkey::stats($connection['target'], $password);
+            $this->valkeyStatsError = null;
+        } catch (\Throwable $e) {
+            $this->valkeyStatsError = $e->getMessage();
+        }
+        $this->loadValkeyStatus();
+    }
+
+    /**
+     * Test tab, "From the app": the app times its own Redis connection
+     * (dply/laravel's redis-probe command), so the numbers are what the app
+     * gets from where Cloudflare runs it. Laravel apps with dply/laravel only.
+     */
+    public function testValkeyFromApp(): void
+    {
+        $this->authorize('update', $this->site);
+        $url = $this->site->edgeLiveUrl();
+        $fail = fn (string $error) => $this->valkeyAppTest = ['ok' => false, 'error' => $error, 'steps' => []];
+        if (! is_string($url) || $url === '') {
+            $fail(__('This app has no live URL yet. Deploy it first.'));
+
+            return;
+        }
+        try {
+            $response = Http::timeout(60)
+                ->withHeaders(['x-dply-queue-token' => EdgeContainerDeployer::queueToken($this->site)])
+                ->post(rtrim($url, '/').'/_dply/command', ['command' => 'redis-probe']);
+        } catch (\Throwable $e) {
+            $fail($e->getMessage());
+
+            return;
+        }
+        $body = $response->json();
+        if (! is_array($body) || ! array_key_exists('steps', $body)) {
+            $fail($response->status() === 422 || $response->status() === 404
+                ? __('The app does not answer this test yet. It needs dply/laravel from the next deploy (Laravel apps only).')
+                : __('The app answered HTTP :status.', ['status' => $response->status()]));
+
+            return;
+        }
+        $this->valkeyAppTest = $body;
+    }
+
+    /** Test tab: connect like the app does and time a few commands. */
+    public function testValkey(): void
+    {
+        $password = $this->valkeyPassword($this->valkeyHost);
+        $connection = collect(EdgeContainerConnections::for($this->site))->firstWhere('host', $this->valkeyHost);
+        if (! is_array($connection) || $password === '') {
+            $this->valkeyTest = ['ok' => false, 'error' => __('No password on this app yet. Deploy once so REDIS_URL is set.'), 'steps' => [], 'ping_median_ms' => null, 'ping_max_ms' => null];
+
+            return;
+        }
+        $this->valkeyTest = EdgeValkey::probe($connection['target'], $password);
+    }
 
     public string $kvDemoKey = 'hello';
 
@@ -1441,6 +1583,14 @@ class Resources extends Component
      * @param  list<array{kind: string, host: string, target: string, asleep: bool, plan: string, read_regions: int}>  $connections
      * @return array<string, int>
      */
+    /** Awake seconds for this app's Valkey this month (collected hourly). */
+    private function valkeyAwakeSeconds(): int
+    {
+        return (int) EdgeRedisUsage::query()->where('site_id', $this->site->id)
+            ->whereBetween('date', [now()->startOfMonth()->toDateString(), now()->endOfMonth()->toDateString()])
+            ->sum('awake_seconds');
+    }
+
     private function connectionCostEstimates(array $connections): array
     {
         $from = now()->startOfMonth()->toDateString();
@@ -1489,10 +1639,13 @@ class Resources extends Component
             );
         }
 
-        $valkeySeconds = (int) EdgeRedisUsage::query()->where('site_id', $this->site->id)->whereBetween('date', [$from, $to])->sum('awake_seconds');
+        $valkeySeconds = $this->valkeyAwakeSeconds();
         foreach ($connections as $connection) {
             if ($connection['kind'] === 'redis' && EdgeValkey::isTarget($connection['target']) && $this->site->organization !== null) {
-                $estimates[$connection['host']] = app(EdgeRedisCost::class)->valkeyCents($this->site->organization, [$this->site->id => $valkeySeconds]);
+                // Exact (fractional) cents for display: the bill rounds the
+                // month's total to a cent, but a few minutes is $0.0017, not $0.01.
+                $class = EdgeValkey::CLASSES[$connection['plan']] ?? EdgeValkey::CLASSES[EdgeValkey::DEFAULT_CLASS];
+                $estimates[$connection['host']] = min((float) $class['cap_cents'], $valkeySeconds * $class['per_second'] * 100);
             }
         }
 
@@ -1653,6 +1806,7 @@ class Resources extends Component
                 'showBrowser' => $hasCode,
                 'connectionKinds' => EdgeContainerConnections::KINDS,
                 'cardOnFile' => $this->cardOnFile(),
+                'valkeyAwakeSeconds' => $this->valkeyAwakeSeconds(),
                 'allowedKinds' => $allowedKinds,
                 'hasCode' => $hasCode,
                 'isWorker' => in_array($runtime, ['ssr', 'hybrid'], true),

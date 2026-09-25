@@ -429,7 +429,7 @@ func (g *gateway) podSpec(name string, memoryMB int, persistent bool) *corev1.Po
 					PeriodSeconds: 2,
 				},
 				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse(mb + "Mi"), corev1.ResourceCPU: resource.MustParse("25m")},
+					Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse(mb + "Mi"), corev1.ResourceCPU: resource.MustParse(cpuRequest(memoryMB, persistent))},
 					Limits:   corev1.ResourceList{corev1.ResourceMemory: limit},
 				},
 			}},

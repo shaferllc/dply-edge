@@ -16,3 +16,15 @@ func TestProPlacement(t *testing.T) {
 		}
 	}
 }
+
+func TestCPURequest(t *testing.T) {
+	for _, c := range []struct {
+		mb         int
+		persistent bool
+		want       string
+	}{{250, false, "25m"}, {2560, false, "25m"}, {5120, true, "500m"}, {12288, true, "1200m"}, {25600, true, "2500m"}, {51200, true, "5000m"}} {
+		if got := cpuRequest(c.mb, c.persistent); got != c.want {
+			t.Fatalf("%d MB persistent=%v: got %s, want %s", c.mb, c.persistent, got, c.want)
+		}
+	}
+}

@@ -74,8 +74,10 @@ test('a dry run writes nothing', function () {
 test('awake seconds are priced per second and capped at the monthly price', function () {
     $cost = app(EdgeRedisCost::class);
 
-    // One hour of Flex 250 MB: 3600 x $0.00000248 = 0.89 cents, rounded up.
+    // One hour of Flex 250 MB: 3600 x $0.00000248 = 0.89 cents, to the nearest cent.
     expect($cost->valkeyCents($this->org, [$this->site->id => 3600]))->toBe(1)
+        // Minutes of use are not rounded up to a cent: 691 s = 0.17 cents.
+        ->and($cost->valkeyCents($this->org, [$this->site->id => 691]))->toBe(0)
         // A full month would be $6.43; the cap is $6.
         ->and($cost->valkeyCents($this->org, [$this->site->id => 30 * 86400]))->toBe(600);
 });

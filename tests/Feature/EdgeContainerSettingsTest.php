@@ -620,6 +620,44 @@ test('valkey settings change the size and sleep time', function () {
         && $request['password'] === 's3cret' && $request['memory_mb'] === 5120 && $request['persistent'] === true && $request['sleep_after'] === 0);
 });
 
+test('the valkey modal shows its tabs, reveals the password on request, and explains a test with no password', function () {
+    config(['edge.valkey.domain' => 'cache.dply.test']);
+    [$user, $server, $site] = containerSite();
+    $host = EdgeContainerConnections::resourceHost($site, 'cache');
+    $site->mergeEdgeMeta(['connections' => [['kind' => 'redis', 'name' => 'CACHE', 'host' => $host, 'target' => 'valkey:app-cache', 'plan' => 'flex_1g']]]);
+    $site->save();
+
+    $component = Livewire::actingAs($user)
+        ->test(Resources::class, ['server' => $server, 'site' => $site])
+        ->set('valkeyHost', $host)
+        ->assertSee('app-cache.cache.dply.test:6380')
+        ->assertSee(['Overview', 'Connect', 'Test', 'Costs'])
+        ->assertDontSee('s3cret');
+
+    // No REDIS_URL yet: the test explains instead of trying to connect.
+    $component->call('testValkey')->assertSet('valkeyTest.ok', false)->assertSee('No password on this app yet');
+
+    // Step names are Redis commands, not translation keys: __('AUTH') resolves
+    // lang/en/auth.php on a case-insensitive disk and broke the view.
+    $component->set('valkeyTest', ['ok' => true, 'error' => null, 'ping_median_ms' => 80.5, 'ping_max_ms' => 120.0, 'steps' => [
+        ['step' => 'AUTH', 'ms' => 200.1, 'result' => 'OK'],
+        ['step' => 'GET', 'ms' => 81.0, 'result' => 'value'],
+    ]])->assertSee(['AUTH', 'Working. Every command answered.']);
+
+    $component->set('valkeyStatus', ['awake' => false, 'has_snapshot' => true])
+        ->set('valkeyStats', ['keys' => 42, 'used_memory' => 5242880, 'max_memory' => 262144000, 'hit_rate' => 97.5, 'hits' => 390, 'misses' => 10, 'commands' => 1234, 'ops_per_sec' => 3, 'clients' => 2, 'expired_keys' => 1, 'evicted_keys' => 0, 'uptime_seconds' => 60, 'version' => '8.1.10'])
+        ->assertSee(['Asleep', 'A snapshot is stored', '97.5%', '5.0 MB · 2%']);
+
+    (new EdgeSiteEnvVar([
+        'site_id' => $site->id,
+        'key' => 'REDIS_URL',
+        'value' => 'rediss://default:s3cret@app-cache.cache.dply.test:6380',
+        'scope' => EdgeSiteEnvVar::SCOPE_PRODUCTION,
+        'created_by_user_id' => $user->id,
+    ]))->save();
+    expect($component->instance()->valkeyPassword($host))->toBe('s3cret');
+});
+
 test('an attached queue sets the driver env and an existing value wins', function () {
     [, , $site] = containerSite();
     $site->mergeEdgeMeta(['connections' => [[

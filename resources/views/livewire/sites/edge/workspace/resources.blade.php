@@ -172,7 +172,7 @@
                                 @elseif ($connection['kind'] === 'object_storage')
                                     <button type="button" wire:click="openObject('{{ $connection['host'] }}')" x-on:click="$dispatch('open-modal', 'resources-object')" class="text-xs font-semibold text-brand-ink underline">{{ __('Open') }}</button>
                                 @elseif ($connection['kind'] === 'redis' && \App\Modules\Edge\Support\EdgeValkey::isTarget($connection['target']))
-                                    <button type="button" x-on:click="$refs['valkey-{{ md5($connection['host']) }}'].toggleAttribute('hidden')" class="text-xs font-semibold text-brand-ink underline">{{ __('Settings') }}</button>
+                                    <button type="button" wire:click="$set('valkeyHost', '{{ $connection['host'] }}')" x-on:click="$dispatch('open-modal', 'resources-valkey')" class="text-xs font-semibold text-brand-ink underline">{{ __('Settings') }}</button>
                                 @elseif ($connection['kind'] === 'images')
                                     <button type="button" wire:click="$set('imagesHost', '{{ $connection['host'] }}')" x-on:click="$dispatch('open-modal', 'resources-images')" class="text-xs font-semibold text-brand-ink underline">{{ __('Settings') }}</button>
                                 @endif
@@ -206,19 +206,6 @@
                                 {{ __($valkeyClass['label']) }} ·
                                 {{ $valkeySleepNow > 0 ? __('sleeps after :time idle', ['time' => __(\App\Modules\Edge\Support\EdgeValkey::SLEEPS[$valkeySleepNow] ?? '5 minutes')]) : __('stays on') }}
                             </p>
-                            <form hidden x-ref="valkey-{{ md5($connection['host']) }}" x-data="{ size: @js($connection['plan'] ?: \App\Modules\Edge\Support\EdgeValkey::DEFAULT_CLASS), sleep: {{ $valkeySleepNow }} }" x-on:submit.prevent="$wire.saveValkey(@js($connection['host']), size, Number(sleep))" class="mt-2 space-y-2">
-                                <select x-model="size" class="block w-full rounded-md border border-brand-ink/15 bg-white px-2 py-1 text-xs text-brand-ink dark:bg-zinc-900">
-                                    @foreach (\App\Modules\Edge\Support\EdgeValkey::CLASSES as $id => $class)
-                                        <option value="{{ $id }}">{{ __($class['label']) }} · {{ __('up to $:price/mo', ['price' => number_format($class['cap_cents'] / 100, 0)]) }}</option>
-                                    @endforeach
-                                </select>
-                                <select x-model="sleep" x-show="size.startsWith('flex_')" class="block w-full rounded-md border border-brand-ink/15 bg-white px-2 py-1 text-xs text-brand-ink dark:bg-zinc-900">
-                                    @foreach (\App\Modules\Edge\Support\EdgeValkey::SLEEPS as $seconds => $label)
-                                        <option value="{{ $seconds }}">{{ __($label) }}</option>
-                                    @endforeach
-                                </select>
-                                <button type="submit" class="rounded-md bg-brand-ink px-2 py-1 text-xs font-semibold text-white">{{ __('Save') }}</button>
-                            </form>
                         @endif
                         @if ($connection['kind'] === 'queue' && isset($queueOwners[$connection['target']]))
                             <p class="mt-1 text-xs text-brand-moss">{{ __('Sends only. :app runs these jobs.', ['app' => $queueOwners[$connection['target']]]) }}</p>
@@ -226,7 +213,9 @@
                         @if (in_array($connection['name'], $overriddenByRepo, true))
                             <p class="mt-1 text-xs font-semibold text-brand-ink">{{ __('Overridden by wrangler.toml. The repo binding is used.') }}</p>
                         @endif
-                        @if (isset($connectionEstimates[$connection['host']]))
+                        @if (isset($connectionEstimates[$connection['host']]) && $connection['kind'] === 'redis' && \App\Modules\Edge\Support\EdgeValkey::isTarget($connection['target']))
+                            <p class="mt-1 text-xs font-semibold tabular-nums text-brand-ink">{{ __('$:price so far this month · up to $:cap/mo', ['price' => \App\Modules\Edge\Support\EdgeValkey::money($connectionEstimates[$connection['host']]), 'cap' => number_format($valkeyClass['cap_cents'] / 100, 0)]) }}</p>
+                        @elseif (isset($connectionEstimates[$connection['host']]))
                             <p class="mt-1 text-xs font-semibold tabular-nums text-brand-ink">{{ __('Cost estimate · $:price', ['price' => number_format($connectionEstimates[$connection['host']] / 100, 2)]) }}</p>
                         @endif
                     </div>
@@ -695,6 +684,286 @@
                     <pre class="mt-2 overflow-x-auto rounded-lg bg-brand-sand/40 p-3 text-xs text-brand-ink dark:bg-zinc-950">{{ "curl -X POST http://{$imagesHostName}/info --data-binary @photo.jpg\ncurl -X POST 'http://{$imagesHostName}/?width=800&height=600&fit=cover&format=webp&quality=80' --data-binary @photo.jpg -o photo.webp" }}</pre>
                 </div>
             </div>
+        </div>
+    </x-modal>
+
+    @php
+        $valkeyConnection = collect($connections)->firstWhere('host', $valkeyHost);
+        $valkeySpec = is_array($valkeyConnection)
+            ? (\App\Modules\Edge\Support\EdgeValkey::CLASSES[$valkeyConnection['plan']] ?? \App\Modules\Edge\Support\EdgeValkey::CLASSES[\App\Modules\Edge\Support\EdgeValkey::DEFAULT_CLASS])
+            : null;
+        $valkeyModalSleep = is_array($valkeyConnection)
+            ? (int) ($site->edgeMeta()['valkey_sleep'][$valkeyConnection['target']] ?? ($valkeySpec['sleeps'] ? \App\Modules\Edge\Support\EdgeValkey::DEFAULT_SLEEP : 0))
+            : 0;
+    @endphp
+    <x-modal name="resources-valkey" :show="$valkeyHost !== ''" maxWidth="3xl" focusable>
+        <div class="max-h-[80vh] overflow-y-auto bg-white p-5 dark:bg-zinc-900">
+            <div class="flex items-start justify-between gap-3">
+                <h2 class="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-brand-sage"><x-resource-kind-icon kind="redis" />{{ __('dply Valkey') }}</h2>
+                <button type="button" wire:click="$set('valkeyHost', '')" x-on:click="$dispatch('close-modal', 'resources-valkey')" class="text-xs font-semibold text-brand-ink underline">{{ __('Close') }}</button>
+            </div>
+            {{-- Opening sets valkeyHost on the server (and refreshes awake time from the gateway), so the body waits on that round trip. --}}
+            <div wire:loading.block wire:target="valkeyHost" class="mt-4 hidden" aria-live="polite" aria-busy="true">
+                <div class="flex items-center gap-2 text-xs font-medium text-brand-moss">
+                    <x-spinner variant="forest" />
+                    <span>{{ __('Loading this database…') }}</span>
+                </div>
+                <div class="mt-4 flex gap-4 border-b border-brand-ink/10 pb-2" aria-hidden="true">
+                    @foreach (['w-16', 'w-14', 'w-20', 'w-10', 'w-12', 'w-14'] as $width)
+                        <span class="{{ $width }} h-3 animate-pulse rounded bg-brand-ink/10"></span>
+                    @endforeach
+                </div>
+                <div class="mt-4 grid gap-2 sm:grid-cols-2" aria-hidden="true">
+                    @foreach (range(1, 4) as $placeholder)
+                        <div class="rounded-lg border border-brand-ink/10 p-3">
+                            <span class="block h-2 w-16 animate-pulse rounded bg-brand-ink/10"></span>
+                            <span class="mt-2 block h-4 w-28 animate-pulse rounded bg-brand-ink/10"></span>
+                            <span class="mt-2 block h-3 w-44 animate-pulse rounded bg-brand-ink/10"></span>
+                        </div>
+                    @endforeach
+                </div>
+            </div>
+            @if (is_array($valkeyConnection) && is_array($valkeySpec))
+                <div wire:loading.remove wire:target="valkeyHost">
+                @php
+                    $valkeyAddress = \App\Modules\Edge\Support\EdgeValkey::address($valkeyConnection['target']);
+                    $valkeySpent = $connectionEstimates[$valkeyConnection['host']] ?? 0;
+                    $valkeySleepLabel = $valkeyModalSleep > 0 ? __(\App\Modules\Edge\Support\EdgeValkey::SLEEPS[$valkeyModalSleep] ?? '5 minutes') : null;
+                @endphp
+                <p class="mt-3 max-w-xl text-xs text-brand-moss">{{ __('Redis-compatible and private to this app. :size, :sleep.', ['size' => __($valkeySpec['label']), 'sleep' => $valkeySleepLabel ? __('sleeps after :time idle', ['time' => $valkeySleepLabel]) : __('stays on')]) }}</p>
+                <div class="mt-4" x-data="{ tab: 'overview' }">
+                    <div class="flex gap-4 overflow-x-auto border-b border-brand-ink/10" role="tablist">
+                        @foreach (['overview' => __('Overview'), 'connect' => __('Connect'), 'stats' => __('Statistics'), 'test' => __('Test'), 'costs' => __('Costs'), 'settings' => __('Settings')] as $tabKey => $tabLabel)
+                            <button type="button" role="tab" x-on:click="tab = '{{ $tabKey }}'; {{ $tabKey === 'stats' ? '$wire.loadValkeyStatus()' : '' }}" :aria-selected="tab === '{{ $tabKey }}'" :class="tab === '{{ $tabKey }}' ? 'border-brand-sage text-brand-ink' : 'border-transparent text-brand-moss'" class="-mb-px shrink-0 border-b-2 pb-2 text-xs font-semibold">{{ $tabLabel }}</button>
+                        @endforeach
+                    </div>
+
+                    <div x-show="tab === 'overview'" class="mt-4">
+                        @php
+                            $awakeH = intdiv($valkeyAwakeSeconds, 3600);
+                            $awakeM = intdiv($valkeyAwakeSeconds % 3600, 60);
+                            $overviewCards = [
+                                [__('Size'), __($valkeySpec['label']), __(':mb MB of memory for keys', ['mb' => number_format($valkeySpec['memory_mb'])])],
+                                [__('Sleep'), $valkeySleepLabel ? __('After :time idle', ['time' => $valkeySleepLabel]) : __('Stays on'), $valkeySleepLabel ? __('Keys are saved and come back on the next connection, with their expiry.') : __('Keys are written to disk.')],
+                                [__('Awake this month'), $awakeH > 0 ? __(':h h :m min', ['h' => $awakeH, 'm' => $awakeM]) : __(':m min', ['m' => $awakeM]), __('$:spent so far · never more than $:cap/mo', ['spent' => \App\Modules\Edge\Support\EdgeValkey::money($valkeySpent), 'cap' => number_format($valkeySpec['cap_cents'] / 100, 0)])],
+                                [__('When it is full'), __('Writes are refused'), __('Nothing is evicted. Pick a larger size under Settings.')],
+                            ];
+                        @endphp
+                        <div class="mb-2 flex justify-end">
+                            <button type="button" wire:click="refreshValkeyAwake" wire:loading.attr="disabled" wire:target="refreshValkeyAwake" class="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-ink underline disabled:opacity-50">
+                                <x-spinner size="sm" wire:loading wire:target="refreshValkeyAwake" />
+                                {{ __('Refresh awake time') }}
+                            </button>
+                        </div>
+                        <div class="grid gap-2 sm:grid-cols-2">
+                            @foreach ($overviewCards as [$cardLabel, $cardValue, $cardNote])
+                                <div class="rounded-lg border border-brand-ink/10 p-3">
+                                    <p class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ $cardLabel }}</p>
+                                    <p class="mt-1 text-sm font-semibold text-brand-ink">{{ $cardValue }}</p>
+                                    <p class="mt-1 text-xs text-brand-moss">{{ $cardNote }}</p>
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+
+                    <div x-show="tab === 'connect'" class="mt-4 space-y-3">
+                        <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-xs">
+                            <dt class="text-brand-moss">{{ __('Address') }}</dt>
+                            <dd class="break-all font-mono text-brand-ink">{{ $valkeyAddress }}</dd>
+                            <dt class="text-brand-moss">{{ __('Username') }}</dt>
+                            <dd class="font-mono text-brand-ink">default <span class="font-sans text-brand-moss">{{ __('(on this app\'s own instance)') }}</span></dd>
+                            <dt class="text-brand-moss">{{ __('Password') }}</dt>
+                            <dd x-data="{ password: '' }" class="flex flex-wrap items-center gap-2">
+                                <span class="break-all font-mono text-brand-ink" x-text="password || '••••••••••••••••'"></span>
+                                <button type="button" x-show="! password" x-on:click="password = await $wire.valkeyPassword(@js($valkeyConnection['host']))" class="text-xs font-semibold text-brand-ink underline">{{ __('Show') }}</button>
+                                <button type="button" x-show="password" x-on:click="navigator.clipboard.writeText(password)" class="text-xs font-semibold text-brand-ink underline">{{ __('Copy') }}</button>
+                            </dd>
+                            <dt class="text-brand-moss">{{ __('Encryption') }}</dt>
+                            <dd class="text-brand-ink">{{ __('TLS required (rediss://).') }}</dd>
+                            <dt class="text-brand-moss">{{ __('On the app') }}</dt>
+                            <dd class="text-brand-ink">{{ __('REDIS_URL is set on the next deploy. It holds the password.') }}</dd>
+                        </dl>
+                        <div>
+                            <p class="text-xs font-semibold text-brand-ink">{{ __('Laravel') }}</p>
+                            <p class="mt-1 text-xs text-brand-moss">{{ __('dply sets REDIS_URL, REDIS_CLIENT=phpredis and CACHE_STORE=redis for you. Sessions can use it too:') }}</p>
+                            <pre class="mt-1 overflow-x-auto rounded-lg bg-brand-sand/40 p-3 text-xs text-brand-ink dark:bg-zinc-950">SESSION_DRIVER=redis</pre>
+                        </div>
+                        <div>
+                            <p class="text-xs font-semibold text-brand-ink">{{ __('Node') }}</p>
+                            <pre class="mt-1 overflow-x-auto rounded-lg bg-brand-sand/40 p-3 text-xs text-brand-ink dark:bg-zinc-950">{{ "import { createClient } from 'redis';\nconst redis = await createClient({ url: process.env.REDIS_URL }).connect();" }}</pre>
+                        </div>
+                        <div>
+                            <p class="text-xs font-semibold text-brand-ink">{{ __('Rails') }}</p>
+                            <pre class="mt-1 overflow-x-auto rounded-lg bg-brand-sand/40 p-3 text-xs text-brand-ink dark:bg-zinc-950">{{ "config.cache_store = :redis_cache_store, { url: ENV['REDIS_URL'] }" }}</pre>
+                        </div>
+                    </div>
+
+                    <div x-show="tab === 'stats'" class="mt-4 space-y-3">
+                        @if ($valkeyStatsError)
+                            <p class="text-xs font-semibold text-red-700 dark:text-red-400">{{ $valkeyStatsError }}</p>
+                        @endif
+                        @if (is_array($valkeyStatus))
+                            <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-xs">
+                                <dt class="text-brand-moss">{{ __('State') }}</dt>
+                                <dd class="font-semibold text-brand-ink">{{ ($valkeyStatus['awake'] ?? false) ? __('Awake') : __('Asleep') }}</dd>
+                                @if ($valkeyStatus['awake'] ?? false)
+                                    <dt class="text-brand-moss">{{ __('Idle for') }}</dt>
+                                    <dd class="tabular-nums text-brand-ink">{{ __(':s s since the last connection', ['s' => (int) ($valkeyStatus['idle_seconds'] ?? 0)]) }}</dd>
+                                @endif
+                                <dt class="text-brand-moss">{{ __('Saved keys') }}</dt>
+                                <dd class="text-brand-ink">{{ ($valkeyStatus['has_snapshot'] ?? false) ? __('A snapshot is stored and restores on wake.') : __('No snapshot yet.') }}</dd>
+                            </dl>
+                        @else
+                            <p class="text-xs text-brand-moss" wire:loading wire:target="loadValkeyStatus">{{ __('Loading…') }}</p>
+                        @endif
+                        <div class="flex flex-wrap items-center gap-3">
+                            <x-secondary-button type="button" wire:click="loadValkeyStats" wire:loading.attr="disabled" wire:target="loadValkeyStats">
+                                <span wire:loading.remove wire:target="loadValkeyStats">{{ is_array($valkeyStats) ? __('Refresh live stats') : __('Load live stats') }}</span>
+                                <span wire:loading wire:target="loadValkeyStats">{{ __('Loading…') }}</span>
+                            </x-secondary-button>
+                            <span class="text-xs text-brand-moss">{{ __('Connects to the database, so it wakes it if it is asleep.') }}</span>
+                        </div>
+                        @if (is_array($valkeyStats))
+                            @php
+                                $usedPct = $valkeyStats['max_memory'] > 0 ? min(100, round($valkeyStats['used_memory'] / $valkeyStats['max_memory'] * 100, 1)) : null;
+                            @endphp
+                            <div class="grid gap-2 sm:grid-cols-3">
+                                @foreach ([
+                                    [__('Keys'), number_format($valkeyStats['keys'])],
+                                    [__('Memory used'), number_format($valkeyStats['used_memory'] / 1048576, 1).' MB'.($usedPct !== null ? ' · '.$usedPct.'%' : '')],
+                                    [__('Hit rate'), $valkeyStats['hit_rate'] !== null ? $valkeyStats['hit_rate'].'%' : '—'],
+                                    [__('Commands'), number_format($valkeyStats['commands'])],
+                                    [__('Ops per second'), number_format($valkeyStats['ops_per_sec'])],
+                                    [__('Clients connected'), number_format($valkeyStats['clients'])],
+                                ] as [$statLabel, $statValue])
+                                    <div class="rounded-lg border border-brand-ink/10 p-2">
+                                        <p class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ $statLabel }}</p>
+                                        <p class="mt-0.5 font-mono text-sm font-semibold tabular-nums text-brand-ink">{{ $statValue }}</p>
+                                    </div>
+                                @endforeach
+                            </div>
+                            @if ($usedPct !== null)
+                                <div class="h-1.5 w-full overflow-hidden rounded-full bg-brand-ink/10" role="progressbar" aria-valuenow="{{ $usedPct }}" aria-valuemin="0" aria-valuemax="100" aria-label="{{ __('Memory used') }}">
+                                    <div @class(['h-full', 'bg-brand-sage' => $usedPct < 80, 'bg-amber-500' => $usedPct >= 80 && $usedPct < 95, 'bg-red-600' => $usedPct >= 95]) style="width: {{ $usedPct }}%"></div>
+                                </div>
+                            @endif
+                            <p class="text-xs text-brand-moss">{{ __('Hits :hits · misses :misses · expired keys :expired · Valkey :version. Counts reset when it sleeps.', ['hits' => number_format($valkeyStats['hits']), 'misses' => number_format($valkeyStats['misses']), 'expired' => number_format($valkeyStats['expired_keys']), 'version' => $valkeyStats['version']]) }}</p>
+                        @endif
+                    </div>
+
+                    <div x-show="tab === 'test'" class="mt-4 space-y-3">
+                        <p class="max-w-xl text-xs text-brand-moss">{{ __('Connects the way the app does (TLS, user default, this app\'s password), wakes it if it is asleep, then writes, reads and deletes a test key and sends 10 PINGs. It runs from the dply server, so times include the trip from there to the database; an app running nearby sees less.') }}</p>
+                        <div class="flex flex-wrap gap-2">
+                            <x-secondary-button type="button" wire:click="testValkey" wire:loading.attr="disabled" wire:target="testValkey">
+                                <span wire:loading.remove wire:target="testValkey">{{ __('Run test from dply') }}</span>
+                                <span wire:loading wire:target="testValkey">{{ __('Testing…') }}</span>
+                            </x-secondary-button>
+                            <x-secondary-button type="button" wire:click="testValkeyFromApp" wire:loading.attr="disabled" wire:target="testValkeyFromApp">
+                                <span wire:loading.remove wire:target="testValkeyFromApp">{{ __('Run test from the app') }}</span>
+                                <span wire:loading wire:target="testValkeyFromApp">{{ __('Testing…') }}</span>
+                            </x-secondary-button>
+                        </div>
+                        @if (is_array($valkeyAppTest))
+                            <div class="rounded-lg border border-brand-ink/10 p-3">
+                                <p @class(['text-xs font-semibold', 'text-brand-sage' => $valkeyAppTest['ok'] ?? false, 'text-red-700 dark:text-red-400' => ! ($valkeyAppTest['ok'] ?? false)])>
+                                    {{ ($valkeyAppTest['ok'] ?? false) ? __('From the app: working.') : __('From the app: :error', ['error' => $valkeyAppTest['error'] ?? __('failed')]) }}
+                                </p>
+                                @if (($valkeyAppTest['steps'] ?? []) !== [])
+                                    <table class="mt-2 w-full max-w-lg text-xs">
+                                        <tbody>
+                                            @foreach ($valkeyAppTest['steps'] as $step)
+                                                <tr class="border-b border-brand-ink/5">
+                                                    <td class="py-1 pr-3 text-brand-moss">{{ $step['step'] }}</td>
+                                                    <td class="py-1 pr-3 text-right tabular-nums text-brand-ink">{{ number_format((float) $step['ms'], 1) }} ms</td>
+                                                    <td class="py-1 font-mono text-brand-ink">{{ \Illuminate\Support\Str::limit((string) $step['result'], 24) }}</td>
+                                                </tr>
+                                            @endforeach
+                                            @if (isset($valkeyAppTest['ping_median_ms']))
+                                                <tr>
+                                                    <td class="py-1 pr-3 text-brand-moss">{{ __('PING ×10') }}</td>
+                                                    <td class="py-1 pr-3 text-right tabular-nums text-brand-ink">{{ number_format((float) $valkeyAppTest['ping_median_ms'], 1) }} ms</td>
+                                                    <td class="py-1 text-brand-moss">{{ __('median · slowest :max ms', ['max' => number_format((float) $valkeyAppTest['ping_max_ms'], 1)]) }}</td>
+                                                </tr>
+                                            @endif
+                                        </tbody>
+                                    </table>
+                                    <p class="mt-2 text-xs text-brand-moss">
+                                        {{ __('Client :client · persistent connections :persistent', ['client' => $valkeyAppTest['client'] ?? '?', 'persistent' => ($valkeyAppTest['persistent'] ?? false) ? __('on') : __('off')]) }}{{ ($valkeyAppTest['region'] ?? '') !== '' ? ' · '.__('app runs in :region', ['region' => $valkeyAppTest['region']]) : '' }}
+                                    </p>
+                                @endif
+                            </div>
+                        @endif
+                        @if (is_array($valkeyTest))
+                            <p @class(['text-xs font-semibold', 'text-brand-sage' => $valkeyTest['ok'], 'text-red-700 dark:text-red-400' => ! $valkeyTest['ok']])>
+                                {{ $valkeyTest['ok'] ? __('Working. Every command answered.') : __('Failed: :error', ['error' => $valkeyTest['error']]) }}
+                            </p>
+                            @if ($valkeyTest['steps'] !== [])
+                                <table class="w-full max-w-lg text-xs">
+                                    <tbody>
+                                        @foreach ($valkeyTest['steps'] as $step)
+                                            <tr class="border-b border-brand-ink/5">
+                                                <td class="py-1 pr-3 text-brand-moss">{{ $step['step'] }}</td>
+                                                <td class="py-1 pr-3 text-right tabular-nums text-brand-ink">{{ number_format($step['ms'], 1) }} ms</td>
+                                                <td @class(['py-1 font-mono', 'text-brand-ink' => $step['result'] !== 'failed', 'text-red-700 dark:text-red-400' => $step['result'] === 'failed'])>{{ \Illuminate\Support\Str::limit($step['result'], 24) }}</td>
+                                            </tr>
+                                        @endforeach
+                                        @if ($valkeyTest['ping_median_ms'] !== null)
+                                            <tr>
+                                                <td class="py-1 pr-3 text-brand-moss">{{ __('PING ×10') }}</td>
+                                                <td class="py-1 pr-3 text-right tabular-nums text-brand-ink">{{ number_format($valkeyTest['ping_median_ms'], 1) }} ms</td>
+                                                <td class="py-1 text-brand-moss">{{ __('median · slowest :max ms', ['max' => number_format($valkeyTest['ping_max_ms'], 1)]) }}</td>
+                                            </tr>
+                                        @endif
+                                    </tbody>
+                                </table>
+                            @endif
+                        @endif
+                    </div>
+
+                    <div x-show="tab === 'costs'" class="mt-4">
+                        <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-xs">
+                            <dt class="text-brand-moss">{{ __('So far this month') }}</dt>
+                            <dd class="font-semibold tabular-nums text-brand-ink">{{ '$'.\App\Modules\Edge\Support\EdgeValkey::money($valkeySpent) }}</dd>
+                            <dt class="text-brand-moss">{{ __('Rate') }}</dt>
+                            <dd class="tabular-nums text-brand-ink">{{ __('$:hour per hour while awake', ['hour' => number_format($valkeySpec['per_second'] * 3600, 4)]) }}</dd>
+                            <dt class="text-brand-moss">{{ __('Monthly cap') }}</dt>
+                            <dd class="tabular-nums text-brand-ink">{{ __('$:cap. Never more than this, even if it never sleeps.', ['cap' => number_format($valkeySpec['cap_cents'] / 100, 0)]) }}</dd>
+                            <dt class="text-brand-moss">{{ __('Asleep') }}</dt>
+                            <dd class="text-brand-ink">{{ $valkeySpec['sleeps'] ? __('Not billed.') : __('Pro sizes do not sleep.') }}</dd>
+                        </dl>
+                        <div class="mt-3 flex flex-wrap items-center gap-3">
+                            <button type="button" wire:click="refreshValkeyAwake" wire:loading.attr="disabled" wire:target="refreshValkeyAwake" class="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-ink underline disabled:opacity-50">
+                                <x-spinner size="sm" wire:loading wire:target="refreshValkeyAwake" />
+                                {{ __('Refresh awake time') }}
+                            </button>
+                            <span class="text-xs text-brand-moss">{{ __('Shown exactly. The invoice rounds the month\'s total once, to the nearest cent.') }}</span>
+                        </div>
+                    </div>
+
+                    <div x-show="tab === 'settings'" class="mt-4">
+                        <form wire:key="valkey-settings-{{ md5($valkeyConnection['host']) }}" x-data="{ size: @js($valkeyConnection['plan'] ?: \App\Modules\Edge\Support\EdgeValkey::DEFAULT_CLASS), sleep: {{ $valkeyModalSleep }} }" x-on:submit.prevent="$wire.saveValkey(@js($valkeyConnection['host']), size, Number(sleep))" class="max-w-md space-y-3">
+                            <div>
+                                <x-input-label :value="__('Size')" />
+                                <select x-model="size" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink dark:bg-zinc-900">
+                                    @foreach (\App\Modules\Edge\Support\EdgeValkey::CLASSES as $classId => $class)
+                                        <option value="{{ $classId }}">{{ __($class['label']) }} · {{ __('up to $:price/mo', ['price' => number_format($class['cap_cents'] / 100, 0)]) }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <div x-show="size.startsWith('flex_')">
+                                <x-input-label :value="__('Sleep after')" />
+                                <select x-model="sleep" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink dark:bg-zinc-900">
+                                    @foreach (\App\Modules\Edge\Support\EdgeValkey::SLEEPS as $seconds => $label)
+                                        <option value="{{ $seconds }}">{{ __($label) }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <x-primary-button type="submit">{{ __('Save') }}</x-primary-button>
+                        </form>
+                    </div>
+                </div>
+                </div>
+            @endif
         </div>
     </x-modal>
 
