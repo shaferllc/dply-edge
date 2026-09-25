@@ -114,7 +114,7 @@ final class EdgeAppDatabase
         $current = self::record($site);
         $sameRemote = $from === $to && (string) ($current['remote_id'] ?? '') !== '';
         if ($from === $to && ($to === 'sql' || $to === 'none' || ($sameRemote && ($current['status'] ?? '') !== 'failed'))) {
-            if ($to === 'mysql' && $sameRemote && self::mysqlSize((string) ($current['size'] ?? '')) !== $mysqlSize) {
+            if ($to === 'mysql' && $sameRemote && ! self::isDply($current) && self::mysqlSize((string) ($current['size'] ?? '')) !== $mysqlSize) {
                 try {
                     self::requireCard($site);
                     PlanetScaleClient::fromConfig()->resize((string) $current['remote_id'], $mysqlSize);
@@ -123,7 +123,7 @@ final class EdgeAppDatabase
                     return $e->getMessage();
                 }
             }
-            if ($to === 'mongodb' && $sameRemote) {
+            if (($to === 'mongodb' || ($to === 'mysql' && self::isDply($current))) && $sameRemote) {
                 $error = self::applyDplyPostgres($site, $current, $postgresPlan, $postgresSize, $postgresSuspend, $postgresDisk);
                 if ($error !== null) {
                     return $error;
@@ -150,13 +150,13 @@ final class EdgeAppDatabase
                 if ($to === 'postgres' && ! EdgeDplyDatabase::enabled() && ! NeonClient::configured()) {
                     throw new RuntimeException('Postgres cannot be started from here yet.');
                 }
-                if ($to === 'mysql' && ! PlanetScaleClient::configured()) {
+                if ($to === 'mysql' && ! EdgeDplyDatabase::enabled() && ! PlanetScaleClient::configured()) {
                     throw new RuntimeException('MySQL cannot be started from here yet.');
                 }
             }
             self::release($site, $from, $current);
-            if ($to === 'mongodb') {
-                self::startDplyPostgres($site, $postgresPlan, $postgresSize, $postgresSuspend, $postgresDisk, 'mongodb');
+            if ($to === 'mongodb' || ($to === 'mysql' && EdgeDplyDatabase::enabled())) {
+                self::startDplyPostgres($site, $postgresPlan, $postgresSize, $postgresSuspend, $postgresDisk, $to);
             } elseif ($to === 'postgres' && EdgeDplyDatabase::enabled()) {
                 self::startDplyPostgres($site, $postgresPlan, $postgresSize, $postgresSuspend, $postgresDisk);
             } elseif ($to === 'postgres') {
@@ -266,7 +266,7 @@ final class EdgeAppDatabase
         if ($remoteId === '') {
             return;
         }
-        if (($from === 'postgres' || $from === 'mongodb') && self::isDply($current)) {
+        if (in_array($from, ['postgres', 'mongodb', 'mysql'], true) && self::isDply($current)) {
             EdgeDplyDatabase::destroy($remoteId);
         } elseif ($from === 'postgres') {
             NeonClient::fromConfig()->delete($remoteId);

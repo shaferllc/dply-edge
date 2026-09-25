@@ -1439,13 +1439,14 @@ class Resources extends Component
     public function selectDatabase(string $engine): void
     {
         $this->authorize('update', $this->site);
-        if (! in_array($engine, EdgeAppDatabase::ENGINES, true) || $engine === 'mysql') {
+        if (! in_array($engine, EdgeAppDatabase::ENGINES, true)) {
             return;
         }
-        if (($engine === 'postgres' || $engine === 'mongodb') && ! $this->cardOnFile()) {
+        if (in_array($engine, ['postgres', 'mongodb', 'mysql'], true) && ! $this->cardOnFile()) {
             return;
         }
-        if ($engine === 'mongodb' && ! EdgeDplyDatabase::enabled()) {
+        // MongoDB and MySQL are dply databases only (PlanetScale is not offered for new ones).
+        if (in_array($engine, ['mongodb', 'mysql'], true) && ! EdgeDplyDatabase::enabled()) {
             return;
         }
 
@@ -1518,6 +1519,11 @@ class Resources extends Component
     {
         if ($this->draftDatabase === 'mongodb') {
             return true; // MongoDB only exists on dply
+        }
+        $stored = is_array($this->site->edgeMeta()['database'] ?? null) ? $this->site->edgeMeta()['database'] : [];
+        if ($this->draftDatabase === 'mysql') {
+            // An existing PlanetScale database keeps its own controls; a new one is dply.
+            return ! (($stored['engine'] ?? '') === 'mysql' && (string) ($stored['remote_id'] ?? '') !== '') || EdgeAppDatabase::isDply($stored);
         }
         $stored = is_array($this->site->edgeMeta()['database'] ?? null) ? $this->site->edgeMeta()['database'] : [];
         if (($stored['engine'] ?? '') === 'postgres' && (string) ($stored['remote_id'] ?? '') !== '') {
@@ -1872,7 +1878,7 @@ class Resources extends Component
                 'postgresHistories' => EdgeAppDatabase::POSTGRES_HISTORY,
                 'postgresAwakeHours' => $awakeHours,
                 'postgresDply' => $postgresDply,
-                'mongoAvailable' => EdgeDplyDatabase::enabled(),
+                'dplyDatabases' => EdgeDplyDatabase::enabled(),
                 'postgresDisks' => EdgeDplyDatabase::DISKS,
                 'postgresDisk' => EdgeDplyDatabase::disk($this->draftPostgresDisk),
                 'postgresRegions' => NeonClient::REGIONS,
@@ -1947,7 +1953,7 @@ class Resources extends Component
             'database' => in_array($engine, EdgeAppDatabase::ENGINES, true) ? $engine : ($runtime === 'container' ? 'sql' : 'none'),
             'mysql_size' => EdgeAppDatabase::mysqlSize((string) ($database['size'] ?? '')),
             'postgres_plan' => EdgeAppDatabase::postgresPlan((string) ($database['plan'] ?? '')),
-            'postgres_size' => EdgeAppDatabase::postgresSize(in_array($engine, ['postgres', 'mongodb'], true) ? (string) ($database['size'] ?? '') : ''),
+            'postgres_size' => EdgeAppDatabase::postgresSize(in_array($engine, ['postgres', 'mongodb', 'mysql'], true) && ($engine !== 'mysql' || EdgeAppDatabase::isDply($database)) ? (string) ($database['size'] ?? '') : ''),
             'postgres_region' => EdgeAppDatabase::postgresRegion((string) ($database['region'] ?? '')),
             'postgres_suspend' => EdgeAppDatabase::postgresSuspend((int) ($database['suspend'] ?? 0), (string) ($database['plan'] ?? '')),
             'postgres_history' => EdgeAppDatabase::postgresHistory((int) ($database['history'] ?? 0)),

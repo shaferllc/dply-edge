@@ -13,6 +13,7 @@ use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
 use App\Modules\Billing\Models\Subscription;
+use App\Modules\Billing\Services\EdgeAppDatabaseCost;
 use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Edge\Services\EdgePostgresUsageCollector;
 use App\Modules\Edge\Services\EdgeValkeyUsageCollector;
@@ -193,4 +194,52 @@ test('mongodb is only offered when the gateway is configured', function () {
 
     config(['edge.valkey.api_url' => null]);
     $test()->assertDontSeeHtml("selectDatabase('mongodb')")->call('selectDatabase', 'mongodb')->assertNotSet('draftDatabase', 'mongodb');
+});
+
+test('mysql is a dply database: DB_* on 3306, resize with DB_PASSWORD, delete through the gateway', function () {
+    Http::fake(['gateway.test/*' => Http::response([])]);
+    $id = 'my-'.strtolower($this->site->id);
+
+    expect(EdgeAppDatabase::sync($this->site, 'sql', 'mysql', '', 'sleep', '0.25', '', 300, 0, 1))->toBeNull();
+    $password = env($this->site, 'DB_PASSWORD');
+
+    expect($this->site->edgeMeta()['database'])->toMatchArray(['engine' => 'mysql', 'provider' => 'dply', 'remote_id' => $id])
+        ->and(env($this->site, 'DB_CONNECTION'))->toBe('mysql')
+        ->and(env($this->site, 'DB_HOST'))->toBe($id.'.db.dply.test')
+        ->and(env($this->site, 'DB_PORT'))->toBe('3306')
+        ->and(env($this->site, 'DB_USERNAME'))->toBe('app')
+        ->and(env($this->site, 'DATABASE_URL'))->toContain('@'.$id.'.db.dply.test:3306/app?ssl-mode=REQUIRED');
+    Http::assertSent(fn ($request): bool => $request->method() === 'PUT' && $request['engine'] === 'mysql' && $request['password'] === $password);
+
+    expect(EdgeAppDatabase::sync($this->site, 'mysql', 'mysql', 'PS_20', 'sleep', '0.5', '', 300, 0, 5))->toBeNull();
+    Http::assertSent(fn ($request): bool => $request->method() === 'PUT' && $request['engine'] === 'mysql' && $request['memory_mb'] === 2048 && $request['disk_gb'] === 5 && $request['password'] === $password);
+
+    EdgeAppDatabase::sync($this->site, 'mysql', 'sql');
+    Http::assertSent(fn ($request): bool => $request->method() === 'DELETE' && $request->url() === 'https://gateway.test/tenants/'.$id);
+});
+
+test('dply mysql is metered, not charged the flat planetscale price; planetscale still is', function () {
+    Http::fake(['gateway.test/*' => Http::response([])]);
+    EdgeAppDatabase::sync($this->site, 'sql', 'mysql');
+    $this->site->save();
+    $cost = app(EdgeAppDatabaseCost::class);
+
+    expect($cost->forOrganization($this->site->organization)['mysql'])->toBe(0);
+
+    $this->site->mergeEdgeMeta(['database' => ['engine' => 'mysql', 'name' => 'production', 'status' => 'ready', 'remote_id' => 'ps-cluster', 'size' => 'PS_10']]);
+    $this->site->save();
+    expect($cost->forOrganization($this->site->organization))->toMatchArray(['mysql' => 1, 'cents' => EdgeAppDatabase::mysqlCents('PS_10')]);
+});
+
+test('mysql is offered only when the gateway is configured', function () {
+    $user = User::factory()->create();
+    $this->site->organization->users()->attach($user->id, ['role' => 'owner']);
+    $this->site->forceFill(['user_id' => $user->id, 'type' => SiteType::Static, 'status' => Site::STATUS_EDGE_ACTIVE])->save();
+    $this->site->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
+    $test = fn () => Livewire::actingAs($user)->test(Resources::class, ['server' => $this->site->server, 'site' => $this->site]);
+
+    $test()->call('selectDatabase', 'mysql')->assertSet('draftDatabase', 'mysql')->assertSeeHtml('id="postgres-disk"')->assertSee('dply MySQL in New York');
+
+    config(['edge.valkey.api_url' => null]);
+    $test()->assertSee('Coming soon')->call('selectDatabase', 'mysql')->assertNotSet('draftDatabase', 'mysql');
 });

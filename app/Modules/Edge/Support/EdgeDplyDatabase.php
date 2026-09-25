@@ -10,7 +10,7 @@ use App\Modules\Providers\Valkey\ValkeyGatewayClient;
 use Illuminate\Support\Str;
 
 /**
- * dply databases (ruling r-67chv2jdx2ha025q): Postgres or MongoDB, one pod per
+ * dply databases (ruling r-67chv2jdx2ha025q): Postgres, MySQL or MongoDB, one pod per
  * app on the dply Kubernetes cluster, data on a DigitalOcean volume, parked
  * when idle. The gateway (packages/valkey-gateway) creates and wakes it; apps
  * connect to {id}.db.dply.io (5432 or 27017) with TLS as user "app" to
@@ -25,6 +25,7 @@ final class EdgeDplyDatabase
     public const ENGINES = [
         'postgres' => ['pg', '5432'],
         'mongodb' => ['mg', '27017'],
+        'mysql' => ['my', '3306'],
     ];
 
     /** Sizes that fit the shared flex nodes (4 GB). Bigger ones need a pool. */

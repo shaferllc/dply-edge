@@ -38,6 +38,10 @@ class EdgeAppDatabaseCost
                 if (! is_array($database) || ($database['engine'] ?? '') !== 'mysql') {
                     return;
                 }
+                // dply MySQL is metered per second (edge_postgres_usage), not a flat cluster price.
+                if (EdgeAppDatabase::isDply($database)) {
+                    return;
+                }
                 if ((string) ($database['remote_id'] ?? '') === '') {
                     return;
                 }
