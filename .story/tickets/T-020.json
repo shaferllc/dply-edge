@@ -6,10 +6,11 @@
   "completedDate": null,
   "createdDate": "2026-09-25",
   "description": "DO provider client, shared clusters per engine/region with per-app db+user and quotas, dedicated tier, dump/restore migration jobs, then delete Neon/PlanetScale modules. Mongo container-only.",
+  "displayId": "T-020",
   "id": "T-020",
   "order": 50,
   "phase": "resources-everywhere",
-  "status": "open",
+  "status": "inprogress",
   "title": "DigitalOcean managed Postgres/MySQL/MongoDB (shared + dedicated); retire Neon and PlanetScale",
   "type": "feature"
 }
