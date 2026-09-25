@@ -2,8 +2,12 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"log"
 	"net"
+	"os"
 	"strconv"
 	"time"
 
@@ -11,6 +15,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 // tenant is one app's Valkey, stored as a Secret named vk-{id}.
@@ -98,23 +104,41 @@ func (g *gateway) deleteTenantRecord(ctx context.Context, id string) error {
 	return err
 }
 
-// podIP returns the pod's address when it is running and not being deleted.
-// ponytail: one API read per new connection; cache it if connection rates get high.
+// Pods are found by label, not name: a tenant can run in a pod adopted from
+// the warm pool, which keeps its pool name.
+//
+//	app=dply-valkey-pod  role=pool|tenant  memory=<mb>  tenant=<id>
+func tenantSelector(id string) string { return "app=dply-valkey-pod,role=tenant,tenant=" + id }
+
+// tenantPod returns the tenant's pod when it is running and not being deleted.
+// ponytail: one API read per wake; the proxy caches the address after that.
+func (g *gateway) tenantPod(ctx context.Context, id string) (*corev1.Pod, bool) {
+	list, err := g.kube.CoreV1().Pods(g.cfg.namespace).List(ctx, metav1.ListOptions{LabelSelector: tenantSelector(id)})
+	if err != nil {
+		return nil, false
+	}
+	for i := range list.Items {
+		p := &list.Items[i]
+		if p.DeletionTimestamp == nil && p.Status.Phase == corev1.PodRunning && p.Status.PodIP != "" {
+			return p, true
+		}
+	}
+	return nil, false
+}
+
 func (g *gateway) podIP(ctx context.Context, id string) (string, bool) {
-	pod, err := g.kube.CoreV1().Pods(g.cfg.namespace).Get(ctx, objectName(id), metav1.GetOptions{})
-	if err != nil || pod.DeletionTimestamp != nil || pod.Status.Phase != corev1.PodRunning || pod.Status.PodIP == "" {
+	p, ok := g.tenantPod(ctx, id)
+	if !ok {
 		return "", false
 	}
-	return pod.Status.PodIP, true
+	return p.Status.PodIP, true
 }
 
 func (g *gateway) deletePod(ctx context.Context, id string) error {
 	zero := int64(0)
-	err := g.kube.CoreV1().Pods(g.cfg.namespace).Delete(ctx, objectName(id), metav1.DeleteOptions{GracePeriodSeconds: &zero})
-	if apierrors.IsNotFound(err) {
-		return nil
-	}
-	return err
+	return g.kube.CoreV1().Pods(g.cfg.namespace).DeleteCollection(ctx,
+		metav1.DeleteOptions{GracePeriodSeconds: &zero},
+		metav1.ListOptions{LabelSelector: tenantSelector(id)})
 }
 
 func (g *gateway) deletePVC(ctx context.Context, id string) error {
@@ -125,7 +149,10 @@ func (g *gateway) deletePVC(ctx context.Context, id string) error {
 	return err
 }
 
-// wake returns an address that answers PING, starting the pod first if needed.
+// wake returns an address the tenant can log in to, in this order:
+// the cached address, an existing pod, a pod adopted from the warm pool,
+// or a new pod. Data from the last sleep is restored before the client
+// is let through.
 func (g *gateway) wake(ctx context.Context, id string) (string, error) {
 	s := g.state(id)
 	s.mu.Lock()
@@ -138,8 +165,13 @@ func (g *gateway) wake(ctx context.Context, id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	admin := g.cfg.adminPassword
+
 	if ip, ok := g.podIP(ctx, id); ok {
-		if err := waitForPong(ctx, ip, t.Password, 20*time.Second); err != nil {
+		if err := waitReady(ip, admin, 20*time.Second); err != nil {
+			return "", err
+		}
+		if err := g.configure(ip, *t); err != nil {
 			return "", err
 		}
 		s.ip = ip
@@ -151,44 +183,165 @@ func (g *gateway) wake(ctx context.Context, id string) (string, error) {
 		return ip, nil
 	}
 
+	step := time.Now()
+	lap := func(name string) {
+		if os.Getenv("DEBUG_TIMING") != "" {
+			log.Printf("tenant %s: %s %s", id, name, time.Since(step).Round(time.Millisecond))
+		}
+		step = time.Now()
+	}
+	lap("record")
+	ip, pooled := "", false
+	if !t.Persistent {
+		ip, pooled = g.adopt(ctx, *t)
+		lap("adopt")
+	}
+	if !pooled {
+		if ip, err = g.start(ctx, *t); err != nil {
+			return "", err
+		}
+	}
+	if err := g.configure(ip, *t); err != nil {
+		return "", err
+	}
+	lap("configure")
+	if !t.Persistent {
+		if err := g.restore(ctx, *t, ip); err != nil {
+			return "", err
+		}
+		lap("restore")
+	}
+	s.lastActivity = time.Now()
+	s.lastSnapshot = time.Now()
+	s.ip = ip
+	lap("done")
+	// Billing only; the client does not wait for the Secret write.
+	go g.markAwake(context.Background(), id)
+	if pooled {
+		log.Printf("tenant %s: adopted a warm pod", id)
+	}
+	return ip, nil
+}
+
+func (g *gateway) configure(ip string, t tenant) error {
+	c, err := dialAdmin(net.JoinHostPort(ip, "6379"), g.cfg.adminPassword)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	return applyTenant(c, t)
+}
+
+func (g *gateway) restore(ctx context.Context, t tenant, ip string) error {
+	body, err := g.store.get(ctx, t.ID)
+	if err != nil || body == nil {
+		return err
+	}
+	defer body.Close()
+	c, err := dialAdmin(net.JoinHostPort(ip, "6379"), g.cfg.adminPassword)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	n, err := restoreKeys(c, body)
+	if err == nil && n > 0 {
+		log.Printf("tenant %s: restored %d key(s)", t.ID, n)
+	}
+	return err
+}
+
+// adopt takes a ready pool pod of the tenant's size and makes it the tenant's.
+// The label change is a compare-and-swap on resourceVersion, so two gateways
+// can never adopt the same pod.
+func (g *gateway) adopt(ctx context.Context, t tenant) (string, bool) {
 	pods := g.kube.CoreV1().Pods(g.cfg.namespace)
-	// A pod left over from a sleep may still be terminating.
-	for i := 0; i < 50; i++ {
-		if _, err := pods.Get(ctx, objectName(id), metav1.GetOptions{}); apierrors.IsNotFound(err) {
+	list, err := pods.List(ctx, metav1.ListOptions{LabelSelector: "app=dply-valkey-pod,role=pool,memory=" + strconv.Itoa(t.MemoryMB)})
+	if err != nil {
+		return "", false
+	}
+	for i := range list.Items {
+		p := list.Items[i]
+		if p.DeletionTimestamp != nil || p.Status.Phase != corev1.PodRunning || p.Status.PodIP == "" || !podReady(&p) {
+			continue
+		}
+		// The resourceVersion makes this a compare-and-swap: a pod another
+		// gateway already took fails with a conflict and the next one is tried.
+		patch := fmt.Sprintf(`{"metadata":{"resourceVersion":%q,"labels":{"role":"tenant","tenant":%q}}}`, p.ResourceVersion, t.ID)
+		if _, err := pods.Patch(ctx, p.Name, types.MergePatchType, []byte(patch), metav1.PatchOptions{}); err != nil {
+			if !apierrors.IsConflict(err) {
+				log.Printf("tenant %s: adopt %s: %v", t.ID, p.Name, err)
+			}
+			continue
+		}
+		return p.Status.PodIP, true
+	}
+	return "", false
+}
+
+func podReady(p *corev1.Pod) bool {
+	for _, c := range p.Status.Conditions {
+		if c.Type == corev1.PodReady {
+			return c.Status == corev1.ConditionTrue
+		}
+	}
+	return false
+}
+
+// start creates a pod for the tenant when no warm one fits (a pro tenant, a
+// size with no pool, or an empty pool).
+func (g *gateway) start(ctx context.Context, t tenant) (string, error) {
+	if t.Persistent {
+		if err := g.ensurePVC(ctx, t); err != nil {
+			return "", err
+		}
+	}
+	pod := g.podSpec(objectName(t.ID), t.MemoryMB, t.Persistent)
+	pod.Labels["role"] = "tenant"
+	pod.Labels["tenant"] = t.ID
+	pods := g.kube.CoreV1().Pods(g.cfg.namespace)
+	for i := 0; i < 50; i++ { // a pod left over from a sleep may still be terminating
+		if _, err := pods.Get(ctx, pod.Name, metav1.GetOptions{}); apierrors.IsNotFound(err) {
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	if t.Persistent {
-		if err := g.ensurePVC(ctx, *t); err != nil {
-			return "", err
-		}
-	}
-	restore := ""
-	if !t.Persistent && g.store.exists(ctx, id) {
-		if restore, err = g.store.presignGet(ctx, id); err != nil {
-			return "", err
-		}
-	}
-	if _, err := pods.Create(ctx, g.podSpec(*t, restore), metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+	if _, err := pods.Create(ctx, pod, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
 		return "", err
 	}
-
 	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
-		if ip, ok := g.podIP(ctx, id); ok {
-			if err := waitForPong(ctx, ip, t.Password, time.Until(deadline)); err != nil {
-				return "", err
-			}
-			s.lastActivity = time.Now()
-			s.lastSnapshot = time.Now()
-			s.ip = ip
-			g.markAwake(ctx, id)
-			return ip, nil
+		if ip, ok := g.podIP(ctx, t.ID); ok {
+			return ip, waitReady(ip, g.cfg.adminPassword, time.Until(deadline))
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 	return "", fmt.Errorf("pod did not start in time")
+}
+
+// fillPool keeps cfg.pool[mb] ready pods per size. Called from the reaper.
+func (g *gateway) fillPool(ctx context.Context) {
+	pods := g.kube.CoreV1().Pods(g.cfg.namespace)
+	for mb, want := range g.cfg.pool {
+		list, err := pods.List(ctx, metav1.ListOptions{LabelSelector: "app=dply-valkey-pod,role=pool,memory=" + strconv.Itoa(mb)})
+		if err != nil {
+			continue
+		}
+		have := 0
+		for _, p := range list.Items {
+			if p.DeletionTimestamp == nil {
+				have++
+			}
+		}
+		for ; have < want; have++ {
+			name := fmt.Sprintf("vkp-%d-%s", mb, randomSuffix())
+			pod := g.podSpec(name, mb, false)
+			pod.Labels["role"] = "pool"
+			if _, err := pods.Create(ctx, pod, metav1.CreateOptions{}); err != nil {
+				log.Printf("pool %dMB: %v", mb, err)
+				break
+			}
+		}
+	}
 }
 
 func (g *gateway) ensurePVC(ctx context.Context, t tenant) error {
@@ -208,62 +361,52 @@ func (g *gateway) ensurePVC(ctx context.Context, t tenant) error {
 	return err
 }
 
-func (g *gateway) podSpec(t tenant, restoreURL string) *corev1.Pod {
-	mb := strconv.Itoa(t.MemoryMB)
+// podSpec is the same for pool and tenant pods. Only the gateway's admin user
+// can log in until applyTenant turns "default" on.
+func (g *gateway) podSpec(name string, memoryMB int, persistent bool) *corev1.Pod {
+	mb := strconv.Itoa(memoryMB)
 	args := []string{
 		"valkey-server",
-		"--requirepass", "$(VALKEY_PASSWORD)",
 		"--maxmemory", mb + "mb",
 		"--maxmemory-policy", "noeviction",
 		"--dir", "/data",
-		// The gateway pulls snapshots over SYNC; a length-prefixed RDB is simpler to read.
-		"--repl-diskless-sync", "no",
-		"--rename-command", "CONFIG", "",
-		"--rename-command", "DEBUG", "",
-		"--rename-command", "MODULE", "",
+		"--user", "default", "off",
+		"--user", adminUser, "on", ">$(ADMIN_PASSWORD)", "~*", "&*", "+@all",
 	}
-	if t.Persistent {
+	if persistent {
 		args = append(args, "--appendonly", "yes", "--save", "3600 1 300 100")
 	} else {
 		args = append(args, "--save", "")
 	}
 
 	data := corev1.Volume{Name: "data", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}
-	if t.Persistent {
-		data.VolumeSource = corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: objectName(t.ID)}}
+	if persistent {
+		data.VolumeSource = corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: name}}
 	}
 
-	var inits []corev1.Container
-	if restoreURL != "" {
-		inits = append(inits, corev1.Container{
-			Name:         "restore",
-			Image:        "busybox:1.36",
-			Command:      []string{"sh", "-c", `wget -q -O /data/dump.rdb "$RESTORE_URL"`},
-			Env:          []corev1.EnvVar{{Name: "RESTORE_URL", Value: restoreURL}},
-			VolumeMounts: []corev1.VolumeMount{{Name: "data", MountPath: "/data"}},
-		})
-	}
-
-	// Headroom over maxmemory for Valkey's own bookkeeping and the SYNC fork.
-	limit := resource.MustParse(strconv.Itoa(t.MemoryMB*3/2+32) + "Mi")
+	// Headroom over maxmemory for Valkey's own bookkeeping.
+	limit := resource.MustParse(strconv.Itoa(memoryMB*3/2+32) + "Mi")
 	grace := int64(2)
 	return &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: objectName(t.ID), Labels: map[string]string{"app": "dply-valkey", "tenant": t.ID}},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: map[string]string{"app": "dply-valkey-pod", "memory": mb}},
 		Spec: corev1.PodSpec{
 			RestartPolicy:                 corev1.RestartPolicyAlways,
 			TerminationGracePeriodSeconds: &grace,
 			AutomountServiceAccountToken:  new(bool),
-			InitContainers:                inits,
 			Volumes:                       []corev1.Volume{data},
 			Containers: []corev1.Container{{
 				Name:  "valkey",
 				Image: g.cfg.image,
 				Args:  args,
-				Env: []corev1.EnvVar{{Name: "VALKEY_PASSWORD", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{Name: objectName(t.ID)}, Key: "password",
+				Env: []corev1.EnvVar{{Name: "ADMIN_PASSWORD", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: g.cfg.adminSecret}, Key: "password",
 				}}}},
 				Ports:        []corev1.ContainerPort{{ContainerPort: 6379}},
 				VolumeMounts: []corev1.VolumeMount{{Name: "data", MountPath: "/data"}},
+				ReadinessProbe: &corev1.Probe{
+					ProbeHandler:  corev1.ProbeHandler{TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(6379)}},
+					PeriodSeconds: 2,
+				},
 				Resources: corev1.ResourceRequirements{
 					Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse(mb + "Mi"), corev1.ResourceCPU: resource.MustParse("25m")},
 					Limits:   corev1.ResourceList{corev1.ResourceMemory: limit},
@@ -273,29 +416,10 @@ func (g *gateway) podSpec(t tenant, restoreURL string) *corev1.Pod {
 	}
 }
 
-// waitForPong polls until the server has finished loading and answers PING.
-func waitForPong(ctx context.Context, ip, password string, within time.Duration) error {
-	deadline := time.Now().Add(within)
-	var last error
-	for time.Now().Before(deadline) {
-		c, err := dialAuthed(net.JoinHostPort(ip, "6379"), password)
-		if err == nil {
-			reply, err := command(c, "PING")
-			c.Close()
-			if err == nil && reply == "+PONG" {
-				return nil
-			}
-			last = fmt.Errorf("ping: %q %v", reply, err)
-		} else {
-			last = err
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(50 * time.Millisecond):
-		}
-	}
-	return fmt.Errorf("valkey did not answer: %v", last)
+func randomSuffix() string {
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 // Awake time is kept on the tenant Secret so billing survives a gateway restart:

@@ -30,6 +30,8 @@ t0=$(ms); out=$(vk t-flex "$PW1" SET greeting hello); t1=$(ms)
 check "first connection starts the tenant" "$out" "OK"
 echo "info cold start (no snapshot): $((t1 - t0)) ms"
 check "reads back" "$(vk t-flex "$PW1" GET greeting)" "hello"
+vk t-flex "$PW1" SET short-lived x PX 600000 >/dev/null
+check "tenant cannot run CONFIG" "$(vk t-flex "$PW1" CONFIG GET maxmemory 2>&1 | grep -c NOPERM)" "1"
 
 check "another tenant cannot see it" "$(vk t-other "$PW2" GET greeting)" ""
 denied=$(vk t-flex "$PW2" GET greeting 2>&1)
@@ -52,6 +54,10 @@ check "a snapshot was stored" "$(api $API/tenants/t-flex | python3 -c 'import sy
 
 t0=$(ms); out=$(vk t-flex "$PW1" GET greeting); t1=$(ms)
 check "waking restores the data" "$out" "hello"
+wake_ms=$((t1 - t0))
+check "a key's expiry survives the sleep" "$([ "$(vk t-flex "$PW1" PTTL short-lived)" -gt 0 ] && echo yes)" "yes"
+check "the wake adopted a warm pod" "$(kubectl --context orbstack -n dply-valkey get pods -l tenant=t-flex -o name | grep -c vkp-)" "1"
+check "wake is under a second" "$([ "$wake_ms" -lt 1000 ] && echo yes)" "yes"
 secs=$(api $API/usage | python3 -c 'import sys,json; print(json.load(sys.stdin)["awake_seconds"].get("t-flex", 0))')
 check "awake time was counted" "$([ "$secs" -ge 15 ] && echo yes)" "yes"
 echo "info t-flex awake seconds so far: $secs"

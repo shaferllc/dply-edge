@@ -36,7 +36,6 @@ use App\Support\Http\PublicOutboundUrl;
 use App\Support\Http\UnsafeOutboundUrlException;
 use App\Support\Sites\EdgeSiteViewData;
 use Illuminate\Contracts\View\View;
-use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 use Livewire\Component;
 

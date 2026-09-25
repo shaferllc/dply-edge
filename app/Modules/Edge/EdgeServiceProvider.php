@@ -23,6 +23,7 @@ use App\Modules\Edge\Console\EdgeWorkerDeployCommand;
 use App\Modules\Edge\Console\EnsureEdgeLogpushCommand;
 use App\Modules\Edge\Console\EvaluateEdgeGuardrailsCommand;
 use App\Modules\Edge\Console\MigrateEdgeHostnamesCommand;
+use App\Modules\Edge\Console\MoveRedisToValkeyCommand;
 use App\Modules\Edge\Console\PruneEdgeAnalyticsCommand;
 use App\Modules\Edge\Console\PublishEdgeBaseImagesCommand;
 use App\Modules\Edge\Console\RollupEdgeAnalyticsEngineCommand;
@@ -60,6 +61,7 @@ class EdgeServiceProvider extends ServiceProvider
                 CollectEdgeKvUsageCommand::class,
                 CollectEdgePostgresUsageCommand::class,
                 CollectEdgeValkeyUsageCommand::class,
+                MoveRedisToValkeyCommand::class,
                 CollectEdgeUsageCommand::class,
                 EdgeDoctorCommand::class,
                 EdgeSpikeWorkerBindingsCommand::class,

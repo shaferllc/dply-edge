@@ -50,7 +50,7 @@ Branch `feat/edge-platform`. One feature per commit.
 **Worker-site resources (T-018, 2026-09-24).** Uploads were proven by the T-016 spike, and the generated `dply-entry.js` was run under Node with stubbed `fetch` and Durable Object namespaces. No request has yet been routed to a wrapped Worker site. Still to see on a real SSR deploy with a State and an Another app attached:
 - a State read and write crossing into `dply-state-{site}`;
 - a peer call, with `global_fetch_strictly_public` added (a same-zone fetch otherwise fails with error 1042);
-- `Redis.fromEnv()` working with the injected Upstash REST vars.
+- a Worker reaching dply Valkey through `REDIS_URL` with a socket-capable client (Upstash REST vars were removed with Upstash Redis on 2026-09-24).
 
 **Global queue consumer (T-019, 2026-09-24).** The platform Worker (`packages/edge-worker`, `src/queue.ts`) now has a `queue()` handler, and it has to be redeployed before Worker-site queues run. Unit-tested on both ends (vitest `queue.test.ts`, and the wrapper's `/__dply/queue` path run under Node). Not yet seen on Cloudflare: a message going from a queue to the platform Worker to a Worker site's `queue()` export and being acked.
 

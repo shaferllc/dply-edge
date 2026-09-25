@@ -1,18 +1,17 @@
 package main
 
 import (
-	"bytes"
 	"context"
+	"io"
 	"net/url"
 	"os"
-	"time"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
-// snapshotStore keeps one RDB per tenant in an S3 bucket: R2 in production,
-// SeaweedFS locally. Key: tenants/{id}/dump.rdb.
+// snapshotStore keeps one key dump per tenant in an S3 bucket: R2 in
+// production, SeaweedFS locally. Key: tenants/{id}/keys.dump.
 type snapshotStore struct {
 	client *minio.Client
 	bucket string
@@ -28,29 +27,31 @@ func newSnapshotStore() (*snapshotStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &snapshotStore{client: client, bucket: env("S3_BUCKET", "dply-valkey")}
-	ctx := context.Background()
-	if ok, err := client.BucketExists(ctx, s.bucket); err == nil && !ok {
-		_ = client.MakeBucket(ctx, s.bucket, minio.MakeBucketOptions{})
-	}
-	return s, nil
+	return &snapshotStore{client: client, bucket: env("S3_BUCKET", "dply-valkey")}, nil
 }
 
-func key(id string) string { return "tenants/" + id + "/dump.rdb" }
+func key(id string) string { return "tenants/" + id + "/keys.dump" }
 
-func (s *snapshotStore) put(ctx context.Context, id string, rdb []byte) error {
+// put streams a snapshot of unknown length into the bucket.
+func (s *snapshotStore) put(ctx context.Context, id string, body io.Reader) error {
 	upload := func() error {
-		_, err := s.client.PutObject(ctx, s.bucket, key(id), bytes.NewReader(rdb), int64(len(rdb)), minio.PutObjectOptions{ContentType: "application/octet-stream"})
+		_, err := s.client.PutObject(ctx, s.bucket, key(id), body, -1, minio.PutObjectOptions{ContentType: "application/octet-stream", PartSize: 16 << 20})
 		return err
 	}
-	err := upload()
-	if minio.ToErrorResponse(err).Code == "NoSuchBucket" {
-		if mkErr := s.client.MakeBucket(ctx, s.bucket, minio.MakeBucketOptions{}); mkErr != nil {
-			return mkErr
+	if ok, err := s.client.BucketExists(ctx, s.bucket); err == nil && !ok {
+		if err := s.client.MakeBucket(ctx, s.bucket, minio.MakeBucketOptions{}); err != nil {
+			return err
 		}
-		err = upload()
 	}
-	return err
+	return upload()
+}
+
+// get opens the tenant's snapshot, or returns nil when there is none.
+func (s *snapshotStore) get(ctx context.Context, id string) (io.ReadCloser, error) {
+	if !s.exists(ctx, id) {
+		return nil, nil
+	}
+	return s.client.GetObject(ctx, s.bucket, key(id), minio.GetObjectOptions{})
 }
 
 func (s *snapshotStore) exists(ctx context.Context, id string) bool {
@@ -60,13 +61,4 @@ func (s *snapshotStore) exists(ctx context.Context, id string) bool {
 
 func (s *snapshotStore) remove(ctx context.Context, id string) error {
 	return s.client.RemoveObject(ctx, s.bucket, key(id), minio.RemoveObjectOptions{})
-}
-
-// presignGet is a short-lived URL the restore init container downloads from.
-func (s *snapshotStore) presignGet(ctx context.Context, id string) (string, error) {
-	u, err := s.client.PresignedGetObject(ctx, s.bucket, key(id), 5*time.Minute, nil)
-	if err != nil {
-		return "", err
-	}
-	return u.String(), nil
 }

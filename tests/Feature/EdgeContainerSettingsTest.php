@@ -17,7 +17,6 @@ use App\Models\User;
 use App\Modules\Billing\Models\Subscription;
 use App\Modules\Billing\Services\EdgeDeliveryCost;
 use App\Modules\Billing\Services\EdgeKvCost;
-use App\Modules\Billing\Services\EdgeRedisCost;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Services\EdgeKvUsageCollector;
 use App\Modules\Edge\Support\EdgeContainerConnections;
@@ -323,10 +322,7 @@ test('redis stores an encrypted address and does not ride the worker', function 
 });
 
 test('starting redis requires a card', function () {
-    config([
-        'edge.upstash.email' => 'ops@example.com',
-        'edge.upstash.api_key' => 'secret-key',
-    ]);
+    config(['edge.valkey.api_url' => 'http://gateway.test', 'edge.valkey.token' => 'tok']);
     Http::fake();
     [$user, $server, $site] = containerSite();
 
@@ -345,13 +341,13 @@ test('starting redis requires a card', function () {
         'kind' => 'redis',
         'name' => 'CACHE',
         'host' => 'cache.internal',
-        'target' => '96ad0856-03b1-4ee7-9666-e81abd0349e1',
+        'target' => 'valkey:app-cache',
     ]]]);
     $site->save();
     (new EdgeSiteEnvVar([
         'site_id' => $site->id,
         'key' => 'REDIS_URL',
-        'value' => 'rediss://default:s3cret@cache.upstash.io:6379',
+        'value' => 'rediss://default:s3cret@app-cache.cache.dply.test:6380',
         'scope' => EdgeSiteEnvVar::SCOPE_PRODUCTION,
         'created_by_user_id' => $user->id,
     ]))->save();
@@ -568,122 +564,60 @@ test('http delivery requires a card and bills messages', function () {
     expect(app(EdgeDeliveryCost::class)->forOrganization($site->organization, now()->startOfMonth(), now()->endOfMonth())['cents'])->toBe(1);
 });
 
-test('starting redis provisions an address and bills commands', function () {
-    config([
-        'edge.upstash.email' => 'ops@example.com',
-        'edge.upstash.api_key' => 'secret-key',
-        'dply.edge.usage_billing.markup_percent' => 0,
-    ]);
-    Http::fake([
-        'https://api.upstash.com/v2/redis/database' => Http::response([
-            'database_id' => '96ad0856-03b1-4ee7-9666-e81abd0349e1',
-            'password' => 's3cret',
-            'endpoint' => 'cache.upstash.io',
-            'port' => 6379,
-        ]),
-    ]);
+test('starting redis starts a dply Valkey and stores its address', function () {
+    config(['edge.valkey.api_url' => 'http://gateway.test', 'edge.valkey.token' => 'tok', 'edge.valkey.domain' => 'cache.dply.test']);
+    Http::fake(['gateway.test/*' => Http::response(['id' => 'x'])]);
     [$user, $server, $site] = containerSite();
     config(['subscription.standard.stripe.tier_pro' => 'price_tier_pro']);
     Subscription::factory()->withPrice('price_tier_pro')->active()->create(['organization_id' => $site->organization_id]);
 
     Livewire::actingAs($user)
         ->test(Resources::class, ['server' => $server, 'site' => $site])
-        ->set('connectionKind', 'redis')
-        ->set('connectionMode', 'create')
+        ->call('chooseConnectionKind', 'redis')
         ->set('connectionLabel', 'Cache')
-        ->set('redisRegion', 'eu-west-1')
+        ->set('valkeyClass', 'flex_1g')
+        ->set('valkeySleep', 900)
         ->call('saveConnection')
-        ->assertHasNoErrors()
-        ->assertDontSee('s3cret');
+        ->assertHasNoErrors();
 
     $site->refresh();
     $connection = collect(EdgeContainerConnections::for($site))->firstWhere('kind', 'redis');
+    $url = (string) $site->edgeEnvVars()->where('key', 'REDIS_URL')->first()->value;
+    $password = rawurldecode((string) parse_url($url, PHP_URL_PASS));
 
-    expect($connection['target'])->toBe('96ad0856-03b1-4ee7-9666-e81abd0349e1')
-        ->and($site->edgeEnvVars()->where('key', 'REDIS_URL')->first()->value)->toBe('rediss://default:s3cret@cache.upstash.io:6379')
-        ->and($site->edgeEnvVars()->where('key', 'REDIS_USERNAME')->first()->value)->toBe('default')
-        ->and($site->edgeEnvVars()->where('key', 'REDIS_PASSWORD')->first()->value)->toBe('s3cret')
-        ->and(json_encode($site->edgeMeta()))->not->toContain('s3cret')
-        ->and(app(EdgeRedisCost::class)->cents(100_000, 1024 ** 3, 0))->toBe(20)
-        ->and(app(EdgeRedisCost::class)->cents(0, 2 * 1024 ** 3, 0))->toBe(50)
-        ->and(app(EdgeRedisCost::class)->cents(0, 0, 201 * 1024 ** 3))->toBe(5)
-        ->and(app(EdgeRedisCost::class)->planCents('fixed_250mb'))->toBe(2000)
-        ->and(app(EdgeRedisCost::class)->planCents('fixed_250mb', 1))->toBe(3000)
-        ->and($connection['plan'])->toBe('payg');
+    expect($connection['target'])->toStartWith('valkey:')
+        ->and($connection['plan'])->toBe('flex_1g')
+        ->and($url)->toStartWith('rediss://default:')->toContain('.cache.dply.test:6380')
+        ->and($site->edgeEnvVars()->where('key', 'REDIS_PASSWORD')->first()->value)->toBe($password)
+        ->and(json_encode($site->edgeMeta()))->not->toContain($password)
+        ->and($site->edgeMeta()['valkey_sleep'][$connection['target']])->toBe(900);
 
-    Http::assertSent(function ($request) use ($site): bool {
-        return $request->url() === 'https://api.upstash.com/v2/redis/database'
-            && $request['primary_region'] === 'eu-west-1'
-            && $request['plan'] === 'payg'
-            && $request['database_name'] === $site->slug.'-cache';
-    });
+    Http::assertSent(fn ($request): bool => $request->method() === 'PUT' && $request['memory_mb'] === 1024 && $request['sleep_after'] === 900);
 });
 
-test('redis settings show the username and save eviction', function () {
-    config([
-        'edge.upstash.email' => 'ops@example.com',
-        'edge.upstash.api_key' => 'secret-key',
-    ]);
-    $id = '96ad0856-03b1-4ee7-9666-e81abd0349e1';
-    Http::fake([
-        'https://api.upstash.com/v2/redis/database/'.$id => Http::response([
-            'database_name' => 'cache',
-            'password' => 's3cret',
-            'tls' => true,
-            'eviction' => false,
-            'auto_upgrade' => false,
-            'daily_backup_enabled' => false,
-            'budget' => 0,
-            'state' => 'active',
-            'primary_region' => 'us-east-1',
-        ]),
-        'https://api.upstash.com/v2/redis/stats/'.$id => Http::response([
-            'daily_net_commands' => 7,
-            'daily_read_requests' => 4,
-            'daily_write_requests' => 3,
-            'total_monthly_requests' => 9,
-            'current_storage' => 1024,
-            'dailybandwidth' => 2048,
-            'keyspace' => [['x' => '2026-09-24', 'y' => 2]],
-            'connection_count' => [['x' => '2026-09-24', 'y' => 1]],
-        ]),
-        'https://api.upstash.com/v2/redis/enable-eviction/'.$id => Http::response('OK'),
-        'https://api.upstash.com/v2/redis/list-backup/'.$id => Http::response([]),
-        'https://cache.upstash.io' => Http::response(['result' => 'PONG']),
-    ]);
+test('valkey settings change the size and sleep time', function () {
+    config(['edge.valkey.api_url' => 'http://gateway.test', 'edge.valkey.token' => 'tok']);
+    Http::fake(['gateway.test/*' => Http::response([])]);
     [$user, $server, $site] = containerSite();
-    $site->mergeEdgeMeta(['connections' => [[
-        'kind' => 'redis',
-        'name' => 'CACHE',
-        'host' => 'cache.internal',
-        'target' => $id,
-    ]]]);
+    $host = EdgeContainerConnections::resourceHost($site, 'cache');
+    $site->mergeEdgeMeta(['connections' => [['kind' => 'redis', 'name' => 'CACHE', 'host' => $host, 'target' => 'valkey:app-cache', 'plan' => 'flex_250m']]]);
     $site->save();
     (new EdgeSiteEnvVar([
         'site_id' => $site->id,
         'key' => 'REDIS_URL',
-        'value' => 'rediss://default:s3cret@cache.upstash.io:6379',
+        'value' => 'rediss://default:s3cret@app-cache.cache.dply.test:6380',
         'scope' => EdgeSiteEnvVar::SCOPE_PRODUCTION,
         'created_by_user_id' => $user->id,
     ]))->save();
 
     Livewire::actingAs($user)
         ->test(Resources::class, ['server' => $server, 'site' => $site])
-        ->call('openRedis', EdgeContainerConnections::resourceHost($site, 'cache'))
-        ->assertSet('redisUser', 'default')
-        ->assertSet('redisPassword', 's3cret')
-        ->assertSee('Commands today')
-        ->assertSee('7')
-        ->assertSee('This month')
-        ->assertSee('$'.number_format(app(EdgeRedisCost::class)->cents(9, 1024, 0) / 100, 2))
-        ->call('runRedisTest')
-        ->assertSet('redisTestResult', 'PONG')
-        ->assertDontSee('s3cret')
-        ->set('redisEviction', true)
-        ->call('saveRedisSettings')
+        ->call('saveValkey', $host, 'pro_5g', 300)
         ->assertHasNoErrors();
 
-    Http::assertSent(fn ($request): bool => $request->url() === 'https://api.upstash.com/v2/redis/enable-eviction/'.$id);
+    expect(collect(EdgeContainerConnections::for($site->fresh()))->firstWhere('kind', 'redis')['plan'])->toBe('pro_5g');
+    Http::assertSent(fn ($request): bool => $request->url() === 'http://gateway.test/tenants/app-cache'
+        && $request['password'] === 's3cret' && $request['memory_mb'] === 5120 && $request['persistent'] === true && $request['sleep_after'] === 0);
 });
 
 test('an attached queue sets the driver env and an existing value wins', function () {

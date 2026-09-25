@@ -5,7 +5,7 @@
   ],
   "completedDate": null,
   "createdDate": "2026-09-25",
-  "description": "Per-app memory-limited pods, SNI proxy that holds connections while waking, operator (create/resize/sleep/wake/snapshot to R2), flex+pro classes billed per second, sleep picker, migrate Upstash Redis users.\n\n2026-09-24: packages/valkey-gateway built and verified on OrbStack k8s (deploy/local-verify.sh, 12/12, incl. awake-time counting). Laravel: ValkeyGatewayClient, EdgeValkey (classes/prices/sleeps), Resources create+settings, per-second billing (GET /usage -> hourly dply:edge:collect-valkey-usage -> edge_redis_usage.awake_seconds -> EdgeRedisCost, capped). Remaining: warm pool, Upstash user migration, DOKS/R2 production deploy, multi-replica gateway.",
+  "description": "Per-app memory-limited pods, SNI proxy that holds connections while waking, operator (create/resize/sleep/wake/snapshot to R2), flex+pro classes billed per second, sleep picker.\n\n2026-09-24: gateway verified on OrbStack (17/17, 3 consecutive runs). Warm pool + ACL logins + key-dump snapshots: wake with restore 0.5-0.7s (was 2.5-3.2s). Laravel client, Resources, per-second billing done; Upstash Redis removed (QStash kept); dply:edge:move-redis-to-valkey written (unrun on real data). Remaining: pool informer, demand-based pool sizing, DOKS/R2 production deploy (set POOL=250:N,1024:N,2560:N to match EdgeValkey classes), multi-replica gateway.",
   "displayId": "T-021",
   "id": "T-021",
   "order": 60,

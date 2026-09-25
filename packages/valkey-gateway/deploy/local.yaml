@@ -20,7 +20,7 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["pods", "secrets", "persistentvolumeclaims"]
-    verbs: ["get", "list", "create", "update", "delete"]
+    verbs: ["get", "list", "create", "update", "patch", "delete", "deletecollection"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -107,6 +107,10 @@ spec:
             - { name: S3_REGION, value: us-east-1 }
             - name: API_TOKEN
               valueFrom: { secretKeyRef: { name: valkey-gateway-api, key: token } }
+            - name: ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: valkey-gateway-admin, key: password } }
+            # Warm pods kept ready per size (MB:count). The verify script uses 50 MB tenants.
+            - { name: POOL, value: "50:2,250:1" }
           ports:
             - { containerPort: 6380, name: valkey }
             - { containerPort: 8080, name: api }
