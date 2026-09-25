@@ -1,0 +1,15 @@
+{
+  "blockedBy": [],
+  "citesRulings": [
+    "r-72p0gkdn9dqwxqha"
+  ],
+  "completedDate": null,
+  "createdDate": "2026-09-25",
+  "description": "DO provider client, shared clusters per engine/region with per-app db+user and quotas, dedicated tier, dump/restore migration jobs, then delete Neon/PlanetScale modules. Mongo container-only.",
+  "id": "T-020",
+  "order": 50,
+  "phase": "resources-everywhere",
+  "status": "open",
+  "title": "DigitalOcean managed Postgres/MySQL/MongoDB (shared + dedicated); retire Neon and PlanetScale",
+  "type": "feature"
+}

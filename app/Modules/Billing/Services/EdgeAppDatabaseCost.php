@@ -71,16 +71,42 @@ class EdgeAppDatabaseCost
     /**
      * Customer-facing rates after markup. Hour is the smallest size (0.25 CU).
      *
-     * @return array{hour: string, gigabyte: string}
+     * @return array{hour: string, gigabyte: string, history: string}
      */
     public function presentation(): array
     {
         $factor = (100 + $this->markup()) / 100;
-        $gigabyte = (float) config('dply.edge.usage_billing.postgres_storage_millicents_per_gb_month', 0) / 100_000 * $factor;
+        $rate = fn (string $key): float => (float) config('dply.edge.usage_billing.'.$key, 0) / 100_000 * $factor;
 
         return [
             'hour' => $this->hourly(0.25),
-            'gigabyte' => number_format($gigabyte, 2),
+            'gigabyte' => number_format($rate('postgres_storage_millicents_per_gb_month'), 2),
+            'history' => number_format($rate('postgres_history_millicents_per_gb_month'), 2),
+        ];
+    }
+
+    /**
+     * Stored data for this app this month. Gigabytes is the latest day.
+     *
+     * @return array{recorded: bool, gigabytes: string, month: string}
+     */
+    public function stored(Site $site): array
+    {
+        $rows = EdgePostgresUsage::query()
+            ->where('site_id', $site->id)
+            ->whereBetween('date', [now()->startOfMonth()->toDateString(), now()->endOfMonth()->toDateString()])
+            ->orderBy('date')
+            ->get(['storage_byte_hours']);
+        $hours = max(1, now()->daysInMonth * 24);
+        $latest = (int) ($rows->last()->storage_byte_hours ?? 0);
+        $gigabytes = $latest / 24 / (1024 ** 3);
+        $gigabyteMonth = (int) $rows->sum('storage_byte_hours') / (1024 ** 3) / $hours;
+        $rate = (float) $this->presentation()['gigabyte'];
+
+        return [
+            'recorded' => $rows->isNotEmpty(),
+            'gigabytes' => number_format($gigabytes, 2),
+            'month' => number_format($gigabyteMonth * $rate, 2),
         ];
     }
 

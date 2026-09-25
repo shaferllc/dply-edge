@@ -1,0 +1,13 @@
+{
+  "blockedBy": [],
+  "completedDate": null,
+  "createdDate": "2026-09-25",
+  "description": "Pre-pull base images on every node (DaemonSet), keep generic PHP runtime images small, then evaluate a warm pool or snapshot/restore (CRIU, or Firecracker via Kata) to get wakes under 500ms, matching what Laravel Cloud's docs claim for Flex. Only worth doing after the spike's numbers are known.",
+  "id": "T-026",
+  "order": 50,
+  "parentTicket": "T-022",
+  "phase": null,
+  "status": "open",
+  "title": "Wakes under a second on dedicated compute",
+  "type": "task"
+}

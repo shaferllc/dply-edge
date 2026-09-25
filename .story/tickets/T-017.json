@@ -1,0 +1,16 @@
+{
+  "blockedBy": [],
+  "citesRulings": [
+    "r-72p0gkdn9dqwxqha"
+  ],
+  "completedDate": "2026-09-24",
+  "createdDate": "2026-09-25",
+  "description": "Translator reads connections for Worker sites (native bindings). Databases/Queues/Jobs write connections. Repo wrangler.toml wins visibly. Picker filtered by runtime; static shows needs-server-code line.",
+  "displayId": "T-017",
+  "id": "T-017",
+  "order": 20,
+  "phase": "resources-everywhere",
+  "status": "complete",
+  "title": "One resource store: migrate bindings_overrides into connections, delete Bindings tab",
+  "type": "feature"
+}

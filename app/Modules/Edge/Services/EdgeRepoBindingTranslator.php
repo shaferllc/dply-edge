@@ -6,7 +6,12 @@ namespace App\Modules\Edge\Services;
 
 use App\Models\EdgeDeployment;
 use App\Models\Site;
+use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeEffectiveBindings;
+use App\Modules\Edge\Support\FakeEdgeProvision;
+use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
+use App\Modules\Providers\Upstash\UpstashRedisClient;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Builds the list of Cloudflare binding descriptors uploaded with
@@ -33,6 +38,80 @@ class EdgeRepoBindingTranslator
         private readonly EnsureDefaultEdgeBindings $defaultBindings,
         private readonly EdgeDplyResourceResolver $dplyResources,
     ) {}
+
+    /**
+     * State (durable_object) bindings point at the site's stable dply-state
+     * script, uploaded here on first use.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function stateBindings(Site $site): array
+    {
+        if (! EdgeStateScript::needed($site) || FakeEdgeProvision::enabled()) {
+            return [];
+        }
+        $context = app(EdgeDeliveryContextResolver::class)->forSite($site);
+        $script = app(EdgeStateScript::class)->ensure(
+            $site,
+            new EdgeCloudflareClient($context->accountId, $context->apiToken),
+            $context->accountId,
+            $context->dispatchNamespaceName,
+            $context->ssrCompatibilityDate,
+        );
+        $out = [];
+        foreach (EdgeContainerConnections::for($site) as $connection) {
+            if ($connection['kind'] === 'durable_object' && ! $connection['asleep']) {
+                $out[] = [
+                    'name' => $connection['name'],
+                    'type' => 'durable_object_namespace',
+                    'class_name' => EdgeStateScript::CLASS_NAME,
+                    'script_name' => $script,
+                    'dispatch_namespace' => $context->dispatchNamespaceName,
+                ];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Upstash REST address and token for a Redis we started, fetched fresh so
+     * nothing new is stored. @upstash/redis reads these with Redis.fromEnv().
+     * REDIS_URL already reaches the Worker as an app env var.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function redisRestBindings(Site $site): array
+    {
+        foreach (EdgeContainerConnections::for($site) as $connection) {
+            if ($connection['kind'] !== 'redis' || $connection['asleep'] || ! EdgeRedisUsageCollector::isProvisionedId($connection['target'])) {
+                continue;
+            }
+            if (! $site->organization?->onAnyPaidPlan() || FakeEdgeProvision::enabled()) {
+                return [];
+            }
+            try {
+                $database = UpstashRedisClient::fromConfig()->database($connection['target']);
+            } catch (\Throwable $e) {
+                Log::warning('Upstash REST credentials unavailable for Worker deploy', ['site_id' => $site->id, 'error' => $e->getMessage()]);
+
+                return [];
+            }
+            $endpoint = (string) ($database['endpoint'] ?? '');
+            $token = (string) ($database['rest_token'] ?? '');
+            if ($endpoint === '' || $token === '') {
+                return [];
+            }
+            $host = str_contains($endpoint, '.') ? $endpoint : $endpoint.'.upstash.io';
+
+            return [
+                ['name' => 'UPSTASH_REDIS_REST_URL', 'type' => 'secret_text', 'text' => 'https://'.$host],
+                ['name' => 'UPSTASH_REDIS_REST_TOKEN', 'type' => 'secret_text', 'text' => $token],
+            ];
+        }
+
+        return [];
+    }
 
     /**
      * @return list<array<string, mixed>>
@@ -89,25 +168,27 @@ class EdgeRepoBindingTranslator
             $out[] = ['name' => $name, 'type' => 'queue', 'queue_name' => $queueName];
         }
 
-        // Dashboard-declared bindings (site.meta.edge.bindings_overrides).
-        // Purely additive, exactly like EdgeEffectiveCrons: anything already
-        // bound by wrangler.toml, the default env.KV, or a reserved platform
-        // name wins. Two bindings sharing a name would make Cloudflare reject
-        // the script upload and fail an otherwise-good deploy.
+        // Resources-page connections (site.meta.edge.connections). Purely
+        // additive, exactly like EdgeEffectiveCrons: anything already bound by
+        // wrangler.toml, the default env.KV, or a reserved platform name wins.
+        // Two bindings sharing a name would make Cloudflare reject the script
+        // upload and fail an otherwise-good deploy.
         if ($site instanceof Site) {
             $used = array_column($out, 'name');
-            foreach (EdgeEffectiveBindings::dashboardOverrides($site) as $row) {
-                if (! $this->isUsableName($row['name']) || in_array($row['name'], $used, true)) {
+            $queues = array_map(
+                static fn (array $row): array => ['name' => $row['name'], 'type' => 'queue', 'queue_name' => $row['value']],
+                array_values(array_filter(EdgeEffectiveBindings::dashboardOverrides($site), static fn (array $row): bool => $row['kind'] === 'queue')),
+            );
+            $env = array_keys(EdgeContainerConnections::omitAsleepRedis($site, app(EdgeProductionEnv::class)->forSite($site)));
+            $used = array_merge($used, $env);
+            // The platform Worker proves it is the one delivering a batch.
+            $queueToken = $queues !== [] ? [['name' => 'DPLY_QUEUE_TOKEN', 'type' => 'secret_text', 'text' => EdgeQueueConsumers::token($site)]] : [];
+            foreach ([...EdgeContainerConnections::workerBindings($site), ...$queues, ...$queueToken, ...$this->stateBindings($site), ...$this->redisRestBindings($site)] as $binding) {
+                if (! $this->isUsableName($binding['name']) || in_array($binding['name'], $used, true)) {
                     continue;
                 }
-                $used[] = $row['name'];
-                $out[] = match ($row['kind']) {
-                    'kv' => ['name' => $row['name'], 'type' => 'kv_namespace', 'namespace_id' => $row['value']],
-                    'r2' => ['name' => $row['name'], 'type' => 'r2_bucket', 'bucket_name' => $row['value']],
-                    'd1' => ['name' => $row['name'], 'type' => 'd1', 'id' => $row['value']],
-                    'queue' => ['name' => $row['name'], 'type' => 'queue', 'queue_name' => $row['value']],
-                    default => throw new \InvalidArgumentException("Unsupported binding kind: {$row['kind']}"),
-                };
+                $used[] = $binding['name'];
+                $out[] = $binding;
             }
         }
 

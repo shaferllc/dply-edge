@@ -36,7 +36,7 @@ final class EdgeContainerConnections
         'http_delivery' => ['label' => 'HTTP delivery', 'needs_target' => false, 'hint' => 'POST http://host/publish with {"url","body","delay"}. The address must be https. Messages are $2 per 100,000. Bandwidth is $0.10 per GB after the first 1 GB.'],
         'ai' => ['label' => 'AI', 'needs_target' => false, 'hint' => 'POST http://host/run with {"model","input"}'],
         'vectors' => ['label' => 'Vector search', 'needs_target' => true, 'hint' => 'POST http://host/query with {"vector","topK"}'],
-        'images' => ['label' => 'Images', 'needs_target' => false, 'hint' => 'POST http://host/info with the image body'],
+        'images' => ['label' => 'Images', 'needs_target' => false, 'hint' => 'POST the image to http://host/info for its size. POST http://host/?width=800&format=webp for a resized copy.'],
         'workflow' => ['label' => 'Workflow', 'needs_target' => true, 'hint' => 'POST http://host/start with {"id","params"}'],
         'database_pool' => ['label' => 'Database pool', 'needs_target' => true, 'hint' => 'GET http://host/ for the connection string'],
         'service' => ['label' => 'Another app', 'needs_target' => true, 'hint' => 'Any method on http://host/path is sent to that app'],
@@ -47,6 +47,98 @@ final class EdgeContainerConnections
 
     /** Account capabilities. There is nothing to name or attach. */
     public const ENABLE = ['ai', 'images'];
+
+    /** The container Worker and the platform Worker already use these. */
+    public const RESERVED_NAMES = ['APP', 'BILLING', ...EdgeEffectiveBindings::RESERVED_NAMES];
+
+    /**
+     * Kinds a Worker site (ssr, hybrid) can use. Workflows are not supported
+     * in Workers for Platforms (T-016 spike). State and Another app go through
+     * EdgeWorkerEntryWrapper; Redis through REDIS_URL and the Upstash REST vars.
+     *
+     * @var list<string>
+     */
+    public const WORKER_KINDS = ['key_value', 'durable_object', 'redis', 'object_storage', 'sql', 'queue', 'ai', 'vectors', 'images', 'database_pool', 'service'];
+
+    /**
+     * How Worker code reaches a kind, where env.NAME alone does not say enough.
+     *
+     * @var array<string, string>
+     */
+    public const WORKER_HINTS = [
+        'durable_object' => "await env.NAME.fetch('https://state/key', { method: 'PUT', body: 'value' }). GET reads it back. POST https://state/incr/key adds one.",
+        'service' => "await env.NAME.fetch('/path') calls that app's live address with the same method, headers, and body.",
+        'redis' => 'Use @upstash/redis: Redis.fromEnv() reads UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN. REDIS_URL is set too, for clients that can open sockets.',
+    ];
+
+    /**
+     * Upload-API binding descriptors for a Worker site's connections.
+     * Queue rows are left out: EdgeEffectiveBindings carries them.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function workerBindings(Site $site): array
+    {
+        $out = [];
+        foreach (self::for($site) as $connection) {
+            if ($connection['asleep'] || $connection['kind'] === 'queue') {
+                continue;
+            }
+            $name = $connection['name'];
+            $target = $connection['target'];
+            $binding = match ($connection['kind']) {
+                'key_value' => ['type' => 'kv_namespace', 'namespace_id' => $target],
+                'object_storage' => ['type' => 'r2_bucket', 'bucket_name' => $target],
+                'sql' => ['type' => 'd1', 'id' => $target],
+                'ai' => ['type' => 'ai'],
+                'vectors' => ['type' => 'vectorize', 'index_name' => $target],
+                'images' => ['type' => 'images'],
+                'database_pool' => ['type' => 'hyperdrive', 'id' => $target],
+                default => null,
+            };
+            if ($binding !== null) {
+                $out[] = ['name' => $name] + $binding;
+            }
+        }
+        if (self::browserEnabled($site)) {
+            $out[] = ['name' => 'BROWSER', 'type' => 'browser'];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Add or replace a connection by name. Returns an error, or null.
+     */
+    public static function attach(Site $site, string $kind, string $name, string $target): ?string
+    {
+        $resource = strtolower(trim((string) preg_replace('/[^a-z0-9]+/i', '-', $name), '-'));
+        $row = self::normalize([
+            'kind' => $kind,
+            'name' => $name,
+            'host' => self::resourceHost($site, $resource !== '' ? $resource : 'resource'),
+            'target' => $target,
+        ]);
+        if ($row === null) {
+            return __('That name cannot be used. Use letters, numbers, and underscores.');
+        }
+        $rows = array_values(array_filter(self::for($site), static fn (array $c): bool => $c['name'] !== $row['name'] && $c['host'] !== $row['host']));
+        $rows[] = $row;
+        $site->mergeEdgeMeta(['connections' => $rows]);
+        $site->save();
+
+        return null;
+    }
+
+    /**
+     * Drop a connection by name. The resource itself is left alone.
+     */
+    public static function detach(Site $site, string $name): void
+    {
+        $rows = array_values(array_filter(self::for($site), static fn (array $c): bool => $c['name'] !== $name));
+        $site->mergeEdgeMeta(['connections' => $rows]);
+        $site->save();
+    }
 
     /**
      * Env the queue driver reads when a queue is attached. The operator's
@@ -362,13 +454,14 @@ final class EdgeContainerConnections
     public static function normalize(array $row): ?array
     {
         $kind = (string) ($row['kind'] ?? '');
-        $name = strtoupper(trim((string) ($row['name'] ?? '')));
+        // Case is kept: on a Worker the name is the code's env.NAME.
+        $name = trim((string) ($row['name'] ?? ''));
         $host = strtolower(trim((string) ($row['host'] ?? '')));
         $target = trim((string) ($row['target'] ?? ''));
-        if (! isset(self::KINDS[$kind]) || ! preg_match('/^[A-Z][A-Z0-9_]{0,40}$/', $name)) {
+        if (! isset(self::KINDS[$kind]) || ! preg_match('/^[A-Za-z_][A-Za-z0-9_]{0,40}$/', $name)) {
             return null;
         }
-        if (in_array($name, ['APP', 'BILLING'], true) || ! preg_match('/^[a-z0-9]([a-z0-9-]{0,62}\.)+[a-z]{2,12}$/', $host)) {
+        if (in_array($name, self::RESERVED_NAMES, true) || ! preg_match('/^[a-z0-9]([a-z0-9-]{0,62}\.)+[a-z]{2,12}$/', $host)) {
             return null;
         }
         if (self::KINDS[$kind]['needs_target'] && $target === '') {
@@ -409,12 +502,9 @@ final class EdgeContainerConnections
 
                 continue;
             }
+            // Queues come in through EdgeEffectiveBindings with the repo's,
+            // which also makes this app their consumer.
             if ($connection['kind'] === 'queue') {
-                $config['queues']['producers'] = array_merge($config['queues']['producers'] ?? [], [[
-                    'binding' => $connection['name'],
-                    'queue' => $connection['target'],
-                ]]);
-
                 continue;
             }
             $entry = self::wranglerEntry($connection);
@@ -471,8 +561,11 @@ final class EdgeContainerConnections
             ->where('id', '!=', $site->id)
             ->orderBy('name')
             ->get();
+        // A container calls peers through its dispatcher, so only containers
+        // qualify. A Worker site calls the peer's live URL, so any app with code does.
+        $runtimes = ($site->edgeMeta()['runtime_mode'] ?? '') === 'container' ? ['container'] : ['container', 'ssr', 'hybrid'];
         foreach ($peers as $peer) {
-            if ($peer->isEdgePreview() || ($peer->edgeMeta()['runtime_mode'] ?? '') !== 'container') {
+            if ($peer->isEdgePreview() || ! in_array($peer->edgeMeta()['runtime_mode'] ?? '', $runtimes, true)) {
                 continue;
             }
             $origin = $peer->edgeLiveUrl();

@@ -191,11 +191,6 @@ final class SiteSettingsHeader
                 'description' => __('GitHub auto-deploy and CMS deploy hooks.'),
                 'icon' => 'heroicon-o-bolt',
             ],
-            'bindings' => [
-                'title' => __('Bindings'),
-                'description' => __('Attach KV, R2, D1, and queues for your worker.'),
-                'icon' => 'heroicon-o-puzzle-piece',
-            ],
             'members' => [
                 'title' => __('Members'),
                 'description' => __('Grant site access without changing org roles.'),

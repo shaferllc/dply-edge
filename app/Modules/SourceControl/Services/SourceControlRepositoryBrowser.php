@@ -24,6 +24,8 @@ class SourceControlRepositoryBrowser
      */
     private const MAX_PAGES = 10;
 
+    private int $pageLimit = self::MAX_PAGES;
+
     private ?string $repositoryError = null;
 
     public function __construct(
@@ -33,7 +35,7 @@ class SourceControlRepositoryBrowser
     }
 
     /**
-     * @return list<array{id: string, provider: string, label: string, kind: string}>
+     * @return list<array{id: string, provider: string, label: string, kind: string, connected: bool}>
      */
     public function accountsForUser(User $user): array
     {
@@ -49,6 +51,7 @@ class SourceControlRepositoryBrowser
                 'provider' => $identity->provider(),
                 'label' => $identity->displayLabel(),
                 'kind' => $identity->kind(),
+                'connected' => $identity->accessToken() !== '' && ! $this->resolver->isKnownBad($identity),
             ],
             $this->resolver->allForUser($user),
         );
@@ -61,8 +64,9 @@ class SourceControlRepositoryBrowser
     /**
      * @return list<array{label: string, url: string, branch: string}>
      */
-    public function repositoriesForAccount(GitIdentity $account): array
+    public function repositoriesForAccount(GitIdentity $account, ?int $maxPages = null): array
     {
+        $this->pageLimit = max(1, $maxPages ?? self::MAX_PAGES);
         $this->repositoryError = null;
 
         if ($account->accessToken() === '') {
@@ -131,7 +135,7 @@ class SourceControlRepositoryBrowser
         // reach through an org. Repos in an org that has not approved the OAuth
         // app are invisible to the API regardless — the picker's access hint
         // points there, since no amount of paging will surface them.
-        for ($page = 1; $page <= self::MAX_PAGES; $page++) {
+        for ($page = 1; $page <= $this->pageLimit; $page++) {
             $response = Http::withToken($account->accessToken())
                 ->acceptJson()
                 ->get($account->apiBaseUrl().'/user/repos', [
@@ -179,7 +183,7 @@ class SourceControlRepositoryBrowser
     {
         $rows = [];
 
-        for ($page = 1; $page <= self::MAX_PAGES; $page++) {
+        for ($page = 1; $page <= $this->pageLimit; $page++) {
             $response = Http::withToken($account->accessToken())
                 ->acceptJson()
                 ->get($account->apiBaseUrl().'/api/v4/projects', [
@@ -231,7 +235,7 @@ class SourceControlRepositoryBrowser
         $url = $account->apiBaseUrl().'/2.0/repositories';
         $query = ['role' => 'member', 'pagelen' => self::PER_PAGE];
 
-        for ($page = 1; $page <= self::MAX_PAGES; $page++) {
+        for ($page = 1; $page <= $this->pageLimit; $page++) {
             $response = Http::withToken($account->accessToken())
                 ->acceptJson()
                 ->get($url, $query);

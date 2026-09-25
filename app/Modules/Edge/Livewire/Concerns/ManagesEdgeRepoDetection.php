@@ -270,10 +270,45 @@ trait ManagesEdgeRepoDetection
         $this->maybeAutoDetectFromRepository();
     }
 
+    public function selectSourceControlAccount(string $accountId): void
+    {
+        $accountId = trim($accountId);
+        if ($accountId === '' || $accountId === $this->source_control_account_id) {
+            return;
+        }
+
+        $this->source_control_account_id = $accountId;
+        $this->keepWizardStepWhileLoadingAccount();
+    }
+
     public function updatedSourceControlAccountId(): void
     {
+        $this->keepWizardStepWhileLoadingAccount();
+    }
+
+    /**
+     * Reloading repositories must not send the operator back to step 1.
+     */
+    private function keepWizardStepWhileLoadingAccount(): void
+    {
+        $step = $this->wizardStep;
         $this->repository_selection = '';
+        $this->repo_source = 'connected';
+        if ($step < 2) {
+            return;
+        }
+
         $this->loadRepositoriesForSelectedAccount();
+        $this->wizardStep = $step;
+    }
+
+    public function reloadRepositories(): void
+    {
+        $step = $this->wizardStep;
+        $this->loadRepositoriesForSelectedAccount(refresh: true);
+        if ($step > 1) {
+            $this->wizardStep = $step;
+        }
     }
 
     public function updatedRepositorySelection(string $value): void
@@ -293,8 +328,6 @@ trait ManagesEdgeRepoDetection
             : 'main';
 
         $this->maybeSeedAppNameFromRepo();
-        $this->syncRemoteRefs();
-        $this->detectFromRepository();
     }
 
     private function applyRefKindForBranch(string $branch): void
@@ -857,7 +890,7 @@ trait ManagesEdgeRepoDetection
         return trim($owner) !== '' && trim($name) !== '';
     }
 
-    private function loadRepositoriesForSelectedAccount(): void
+    private function loadRepositoriesForSelectedAccount(bool $refresh = false): void
     {
         if ($this->source_control_account_id === '') {
             $this->availableRepositories = [];
@@ -866,13 +899,37 @@ trait ManagesEdgeRepoDetection
             return;
         }
 
-        $account = auth()->user() !== null
-            ? app(GitIdentityResolver::class)->forId(auth()->user(), $this->source_control_account_id)
+        $user = auth()->user();
+        $account = $user !== null
+            ? app(GitIdentityResolver::class)->forId($user, $this->source_control_account_id)
             : null;
+        if ($account === null) {
+            $this->availableRepositories = [];
+            $this->repositoryLoadError = null;
+
+            return;
+        }
+
+        $cacheKey = 'edge.create.repos.v2.'.$user->getKey().'.'.$this->source_control_account_id;
+        if ($refresh) {
+            Cache::forget($cacheKey);
+        }
+        $cached = Cache::get($cacheKey);
+        if (is_array($cached) && is_array($cached['repositories'] ?? null)) {
+            $this->availableRepositories = $cached['repositories'];
+            $this->repositoryLoadError = is_string($cached['error'] ?? null) ? $cached['error'] : null;
+
+            return;
+        }
+
         $browser = app(SourceControlRepositoryBrowser::class);
-        $this->availableRepositories = $account
-            ? $browser->repositoriesForAccount($account)
-            : [];
-        $this->repositoryLoadError = $account ? $browser->repositoryError() : null;
+        $this->availableRepositories = $browser->repositoriesForAccount($account);
+        $this->repositoryLoadError = $browser->repositoryError();
+        if ($this->repositoryLoadError === null) {
+            Cache::put($cacheKey, [
+                'repositories' => $this->availableRepositories,
+                'error' => null,
+            ], now()->addDay());
+        }
     }
 }

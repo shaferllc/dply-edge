@@ -32,6 +32,8 @@ class Container extends Component
 
     public int $max_instances = 5;
 
+    public int $min_instances = 0;
+
     public string $sleep_after = '10m';
 
     public bool $migrate_on_boot = true;
@@ -45,7 +47,12 @@ class Container extends Component
 
     public bool $sticky_sessions = true;
 
-    public bool $dedicated_jobs = true;
+    public bool $dedicated_jobs = false;
+
+    public bool $jobs_always_on = false;
+
+    /** @var list<array{days: string, start: string, end: string, timezone: string, min: int, max: int}> */
+    public array $schedules = [];
 
     public string $rollout_mode = 'gradual';
 
@@ -76,10 +83,19 @@ class Container extends Component
         $this->validate([
             'instance_type' => ['required', Rule::in([...array_keys(EdgeContainerSettings::INSTANCE_TYPES), 'custom'])],
             'max_instances' => ['required', 'integer', 'between:1,'.EdgeContainerSettings::MAX_INSTANCES],
+            'min_instances' => ['required', 'integer', 'min:0', 'lte:max_instances'],
             'sleep_after' => ['required', Rule::in(EdgeContainerSettings::SLEEP_AFTER)],
             'jurisdiction' => [Rule::in(EdgeContainerSettings::JURISDICTIONS)],
             'rollout_mode' => ['required', Rule::in(EdgeContainerSettings::ROLLOUT_MODES)],
             'rollout_active_grace_period' => ['integer', 'between:0,'.EdgeContainerSettings::ROLLOUT_GRACE_MAX],
+            'schedules.*.days' => ['required', fn (string $attribute, mixed $value, \Closure $fail) => EdgeContainerSettings::isScheduleDays((string) $value) ? null : $fail(__('Pick days or a date.'))],
+            'schedules.*.start' => ['required', 'date_format:H:i'],
+            'schedules.*.end' => ['required', 'date_format:H:i', 'after:schedules.*.start'],
+            'schedules.*.timezone' => ['required', 'timezone'],
+            'schedules.*.max' => ['required', 'integer', 'between:1,'.EdgeContainerSettings::MAX_INSTANCES],
+            'schedules.*.min' => ['required', 'integer', 'min:0', 'lte:schedules.*.max'],
+        ], [
+            'schedules.*.end.after' => __('A window ends later the same day. For overnight, add two windows.'),
         ]);
         $stepsError = EdgeContainerSettings::rolloutStepsError($this->rollout_steps);
         if ($stepsError !== null) {
@@ -91,6 +107,10 @@ class Container extends Component
         $current = is_array($this->site->edgeMeta()['container'] ?? null) ? $this->site->edgeMeta()['container'] : [];
         $current['instance_type'] = $this->instance_type;
         $current['max_instances'] = $this->max_instances;
+        $current['min_instances'] = $this->min_instances;
+        $current['dedicated_jobs'] = $this->dedicated_jobs;
+        $current['jobs_always_on'] = $this->jobs_always_on;
+        $current['schedules'] = EdgeContainerSettings::normalizeSchedules($this->schedules);
         $current['sleep_after'] = $this->sleep_after;
         $current['migrate_on_boot'] = $this->migrate_on_boot;
         $current['jurisdiction'] = $this->jurisdiction;
@@ -109,6 +129,32 @@ class Container extends Component
         }
 
         $this->toastSuccess(__('Saved. Changes apply on the next deploy.'));
+    }
+
+    private function peakInstances(): int
+    {
+        return EdgeContainerSettings::peakInstances([
+            'max_instances' => $this->max_instances,
+            'schedules' => EdgeContainerSettings::normalizeSchedules($this->schedules),
+        ]);
+    }
+
+    public function addSchedule(): void
+    {
+        $this->schedules[] = [
+            'days' => 'weekdays',
+            'start' => '09:00',
+            'end' => '17:00',
+            'timezone' => auth()->user()?->timezone ?: config('app.timezone', 'UTC'),
+            'min' => max(1, $this->min_instances),
+            'max' => $this->max_instances,
+        ];
+    }
+
+    public function removeSchedule(int $index): void
+    {
+        unset($this->schedules[$index]);
+        $this->schedules = array_values($this->schedules);
     }
 
     public function loadLogs(): void
@@ -155,7 +201,9 @@ class Container extends Component
                 'memoryGibHours' => (float) ($usage->mem ?? 0) / 3600,
                 'perMinute' => $cost->perMinuteMillicents($vcpu, $memory, $disk) / 100_000,
                 'health' => EdgeDeployment::query()->where('site_id', $this->site->id)->where('status', EdgeDeployment::STATUS_LIVE)->latest('published_at')->first()?->meta['container']['health'] ?? null,
-                'maxPerMonth' => $cost->perMinuteMillicents($vcpu, $memory, $disk) * 60 * 730 * $this->max_instances / 100_000,
+                'minPerMonth' => $cost->perMinuteMillicents($vcpu, $memory, $disk) * 60 * 730 * $this->min_instances / 100_000,
+                'requestsPerInstance' => EdgeContainerSettings::requestsPerInstance($this->site),
+                'maxPerMonth' => $cost->perMinuteMillicents($vcpu, $memory, $disk) * 60 * 730 * $this->peakInstances() / 100_000,
             ],
         ));
     }

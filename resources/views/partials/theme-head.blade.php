@@ -13,6 +13,18 @@
      dark block redefines, and `bg-edge-void`). Keep in sync with theme-color. --}}
 <meta name="color-scheme" content="dark">
 <style>html{color-scheme:dark;background-color:#0b0d0a}</style>
+{{-- Workspace sidebar width. The body script that used to set this runs after
+     the sidebar HTML, so a collapsed rail painted open and then snapped shut.
+     Read localStorage here, before first paint. Callers: every layout that
+     includes partials/theme-head. No API or schema change. User: "the sidebar
+     flashes open when the page loads". --}}
+<script>
+try {
+    if (localStorage.getItem('dply.wsnav.collapsed') === '1') {
+        document.documentElement.dataset.wsnav = 'collapsed';
+    }
+} catch (e) {}
+</script>
 
 {{-- Fonts: the Terminal pair. Loaded here, once, because every layout that
      needs them already includes this partial — it used to be copy-pasted into

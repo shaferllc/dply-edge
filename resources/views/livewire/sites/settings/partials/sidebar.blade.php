@@ -175,16 +175,46 @@
             aria-label="{{ __($resourceNoun.' settings sections') }}"
             x-data="{
                 _k: 'dply.siteNav.collapsed:{{ $site->id }}',
-                collapsed: {},
-                init() {
+                collapsed: (() => {
                     try {
-                        const stored = localStorage.getItem(this._k);
-                        this.collapsed = stored ? JSON.parse(stored) : @js((object) $defaultCollapsed);
-                    } catch (e) { this.collapsed = @js((object) $defaultCollapsed); }
+                        const stored = localStorage.getItem('dply.siteNav.collapsed:{{ $site->id }}');
+                        if (stored) return JSON.parse(stored);
+                    } catch (e) {}
+                    return @js((object) $defaultCollapsed);
+                })(),
+                init() {
+                    this.$nextTick(() => document.getElementById('ws-nav-groups')?.remove());
                 },
                 toggle(g) { this.collapsed[g] = ! this.collapsed[g]; localStorage.setItem(this._k, JSON.stringify(this.collapsed)); },
             }"
         >
+            {{-- Hide collapsed groups before Alpine boots. x-show starts true
+                 while collapsed is empty, and x-collapse then animates them
+                 shut — that is the open flash on load. Caller: this nav only.
+                 localStorage key dply.siteNav.collapsed:{site id}. User: "the
+                 sidebar flashes open when the page loads". --}}
+            <script>
+                (function () {
+                    if (document.getElementById('ws-nav-groups')) return;
+                    const fallback = @js((object) $defaultCollapsed);
+                    let map = fallback;
+                    try {
+                        const stored = localStorage.getItem('dply.siteNav.collapsed:{{ $site->id }}');
+                        if (stored) map = JSON.parse(stored);
+                    } catch (e) {}
+                    const rules = [];
+                    Object.keys(map || {}).forEach((group) => {
+                        if (!map[group]) return;
+                        const name = CSS.escape(String(group));
+                        rules.push('[data-nav-group="' + name + '"]{display:none!important}');
+                    });
+                    if (!rules.length) return;
+                    const style = document.createElement('style');
+                    style.id = 'ws-nav-groups';
+                    style.textContent = rules.join('');
+                    document.head.appendChild(style);
+                })();
+            </script>
             @foreach ($orderedGroupKeys as $groupKey)
                 @php
                     $itemsInGroup = $itemsByGroup[$groupKey] ?? collect();
@@ -235,7 +265,7 @@
                 @endif
                 <div
                     class="ws-group-items flex flex-col gap-0.5"
-                    @if ($isCollapsibleGroup) x-show="! collapsed['{{ $groupKey }}']" x-collapse @endif
+                    @if ($isCollapsibleGroup) data-nav-group="{{ $groupKey }}" x-show="! collapsed['{{ $groupKey }}']" x-collapse @endif
                 >
                 @foreach ($itemsInGroup as $item)
                     @php

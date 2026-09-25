@@ -86,7 +86,9 @@ has **no breadcrumb**.
 - **Dark mode is first-class** across authed surfaces, not isolated pages. The
   theme resolves in `resources/views/partials/theme-head.blade.php` before
   first paint — there must be no light flash before the stored preference
-  settles.
+  settles. Workspace chrome (including the settings/workspace sidebar) must
+  match its stored open/closed state on first paint — no flash open then
+  collapse.
 
 ### Feedback and dialogs
 
@@ -407,19 +409,30 @@ Match remaining questions to the layer that still exists:
   via platform SDKs) — create/attach on Resources, **bill with markup**, and
   require a payment method when billed. **Managed HTTP queues** use QStash the
   same way. **Managed Postgres** is Neon-backed (ship first); **managed MySQL**
-  is PlanetScale-backed and stays **Coming soon** until wired. Create UIs must
-  explain plans/compute (not opaque expensive defaults). **Sleep** on a managed
-  store **detaches injected env** so the app cannot read/write and is not
-  charged — it does **not** tear down the store. Prefixed internal/testing keys
-  use the site name plus a `dply` namespace. Durable Objects are **not** a Redis
-  stand-in for app cache/session/queue. A **client certificate** is outbound
-  identity on **Security**, not a Resource — per-app, with injected env keys
-  prefixed (`dply.` / `_dply`) so they never clash with app vars; show usage
-  examples (and a demo) in-product. Once the cert is provisioned, drop the
-  Deploy CTA. Versions / app-router style controls are deploy mechanics, not
-  Resources the operator configures. Queued resource/app deletes must show an
-  in-progress / deleting state — not a silent “queued” toast that leaves the
-  row looking live.
+  is PlanetScale-backed and stays **Coming soon** until wired. One **Database**
+  tile is enough — do not offer separate SQL-database / connection-pool
+  resources when attach already injects the connection (no operator-facing
+  binding/host fields to fill). Create UIs must be **compact**, explain
+  plans/compute/region/storage (not opaque expensive defaults), and show
+  **$/mo and $/day** plus **hours-awake** so always-on is not the scare
+  number; expose sleep-after (1 / 5 / 15 min or stays on) and restore window
+  (1 or 7 days) where the backend supports them. When a card is required,
+  **block plan/size selection** and say so up front — never a silent Create
+  dead-end. Hydrate the selected size/settings on **first paint** (no post-
+  load jump). Prefer **Remove** over a “None” detach option. **Sleep** on a
+  managed store **detaches injected env** so the app cannot read/write and is
+  not charged — it does **not** tear down the store. Attaching or changing a
+  billed resource should use the same **Save and redeploy** confirmation as
+  env changes. Prefixed internal/testing keys use the site name plus a `dply`
+  namespace. Durable Objects are **not** a Redis stand-in for app
+  cache/session/queue. A **client certificate** is outbound identity on
+  **Security**, not a Resource — per-app, with injected env keys prefixed
+  (`dply.` / `_dply`) so they never clash with app vars; show usage examples
+  (and a demo) in-product. Once the cert is provisioned, drop the Deploy CTA.
+  Versions / app-router style controls are deploy mechanics, not Resources the
+  operator configures. Queued resource/app deletes must show an in-progress /
+  deleting state — not a silent “queued” toast that leaves the row looking
+  live.
 - **PHP + frontend assets:** when `package.json` has `scripts.build`, detection
   appends the frontend asset step (`FrontendAssetBuild`) beside Composer so the
   stored build command matches the image's Node assets stage (default

@@ -70,12 +70,12 @@ final class NeonClient
     /**
      * @return array{id: string, endpoint_id: string, host: string, port: string, database: string, username: string, password: string}
      */
-    public function create(string $name, ?float $minCu = null, ?float $maxCu = null, ?int $suspendSeconds = null, ?string $region = null): array
+    public function create(string $name, ?float $minCu = null, ?float $maxCu = null, ?int $suspendSeconds = null, ?string $region = null, ?int $historySeconds = null): array
     {
         $project = [
             'name' => $name,
             'pg_version' => 17,
-            'history_retention_seconds' => 86400,
+            'history_retention_seconds' => $historySeconds ?? 86400,
             'region_id' => $this->resolveRegion($region),
             'default_endpoint_settings' => [
                 'autoscaling_limit_min_cu' => $minCu ?? $this->minCu,
@@ -147,6 +147,18 @@ final class NeonClient
         ]);
         if (! $response->successful()) {
             throw new RuntimeException($this->failure($response->json(), 'Postgres size could not be changed.'));
+        }
+    }
+
+    public function retain(string $projectId, int $historySeconds): void
+    {
+        $response = $this->http()->patch('/projects/'.$projectId, [
+            'project' => [
+                'history_retention_seconds' => $historySeconds,
+            ],
+        ]);
+        if (! $response->successful()) {
+            throw new RuntimeException($this->failure($response->json(), 'Postgres restore window could not be changed.'));
         }
     }
 

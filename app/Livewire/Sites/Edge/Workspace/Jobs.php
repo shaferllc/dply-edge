@@ -140,7 +140,7 @@ class Jobs extends Component
                 'bindingsUrl' => route('sites.show', [
                     'server' => $this->server,
                     'site' => $this->site,
-                    'section' => 'bindings',
+                    'section' => 'resources',
                 ]),
             ],
         ));

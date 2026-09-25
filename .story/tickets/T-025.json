@@ -1,0 +1,13 @@
+{
+  "blockedBy": [],
+  "completedDate": null,
+  "createdDate": "2026-09-25",
+  "description": "Namespace per org, default-deny NetworkPolicy (egress allowed; no pod-to-pod across namespaces), ResourceQuota/LimitRange, gVisor enforced by admission policy. Metering: pod-seconds x requested vCPU/mem from Knative/kube events into edge_container_usage so billing (EdgeContainerComputeCost) works unchanged.",
+  "id": "T-025",
+  "order": 40,
+  "parentTicket": "T-022",
+  "phase": null,
+  "status": "open",
+  "title": "Isolation + metering for dedicated compute",
+  "type": "task"
+}

@@ -62,6 +62,7 @@ test('saved settings reach the generated wrangler config and worker', function (
         ->test(Container::class, ['server' => $server, 'site' => $site])
         ->set('instance_type', 'standard-2')
         ->set('max_instances', 8)
+        ->set('min_instances', 2)
         ->set('sleep_after', '30m')
         ->set('jurisdiction', 'eu')
         ->set('regions', ['WEUR', 'ENAM'])
@@ -74,10 +75,11 @@ test('saved settings reach the generated wrangler config and worker', function (
     $worker = File::get($dir.'/src/index.js');
     File::deleteDirectory($dir);
 
-    expect($config['containers'][0])->toMatchArray(['instance_type' => 'standard-2', 'max_instances' => 10, 'constraints' => ['regions' => ['WEUR'], 'jurisdiction' => 'eu']])
+    expect($config['containers'][0])->toMatchArray(['instance_type' => 'standard-2', 'max_instances' => 8, 'constraints' => ['regions' => ['WEUR'], 'jurisdiction' => 'eu']])
         ->and($worker)->toContain('sleepAfter = "30m"')
         ->and($worker)->toContain('const INSTANCES = 8')
-        ->and($worker)->toContain('getRandom(env.APP, INSTANCES)');
+        ->and($worker)->toContain('const MIN_INSTANCES = 2')
+        ->and($worker)->not->toContain('getRandom');
 });
 
 test('a custom size is written as vcpu memory and disk', function () {
@@ -719,4 +721,62 @@ test('an attached bucket sets the storage env and an existing disk wins', functi
         ->and($driver['DPLY_STORAGE_DISK'])->toBe('uploads')
         ->and($driver['DPLY_STORAGE_DISKS'])->toBe('uploads=uploads.internal')
         ->and($merged['FILESYSTEM_DISK'])->toBe('local');
+});
+
+test('scaling windows and an always-on jobs instance are saved and reach the worker', function () {
+    [$user, $server, $site] = containerSite();
+
+    Livewire::actingAs($user)
+        ->test(Container::class, ['server' => $server, 'site' => $site])
+        ->set('max_instances', 2)
+        ->set('dedicated_jobs', true)
+        ->set('jobs_always_on', true)
+        ->call('addSchedule')
+        ->set('schedules.0.timezone', 'America/Chicago')
+        ->set('schedules.0.min', 3)
+        ->set('schedules.0.max', 6)
+        ->call('save')
+        ->assertHasNoErrors();
+
+    $settings = EdgeContainerSettings::for($site->fresh());
+    $dir = sys_get_temp_dir().'/dply-container-settings-'.bin2hex(random_bytes(4));
+    (new EdgeContainerDeployer)->scaffold($dir, $site->fresh(), '/x/Dockerfile', 8080, []);
+    $config = json_decode(File::get($dir.'/wrangler.jsonc'), true);
+    $worker = File::get($dir.'/src/index.js');
+    File::deleteDirectory($dir);
+
+    expect($settings['schedules'])->toBe([['days' => 'weekdays', 'start' => '09:00', 'end' => '17:00', 'timezone' => 'America/Chicago', 'min' => 3, 'max' => 6]])
+        ->and(EdgeContainerDeployer::keepsInstancesAwake($settings))->toBeTrue()
+        // The busiest window (6) plus the jobs instance, not the default max of 2.
+        ->and($config['containers'][0]['max_instances'])->toBeGreaterThanOrEqual(7)
+        ->and($worker)->toContain('"timezone":"America/Chicago"')
+        ->and($worker)->toContain('const JOBS_ALWAYS_ON = true');
+});
+
+test('a window that ends before it starts is rejected', function () {
+    [$user, $server, $site] = containerSite();
+
+    Livewire::actingAs($user)
+        ->test(Container::class, ['server' => $server, 'site' => $site])
+        ->call('addSchedule')
+        ->set('schedules.0.start', '22:00')
+        ->set('schedules.0.end', '06:00')
+        ->call('save')
+        ->assertHasErrors(['schedules.0.end']);
+});
+
+test('warm-containers knocks only on live sites that keep instances awake', function () {
+    Http::fake();
+    [, , $awake] = containerSite();
+    $awake->mergeEdgeMeta(['live_url' => 'https://awake.example.test', 'container' => ['min_instances' => 1]]);
+    $awake->save();
+    [, , $asleep] = containerSite();
+    $asleep->mergeEdgeMeta(['live_url' => 'https://asleep.example.test']);
+    $asleep->save();
+
+    $this->artisan('dply:edge:warm-containers')->assertSuccessful();
+
+    Http::assertSentCount(1);
+    Http::assertSent(fn ($request) => $request->url() === 'https://awake.example.test/_dply/warm'
+        && $request->header('x-dply-queue-token')[0] === EdgeContainerDeployer::queueToken($awake));
 });

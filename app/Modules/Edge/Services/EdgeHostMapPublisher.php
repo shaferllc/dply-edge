@@ -43,6 +43,8 @@ class EdgeHostMapPublisher
             $this->publishHostname($site, $deployment, $alias, $context, false);
         }
 
+        app(EdgeQueueConsumers::class)->sync($site, $deployment, $context);
+
         return $version;
     }
 

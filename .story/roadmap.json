@@ -25,6 +25,13 @@
       "id": "edge-polish",
       "label": "PHASE 4",
       "name": "Edge product and UI polish"
+    },
+    {
+      "description": "Attach every resource type to Worker and container apps from one Resources page, add a global queue consumer, move databases to DigitalOcean, and run our own sleeping Valkey. Ruling r-72p0gkdn9dqwxqha.",
+      "id": "resources-everywhere",
+      "label": "PHASE 5",
+      "name": "Resources for every runtime",
+      "summary": "One resource store, Workers + containers, DO databases, own Valkey"
     }
   ],
   "title": "dply-edge"

@@ -1,0 +1,15 @@
+{
+  "blockedBy": [],
+  "citesRulings": [
+    "r-72p0gkdn9dqwxqha"
+  ],
+  "completedDate": null,
+  "createdDate": "2026-09-25",
+  "description": "Per-app memory-limited pods, SNI proxy that holds connections while waking, operator (create/resize/sleep/wake/snapshot to R2), flex+pro classes billed per second, sleep picker, migrate Upstash Redis users.",
+  "id": "T-021",
+  "order": 60,
+  "phase": "resources-everywhere",
+  "status": "open",
+  "title": "Own managed Valkey on DOKS with sleep/wake",
+  "type": "feature"
+}

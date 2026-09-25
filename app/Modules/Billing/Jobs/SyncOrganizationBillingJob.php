@@ -7,6 +7,7 @@ use App\Models\Organization;
 use App\Modules\Billing\Services\BillingSubscriptionSyncEventRecorder;
 use App\Modules\Billing\Services\OrganizationBillingStateComputer;
 use App\Modules\Billing\Services\StripeSubscriptionSyncer;
+use App\Modules\Edge\Services\EdgeQueueConsumers;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -46,6 +47,9 @@ class SyncOrganizationBillingJob implements ShouldBeUnique, ShouldQueue
         if (! $organization) {
             return;
         }
+
+        // Queue speed follows the tier, including a drop to Free on cancel.
+        app(EdgeQueueConsumers::class)->applyTier($organization);
 
         // Only sync orgs on the new Standard plan. Enterprise subs are managed
         // by hand in Stripe; legacy Pro subs are flat-fee and have no quantities.

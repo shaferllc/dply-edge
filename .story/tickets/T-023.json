@@ -1,0 +1,13 @@
+{
+  "blockedBy": [],
+  "completedDate": null,
+  "createdDate": "2026-09-25",
+  "description": "Terraform or doctl a DOKS cluster; install Knative Serving (Kourier ingress) and the gVisor RuntimeClass. Deploy an image from EdgeContainerDockerfile (Laravel/FrankenPHP) as a Knative Service with containerConcurrency set per requestsPerInstance, scale-to-zero on, min-scale 0/1. Measure the cold-start wake time (p50/p95) and the cost of an idle cluster. Exit: a documented yes/no plus numbers in docs/EDGE_PLATFORM_STATUS.md.",
+  "id": "T-023",
+  "order": 20,
+  "parentTicket": "T-022",
+  "phase": null,
+  "status": "open",
+  "title": "Spike: DOKS cluster with Knative + gVisor, one generated image served with scale-to-zero",
+  "type": "task"
+}

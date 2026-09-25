@@ -7,9 +7,12 @@ namespace App\Modules\Edge\Jobs;
 use App\Models\Server;
 use App\Models\Site;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
+use App\Modules\Edge\Services\EdgeDeliveryContextResolver;
 use App\Modules\Edge\Services\EdgeMiddlewareBundleUploader;
 use App\Modules\Edge\Services\EdgeRouter;
 use App\Modules\Edge\Services\EdgeSsrBundleUploader;
+use App\Modules\Edge\Services\EdgeStateScript;
+use App\Modules\Edge\Support\FakeEdgeProvision;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -54,6 +57,16 @@ class TeardownEdgeSiteJob implements ShouldQueue
             app(EdgeMiddlewareBundleUploader::class)->deleteAllForSite($site);
         } catch (\Throwable) {
             // Same — orphan middleware scripts are non-blocking.
+        }
+
+        // State data goes with the site, after every script that binds it.
+        if (is_array($site->edgeMeta()['state_script'] ?? null) && ! FakeEdgeProvision::enabled()) {
+            try {
+                $context = app(EdgeDeliveryContextResolver::class)->forSite($site);
+                app(EdgeStateScript::class)->delete($site, new EdgeCloudflareClient($context->accountId, $context->apiToken), $context->dispatchNamespaceName);
+            } catch (\Throwable) {
+                // Best-effort, like the scripts above.
+            }
         }
 
         if (($site->edgeMeta()['runtime_mode'] ?? '') === 'container') {

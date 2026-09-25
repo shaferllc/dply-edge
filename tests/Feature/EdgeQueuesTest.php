@@ -10,6 +10,7 @@ use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
 use App\Modules\Edge\Livewire\Queues;
+use App\Modules\Edge\Support\EdgeContainerConnections;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -56,7 +57,7 @@ test('attaching binds the queue name to the project and shows it', function () {
         ->assertHasNoErrors()
         ->assertSee('Shop (JOBS)');
 
-    expect($site->fresh()->edgeMeta()['bindings_overrides'])->toBe([['name' => 'JOBS', 'kind' => 'queue', 'value' => 'dply-x-emails']]);
+    expect(collect(EdgeContainerConnections::for($site->fresh()))->map(fn ($c) => [$c['kind'], $c['name'], $c['target']])->all())->toBe([['queue', 'JOBS', 'dply-x-emails']]);
 });
 
 test('send test and delete call the queues api', function () {

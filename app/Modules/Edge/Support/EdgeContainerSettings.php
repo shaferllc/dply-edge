@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Support;
 
+use App\Models\EdgeDeployment;
 use App\Models\Site;
 
 /**
@@ -48,6 +49,13 @@ final class EdgeContainerSettings
 
     public const MAX_INSTANCES = 20;
 
+    /**
+     * Days a recurring window applies to. A window can also name one date
+     * (Y-m-d): that beats a single weekday, which beats weekdays/weekends,
+     * which beat daily.
+     */
+    public const SCHEDULE_DAYS = ['daily', 'weekdays', 'weekends', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
     /** wrangler deploy `--containers-rollout`. */
     public const ROLLOUT_MODES = ['gradual', 'immediate', 'none'];
 
@@ -66,7 +74,7 @@ final class EdgeContainerSettings
      * The stored instance size is kept. `$phpServer` is the detected PHP
      * server from deploy; it does not change the size the operator picked.
      *
-     * @return array{instance_type: string, max_instances: int, sleep_after: string, migrate_on_boot: bool, jurisdiction: string, regions: list<string>, scheduler: bool, rollout_mode: string, rollout_step_percentage: list<int>, rollout_active_grace_period: int}
+     * @return array{instance_type: string, max_instances: int, min_instances: int, sleep_after: string, migrate_on_boot: bool, jurisdiction: string, regions: list<string>, scheduler: bool, rollout_mode: string, rollout_step_percentage: list<int>, rollout_active_grace_period: int}
      */
     public static function for(Site $site, string $phpServer = 'fpm'): array
     {
@@ -79,6 +87,11 @@ final class EdgeContainerSettings
         return [
             'instance_type' => $type === 'custom' || array_key_exists($type, self::INSTANCE_TYPES) ? $type : 'basic',
             'max_instances' => max(1, min(self::MAX_INSTANCES, (int) ($raw['max_instances'] ?? config('edge.build.containers.max_instances', 5)))),
+            // Instances kept awake. 0 = scale to zero. Never above max.
+            'min_instances' => max(0, min(
+                max(1, min(self::MAX_INSTANCES, (int) ($raw['max_instances'] ?? config('edge.build.containers.max_instances', 5)))),
+                (int) ($raw['min_instances'] ?? 0),
+            )),
             'sleep_after' => in_array($sleep, self::SLEEP_AFTER, true) ? $sleep : '10m',
             // Off by default: this runs a second full framework boot at the
             // moment a cold-starting container has the least memory, and it
@@ -89,11 +102,61 @@ final class EdgeContainerSettings
             // Laravel: run `schedule:run` every minute via a Cron Trigger.
             'scheduler' => (bool) ($raw['scheduler'] ?? false),
             'sticky_sessions' => (bool) ($raw['sticky_sessions'] ?? true),
-            'dedicated_jobs' => (bool) ($raw['dedicated_jobs'] ?? true),
+            'dedicated_jobs' => (bool) ($raw['dedicated_jobs'] ?? false),
+            // The jobs instance stays awake instead of sleeping with the app.
+            'jobs_always_on' => (bool) ($raw['jobs_always_on'] ?? false),
+            'schedules' => self::normalizeSchedules(is_array($raw['schedules'] ?? null) ? $raw['schedules'] : []),
             'rollout_mode' => in_array($mode, self::ROLLOUT_MODES, true) ? $mode : 'gradual',
             'rollout_step_percentage' => self::validRolloutSteps($raw['rollout_step_percentage'] ?? []),
             'rollout_active_grace_period' => max(0, min(self::ROLLOUT_GRACE_MAX, (int) ($raw['rollout_active_grace_period'] ?? 0))),
         ];
+    }
+
+    /**
+     * Scaling windows: min/max instances for a time of day. Rows that don't
+     * make sense are dropped rather than rejected, so a bad stored row can
+     * never break a deploy. Recurring windows start and end on the same day.
+     *
+     * @return list<array{days: string, start: string, end: string, timezone: string, min: int, max: int}>
+     */
+    public static function normalizeSchedules(array $rows): array
+    {
+        $out = [];
+        foreach ($rows as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $days = (string) ($row['days'] ?? '');
+            $start = (string) ($row['start'] ?? '');
+            $end = (string) ($row['end'] ?? '');
+            $timezone = (string) ($row['timezone'] ?? 'UTC');
+            $max = max(1, min(self::MAX_INSTANCES, (int) ($row['max'] ?? 1)));
+            $time = '/^([01]\d|2[0-3]):[0-5]\d$/';
+            if (! self::isScheduleDays($days)
+                || preg_match($time, $start) !== 1 || preg_match($time, $end) !== 1 || $start >= $end
+                || ! in_array($timezone, timezone_identifiers_list(), true)) {
+                continue;
+            }
+            $out[] = ['days' => $days, 'start' => $start, 'end' => $end, 'timezone' => $timezone, 'min' => max(0, min($max, (int) ($row['min'] ?? 0))), 'max' => $max];
+        }
+
+        return $out;
+    }
+
+    public static function isScheduleDays(string $days): bool
+    {
+        if (in_array($days, self::SCHEDULE_DAYS, true)) {
+            return true;
+        }
+        $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $days);
+
+        return $date !== false && $date->format('Y-m-d') === $days;
+    }
+
+    /** Most instances any window (or the default) can ask for. Wrangler's cap is sized from this. */
+    public static function peakInstances(array $settings): int
+    {
+        return max([$settings['max_instances'], ...array_column($settings['schedules'] ?? [], 'max')]);
     }
 
     /**
@@ -195,17 +258,32 @@ final class EdgeContainerSettings
     /**
      * What wrangler `max_instances` should be for this deploy.
      *
-     * Gradual rollout starts the new image while the previous instance is
-     * still up, so the cap must be one higher than the traffic pool
-     * (`getRandom` still uses the operator's number). Otherwise a site set
-     * to 1 fails every deploy with "Maximum number of running container
-     * instances exceeded".
+     * The first start uses only the instances the operator asked for. A later
+     * gradual rollout starts the new image while the previous one is still up,
+     * so that deploy's cap is one higher. A site set to 1 otherwise fails with
+     * "Maximum number of running container instances exceeded". A dedicated
+     * jobs container is another instance on top of that.
      */
-    public static function wranglerMaxInstances(int $desired, bool $dedicatedJobs = false): int
+    public static function wranglerMaxInstances(int $desired, bool $dedicatedJobs = false, bool $overlap = false): int
     {
         $desired = max(1, min(self::MAX_INSTANCES, $desired));
 
-        return $desired + 1 + ($dedicatedJobs ? 1 : 0);
+        return $desired + ($overlap ? 1 : 0) + ($dedicatedJobs ? 1 : 0);
+    }
+
+    /**
+     * True when a gradual deploy has a live container to overlap with.
+     */
+    public static function deployOverlap(Site $site): bool
+    {
+        if (self::for($site)['rollout_mode'] !== 'gradual') {
+            return false;
+        }
+
+        return EdgeDeployment::query()
+            ->where('site_id', $site->id)
+            ->where('status', EdgeDeployment::STATUS_LIVE)
+            ->exists();
     }
 
     /**
@@ -279,6 +357,23 @@ final class EdgeContainerSettings
             'memory_mib' => (int) $shape['memory_gib'] * 1024,
             'disk_mb' => (int) $shape['disk_gb'] * 1000,
         ];
+    }
+
+    /**
+     * Requests one instance takes before the Worker starts the next one.
+     * PHP: one request per worker, and the worker count comes from memory
+     * (same basis as Laravel Cloud's floor(memory / 30 MB), but with our
+     * 128 MB memory_limit per child).
+     */
+    public static function requestsPerInstance(Site $site): int
+    {
+        if (self::minimumInstanceType($site) !== 'lite') { // PHP; only non-PHP apps may run on lite
+            return self::phpFpmPool(self::for($site)['instance_type'], $site)['max_children'];
+        }
+
+        // ponytail: flat guess for Node/Ruby event-loop servers; make it a
+        // setting when someone's app needs a different number.
+        return 50;
     }
 
     /** @return array{max_children: int, memory_limit: string} */

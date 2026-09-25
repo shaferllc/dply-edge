@@ -10,7 +10,7 @@ module Dply
       end
 
       def call(env)
-        return @app.call(env) unless [RECEIVE_PATH, SCHEDULE_PATH].include?(env["PATH_INFO"]) && env["REQUEST_METHOD"] == "POST"
+        return @app.call(env) unless [RECEIVE_PATH, SCHEDULE_PATH, COMMAND_PATH].include?(env["PATH_INFO"]) && env["REQUEST_METHOD"] == "POST"
 
         token = Dply::Rails.token
         given = env["HTTP_X_DPLY_QUEUE_TOKEN"].to_s
@@ -19,6 +19,7 @@ module Dply
         end
 
         return run_task(JSON.parse(env["rack.input"].read)) if env["PATH_INFO"] == SCHEDULE_PATH
+        return run_command(JSON.parse(env["rack.input"].read)) if env["PATH_INFO"] == COMMAND_PATH
 
         batch = JSON.parse(env["rack.input"].read)
         failed = Array(batch["messages"]).filter_map do |message|
@@ -33,6 +34,13 @@ module Dply
       end
 
       private
+
+      def run_command(payload)
+        task = COMMANDS[payload["command"].to_s]
+        return [422, { "content-type" => "application/json" }, ['{"error":"Unknown command."}']] if task.nil?
+
+        run_task("handler" => task)
+      end
 
       # Cron Trigger: the handler is a rake task name, e.g. "reports:daily".
       def run_task(payload)

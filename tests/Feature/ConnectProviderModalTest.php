@@ -78,6 +78,12 @@ test('edge create refreshes linked accounts after source control linked event', 
     Livewire::actingAs($user)
         ->test(Create::class)
         ->assertCount('linkedSourceControlAccounts', 1)
+        ->assertSee('Github token - edge-user')
+        ->assertSee('Connected')
+        ->assertSee('Connect another account')
+        ->set('wizardStep', 2)
+        ->call('selectSourceControlAccount', 'not-the-current-account')
+        ->assertSet('wizardStep', 2)
         ->call('refreshLinkedSourceControlAccounts')
         ->assertSet('repo_source', 'connected')
         ->assertCount('linkedSourceControlAccounts', 1);

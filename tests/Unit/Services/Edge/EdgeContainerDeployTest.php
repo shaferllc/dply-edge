@@ -63,7 +63,9 @@ test('laravel gets a php-fpm image with assets, migrations on boot and port 8080
         ->and($dockerfile)->not->toContain('/dev/stdout')
         ->and($dockerfile)->not->toContain('error_log /dev/stderr')
         ->and($dockerfile)->toContain('composer install --no-dev')
+        ->and($dockerfile)->toContain('http://sqlite.dply/db')
         ->and($dockerfile)->toContain('chmod 666')
+        ->and($dockerfile)->not->toContain('DPLY_MIGRATE_ON_BOOT" = "1" ]; then if [ "$DB_CONNECTION" = "sqlite"')
         ->and($dockerfile)->toContain('php artisan migrate --force --isolated')
         ->and($dockerfile)->toContain('RUN npm run build')
         ->and($dockerfile)->toContain('SERVER_NAME=":8080"')
@@ -97,7 +99,7 @@ test('a required php extension missing from the base image is installed before c
 
     $dockerfile = File::get(EdgeContainerDockerfile::prepare($dir)['path']);
     $install = strpos($dockerfile, 'RUN install-php-extensions exif gd');
-    $composer = strpos($dockerfile, 'RUN composer install --no-dev');
+    $composer = strpos($dockerfile, 'composer install --no-dev');
 
     expect($install)->not->toBeFalse()
         ->and($composer)->not->toBeFalse()
@@ -105,6 +107,7 @@ test('a required php extension missing from the base image is installed before c
         ->and($dockerfile)->not->toContain('install-php-extensions exif gd intl')
         ->and($dockerfile)->not->toContain(' ctype')
         ->and($dockerfile)->not->toContain(' mbstring')
+        ->and($dockerfile)->toContain('--mount=type=cache,target=/root/.composer/cache')
         ->and($dockerfile)->toContain('grep -v StandWithUkraine');
 });
 
@@ -163,7 +166,7 @@ test('php assets follow composer and package.json instead of a hardcoded npm bui
     $dockerfile = File::get(EdgeContainerDockerfile::prepare($dir)['path']);
 
     expect($dockerfile)->toContain('FROM node:22-bookworm-slim AS assets')
-        ->and($dockerfile)->toContain('RUN npm install')
+        ->and($dockerfile)->toContain('--mount=type=cache,target=/root/.npm npm install')
         ->and($dockerfile)->toContain('RUN npm run production')
         ->and($dockerfile)->not->toContain('npm run build --if-present')
         ->and($dockerfile)->not->toContain('package-lock.json*')
@@ -182,9 +185,37 @@ test('a php app compiles the workspace vite package into public', function () {
     $dockerfile = File::get(EdgeContainerDockerfile::prepare($dir)['path']);
 
     expect($dockerfile)->toContain('FROM node:22-bookworm-slim AS assets')
-        ->and($dockerfile)->toContain('COPY . .')
-        ->and($dockerfile)->toContain('npm ci && npm run build --prefix resources/assets/v3')
+        ->and($dockerfile)->toContain('COPY package.json package-lock.json ./')
+        ->and($dockerfile)->toContain('COPY resources/assets/v3/package.json resources/assets/v3/package.json')
+        ->and($dockerfile)->toContain('RUN --mount=type=cache,target=/root/.npm npm ci')
+        ->and($dockerfile)->toContain('RUN npm run build --prefix resources/assets/v3')
         ->and($dockerfile)->toContain('COPY --from=assets /app/public /app/public');
+});
+
+test('an inertia app with build:ssr builds and runs the ssr server', function () {
+    $dir = checkout([
+        'composer.json' => '{"require":{"php":"^8.3"}}',
+        'artisan' => '',
+        'package.json' => '{"scripts":{"build":"vite build","build:ssr":"vite build && vite build --ssr"},"dependencies":{"@inertiajs/vue3":"^2"}}',
+    ]);
+
+    $dockerfile = File::get(EdgeContainerDockerfile::prepare($dir)['path']);
+
+    expect($dockerfile)->toContain('RUN npm run build:ssr')
+        ->and($dockerfile)->toContain('RUN apk add --no-cache nodejs')
+        ->and($dockerfile)->toContain('COPY --from=assets /app/bootstrap/ssr /app/bootstrap/ssr')
+        ->and($dockerfile)->toContain('php artisan inertia:start-ssr & ');
+});
+
+test('build:ssr without inertia is left alone', function () {
+    $dir = checkout([
+        'composer.json' => '{"require":{"php":"^8.3"}}',
+        'artisan' => '',
+        'package.json' => '{"scripts":{"build":"vite build","build:ssr":"vite build --ssr"}}',
+    ]);
+
+    expect(File::get(EdgeContainerDockerfile::prepare($dir)['path']))->not->toContain('inertia:start-ssr')
+        ->and(File::get(EdgeContainerDockerfile::prepare($dir)['path']))->not->toContain('build:ssr');
 });
 
 test('a pnpm php app compiles assets with pnpm', function () {
@@ -217,6 +248,23 @@ test('rails compiles the package.json asset script before precompile', function 
         ->and($dockerfile)->toContain('rails assets:precompile');
 });
 
+test('platform sqlite is stored through the worker and served by one instance', function () {
+    config(['edge.r2.bucket' => 'edge-artifacts']);
+    $site = new Site;
+    $site->id = '01SITEABC';
+    $dir = sys_get_temp_dir().'/dply-container-test-'.bin2hex(random_bytes(4));
+
+    (new EdgeContainerDeployer)->scaffold($dir, $site, '/x/Dockerfile', 8080, [], [], '', true);
+
+    $config = json_decode(File::get($dir.'/wrangler.jsonc'), true);
+    $worker = File::get($dir.'/src/index.js');
+
+    expect($config['r2_buckets'][0])->toBe(['binding' => 'SQLITE', 'bucket_name' => 'edge-artifacts'])
+        ->and($worker)->toContain('const INSTANCES = 1')
+        ->and($worker)->toContain('sqlite.dply')
+        ->and($worker)->toContain('sites/01SITEABC/sqlite/database.sqlite');
+});
+
 test('an unrecognised repo without a Dockerfile is refused', function () {
     EdgeContainerDockerfile::prepare(checkout(['index.html' => 'hi']));
 })->throws(\RuntimeException::class, 'Container sites need a Dockerfile');
@@ -233,7 +281,7 @@ test('the generated worker project wires the container, queues and the token-gua
     $worker = File::get($dir.'/src/index.js');
 
     expect($config['name'])->toBe('dply-ctr-01siteabc')
-        ->and($config['containers'][0])->toMatchArray(['class_name' => 'App', 'image' => '/build/src/Dockerfile.dply', 'max_instances' => 5])
+        ->and($config['containers'][0])->toMatchArray(['class_name' => 'App', 'image' => '/build/src/Dockerfile.dply', 'max_instances' => 3])
         ->and($config['migrations'][0]['new_sqlite_classes'])->toBe(['App'])
         ->and($config['queues']['producers'][0])->toBe(['binding' => 'JOBS', 'queue' => 'site-jobs'])
         ->and($config['queues']['consumers'][0]['queue'])->toBe('site-jobs')
@@ -242,9 +290,12 @@ test('the generated worker project wires the container, queues and the token-gua
         ->and($worker)->toContain("redirect: 'manual'")
         ->and($worker)->toContain('defaultPort = 8080')
         ->and($worker)->toContain('const INSTANCES = 3')
-        ->and($worker)->toContain('getRandom(env.APP, INSTANCES)')
+        ->and($worker)->toContain('const MIN_INSTANCES = 0')
+        ->and($worker)->toContain('instance(env, i).hasRoom(i)')
+        ->and($worker)->toContain("url.pathname === '/_dply/warm'")
+        ->and($worker)->not->toContain('getRandom')
         ->and($worker)->toContain('const STICKY = true')
-        ->and($worker)->toContain('const DEDICATED_JOBS = true')
+        ->and($worker)->toContain('const DEDICATED_JOBS = false')
         ->and($worker)->toContain("getContainer(env.APP, 'jobs')")
         ->and($worker)->toContain('startAndWaitForPorts')
         ->and($worker)->toContain('async function proxy(env, request, target)')
@@ -294,7 +345,8 @@ test('crons become cron triggers and a scheduled() handler posting to /_dply/sch
     expect($crons)->toBe(['* * * * *' => ['schedule:run'], '0 3 * * *' => ['reports:send']])
         ->and(json_decode(File::get($dir.'/wrangler.jsonc'), true)['triggers'])->toBe(['crons' => ['* * * * *', '0 3 * * *']])
         ->and(File::get($dir.'/src/index.js'))->toContain('async scheduled(controller, env, ctx)')
-        ->and(File::get($dir.'/src/index.js'))->toContain('"/_dply/schedule"');
+        ->and(File::get($dir.'/src/index.js'))->toContain('"/_dply/schedule"')
+        ->and(File::get($dir.'/src/index.js'))->toContain("url.pathname === '/_dply/command'");
 });
 
 test('previews enqueue but never consume queues or run crons', function () {
@@ -369,8 +421,77 @@ test('a laravel app that needs the package gets dply/laravel in the image', func
         ]), true)['path']))->not->toContain('COPY dply-laravel');
 });
 
-test('wrangler gets a spare instance so a gradual rollout can start the new image', function () {
-    expect(EdgeContainerSettings::wranglerMaxInstances(1))->toBe(2)
-        ->and(EdgeContainerSettings::wranglerMaxInstances(5))->toBe(6)
-        ->and(EdgeContainerSettings::wranglerMaxInstances(20))->toBe(21);
+test('the first start uses only the instances asked for, and a later rollout keeps one spare', function () {
+    expect(EdgeContainerSettings::wranglerMaxInstances(1))->toBe(1)
+        ->and(EdgeContainerSettings::wranglerMaxInstances(1, false, true))->toBe(2)
+        ->and(EdgeContainerSettings::wranglerMaxInstances(5, false, true))->toBe(6)
+        ->and(EdgeContainerSettings::wranglerMaxInstances(1, true, true))->toBe(3);
+});
+
+test('a deploy fingerprint changes when resources change and stays put when they do not', function () {
+    $same = EdgeContainerDeployer::deployFingerprint('abc', 'FROM php', '{}', '{"DB":"sqlite"}');
+
+    expect($same)->toBe(EdgeContainerDeployer::deployFingerprint('abc', 'FROM php', '{}', '{"DB":"sqlite"}'))
+        ->and($same)->not->toBe(EdgeContainerDeployer::deployFingerprint('abc', 'FROM php', '{}', '{"DB":"pgsql"}'))
+        ->and($same)->not->toBe(EdgeContainerDeployer::deployFingerprint('def', 'FROM php', '{}', '{"DB":"sqlite"}'))
+        ->and($same)->not->toBe(EdgeContainerDeployer::deployFingerprint('abc', 'FROM php', '{"sleep":"10m"}', '{"DB":"sqlite"}'));
+});
+
+test('min instances keep instances awake, never exceed max, and the worker parses', function () {
+    $site = new Site(['meta' => ['edge' => ['container' => ['max_instances' => 3, 'min_instances' => 2]]]]);
+    $site->id = '01AUTOSCALE';
+    $dir = sys_get_temp_dir().'/dply-container-test-'.bin2hex(random_bytes(4));
+
+    (new EdgeContainerDeployer)->scaffold($dir, $site, '/x/Dockerfile', 8080, []);
+    $worker = File::get($dir.'/src/index.js');
+    File::put($dir.'/src/check.mjs', $worker);
+    $out = [];
+    $code = 0;
+    if (trim((string) shell_exec('command -v node')) !== '') { // CI may not have node
+        exec('node --check '.escapeshellarg($dir.'/src/check.mjs').' 2>&1', $out, $code);
+    }
+
+    $over = new Site(['meta' => ['edge' => ['container' => ['max_instances' => 2, 'min_instances' => 9]]]]);
+
+    expect($worker)->toContain('const MIN_INSTANCES = 2')
+        ->and($worker)->toContain('const CAPACITY = 50')
+        ->and($worker)->toContain('index < limits().min')
+        ->and($code)->toBe(0, implode("\n", $out))
+        ->and(EdgeContainerSettings::for($over)['min_instances'])->toBe(2);
+});
+
+test('the worker picks the most specific scaling window in its own time zone', function () {
+    if (trim((string) shell_exec('command -v node')) === '') {
+        $this->markTestSkipped('node is not installed');
+    }
+    $site = new Site(['meta' => ['edge' => ['container' => ['max_instances' => 2, 'min_instances' => 0, 'schedules' => [
+        ['days' => 'daily', 'start' => '00:00', 'end' => '23:59', 'timezone' => 'UTC', 'min' => 1, 'max' => 3],
+        ['days' => 'weekdays', 'start' => '09:00', 'end' => '17:00', 'timezone' => 'America/New_York', 'min' => 2, 'max' => 5],
+        ['days' => 'fri', 'start' => '12:00', 'end' => '13:00', 'timezone' => 'America/New_York', 'min' => 4, 'max' => 9],
+        ['days' => 'mon', 'start' => '17:00', 'end' => '09:00', 'timezone' => 'UTC', 'min' => 9, 'max' => 9], // overnight: dropped
+        ['days' => '2026-09-25', 'start' => '12:00', 'end' => '12:45', 'timezone' => 'America/New_York', 'min' => 6, 'max' => 12], // launch
+        ['days' => '2026-02-30', 'start' => '00:00', 'end' => '23:00', 'timezone' => 'UTC', 'min' => 9, 'max' => 9], // no such date: dropped
+    ]]]]]);
+    $site->id = '01WINDOWS';
+    $dir = sys_get_temp_dir().'/dply-container-test-'.bin2hex(random_bytes(4));
+    (new EdgeContainerDeployer)->scaffold($dir, $site, '/x/Dockerfile', 8080, []);
+    $worker = File::get($dir.'/src/index.js');
+
+    // Run just the constants and limits() from the generated worker.
+    preg_match('/const INSTANCES = .*?\nconst PAUSE_KEY/s', $worker, $block);
+    $script = preg_replace('/\nconst PAUSE_KEY$/', '', $block[0]).<<<'JS'
+
+    const at = (iso) => JSON.stringify(limits(new Date(iso)));
+    console.log([
+      at('2026-09-25T16:30:00Z'), // Fri 12:30 New York: the launch date beats Friday
+      at('2026-09-25T16:50:00Z'), // Fri 12:50 New York: launch over, Friday window
+      at('2026-09-24T14:00:00Z'), // Thu 10:00 New York: weekdays
+      at('2026-09-26T14:00:00Z'), // Sat: daily only
+      at('2026-09-24T23:59:30Z'), // outside every window: defaults
+    ].join('|'));
+    JS;
+    File::put($dir.'/limits.mjs', $script);
+
+    expect(trim((string) shell_exec('node '.escapeshellarg($dir.'/limits.mjs').' 2>&1')))
+        ->toBe('{"min":6,"max":12}|{"min":4,"max":9}|{"min":2,"max":5}|{"min":1,"max":3}|{"min":0,"max":2}');
 });

@@ -1,0 +1,13 @@
+{
+  "blockedBy": [],
+  "completedDate": null,
+  "createdDate": "2026-09-25",
+  "description": "A deployer next to EdgeContainerDeployer: build + push to DO Container Registry, apply the Knative Service (min/max scale from EdgeContainerSettings), wait for Ready. The site Worker forwards to the Knative URL with the x-dply-queue-token contract; queue batches and cron triggers post to /_dply/queue and /_dply/schedule the same way they do today. Env/secrets go in as a k8s Secret. Container tab: size list switches to the node-pool sizes.",
+  "id": "T-024",
+  "order": 30,
+  "parentTicket": "T-022",
+  "phase": null,
+  "status": "open",
+  "title": "Runtime: `runtime_mode = dedicated` deploy path + Worker forwarding to the cluster",
+  "type": "feature"
+}

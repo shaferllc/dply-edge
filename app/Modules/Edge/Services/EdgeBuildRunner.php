@@ -10,6 +10,7 @@ use App\Modules\Edge\Services\Config\EdgeRepoConfigLoader;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Services\Ssr\EdgeSsrFrameworkRegistry;
 use App\Modules\Edge\Support\EdgeBuildDockerBootstrap;
+use App\Modules\Edge\Support\EdgeEffectiveBindings;
 use App\Modules\Edge\Support\EdgeLiveBuildLog;
 use App\Modules\Edge\Support\EdgeLogCopy;
 use App\Modules\Edge\Support\EdgeRepoRoot;
@@ -339,6 +340,10 @@ class EdgeBuildRunner
                         }
                     }
                 }
+            }
+
+            foreach ($deployment->site !== null ? EdgeEffectiveBindings::overriddenByRepo($deployment->site, $deployment) : [] as $name) {
+                $this->appendBuildLog($buildLog, "[bindings] wrangler.toml also declares {$name}. The repo's binding is used and the Resources page's {$name} is skipped.\n");
             }
 
             if ($repoConfig !== null) {

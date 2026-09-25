@@ -9,6 +9,7 @@ use App\Livewire\Concerns\Edge\MountsEdgeWorkspaceSection;
 use App\Livewire\Concerns\Edge\PublishesEdgeHostMap;
 use App\Models\EdgeDataUsage;
 use App\Models\EdgeDeliveryUsage;
+use App\Models\EdgeDeployment;
 use App\Models\EdgeKvUsage;
 use App\Models\EdgeRedisUsage;
 use App\Models\EdgeSiteEnvVar;
@@ -21,11 +22,14 @@ use App\Modules\Billing\Services\EdgeDataUsageCost;
 use App\Modules\Billing\Services\EdgeDeliveryCost;
 use App\Modules\Billing\Services\EdgeKvCost;
 use App\Modules\Billing\Services\EdgeRedisCost;
+use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Services\EdgeAppDatabase;
+use App\Modules\Edge\Services\EdgeQueueConsumers;
 use App\Modules\Edge\Services\EdgeRedisUsageCollector;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeContainerPlans;
 use App\Modules\Edge\Support\EdgeContainerSettings;
+use App\Modules\Edge\Support\EdgeEffectiveBindings;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use App\Modules\Providers\Neon\NeonClient;
 use App\Modules\Providers\Upstash\UpstashRedisClient;
@@ -74,9 +78,13 @@ class Resources extends Component
 
     public bool $stickySessions = true;
 
-    public bool $dedicatedJobs = true;
+    public bool $dedicatedJobs = false;
 
     public bool $migrateOnBoot = false;
+
+    public string $databaseCommandOutput = '';
+
+    public string $pendingDatabaseCommand = '';
 
     public string $rolloutMode = 'gradual';
 
@@ -111,6 +119,10 @@ class Resources extends Component
     public string $draftPostgresSize = '0.25';
 
     public string $draftPostgresRegion = '';
+
+    public int $draftPostgresSuspend = 300;
+
+    public int $draftPostgresHistory = 86400;
 
     public string $connectionKind = '';
 
@@ -192,7 +204,7 @@ class Resources extends Component
 
     public string $kvHost = '';
 
-    public string $stateHost = '';
+    public string $imagesHost = '';
 
     public string $kvDemoKey = 'hello';
 
@@ -382,7 +394,7 @@ class Resources extends Component
     public function enableBrowser(): void
     {
         $this->authorize('update', $this->site);
-        if ((string) ($this->site->edgeMeta()['runtime_mode'] ?? '') !== 'container') {
+        if ($this->allowedKinds() === []) {
             return;
         }
         $this->site->mergeEdgeMeta(['browser' => true, 'connections' => $this->connectionsWithoutBrowser()]);
@@ -816,9 +828,61 @@ class Resources extends Component
         $this->panel = 'connection';
     }
 
+    /**
+     * Kinds this app's runtime can use. A static site has no code to read
+     * them; a Worker site gets what Workers for Platforms can bind.
+     *
+     * @return list<string>
+     */
+    private function allowedKinds(): array
+    {
+        return match ((string) ($this->site->edgeMeta()['runtime_mode'] ?? 'static')) {
+            'container' => array_keys(EdgeContainerConnections::KINDS),
+            'ssr', 'hybrid' => EdgeContainerConnections::WORKER_KINDS,
+            default => [],
+        };
+    }
+
+    /**
+     * Names the last build's wrangler.toml declares. The repo wins at deploy.
+     *
+     * @return list<string>
+     */
+    private function repoBindingNames(): array
+    {
+        $deployment = EdgeDeployment::query()->where('site_id', $this->site->id)->whereNotNull('repo_config')->latest('id')->first();
+
+        return array_column(array_filter(
+            EdgeEffectiveBindings::for($this->site, $deployment),
+            static fn (array $b): bool => $b['source'] === 'repo',
+        ), 'name');
+    }
+
+    /**
+     * Queue name => the other app that runs its jobs, for queues this app only sends to.
+     *
+     * @param  list<array{kind: string, target: string}>  $connections
+     * @return array<string, string>
+     */
+    private function queueOwners(array $connections): array
+    {
+        $owners = [];
+        foreach ($connections as $connection) {
+            if ($connection['kind'] !== 'queue' || $this->site->organization === null) {
+                continue;
+            }
+            $owner = EdgeQueueConsumers::owner($this->site->organization, $connection['target']);
+            if ($owner !== null && ! $owner->is($this->site)) {
+                $owners[$connection['target']] = (string) $owner->name;
+            }
+        }
+
+        return $owners;
+    }
+
     public function chooseConnectionKind(string $kind): void
     {
-        if (! isset(EdgeContainerConnections::KINDS[$kind]) || in_array($kind, ['sql', 'database_pool'], true)) {
+        if (! isset(EdgeContainerConnections::KINDS[$kind]) || ! in_array($kind, $this->allowedKinds(), true)) {
             return;
         }
         $this->connectionKind = $kind;
@@ -861,7 +925,7 @@ class Resources extends Component
     {
         $this->authorize('update', $this->site);
         $kind = $this->connectionKind;
-        if (! isset(EdgeContainerConnections::KINDS[$kind]) || in_array($kind, EdgeContainerConnections::ENABLE, true)) {
+        if (! isset(EdgeContainerConnections::KINDS[$kind]) || in_array($kind, EdgeContainerConnections::ENABLE, true) || ! in_array($kind, $this->allowedKinds(), true)) {
             return;
         }
 
@@ -1456,6 +1520,11 @@ class Resources extends Component
                 return;
             }
         }
+        if (in_array($row['name'], $this->repoBindingNames(), true)) {
+            $this->addError('connection', __('wrangler.toml already declares :name. The repo file wins, so pick another name.', ['name' => $row['name']]));
+
+            return;
+        }
         $existing[] = $row;
         $this->site->mergeEdgeMeta(['connections' => $existing]);
         $this->site->save();
@@ -1590,10 +1659,72 @@ class Resources extends Component
         $this->panel = '';
     }
 
+    public function runDatabaseCommand(string $action): void
+    {
+        $this->authorize('update', $this->site);
+
+        if ($action === 'rollback') {
+            $this->pendingDatabaseCommand = 'rollback';
+
+            return;
+        }
+
+        $this->pendingDatabaseCommand = '';
+        $this->executeDatabaseCommand($action);
+    }
+
+    public function confirmDatabaseCommand(): void
+    {
+        $this->authorize('update', $this->site);
+        $action = $this->pendingDatabaseCommand;
+        $this->pendingDatabaseCommand = '';
+        if ($action !== '') {
+            $this->executeDatabaseCommand($action);
+        }
+    }
+
+    private function executeDatabaseCommand(string $action): void
+    {
+        $laravel = $this->site->isLaravelFrameworkDetected();
+        $rails = $this->site->isRailsFrameworkDetected();
+        $allowed = $laravel
+            ? ['migrate', 'status', 'seed', 'rollback']
+            : ($rails ? ['migrate', 'status', 'seed', 'rollback', 'prepare'] : []);
+        if (! in_array($action, $allowed, true)) {
+            $this->databaseCommandOutput = __('This app does not have database commands.');
+
+            return;
+        }
+
+        $url = $this->site->edgeLiveUrl();
+        if (! is_string($url) || $url === '') {
+            $this->databaseCommandOutput = __('This app has no live URL yet. Deploy it first.');
+
+            return;
+        }
+
+        try {
+            $response = Http::timeout(120)
+                ->withHeaders(['x-dply-queue-token' => EdgeContainerDeployer::queueToken($this->site)])
+                ->post(rtrim($url, '/').'/_dply/command', ['command' => $action]);
+        } catch (\Throwable $e) {
+            $this->databaseCommandOutput = $e->getMessage();
+
+            return;
+        }
+
+        $body = $response->json();
+        $output = is_array($body) ? trim((string) ($body['output'] ?? $body['error'] ?? $body['task'] ?? '')) : '';
+        $this->databaseCommandOutput = $output !== '' ? $output : $response->body();
+    }
+
     public function selectDatabase(string $engine): void
     {
         $this->authorize('update', $this->site);
         if (! in_array($engine, EdgeAppDatabase::ENGINES, true) || $engine === 'mysql') {
+            return;
+        }
+        if ($engine === 'postgres' && ! $this->site->organization?->onAnyPaidPlan()) {
             return;
         }
 
@@ -1620,6 +1751,9 @@ class Resources extends Component
     public function selectPostgresPlan(string $plan): void
     {
         $this->authorize('update', $this->site);
+        if (! $this->site->organization?->onAnyPaidPlan()) {
+            return;
+        }
         if (! array_key_exists($plan, EdgeAppDatabase::POSTGRES_PLANS)) {
             return;
         }
@@ -1631,6 +1765,9 @@ class Resources extends Component
     public function selectPostgresSize(string $size): void
     {
         $this->authorize('update', $this->site);
+        if (! $this->site->organization?->onAnyPaidPlan()) {
+            return;
+        }
         if (! array_key_exists($size, EdgeAppDatabase::POSTGRES_SIZES)) {
             return;
         }
@@ -1642,6 +1779,9 @@ class Resources extends Component
     public function selectPostgresRegion(string $region): void
     {
         $this->authorize('update', $this->site);
+        if (! $this->site->organization?->onAnyPaidPlan()) {
+            return;
+        }
         if (! array_key_exists($region, NeonClient::REGIONS)) {
             return;
         }
@@ -1651,6 +1791,35 @@ class Resources extends Component
         }
 
         $this->draftPostgresRegion = $region;
+        $this->refreshPending();
+    }
+
+    public function selectPostgresSuspend(int $seconds): void
+    {
+        $this->authorize('update', $this->site);
+        if (! $this->site->organization?->onAnyPaidPlan()) {
+            return;
+        }
+        if (! array_key_exists($seconds, EdgeAppDatabase::POSTGRES_SLEEPS)) {
+            return;
+        }
+
+        $this->draftPostgresSuspend = $seconds;
+        $this->draftPostgresPlan = $seconds === -1 ? 'awake' : 'sleep';
+        $this->refreshPending();
+    }
+
+    public function selectPostgresHistory(int $seconds): void
+    {
+        $this->authorize('update', $this->site);
+        if (! $this->site->organization?->onAnyPaidPlan()) {
+            return;
+        }
+        if (! array_key_exists($seconds, EdgeAppDatabase::POSTGRES_HISTORY)) {
+            return;
+        }
+
+        $this->draftPostgresHistory = $seconds;
         $this->refreshPending();
     }
 
@@ -1850,6 +2019,8 @@ class Resources extends Component
         $meta = $this->site->edgeMeta();
         $container = is_array($meta['container'] ?? null) ? $meta['container'] : [];
         $runtime = (string) ($meta['runtime_mode'] ?? 'static');
+        $allowedKinds = $this->allowedKinds();
+        $hasCode = $allowedKinds !== [];
         $plan = (string) ($container['plan'] ?? '');
         if ($plan === '' && $runtime === 'container') {
             $plan = EdgeContainerPlans::DEFAULT;
@@ -1886,6 +2057,7 @@ class Resources extends Component
         $databaseEngine = $this->draftDatabase;
         $databaseCost = app(EdgeAppDatabaseCost::class);
         $postgres = $databaseCost->presentation();
+        $postgresStored = $databaseCost->stored($this->site);
         $postgresSizes = [];
         foreach (EdgeAppDatabase::POSTGRES_SIZES as $key => $size) {
             $size['hour'] = $databaseCost->hourly($size['cu']);
@@ -1893,9 +2065,17 @@ class Resources extends Component
             $size['month'] = $databaseCost->monthly($size['cu']);
             $postgresSizes[$key] = $size;
         }
-        $postgresPlan = EdgeAppDatabase::postgresPlan($this->draftPostgresPlan);
+        $postgresSuspend = EdgeAppDatabase::postgresSuspend($this->draftPostgresSuspend, $this->draftPostgresPlan);
+        $postgresPlan = $postgresSuspend === -1 ? 'awake' : 'sleep';
         $postgresSize = EdgeAppDatabase::postgresSize($this->draftPostgresSize);
         $postgresRegion = EdgeAppDatabase::postgresRegion($this->draftPostgresRegion);
+        $postgresHistory = EdgeAppDatabase::postgresHistory($this->draftPostgresHistory);
+        $awakeHours = max(0, min(24, $this->awakeHours));
+        foreach ($postgresSizes as $key => $size) {
+            $hours = $postgresSuspend === -1 ? 24 : $awakeHours;
+            $postgresSizes[$key]['day'] = number_format((float) $size['hour'] * $hours, 2);
+            $postgresSizes[$key]['month'] = number_format((float) $size['hour'] * ($postgresSuspend === -1 ? 720 : $awakeHours * 30), 2);
+        }
 
         return view('livewire.sites.edge.workspace.resources', array_merge(
             EdgeSiteViewData::context($this->site, 'resources'),
@@ -1921,11 +2101,16 @@ class Resources extends Component
                 'connections' => $connections = EdgeContainerConnections::for($this->site),
                 'connectionEstimates' => $this->connectionCostEstimates($connections),
                 'servicePeers' => collect(EdgeContainerConnections::peerApps($this->site))->keyBy('id')->all(),
-                'browserOn' => $runtime === 'container' && EdgeContainerConnections::browserEnabled($this->site),
-                'browserDeployed' => $runtime === 'container' && is_string($this->site->edgeMeta()['active_deployment_id'] ?? null) && $this->site->edgeMeta()['active_deployment_id'] !== '',
+                'browserOn' => $hasCode && EdgeContainerConnections::browserEnabled($this->site),
+                'browserDeployed' => $hasCode && is_string($this->site->edgeMeta()['active_deployment_id'] ?? null) && $this->site->edgeMeta()['active_deployment_id'] !== '',
                 'browserHost' => EdgeContainerConnections::browserHost($this->site),
-                'showBrowser' => $runtime === 'container',
+                'showBrowser' => $hasCode,
                 'connectionKinds' => EdgeContainerConnections::KINDS,
+                'allowedKinds' => $allowedKinds,
+                'hasCode' => $hasCode,
+                'isWorker' => in_array($runtime, ['ssr', 'hybrid'], true),
+                'overriddenByRepo' => $hasCode ? $this->repoBindingNames() : [],
+                'queueOwners' => $this->queueOwners($connections),
                 'databaseEngine' => $databaseEngine,
                 'databaseName' => (string) ($storedDatabase['name'] ?? 'production'),
                 'databaseHost' => $databaseEngine === (string) ($storedDatabase['engine'] ?? '') ? (string) ($storedDatabase['host'] ?? '') : '',
@@ -1935,11 +2120,18 @@ class Resources extends Component
                 'mysqlSize' => EdgeAppDatabase::mysqlSize($this->draftMysqlSize),
                 'postgresHour' => $postgres['hour'],
                 'postgresGigabyte' => $postgres['gigabyte'],
+                'postgresHistoryRate' => $postgres['history'],
+                'postgresStored' => $postgresStored,
                 'postgresPlans' => EdgeAppDatabase::POSTGRES_PLANS,
                 'postgresSizes' => $postgresSizes,
                 'postgresPlan' => $postgresPlan,
                 'postgresSize' => $postgresSize,
                 'postgresRegion' => $postgresRegion,
+                'postgresSuspend' => $postgresSuspend,
+                'postgresSleeps' => EdgeAppDatabase::POSTGRES_SLEEPS,
+                'postgresHistory' => $postgresHistory,
+                'postgresHistories' => EdgeAppDatabase::POSTGRES_HISTORY,
+                'postgresAwakeHours' => $awakeHours,
                 'postgresRegions' => NeonClient::REGIONS,
                 'postgresRegionLocked' => $databaseEngine === 'postgres'
                     && (string) ($storedDatabase['engine'] ?? '') === 'postgres'
@@ -1966,6 +2158,9 @@ class Resources extends Component
         $this->draftPostgresPlan = $state['postgres_plan'];
         $this->draftPostgresSize = $state['postgres_size'];
         $this->draftPostgresRegion = $state['postgres_region'];
+        $this->draftPostgresSuspend = $state['postgres_suspend'];
+        $this->draftPostgresHistory = $state['postgres_history'];
+        $this->draftPostgresPlan = $state['postgres_suspend'] === -1 ? 'awake' : 'sleep';
         $this->pending = false;
     }
 
@@ -1996,7 +2191,7 @@ class Resources extends Component
             'regions' => $settings['regions'] ?? [],
             'scheduler' => (bool) ($settings['scheduler'] ?? false),
             'sticky_sessions' => (bool) ($settings['sticky_sessions'] ?? true),
-            'dedicated_jobs' => (bool) ($settings['dedicated_jobs'] ?? true),
+            'dedicated_jobs' => (bool) ($settings['dedicated_jobs'] ?? false),
             'migrate_on_boot' => (bool) ($settings['migrate_on_boot'] ?? false),
             'custom_vcpu' => (int) ($container['custom_vcpu'] ?? 1),
             'custom_memory_gib' => (int) ($container['custom_memory_gib'] ?? 3),
@@ -2010,6 +2205,8 @@ class Resources extends Component
             'postgres_plan' => EdgeAppDatabase::postgresPlan((string) ($database['plan'] ?? '')),
             'postgres_size' => EdgeAppDatabase::postgresSize($engine === 'postgres' ? (string) ($database['size'] ?? '') : ''),
             'postgres_region' => EdgeAppDatabase::postgresRegion((string) ($database['region'] ?? '')),
+            'postgres_suspend' => EdgeAppDatabase::postgresSuspend((int) ($database['suspend'] ?? 0), (string) ($database['plan'] ?? '')),
+            'postgres_history' => EdgeAppDatabase::postgresHistory((int) ($database['history'] ?? 0)),
         ];
     }
 
@@ -2043,6 +2240,8 @@ class Resources extends Component
             'postgres_plan' => EdgeAppDatabase::postgresPlan($this->draftPostgresPlan),
             'postgres_size' => EdgeAppDatabase::postgresSize($this->draftPostgresSize),
             'postgres_region' => EdgeAppDatabase::postgresRegion($this->draftPostgresRegion),
+            'postgres_suspend' => EdgeAppDatabase::postgresSuspend($this->draftPostgresSuspend, $this->draftPostgresPlan),
+            'postgres_history' => EdgeAppDatabase::postgresHistory($this->draftPostgresHistory),
         ];
     }
 
@@ -2125,6 +2324,8 @@ class Resources extends Component
             $this->draftPostgresPlan,
             $this->draftPostgresSize,
             $this->draftPostgresRegion,
+            $this->draftPostgresSuspend,
+            $this->draftPostgresHistory,
         );
         if ($databaseError !== null) {
             $this->addError('database', $databaseError);

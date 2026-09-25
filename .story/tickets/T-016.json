@@ -1,0 +1,16 @@
+{
+  "blockedBy": [],
+  "citesRulings": [
+    "r-72p0gkdn9dqwxqha"
+  ],
+  "completedDate": "2026-09-24",
+  "createdDate": "2026-09-25",
+  "description": "Done 2026-09-24 (upload-level). Cross-script DO works with script_name + dispatch_namespace; entry wrapper with export * uploads; Workflows are NOT supported in WfP (PUT /workflows 500) -> Workflow stays container-only. Results in docs/EDGE_PLATFORM_STATUS.md. Runtime (routed request) check happens on the first real wrapped deploy.",
+  "displayId": "T-016",
+  "id": "T-016",
+  "order": 10,
+  "phase": "resources-everywhere",
+  "status": "complete",
+  "title": "Spike: prove WfP cross-script DO, Workflow binding, and the entry wrapper",
+  "type": "task"
+}

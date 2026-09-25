@@ -29,6 +29,7 @@ use App\Modules\Edge\Console\CollectEdgeUsageCommand;
 use App\Modules\Edge\Console\EvaluateEdgeGuardrailsCommand;
 use App\Modules\Edge\Console\RollupEdgeAnalyticsEngineCommand;
 use App\Modules\Edge\Console\WarmEdgeBuildImagesCommand;
+use App\Modules\Edge\Console\WarmEdgeContainersCommand;
 use App\Modules\Edge\Jobs\VerifyEdgeCustomDomainsJob;
 use App\Modules\Secrets\Console\SecretsEscrowCommand;
 use App\Modules\Secrets\Console\SecretsRestoreDrillCommand;
@@ -89,6 +90,12 @@ final class DplySchedule
         $schedule->command(CollectEdgeContainerUsageCommand::class)
             ->dailyAt('01:40')
             ->name('edge-container-usage-yesterday');
+        // Min instances, scaling windows and always-on jobs instances. Windows
+        // start on the minute, so an instance can take up to 5 minutes to follow.
+        $schedule->command(WarmEdgeContainersCommand::class)
+            ->everyFiveMinutes()
+            ->withoutOverlapping()
+            ->name('edge-warm-containers');
         $schedule->command(CollectEdgeDataUsageCommand::class, ['--today'])
             ->hourly()
             ->withoutOverlapping()

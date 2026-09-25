@@ -10,6 +10,7 @@ use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
 use App\Modules\Edge\Livewire\Databases;
+use App\Modules\Edge\Support\EdgeContainerConnections;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -81,7 +82,7 @@ test('attaching adds a d1 binding override to the project', function () {
         ->call('attach')
         ->assertHasNoErrors();
 
-    expect($site->fresh()->edgeMeta()['bindings_overrides'])->toBe([['name' => 'APP_DB', 'kind' => 'd1', 'value' => 'u1']]);
+    expect(collect(EdgeContainerConnections::for($site->fresh()))->map(fn ($c) => [$c['kind'], $c['name'], $c['target']])->all())->toBe([['sql', 'APP_DB', 'u1']]);
 });
 
 test('another organization cannot open your database', function () {

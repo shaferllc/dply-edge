@@ -141,7 +141,7 @@ class EdgeCreateForm extends Form
     /**
      * @return array<string, mixed>
      */
-    public function createEdgeSitePayload(string $framework, string $repo, string $branch): array
+    public function createEdgeSitePayload(string $framework, string $repo, string $branch, string $sourceControlAccountId = ''): array
     {
         // ref_kind=commit means $branch was actually a SHA — promote it to
         // git_commit and reset branch to the conventional default so the
@@ -177,6 +177,7 @@ class EdgeCreateForm extends Form
             'imported_from' => trim($this->imported_from) !== '' ? trim($this->imported_from) : null,
             'imported_id' => trim($this->imported_id) !== '' ? trim($this->imported_id) : null,
             'imported_dashboard_url' => trim($this->imported_dashboard_url) !== '' ? trim($this->imported_dashboard_url) : null,
+            'git_source_control_account_id' => trim($sourceControlAccountId) !== '' ? trim($sourceControlAccountId) : null,
         ];
     }
 

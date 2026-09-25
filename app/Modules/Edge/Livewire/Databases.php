@@ -7,6 +7,7 @@ namespace App\Modules\Edge\Livewire;
 use App\Models\EdgeDatabase;
 use App\Models\Organization;
 use App\Models\Site;
+use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Cache;
@@ -120,11 +121,12 @@ class Databases extends Component
         $site = Site::query()->where('organization_id', $database->organization_id)->findOrFail($this->attachSite);
         $this->authorize('update', $site);
 
-        $overrides = is_array($site->edgeMeta()['bindings_overrides'] ?? null) ? $site->edgeMeta()['bindings_overrides'] : [];
-        $overrides = array_values(array_filter($overrides, fn ($row) => ($row['name'] ?? null) !== $this->bindingName));
-        $overrides[] = ['name' => $this->bindingName, 'kind' => 'd1', 'value' => $database->cloudflare_id];
-        $site->mergeEdgeMeta(['bindings_overrides' => $overrides]);
-        $site->save();
+        $error = EdgeContainerConnections::attach($site, 'sql', $this->bindingName, (string) $database->cloudflare_id);
+        if ($error !== null) {
+            $this->addError('bindingName', $error);
+
+            return;
+        }
 
         session()->flash('status', __(':db is bound to :site as :binding. Redeploy the project to use it.', ['db' => $database->name, 'site' => $site->name, 'binding' => $this->bindingName]));
     }

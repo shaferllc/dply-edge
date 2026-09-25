@@ -159,6 +159,26 @@ final class FrontendAssetBuild
     /**
      * @param  array<string, mixed>  $package
      */
+    /**
+     * `npm run build:ssr` for an Inertia app that has one (Laravel's starter
+     * kits do), else null. Detected, like Octane: the app opted in by
+     * writing the script and an ssr entry.
+     */
+    public static function inertiaSsrBuild(string $root): ?string
+    {
+        $package = self::readJson(rtrim($root, '/').'/package.json') ?? [];
+        $script = $package['scripts']['build:ssr'] ?? null;
+        $deps = array_keys(array_merge(
+            is_array($package['dependencies'] ?? null) ? $package['dependencies'] : [],
+            is_array($package['devDependencies'] ?? null) ? $package['devDependencies'] : [],
+        ));
+        $inertia = array_filter($deps, static fn ($name): bool => str_starts_with((string) $name, '@inertiajs/'));
+
+        return is_string($script) && trim($script) !== '' && $inertia !== []
+            ? self::runScript($root, 'build:ssr')
+            : null;
+    }
+
     private static function scriptName(array $package): ?string
     {
         $scripts = is_array($package['scripts'] ?? null) ? $package['scripts'] : [];

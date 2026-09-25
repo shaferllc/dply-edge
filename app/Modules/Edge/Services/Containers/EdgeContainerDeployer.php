@@ -8,6 +8,7 @@ use App\Models\EdgeDeployment;
 use App\Models\Site;
 use App\Modules\Billing\Services\StarterTrafficGate;
 use App\Modules\Edge\Services\EdgeDeliveryContextResolver;
+use App\Modules\Edge\Services\EdgeQueueConsumers;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeContainerSettings;
 use App\Modules\Edge\Support\EdgeEffectiveBindings;
@@ -175,6 +176,18 @@ class EdgeContainerDeployer
         return 'dply-edge-build-'.strtolower((string) $deployment->id);
     }
 
+    /**
+     * Anything that must be running without traffic: min instances, an
+     * always-on jobs instance, or a scaling window that raises the minimum.
+     * dply:edge:warm-containers re-sends /_dply/warm for these sites.
+     */
+    public static function keepsInstancesAwake(array $settings): bool
+    {
+        return $settings['min_instances'] > 0
+            || ($settings['dedicated_jobs'] && $settings['jobs_always_on'])
+            || array_filter($settings['schedules'], static fn (array $w): bool => $w['min'] > 0) !== [];
+    }
+
     /** Shared secret between the site Worker and the app for /_dply/* calls. */
     public static function queueToken(Site $site): string
     {
@@ -205,23 +218,33 @@ class EdgeContainerDeployer
         if ($summary !== '') {
             $log($summary);
         }
+        $overlap = EdgeContainerSettings::deployOverlap($site);
         $log(sprintf(
-            "Container settings: %s, %d instance(s) (+1 deploy slot), sleep %s, rollout %s\n",
+            "Container settings: %s, %d instance(s)%s, sleep %s, rollout %s\n",
             $settings['instance_type'],
             $settings['max_instances'],
+            $overlap ? ', one extra during this deploy' : '',
             $settings['sleep_after'],
             $settings['rollout_mode'],
         ));
 
-        $broughtOwnDatabase = isset($env['DB_CONNECTION']) || isset($env['DB_URL']) || isset($env['DATABASE_URL']);
         $withDefaults = EdgeContainerEnvDefaults::ensure($site, $checkout, $env);
         $log(EdgeContainerEnvDefaults::describe($env, $withDefaults));
         $env = $withDefaults;
-        $migrateOnBoot = $settings['migrate_on_boot'] || (! $broughtOwnDatabase && ($env['DB_CONNECTION'] ?? '') === 'sqlite');
+        // Platform SQLite lives in /tmp, which is empty after every sleep.
+        // Saved DB_* vars must not turn migration off, or the next wake has
+        // no file and no tables.
+        $platformSqlite = ($env['DB_CONNECTION'] ?? '') === 'sqlite'
+            && ($env['DB_DATABASE'] ?? '') === '/tmp/database.sqlite';
+        $sqliteSync = $platformSqlite && trim((string) config('edge.r2.bucket')) !== '';
+        $migrateOnBoot = $settings['migrate_on_boot'] || $platformSqlite;
+        if ($sqliteSync) {
+            $log("SQLite is saved while the app runs and restored when it wakes. One instance serves the app.\n");
+        }
 
         $project = $workRoot.'/container-worker';
         $queues = $this->queueBindings($site, $deployment);
-        $this->scaffold($project, $site, $image['path'], $image['port'], $queues, self::cronHandlers($site, $deployment), $this->billingKvNamespaceId($site));
+        $this->scaffold($project, $site, $image['path'], $image['port'], $queues, self::cronHandlers($site, $deployment), $this->billingKvNamespaceId($site), $sqliteSync);
         if ($this->attachStaticAssets($project, $checkout, $site)) {
             $log("CSS, JavaScript, and images from public/ are served automatically.\n");
         }
@@ -239,7 +262,25 @@ class EdgeContainerDeployer
             'DPLY_QUEUE_TOKEN' => self::queueToken($site),
             'DPLY_APP_URL' => (string) ($site->edgeLiveUrl() ?? ''),
             'DPLY_MIGRATE_ON_BOOT' => $migrateOnBoot ? '1' : '0',
+            'DPLY_SQLITE_SYNC' => $sqliteSync ? '1' : '0',
         ]), JSON_THROW_ON_ERROR));
+
+        $gitCommit = $this->checkoutCommit($checkout);
+        $fingerprint = self::deployFingerprint(
+            $gitCommit,
+            (string) file_get_contents($image['path']),
+            // index.js carries sleep, instance counts and routing; a
+            // settings-only change must not look like the live deploy.
+            (string) file_get_contents($project.'/wrangler.jsonc').(string) file_get_contents($project.'/src/index.js'),
+            (string) file_get_contents($project.'/secrets.json'),
+        );
+        $unchanged = $this->unchangedLiveContainer($site, $deployment, $gitCommit, $fingerprint);
+        if ($unchanged !== null) {
+            File::delete($project.'/secrets.json');
+            $log("Repo, resources, and container settings match the live deploy. Skipping the image build.\n");
+
+            return $unchanged;
+        }
 
         $this->ensureDeployerImage($log);
 
@@ -299,21 +340,76 @@ class EdgeContainerDeployer
         }
         $log(sprintf("App answered HTTP %d.\n", $response->status()));
 
+        if (self::keepsInstancesAwake($settings)) {
+            $log("Starting the always-on instances.\n");
+            try {
+                Http::timeout(90)
+                    ->withHeaders(['x-dply-queue-token' => self::queueToken($site)])
+                    ->post(rtrim($url, '/').'/_dply/warm')
+                    ->throw();
+            } catch (Throwable $e) {
+                // Not fatal: each starts when traffic first reaches it, then stays up.
+                $log('Could not start them now: '.$e->getMessage()."\n");
+            }
+        }
+
         return [
             'script_name' => self::scriptName($site),
             'stack' => $image['stack'],
             'port' => $image['port'],
             'queues' => array_keys($queues),
             'rollout' => $rollout,
+            'fingerprint' => $fingerprint,
         ];
     }
 
     /**
-     * Write the Worker project wrangler deploys.
-     *
-     * @param  array<string, string>  $queues  binding name => queue name
-     * @param  array<string, list<?string>>  $crons  schedule => handlers (artisan command / rake task)
+     * Commit, image, worker config, and resource env. A resource or setting
+     * change alters wrangler.jsonc or secrets.json, so that deploy still builds.
      */
+    public static function deployFingerprint(string $gitCommit, string $dockerfile, string $wrangler, string $secrets): string
+    {
+        return hash('sha256', $gitCommit."\n".$dockerfile."\n".$wrangler."\n".$secrets);
+    }
+
+    private function checkoutCommit(string $checkout): string
+    {
+        $result = Process::path($checkout)->run(['git', 'rev-parse', 'HEAD']);
+        $commit = strtolower(trim($result->output()));
+
+        return $result->successful() && preg_match('/^[0-9a-f]{40}$/', $commit) === 1 ? $commit : '';
+    }
+
+    /**
+     * @return array{script_name: string, stack: string, port: int, queues: list<string>, rollout: array<string, mixed>, fingerprint: string}|null
+     */
+    private function unchangedLiveContainer(Site $site, EdgeDeployment $deployment, string $gitCommit, string $fingerprint): ?array
+    {
+        if ($gitCommit === '') {
+            return null;
+        }
+
+        $previous = EdgeDeployment::query()
+            ->where('site_id', $site->id)
+            ->whereKeyNot($deployment->id)
+            ->where('status', EdgeDeployment::STATUS_LIVE)
+            ->latest('created_at')
+            ->first();
+
+        $meta = is_array($previous?->meta) ? $previous->meta : [];
+        $container = is_array($meta['container'] ?? null) ? $meta['container'] : null;
+        if ($container === null || ($container['fingerprint'] ?? '') !== $fingerprint) {
+            return null;
+        }
+        if (! isset($container['script_name'], $container['stack'], $container['port'])) {
+            return null;
+        }
+
+        $container['fingerprint'] = $fingerprint;
+
+        return $container;
+    }
+
     /**
      * Copy committed files from the app's public directory into the worker
      * so CSS, JavaScript, and images are served without waking the app.
@@ -357,7 +453,13 @@ class EdgeContainerDeployer
         return true;
     }
 
-    public function scaffold(string $dir, Site $site, string $dockerfile, int $port, array $queues, array $crons = [], string $kvNamespaceId = ''): void
+    /**
+     * Write the Worker project wrangler deploys.
+     *
+     * @param  array<string, string>  $queues  binding name => queue name
+     * @param  array<string, list<?string>>  $crons  schedule => handlers (artisan command / rake task)
+     */
+    public function scaffold(string $dir, Site $site, string $dockerfile, int $port, array $queues, array $crons = [], string $kvNamespaceId = '', bool $sqliteSync = false): void
     {
         File::ensureDirectoryExists($dir.'/src');
         $settings = EdgeContainerSettings::for($site);
@@ -372,7 +474,7 @@ class EdgeContainerDeployer
                 'class_name' => 'App',
                 'image' => $dockerfile,
                 'instance_type' => EdgeContainerSettings::wranglerInstanceType($site),
-                'max_instances' => EdgeContainerSettings::wranglerMaxInstances($settings['max_instances'], $settings['dedicated_jobs']),
+                'max_instances' => EdgeContainerSettings::wranglerMaxInstances(EdgeContainerSettings::peakInstances($settings), $settings['dedicated_jobs'], EdgeContainerSettings::deployOverlap($site)),
                 'constraints' => EdgeContainerSettings::constraints($site),
                 'rollout_step_percentage' => $settings['rollout_step_percentage'] !== [] ? $settings['rollout_step_percentage'] : null,
                 'rollout_active_grace_period' => $settings['rollout_active_grace_period'] > 0 ? $settings['rollout_active_grace_period'] : null,
@@ -392,8 +494,21 @@ class EdgeContainerDeployer
             ];
             // A queue takes one consumer: only the production site processes
             // jobs; previews can enqueue but never steal production's messages.
+            // Of several apps on one Resources queue, only the owner consumes.
             if (! $site->isEdgePreview()) {
-                $config['queues']['consumers'] = array_map(static fn (string $queue): array => ['queue' => $queue, 'max_batch_size' => 10, 'max_retries' => 5], array_values($queues));
+                $speed = $site->organization !== null ? EdgeQueueConsumers::settings($site->organization) : ['max_wait_time_ms' => 5000];
+                $consumed = array_values(array_filter($queues, fn (string $queue): bool => $site->organization === null
+                    || EdgeQueueConsumers::owner($site->organization, $queue) === null
+                    || EdgeQueueConsumers::owns($site, $queue)));
+                if ($consumed !== []) {
+                    $config['queues']['consumers'] = array_map(static fn (string $queue): array => array_filter([
+                        'queue' => $queue,
+                        'max_batch_size' => EdgeQueueConsumers::BATCH_SIZE,
+                        'max_retries' => EdgeQueueConsumers::MAX_RETRIES,
+                        'max_batch_timeout' => intdiv($speed['max_wait_time_ms'], 1000),
+                        'max_concurrency' => $speed['max_concurrency'] ?? null,
+                    ], static fn ($v): bool => $v !== null), $consumed);
+                }
             }
         }
 
@@ -405,6 +520,11 @@ class EdgeContainerDeployer
             $config['kv_namespaces'] = [['binding' => 'BILLING', 'id' => $kvNamespaceId]];
         }
 
+        $bucket = trim((string) config('edge.r2.bucket'));
+        if ($sqliteSync && $bucket !== '') {
+            $config['r2_buckets'] = [['binding' => 'SQLITE', 'bucket_name' => $bucket]];
+        }
+
         $config = EdgeContainerConnections::mergeWrangler($config, $site);
 
         File::put($dir.'/wrangler.jsonc', json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
@@ -413,10 +533,11 @@ class EdgeContainerDeployer
             'private' => true,
             'type' => 'module',
             'dependencies' => EdgeContainerConnections::browserEnabled($site)
-                ? ['@cloudflare/containers' => '^0', '@cloudflare/puppeteer' => '^1']
-                : ['@cloudflare/containers' => '^0'],
+                ? ['@cloudflare/containers' => '~0.3.7', '@cloudflare/puppeteer' => '^1']
+                // Pinned: autoscaling reads the SDK's inflightRequests.
+                : ['@cloudflare/containers' => '~0.3.7'],
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-        File::put($dir.'/src/index.js', $this->workerSource($port, array_flip($queues), $settings, $crons, $site));
+        File::put($dir.'/src/index.js', $this->workerSource($port, array_flip($queues), $settings, $crons, $site, $sqliteSync && $bucket !== ''));
     }
 
     /**
@@ -424,12 +545,16 @@ class EdgeContainerDeployer
      * @param  array{instance_type: string, max_instances: int, sleep_after: string, migrate_on_boot: bool, jurisdiction: string, scheduler: bool}  $settings
      * @param  array<string, list<?string>>  $crons
      */
-    private function workerSource(int $port, array $queueBindings, array $settings, array $crons, Site $site): string
+    private function workerSource(int $port, array $queueBindings, array $settings, array $crons, Site $site, bool $sqliteSync = false): string
     {
         $replace = [
             '__PORT__' => (string) $port,
             '__SLEEP__' => json_encode($settings['sleep_after']),
-            '__INSTANCES__' => (string) $settings['max_instances'],
+            '__INSTANCES__' => $sqliteSync ? '1' : (string) $settings['max_instances'],
+            '__MIN_INSTANCES__' => (string) ($sqliteSync ? min(1, $settings['min_instances']) : $settings['min_instances']),
+            '__CAPACITY__' => (string) EdgeContainerSettings::requestsPerInstance($site),
+            '__SCHEDULES__' => json_encode($sqliteSync ? [] : $settings['schedules'], JSON_UNESCAPED_SLASHES),
+            '__JOBS_ALWAYS_ON__' => $settings['dedicated_jobs'] && $settings['jobs_always_on'] ? 'true' : 'false',
             '__STICKY__' => $settings['sticky_sessions'] ? 'true' : 'false',
             '__DEDICATED_JOBS__' => $settings['dedicated_jobs'] ? 'true' : 'false',
             '__FPM_CHILDREN__' => (string) EdgeContainerSettings::phpFpmPool($settings['instance_type'], $site)['max_children'],
@@ -445,6 +570,8 @@ class EdgeContainerDeployer
             '__DELIVERY_USAGE_URL__' => json_encode(rtrim((string) config('app.url'), '/').'/hooks/edge/'.$site->id.'/delivery'),
             '__CLIENT_CERT__' => json_encode(EdgeContainerConnections::clientCertificateId($site) !== '' ? 'CLIENT_CERT' : ''),
             '__BROWSER__' => EdgeContainerConnections::browserEnabled($site) ? 'true' : 'false',
+            '__SQLITE_SYNC__' => $sqliteSync ? 'true' : 'false',
+            '__SQLITE_KEY__' => json_encode('sites/'.$site->id.'/sqlite/database.sqlite', JSON_UNESCAPED_SLASHES),
             '__BROWSER_HOST__' => json_encode(EdgeContainerConnections::browserHost($site)),
             '__BROWSER_IMPORT__' => EdgeContainerConnections::browserEnabled($site)
                 ? "import puppeteer from '@cloudflare/puppeteer';\n"
@@ -477,7 +604,7 @@ JS,
 
         return strtr(<<<'JS'
 // Generated by dply (EdgeContainerDeployer). Edits are overwritten on deploy.
-import { Container, getContainer, getRandom } from '@cloudflare/containers';
+import { Container, getContainer } from '@cloudflare/containers';
 import { DurableObject } from 'cloudflare:workers';
 export { ContainerProxy } from '@cloudflare/containers';
 __BROWSER_IMPORT__
@@ -530,14 +657,66 @@ export class App extends Container {
       DPLY_PHP_MEMORY_LIMIT: __FPM_LIMIT__,
     });
   }
+
+  // Autoscaling. The Worker asks instance-0, instance-1, … in order and
+  // sends the request to the first with room, so extra instances only start
+  // when the ones before them are full, and go back to sleep when traffic
+  // drops. A yes holds a slot until the request arrives (or 30s pass), so a
+  // burst at a cold instance does not all pile onto it.
+  reservations = [];
+
+  async hasRoom(index) {
+    await this.remember(index);
+    const now = Date.now();
+    this.reservations = this.reservations.filter((at) => now - at < 30000);
+    if ((this.inflightRequests ?? 0) + this.reservations.length >= CAPACITY) return false;
+    this.reservations.push(now);
+    return true;
+  }
+
+  async fetch(request) {
+    this.reservations.shift();
+    return super.fetch(request);
+  }
+
+  // The first MIN_INSTANCES instances never sleep (minimum replicas).
+  async remember(index) {
+    if (this.index === index) return;
+    this.index = index;
+    await this.ctx.storage.put('dply:index', index);
+  }
+
+  async onActivityExpired() {
+    const index = this.index ?? (await this.ctx.storage.get('dply:index'));
+    const keep = index === 'jobs' ? JOBS_ALWAYS_ON : typeof index === 'number' && index < limits().min;
+    // A paused site (usage credit used up) lets its always-on instances sleep.
+    if (keep && (await trafficOpen(this.env))) return;
+    return super.onActivityExpired();
+  }
 }
 
 const CLIENT_CERT = __CLIENT_CERT__;
 const BROWSER = __BROWSER__;
+const SQLITE_SYNC = __SQLITE_SYNC__;
+const SQLITE_KEY = __SQLITE_KEY__;
 App.outboundByHost = Object.fromEntries([
   ...CONNECTIONS.map((c) => [c.host, (request, env) => connectionFetch(c, request, env)]),
   ...(BROWSER ? [[__BROWSER_HOST__, (request, env) => browserFetch(request, env)]] : []),
+  ...(SQLITE_SYNC ? [['sqlite.dply', (request, env) => sqliteFetch(request, env)]] : []),
 ]);
+
+async function sqliteFetch(request, env) {
+  if (!env.SQLITE) return new Response('SQLite storage is not configured.', { status: 404 });
+  if (request.method === 'GET') {
+    const object = await env.SQLITE.get(SQLITE_KEY);
+    return object ? new Response(object.body) : new Response('missing', { status: 404 });
+  }
+  if (request.method === 'PUT') {
+    await env.SQLITE.put(SQLITE_KEY, request.body);
+    return new Response('ok');
+  }
+  return new Response('Method not allowed.', { status: 405 });
+}
 App.outbound = async (request, env) => {
   if (!CLIENT_CERT) return fetch(request);
   const presented = await env[CLIENT_CERT].fetch(request);
@@ -613,7 +792,26 @@ async function connectionFetch(c, request, env) {
   }
   if (c.kind === 'ai' && request.method === 'POST') { const body = await json(); return Response.json(await binding.run(body.model, body.input)); }
   if (c.kind === 'vectors' && request.method === 'POST') { const body = await json(); return Response.json(await binding.query(body.vector, { topK: body.topK || 5 })); }
-  if (c.kind === 'images' && request.method === 'POST') return Response.json(await binding.info(await request.arrayBuffer()));
+  if (c.kind === 'images' && request.method === 'POST') {
+    const bytes = await request.arrayBuffer();
+    if (path === 'info') return Response.json(await binding.info(bytes));
+    const q = url.searchParams;
+    const transform = {};
+    const width = Number(q.get('width') || 0);
+    const height = Number(q.get('height') || 0);
+    if (width > 0 && width <= 8000) transform.width = Math.floor(width);
+    if (height > 0 && height <= 8000) transform.height = Math.floor(height);
+    const fit = q.get('fit');
+    if (['scale-down', 'contain', 'cover', 'crop', 'pad'].includes(fit)) transform.fit = fit;
+    const formats = { jpeg: 'image/jpeg', jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', avif: 'image/avif', gif: 'image/gif' };
+    const format = formats[String(q.get('format') || 'webp')] || 'image/webp';
+    const quality = Number(q.get('quality') || 0);
+    const output = { format };
+    if (quality >= 1 && quality <= 100) output.quality = Math.floor(quality);
+    const image = binding.input(new Response(bytes).body);
+    const transformed = Object.keys(transform).length ? image.transform(transform) : image;
+    return (await transformed.output(output)).response();
+  }
   if (c.kind === 'workflow' && request.method === 'POST') { const body = await json(); return Response.json(await binding.create({ id: body.id, params: body.params })); }
   if (c.kind === 'database_pool' && request.method === 'GET') return Response.json({ connectionString: binding.connectionString });
   if (c.kind === 'service') {
@@ -661,6 +859,37 @@ export class EdgeState extends DurableObject {
 __BROWSER_FETCH__
 
 const INSTANCES = __INSTANCES__;
+const MIN_INSTANCES = __MIN_INSTANCES__;
+const CAPACITY = __CAPACITY__;
+const SCHEDULES = __SCHEDULES__;
+const JOBS_ALWAYS_ON = __JOBS_ALWAYS_ON__;
+
+// Scaling windows (scheduled autoscaling). The most specific window that
+// covers now wins: a date, then one weekday, then weekdays/weekends, then
+// daily. Outside every window the defaults apply.
+const DAY_RANK = { daily: 0, weekdays: 1, weekends: 1 };
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function limits(now = new Date()) {
+  let best = null;
+  let bestRank = -1;
+  for (const w of SCHEDULES) {
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+      timeZone: w.timezone, weekday: 'short', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(now).map((p) => [p.type, p.value]));
+    const day = parts.weekday.toLowerCase();
+    const weekend = day === 'sat' || day === 'sun';
+    const date = parts.year + '-' + parts.month + '-' + parts.day;
+    const onDay = w.days === 'daily' || w.days === day || w.days === date || (w.days === 'weekdays' && !weekend) || (w.days === 'weekends' && weekend);
+    const time = parts.hour + ':' + parts.minute;
+    const rank = DATE.test(w.days) ? 3 : (DAY_RANK[w.days] ?? 2);
+    if (onDay && time >= w.start && time < w.end && rank > bestRank) {
+      best = w;
+      bestRank = rank;
+    }
+  }
+  return best ? { min: best.min, max: best.max } : { min: MIN_INSTANCES, max: INSTANCES };
+}
 const STICKY = __STICKY__;
 const DEDICATED_JOBS = __DEDICATED_JOBS__;
 const PAUSE_KEY = __PAUSE_KEY__;
@@ -669,21 +898,52 @@ function stickyId(request) {
   const match = (request.headers.get('cookie') ?? '').match(/(?:^|;\s*)dply_instance=(\d+)/);
   if (match) {
     const id = Number(match[1]);
-    if (id >= 0 && id < INSTANCES) return String(id);
+    if (id >= 0 && id < limits().max) return id;
   }
   return null;
 }
 
+function instance(env, index) {
+  return getContainer(env.APP, 'instance-' + index);
+}
+
+// ponytail: every request probes instance-0 first, so its DO sets the
+// ceiling on requests per second; start from the last index with room if
+// that ever shows up.
+// First instance with room. All full: a random one, since every instance is
+// already running and the cap is reached.
+async function leastIndex(env) {
+  const max = limits().max;
+  for (let i = 0; i < max; i++) {
+    if (await instance(env, i).hasRoom(i)) return i;
+  }
+  return Math.floor(Math.random() * max);
+}
+
 async function webTarget(env, request) {
-  if (!STICKY) return { container: await getRandom(env.APP, INSTANCES), cookie: null };
-  const existing = stickyId(request);
-  const id = existing ?? String(Math.floor(Math.random() * INSTANCES));
-  return { container: getContainer(env.APP, id), cookie: existing === null ? id : null };
+  const existing = STICKY ? stickyId(request) : null;
+  const index = existing ?? (await leastIndex(env));
+  return { container: instance(env, index), cookie: STICKY && existing === null ? String(index) : null };
 }
 
 async function jobsTarget(env) {
-  if (!DEDICATED_JOBS) return { container: await getRandom(env.APP, INSTANCES), cookie: null };
-  return { container: getContainer(env.APP, 'jobs'), cookie: null };
+  if (!DEDICATED_JOBS) return { container: instance(env, await leastIndex(env)), cookie: null };
+  const container = getContainer(env.APP, 'jobs');
+  await container.remember('jobs');
+  return { container, cookie: null };
+}
+
+// Start whatever should be running now: min instances (from the current
+// window) and an always-on jobs instance. dply calls this after each deploy
+// and every few minutes, which also brings back one Cloudflare restarted.
+async function warm(env) {
+  if (!(await trafficOpen(env))) return;
+  const targets = Array.from({ length: limits().min }, (_, i) => [instance(env, i), i]);
+  if (JOBS_ALWAYS_ON) targets.push([getContainer(env.APP, 'jobs'), 'jobs']);
+  await Promise.all(targets.map(async ([container, index]) => {
+    await container.remember(index);
+    await container.startAndWaitForPorts({ ports: [__PORT__], cancellationOptions: { portReadyTimeoutMS: 45000 } });
+  }));
 }
 
 function withStickyCookie(response, id) {
@@ -757,11 +1017,18 @@ function revealAppErrors(env, response) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname.startsWith('/_dply/')) {
       if (request.headers.get('x-dply-queue-token') !== env.DPLY_QUEUE_TOKEN) {
         return new Response('Forbidden', { status: 403 });
+      }
+      if (url.pathname === '/_dply/warm' && request.method === 'POST') {
+        ctx.waitUntil(warm(env));
+        return new Response(null, { status: 202 });
+      }
+      if (url.pathname === '/_dply/command' && request.method === 'POST') {
+        return proxy(env, request, await webTarget(env, request));
       }
       if (url.pathname === __QUEUE_SEND_PATH__ && request.method === 'POST') {
         const { queue = 'JOBS', body, delay = 0 } = await request.json();

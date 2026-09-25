@@ -48,6 +48,28 @@ final class EdgeAppDatabase
     ];
 
     /**
+     * Idle time before compute stops. -1 stays on.
+     *
+     * @var array<int, string>
+     */
+    public const POSTGRES_SLEEPS = [
+        60 => '1 minute',
+        300 => '5 minutes',
+        900 => '15 minutes',
+        -1 => 'Stays on',
+    ];
+
+    /**
+     * How far back a change can be restored.
+     *
+     * @var array<int, string>
+     */
+    public const POSTGRES_HISTORY = [
+        86400 => '1 day',
+        604800 => '7 days',
+    ];
+
+    /**
      * Postgres compute sizes. One unit is about 4 GB of memory.
      *
      * @var array<string, array{cpu: string, memory: string, cu: float}>
@@ -76,7 +98,7 @@ final class EdgeAppDatabase
     /**
      * Move the app from one engine to another. Returns an error the page can show.
      */
-    public static function sync(Site $site, string $from, string $to, string $mysqlSize = '', string $postgresPlan = '', string $postgresSize = '', string $postgresRegion = ''): ?string
+    public static function sync(Site $site, string $from, string $to, string $mysqlSize = '', string $postgresPlan = '', string $postgresSize = '', string $postgresRegion = '', int $postgresSuspend = 0, int $postgresHistory = 0): ?string
     {
         if (! in_array($to, self::ENGINES, true)) {
             return 'Pick a database.';
@@ -96,7 +118,7 @@ final class EdgeAppDatabase
                 }
             }
             if ($to === 'postgres' && $sameRemote) {
-                $error = self::applyPostgresPlan($site, $current, $postgresPlan, $postgresSize, $postgresRegion);
+                $error = self::applyPostgresPlan($site, $current, $postgresPlan, $postgresSize, $postgresRegion, $postgresSuspend, $postgresHistory);
                 if ($error !== null) {
                     return $error;
                 }
@@ -117,7 +139,7 @@ final class EdgeAppDatabase
             }
             self::release($site, $from, $current);
             if ($to === 'postgres') {
-                self::startPostgres($site, $postgresPlan, $postgresSize, $postgresRegion);
+                self::startPostgres($site, $postgresPlan, $postgresSize, $postgresRegion, $postgresSuspend, $postgresHistory);
             } elseif ($to === 'mysql') {
                 self::startMysql($site, $mysqlSize);
             } else {
@@ -224,14 +246,16 @@ final class EdgeAppDatabase
         self::forgetCredentials($site);
     }
 
-    private static function startPostgres(Site $site, string $plan, string $size, string $region): void
+    private static function startPostgres(Site $site, string $plan, string $size, string $region, int $suspend, int $history): void
     {
         self::requireCard($site);
-        $plan = self::postgresPlan($plan);
+        $suspend = self::postgresSuspend($suspend, $plan);
+        $plan = $suspend === -1 ? 'awake' : 'sleep';
         $size = self::postgresSize($size);
         $region = self::postgresRegion($region);
-        $limits = self::postgresLimits($plan, $size);
-        $created = NeonClient::fromConfig()->create(self::resourceName($site, 'pg'), $limits['min'], $limits['max'], $limits['suspend'], $region);
+        $history = self::postgresHistory($history);
+        $limits = self::postgresLimits($plan, $size, $suspend);
+        $created = NeonClient::fromConfig()->create(self::resourceName($site, 'pg'), $limits['min'], $limits['max'], $limits['suspend'], $region, $history);
         self::storeCredentials($site, 'postgres', $created);
         self::remember($site, [
             'engine' => 'postgres',
@@ -243,28 +267,41 @@ final class EdgeAppDatabase
             'plan' => $plan,
             'size' => $size,
             'region' => $region,
+            'suspend' => $suspend,
+            'history' => $history,
         ]);
     }
 
     /**
      * @param  array<string, mixed>  $current
      */
-    private static function applyPostgresPlan(Site $site, array $current, string $plan, string $size, string $region): ?string
+    private static function applyPostgresPlan(Site $site, array $current, string $plan, string $size, string $region, int $suspend, int $history): ?string
     {
-        $plan = self::postgresPlan($plan);
+        $suspend = self::postgresSuspend($suspend, $plan);
+        $plan = $suspend === -1 ? 'awake' : 'sleep';
         $size = self::postgresSize($size);
         $region = self::postgresRegion($region);
+        $history = self::postgresHistory($history);
         $storedRegion = self::postgresRegion((string) ($current['region'] ?? ''));
         if ((string) ($current['remote_id'] ?? '') !== '' && $region !== $storedRegion) {
             return 'The database stays where it was created. Remove it and add it again to use another location.';
         }
-        $limits = self::postgresLimits($plan, $size);
-        $storedPlan = self::postgresPlan((string) ($current['plan'] ?? ''));
+        $limits = self::postgresLimits($plan, $size, $suspend);
+        $storedSuspend = self::postgresSuspend((int) ($current['suspend'] ?? 0), (string) ($current['plan'] ?? ''));
+        $storedHistory = self::postgresHistory((int) ($current['history'] ?? 0));
+        $storedPlan = $storedSuspend === -1 ? 'awake' : 'sleep';
         $storedSize = self::postgresSize((string) ($current['size'] ?? ''));
-        $stored = self::postgresLimits($storedPlan, $storedSize);
-        if ($limits === $stored && $storedPlan === $plan && $storedSize === $size) {
-            if (($current['plan'] ?? '') !== $plan || (string) ($current['size'] ?? '') !== $size || (string) ($current['region'] ?? '') === '') {
-                self::remember($site, array_merge($current, ['plan' => $plan, 'size' => $size, 'region' => $storedRegion]));
+        $stored = self::postgresLimits($storedPlan, $storedSize, $storedSuspend);
+        $same = $limits === $stored && $storedSize === $size && $storedHistory === $history;
+        if ($same) {
+            if (($current['plan'] ?? '') !== $plan || (string) ($current['size'] ?? '') !== $size || (string) ($current['region'] ?? '') === '' || ! isset($current['suspend']) || ! isset($current['history'])) {
+                self::remember($site, array_merge($current, [
+                    'plan' => $plan,
+                    'size' => $size,
+                    'region' => $storedRegion,
+                    'suspend' => $suspend,
+                    'history' => $history,
+                ]));
             }
 
             return null;
@@ -272,14 +309,26 @@ final class EdgeAppDatabase
 
         try {
             self::requireCard($site);
-            NeonClient::fromConfig()->configure(
-                (string) $current['remote_id'],
-                $limits['min'],
-                $limits['max'],
-                $limits['suspend'],
-                (string) ($current['endpoint_id'] ?? ''),
-            );
-            self::remember($site, array_merge($current, ['plan' => $plan, 'size' => $size, 'region' => $storedRegion]));
+            $client = NeonClient::fromConfig();
+            if ($limits !== $stored || $storedSize !== $size) {
+                $client->configure(
+                    (string) $current['remote_id'],
+                    $limits['min'],
+                    $limits['max'],
+                    $limits['suspend'],
+                    (string) ($current['endpoint_id'] ?? ''),
+                );
+            }
+            if ($storedHistory !== $history) {
+                $client->retain((string) $current['remote_id'], $history);
+            }
+            self::remember($site, array_merge($current, [
+                'plan' => $plan,
+                'size' => $size,
+                'region' => $storedRegion,
+                'suspend' => $suspend,
+                'history' => $history,
+            ]));
         } catch (RuntimeException $e) {
             return $e->getMessage();
         }
@@ -307,17 +356,32 @@ final class EdgeAppDatabase
         return array_key_exists($configured, NeonClient::REGIONS) ? $configured : 'aws-us-east-1';
     }
 
+    public static function postgresSuspend(int $seconds, string $plan = 'sleep'): int
+    {
+        if (array_key_exists($seconds, self::POSTGRES_SLEEPS)) {
+            return $seconds;
+        }
+
+        return self::postgresPlan($plan) === 'awake' ? -1 : 300;
+    }
+
+    public static function postgresHistory(int $seconds): int
+    {
+        return array_key_exists($seconds, self::POSTGRES_HISTORY) ? $seconds : 86400;
+    }
+
     /**
      * @return array{min: float, max: float, suspend: int}
      */
-    public static function postgresLimits(string $plan, string $size): array
+    public static function postgresLimits(string $plan, string $size, int $suspend = 0): array
     {
         $cu = self::POSTGRES_SIZES[self::postgresSize($size)]['cu'];
-        if (self::postgresPlan($plan) === 'awake') {
+        $suspend = self::postgresSuspend($suspend, $plan);
+        if ($suspend === -1) {
             return ['min' => $cu, 'max' => $cu, 'suspend' => -1];
         }
 
-        return ['min' => 0.25, 'max' => $cu, 'suspend' => 300];
+        return ['min' => 0.25, 'max' => $cu, 'suspend' => $suspend];
     }
 
     public static function mysqlSize(string $size): string
