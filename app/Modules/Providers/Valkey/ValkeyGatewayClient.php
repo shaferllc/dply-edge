@@ -72,6 +72,17 @@ final class ValkeyGatewayClient
         return is_array($totals) ? array_map('intval', $totals) : [];
     }
 
+    /**
+     * Point-in-time restore of a database from its wal-g backups. Empty
+     * $targetTime restores to the latest point. Can take minutes.
+     *
+     * @return array<string, mixed>
+     */
+    public function restore(string $id, string $targetTime = ''): array
+    {
+        return $this->http()->timeout(1200)->post('/tenants/'.$id.'/restore', ['target_time' => $targetTime])->throw()->json() ?? [];
+    }
+
     public function sleep(string $id): void
     {
         $this->http()->post('/tenants/'.$id.'/sleep')->throw();

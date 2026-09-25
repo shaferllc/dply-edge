@@ -149,6 +149,7 @@ func (g *gateway) serveProxy() {
 		log.Fatal(err)
 	}
 	go g.servePostgres(certs)
+	go g.serveMongo(certs)
 	ln, err := tls.Listen("tcp", g.cfg.proxyAddr, &tls.Config{GetCertificate: certs.get, MinVersion: tls.VersionTLS12})
 	if err != nil {
 		log.Fatal(err)
@@ -396,6 +397,7 @@ func (g *gateway) serveAPI() {
 	mux.HandleFunc("GET /tenants/{id}", g.auth(g.getTenant))
 	mux.HandleFunc("DELETE /tenants/{id}", g.auth(g.deleteTenant))
 	mux.HandleFunc("POST /tenants/{id}/sleep", g.auth(g.sleepTenant))
+	mux.HandleFunc("POST /tenants/{id}/restore", g.auth(g.restoreTenant))
 	mux.HandleFunc("GET /usage", g.authOnly(g.usage))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 	log.Printf("api on %s", g.cfg.apiAddr)
@@ -464,7 +466,7 @@ func (g *gateway) putTenant(w http.ResponseWriter, r *http.Request) {
 	t.ID = r.PathValue("id")
 	t.Engine = engineOrValkey(t.Engine)
 	if t.Engine != "valkey" && !isDatabase(t.Engine) {
-		http.Error(w, "engine must be valkey or postgres", http.StatusUnprocessableEntity)
+		http.Error(w, "engine must be valkey, postgres or mongodb", http.StatusUnprocessableEntity)
 		return
 	}
 	if isDatabase(t.Engine) {
@@ -489,18 +491,7 @@ func (g *gateway) putTenant(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	// A new database is built now, not on the app's first connection: the
-	// volume, image pull and initdb can take minutes, longer than a client
-	// waits. It parks itself after sleep_after like any other wake.
-	if previous == nil && isDatabase(t.Engine) {
-		go func(id string) {
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-			defer cancel()
-			if _, err := g.wakeDatabase(ctx, id); err != nil {
-				log.Printf("tenant %s: first start failed (retried on connect): %v", id, err)
-			}
-		}(t.ID)
-	}
+
 	// A database applies a new size or password on its next wake. A bigger
 	// disk grows the volume now (online; the filesystem follows).
 	if previous != nil && isDatabase(t.Engine) {
@@ -529,6 +520,44 @@ func (g *gateway) putTenant(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, g.status(r.Context(), t))
+	// A new database is built now, not on the app's first connection: the
+	// volume, image pull and initdb can take minutes, longer than a client
+	// waits. Started after the reply, since the build holds the tenant's
+	// lock and status() needs it. It parks after sleep_after like any wake.
+	if previous == nil && isDatabase(t.Engine) {
+		go func(id string) {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+			defer cancel()
+			if _, err := g.wakeDatabase(ctx, id); err != nil {
+				log.Printf("tenant %s: first start failed (retried on connect): %v", id, err)
+			}
+		}(t.ID)
+	}
+}
+
+// restoreTenant: point-in-time restore of a database from its wal-g backups.
+// Body {"target_time": "RFC3339"}; empty restores to the latest point.
+func (g *gateway) restoreTenant(w http.ResponseWriter, r *http.Request) {
+	t, err := g.getTenantRecord(r.Context(), r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if !isDatabase(t.Engine) {
+		http.Error(w, "only databases can be restored", http.StatusUnprocessableEntity)
+		return
+	}
+	var body struct {
+		TargetTime string `json:"target_time"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+	defer cancel()
+	if err := g.restoreDatabase(ctx, *t, body.TargetTime); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, g.status(r.Context(), *t))
 }
 
 func (g *gateway) getTenant(w http.ResponseWriter, r *http.Request) {

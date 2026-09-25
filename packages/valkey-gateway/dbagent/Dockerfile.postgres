@@ -1,6 +1,11 @@
 # dply Postgres image: stock Postgres with dbagent as PID 1 (the pod stays up
-# while the database sleeps). Build from packages/valkey-gateway:
+# while the database sleeps) and wal-g for backups to R2. Build from
+# packages/valkey-gateway:
 #   docker build -f dbagent/Dockerfile.postgres -t dply/postgres:17 .
+#
+# Debian, not Alpine: wal-g ships glibc binaries only. Databases are created
+# with Postgres' builtin C.UTF-8 collation (see dbagent), so text sorting never
+# depends on the OS's C library.
 FROM golang:1.24-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -8,7 +13,21 @@ RUN go mod download
 COPY dbagent/ ./dbagent/
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /dbagent ./dbagent
 
-FROM postgres:17-alpine
+FROM postgres:17-bookworm
+ARG TARGETARCH
+ARG WALG_VERSION=v3.0.9
+# Pinned sha256 of the official release binaries (…/wal-g-pg-22.04-<arch>.sha256).
+RUN set -eu; \
+    case "$TARGETARCH" in \
+      amd64) arch=amd64; sum=d6795c663894d836ba20840bffe8970aed81bbe25d3151bd4951f6f9c362def9 ;; \
+      arm64) arch=aarch64; sum=072eb4a4a119f817e1fa888c64a776b01e3453b2e0d967a67d149adb18fde652 ;; \
+      *) echo "unsupported arch $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    apt-get update -qq && apt-get install -y -qq --no-install-recommends curl ca-certificates >/dev/null; \
+    curl -fsSL -o /usr/local/bin/wal-g "https://github.com/wal-g/wal-g/releases/download/${WALG_VERSION}/wal-g-pg-22.04-${arch}"; \
+    echo "$sum  /usr/local/bin/wal-g" | sha256sum -c -; \
+    chmod 0755 /usr/local/bin/wal-g; \
+    apt-get purge -y -qq curl >/dev/null; apt-get autoremove -y -qq >/dev/null; rm -rf /var/lib/apt/lists/*
 COPY --from=build /dbagent /usr/local/bin/dbagent
 ENV ENGINE=postgres
 USER postgres

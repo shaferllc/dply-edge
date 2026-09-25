@@ -120,11 +120,15 @@ spec:
             - { name: POOL, value: "250:1" }
             # Databases (ruling r-67chv2jdx2ha025q): one pod per app, data on a
             # DigitalOcean volume so it survives node upgrades and replacement.
-            - { name: POSTGRES_IMAGE, value: "registry.digitalocean.com/dply-cloud/postgres:17-202609250406" }
+            - { name: POSTGRES_IMAGE, value: "registry.digitalocean.com/dply-cloud/postgres:17-202609250704" }
+            - { name: MONGO_IMAGE, value: "registry.digitalocean.com/dply-cloud/mongodb:7-202609250704" }
             - { name: DB_STORAGE_CLASS, value: do-block-storage }
+            # wal-g backups for databases: keys from this secret, by reference.
+            - { name: DB_BACKUP_SECRET, value: valkey-gateway-r2 }
           ports:
             - { containerPort: 6380, name: valkey }
             - { containerPort: 5432, name: postgres }
+            - { containerPort: 27017, name: mongodb }
             - { containerPort: 8080, name: api }
           readinessProbe:
             tcpSocket: { port: 6380 }
@@ -137,7 +141,7 @@ spec:
         - name: tls
           secret: { secretName: valkey-gateway-tls }
 ---
-# Public: 6380 (Valkey), 5432 (Postgres), both TLS + per-app password, and
+# Public: 6380 (Valkey), 5432 (Postgres), 27017 (MongoDB), all TLS + per-app password, and
 # 8080 (control API, TLS + bearer token). 5432 approved by the owner 2026-09-25.
 apiVersion: v1
 kind: Service
@@ -150,4 +154,5 @@ spec:
   ports:
     - { name: valkey, port: 6380, targetPort: 6380 }
     - { name: postgres, port: 5432, targetPort: 5432 }
+    - { name: mongodb, port: 27017, targetPort: 27017 }
     - { name: api, port: 8080, targetPort: 8080 }

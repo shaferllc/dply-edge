@@ -12,7 +12,9 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -34,10 +36,12 @@ const (
 
 var dbImages = map[string]string{
 	"postgres": env("POSTGRES_IMAGE", "dply/postgres:17"),
+	"mongodb":  env("MONGO_IMAGE", "dply/mongodb:7"),
 }
 
 var dbPorts = map[string]string{
 	"postgres": "5432",
+	"mongodb":  "27017",
 }
 
 func isDatabase(engine string) bool { _, ok := dbPorts[engine]; return ok }
@@ -105,7 +109,7 @@ func (g *gateway) servePostgres(certs *certReloader) {
 				writePgError(tc, "08004", "unknown database host; connect by its dply hostname")
 				return
 			}
-			g.pipeDatabase(tc, id, func(msg string) { writePgError(tc, "57P03", msg) })
+			g.pipeDatabase(tc, id, "postgres", func(msg string) { writePgError(tc, "57P03", msg) })
 		}()
 	}
 }
@@ -129,7 +133,44 @@ func writePgError(w io.Writer, code, msg string) {
 }
 
 // pipeDatabase wakes the tenant and copies bytes both ways, like Valkey.
-func (g *gateway) pipeDatabase(client net.Conn, id string, fail func(string)) {
+// serveMongo: MongoDB clients with tls=true open TLS straight away and send
+// the hostname as SNI, so this is the Valkey pattern on another port: read
+// the name, wake the tenant, pipe the decrypted stream.
+func (g *gateway) serveMongo(certs *certReloader) {
+	ln, err := tls.Listen("tcp", env("MONGO_ADDR", ":27017"), &tls.Config{GetCertificate: certs.get, MinVersion: tls.VersionTLS12})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("mongodb proxy on %s", env("MONGO_ADDR", ":27017"))
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			continue
+		}
+		go func() {
+			tc := conn.(*tls.Conn)
+			defer tc.Close()
+			_ = tc.SetDeadline(time.Now().Add(15 * time.Second))
+			if err := tc.Handshake(); err != nil {
+				return
+			}
+			id, ok := tenantFromName(tc.ConnectionState().ServerName, g.cfg.dbDomain)
+			if !ok {
+				return // a MongoDB client has no error channel before its handshake
+			}
+			g.pipeDatabase(tc, id, "mongodb", func(string) {})
+		}()
+	}
+}
+
+// pipeDatabase wakes the tenant and pipes the client to it. engine is the
+// protocol of the port the client came in on; a tenant of another engine is
+// refused before anything wakes.
+func (g *gateway) pipeDatabase(client net.Conn, id, engine string, fail func(string)) {
+	if t, err := g.getTenantRecord(context.Background(), id); err != nil || t.Engine != engine {
+		fail("no " + engine + " database at this address")
+		return
+	}
 	started := time.Now()
 	ip, err := g.wakeDatabase(context.Background(), id)
 	if err != nil {
@@ -287,7 +328,7 @@ func (g *gateway) ensureDatabasePod(ctx context.Context, t tenant) (*corev1.Pod,
 }
 
 func (g *gateway) databasePodSpec(t tenant) *corev1.Pod {
-	uid := int64(70) // postgres in the alpine image
+	uid := int64(999) // postgres in the Debian image (dbagent/Dockerfile.postgres)
 	grace := int64(30)
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -310,9 +351,9 @@ func (g *gateway) databasePodSpec(t tenant) *corev1.Pod {
 				Name:            "db",
 				Image:           dbImages[t.Engine],
 				ImagePullPolicy: corev1.PullIfNotPresent,
-				Env: []corev1.EnvVar{{Name: "AGENT_TOKEN", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
+				Env: append([]corev1.EnvVar{{Name: "AGENT_TOKEN", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
 					LocalObjectReference: corev1.LocalObjectReference{Name: g.cfg.adminSecret}, Key: "password",
-				}}}},
+				}}}}, backupEnv(t.ID)...),
 				Ports:        []corev1.ContainerPort{{ContainerPort: int32(atoi(dbPorts[t.Engine]))}, {ContainerPort: 7000}},
 				VolumeMounts: []corev1.VolumeMount{{Name: "data", MountPath: "/data"}},
 				// Memory is resized in place on wake and sleep; no restart.
@@ -363,6 +404,10 @@ func (g *gateway) agentUp(ip string) bool {
 }
 
 func (g *gateway) agent(ip, path string, body any) error {
+	return g.agentWait(ip, path, body, 90*time.Second)
+}
+
+func (g *gateway) agentWait(ip, path string, body any, timeout time.Duration) error {
 	var payload io.Reader
 	if body != nil {
 		b, _ := json.Marshal(body)
@@ -370,7 +415,7 @@ func (g *gateway) agent(ip, path string, body any) error {
 	}
 	req, _ := http.NewRequest(http.MethodPost, "http://"+net.JoinHostPort(ip, agentPort)+path, payload)
 	req.Header.Set("Authorization", "Bearer "+g.cfg.adminPassword)
-	resp, err := (&http.Client{Timeout: 90 * time.Second}).Do(req)
+	resp, err := (&http.Client{Timeout: timeout}).Do(req)
 	if err != nil {
 		return err
 	}
@@ -386,6 +431,59 @@ func (g *gateway) deleteDatabase(ctx context.Context, id string) {
 	zero := int64(0)
 	_ = g.kube.CoreV1().Pods(g.cfg.namespace).Delete(ctx, dbPodName(id), metav1.DeleteOptions{GracePeriodSeconds: &zero})
 	_ = g.kube.CoreV1().PersistentVolumeClaims(g.cfg.namespace).Delete(ctx, dbPodName(id), metav1.DeleteOptions{})
+	// Its backups go with it.
+	go func() {
+		if err := g.store.removePrefix(context.Background(), backupPrefix(id)); err != nil {
+			log.Printf("tenant %s: removing backups: %v", id, err)
+		}
+	}()
+}
+
+// ---- backups (wal-g in the database pod, ruling r-67chv2jdx2ha025q) ----
+
+func backupPrefix(id string) string { return "tenants/" + id + "/pg/" }
+
+// backupEnv points a database pod's wal-g at tenants/{id}/pg/ in the same
+// bucket as Valkey snapshots. Keys come from DB_BACKUP_SECRET (the R2 secret)
+// by reference, never inlined. Unset (local), there are no backups.
+func backupEnv(id string) []corev1.EnvVar {
+	secret, bucket := os.Getenv("DB_BACKUP_SECRET"), os.Getenv("S3_BUCKET")
+	if secret == "" || bucket == "" {
+		return nil
+	}
+	fromSecret := func(name, key string) corev1.EnvVar {
+		return corev1.EnvVar{Name: name, ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: secret}, Key: key,
+		}}}
+	}
+	return []corev1.EnvVar{
+		{Name: "WALG_S3_PREFIX", Value: "s3://" + bucket + "/" + strings.TrimSuffix(backupPrefix(id), "/")},
+		{Name: "AWS_ENDPOINT", Value: os.Getenv("S3_ENDPOINT")},
+		{Name: "AWS_REGION", Value: env("S3_REGION", "auto")},
+		{Name: "AWS_S3_FORCE_PATH_STYLE", Value: "true"},
+		fromSecret("AWS_ACCESS_KEY_ID", "access-key"),
+		fromSecret("AWS_SECRET_ACCESS_KEY", "secret-key"),
+	}
+}
+
+// restoreDatabase wakes the database, has dbagent restore it (to target, an
+// RFC3339 time, or the latest point when empty), then re-applies the app's
+// current password, since the restored data carries the one from back then.
+func (g *gateway) restoreDatabase(ctx context.Context, t tenant, target string) error {
+	ip, err := g.wakeDatabase(ctx, t.ID)
+	if err != nil {
+		return err
+	}
+	s := g.state(t.ID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for c := range s.conns {
+		_ = c.Close()
+	}
+	if err := g.agentWait(ip, "/restore", map[string]string{"target_time": target}, 15*time.Minute); err != nil {
+		return err
+	}
+	return g.agent(ip, "/tenant", map[string]string{"password": t.Password})
 }
 
 // growDatabaseVolume raises the volume's size request. DigitalOcean block
