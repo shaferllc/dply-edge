@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -201,6 +202,17 @@ func (m *mongo) dump(w io.Writer) error {
 
 func (m *mongo) dumpPosition() string { return m.dumpPos }
 
+func (m *mongo) activeQueries() (int, error) {
+	if !m.running() {
+		return 0, nil
+	}
+	out, err := m.eval(`print(db.currentOp({active: true, "effectiveUsers.user": "app"}).inprog.length)`)
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(lastLines(out, 1))
+}
+
 func (m *mongo) eval(js string) (string, error) {
 	cmd := exec.Command("mongosh", m.adminArgs("--quiet", "--eval", js)...)
 	var stderr strings.Builder
@@ -212,12 +224,20 @@ func (m *mongo) eval(js string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-func (m *mongo) newestTS() (oplogTS, error) {
-	out, err := m.eval(`const e = db.getSiblingDB("local").oplog.rs.find({}, {ts: 1}).sort({$natural: -1}).limit(1).next(); print(e.ts.t + "-" + e.ts.i)`)
+func (m *mongo) newestTS() (oplogTS, error) { return m.edgeTS(-1) }
+func (m *mongo) oldestTS() (oplogTS, error) { return m.edgeTS(1) }
+
+// edgeTS is the newest (-1) or oldest (1) oplog entry's timestamp.
+func (m *mongo) edgeTS(order int) (oplogTS, error) {
+	out, err := m.eval(fmt.Sprintf(`const e = db.getSiblingDB("local").oplog.rs.find({}, {ts: 1}).sort({$natural: %d}).limit(1).next(); print(e.ts.t + "-" + e.ts.i)`, order))
 	if err != nil {
 		return oplogTS{}, err
 	}
 	return parseTS(lastLines(out, 1))
+}
+
+func (ts oplogTS) human() string {
+	return time.Unix(int64(ts.T), 0).UTC().Format("2006-01-02 15:04:05")
 }
 
 func tsQuery(after, upTo oplogTS) string {
@@ -232,9 +252,31 @@ func (m *mongo) ship(d *dumps) error {
 	if b, err := os.ReadFile(m.shippedFile()); err == nil {
 		shipped, _ = parseTS(strings.TrimSpace(string(b)))
 	}
+	// The oplog is capped (64 MB). If it wrapped past the last shipped entry,
+	// the entries in between are gone: mark the window so no restore replays
+	// across it, and take a fresh full backup now as a new starting point.
+	var gapErr error
+	if shipped != (oplogTS{}) {
+		oldest, err := m.oldestTS()
+		if err != nil {
+			return err
+		}
+		if oldest.after(shipped) {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			err := d.putBytes(ctx, d.prefix+"oplog-gap/"+shipped.String()+"_"+oldest.String(), nil)
+			cancel()
+			if err != nil {
+				return err
+			}
+			_ = os.Remove(d.marker)
+			lost := fmt.Sprintf("changes between %s and %s UTC were written faster than they could be saved and cannot be restored", shipped.human(), oldest.human())
+			recordLost(lost)
+			gapErr = errors.New(lost)
+		}
+	}
 	newest, err := m.newestTS()
 	if err != nil || !newest.after(shipped) {
-		return err
+		return errors.Join(gapErr, err)
 	}
 	count, err := m.eval(fmt.Sprintf(`print(db.getSiblingDB("local").oplog.rs.countDocuments(EJSON.parse(%q)))`, tsQuery(shipped, newest)))
 	if err != nil {
@@ -259,7 +301,28 @@ func (m *mongo) ship(d *dumps) error {
 			return err
 		}
 	}
-	return os.WriteFile(m.shippedFile(), []byte(newest.String()), 0o600)
+	return errors.Join(gapErr, os.WriteFile(m.shippedFile(), []byte(newest.String()), 0o600))
+}
+
+// oplogGaps are the windows lost to a wrapped oplog, as [from, to].
+func oplogGaps(ctx context.Context, d *dumps) ([][2]oplogTS, error) {
+	keys, err := d.keys(ctx, "oplog-gap/")
+	if err != nil {
+		return nil, err
+	}
+	var gaps [][2]oplogTS
+	for _, k := range keys {
+		parts := strings.Split(filepath.Base(k), "_")
+		if len(parts) != 2 {
+			continue
+		}
+		from, err1 := parseTS(parts[0])
+		to, err2 := parseTS(parts[1])
+		if err1 == nil && err2 == nil {
+			gaps = append(gaps, [2]oplogTS{from, to})
+		}
+	}
+	return gaps, nil
 }
 
 // replay applies oplog entries after from, up to the end of target's second.
@@ -278,6 +341,15 @@ func (m *mongo) replay(d *dumps, from, target string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
+	gaps, err := oplogGaps(ctx, d)
+	if err != nil {
+		return err
+	}
+	for _, g := range gaps {
+		if g[1].after(start) && limit.after(g[0]) {
+			return fmt.Errorf("changes between %s and %s UTC were lost (they were written faster than they could be saved); pick a time after %s", g[0].human(), g[1].human(), g[1].human())
+		}
+	}
 	keys, err := d.keys(ctx, "oplog/")
 	if err != nil {
 		return err
@@ -346,6 +418,17 @@ func (m *mongo) prune(d *dumps, before string) error {
 	for _, k := range keys {
 		if end, err := parseTS(strings.TrimSuffix(filepath.Base(k), ".bson.gz")); err == nil && !end.after(cut) {
 			if err := d.remove(ctx, k); err != nil {
+				return err
+			}
+		}
+	}
+	gaps, err := oplogGaps(ctx, d)
+	if err != nil {
+		return err
+	}
+	for _, g := range gaps {
+		if !g[1].after(cut) {
+			if err := d.remove(ctx, d.prefix+"oplog-gap/"+g[0].String()+"_"+g[1].String()); err != nil {
 				return err
 			}
 		}

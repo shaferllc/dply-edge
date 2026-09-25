@@ -86,9 +86,9 @@ func (d *dumps) loop() {
 		backupMu.Lock()
 		up := d.e.initialized() && d.e.running()
 		if s, ok := d.e.(logShipper); ok && up {
-			// A log failure shows as a failed backup until the next good dump.
-			if err := s.ship(d); err != nil {
-				recordBackup(err)
+			err := s.ship(d)
+			recordLog(err)
+			if err != nil {
 				log.Printf("log backup: %v", err)
 			}
 		}

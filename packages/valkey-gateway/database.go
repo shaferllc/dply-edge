@@ -267,23 +267,24 @@ func (g *gateway) wakeDatabase(ctx context.Context, id string) (string, error) {
 	return ip, nil
 }
 
-// errBackingUp: an idle sleep was refused because the database is mid-backup.
-var errBackingUp = errors.New("backup running")
+// errBusy: an idle sleep was refused because a backup or an app query is
+// running (dbagent's /stop?if_idle=1 answered 409).
+var errBusy = errors.New("busy")
 
-// sleepDatabaseSoon sleeps the database now, or, if a backup is running,
-// once it finishes: it retries each minute in the background and forces the
-// stop after 3 hours. Used for requested sleeps (resize, new password, API),
-// which only need to happen before the next wake, so a backup is never cut.
+// sleepDatabaseSoon sleeps the database now, or, if it is busy (a backup or a
+// query), once it is not: it retries each minute in the background and forces
+// the stop after 3 hours. Used for requested sleeps (resize, new password,
+// API), which only need to happen before the next wake.
 func (g *gateway) sleepDatabaseSoon(ctx context.Context, t tenant) error {
 	err := g.sleepDatabase(ctx, t, true)
-	if !errors.Is(err, errBackingUp) {
+	if !errors.Is(err, errBusy) {
 		return err
 	}
-	log.Printf("tenant %s: sleeping after its backup", t.ID)
+	log.Printf("tenant %s: sleeping once it is not busy (%v)", t.ID, err)
 	go func() {
 		for deadline := time.Now().Add(3 * time.Hour); time.Now().Before(deadline); {
 			time.Sleep(time.Minute)
-			if err := g.sleepDatabase(context.Background(), t, true); !errors.Is(err, errBackingUp) {
+			if err := g.sleepDatabase(context.Background(), t, true); !errors.Is(err, errBusy) {
 				if err != nil {
 					log.Printf("tenant %s: sleep failed: %v", t.ID, err)
 				}
@@ -297,9 +298,8 @@ func (g *gateway) sleepDatabaseSoon(ctx context.Context, t tenant) error {
 	return nil
 }
 
-// sleepDatabase stops the database. idle (the reaper) is refused while a
-// backup runs, and the database stays awake until a later tick; an explicit
-// sleep (resize, API) stops it regardless.
+// sleepDatabase stops the database. idle is refused (errBusy) while a backup
+// or an app query runs; otherwise it stops regardless.
 func (g *gateway) sleepDatabase(ctx context.Context, t tenant, idle bool) error {
 	s := g.state(t.ID)
 	s.mu.Lock()
@@ -307,7 +307,7 @@ func (g *gateway) sleepDatabase(ctx context.Context, t tenant, idle bool) error 
 	pod, ok := g.databasePod(ctx, t.ID)
 	if ok && idle {
 		// Ask first, before dropping connections: the answer may be "not now".
-		if err := g.agent(pod.Status.PodIP, "/stop?unless_backing_up=1", nil); err != nil {
+		if err := g.agent(pod.Status.PodIP, "/stop?if_idle=1", nil); err != nil {
 			return err
 		}
 	}
@@ -474,7 +474,8 @@ func (g *gateway) agentWait(ip, path string, body any, timeout time.Duration) er
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusConflict {
-		return errBackingUp
+		msg, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("%w (%s)", errBusy, bytes.TrimSpace(msg))
 	}
 	if resp.StatusCode >= 300 {
 		msg, _ := io.ReadAll(resp.Body)

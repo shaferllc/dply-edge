@@ -110,9 +110,9 @@ class EdgeValkeyUsageCollector
 
     /** @param  array<string, int>  $totals */
     /**
-     * Copies the database's last backup result onto meta.edge.database.backup
-     * for the Resources tab, and notifies once when backups start failing
-     * (again after the next success).
+     * Copies the database's backup status onto meta.edge.database.backup for
+     * the Resources tab. Notifies once when backups start failing (again after
+     * they recover), and whenever a window of changes is newly lost.
      */
     private function trackBackup(Site $site): void
     {
@@ -126,26 +126,37 @@ class EdgeValkeyUsageCollector
             return; // the gateway or agent is unreachable; keep the last known status
         }
         $previous = (array) ($database['backup'] ?? []);
-        $failing = ($status['last_error_at'] ?? '') !== '' && ($status['last_error_at'] ?? '') > ($status['last_ok_at'] ?? '');
-        $alerted = $failing && ($previous['alerted'] ?? false);
-        if ($failing && ! $alerted) {
-            try {
-                app(NotificationPublisher::class)->publish(
-                    eventKey: 'site.errors.operation_failed',
-                    subject: $site,
-                    title: __('Database backup failed for :site', ['site' => $site->name]),
-                    body: (string) ($status['last_error'] ?? ''),
-                    url: route('sites.show', ['server' => $site->server_id, 'site' => $site->id, 'section' => 'resources']),
-                );
-                $alerted = true;
-            } catch (Throwable $e) {
-                report($e);
-            }
+        $problem = EdgeDplyDatabase::backupProblem($status);
+        $alerted = $problem !== null && ($previous['alerted'] ?? false);
+        if ($problem !== null && ! $alerted) {
+            $alerted = $this->notify($site, __('Database backup failed for :site', ['site' => $site->name]), $problem);
+        }
+        if (($status['lost_at'] ?? '') !== '' && ($status['lost_at'] ?? '') !== ($previous['lost_at'] ?? '')) {
+            $this->notify($site, __('Some database changes for :site cannot be restored', ['site' => $site->name]), ucfirst((string) $status['lost']).'. '.__('A new full backup was started.'));
         }
         $backup = array_merge($status, ['alerted' => $alerted]);
         if ($backup != $previous) {
             $site->mergeEdgeMeta(['database' => array_merge($database, ['backup' => $backup])]);
             $site->save();
+        }
+    }
+
+    private function notify(Site $site, string $title, string $body): bool
+    {
+        try {
+            app(NotificationPublisher::class)->publish(
+                eventKey: 'site.errors.operation_failed',
+                subject: $site,
+                title: $title,
+                body: $body,
+                url: route('sites.show', ['server' => $site->server_id, 'site' => $site->id, 'section' => 'resources']),
+            );
+
+            return true;
+        } catch (Throwable $e) {
+            report($e);
+
+            return false;
         }
     }
 

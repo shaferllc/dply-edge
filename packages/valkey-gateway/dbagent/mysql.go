@@ -198,6 +198,17 @@ func (p *posCapture) Write(b []byte) (int, error) {
 
 func (m *mysqlEngine) dumpPosition() string { return m.dumpPos }
 
+func (m *mysqlEngine) activeQueries() (int, error) {
+	if !m.running() {
+		return 0, nil
+	}
+	out, err := m.query("SELECT COUNT(*) FROM performance_schema.processlist WHERE COMMAND = 'Query' AND USER = 'app'")
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(out)
+}
+
 func (m *mysqlEngine) shippedFile() string {
 	return filepath.Join(filepath.Dir(m.data), "binlog-shipped")
 }

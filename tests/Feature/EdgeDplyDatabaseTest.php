@@ -17,6 +17,7 @@ use App\Modules\Billing\Models\Subscription;
 use App\Modules\Edge\Jobs\RestoreEdgeDplyPostgresJob;
 use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Edge\Services\EdgeValkeyUsageCollector;
+use App\Modules\Edge\Support\EdgeDplyDatabase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -273,4 +274,29 @@ test('the collector records backup status and notifies once when backups start f
 
     expect($this->site->fresh()->edgeMeta()['database']['backup'])->toMatchArray($status + ['alerted' => true])
         ->and(NotificationEvent::query()->where('event_key', 'site.errors.operation_failed')->count())->toBe(1);
+});
+
+test('a failing change log and a lost window of changes are reported', function () {
+    $status = [
+        'last_ok_at' => '2026-09-25T10:00:00Z',
+        'log_ok_at' => '2026-09-25T10:05:00Z', 'log_error' => 'upload binlog.000004: timeout', 'log_error_at' => '2026-09-25T10:06:00Z',
+        'lost' => 'changes between 2026-09-25 09:00:00 and 2026-09-25 09:01:00 UTC were written faster than they could be saved and cannot be restored', 'lost_at' => '2026-09-25T09:02:00Z',
+    ];
+    Http::fake([
+        'gateway.test/usage' => Http::response(['awake_seconds' => []]),
+        'gateway.test/tenants/*/backup' => Http::response($status),
+        'gateway.test/*' => Http::response([]),
+    ]);
+    EdgeAppDatabase::sync($this->site, 'sql', 'mongodb');
+    $this->site->save();
+
+    app(EdgeValkeyUsageCollector::class)->collect();
+    app(EdgeValkeyUsageCollector::class)->collect();
+
+    expect(EdgeDplyDatabase::backupProblem($status))->toBe('Saving recent changes is failing: upload binlog.000004: timeout')
+        ->and(EdgeDplyDatabase::backupProblem(['last_ok_at' => '2026-09-25T10:00:00Z', 'log_ok_at' => '2026-09-25T10:07:00Z'] + $status))->toBeNull()
+        ->and(NotificationEvent::query()->pluck('title')->all())->toBe([
+            'Database backup failed for '.$this->site->name,
+            'Some database changes for '.$this->site->name.' cannot be restored',
+        ]);
 });

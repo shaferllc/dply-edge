@@ -8,7 +8,7 @@
 //
 //	POST /start   create the data directory on first use, start, wait until ready
 //	POST /stop    clean stop (checkpoint), so the next start has no recovery;
-//	              ?unless_backing_up=1 answers 409 instead while a backup runs
+//	              ?if_idle=1 answers 409 instead while a backup or an app query runs
 //	POST /tenant  {"password": "..."} create or update the app's login and database
 //	POST /restore {"target_time": "RFC3339"} point-in-time restore (empty: latest)
 //	GET  /backup-status  last backup success and failure (JSON)
@@ -40,11 +40,13 @@ import (
 )
 
 // backupMu is held for a whole backup or restore. An idle sleep
-// (/stop?unless_backing_up=1) is refused while it is held, so a database that
-// goes idle mid-backup stays up until the backup finishes.
+// (/stop?if_idle=1) is refused while it is held, so a database that goes idle
+// mid-backup stays up until the backup finishes.
 var backupMu sync.Mutex
 
-var errBackingUp = errors.New("a backup is running")
+// errBusy refuses an idle sleep: a backup or an app query is running. The
+// gateway only sees bytes, so a long query with no traffic looks idle to it.
+var errBusy = errors.New("busy")
 
 type engine interface {
 	initialized() bool
@@ -53,6 +55,7 @@ type engine interface {
 	stop() error
 	setTenant(password string) error
 	restore(target string) error
+	activeQueries() (int, error) // app queries running now; 0 when stopped
 }
 
 func main() {
@@ -91,7 +94,7 @@ func main() {
 			if err := fn(r); err != nil {
 				log.Printf("%s: %v", path, err)
 				code := http.StatusInternalServerError
-				if errors.Is(err, errBackingUp) {
+				if errors.Is(err, errBusy) {
 					code = http.StatusConflict
 				}
 				http.Error(w, err.Error(), code)
@@ -110,11 +113,16 @@ func main() {
 		return e.start()
 	})
 	handle("POST /stop", func(r *http.Request) error {
-		if r.URL.Query().Get("unless_backing_up") == "1" {
+		if r.URL.Query().Get("if_idle") == "1" {
 			if !backupMu.TryLock() {
-				return errBackingUp
+				return fmt.Errorf("%w: a backup is running", errBusy)
 			}
 			defer backupMu.Unlock()
+			if n, err := e.activeQueries(); err != nil {
+				log.Printf("active queries: %v", err) // unknown: sleep as before
+			} else if n > 0 {
+				return fmt.Errorf("%w: %d queries running", errBusy, n)
+			}
 		}
 		return e.stop()
 	})
@@ -274,7 +282,11 @@ func (p *postgres) backupMarker() string { return filepath.Join(filepath.Dir(p.d
 func (p *postgres) backupLoop() {
 	for {
 		backupMu.Lock()
-		if run("pg_ctl", "-D", p.data, "status") == nil && dueSince(p.backupMarker(), 24*time.Hour) {
+		up := run("pg_ctl", "-D", p.data, "status") == nil
+		if up {
+			p.checkArchiver()
+		}
+		if up && dueSince(p.backupMarker(), 24*time.Hour) {
 			started := time.Now()
 			_, err := p.walg("backup-push", p.data)
 			recordBackup(err)
@@ -291,6 +303,37 @@ func (p *postgres) backupLoop() {
 		backupMu.Unlock()
 		time.Sleep(time.Minute)
 	}
+}
+
+func (p *postgres) psqlValue(sql string) (string, error) {
+	out, err := exec.Command("psql", "-h", p.run, "-U", "dply_admin", "-d", "postgres", "-qAtc", sql).Output()
+	return strings.TrimSpace(string(out)), err
+}
+
+// checkArchiver reports WAL uploads (archive_command) as the change log's
+// status: failing when the last failure is newer than the last success.
+func (p *postgres) checkArchiver() {
+	out, err := p.psqlValue(`SELECT CASE WHEN last_failed_time IS NOT NULL AND (last_archived_time IS NULL OR last_failed_time > last_archived_time)
+  THEN last_failed_wal || ' at ' || to_char(last_failed_time AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') ELSE '' END FROM pg_stat_archiver`)
+	if err != nil {
+		return // the database is stopping; the next tick checks again
+	}
+	if out != "" {
+		recordLog(fmt.Errorf("uploading changes (WAL) is failing: %s did not upload", out))
+		return
+	}
+	recordLog(nil)
+}
+
+func (p *postgres) activeQueries() (int, error) {
+	if run("pg_ctl", "-D", p.data, "status") != nil {
+		return 0, nil
+	}
+	out, err := p.psqlValue(`SELECT count(*) FROM pg_stat_activity WHERE state = 'active' AND backend_type = 'client backend' AND usename <> 'dply_admin'`)
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(out)
 }
 
 // restore replaces the data directory with a base backup plus WAL replayed
@@ -478,23 +521,57 @@ const backupStatusFile = "/data/backup-status.json"
 
 // recordBackup keeps the last success and the last failure for GET
 // /backup-status (the gateway relays it; the app shows it on Resources).
-func recordBackup(err error) {
-	var s struct {
-		LastOKAt    string `json:"last_ok_at,omitempty"`
-		LastError   string `json:"last_error,omitempty"`
-		LastErrorAt string `json:"last_error_at,omitempty"`
-	}
-	if b, rerr := os.ReadFile(backupStatusFile); rerr == nil {
+// The last_* fields are the daily full backup; log_* the continuous change
+// log (WAL, binlog, oplog). Each fails on its own, so one never hides the other.
+type backupStatus struct {
+	LastOKAt    string `json:"last_ok_at,omitempty"`
+	LastError   string `json:"last_error,omitempty"`
+	LastErrorAt string `json:"last_error_at,omitempty"`
+	LogOKAt     string `json:"log_ok_at,omitempty"`
+	LogError    string `json:"log_error,omitempty"`
+	LogErrorAt  string `json:"log_error_at,omitempty"`
+	// Lost is the latest window of changes that can never be restored (a
+	// MongoDB oplog that wrapped before it was saved). It is kept, not cleared.
+	Lost   string `json:"lost,omitempty"`
+	LostAt string `json:"lost_at,omitempty"`
+}
+
+var statusMu sync.Mutex
+
+func updateStatus(fn func(s *backupStatus, now string)) {
+	statusMu.Lock()
+	defer statusMu.Unlock()
+	var s backupStatus
+	if b, err := os.ReadFile(backupStatusFile); err == nil {
 		_ = json.Unmarshal(b, &s)
 	}
-	now := time.Now().UTC().Format(time.RFC3339)
-	if err == nil {
-		s.LastOKAt = now
-	} else {
-		s.LastError, s.LastErrorAt = lastLines(err.Error(), 2), now
-	}
+	fn(&s, time.Now().UTC().Format(time.RFC3339))
 	b, _ := json.Marshal(s)
 	_ = os.WriteFile(backupStatusFile, b, 0o600)
+}
+
+func recordBackup(err error) {
+	updateStatus(func(s *backupStatus, now string) {
+		if err == nil {
+			s.LastOKAt = now
+		} else {
+			s.LastError, s.LastErrorAt = lastLines(err.Error(), 2), now
+		}
+	})
+}
+
+func recordLost(what string) {
+	updateStatus(func(s *backupStatus, now string) { s.Lost, s.LostAt = what, now })
+}
+
+func recordLog(err error) {
+	updateStatus(func(s *backupStatus, now string) {
+		if err == nil {
+			s.LogOKAt = now
+		} else {
+			s.LogError, s.LogErrorAt = lastLines(err.Error(), 2), now
+		}
+	})
 }
 
 // mustDumps starts the daily dump loop when backups are configured.

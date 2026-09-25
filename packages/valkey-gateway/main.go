@@ -307,13 +307,22 @@ func (g *gateway) reap(ctx context.Context) {
 // reapDatabase parks an idle database. The pod stays; only the process stops.
 func (g *gateway) reapDatabase(ctx context.Context, t tenant) {
 	s := g.state(t.ID)
-	s.mu.Lock()
+	// A wake holds the lock while its pod starts (up to minutes). Skip this
+	// database until the next pass rather than stall the reaper for all.
+	if !s.mu.TryLock() {
+		return
+	}
 	awake := s.ip != ""
 	idle := time.Since(s.lastActivity)
 	s.mu.Unlock()
 	if awake && t.SleepAfter > 0 && idle > time.Duration(t.SleepAfter)*time.Second {
-		if err := g.sleepDatabase(ctx, t, true); errors.Is(err, errBackingUp) {
-			log.Printf("tenant %s: idle, sleeping after its backup", t.ID)
+		if err := g.sleepDatabase(ctx, t, true); errors.Is(err, errBusy) {
+			// A backup or a long query with no traffic: it is not idle. Look
+			// again after another full sleep-after.
+			log.Printf("tenant %s: no traffic but %v; staying awake", t.ID, err)
+			s.mu.Lock()
+			s.lastActivity = time.Now()
+			s.mu.Unlock()
 		} else if err != nil {
 			log.Printf("tenant %s: sleep failed: %v", t.ID, err)
 		}

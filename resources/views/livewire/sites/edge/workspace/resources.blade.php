@@ -1565,14 +1565,18 @@ await db.collection('notes').countDocuments();" }}</pre>
                                 @php
                                     $backup = (array) ($site->edgeMeta()['database']['backup'] ?? []);
                                     $backupOk = ($backup['last_ok_at'] ?? '') !== '' ? \Illuminate\Support\Carbon::parse($backup['last_ok_at']) : null;
-                                    $backupFailing = ($backup['last_error_at'] ?? '') !== '' && ($backup['last_error_at'] ?? '') > ($backup['last_ok_at'] ?? '');
+                                    $changesOk = ($backup['log_ok_at'] ?? '') !== '' ? \Illuminate\Support\Carbon::parse($backup['log_ok_at']) : null;
+                                    $backupProblem = \App\Modules\Edge\Support\EdgeDplyDatabase::backupProblem($backup);
                                 @endphp
-                                @if ($backupFailing)
-                                    <p class="mt-1 text-xs font-semibold text-red-700 dark:text-red-400">{{ __('The last backup failed: :error', ['error' => $backup['last_error'] ?? '']) }}@if ($backupOk) {{ __('The last good one was :ago.', ['ago' => $backupOk->diffForHumans()]) }}@endif</p>
+                                @if ($backupProblem)
+                                    <p class="mt-1 text-xs font-semibold text-red-700 dark:text-red-400">{{ $backupProblem }}@if ($backupOk) {{ __('The last good full backup was :ago.', ['ago' => $backupOk->diffForHumans()]) }}@endif</p>
                                 @elseif ($backupOk)
-                                    <p class="mt-1 text-xs text-brand-moss">{{ __('Last backup :ago.', ['ago' => $backupOk->diffForHumans()]) }}</p>
+                                    <p class="mt-1 text-xs text-brand-moss">{{ __('Last full backup :ago.', ['ago' => $backupOk->diffForHumans()]) }}@if ($changesOk) {{ __('Changes saved :ago.', ['ago' => $changesOk->diffForHumans()]) }}@endif</p>
                                 @else
                                     <p class="mt-1 text-xs text-brand-moss">{{ __('No backup yet. The first one runs a minute or two after the database first starts.') }}</p>
+                                @endif
+                                @if (($backup['lost'] ?? '') !== '')
+                                    <p class="mt-1 text-xs text-brand-ink">{{ ucfirst($backup['lost']) }}. {{ __('Restoring to a time after that works as usual.') }}</p>
                                 @endif
                                 <div class="mt-2 flex flex-wrap items-end gap-2">
                                     <label class="text-xs font-semibold text-brand-ink">

@@ -105,4 +105,23 @@ final class EdgeDplyDatabase
     {
         ValkeyGatewayClient::fromConfig()->delete($id);
     }
+
+    /**
+     * What is wrong with a database's backups, from the agent's status
+     * (meta.edge.database.backup), or null when they are fine. The daily full
+     * backup (last_*) and the continuous change log (log_*) fail separately.
+     *
+     * @param  array<string, mixed>  $status
+     */
+    public static function backupProblem(array $status): ?string
+    {
+        $failing = fn (string $kind): bool => (string) ($status[$kind.'_error_at'] ?? '') !== ''
+            && (string) $status[$kind.'_error_at'] > (string) ($status[$kind === 'last' ? 'last_ok_at' : 'log_ok_at'] ?? '');
+
+        return match (true) {
+            $failing('last') => __('The last full backup failed: :error', ['error' => $status['last_error'] ?? '']),
+            $failing('log') => __('Saving recent changes is failing: :error', ['error' => $status['log_error'] ?? '']),
+            default => null,
+        };
+    }
 }
