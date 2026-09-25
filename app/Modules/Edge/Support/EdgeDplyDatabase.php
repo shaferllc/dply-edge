@@ -10,16 +10,23 @@ use App\Modules\Providers\Valkey\ValkeyGatewayClient;
 use Illuminate\Support\Str;
 
 /**
- * dply Postgres (ruling r-67chv2jdx2ha025q): one database pod per app on the
- * dply Kubernetes cluster, data on a DigitalOcean volume, parked when idle.
- * The gateway (packages/valkey-gateway) creates and wakes it; apps connect to
- * {id}.db.dply.io:5432 with TLS as user "app" to database "app".
+ * dply databases (ruling r-67chv2jdx2ha025q): Postgres or MongoDB, one pod per
+ * app on the dply Kubernetes cluster, data on a DigitalOcean volume, parked
+ * when idle. The gateway (packages/valkey-gateway) creates and wakes it; apps
+ * connect to {id}.db.dply.io (5432 or 27017) with TLS as user "app" to
+ * database "app".
  *
  * Sizes reuse EdgeAppDatabase::POSTGRES_SIZES and their compute-unit pricing
  * (1 CU = 4 GB), so billing and the size list stay one table.
  */
-final class EdgeDplyPostgres
+final class EdgeDplyDatabase
 {
+    /** Engine => [tenant id prefix, port]. */
+    public const ENGINES = [
+        'postgres' => ['pg', '5432'],
+        'mongodb' => ['mg', '27017'],
+    ];
+
     /** Sizes that fit the shared flex nodes (4 GB). Bigger ones need a pool. */
     public const OFFERED_SIZES = ['0.25', '0.5'];
 
@@ -54,9 +61,9 @@ final class EdgeDplyPostgres
     }
 
     /** 3-40 characters of a-z, 0-9 and "-" (the gateway's tenant id rule). */
-    public static function tenantId(Site $site): string
+    public static function tenantId(Site $site, string $engine = 'postgres'): string
     {
-        return 'pg-'.strtolower((string) $site->id);
+        return self::ENGINES[$engine][0].'-'.strtolower((string) $site->id);
     }
 
     public static function host(string $id): string
@@ -78,19 +85,19 @@ final class EdgeDplyPostgres
     /**
      * @return array{id: string, host: string, port: string, database: string, username: string, password: string}
      */
-    public static function provision(Site $site, string $size, int $suspend, int $disk): array
+    public static function provision(Site $site, string $size, int $suspend, int $disk, string $engine = 'postgres'): array
     {
-        $id = self::tenantId($site);
+        $id = self::tenantId($site, $engine);
         $password = Str::random(40);
-        ValkeyGatewayClient::fromConfig()->put($id, $password, self::memoryMb($size), self::sleepAfter($suspend), true, 'postgres', self::disk($disk));
+        ValkeyGatewayClient::fromConfig()->put($id, $password, self::memoryMb($size), self::sleepAfter($suspend), true, $engine, self::disk($disk));
 
-        return ['id' => $id, 'host' => self::host($id), 'port' => '5432', 'database' => 'app', 'username' => 'app', 'password' => $password];
+        return ['id' => $id, 'host' => self::host($id), 'port' => self::ENGINES[$engine][1], 'database' => 'app', 'username' => 'app', 'password' => $password];
     }
 
     /** New size, sleep time or a bigger disk. The gateway applies memory on the next wake. */
-    public static function update(string $id, string $password, string $size, int $suspend, int $disk): void
+    public static function update(string $id, string $password, string $size, int $suspend, int $disk, string $engine = 'postgres'): void
     {
-        ValkeyGatewayClient::fromConfig()->put($id, $password, self::memoryMb($size), self::sleepAfter($suspend), true, 'postgres', self::disk($disk));
+        ValkeyGatewayClient::fromConfig()->put($id, $password, self::memoryMb($size), self::sleepAfter($suspend), true, $engine, self::disk($disk));
     }
 
     public static function destroy(string $id): void

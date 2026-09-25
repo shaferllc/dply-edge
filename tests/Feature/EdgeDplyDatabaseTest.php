@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Feature\EdgeDplyPostgresTest;
+namespace Tests\Feature\EdgeDplyDatabaseTest;
 
 use App\Enums\SiteType;
 use App\Livewire\Sites\Edge\Workspace\Resources;
@@ -154,4 +154,43 @@ test('the resources tab offers disk sizes instead of neon location and restore f
         ->assertSet('draftPostgresDisk', 10)
         ->call('selectPostgresSize', '2')
         ->assertNotSet('draftPostgresSize', '2');
+});
+
+test('mongodb is a dply database with a tls uri, and resizes with its own password', function () {
+    Http::fake(['gateway.test/*' => Http::response([])]);
+    $id = 'mg-'.strtolower($this->site->id);
+
+    expect(EdgeAppDatabase::sync($this->site, 'sql', 'mongodb', '', 'sleep', '0.25', '', 300, 0, 5))->toBeNull();
+    $record = $this->site->edgeMeta()['database'];
+    $uri = env($this->site, 'MONGODB_URI');
+    $password = rawurldecode((string) parse_url($uri, PHP_URL_PASS));
+
+    expect($record)->toMatchArray(['engine' => 'mongodb', 'provider' => 'dply', 'remote_id' => $id, 'host' => $id.'.db.dply.test', 'disk_gb' => 5])
+        ->and($uri)->toStartWith('mongodb://app:')->toEndWith('@'.$id.'.db.dply.test:27017/app?tls=true&authSource=app')
+        ->and(env($this->site, 'MONGO_URL'))->toBe($uri)
+        ->and(env($this->site, 'MONGODB_DATABASE'))->toBe('app')
+        ->and(env($this->site, 'DB_PASSWORD'))->toBe('');
+    Http::assertSent(fn ($request): bool => $request->method() === 'PUT' && $request->url() === 'https://gateway.test/tenants/'.$id
+        && $request['engine'] === 'mongodb' && $request['disk_gb'] === 5 && strlen($password) === 40);
+
+    expect(EdgeAppDatabase::sync($this->site, 'mongodb', 'mongodb', '', 'sleep', '0.5', '', 300, 0, 10))->toBeNull();
+    Http::assertSent(fn ($request): bool => $request->method() === 'PUT' && $request['engine'] === 'mongodb'
+        && $request['memory_mb'] === 2048 && $request['disk_gb'] === 10 && $request['password'] === $password);
+
+    EdgeAppDatabase::sync($this->site, 'mongodb', 'sql');
+    Http::assertSent(fn ($request): bool => $request->method() === 'DELETE' && $request->url() === 'https://gateway.test/tenants/'.$id);
+    expect(env($this->site, 'MONGODB_URI'))->toBe('');
+});
+
+test('mongodb is only offered when the gateway is configured', function () {
+    $user = User::factory()->create();
+    $this->site->organization->users()->attach($user->id, ['role' => 'owner']);
+    $this->site->forceFill(['user_id' => $user->id, 'type' => SiteType::Static, 'status' => Site::STATUS_EDGE_ACTIVE])->save();
+    $this->site->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
+    $test = fn () => Livewire::actingAs($user)->test(Resources::class, ['server' => $this->site->server, 'site' => $this->site]);
+
+    $test()->assertSeeHtml("selectDatabase('mongodb')")->call('selectDatabase', 'mongodb')->assertSet('draftDatabase', 'mongodb')->assertSeeHtml('id="postgres-disk"');
+
+    config(['edge.valkey.api_url' => null]);
+    $test()->assertDontSeeHtml("selectDatabase('mongodb')")->call('selectDatabase', 'mongodb')->assertNotSet('draftDatabase', 'mongodb');
 });

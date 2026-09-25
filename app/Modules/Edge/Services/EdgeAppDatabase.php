@@ -7,14 +7,14 @@ namespace App\Modules\Edge\Services;
 use App\Models\EdgeSiteEnvVar;
 use App\Models\Site;
 use App\Modules\Edge\Jobs\FinishEdgeMysqlDatabaseJob;
-use App\Modules\Edge\Support\EdgeDplyPostgres;
+use App\Modules\Edge\Support\EdgeDplyDatabase;
 use App\Modules\Providers\Neon\NeonClient;
 use App\Modules\Providers\PlanetScale\PlanetScaleClient;
 use RuntimeException;
 
 /**
  * The app database on the Resources card. New Postgres is dply Postgres
- * (EdgeDplyPostgres, record provider "dply") when the gateway is configured;
+ * (EdgeDplyDatabase, record provider "dply") when the gateway is configured;
  * older records without a provider are Neon projects and stay on Neon until
  * moved. MySQL is a PlanetScale cluster that stays on.
  * SQLite stays a file in the container.
@@ -26,7 +26,7 @@ use RuntimeException;
 final class EdgeAppDatabase
 {
     /** @var list<string> */
-    public const ENGINES = ['sql', 'none', 'postgres', 'mysql'];
+    public const ENGINES = ['sql', 'none', 'postgres', 'mysql', 'mongodb'];
 
     /**
      * Customer-facing MySQL sizes. Keys are the cluster names the API expects.
@@ -96,6 +96,9 @@ final class EdgeAppDatabase
         'DB_SSLMODE',
         'MYSQL_ATTR_SSL_CA',
         'DATABASE_URL',
+        'MONGODB_URI',
+        'MONGO_URL',
+        'MONGODB_DATABASE',
     ];
 
     /**
@@ -120,6 +123,12 @@ final class EdgeAppDatabase
                     return $e->getMessage();
                 }
             }
+            if ($to === 'mongodb' && $sameRemote) {
+                $error = self::applyDplyPostgres($site, $current, $postgresPlan, $postgresSize, $postgresSuspend, $postgresDisk);
+                if ($error !== null) {
+                    return $error;
+                }
+            }
             if ($to === 'postgres' && $sameRemote) {
                 $error = self::isDply($current)
                     ? self::applyDplyPostgres($site, $current, $postgresPlan, $postgresSize, $postgresSuspend, $postgresDisk)
@@ -133,9 +142,12 @@ final class EdgeAppDatabase
         }
 
         try {
-            if ($to === 'postgres' || $to === 'mysql') {
+            if ($to === 'postgres' || $to === 'mysql' || $to === 'mongodb') {
                 self::requireCard($site);
-                if ($to === 'postgres' && ! EdgeDplyPostgres::enabled() && ! NeonClient::configured()) {
+                if ($to === 'mongodb' && ! EdgeDplyDatabase::enabled()) {
+                    throw new RuntimeException('MongoDB cannot be started from here yet.');
+                }
+                if ($to === 'postgres' && ! EdgeDplyDatabase::enabled() && ! NeonClient::configured()) {
                     throw new RuntimeException('Postgres cannot be started from here yet.');
                 }
                 if ($to === 'mysql' && ! PlanetScaleClient::configured()) {
@@ -143,7 +155,9 @@ final class EdgeAppDatabase
                 }
             }
             self::release($site, $from, $current);
-            if ($to === 'postgres' && EdgeDplyPostgres::enabled()) {
+            if ($to === 'mongodb') {
+                self::startDplyPostgres($site, $postgresPlan, $postgresSize, $postgresSuspend, $postgresDisk, 'mongodb');
+            } elseif ($to === 'postgres' && EdgeDplyDatabase::enabled()) {
                 self::startDplyPostgres($site, $postgresPlan, $postgresSize, $postgresSuspend, $postgresDisk);
             } elseif ($to === 'postgres') {
                 self::startPostgres($site, $postgresPlan, $postgresSize, $postgresRegion, $postgresSuspend, $postgresHistory);
@@ -171,7 +185,14 @@ final class EdgeAppDatabase
         $password = rawurlencode($credentials['password']);
         $auth = $user.':'.$password;
         $database = rawurlencode($credentials['database']);
-        if ($engine === 'postgres') {
+        if ($engine === 'mongodb') {
+            $url = 'mongodb://'.$auth.'@'.$credentials['host'].':'.$credentials['port'].'/'.$database.'?tls=true&authSource='.$database;
+            $pairs = [
+                'MONGODB_URI' => $url,
+                'MONGO_URL' => $url,
+                'MONGODB_DATABASE' => $credentials['database'],
+            ];
+        } elseif ($engine === 'postgres') {
             $url = 'postgresql://'.$auth.'@'.$credentials['host'].':'.$credentials['port'].'/'.$database.'?sslmode=require';
             $pairs = [
                 'DB_CONNECTION' => 'pgsql',
@@ -245,8 +266,8 @@ final class EdgeAppDatabase
         if ($remoteId === '') {
             return;
         }
-        if ($from === 'postgres' && self::isDply($current)) {
-            EdgeDplyPostgres::destroy($remoteId);
+        if (($from === 'postgres' || $from === 'mongodb') && self::isDply($current)) {
+            EdgeDplyDatabase::destroy($remoteId);
         } elseif ($from === 'postgres') {
             NeonClient::fromConfig()->delete($remoteId);
         } elseif ($from === 'mysql') {
@@ -261,16 +282,16 @@ final class EdgeAppDatabase
         return ($record['provider'] ?? '') === 'dply';
     }
 
-    private static function startDplyPostgres(Site $site, string $plan, string $size, int $suspend, int $disk): void
+    private static function startDplyPostgres(Site $site, string $plan, string $size, int $suspend, int $disk, string $engine = 'postgres'): void
     {
         self::requireCard($site);
         $suspend = self::postgresSuspend($suspend, $plan);
-        $size = EdgeDplyPostgres::size($size);
-        $disk = EdgeDplyPostgres::disk($disk);
-        $created = EdgeDplyPostgres::provision($site, $size, $suspend, $disk);
-        self::storeCredentials($site, 'postgres', $created);
+        $size = EdgeDplyDatabase::size($size);
+        $disk = EdgeDplyDatabase::disk($disk);
+        $created = EdgeDplyDatabase::provision($site, $size, $suspend, $disk, $engine);
+        self::storeCredentials($site, $engine, $created);
         self::remember($site, [
-            'engine' => 'postgres',
+            'engine' => $engine,
             'provider' => 'dply',
             'name' => 'production',
             'status' => 'ready',
@@ -294,9 +315,9 @@ final class EdgeAppDatabase
     private static function applyDplyPostgres(Site $site, array $current, string $plan, string $size, int $suspend, int $disk): ?string
     {
         $suspend = self::postgresSuspend($suspend, $plan);
-        $size = EdgeDplyPostgres::size($size);
-        $disk = EdgeDplyPostgres::disk($disk);
-        $storedDisk = EdgeDplyPostgres::disk((int) ($current['disk_gb'] ?? 0));
+        $size = EdgeDplyDatabase::size($size);
+        $disk = EdgeDplyDatabase::disk($disk);
+        $storedDisk = EdgeDplyDatabase::disk((int) ($current['disk_gb'] ?? 0));
         if ($disk < $storedDisk) {
             return sprintf('A database disk only grows. Pick %d GB or more.', $storedDisk);
         }
@@ -305,8 +326,12 @@ final class EdgeAppDatabase
         }
         try {
             self::requireCard($site);
-            $password = (string) ($site->edgeEnvVars()->where('scope', EdgeSiteEnvVar::SCOPE_PRODUCTION)->where('key', 'DB_PASSWORD')->first()?->value ?? '');
-            EdgeDplyPostgres::update((string) $current['remote_id'], $password, $size, $suspend, $disk);
+            $engine = (string) ($current['engine'] ?? 'postgres');
+            $env = fn (string $key): string => (string) ($site->edgeEnvVars()->where('scope', EdgeSiteEnvVar::SCOPE_PRODUCTION)->where('key', $key)->first()?->value ?? '');
+            $password = $engine === 'mongodb'
+                ? rawurldecode((string) (parse_url($env('MONGODB_URI'), PHP_URL_PASS) ?? ''))
+                : $env('DB_PASSWORD');
+            EdgeDplyDatabase::update((string) $current['remote_id'], $password, $size, $suspend, $disk, $engine);
             self::remember($site, array_merge($current, [
                 'plan' => $suspend === -1 ? 'awake' : 'sleep',
                 'size' => $size,

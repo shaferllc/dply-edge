@@ -280,6 +280,10 @@
                                 {{ __('No storage recorded yet.') }}
                             @endif
                         </p>
+                    @elseif ($databaseEngine === 'mongodb')
+                        <p class="mt-2 text-xs text-brand-moss">
+                            {{ __('MongoDB · :memory · :sleep · :gb GB disk · about $:hour/hour while awake. Disk $:gigabyte/GB each month.', ['memory' => $postgresSizes[$postgresSize]['memory'], 'sleep' => $postgresSuspend === -1 ? __('stays on') : __('sleeps after :sleep', ['sleep' => __($postgresSleeps[$postgresSuspend])]), 'gb' => $postgresDisk, 'hour' => $postgresSizes[$postgresSize]['hour'], 'gigabyte' => $postgresGigabyte]) }}
+                        </p>
                     @elseif ($databaseEngine === 'mysql')
                         <p class="mt-2 text-xs text-brand-moss">{{ __('MySQL. 3 nodes · :cpu · :memory · about $:price/mo. The nodes stay on while the app sleeps.', ['cpu' => $mysqlSizes[$mysqlSize]['cpu'], 'memory' => $mysqlSizes[$mysqlSize]['memory'], 'price' => $mysqlMonthly]) }}</p>
                         @if ($databaseStatus === 'provisioning')
@@ -302,13 +306,13 @@
                         @endif
                     @endif
                     <div class="mt-3 grid gap-1.5" role="radiogroup" aria-label="{{ __('Database') }}">
-                        @foreach (['postgres' => __('Postgres'), 'mysql' => __('MySQL'), 'sql' => __('SQLite')] as $engine => $label)
+                        @foreach (array_merge(['postgres' => __('Postgres')], $mongoAvailable ? ['mongodb' => __('MongoDB')] : [], ['mysql' => __('MySQL'), 'sql' => __('SQLite')]) as $engine => $label)
                             @if ($engine === 'mysql')
                                 <button type="button" disabled aria-disabled="true" class="flex items-center justify-between gap-2 rounded-lg border border-brand-ink/10 bg-white/70 px-2.5 py-1.5 text-left text-xs font-semibold text-brand-moss dark:bg-zinc-900/70">
                                     <span>{{ $label }}</span>
                                     <span class="shrink-0 rounded-full bg-brand-sand/60 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-brand-moss">{{ __('Coming soon') }}</span>
                                 </button>
-                            @elseif ($engine === 'postgres' && ! $cardOnFile)
+                            @elseif (in_array($engine, ['postgres', 'mongodb'], true) && ! $cardOnFile)
                                 <button type="button" disabled aria-disabled="true" class="flex items-center justify-between gap-2 rounded-lg border border-brand-ink/10 bg-white/70 px-2.5 py-1.5 text-left text-xs font-semibold text-brand-moss dark:bg-zinc-900/70">
                                     <span>{{ $label }}</span>
                                     <span class="shrink-0 text-xs font-semibold">{{ __('Add a card') }}</span>
@@ -1449,7 +1453,7 @@
                     <button type="button" role="tab" x-on:click="tab = 'settings'" :aria-selected="tab === 'settings'" :class="tab === 'settings' ? 'border-brand-sage text-brand-ink' : 'border-transparent text-brand-moss'" class="-mb-px shrink-0 border-b-2 pb-2 text-xs font-semibold">{{ __('Settings') }}</button>
                 @endif
             </div>
-            @if (in_array($databaseEngine, ['postgres', 'mysql'], true) && ! $cardOnFile)
+            @if (in_array($databaseEngine, ['postgres', 'mysql', 'mongodb'], true) && ! $cardOnFile)
                 <p class="mt-4 text-xs text-brand-ink">{{ __('Add a card before starting a database. It is billed to that card.') }}</p>
                 @if ($site->organization)
                     <a href="{{ route('billing.show', $site->organization) }}" class="mt-1 inline-block text-xs font-semibold text-brand-ink underline">{{ __('Billing') }}</a>
@@ -1467,6 +1471,12 @@
                             <li>{{ __('This plan sleeps :sleep after the last connection. It starts at 1 GB and grows to :memory, about $:hour/hour, $:day/day, $:month/month at full size for :hours hours awake.', ['sleep' => __($postgresSleeps[$postgresSuspend]), 'memory' => $postgresSizes[$postgresSize]['memory'], 'hour' => $postgresSizes[$postgresSize]['hour'], 'day' => $postgresSizes[$postgresSize]['day'], 'month' => $postgresSizes[$postgresSize]['month'], 'hours' => $postgresAwakeHours]) }}</li>
                         @endif
                         <li>{{ __('Storage is about $:gigabyte/GB each month, including while compute sleeps. Connections require TLS.', ['gigabyte' => $postgresGigabyte]) }}</li>
+                    </ol>
+                @elseif ($databaseEngine === 'mongodb')
+                    <ol class="list-decimal space-y-1 pl-4 text-xs text-brand-ink">
+                        <li>{{ __('Save and redeploy. The next deploy sets MONGODB_URI on the app.') }}</li>
+                        <li>{{ __('It sleeps after the last connection and wakes on the next one; data stays on its disk.') }}</li>
+                        <li>{{ __('Disk is billed each month whether it is awake or asleep. Connections require TLS. Backups are not available for MongoDB yet.') }}</li>
                     </ol>
                 @elseif ($databaseEngine === 'mysql')
                     <ol class="list-decimal space-y-1 pl-4 text-xs text-brand-ink">
@@ -1488,6 +1498,12 @@
                     <p class="mt-4 text-xs font-semibold text-brand-ink">{{ __('Rails') }}</p>
                     <p class="mt-1 max-w-xl text-xs text-brand-moss">{{ __('The next deploy sets DATABASE_URL. ActiveRecord uses it.') }}</p>
                     <pre class="mt-2 overflow-x-auto rounded-lg bg-brand-sand/40 p-3 text-xs text-brand-ink dark:bg-zinc-950">User.count</pre>
+                @elseif ($databaseEngine === 'mongodb')
+                    <p class="text-xs font-semibold text-brand-ink">{{ __('Node') }}</p>
+                    <p class="mt-1 max-w-xl text-xs text-brand-moss">{{ __('The next deploy sets MONGODB_URI (also MONGO_URL) and MONGODB_DATABASE.') }}</p>
+                    <pre class="mt-2 overflow-x-auto rounded-lg bg-brand-sand/40 p-3 text-xs text-brand-ink dark:bg-zinc-950">{{ "import { MongoClient } from 'mongodb';
+const db = new MongoClient(process.env.MONGODB_URI).db();
+await db.collection('notes').countDocuments();" }}</pre>
                 @elseif ($databaseEngine === 'sql')
                     <p class="text-xs text-brand-moss">{{ __('The next deploy sets DB_CONNECTION to sqlite and DB_DATABASE to /tmp/database.sqlite.') }}</p>
                 @else
@@ -1530,7 +1546,7 @@
                             @endif
                         </div>
                     @endif
-                    @if ($databaseEngine === 'postgres')
+                    @if (in_array($databaseEngine, ['postgres', 'mongodb'], true))
                         @php $postgresLocked = ! $cardOnFile; @endphp
                         <div class="grid gap-2 sm:grid-cols-2">
                             @if ($postgresDply)
@@ -1577,7 +1593,7 @@
                         </div>
                         <p class="text-xs text-brand-moss">
                             @if ($postgresDply)
-                                {{ __('dply Postgres in New York. A disk only grows; pick more later if you need it.') }}
+                                {{ __('dply :engine in New York. A disk only grows; pick more later if you need it.', ['engine' => $databaseEngine === 'mongodb' ? 'MongoDB' : 'Postgres']) }}
                             @elseif ($postgresRegionLocked)
                                 {{ __('Stays in :location.', ['location' => $postgresRegions[$postgresRegion]]) }}
                             @else

@@ -8,7 +8,7 @@ use App\Models\EdgePostgresUsage;
 use App\Models\EdgeRedisUsage;
 use App\Models\Site;
 use App\Modules\Edge\Support\EdgeContainerConnections;
-use App\Modules\Edge\Support\EdgeDplyPostgres;
+use App\Modules\Edge\Support\EdgeDplyDatabase;
 use App\Modules\Edge\Support\EdgeValkey;
 use App\Modules\Providers\Valkey\ValkeyGatewayClient;
 use Illuminate\Support\Facades\Cache;
@@ -115,9 +115,9 @@ class EdgeValkeyUsageCollector
         $total = $totals[$id] ?? null;
         $last = (int) ($database['usage_counter'] ?? 0);
         $awake = $total === null ? 0 : ($total >= $last ? $total - $last : $total);
-        $cu = EdgeAppDatabase::POSTGRES_SIZES[EdgeDplyPostgres::size((string) ($database['size'] ?? ''))]['cu'];
+        $cu = EdgeAppDatabase::POSTGRES_SIZES[EdgeDplyDatabase::size((string) ($database['size'] ?? ''))]['cu'];
         $since = (int) ($database['storage_at'] ?? $now);
-        $bytes = EdgeDplyPostgres::disk((int) ($database['disk_gb'] ?? 0)) * 1024 ** 3;
+        $bytes = EdgeDplyDatabase::disk((int) ($database['disk_gb'] ?? 0)) * 1024 ** 3;
         $storageByteHours = (int) round($bytes * max(0, $now - $since) / 3600);
         $computeUnitSeconds = (int) round($awake * $cu);
         if ($dryRun || ($computeUnitSeconds === 0 && $storageByteHours === 0 && isset($database['storage_at']))) {
