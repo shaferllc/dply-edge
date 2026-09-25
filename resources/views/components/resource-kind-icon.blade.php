@@ -4,6 +4,7 @@
     $icon = match ($kind) {
         'database' => 'heroicon-o-circle-stack',
         'key_value' => 'heroicon-o-key',
+        'redis' => 'heroicon-o-bolt',
         'durable_object' => 'heroicon-o-cube',
         'object_storage' => 'heroicon-o-archive-box',
         'queue', 'http_delivery' => 'heroicon-o-queue-list',
@@ -17,8 +18,6 @@
     $class = $attributes->get('class') ?: 'h-4 w-4 shrink-0';
 @endphp
 
-@if ($kind === 'redis')
-    <x-redis-mark :class="$class" />
-@elseif ($icon)
+@if ($icon)
     <x-dynamic-component :component="$icon" :class="$class" aria-hidden="true" />
 @endif

@@ -21,6 +21,10 @@ rules:
   - apiGroups: [""]
     resources: ["pods", "secrets", "persistentvolumeclaims"]
     verbs: ["get", "list", "create", "update", "patch", "delete", "deletecollection"]
+  # Databases grow and shrink their memory in place on wake and sleep.
+  - apiGroups: [""]
+    resources: ["pods/resize"]
+    verbs: ["patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -113,6 +117,7 @@ spec:
             - { name: POOL, value: "50:2,250:1" }
           ports:
             - { containerPort: 6380, name: valkey }
+            - { containerPort: 5432, name: postgres }
             - { containerPort: 8080, name: api }
           volumeMounts:
             - { name: tls, mountPath: /tls, readOnly: true }
@@ -130,4 +135,6 @@ spec:
   selector: { app: valkey-gateway }
   ports:
     - { name: valkey, port: 6380, targetPort: 6380 }
+    # 15432 locally: the Mac usually has its own Postgres on 5432.
+    - { name: postgres, port: 15432, targetPort: 5432 }
     - { name: api, port: 8080, targetPort: 8080 }

@@ -333,7 +333,7 @@ test('starting redis requires a card', function () {
         ->set('connectionLabel', 'Cache')
         ->call('saveConnection')
         ->assertHasErrors('connection')
-        ->assertSee('Add a card before starting Redis');
+        ->assertSee('Add a card before starting dply Valkey');
 
     Http::assertNothingSent();
 

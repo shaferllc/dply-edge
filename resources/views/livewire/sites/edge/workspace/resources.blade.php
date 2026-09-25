@@ -183,7 +183,7 @@
                         </div>
                         @if ($connection['kind'] === 'object_storage')
                             <p class="mt-1 text-xs text-brand-moss">{{ __('Bucket :name', ['name' => $connection['target']]) }}</p>
-                        @elseif ($connection['kind'] === 'redis' && \App\Modules\Edge\Support\EdgeValkey::isTarget($connection['target']) && ! $site->organization?->onAnyPaidPlan())
+                        @elseif ($connection['kind'] === 'redis' && \App\Modules\Edge\Support\EdgeValkey::isTarget($connection['target']) && ! $cardOnFile)
                             <p class="mt-1 text-xs text-brand-moss">{{ __('Add a card to keep using this Redis. It stays off the app until then.') }}</p>
                             @if ($site->organization)
                                 <a href="{{ route('billing.show', $site->organization) }}" class="text-xs font-semibold text-brand-ink underline">{{ __('Billing') }}</a>
@@ -302,7 +302,7 @@
                     @error('database')
                         <p class="mt-2 text-xs text-brand-ink">{{ $message }}</p>
                     @enderror
-                    @if (! $site->organization?->onAnyPaidPlan())
+                    @if (! $cardOnFile)
                         <p class="mt-2 text-xs text-brand-ink">{{ __('Add a card before starting Postgres. It is billed to that card. SQLite does not need one.') }}</p>
                         @if ($site->organization)
                             <a href="{{ route('billing.show', $site->organization) }}" class="mt-1 inline-block text-xs font-semibold text-brand-ink underline">{{ __('Billing') }}</a>
@@ -315,7 +315,7 @@
                                     <span>{{ $label }}</span>
                                     <span class="shrink-0 rounded-full bg-brand-sand/60 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-brand-moss">{{ __('Coming soon') }}</span>
                                 </button>
-                            @elseif ($engine === 'postgres' && ! $site->organization?->onAnyPaidPlan())
+                            @elseif ($engine === 'postgres' && ! $cardOnFile)
                                 <button type="button" disabled aria-disabled="true" class="flex items-center justify-between gap-2 rounded-lg border border-brand-ink/10 bg-white/70 px-2.5 py-1.5 text-left text-xs font-semibold text-brand-moss dark:bg-zinc-900/70">
                                     <span>{{ $label }}</span>
                                     <span class="shrink-0 text-xs font-semibold">{{ __('Add a card') }}</span>
@@ -547,7 +547,7 @@
                         <p class="text-xs text-brand-moss">{{ __('This month') }}</p>
                         <p class="mt-1 text-xl font-semibold tabular-nums text-brand-ink">${{ number_format($kvMonthCents / 100, 2) }}</p>
                         <p class="mt-2 max-w-xl text-xs text-brand-moss">{{ __('Reads are $1 per million. Writes, deletes, and lists are $10 per million. Storage is $1 per GB-month after the first 1 GB.') }}</p>
-                        @unless ($site->organization?->onAnyPaidPlan())
+                        @unless ($cardOnFile)
                             <p class="mt-2 max-w-xl text-xs text-brand-moss">{{ __('This counts against the usage credit until a card is on the account.') }}</p>
                         @endunless
                     @endif
@@ -855,7 +855,7 @@
                     </div>
                 @endif
                 <form wire:submit="saveConnection" class="space-y-3">
-                    @if ($connectionMode === 'create' && $connectionKind === 'key_value' && ! $site->organization?->onAnyPaidPlan())
+                    @if ($connectionMode === 'create' && $connectionKind === 'key_value' && ! $cardOnFile)
                         <p class="text-xs text-brand-moss">{{ __('Add a card before starting a key-value store. Reads, writes, and storage are billed to that card.') }}</p>
                         @if ($site->organization)
                             <a href="{{ route('billing.show', $site->organization) }}" class="text-xs font-semibold text-brand-ink underline">{{ __('Billing') }}</a>
@@ -876,7 +876,7 @@
                                 @endforeach
                             </select>
                         </label>
-                    @elseif ($connectionKind === 'http_delivery' && ! $site->organization?->onAnyPaidPlan())
+                    @elseif ($connectionKind === 'http_delivery' && ! $cardOnFile)
                         <p class="text-xs text-brand-moss">{{ __('Add a card before starting HTTP delivery. Messages are billed to that card.') }}</p>
                         @if ($site->organization)
                             <a href="{{ route('billing.show', $site->organization) }}" class="text-xs font-semibold text-brand-ink underline">{{ __('Billing') }}</a>
@@ -887,8 +887,8 @@
                             <input type="text" wire:model="connectionLabel" placeholder="{{ __('Hooks') }}" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink dark:bg-zinc-900" />
                         </label>
                         <p class="text-xs text-brand-moss">{{ __('Messages are $2 per 100,000. Bandwidth is $0.10 per GB after the first 1 GB. The next deploy gives the app a private host.') }}</p>
-                    @elseif ($connectionKind === 'redis' && $connectionMode === 'create' && ! $site->organization?->onAnyPaidPlan())
-                        <p class="text-xs text-brand-moss">{{ __('Add a card before starting Redis. Usage is billed to that card.') }}</p>
+                    @elseif ($connectionKind === 'redis' && $connectionMode === 'create' && ! $cardOnFile)
+                        <p class="text-xs text-brand-moss">{{ __('Add a card before starting dply Valkey. Usage is billed to that card.') }}</p>
                         @if ($site->organization)
                             <a href="{{ route('billing.show', $site->organization) }}" class="text-xs font-semibold text-brand-ink underline">{{ __('Billing') }}</a>
                         @endif
@@ -966,7 +966,7 @@
                         </label>
                     @endif
                     <x-input-error :messages="$errors->get('connection')" />
-                    @if (! (($connectionKind === 'redis' && $connectionMode === 'create' || $connectionKind === 'http_delivery' || $connectionKind === 'key_value' && $connectionMode === 'create') && ! $site->organization?->onAnyPaidPlan()))
+                    @if (! (($connectionKind === 'redis' && $connectionMode === 'create' || $connectionKind === 'http_delivery' || $connectionKind === 'key_value' && $connectionMode === 'create') && ! $cardOnFile))
                     <button type="submit" wire:loading.attr="disabled" wire:target="saveConnection" class="inline-flex items-center gap-2 rounded-md bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60">
                         <span wire:loading wire:target="saveConnection" class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" aria-hidden="true"></span>
                         <span wire:loading.remove wire:target="saveConnection">{{ $connectionMode === 'attach' ? __('Attach') : __('Create') }}</span>
@@ -1176,7 +1176,7 @@
                     <button type="button" role="tab" x-on:click="tab = 'settings'" :aria-selected="tab === 'settings'" :class="tab === 'settings' ? 'border-brand-sage text-brand-ink' : 'border-transparent text-brand-moss'" class="-mb-px shrink-0 border-b-2 pb-2 text-xs font-semibold">{{ __('Settings') }}</button>
                 @endif
             </div>
-            @if (in_array($databaseEngine, ['postgres', 'mysql'], true) && ! $site->organization?->onAnyPaidPlan())
+            @if (in_array($databaseEngine, ['postgres', 'mysql'], true) && ! $cardOnFile)
                 <p class="mt-4 text-xs text-brand-ink">{{ __('Add a card before starting a database. It is billed to that card.') }}</p>
                 @if ($site->organization)
                     <a href="{{ route('billing.show', $site->organization) }}" class="mt-1 inline-block text-xs font-semibold text-brand-ink underline">{{ __('Billing') }}</a>
@@ -1258,7 +1258,7 @@
                         </div>
                     @endif
                     @if ($databaseEngine === 'postgres')
-                        @php $postgresLocked = ! $site->organization?->onAnyPaidPlan(); @endphp
+                        @php $postgresLocked = ! $cardOnFile; @endphp
                         <div class="grid gap-2 sm:grid-cols-2">
                             <label for="postgres-location" class="block text-xs font-semibold text-brand-ink">
                                 {{ __('Location') }}

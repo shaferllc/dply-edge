@@ -5,12 +5,12 @@
   ],
   "completedDate": null,
   "createdDate": "2026-09-25",
-  "description": "DO provider client, shared clusters per engine/region with per-app db+user and quotas, dedicated tier, dump/restore migration jobs, then delete Neon/PlanetScale modules. Mongo container-only.",
+  "description": "Ruling r-r5h70qp951w28qrh: parked pods on node-local disk, in-place resize, wal-g to R2, gateway proxies per protocol (Postgres SSLRequest+SNI, Mongo TLS SNI, MySQL auth proxy), per-second compute + per-GB storage billing.\n\n2026-09-24 Postgres done on OrbStack (13 checks): dbagent PID 1, parked pods (request shrinks to 16Mi in place; limit cannot drop below page cache), wake ~300ms client / ~140ms gateway, TLS required, app non-superuser. Next: MongoDB -> MySQL proxy -> wal-g -> Laravel/Resources/billing -> move Neon/PlanetScale users -> remove both.",
   "displayId": "T-020",
   "id": "T-020",
   "order": 50,
   "phase": "resources-everywhere",
   "status": "inprogress",
-  "title": "DigitalOcean managed Postgres/MySQL/MongoDB (shared + dedicated); retire Neon and PlanetScale",
+  "title": "Own scale-to-zero Postgres/MySQL/MongoDB on Kubernetes; retire Neon and PlanetScale",
   "type": "feature"
 }

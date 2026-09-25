@@ -1,0 +1,20 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-24",
+  "id": "r-r5h70qp951w28qrh",
+  "recordedBy": {
+    "client": "claude",
+    "id": "d618527f-a993-471d-8aa0-0bfd6623a00b"
+  },
+  "scopeTags": [
+    "databases",
+    "kubernetes",
+    "scale-to-zero",
+    "postgres",
+    "mysql",
+    "mongodb",
+    "T-020"
+  ],
+  "supersedes": null,
+  "text": "Amends r-72p0gkdn9dqwxqha item 9 (grill session 2026-09-24, owner picked each option). Databases are NOT DigitalOcean managed clusters. Owner: \"remove neon and planetscale and lets make our own clusters with kubernetes can can scale to zero\"; \"do all three in kubernetes pods so we can scale and do to zero\"; \"lets try it all and the more gb we use the more it costs\".\n1. Postgres, MySQL and MongoDB all run as dply-managed pods on Kubernetes that scale to zero; Neon and PlanetScale are removed once replaced. MySQL needs an auth-terminating proxy (server speaks first) and is in scope.\n2. Data lives on node-local disk; the pod is pinned to its node. wal-g streams WAL/binlog/oplog to R2 continuously (durability + point-in-time restore); node loss restores onto another node from R2.\n3. Sleep = \"parked pod\": the database process stops cleanly, the pod stays with a tiny supervisor, and its memory reservation is shrunk with Kubernetes in-place resize; wake grows it back and starts the process (target ~0.5-1s Postgres, ~1-2s MySQL/Mongo). Gateway holds client connections during wake, as with Valkey.\n4. Pricing grows with GB used: per-second compute while awake by size, plus storage per GB-month.\nProve on OrbStack Kubernetes first, then production."
+}

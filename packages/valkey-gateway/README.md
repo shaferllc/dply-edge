@@ -1,5 +1,7 @@
 # valkey-gateway
 
+> Now also runs dply's scale-to-zero **databases** (ruling r-r5h70qp951w28qrh, T-020). Postgres is in; MySQL and MongoDB are next. See *Databases* below.
+
 dply's own managed Valkey (ruling r-72p0gkdn9dqwxqha, ticket T-021). One Go
 service is both the TLS proxy and the operator:
 
@@ -72,3 +74,36 @@ would remove the list.
 - A production cluster (DOKS), with R2 credentials and a real wildcard certificate.
 - The gateway itself is one replica. A second one needs shared activity tracking
   (for example, an annotation on the pod) before idle sleep is safe.
+
+## Databases (T-020)
+
+One pod per database, created on first connection, with its data on a
+node-local volume (`local-path`), so the pod is pinned to its node. `dbagent`
+(this module, `dbagent/`) is PID 1 in the pod; the gateway calls it to start,
+stop, and set the app's login. Sleep **parks** the pod: the database process
+stops cleanly and the pod's memory *request* drops to 16 Mi in place
+(Kubernetes 1.33 in-place resize), freeing the node's room. The limit stays:
+the kubelet will not set a limit below current use, and a stopped database
+still has its files in reclaimable page cache. Wake grows the request back and
+starts the process. The pod and its disk never move, so there is no attach.
+
+- Postgres: clients use `sslmode=require` to `{id}.{domain}:5432`. The gateway
+  answers the SSLRequest (and PG17 direct TLS), routes on SNI, and pipes to the
+  pod. Plain-text connections are refused. The app logs in as `app` (not a
+  superuser) to database `app`; `dply_admin` only logs in over the pod's socket.
+- Image: `docker build -f dbagent/Dockerfile.postgres -t dply/postgres:17 .`
+- Tenant: `PUT /tenants/{id}` with `"engine": "postgres", "disk_gb": N`.
+
+Verified locally 2026-09-24 (`deploy/local-verify.sh`, 13 Postgres checks):
+
+| | time |
+|---|---|
+| first start (new pod, volume, initdb) | ~7–16 s, once per database |
+| awake query (TLS + auth) | ~130 ms |
+| wake from parked | ~300 ms at the client; ~140 ms in the gateway (resize 5 ms, start 110 ms, login 19 ms) |
+
+Locally the Service exposes Postgres on 15432, because the Mac usually has its
+own Postgres on 5432.
+
+Not done: MySQL (auth-terminating proxy), MongoDB, wal-g to R2, node-loss
+restore, per-GB billing, Laravel side, moving Neon and PlanetScale users.

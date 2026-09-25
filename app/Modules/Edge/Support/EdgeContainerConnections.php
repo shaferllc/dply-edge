@@ -27,7 +27,7 @@ final class EdgeContainerConnections
     public const KINDS = [
         'key_value' => ['label' => 'Key-value store', 'needs_target' => true, 'hint' => 'GET or PUT http://host/key. GET http://host/ lists keys. Reads are $1 per million. Writes, deletes, and lists are $10 per million. Storage is $1 per GB-month after the first 1 GB.'],
         'durable_object' => ['label' => 'State', 'needs_target' => false, 'hint' => 'GET or PUT http://host/key. POST http://host/incr/key adds one. Use this for a counter or a lock.'],
-        'redis' => ['label' => 'Redis', 'needs_target' => false, 'hint' => 'Start one here, or paste an address. The app connects directly. Commands and storage are billed with usage.'],
+        'redis' => ['label' => 'dply Valkey', 'needs_target' => false, 'hint' => 'Redis-compatible: your Redis client and REDIS_URL work unchanged. Start one here, or paste an address. The app connects directly. Commands and storage are billed with usage.'],
         'object_storage' => ['label' => 'Object storage', 'needs_target' => true, 'hint' => 'GET http://host/ lists objects. GET, PUT, or DELETE http://host/path'],
         'sql' => ['label' => 'SQL database', 'needs_target' => true, 'hint' => 'POST http://host/query with {"sql","params"}'],
         'queue' => ['label' => 'Queue', 'needs_target' => true, 'hint' => 'Jobs run in this app. POST http://host/send with the message body. The next deploy sets DPLY_QUEUE to this name.'],

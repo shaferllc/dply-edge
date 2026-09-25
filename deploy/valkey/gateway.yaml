@@ -1,0 +1,140 @@
+# Production dply Valkey gateway. apply.sh substitutes __DOMAIN__ and
+# __IMAGE__ and creates every Secret (API token, admin password, R2 keys,
+# cert-manager's DigitalOcean token); none are stored here.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dply-valkey
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: valkey-gateway
+  namespace: dply-valkey
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: valkey-gateway
+  namespace: dply-valkey
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "secrets", "persistentvolumeclaims"]
+    verbs: ["get", "list", "create", "update", "patch", "delete", "deletecollection"]
+  - apiGroups: [""]
+    resources: ["pods/resize"]
+    verbs: ["patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: valkey-gateway
+  namespace: dply-valkey
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: valkey-gateway
+subjects:
+  - kind: ServiceAccount
+    name: valkey-gateway
+    namespace: dply-valkey
+---
+# Wildcard cert from Let's Encrypt, proven through DigitalOcean DNS.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: letsencrypt
+  namespace: dply-valkey
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-account
+    solvers:
+      - dns01:
+          digitalocean:
+            tokenSecretRef:
+              name: digitalocean-dns
+              key: access-token
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: valkey-gateway-tls
+  namespace: dply-valkey
+spec:
+  secretName: valkey-gateway-tls
+  issuerRef:
+    name: letsencrypt
+  dnsNames:
+    - "*.cache.__DOMAIN__"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: valkey-gateway
+  namespace: dply-valkey
+spec:
+  # One gateway: idle-sleep tracking is in memory, and a rolling update would
+  # briefly run two (packages/valkey-gateway/README.md).
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: { app: valkey-gateway }
+  template:
+    metadata:
+      labels: { app: valkey-gateway }
+    spec:
+      serviceAccountName: valkey-gateway
+      # DOKS registry integration copies this secret into each namespace but
+      # only attaches it to the "default" service account.
+      imagePullSecrets:
+        - name: dply-cloud
+      containers:
+        - name: gateway
+          image: __IMAGE__
+          env:
+            - { name: DOMAIN, value: "cache.__DOMAIN__" }
+            - { name: API_TLS, value: "1" }
+            - { name: S3_BUCKET, value: dply-valkey }
+            - { name: S3_REGION, value: auto }
+            - name: S3_ENDPOINT
+              valueFrom: { secretKeyRef: { name: valkey-gateway-r2, key: endpoint } }
+            - name: S3_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: valkey-gateway-r2, key: access-key } }
+            - name: S3_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: valkey-gateway-r2, key: secret-key } }
+            - name: API_TOKEN
+              valueFrom: { secretKeyRef: { name: valkey-gateway-api, key: token } }
+            - name: ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: valkey-gateway-admin, key: password } }
+            # Warm pods per size (MB), matching EdgeValkey's flex classes.
+            - { name: POOL, value: "250:2,1024:1" }
+          ports:
+            - { containerPort: 6380, name: valkey }
+            - { containerPort: 8080, name: api }
+          readinessProbe:
+            tcpSocket: { port: 6380 }
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          volumeMounts:
+            - { name: tls, mountPath: /tls, readOnly: true }
+      volumes:
+        - name: tls
+          secret: { secretName: valkey-gateway-tls }
+---
+# Public: 6380 (Valkey, TLS + per-tenant password) and 8080 (control API,
+# TLS + bearer token). Postgres (5432) stays closed until databases ship.
+apiVersion: v1
+kind: Service
+metadata:
+  name: valkey-gateway
+  namespace: dply-valkey
+spec:
+  type: LoadBalancer
+  selector: { app: valkey-gateway }
+  ports:
+    - { name: valkey, port: 6380, targetPort: 6380 }
+    - { name: api, port: 8080, targetPort: 8080 }

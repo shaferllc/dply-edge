@@ -68,4 +68,52 @@ check "pro tenant writes" "$(vk t-pro "$PW1" SET k v)" "OK"
 kubectl --context orbstack -n dply-valkey delete pod vk-t-pro --now >/dev/null 2>&1
 check "pro tenant keeps data across a pod restart" "$(vk t-pro "$PW1" GET k)" "v"
 
+# ---- Postgres (parked pods) ----
+PGPW=$(openssl rand -hex 16)
+api -X DELETE $API/tenants/t-pg >/dev/null; sleep 2
+api -X PUT $API/tenants/t-pg -d "{\"engine\":\"postgres\",\"password\":\"$PGPW\",\"memory_mb\":256,\"disk_gb\":1,\"sleep_after\":15}" >/dev/null
+docker rm -f dply-pg-client >/dev/null 2>&1
+docker run -d --name dply-pg-client --add-host t-pg.cache.dply.local:host-gateway --entrypoint sleep postgres:17-alpine 3600 >/dev/null
+trap 'docker rm -f dply-vk-client dply-pg-client >/dev/null 2>&1' EXIT
+pg() { docker exec -e PGPASSWORD="$PGPW" dply-pg-client psql "host=t-pg.cache.dply.local port=15432 user=app dbname=app sslmode=require connect_timeout=90" -qAtc "$1" 2>&1; }
+
+t0=$(ms); out=$(pg "CREATE TABLE IF NOT EXISTS notes (body text); INSERT INTO notes VALUES ('kept'); SELECT count(*) FROM notes"); t1=$(ms)
+check "postgres: first connection creates and starts it" "$out" "1"
+echo "info postgres first start (new pod + volume + initdb): $((t1 - t0)) ms"
+t0=$(ms); out=$(pg "SELECT body FROM notes"); t1=$(ms)
+check "postgres: reads back" "$out" "kept"
+echo "info postgres awake query (TLS + auth): $((t1 - t0)) ms"
+check "postgres: plain-text connections are refused" "$(docker exec -e PGPASSWORD="$PGPW" dply-pg-client psql "host=t-pg.cache.dply.local port=15432 user=app dbname=app sslmode=disable" -c 'select 1' 2>&1 | grep -c 'need TLS')" "1"
+check "postgres: wrong password is refused" "$(docker exec -e PGPASSWORD=nope-nope-nope dply-pg-client psql "host=t-pg.cache.dply.local port=15432 user=app dbname=app sslmode=require" -c 'select 1' 2>&1 | grep -c 'password authentication failed')" "1"
+check "postgres: the app is not a superuser" "$(pg "SELECT rolsuper FROM pg_roles WHERE rolname = current_user")" "f"
+
+echo "info waiting for postgres to park..."
+for i in $(seq 1 40); do
+  awake=$(api $API/tenants/t-pg | python3 -c 'import sys,json; print(json.load(sys.stdin)["awake"])')
+  [ "$awake" = "False" ] && break
+  sleep 1
+done
+check "postgres: idle database is parked" "$awake" "False"
+check "postgres: the pod stays while parked" "$(kubectl --context orbstack -n dply-valkey get pod db-t-pg -o jsonpath='{.status.phase}')" "Running"
+# The kubelet applies an in-place resize asynchronously.
+for i in $(seq 1 50); do
+  parked=$(kubectl --context orbstack -n dply-valkey get pod db-t-pg -o jsonpath='{.status.containerStatuses[0].resources.requests.memory}')
+  [ "$parked" = 16Mi ] && break
+  sleep 0.1
+done
+check "postgres: parked reservation is shrunk in place" "$parked" "16Mi"
+check "postgres: no restart to shrink" "$(kubectl --context orbstack -n dply-valkey get pod db-t-pg -o jsonpath='{.status.containerStatuses[0].restartCount}')" "0"
+
+t0=$(ms); out=$(pg "SELECT body FROM notes"); t1=$(ms)
+check "postgres: waking keeps the data" "$out" "kept"
+pg_wake=$((t1 - t0))
+echo "info postgres wake: $pg_wake ms"
+check "postgres: wake is under a second" "$([ "$pg_wake" -lt 1000 ] && echo yes)" "yes"
+for i in $(seq 1 50); do
+  grown=$(kubectl --context orbstack -n dply-valkey get pod db-t-pg -o jsonpath='{.status.containerStatuses[0].resources.requests.memory}')
+  [ "$grown" = 256Mi ] && break
+  sleep 0.1
+done
+check "postgres: awake reservation is back" "$grown" "256Mi"
+
 exit $fail

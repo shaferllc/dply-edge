@@ -814,6 +814,20 @@ class Resources extends Component
      *
      * @return list<string>
      */
+    /**
+     * Paid plan on the workspace. DPLY_EDGE_SKIP_CARD_CHECK lets a local
+     * install start paid resources without a card, for testing; it does
+     * nothing outside APP_ENV=local.
+     */
+    private function cardOnFile(): bool
+    {
+        if (app()->isLocal() && config('edge.skip_card_check')) {
+            return true;
+        }
+
+        return (bool) $this->site->organization?->onAnyPaidPlan();
+    }
+
     private function allowedKinds(): array
     {
         return match ((string) ($this->site->edgeMeta()['runtime_mode'] ?? 'static')) {
@@ -935,7 +949,7 @@ class Resources extends Component
 
         $target = $identity['resource'];
         if (in_array($kind, EdgeContainerConnections::CREATABLE, true)) {
-            if ($kind === 'key_value' && ! $this->site->organization?->onAnyPaidPlan()) {
+            if ($kind === 'key_value' && ! $this->cardOnFile()) {
                 $this->addError('connection', __('Add a card before starting a key-value store. Reads, writes, and storage are billed to that card.'));
 
                 return;
@@ -953,7 +967,7 @@ class Resources extends Component
                 return;
             }
         } elseif ($kind === 'http_delivery') {
-            if (! $this->site->organization?->onAnyPaidPlan()) {
+            if (! $this->cardOnFile()) {
                 $this->addError('connection', __('Add a card before starting HTTP delivery. Messages are billed to that card.'));
 
                 return;
@@ -977,8 +991,8 @@ class Resources extends Component
                 }
             }
             if ($this->connectionMode === 'create') {
-                if (! $this->site->organization?->onAnyPaidPlan()) {
-                    $this->addError('connection', __('Add a card before starting Redis. Usage is billed to that card.'));
+                if (! $this->cardOnFile()) {
+                    $this->addError('connection', __('Add a card before starting dply Valkey. Usage is billed to that card.'));
 
                     return;
                 }
@@ -1282,7 +1296,7 @@ class Resources extends Component
         if (! in_array($engine, EdgeAppDatabase::ENGINES, true) || $engine === 'mysql') {
             return;
         }
-        if ($engine === 'postgres' && ! $this->site->organization?->onAnyPaidPlan()) {
+        if ($engine === 'postgres' && ! $this->cardOnFile()) {
             return;
         }
 
@@ -1309,7 +1323,7 @@ class Resources extends Component
     public function selectPostgresPlan(string $plan): void
     {
         $this->authorize('update', $this->site);
-        if (! $this->site->organization?->onAnyPaidPlan()) {
+        if (! $this->cardOnFile()) {
             return;
         }
         if (! array_key_exists($plan, EdgeAppDatabase::POSTGRES_PLANS)) {
@@ -1323,7 +1337,7 @@ class Resources extends Component
     public function selectPostgresSize(string $size): void
     {
         $this->authorize('update', $this->site);
-        if (! $this->site->organization?->onAnyPaidPlan()) {
+        if (! $this->cardOnFile()) {
             return;
         }
         if (! array_key_exists($size, EdgeAppDatabase::POSTGRES_SIZES)) {
@@ -1337,7 +1351,7 @@ class Resources extends Component
     public function selectPostgresRegion(string $region): void
     {
         $this->authorize('update', $this->site);
-        if (! $this->site->organization?->onAnyPaidPlan()) {
+        if (! $this->cardOnFile()) {
             return;
         }
         if (! array_key_exists($region, NeonClient::REGIONS)) {
@@ -1355,7 +1369,7 @@ class Resources extends Component
     public function selectPostgresSuspend(int $seconds): void
     {
         $this->authorize('update', $this->site);
-        if (! $this->site->organization?->onAnyPaidPlan()) {
+        if (! $this->cardOnFile()) {
             return;
         }
         if (! array_key_exists($seconds, EdgeAppDatabase::POSTGRES_SLEEPS)) {
@@ -1370,7 +1384,7 @@ class Resources extends Component
     public function selectPostgresHistory(int $seconds): void
     {
         $this->authorize('update', $this->site);
-        if (! $this->site->organization?->onAnyPaidPlan()) {
+        if (! $this->cardOnFile()) {
             return;
         }
         if (! array_key_exists($seconds, EdgeAppDatabase::POSTGRES_HISTORY)) {
@@ -1638,6 +1652,7 @@ class Resources extends Component
                 'browserHost' => EdgeContainerConnections::browserHost($this->site),
                 'showBrowser' => $hasCode,
                 'connectionKinds' => EdgeContainerConnections::KINDS,
+                'cardOnFile' => $this->cardOnFile(),
                 'allowedKinds' => $allowedKinds,
                 'hasCode' => $hasCode,
                 'isWorker' => in_array($runtime, ['ssr', 'hybrid'], true),

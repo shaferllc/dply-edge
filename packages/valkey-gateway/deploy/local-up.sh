@@ -7,6 +7,7 @@ ctx=(--context orbstack)
 mkdir -p deploy/.local
 
 docker build -q -t dply/valkey-gateway:local . >/dev/null
+docker build -q -f dbagent/Dockerfile.postgres -t dply/postgres:17 . >/dev/null
 
 if [ ! -f deploy/.local/tls.crt ]; then
   openssl req -x509 -newkey rsa:2048 -nodes -days 365 -subj "/CN=*.cache.dply.local" \

@@ -142,11 +142,13 @@ func (g *gateway) touch(id string) {
 // ---- proxy ----
 
 func (g *gateway) serveProxy() {
-	cert, err := tls.LoadX509KeyPair(g.cfg.certFile, g.cfg.keyFile)
+	certs, err := newCertReloader(g.cfg.certFile, g.cfg.keyFile)
 	if err != nil {
 		log.Fatal(err)
 	}
-	ln, err := tls.Listen("tcp", g.cfg.proxyAddr, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12})
+	cert, _ := certs.get(nil)
+	go g.servePostgres(*cert)
+	ln, err := tls.Listen("tcp", g.cfg.proxyAddr, &tls.Config{GetCertificate: certs.get, MinVersion: tls.VersionTLS12})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -255,6 +257,10 @@ func (g *gateway) reap(ctx context.Context) {
 			continue
 		}
 		for _, t := range tenants {
+			if isDatabase(t.Engine) {
+				g.reapDatabase(ctx, t)
+				continue
+			}
 			pod, awake := g.tenantPod(ctx, t.ID)
 			s := g.state(t.ID)
 			s.mu.Lock()
@@ -286,6 +292,20 @@ func (g *gateway) reap(ctx context.Context) {
 					s.mu.Unlock()
 				}
 			}
+		}
+	}
+}
+
+// reapDatabase parks an idle database. The pod stays; only the process stops.
+func (g *gateway) reapDatabase(ctx context.Context, t tenant) {
+	s := g.state(t.ID)
+	s.mu.Lock()
+	awake := s.ip != ""
+	idle := time.Since(s.lastActivity)
+	s.mu.Unlock()
+	if awake && t.SleepAfter > 0 && idle > time.Duration(t.SleepAfter)*time.Second {
+		if err := g.sleepDatabase(ctx, t); err != nil {
+			log.Printf("tenant %s: sleep failed: %v", t.ID, err)
 		}
 	}
 }
@@ -373,6 +393,17 @@ func (g *gateway) serveAPI() {
 	mux.HandleFunc("GET /usage", g.authOnly(g.usage))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 	log.Printf("api on %s", g.cfg.apiAddr)
+	// API_TLS=1 serves the control API over TLS with the proxy's cert, for
+	// when it is reachable from outside the cluster (the bearer token must
+	// not cross the internet in the clear).
+	if os.Getenv("API_TLS") == "1" {
+		certs, err := newCertReloader(g.cfg.certFile, g.cfg.keyFile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		srv := &http.Server{Addr: g.cfg.apiAddr, Handler: mux, TLSConfig: &tls.Config{GetCertificate: certs.get, MinVersion: tls.VersionTLS12}}
+		log.Fatal(srv.ListenAndServeTLS("", ""))
+	}
 	log.Fatal(http.ListenAndServe(g.cfg.apiAddr, mux))
 }
 
@@ -425,6 +456,15 @@ func (g *gateway) putTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t.ID = r.PathValue("id")
+	t.Engine = engineOrValkey(t.Engine)
+	if t.Engine != "valkey" && !isDatabase(t.Engine) {
+		http.Error(w, "engine must be valkey or postgres", http.StatusUnprocessableEntity)
+		return
+	}
+	if isDatabase(t.Engine) {
+		t.Persistent = true // data lives on the volume
+		t.DiskGB = max(t.DiskGB, 1)
+	}
 	if t.MemoryMB < 25 || t.MemoryMB > 64*1024 || len(t.Password) < 16 {
 		http.Error(w, "memory_mb must be 25-65536 and password at least 16 characters", http.StatusUnprocessableEntity)
 		return
@@ -432,6 +472,21 @@ func (g *gateway) putTenant(w http.ResponseWriter, r *http.Request) {
 	previous, _ := g.getTenantRecord(r.Context(), t.ID)
 	if err := g.saveTenant(r.Context(), t); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if previous != nil && previous.Engine != t.Engine {
+		http.Error(w, "the engine cannot change; delete and create", http.StatusUnprocessableEntity)
+		return
+	}
+	// A database applies a new size or password on its next wake.
+	if previous != nil && isDatabase(t.Engine) {
+		if previous.MemoryMB != t.MemoryMB || previous.Password != t.Password {
+			if err := g.sleepDatabase(r.Context(), *previous); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		writeJSON(w, http.StatusOK, g.status(r.Context(), t))
 		return
 	}
 	// A new size or password applies on the next wake: snapshot, then restart.
@@ -461,7 +516,12 @@ func (g *gateway) sleepTenant(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	if ip, awake := g.podIP(r.Context(), t.ID); awake {
+	if isDatabase(t.Engine) {
+		if err := g.sleepDatabase(r.Context(), *t); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	} else if ip, awake := g.podIP(r.Context(), t.ID); awake {
 		if err := g.sleep(r.Context(), *t, ip); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -473,6 +533,7 @@ func (g *gateway) sleepTenant(w http.ResponseWriter, r *http.Request) {
 func (g *gateway) deleteTenant(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	g.forget(id)
+	g.deleteDatabase(r.Context(), id)
 	_ = g.deletePod(r.Context(), id)
 	_ = g.deletePVC(r.Context(), id)
 	_ = g.store.remove(r.Context(), id)
@@ -500,6 +561,9 @@ func (g *gateway) status(ctx context.Context, t tenant) tenantStatus {
 	s := g.state(t.ID)
 	s.mu.Lock()
 	idle := int(time.Since(s.lastActivity).Seconds())
+	if isDatabase(t.Engine) {
+		awake = s.ip != ""
+	}
 	s.mu.Unlock()
 	return tenantStatus{
 		ID: t.ID, Host: t.ID + "." + g.cfg.domain, Awake: awake, MemoryMB: t.MemoryMB,

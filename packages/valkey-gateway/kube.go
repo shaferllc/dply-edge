@@ -26,13 +26,15 @@ type tenant struct {
 	MemoryMB   int    `json:"memory_mb"`
 	SleepAfter int    `json:"sleep_after"` // seconds idle before sleeping; 0 stays on
 	Persistent bool   `json:"persistent"`  // pro: AOF on a volume, never sleeps
+	Engine     string `json:"engine"`      // valkey (default), postgres
+	DiskGB     int    `json:"disk_gb"`     // databases: volume size
 }
 
 func objectName(id string) string { return "vk-" + id }
 
 func (g *gateway) saveTenant(ctx context.Context, t tenant) error {
-	if t.Persistent {
-		t.SleepAfter = 0
+	if t.Persistent && !isDatabase(t.Engine) {
+		t.SleepAfter = 0 // Valkey pro stays on; databases sleep with their data on the volume
 	}
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -45,6 +47,8 @@ func (g *gateway) saveTenant(ctx context.Context, t tenant) error {
 			"memory_mb":   strconv.Itoa(t.MemoryMB),
 			"sleep_after": strconv.Itoa(t.SleepAfter),
 			"persistent":  strconv.FormatBool(t.Persistent),
+			"engine":      t.Engine,
+			"disk_gb":     strconv.Itoa(t.DiskGB),
 		},
 	}
 	secrets := g.kube.CoreV1().Secrets(g.cfg.namespace)
@@ -69,8 +73,19 @@ func tenantFromSecret(s *corev1.Secret) tenant {
 		MemoryMB:   atoi(string(s.Data["memory_mb"])),
 		SleepAfter: atoi(string(s.Data["sleep_after"])),
 		Persistent: string(s.Data["persistent"]) == "true",
+		Engine:     engineOrValkey(string(s.Data["engine"])),
+		DiskGB:     atoi(string(s.Data["disk_gb"])),
 	}
 }
+
+func engineOrValkey(e string) string {
+	if e == "" {
+		return "valkey"
+	}
+	return e
+}
+
+func debugTiming() bool { return os.Getenv("DEBUG_TIMING") != "" }
 
 func (g *gateway) getTenantRecord(ctx context.Context, id string) (*tenant, error) {
 	s, err := g.kube.CoreV1().Secrets(g.cfg.namespace).Get(ctx, objectName(id), metav1.GetOptions{})
@@ -165,6 +180,9 @@ func (g *gateway) wake(ctx context.Context, id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if t.Engine != "valkey" {
+		return "", fmt.Errorf("tenant %s is a %s database, not Valkey", id, t.Engine)
+	}
 	admin := g.cfg.adminPassword
 
 	if ip, ok := g.podIP(ctx, id); ok {
@@ -185,7 +203,7 @@ func (g *gateway) wake(ctx context.Context, id string) (string, error) {
 
 	step := time.Now()
 	lap := func(name string) {
-		if os.Getenv("DEBUG_TIMING") != "" {
+		if debugTiming() {
 			log.Printf("tenant %s: %s %s", id, name, time.Since(step).Round(time.Millisecond))
 		}
 		step = time.Now()
@@ -387,9 +405,12 @@ func (g *gateway) podSpec(name string, memoryMB int, persistent bool) *corev1.Po
 	// Headroom over maxmemory for Valkey's own bookkeeping.
 	limit := resource.MustParse(strconv.Itoa(memoryMB*3/2+32) + "Mi")
 	grace := int64(2)
+	nodeSelector, tolerations := proPlacement(memoryMB, persistent)
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: map[string]string{"app": "dply-valkey-pod", "memory": mb}},
 		Spec: corev1.PodSpec{
+			NodeSelector:                  nodeSelector,
+			Tolerations:                   tolerations,
 			RestartPolicy:                 corev1.RestartPolicyAlways,
 			TerminationGracePeriodSeconds: &grace,
 			AutomountServiceAccountToken:  new(bool),

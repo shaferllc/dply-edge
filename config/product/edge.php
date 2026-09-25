@@ -353,6 +353,10 @@ return [
     | token are set, "Create new" Redis on the Resources page starts one of
     | these instead of an Upstash database.
     */
+    // Local testing only: start paid resources without a card. Ignored
+    // unless APP_ENV=local (Resources::cardOnFile).
+    'skip_card_check' => (bool) env('DPLY_EDGE_SKIP_CARD_CHECK', false),
+
     'valkey' => [
         'api_url' => env('DPLY_VALKEY_API_URL'),
         'token' => env('DPLY_VALKEY_TOKEN'),
