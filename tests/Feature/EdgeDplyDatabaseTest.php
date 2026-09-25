@@ -253,4 +253,6 @@ test('mongodb and mysql restore from their daily backups through the same job', 
     (new RestoreEdgeDplyPostgresJob((string) $this->site->id, $target))->handle();
     Http::assertSent(fn ($request): bool => $request->method() === 'POST' && str_ends_with($request->url(), '/restore') && $request['target_time'] === $target);
     expect($this->site->fresh()->edgeMeta()['database']['restore']['status'])->toBe('done');
+    Livewire::actingAs($user)->test(Resources::class, ['server' => $this->site->server, 'site' => $this->site->fresh()])
+        ->call('selectDatabase', $engine)->assertSee('Restored from the newest backup taken at or before');
 })->with(['mongodb', 'mysql']);

@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -266,14 +267,26 @@ func (g *gateway) wakeDatabase(ctx context.Context, id string) (string, error) {
 	return ip, nil
 }
 
-func (g *gateway) sleepDatabase(ctx context.Context, t tenant) error {
+// errBackingUp: an idle sleep was refused because the database is mid-backup.
+var errBackingUp = errors.New("backup running")
+
+// sleepDatabase stops the database. idle (the reaper) is refused while a
+// backup runs, and the database stays awake until a later tick; an explicit
+// sleep (resize, API) stops it regardless.
+func (g *gateway) sleepDatabase(ctx context.Context, t tenant, idle bool) error {
 	s := g.state(t.ID)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	pod, ok := g.databasePod(ctx, t.ID)
+	if ok && idle {
+		// Ask first, before dropping connections: the answer may be "not now".
+		if err := g.agent(pod.Status.PodIP, "/stop?unless_backing_up=1", nil); err != nil {
+			return err
+		}
+	}
 	for c := range s.conns {
 		_ = c.Close()
 	}
-	pod, ok := g.databasePod(ctx, t.ID)
 	if !ok {
 		// The pod is gone (node replaced): close the awake stretch anyway, or
 		// it would keep counting as awake until the next sleep.
@@ -281,8 +294,10 @@ func (g *gateway) sleepDatabase(ctx context.Context, t tenant) error {
 		g.markAsleep(ctx, t.ID)
 		return nil
 	}
-	if err := g.agent(pod.Status.PodIP, "/stop", nil); err != nil {
-		return err
+	if !idle {
+		if err := g.agent(pod.Status.PodIP, "/stop", nil); err != nil {
+			return err
+		}
 	}
 	s.ip = ""
 	if err := g.resizeDatabase(ctx, pod, t, false); err != nil {
@@ -428,6 +443,9 @@ func (g *gateway) agentWait(ip, path string, body any, timeout time.Duration) er
 		return err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusConflict {
+		return errBackingUp
+	}
 	if resp.StatusCode >= 300 {
 		msg, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("agent %s: %s", path, bytes.TrimSpace(msg))

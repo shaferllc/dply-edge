@@ -23,6 +23,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -36,6 +37,13 @@ import (
 	"syscall"
 	"time"
 )
+
+// backupMu is held for a whole backup or restore. An idle sleep
+// (/stop?unless_backing_up=1) is refused while it is held, so a database that
+// goes idle mid-backup stays up until the backup finishes.
+var backupMu sync.Mutex
+
+var errBackingUp = errors.New("a backup is running")
 
 type engine interface {
 	initialized() bool
@@ -81,7 +89,11 @@ func main() {
 			started := time.Now()
 			if err := fn(r); err != nil {
 				log.Printf("%s: %v", path, err)
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+				code := http.StatusInternalServerError
+				if errors.Is(err, errBackingUp) {
+					code = http.StatusConflict
+				}
+				http.Error(w, err.Error(), code)
 				return
 			}
 			log.Printf("%s in %s", path, time.Since(started).Round(time.Millisecond))
@@ -96,7 +108,15 @@ func main() {
 		}
 		return e.start()
 	})
-	handle("POST /stop", func(*http.Request) error { return e.stop() })
+	handle("POST /stop", func(r *http.Request) error {
+		if r.URL.Query().Get("unless_backing_up") == "1" {
+			if !backupMu.TryLock() {
+				return errBackingUp
+			}
+			defer backupMu.Unlock()
+		}
+		return e.stop()
+	})
 	handle("POST /tenant", func(r *http.Request) error {
 		var body struct{ Password string }
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Password) < 16 {
@@ -114,6 +134,8 @@ func main() {
 				return fmt.Errorf("target_time must be RFC3339: %v", err)
 			}
 		}
+		backupMu.Lock()
+		defer backupMu.Unlock()
 		return e.restore(body.TargetTime)
 	})
 	if pg, ok := e.(*postgres); ok && backupsEnabled() {
@@ -232,11 +254,12 @@ func (p *postgres) walg(args ...string) ([]byte, error) {
 func (p *postgres) backupMarker() string { return filepath.Join(filepath.Dir(p.data), "backup-at") }
 
 // backupLoop takes a base backup when the database is up and the last one is
-// more than a day old (or missing). It does not hold the lifecycle lock: a
-// sleep that stops Postgres mid-backup just fails this one, and the next tick
+// more than a day old (or missing). An idle sleep waits for it (backupMu); a
+// forced stop (resize, pod shutdown) fails it, and a tick after the next wake
 // retries.
 func (p *postgres) backupLoop() {
 	for {
+		backupMu.Lock()
 		if run("pg_ctl", "-D", p.data, "status") == nil && dueSince(p.backupMarker(), 24*time.Hour) {
 			started := time.Now()
 			if _, err := p.walg("backup-push", p.data); err != nil {
@@ -249,6 +272,7 @@ func (p *postgres) backupLoop() {
 				}
 			}
 		}
+		backupMu.Unlock()
 		time.Sleep(time.Minute)
 	}
 }

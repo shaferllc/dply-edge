@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -38,8 +37,7 @@ type dumps struct {
 	marker string
 	client *minio.Client
 	bucket string
-	prefix string     // "tenants/{id}/mongodb/"
-	mu     sync.Mutex // one dump or load at a time
+	prefix string // "tenants/{id}/mongodb/"
 }
 
 const dumpKeep = 7
@@ -69,25 +67,22 @@ func newDumps(e dumper, marker string) (*dumps, error) {
 }
 
 // loop dumps when the database is up and the last dump is over a day old.
-// A sleep mid-dump fails that one; the next tick retries.
+// An idle sleep waits for it (backupMu); a forced one (resize, pod stop)
+// fails it, and the next tick after a wake retries.
 func (d *dumps) loop() {
 	for {
+		backupMu.Lock()
 		if d.e.running() && dueSince(d.marker, 24*time.Hour) {
 			started := time.Now()
-			if err := d.backup(); err != nil {
+			if err := d.backupLocked(true); err != nil {
 				log.Printf("backup: %v", err)
 			} else {
 				log.Printf("backup: done in %s", time.Since(started).Round(time.Second))
 			}
 		}
+		backupMu.Unlock()
 		time.Sleep(time.Minute)
 	}
-}
-
-func (d *dumps) backup() error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.backupLocked(true)
 }
 
 // backupLocked dumps now; prune drops all but the newest dumpKeep. A restore
@@ -150,9 +145,8 @@ func (d *dumps) list(ctx context.Context) ([]dumpKey, error) {
 
 // restore loads the newest dump at or before target (RFC3339; empty is the
 // newest). The database must be running (the gateway wakes it first).
+// The caller holds backupMu.
 func (d *dumps) restore(target string) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 	keys, err := d.list(ctx)

@@ -1579,7 +1579,7 @@ await db.collection('notes').countDocuments();" }}</pre>
                                 @elseif (is_array($restoreState) && ($restoreState['status'] ?? '') === 'running')
                                     <p wire:poll.5s class="mt-2 flex items-center gap-2 text-xs font-semibold text-brand-ink"><x-spinner size="sm" />{{ __('Restoring to :time UTC… this can take a few minutes.', ['time' => str_replace(['T', 'Z'], [' ', ''], $restoreState['target'] ?? '')]) }}</p>
                                 @elseif (is_array($restoreState) && ($restoreState['status'] ?? '') === 'done')
-                                    <p class="mt-2 text-xs font-semibold text-brand-sage">{{ __('Restored to :time UTC. The app keeps its password and address.', ['time' => str_replace(['T', 'Z'], [' ', ''], $restoreState['target'] ?? '')]) }}</p>
+                                    <p class="mt-2 text-xs font-semibold text-brand-sage">{{ __($databaseEngine === 'postgres' ? 'Restored to :time UTC. The app keeps its password and address.' : 'Restored from the newest backup taken at or before :time UTC. The app keeps its password and address.', ['time' => str_replace(['T', 'Z'], [' ', ''], $restoreState['target'] ?? '')]) }}</p>
                                 @elseif (is_array($restoreState) && ($restoreState['status'] ?? '') === 'failed')
                                     <p class="mt-2 text-xs font-semibold text-red-700 dark:text-red-400">{{ __('Restore failed: :error', ['error' => $restoreState['error'] ?? '']) }}</p>
                                 @endif

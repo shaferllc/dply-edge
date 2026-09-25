@@ -312,7 +312,9 @@ func (g *gateway) reapDatabase(ctx context.Context, t tenant) {
 	idle := time.Since(s.lastActivity)
 	s.mu.Unlock()
 	if awake && t.SleepAfter > 0 && idle > time.Duration(t.SleepAfter)*time.Second {
-		if err := g.sleepDatabase(ctx, t); err != nil {
+		if err := g.sleepDatabase(ctx, t, true); errors.Is(err, errBackingUp) {
+			log.Printf("tenant %s: idle, sleeping after its backup", t.ID)
+		} else if err != nil {
 			log.Printf("tenant %s: sleep failed: %v", t.ID, err)
 		}
 	}
@@ -503,7 +505,7 @@ func (g *gateway) putTenant(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if previous.MemoryMB != t.MemoryMB || previous.Password != t.Password {
-			if err := g.sleepDatabase(r.Context(), *previous); err != nil {
+			if err := g.sleepDatabase(r.Context(), *previous, false); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
@@ -577,7 +579,7 @@ func (g *gateway) sleepTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if isDatabase(t.Engine) {
-		if err := g.sleepDatabase(r.Context(), *t); err != nil {
+		if err := g.sleepDatabase(r.Context(), *t, false); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
