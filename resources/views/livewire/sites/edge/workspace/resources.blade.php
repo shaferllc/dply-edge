@@ -269,28 +269,12 @@
                             @else
                                 {{ __('Postgres. 1 compute · 1/4 vCPU to :cpu · 1 GB to :memory · sleeps after :sleep · about $:hour/hour, $:day/day, $:month/month at full size for :hours hours awake. Storage about $:gigabyte/GB each month.', ['cpu' => $postgresSizes[$postgresSize]['cpu'], 'memory' => $postgresSizes[$postgresSize]['memory'], 'sleep' => __($postgresSleeps[$postgresSuspend]), 'hour' => $postgresSizes[$postgresSize]['hour'], 'day' => $postgresSizes[$postgresSize]['day'], 'month' => $postgresSizes[$postgresSize]['month'], 'hours' => $postgresAwakeHours, 'gigabyte' => $postgresGigabyte]) }}
                             @endif
-                            @if ($postgresDply)
-                                {{ __('dply Postgres, New York · :gb GB disk.', ['gb' => $postgresDisk]) }}
-                            @else
-                                {{ __('In :location.', ['location' => $postgresRegions[$postgresRegion]]) }}
-                            @endif
-                            @if ($postgresStored['recorded'] && ! $postgresDply)
-                                {{ __('Stored :gigabytes GB, about $:month this month.', ['gigabytes' => $postgresStored['gigabytes'], 'month' => $postgresStored['month']]) }}
-                            @elseif (! $postgresDply)
-                                {{ __('No storage recorded yet.') }}
-                            @endif
+                            {{ __('dply Postgres, New York · :gb GB disk.', ['gb' => $postgresDisk]) }}
                         </p>
-                    @elseif ($databaseEngine === 'mongodb' || ($databaseEngine === 'mysql' && $postgresDply))
+                    @elseif ($databaseEngine === 'mongodb' || $databaseEngine === 'mysql')
                         <p class="mt-2 text-xs text-brand-moss">
                             {{ __(':engine · :memory · :sleep · :gb GB disk · about $:hour/hour while awake. Disk $:gigabyte/GB each month.', ['engine' => $databaseEngine === 'mysql' ? 'MySQL' : 'MongoDB', 'memory' => $postgresSizes[$postgresSize]['memory'], 'sleep' => $postgresSuspend === -1 ? __('stays on') : __('sleeps after :sleep', ['sleep' => __($postgresSleeps[$postgresSuspend])]), 'gb' => $postgresDisk, 'hour' => $postgresSizes[$postgresSize]['hour'], 'gigabyte' => $postgresGigabyte]) }}
                         </p>
-                    @elseif ($databaseEngine === 'mysql')
-                        <p class="mt-2 text-xs text-brand-moss">{{ __('MySQL. 3 nodes · :cpu · :memory · about $:price/mo. The nodes stay on while the app sleeps.', ['cpu' => $mysqlSizes[$mysqlSize]['cpu'], 'memory' => $mysqlSizes[$mysqlSize]['memory'], 'price' => $mysqlMonthly]) }}</p>
-                        @if ($databaseStatus === 'provisioning')
-                            <p class="mt-1 text-xs text-brand-ink">{{ __('Starting. Redeploy after the address is ready.') }}</p>
-                        @elseif ($databaseStatus === 'failed')
-                            <p class="mt-1 text-xs text-brand-ink">{{ __('MySQL did not start. Save again to retry.') }}</p>
-                        @endif
                     @elseif ($databaseEngine === 'sql')
                         <p class="mt-2 text-xs text-brand-moss">{{ __('SQLite. A file inside the app. It is saved while the app runs and restored when the app wakes.') }}</p>
                     @else
@@ -300,14 +284,14 @@
                         <p class="mt-2 text-xs text-brand-ink">{{ $message }}</p>
                     @enderror
                     @if (! $cardOnFile)
-                        <p class="mt-2 text-xs text-brand-ink">{{ __('Add a card before starting Postgres. It is billed to that card. SQLite does not need one.') }}</p>
+                        <p class="mt-2 text-xs text-brand-ink">{{ __('Add a card before starting a database. It is billed to that card. SQLite does not need one.') }}</p>
                         @if ($site->organization)
                             <a href="{{ route('billing.show', $site->organization) }}" class="mt-1 inline-block text-xs font-semibold text-brand-ink underline">{{ __('Billing') }}</a>
                         @endif
                     @endif
                     <div class="mt-3 grid gap-1.5" role="radiogroup" aria-label="{{ __('Database') }}">
-                        @foreach (array_merge(['postgres' => __('Postgres')], $dplyDatabases ? ['mongodb' => __('MongoDB')] : [], ['mysql' => __('MySQL'), 'sql' => __('SQLite')]) as $engine => $label)
-                            @if ($engine === 'mysql' && ! $dplyDatabases)
+                        @foreach (['postgres' => __('Postgres'), 'mongodb' => __('MongoDB'), 'mysql' => __('MySQL'), 'sql' => __('SQLite')] as $engine => $label)
+                            @if ($engine !== 'sql' && ! $dplyDatabases)
                                 <button type="button" disabled aria-disabled="true" class="flex items-center justify-between gap-2 rounded-lg border border-brand-ink/10 bg-white/70 px-2.5 py-1.5 text-left text-xs font-semibold text-brand-moss dark:bg-zinc-900/70">
                                     <span>{{ $label }}</span>
                                     <span class="shrink-0 rounded-full bg-brand-sand/60 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-brand-moss">{{ __('Coming soon') }}</span>
@@ -1478,17 +1462,11 @@
                         <li>{{ __('It sleeps after the last connection and wakes on the next one; data stays on its disk.') }}</li>
                         <li>{{ __('Disk is billed each month whether it is awake or asleep. Connections require TLS. Backups are not available for MongoDB yet.') }}</li>
                     </ol>
-                @elseif ($databaseEngine === 'mysql' && $postgresDply)
+                @elseif ($databaseEngine === 'mysql')
                     <ol class="list-decimal space-y-1 pl-4 text-xs text-brand-ink">
                         <li>{{ __('Save and redeploy. The next deploy sets DB_CONNECTION, the host, the password, and DATABASE_URL.') }}</li>
                         <li>{{ __('It sleeps after the last connection and wakes on the next one; data stays on its disk.') }}</li>
                         <li>{{ __('Disk is billed each month whether it is awake or asleep. Connections require TLS. The mysql command line needs --tls-sni-servername=<host>, or the database id as the user. Backups are not available for MySQL yet.') }}</li>
-                    </ol>
-                @elseif ($databaseEngine === 'mysql')
-                    <ol class="list-decimal space-y-1 pl-4 text-xs text-brand-ink">
-                        <li>{{ __('Save starts MySQL. The address can take a minute. Redeploy after it is ready.') }}</li>
-                        <li>{{ __('About $:price/mo for 3 nodes: 1 primary and 2 replicas. They stay on while the app sleeps.', ['price' => $mysqlMonthly]) }}</li>
-                        <li>{{ __('Foreign keys are on. Connections require TLS.') }}</li>
                     </ol>
                 @elseif ($databaseEngine === 'sql')
                     <p class="text-xs text-brand-ink">{{ __('SQLite is a file inside the app. It is saved while the app runs and restored when the app wakes. One instance serves the app so that file stays consistent.') }}</p>
@@ -1552,10 +1530,9 @@ await db.collection('notes').countDocuments();" }}</pre>
                             @endif
                         </div>
                     @endif
-                    @if (in_array($databaseEngine, ['postgres', 'mongodb'], true) || ($databaseEngine === 'mysql' && $postgresDply))
+                    @if (in_array($databaseEngine, ['postgres', 'mongodb', 'mysql'], true))
                         @php $postgresLocked = ! $cardOnFile; @endphp
                         <div class="grid gap-2 sm:grid-cols-2">
-                            @if ($postgresDply)
                             <label for="postgres-disk" class="block text-xs font-semibold text-brand-ink">
                                 {{ __('Disk') }}
                                 <select id="postgres-disk" wire:change="selectPostgresDisk(Number($event.target.value))" @disabled($postgresLocked) class="mt-1 block w-full rounded-md border border-brand-ink/15 bg-white py-1 ps-2 pe-6 text-xs font-semibold text-brand-ink disabled:opacity-60 dark:bg-zinc-900">
@@ -1564,54 +1541,20 @@ await db.collection('notes').countDocuments();" }}</pre>
                                     @endforeach
                                 </select>
                             </label>
-                            @else
-                            <label for="postgres-location" class="block text-xs font-semibold text-brand-ink">
-                                {{ __('Location') }}
-                                <select id="postgres-location" wire:change="selectPostgresRegion($event.target.value)" @disabled($postgresRegionLocked || $postgresLocked) class="mt-1 block w-full rounded-md border border-brand-ink/15 bg-white py-1 ps-2 pe-6 text-xs font-semibold text-brand-ink disabled:opacity-60 dark:bg-zinc-900">
-                                    @foreach ($postgresRegions as $id => $label)
-                                        <option value="{{ $id }}" @selected($postgresRegion === $id)>{{ $label }}</option>
-                                    @endforeach
-                                </select>
-                            </label>
-                            <label for="postgres-sleep" class="block text-xs font-semibold text-brand-ink">
-                                {{ __('Sleep after') }}
-                                <select id="postgres-sleep" wire:change="selectPostgresSuspend(Number($event.target.value))" @disabled($postgresLocked) class="mt-1 block w-full rounded-md border border-brand-ink/15 bg-white py-1 ps-2 pe-6 text-xs font-semibold text-brand-ink disabled:opacity-60 dark:bg-zinc-900">
-                                    @foreach ($postgresSleeps as $seconds => $label)
-                                        <option value="{{ $seconds }}" @selected($postgresSuspend === $seconds)>{{ __($label) }}</option>
-                                    @endforeach
-                                </select>
-                            </label>
-                            @endif
-                            @unless ($postgresDply)
-                            <label for="postgres-history" class="block text-xs font-semibold text-brand-ink">
-                                {{ __('Restore') }}
-                                <select id="postgres-history" wire:change="selectPostgresHistory(Number($event.target.value))" @disabled($postgresLocked) class="mt-1 block w-full rounded-md border border-brand-ink/15 bg-white py-1 ps-2 pe-6 text-xs font-semibold text-brand-ink disabled:opacity-60 dark:bg-zinc-900">
-                                    @foreach ($postgresHistories as $seconds => $label)
-                                        <option value="{{ $seconds }}" @selected($postgresHistory === $seconds)>{{ __($label) }}</option>
-                                    @endforeach
-                                </select>
-                            </label>
-                            @endunless
                             <label for="postgres-awake" class="block text-xs font-semibold text-brand-ink">
                                 {{ __('Hours awake') }}
                                 <input id="postgres-awake" type="number" min="0" max="24" wire:model.live="awakeHours" @disabled($postgresLocked) class="mt-1 block w-full rounded-md border border-brand-ink/15 bg-white py-1 ps-2 pe-2 text-xs font-semibold text-brand-ink disabled:opacity-60 dark:bg-zinc-900" />
                             </label>
                         </div>
                         <p class="text-xs text-brand-moss">
-                            @if ($postgresDply)
-                                {{ __('dply :engine in New York. A disk only grows; pick more later if you need it.', ['engine' => ['mongodb' => 'MongoDB', 'mysql' => 'MySQL'][$databaseEngine] ?? 'Postgres']) }}
-                            @elseif ($postgresRegionLocked)
-                                {{ __('Stays in :location.', ['location' => $postgresRegions[$postgresRegion]]) }}
-                            @else
-                                {{ __('Location is fixed after you save.') }}
-                            @endif
+                            {{ __('dply :engine in New York. A disk only grows; pick more later if you need it.', ['engine' => ['mongodb' => 'MongoDB', 'mysql' => 'MySQL'][$databaseEngine] ?? 'Postgres']) }}
                             @if ($postgresSuspend === -1)
                                 {{ __('Stays on bills every hour. Hours awake is only the estimate.') }}
                             @else
                                 {{ __('Day and month assume :hours hours awake. That number does not change the database.', ['hours' => $postgresAwakeHours]) }}
                             @endif
                         </p>
-                        @if ($postgresDply && $databaseEngine === 'postgres' && ($site->edgeMeta()['database']['provider'] ?? '') === 'dply')
+                        @if ($databaseEngine === 'postgres' && ($site->edgeMeta()['database']['provider'] ?? '') === 'dply')
                             <div class="rounded-lg border border-brand-ink/10 p-3">
                                 <p class="text-xs font-semibold text-brand-ink">{{ __('Restore to a point in time') }}</p>
                                 <p class="mt-1 text-xs text-brand-moss">{{ __('Changes are backed up continuously for 7 days. Restoring replaces the data with how it was at that moment (UTC); the data from before the restore is kept aside until the next one.') }}</p>
@@ -1647,40 +1590,8 @@ await db.collection('notes').countDocuments();" }}</pre>
                             @endforeach
                         </div>
                         <p class="text-xs text-brand-moss">
-                            @if ($postgresDply)
-                                {{ __('Disk $:gigabyte/GB each month, billed awake or asleep: :gb GB is $:disk/mo. Compute only while awake.', ['gigabyte' => $postgresGigabyte, 'gb' => $postgresDisk, 'disk' => number_format((float) $postgresGigabyte * $postgresDisk, 2)]) }}
-                            @else
-                            {{ __('1 compute. Storage $:gigabyte/GB each month. Restore history $:history/GB each month.', ['gigabyte' => $postgresGigabyte, 'history' => $postgresHistoryRate]) }}
-                            @endif
-                            @if ($postgresStored['recorded'] && ! $postgresDply)
-                                {{ __('Using :gigabytes GB, about $:month so far.', ['gigabytes' => $postgresStored['gigabytes'], 'month' => $postgresStored['month']]) }}
-                            @endif
+                            {{ __('Disk $:gigabyte/GB each month, billed awake or asleep: :gb GB is $:disk/mo. Compute only while awake.', ['gigabyte' => $postgresGigabyte, 'gb' => $postgresDisk, 'disk' => number_format((float) $postgresGigabyte * $postgresDisk, 2)]) }}
                         </p>
-                    @elseif ($databaseEngine === 'mysql')
-                        <p class="text-xs font-semibold text-brand-ink">{{ __('Size') }}</p>
-                        <div class="grid gap-1.5" role="radiogroup" aria-label="{{ __('Size') }}">
-                            @foreach ($mysqlSizes as $key => $size)
-                                <button type="button" wire:click="selectMysqlSize('{{ $key }}')" @class([
-                                    'rounded-lg border px-2.5 py-1.5 text-left text-xs font-semibold',
-                                    'border-brand-sage bg-white text-brand-ink dark:bg-zinc-900' => $mysqlSize === $key,
-                                    'border-brand-ink/10 bg-white/70 text-brand-ink dark:bg-zinc-900/70' => $mysqlSize !== $key,
-                                ])>{{ $size['cpu'] }} · {{ $size['memory'] }} · ${{ number_format($size['cents'] / 100, 2) }}/mo</button>
-                            @endforeach
-                        </div>
-                        <p class="text-xs font-semibold text-brand-ink">{{ __('Nodes') }}</p>
-                        <p class="text-xs text-brand-moss">{{ __('MySQL is 3 nodes. That is the smallest cluster, and it is why the monthly price is a cluster price.') }}</p>
-                        <ul class="list-disc space-y-1 pl-4 text-xs text-brand-ink">
-                            <li>{{ __('1 primary answers the app. Reads and writes go there.') }}</li>
-                            <li>{{ __('2 replicas keep a copy in other zones. If the primary stops, a replica takes over.') }}</li>
-                            <li>{{ __('All 3 stay on while the app sleeps. You are billed for the month, not for the hours the app is awake.') }}</li>
-                            <li>{{ __('The price on each size is those 3 nodes together. Storage past the included disk is extra.') }}</li>
-                        </ul>
-                        <p class="text-xs text-brand-moss">{{ __('Foreign keys are on. Connections require TLS. A size change applies when you save.') }}</p>
-                        @if ($databaseStatus === 'provisioning')
-                            <p class="text-xs text-brand-ink">{{ __('Starting. Redeploy after the address is ready.') }}</p>
-                        @elseif ($databaseStatus === 'failed')
-                            <p class="text-xs text-brand-ink">{{ __('MySQL did not start. Save again to retry.') }}</p>
-                        @endif
                     @else
                         <p class="text-xs text-brand-moss">{{ __('SQLite is a file at /tmp/database.sqlite. It is saved while the app runs and restored when the app wakes.') }}</p>
                     @endif

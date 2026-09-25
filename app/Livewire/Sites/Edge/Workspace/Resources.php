@@ -33,7 +33,6 @@ use App\Modules\Edge\Support\EdgeDplyDatabase;
 use App\Modules\Edge\Support\EdgeEffectiveBindings;
 use App\Modules\Edge\Support\EdgeValkey;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
-use App\Modules\Providers\Neon\NeonClient;
 use App\Modules\Providers\Valkey\ValkeyGatewayClient;
 use App\Support\Http\PublicOutboundUrl;
 use App\Support\Http\UnsafeOutboundUrlException;
@@ -114,17 +113,11 @@ class Resources extends Component
 
     public bool $databaseVisible = true;
 
-    public string $draftMysqlSize = 'PS_10';
-
     public string $draftPostgresPlan = 'sleep';
 
     public string $draftPostgresSize = '0.25';
 
-    public string $draftPostgresRegion = '';
-
     public int $draftPostgresSuspend = 300;
-
-    public int $draftPostgresHistory = 86400;
 
     /** dply Postgres volume size in GB (EdgeDplyDatabase::DISKS). */
     public int $draftPostgresDisk = 1;
@@ -420,7 +413,7 @@ class Resources extends Component
             $this->regions = EdgeContainerSettings::normalizeRegions($this->regions, $this->jurisdiction);
         }
 
-        if (in_array($name, ['draftInstanceType', 'sleepAfter', 'jurisdiction', 'scheduler', 'stickySessions', 'dedicatedJobs', 'migrateOnBoot', 'customVcpu', 'customMemoryGib', 'customDiskGb', 'rolloutMode', 'rolloutSteps', 'rolloutGraceSeconds', 'draftMysqlSize'], true) || str_starts_with($name, 'regions')) {
+        if (in_array($name, ['draftInstanceType', 'sleepAfter', 'jurisdiction', 'scheduler', 'stickySessions', 'dedicatedJobs', 'migrateOnBoot', 'customVcpu', 'customMemoryGib', 'customDiskGb', 'rolloutMode', 'rolloutSteps', 'rolloutGraceSeconds'], true) || str_starts_with($name, 'regions')) {
             $this->refreshPending();
         }
     }
@@ -1488,11 +1481,7 @@ class Resources extends Component
         if (! in_array($engine, EdgeAppDatabase::ENGINES, true)) {
             return;
         }
-        if (in_array($engine, ['postgres', 'mongodb', 'mysql'], true) && ! $this->cardOnFile()) {
-            return;
-        }
-        // MongoDB and MySQL are dply databases only (PlanetScale is not offered for new ones).
-        if (in_array($engine, ['mongodb', 'mysql'], true) && ! EdgeDplyDatabase::enabled()) {
+        if (in_array($engine, EdgeAppDatabase::DPLY_ENGINES, true) && (! $this->cardOnFile() || ! EdgeDplyDatabase::enabled())) {
             return;
         }
 
@@ -1503,17 +1492,6 @@ class Resources extends Component
             $this->dispatch('database-tab', 'settings');
             $this->dispatch('open-modal', 'resources-app-database');
         }
-    }
-
-    public function selectMysqlSize(string $size): void
-    {
-        $this->authorize('update', $this->site);
-        if (! array_key_exists($size, EdgeAppDatabase::MYSQL_SIZES)) {
-            return;
-        }
-
-        $this->draftMysqlSize = $size;
-        $this->refreshPending();
     }
 
     public function selectPostgresPlan(string $plan): void
@@ -1539,7 +1517,7 @@ class Resources extends Component
         if (! array_key_exists($size, EdgeAppDatabase::POSTGRES_SIZES)) {
             return;
         }
-        if ($this->usesDplyPostgres() && ! in_array($size, EdgeDplyDatabase::OFFERED_SIZES, true)) {
+        if (! in_array($size, EdgeDplyDatabase::OFFERED_SIZES, true)) {
             return;
         }
 
@@ -1557,46 +1535,6 @@ class Resources extends Component
         $this->refreshPending();
     }
 
-    /**
-     * dply Postgres for a new database (gateway configured) or one already on
-     * it. A database already on Neon keeps the Neon controls until it moves.
-     */
-    private function usesDplyPostgres(): bool
-    {
-        if ($this->draftDatabase === 'mongodb') {
-            return true; // MongoDB only exists on dply
-        }
-        $stored = is_array($this->site->edgeMeta()['database'] ?? null) ? $this->site->edgeMeta()['database'] : [];
-        if ($this->draftDatabase === 'mysql') {
-            // An existing PlanetScale database keeps its own controls; a new one is dply.
-            return ! (($stored['engine'] ?? '') === 'mysql' && (string) ($stored['remote_id'] ?? '') !== '') || EdgeAppDatabase::isDply($stored);
-        }
-        $stored = is_array($this->site->edgeMeta()['database'] ?? null) ? $this->site->edgeMeta()['database'] : [];
-        if (($stored['engine'] ?? '') === 'postgres' && (string) ($stored['remote_id'] ?? '') !== '') {
-            return EdgeAppDatabase::isDply($stored);
-        }
-
-        return EdgeDplyDatabase::enabled();
-    }
-
-    public function selectPostgresRegion(string $region): void
-    {
-        $this->authorize('update', $this->site);
-        if (! $this->cardOnFile()) {
-            return;
-        }
-        if (! array_key_exists($region, NeonClient::REGIONS)) {
-            return;
-        }
-        $database = is_array($this->site->edgeMeta()['database'] ?? null) ? $this->site->edgeMeta()['database'] : [];
-        if ($this->draftDatabase === 'postgres' && (string) ($database['engine'] ?? '') === 'postgres' && (string) ($database['remote_id'] ?? '') !== '') {
-            return;
-        }
-
-        $this->draftPostgresRegion = $region;
-        $this->refreshPending();
-    }
-
     public function selectPostgresSuspend(int $seconds): void
     {
         $this->authorize('update', $this->site);
@@ -1609,20 +1547,6 @@ class Resources extends Component
 
         $this->draftPostgresSuspend = $seconds;
         $this->draftPostgresPlan = $seconds === -1 ? 'awake' : 'sleep';
-        $this->refreshPending();
-    }
-
-    public function selectPostgresHistory(int $seconds): void
-    {
-        $this->authorize('update', $this->site);
-        if (! $this->cardOnFile()) {
-            return;
-        }
-        if (! array_key_exists($seconds, EdgeAppDatabase::POSTGRES_HISTORY)) {
-            return;
-        }
-
-        $this->draftPostgresHistory = $seconds;
         $this->refreshPending();
     }
 
@@ -1845,10 +1769,8 @@ class Resources extends Component
         $databaseEngine = $this->draftDatabase;
         $databaseCost = app(EdgeAppDatabaseCost::class);
         $postgres = $databaseCost->presentation();
-        $postgresStored = $databaseCost->stored($this->site);
-        $postgresDply = $this->usesDplyPostgres();
         $postgresSizes = [];
-        foreach ($postgresDply ? EdgeDplyDatabase::sizes() : EdgeAppDatabase::POSTGRES_SIZES as $key => $size) {
+        foreach (EdgeDplyDatabase::sizes() as $key => $size) {
             $size['hour'] = $databaseCost->hourly($size['cu']);
             $size['day'] = $databaseCost->daily($size['cu']);
             $size['month'] = $databaseCost->monthly($size['cu']);
@@ -1856,9 +1778,7 @@ class Resources extends Component
         }
         $postgresSuspend = EdgeAppDatabase::postgresSuspend($this->draftPostgresSuspend, $this->draftPostgresPlan);
         $postgresPlan = $postgresSuspend === -1 ? 'awake' : 'sleep';
-        $postgresSize = $postgresDply ? EdgeDplyDatabase::size($this->draftPostgresSize) : EdgeAppDatabase::postgresSize($this->draftPostgresSize);
-        $postgresRegion = EdgeAppDatabase::postgresRegion($this->draftPostgresRegion);
-        $postgresHistory = EdgeAppDatabase::postgresHistory($this->draftPostgresHistory);
+        $postgresSize = EdgeDplyDatabase::size($this->draftPostgresSize);
         $awakeHours = max(0, min(24, $this->awakeHours));
         foreach ($postgresSizes as $key => $size) {
             $hours = $postgresSuspend === -1 ? 24 : $awakeHours;
@@ -1906,31 +1826,18 @@ class Resources extends Component
                 'databaseName' => (string) ($storedDatabase['name'] ?? 'production'),
                 'databaseHost' => $databaseEngine === (string) ($storedDatabase['engine'] ?? '') ? (string) ($storedDatabase['host'] ?? '') : '',
                 'databaseStatus' => $databaseEngine === (string) ($storedDatabase['engine'] ?? '') ? (string) ($storedDatabase['status'] ?? '') : '',
-                'mysqlMonthly' => number_format(EdgeAppDatabase::mysqlCents($this->draftMysqlSize) / 100, 2),
-                'mysqlSizes' => EdgeAppDatabase::MYSQL_SIZES,
-                'mysqlSize' => EdgeAppDatabase::mysqlSize($this->draftMysqlSize),
                 'postgresHour' => $postgres['hour'],
                 'postgresGigabyte' => $postgres['gigabyte'],
-                'postgresHistoryRate' => $postgres['history'],
-                'postgresStored' => $postgresStored,
                 'postgresPlans' => EdgeAppDatabase::POSTGRES_PLANS,
                 'postgresSizes' => $postgresSizes,
                 'postgresPlan' => $postgresPlan,
                 'postgresSize' => $postgresSize,
-                'postgresRegion' => $postgresRegion,
                 'postgresSuspend' => $postgresSuspend,
                 'postgresSleeps' => EdgeAppDatabase::POSTGRES_SLEEPS,
-                'postgresHistory' => $postgresHistory,
-                'postgresHistories' => EdgeAppDatabase::POSTGRES_HISTORY,
                 'postgresAwakeHours' => $awakeHours,
-                'postgresDply' => $postgresDply,
                 'dplyDatabases' => EdgeDplyDatabase::enabled(),
                 'postgresDisks' => EdgeDplyDatabase::DISKS,
                 'postgresDisk' => EdgeDplyDatabase::disk($this->draftPostgresDisk),
-                'postgresRegions' => NeonClient::REGIONS,
-                'postgresRegionLocked' => $databaseEngine === 'postgres'
-                    && (string) ($storedDatabase['engine'] ?? '') === 'postgres'
-                    && (string) ($storedDatabase['remote_id'] ?? '') !== '',
                 'deployments' => $this->site->edgeDeployments()->orderByDesc('created_at')->limit(5)->get(),
             ],
         ));
@@ -1949,12 +1856,9 @@ class Resources extends Component
         $this->draftCacheMode = $state['cache'];
         $this->draftDatabase = $state['database'];
         $this->databaseVisible = $state['database'] !== 'none';
-        $this->draftMysqlSize = $state['mysql_size'];
         $this->draftPostgresPlan = $state['postgres_plan'];
         $this->draftPostgresSize = $state['postgres_size'];
-        $this->draftPostgresRegion = $state['postgres_region'];
         $this->draftPostgresSuspend = $state['postgres_suspend'];
-        $this->draftPostgresHistory = $state['postgres_history'];
         $this->draftPostgresDisk = $state['postgres_disk'];
         $this->draftPostgresPlan = $state['postgres_suspend'] === -1 ? 'awake' : 'sleep';
         $this->pending = false;
@@ -1997,12 +1901,9 @@ class Resources extends Component
             'rollout_grace' => (int) ($settings['rollout_active_grace_period'] ?? 0),
             'cache' => in_array($cacheMode, ['off', 'assets', 'standard', 'everything'], true) ? $cacheMode : 'off',
             'database' => in_array($engine, EdgeAppDatabase::ENGINES, true) ? $engine : ($runtime === 'container' ? 'sql' : 'none'),
-            'mysql_size' => EdgeAppDatabase::mysqlSize((string) ($database['size'] ?? '')),
             'postgres_plan' => EdgeAppDatabase::postgresPlan((string) ($database['plan'] ?? '')),
-            'postgres_size' => EdgeAppDatabase::postgresSize(in_array($engine, ['postgres', 'mongodb', 'mysql'], true) && ($engine !== 'mysql' || EdgeAppDatabase::isDply($database)) ? (string) ($database['size'] ?? '') : ''),
-            'postgres_region' => EdgeAppDatabase::postgresRegion((string) ($database['region'] ?? '')),
+            'postgres_size' => EdgeAppDatabase::postgresSize(in_array($engine, EdgeAppDatabase::DPLY_ENGINES, true) ? (string) ($database['size'] ?? '') : ''),
             'postgres_suspend' => EdgeAppDatabase::postgresSuspend((int) ($database['suspend'] ?? 0), (string) ($database['plan'] ?? '')),
-            'postgres_history' => EdgeAppDatabase::postgresHistory((int) ($database['history'] ?? 0)),
             'postgres_disk' => EdgeDplyDatabase::disk((int) ($database['disk_gb'] ?? 0)),
         ];
     }
@@ -2033,12 +1934,9 @@ class Resources extends Component
             'rollout_grace' => $this->rolloutGraceSeconds,
             'cache' => $this->draftCacheMode,
             'database' => $this->draftDatabase,
-            'mysql_size' => EdgeAppDatabase::mysqlSize($this->draftMysqlSize),
             'postgres_plan' => EdgeAppDatabase::postgresPlan($this->draftPostgresPlan),
             'postgres_size' => EdgeAppDatabase::postgresSize($this->draftPostgresSize),
-            'postgres_region' => EdgeAppDatabase::postgresRegion($this->draftPostgresRegion),
             'postgres_suspend' => EdgeAppDatabase::postgresSuspend($this->draftPostgresSuspend, $this->draftPostgresPlan),
-            'postgres_history' => EdgeAppDatabase::postgresHistory($this->draftPostgresHistory),
             'postgres_disk' => EdgeDplyDatabase::disk($this->draftPostgresDisk),
         ];
     }
@@ -2118,12 +2016,9 @@ class Resources extends Component
             $this->site,
             (string) ($this->persistedState()['database'] ?? 'sql'),
             $this->draftDatabase,
-            $this->draftMysqlSize,
             $this->draftPostgresPlan,
             $this->draftPostgresSize,
-            $this->draftPostgresRegion,
             $this->draftPostgresSuspend,
-            $this->draftPostgresHistory,
             $this->draftPostgresDisk,
         );
         if ($databaseError !== null) {

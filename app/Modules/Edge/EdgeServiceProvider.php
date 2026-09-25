@@ -8,7 +8,6 @@ use App\Modules\Edge\Console\CheckEdgeRumAlertsCommand;
 use App\Modules\Edge\Console\CollectEdgeContainerUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeDataUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeKvUsageCommand;
-use App\Modules\Edge\Console\CollectEdgePostgresUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeValkeyUsageCommand;
 use App\Modules\Edge\Console\EdgeDoctorCommand;
@@ -59,7 +58,6 @@ class EdgeServiceProvider extends ServiceProvider
                 CollectEdgeContainerUsageCommand::class,
                 CollectEdgeDataUsageCommand::class,
                 CollectEdgeKvUsageCommand::class,
-                CollectEdgePostgresUsageCommand::class,
                 CollectEdgeValkeyUsageCommand::class,
                 MoveRedisToValkeyCommand::class,
                 CollectEdgeUsageCommand::class,
