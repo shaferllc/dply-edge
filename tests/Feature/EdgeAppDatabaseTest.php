@@ -69,7 +69,37 @@ test('neon create reads the connection and delete ignores a missing project', fu
     Http::assertSent(fn ($request): bool => $request->method() === 'POST'
         && $request['project']['region_id'] === 'aws-us-east-2'
         && $request['project']['default_endpoint_settings']['autoscaling_limit_min_cu'] === 0.25
-        && $request['project']['default_endpoint_settings']['suspend_timeout_seconds'] === 300);
+        && ! isset($request['project']['default_endpoint_settings']['suspend_timeout_seconds']));
+});
+
+function fakeNeonCreate(array $organizations): void
+{
+    Http::fake([
+        'https://console.neon.tech/api/v2/users/me/organizations' => Http::response(['organizations' => $organizations]),
+        'https://console.neon.tech/api/v2/projects' => Http::response([
+            'project' => ['id' => 'proj-1'],
+            'connection_uris' => [['connection_parameters' => ['host' => 'h', 'database' => 'd', 'role' => 'r', 'password' => 'p']]],
+        ]),
+    ]);
+}
+
+test('neon create sends the key\'s only organization', function () {
+    config(['edge.neon.api_key' => 'neon-key', 'edge.neon.organization' => null]);
+    fakeNeonCreate([['id' => 'org-only', 'name' => 'Dply']]);
+
+    NeonClient::fromConfig()->create('book');
+
+    Http::assertSent(fn ($request): bool => $request->method() === 'POST' && $request['project']['org_id'] === 'org-only');
+});
+
+test('neon create prefers the configured organization and refuses to guess between several', function () {
+    config(['edge.neon.api_key' => 'neon-key', 'edge.neon.organization' => 'org-set']);
+    fakeNeonCreate([['id' => 'a'], ['id' => 'b']]);
+    NeonClient::fromConfig()->create('book');
+    Http::assertSent(fn ($request): bool => $request->method() === 'POST' && $request['project']['org_id'] === 'org-set');
+
+    config(['edge.neon.organization' => null]);
+    expect(fn () => NeonClient::fromConfig()->create('book'))->toThrow(\RuntimeException::class, 'DPLY_NEON_ORGANIZATION');
 });
 
 test('planetscale waits until the cluster is ready then returns a password', function () {
@@ -158,7 +188,7 @@ test('postgres stores the address and a tls url', function () {
         ->and($database['region'])->toBe('aws-us-east-2');
     Http::assertSent(fn ($request): bool => $request->method() === 'POST'
         && $request['project']['default_endpoint_settings']['autoscaling_limit_max_cu'] === 0.25
-        && $request['project']['default_endpoint_settings']['suspend_timeout_seconds'] === 300);
+        && ! isset($request['project']['default_endpoint_settings']['suspend_timeout_seconds']));
 });
 
 test('postgres sends the plan and size that were picked', function () {
@@ -196,7 +226,7 @@ test('postgres sends the plan and size that were picked', function () {
         && str_ends_with($request->url(), '/endpoints/ep-1')
         && $request['endpoint']['autoscaling_limit_min_cu'] === 0.25
         && $request['endpoint']['autoscaling_limit_max_cu'] === 2.0
-        && $request['endpoint']['suspend_timeout_seconds'] === 300);
+        && ! isset($request['endpoint']['suspend_timeout_seconds']));
     expect($site->edgeMeta()['database']['plan'])->toBe('sleep')
         ->and($site->edgeMeta()['database']['size'])->toBe('2');
 });

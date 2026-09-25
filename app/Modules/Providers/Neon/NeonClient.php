@@ -80,9 +80,13 @@ final class NeonClient
             'default_endpoint_settings' => [
                 'autoscaling_limit_min_cu' => $minCu ?? $this->minCu,
                 'autoscaling_limit_max_cu' => $maxCu ?? $this->maxCu,
-                'suspend_timeout_seconds' => $suspendSeconds ?? $this->suspendSeconds,
+                ...self::suspendSetting($suspendSeconds ?? $this->suspendSeconds),
             ],
         ];
+        $org = $this->organizationForCreate();
+        if ($org !== '') {
+            $project['org_id'] = $org;
+        }
         $response = $this->http()->post('/projects', ['project' => $project]);
         if (! $response->successful()) {
             throw new RuntimeException($this->failure($response->json(), 'Postgres could not be started.'));
@@ -142,7 +146,7 @@ final class NeonClient
             'endpoint' => [
                 'autoscaling_limit_min_cu' => $minCu,
                 'autoscaling_limit_max_cu' => $maxCu,
-                'suspend_timeout_seconds' => $suspendSeconds,
+                ...self::suspendSetting($suspendSeconds),
             ],
         ]);
         if (! $response->successful()) {
@@ -241,6 +245,38 @@ final class NeonClient
         if (! $response->successful() && $response->status() !== 404) {
             throw new RuntimeException($this->failure($response->json(), 'Postgres could not be removed.'));
         }
+    }
+
+    /**
+     * Neon's default is 300s, and plans that can't change it reject the
+     * field even when it asks for the default ("modifying the suspend
+     * interval is not permitted on this account"). Send it only to change it.
+     *
+     * @return array{suspend_timeout_seconds?: int}
+     */
+    private static function suspendSetting(int $seconds): array
+    {
+        return $seconds === 300 ? [] : ['suspend_timeout_seconds' => $seconds];
+    }
+
+    /**
+     * Neon refuses to create a project without org_id when the key belongs
+     * to an organization ("org_id is required"). Use the configured one, or
+     * the key's only organization. A personal account has none and sends
+     * nothing, as before.
+     */
+    private function organizationForCreate(): string
+    {
+        if ($this->organization !== '') {
+            return $this->organization;
+        }
+        $orgs = $this->http()->get('/users/me/organizations')->json('organizations');
+        $ids = is_array($orgs) ? array_values(array_filter(array_map(static fn ($org): string => (string) data_get($org, 'id', ''), $orgs))) : [];
+        if (count($ids) > 1) {
+            throw new RuntimeException('This Neon key belongs to more than one organization. Set DPLY_NEON_ORGANIZATION to the one Postgres should use.');
+        }
+
+        return $ids[0] ?? '';
     }
 
     private function organizationId(string $projectId): string
