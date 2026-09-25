@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Services;
 
+use App\Models\EdgePostgresUsage;
 use App\Models\EdgeRedisUsage;
 use App\Models\Site;
 use App\Modules\Edge\Support\EdgeContainerConnections;
+use App\Modules\Edge\Support\EdgeDplyPostgres;
 use App\Modules\Edge\Support\EdgeValkey;
 use App\Modules\Providers\Valkey\ValkeyGatewayClient;
 use Illuminate\Support\Facades\Cache;
@@ -17,6 +19,12 @@ use Illuminate\Support\Facades\DB;
  * total of awake seconds per database. Each run adds what changed since the
  * last run to today's edge_redis_usage row. The last total seen is kept on
  * the site (meta.edge.valkey_counter) so a missed run is caught up, never lost.
+ *
+ * dply Postgres rides the same pass (same gateway, same totals): awake
+ * seconds x the size's compute units, plus the volume's size for every hour
+ * since the last run, into edge_postgres_usage, where EdgeAppDatabaseCost
+ * prices it like any Postgres. The last total and time are on
+ * meta.edge.database (usage_counter, storage_at).
  */
 class EdgeValkeyUsageCollector
 {
@@ -56,6 +64,7 @@ class EdgeValkeyUsageCollector
         Site::query()->whereNotNull('edge_backend')->whereNotNull('organization_id')
             ->when($siteId !== null, fn ($query) => $query->whereKey($siteId))
             ->each(function (Site $site) use ($totals, $date, $dryRun, &$sites, &$seconds): void {
+                $this->collectDplyPostgres($site, $totals, $date, $dryRun);
                 $counters = (array) ($site->edgeMeta()['valkey_counter'] ?? []);
                 $added = 0;
                 foreach (EdgeContainerConnections::for($site) as $connection) {
@@ -92,5 +101,38 @@ class EdgeValkeyUsageCollector
             });
 
         return ['sites' => $sites, 'seconds' => $seconds];
+    }
+
+    /** @param  array<string, int>  $totals */
+    private function collectDplyPostgres(Site $site, array $totals, string $date, bool $dryRun): void
+    {
+        $database = $site->edgeMeta()['database'] ?? null;
+        if (! is_array($database) || ! EdgeAppDatabase::isDply($database) || (string) ($database['remote_id'] ?? '') === '') {
+            return;
+        }
+        $id = (string) $database['remote_id'];
+        $now = now()->timestamp;
+        $total = $totals[$id] ?? null;
+        $last = (int) ($database['usage_counter'] ?? 0);
+        $awake = $total === null ? 0 : ($total >= $last ? $total - $last : $total);
+        $cu = EdgeAppDatabase::POSTGRES_SIZES[EdgeDplyPostgres::size((string) ($database['size'] ?? ''))]['cu'];
+        $since = (int) ($database['storage_at'] ?? $now);
+        $bytes = EdgeDplyPostgres::disk((int) ($database['disk_gb'] ?? 0)) * 1024 ** 3;
+        $storageByteHours = (int) round($bytes * max(0, $now - $since) / 3600);
+        $computeUnitSeconds = (int) round($awake * $cu);
+        if ($dryRun || ($computeUnitSeconds === 0 && $storageByteHours === 0 && isset($database['storage_at']))) {
+            return;
+        }
+
+        DB::transaction(function () use ($site, $date, $id, $database, $total, $last, $now, $computeUnitSeconds, $storageByteHours): void {
+            $row = EdgePostgresUsage::query()->firstOrCreate(
+                ['site_id' => $site->id, 'project_id' => $id, 'date' => $date],
+                ['organization_id' => $site->organization_id],
+            );
+            $row->increment('compute_unit_seconds', $computeUnitSeconds);
+            $row->increment('storage_byte_hours', $storageByteHours);
+            $site->mergeEdgeMeta(['database' => array_merge($database, ['usage_counter' => $total ?? $last, 'storage_at' => $now])]);
+            $site->save();
+        });
     }
 }

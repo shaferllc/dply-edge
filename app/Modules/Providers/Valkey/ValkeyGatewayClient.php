@@ -37,14 +37,21 @@ final class ValkeyGatewayClient
      *
      * @return array<string, mixed>
      */
-    public function put(string $id, string $password, int $memoryMb, int $sleepAfter, bool $persistent): array
+    public function put(string $id, string $password, int $memoryMb, int $sleepAfter, bool $persistent, string $engine = 'valkey', int $diskGb = 0): array
     {
-        return $this->http()->put('/tenants/'.$id, [
+        $body = [
             'password' => $password,
             'memory_mb' => $memoryMb,
             'sleep_after' => $sleepAfter,
             'persistent' => $persistent,
-        ])->throw()->json() ?? [];
+        ];
+        if ($engine !== 'valkey') {
+            // Databases: a volume of disk_gb that can grow but not shrink.
+            $body['engine'] = $engine;
+            $body['disk_gb'] = $diskGb;
+        }
+
+        return $this->http()->put('/tenants/'.$id, $body)->throw()->json() ?? [];
     }
 
     /** @return array<string, mixed> */

@@ -38,6 +38,7 @@ type config struct {
 	pool          map[int]int // memory MB -> warm pods kept ready
 	namespace     string
 	domain        string
+	dbDomain      string // databases: {tenant}.{dbDomain}:5432
 	image         string
 	proxyAddr     string
 	apiAddr       string
@@ -58,6 +59,7 @@ func main() {
 	cfg := config{
 		namespace:     env("NAMESPACE", "dply-valkey"),
 		domain:        env("DOMAIN", "cache.dply.local"),
+		dbDomain:      env("DB_DOMAIN", env("DOMAIN", "cache.dply.local")),
 		image:         env("VALKEY_IMAGE", "valkey/valkey:8-alpine"),
 		proxyAddr:     env("PROXY_ADDR", ":6380"),
 		apiAddr:       env("API_ADDR", ":8080"),
@@ -146,8 +148,7 @@ func (g *gateway) serveProxy() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	cert, _ := certs.get(nil)
-	go g.servePostgres(*cert)
+	go g.servePostgres(certs)
 	ln, err := tls.Listen("tcp", g.cfg.proxyAddr, &tls.Config{GetCertificate: certs.get, MinVersion: tls.VersionTLS12})
 	if err != nil {
 		log.Fatal(err)
@@ -163,7 +164,12 @@ func (g *gateway) serveProxy() {
 }
 
 func (g *gateway) tenantFromSNI(name string) (string, bool) {
-	suffix := "." + g.cfg.domain
+	return tenantFromName(name, g.cfg.domain)
+}
+
+// tenantFromName is the tenant id in {id}.{domain}, or false.
+func tenantFromName(name, domain string) (string, bool) {
+	suffix := "." + domain
 	if !strings.HasSuffix(name, suffix) {
 		return "", false
 	}
@@ -470,16 +476,40 @@ func (g *gateway) putTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	previous, _ := g.getTenantRecord(r.Context(), t.ID)
-	if err := g.saveTenant(r.Context(), t); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
+	// Refuse before saving: a refused change must not overwrite the record.
 	if previous != nil && previous.Engine != t.Engine {
 		http.Error(w, "the engine cannot change; delete and create", http.StatusUnprocessableEntity)
 		return
 	}
-	// A database applies a new size or password on its next wake.
+	if previous != nil && isDatabase(t.Engine) && t.DiskGB < previous.DiskGB {
+		http.Error(w, "disk_gb cannot shrink; a volume only grows", http.StatusUnprocessableEntity)
+		return
+	}
+	if err := g.saveTenant(r.Context(), t); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// A new database is built now, not on the app's first connection: the
+	// volume, image pull and initdb can take minutes, longer than a client
+	// waits. It parks itself after sleep_after like any other wake.
+	if previous == nil && isDatabase(t.Engine) {
+		go func(id string) {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+			defer cancel()
+			if _, err := g.wakeDatabase(ctx, id); err != nil {
+				log.Printf("tenant %s: first start failed (retried on connect): %v", id, err)
+			}
+		}(t.ID)
+	}
+	// A database applies a new size or password on its next wake. A bigger
+	// disk grows the volume now (online; the filesystem follows).
 	if previous != nil && isDatabase(t.Engine) {
+		if t.DiskGB > previous.DiskGB {
+			if err := g.growDatabaseVolume(r.Context(), t.ID, t.DiskGB); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
 		if previous.MemoryMB != t.MemoryMB || previous.Password != t.Password {
 			if err := g.sleepDatabase(r.Context(), *previous); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -566,10 +596,18 @@ func (g *gateway) status(ctx context.Context, t tenant) tenantStatus {
 	}
 	s.mu.Unlock()
 	return tenantStatus{
-		ID: t.ID, Host: t.ID + "." + g.cfg.domain, Awake: awake, MemoryMB: t.MemoryMB,
+		ID: t.ID, Host: t.ID + "." + g.hostDomain(t), Awake: awake, MemoryMB: t.MemoryMB,
 		SleepAfter: t.SleepAfter, Persistent: t.Persistent, IdleSeconds: idle,
 		HasSnapshot: g.store.exists(ctx, t.ID),
 	}
+}
+
+// hostDomain: databases answer on DB_DOMAIN, Valkey on DOMAIN.
+func (g *gateway) hostDomain(t tenant) string {
+	if isDatabase(t.Engine) {
+		return g.cfg.dbDomain
+	}
+	return g.cfg.domain
 }
 
 func validID(id string) bool {

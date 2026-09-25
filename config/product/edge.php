@@ -361,6 +361,8 @@ return [
         'api_url' => env('DPLY_VALKEY_API_URL'),
         'token' => env('DPLY_VALKEY_TOKEN'),
         'domain' => env('DPLY_VALKEY_DOMAIN', 'cache.dply.local'),
+        // dply Postgres answers on {id}.{db_domain}:5432 (the gateway's DB_DOMAIN).
+        'db_domain' => env('DPLY_VALKEY_DB_DOMAIN', 'db.dply.local'),
         'port' => (int) env('DPLY_VALKEY_PORT', 6380),
     ],
 

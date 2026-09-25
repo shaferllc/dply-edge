@@ -53,14 +53,16 @@ const (
 
 // servePostgres accepts the SSLRequest dance (and PG17 direct TLS), reads the
 // SNI name, wakes the tenant, and pipes the decrypted stream to its pod.
-func (g *gateway) servePostgres(cert tls.Certificate) {
+func (g *gateway) servePostgres(certs *certReloader) {
 	addr := env("POSTGRES_ADDR", ":5432")
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Fatal(err)
 	}
 	log.Printf("postgres proxy on %s", addr)
-	cfg := &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12, NextProtos: []string{"postgresql"}}
+	// GetCertificate, not a fixed cert: renewals (and new names on the
+	// certificate) must reach this listener too.
+	cfg := &tls.Config{GetCertificate: certs.get, MinVersion: tls.VersionTLS12, NextProtos: []string{"postgresql"}}
 	for {
 		c, err := ln.Accept()
 		if err != nil {
@@ -98,7 +100,7 @@ func (g *gateway) servePostgres(cert tls.Certificate) {
 			if err := tc.Handshake(); err != nil {
 				return
 			}
-			id, ok := g.tenantFromSNI(tc.ConnectionState().ServerName)
+			id, ok := tenantFromName(tc.ConnectionState().ServerName, g.cfg.dbDomain)
 			if !ok {
 				writePgError(tc, "08004", "unknown database host; connect by its dply hostname")
 				return
@@ -224,7 +226,10 @@ func (g *gateway) sleepDatabase(ctx context.Context, t tenant) error {
 	}
 	pod, ok := g.databasePod(ctx, t.ID)
 	if !ok {
+		// The pod is gone (node replaced): close the awake stretch anyway, or
+		// it would keep counting as awake until the next sleep.
 		s.ip = ""
+		g.markAsleep(ctx, t.ID)
 		return nil
 	}
 	if err := g.agent(pod.Status.PodIP, "/stop", nil); err != nil {
@@ -293,7 +298,11 @@ func (g *gateway) databasePodSpec(t tenant) *corev1.Pod {
 			RestartPolicy:                 corev1.RestartPolicyAlways,
 			TerminationGracePeriodSeconds: &grace, // dbagent stops the database cleanly on SIGTERM
 			AutomountServiceAccountToken:  new(bool),
-			SecurityContext:               &corev1.PodSecurityContext{RunAsUser: &uid, RunAsGroup: &uid, FSGroup: &uid},
+			// OnRootMismatch: only fix ownership when the volume root doesn't match.
+			// The default re-chmods every file on every attach (slow on big
+			// volumes), which also made a moved database's data directory
+			// group-readable and Postgres refused to start.
+			SecurityContext: &corev1.PodSecurityContext{RunAsUser: &uid, RunAsGroup: &uid, FSGroup: &uid, FSGroupChangePolicy: ptr(corev1.FSGroupChangeOnRootMismatch)},
 			Volumes: []corev1.Volume{{Name: "data", VolumeSource: corev1.VolumeSource{
 				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: dbPodName(t.ID)},
 			}}},
@@ -377,6 +386,18 @@ func (g *gateway) deleteDatabase(ctx context.Context, id string) {
 	zero := int64(0)
 	_ = g.kube.CoreV1().Pods(g.cfg.namespace).Delete(ctx, dbPodName(id), metav1.DeleteOptions{GracePeriodSeconds: &zero})
 	_ = g.kube.CoreV1().PersistentVolumeClaims(g.cfg.namespace).Delete(ctx, dbPodName(id), metav1.DeleteOptions{})
+}
+
+// growDatabaseVolume raises the volume's size request. DigitalOcean block
+// storage expands online and the CSI driver grows the filesystem, so the
+// database keeps running.
+func (g *gateway) growDatabaseVolume(ctx context.Context, id string, diskGB int) error {
+	patch := fmt.Sprintf(`{"spec":{"resources":{"requests":{"storage":"%dGi"}}}}`, diskGB)
+	_, err := g.kube.CoreV1().PersistentVolumeClaims(g.cfg.namespace).Patch(ctx, dbPodName(id), types.MergePatchType, []byte(patch), metav1.PatchOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil // not created yet; the first wake creates it at the new size
+	}
+	return err
 }
 
 func ptr[T any](v T) *T { return &v }

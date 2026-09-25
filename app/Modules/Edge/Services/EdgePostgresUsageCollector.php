@@ -33,9 +33,12 @@ final class EdgePostgresUsageCollector
             ->filter(function (Site $site): bool {
                 $database = $site->edgeMeta()['database'] ?? null;
 
+                // Neon only: dply Postgres is metered by EdgeValkeyUsageCollector,
+                // and its tenant ids would fail Neon's consumption call.
                 return is_array($database)
                     && ($database['engine'] ?? '') === 'postgres'
-                    && (string) ($database['remote_id'] ?? '') !== '';
+                    && (string) ($database['remote_id'] ?? '') !== ''
+                    && ! EdgeAppDatabase::isDply($database);
             });
         $ids = $sites->map(fn (Site $site): string => (string) $site->edgeMeta()['database']['remote_id'])->values()->all();
         $usage = ($this->client ?? NeonClient::fromConfig())->consumption($date, $ids);

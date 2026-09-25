@@ -69,6 +69,7 @@ spec:
     name: letsencrypt
   dnsNames:
     - "*.cache.__DOMAIN__"
+    - "*.db.__DOMAIN__"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -97,6 +98,7 @@ spec:
           image: __IMAGE__
           env:
             - { name: DOMAIN, value: "cache.__DOMAIN__" }
+            - { name: DB_DOMAIN, value: "db.__DOMAIN__" }
             - { name: API_TLS, value: "1" }
             # The edge R2 bucket: snapshots live under tenants/, sites under edge/.
             - name: S3_BUCKET
@@ -112,10 +114,17 @@ spec:
               valueFrom: { secretKeyRef: { name: valkey-gateway-api, key: token } }
             - name: ADMIN_PASSWORD
               valueFrom: { secretKeyRef: { name: valkey-gateway-admin, key: password } }
-            # Warm pods per size (MB), matching EdgeValkey's flex classes.
-            - { name: POOL, value: "250:2,1024:1" }
+            # Warm pods per size (MB). Each one reserves its memory all the time,
+            # and a 4 GB node only has ~2.9 GiB allocatable: one 250 MB pod keeps
+            # the common size instant; 1 GB and up start fresh (~1-2 s).
+            - { name: POOL, value: "250:1" }
+            # Databases (ruling r-67chv2jdx2ha025q): one pod per app, data on a
+            # DigitalOcean volume so it survives node upgrades and replacement.
+            - { name: POSTGRES_IMAGE, value: "registry.digitalocean.com/dply-cloud/postgres:17-202609250406" }
+            - { name: DB_STORAGE_CLASS, value: do-block-storage }
           ports:
             - { containerPort: 6380, name: valkey }
+            - { containerPort: 5432, name: postgres }
             - { containerPort: 8080, name: api }
           readinessProbe:
             tcpSocket: { port: 6380 }
@@ -128,8 +137,8 @@ spec:
         - name: tls
           secret: { secretName: valkey-gateway-tls }
 ---
-# Public: 6380 (Valkey, TLS + per-tenant password) and 8080 (control API,
-# TLS + bearer token). Postgres (5432) stays closed until databases ship.
+# Public: 6380 (Valkey), 5432 (Postgres), both TLS + per-app password, and
+# 8080 (control API, TLS + bearer token). 5432 approved by the owner 2026-09-25.
 apiVersion: v1
 kind: Service
 metadata:
@@ -140,4 +149,5 @@ spec:
   selector: { app: valkey-gateway }
   ports:
     - { name: valkey, port: 6380, targetPort: 6380 }
+    - { name: postgres, port: 5432, targetPort: 5432 }
     - { name: api, port: 8080, targetPort: 8080 }

@@ -7,13 +7,16 @@ namespace App\Modules\Edge\Services;
 use App\Models\EdgeSiteEnvVar;
 use App\Models\Site;
 use App\Modules\Edge\Jobs\FinishEdgeMysqlDatabaseJob;
+use App\Modules\Edge\Support\EdgeDplyPostgres;
 use App\Modules\Providers\Neon\NeonClient;
 use App\Modules\Providers\PlanetScale\PlanetScaleClient;
 use RuntimeException;
 
 /**
- * The app database on the Resources card. Postgres is a Neon project that
- * suspends compute when idle. MySQL is a PlanetScale cluster that stays on.
+ * The app database on the Resources card. New Postgres is dply Postgres
+ * (EdgeDplyPostgres, record provider "dply") when the gateway is configured;
+ * older records without a provider are Neon projects and stay on Neon until
+ * moved. MySQL is a PlanetScale cluster that stays on.
  * SQLite stays a file in the container.
  *
  * Called from Resources::persistPending and FinishEdgeMysqlDatabaseJob.
@@ -98,7 +101,7 @@ final class EdgeAppDatabase
     /**
      * Move the app from one engine to another. Returns an error the page can show.
      */
-    public static function sync(Site $site, string $from, string $to, string $mysqlSize = '', string $postgresPlan = '', string $postgresSize = '', string $postgresRegion = '', int $postgresSuspend = 0, int $postgresHistory = 0): ?string
+    public static function sync(Site $site, string $from, string $to, string $mysqlSize = '', string $postgresPlan = '', string $postgresSize = '', string $postgresRegion = '', int $postgresSuspend = 0, int $postgresHistory = 0, int $postgresDisk = 0): ?string
     {
         if (! in_array($to, self::ENGINES, true)) {
             return 'Pick a database.';
@@ -118,7 +121,9 @@ final class EdgeAppDatabase
                 }
             }
             if ($to === 'postgres' && $sameRemote) {
-                $error = self::applyPostgresPlan($site, $current, $postgresPlan, $postgresSize, $postgresRegion, $postgresSuspend, $postgresHistory);
+                $error = self::isDply($current)
+                    ? self::applyDplyPostgres($site, $current, $postgresPlan, $postgresSize, $postgresSuspend, $postgresDisk)
+                    : self::applyPostgresPlan($site, $current, $postgresPlan, $postgresSize, $postgresRegion, $postgresSuspend, $postgresHistory);
                 if ($error !== null) {
                     return $error;
                 }
@@ -130,7 +135,7 @@ final class EdgeAppDatabase
         try {
             if ($to === 'postgres' || $to === 'mysql') {
                 self::requireCard($site);
-                if ($to === 'postgres' && ! NeonClient::configured()) {
+                if ($to === 'postgres' && ! EdgeDplyPostgres::enabled() && ! NeonClient::configured()) {
                     throw new RuntimeException('Postgres cannot be started from here yet.');
                 }
                 if ($to === 'mysql' && ! PlanetScaleClient::configured()) {
@@ -138,7 +143,9 @@ final class EdgeAppDatabase
                 }
             }
             self::release($site, $from, $current);
-            if ($to === 'postgres') {
+            if ($to === 'postgres' && EdgeDplyPostgres::enabled()) {
+                self::startDplyPostgres($site, $postgresPlan, $postgresSize, $postgresSuspend, $postgresDisk);
+            } elseif ($to === 'postgres') {
                 self::startPostgres($site, $postgresPlan, $postgresSize, $postgresRegion, $postgresSuspend, $postgresHistory);
             } elseif ($to === 'mysql') {
                 self::startMysql($site, $mysqlSize);
@@ -238,12 +245,79 @@ final class EdgeAppDatabase
         if ($remoteId === '') {
             return;
         }
-        if ($from === 'postgres') {
+        if ($from === 'postgres' && self::isDply($current)) {
+            EdgeDplyPostgres::destroy($remoteId);
+        } elseif ($from === 'postgres') {
             NeonClient::fromConfig()->delete($remoteId);
         } elseif ($from === 'mysql') {
             PlanetScaleClient::fromConfig()->delete($remoteId);
         }
         self::forgetCredentials($site);
+    }
+
+    /** @param  array<string, mixed>  $record */
+    public static function isDply(array $record): bool
+    {
+        return ($record['provider'] ?? '') === 'dply';
+    }
+
+    private static function startDplyPostgres(Site $site, string $plan, string $size, int $suspend, int $disk): void
+    {
+        self::requireCard($site);
+        $suspend = self::postgresSuspend($suspend, $plan);
+        $size = EdgeDplyPostgres::size($size);
+        $disk = EdgeDplyPostgres::disk($disk);
+        $created = EdgeDplyPostgres::provision($site, $size, $suspend, $disk);
+        self::storeCredentials($site, 'postgres', $created);
+        self::remember($site, [
+            'engine' => 'postgres',
+            'provider' => 'dply',
+            'name' => 'production',
+            'status' => 'ready',
+            'remote_id' => $created['id'],
+            'host' => $created['host'],
+            'plan' => $suspend === -1 ? 'awake' : 'sleep',
+            'size' => $size,
+            'suspend' => $suspend,
+            'disk_gb' => $disk,
+            // Storage is billed per hour from here (EdgeValkeyUsageCollector).
+            'storage_at' => now()->timestamp,
+        ]);
+    }
+
+    /**
+     * New size, sleep time or disk for a dply Postgres. The password is read
+     * back from DB_PASSWORD; memory applies on the next wake, disk grows now.
+     *
+     * @param  array<string, mixed>  $current
+     */
+    private static function applyDplyPostgres(Site $site, array $current, string $plan, string $size, int $suspend, int $disk): ?string
+    {
+        $suspend = self::postgresSuspend($suspend, $plan);
+        $size = EdgeDplyPostgres::size($size);
+        $disk = EdgeDplyPostgres::disk($disk);
+        $storedDisk = EdgeDplyPostgres::disk((int) ($current['disk_gb'] ?? 0));
+        if ($disk < $storedDisk) {
+            return sprintf('A database disk only grows. Pick %d GB or more.', $storedDisk);
+        }
+        if ($size === (string) ($current['size'] ?? '') && $suspend === (int) ($current['suspend'] ?? 0) && $disk === $storedDisk) {
+            return null;
+        }
+        try {
+            self::requireCard($site);
+            $password = (string) ($site->edgeEnvVars()->where('scope', EdgeSiteEnvVar::SCOPE_PRODUCTION)->where('key', 'DB_PASSWORD')->first()?->value ?? '');
+            EdgeDplyPostgres::update((string) $current['remote_id'], $password, $size, $suspend, $disk);
+            self::remember($site, array_merge($current, [
+                'plan' => $suspend === -1 ? 'awake' : 'sleep',
+                'size' => $size,
+                'suspend' => $suspend,
+                'disk_gb' => $disk,
+            ]));
+        } catch (\Throwable $e) {
+            return $e->getMessage();
+        }
+
+        return null;
     }
 
     private static function startPostgres(Site $site, string $plan, string $size, string $region, int $suspend, int $history): void
@@ -429,6 +503,10 @@ final class EdgeAppDatabase
 
     private static function requireCard(Site $site): void
     {
+        // Same local-only escape hatch as Resources::cardOnFile.
+        if (app()->isLocal() && config('edge.skip_card_check')) {
+            return;
+        }
         if (! $site->organization?->onAnyPaidPlan()) {
             throw new RuntimeException('Add a card before starting a database. It is billed to that card.');
         }

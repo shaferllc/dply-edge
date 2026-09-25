@@ -157,6 +157,13 @@ func (p *postgres) start() error {
 	if run("pg_ctl", "-D", p.data, "status") == nil {
 		return nil
 	}
+	// Postgres refuses a data directory looser than 0750. A volume that was
+	// attached with a group ownership change (fsGroup) can come back 2770.
+	if _, err := os.Stat(p.data); err == nil {
+		if err := os.Chmod(p.data, 0o700); err != nil {
+			return err
+		}
+	}
 	return run("pg_ctl", "-D", p.data, "-w", "-t", "60", "-l", filepath.Join(p.run, "postgres.log"), "start")
 }
 

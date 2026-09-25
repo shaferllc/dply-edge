@@ -269,10 +269,14 @@
                             @else
                                 {{ __('Postgres. 1 compute · 1/4 vCPU to :cpu · 1 GB to :memory · sleeps after :sleep · about $:hour/hour, $:day/day, $:month/month at full size for :hours hours awake. Storage about $:gigabyte/GB each month.', ['cpu' => $postgresSizes[$postgresSize]['cpu'], 'memory' => $postgresSizes[$postgresSize]['memory'], 'sleep' => __($postgresSleeps[$postgresSuspend]), 'hour' => $postgresSizes[$postgresSize]['hour'], 'day' => $postgresSizes[$postgresSize]['day'], 'month' => $postgresSizes[$postgresSize]['month'], 'hours' => $postgresAwakeHours, 'gigabyte' => $postgresGigabyte]) }}
                             @endif
-                            {{ __('In :location.', ['location' => $postgresRegions[$postgresRegion]]) }}
-                            @if ($postgresStored['recorded'])
-                                {{ __('Stored :gigabytes GB, about $:month this month.', ['gigabytes' => $postgresStored['gigabytes'], 'month' => $postgresStored['month']]) }}
+                            @if ($postgresDply)
+                                {{ __('dply Postgres, New York · :gb GB disk.', ['gb' => $postgresDisk]) }}
                             @else
+                                {{ __('In :location.', ['location' => $postgresRegions[$postgresRegion]]) }}
+                            @endif
+                            @if ($postgresStored['recorded'] && ! $postgresDply)
+                                {{ __('Stored :gigabytes GB, about $:month this month.', ['gigabytes' => $postgresStored['gigabytes'], 'month' => $postgresStored['month']]) }}
+                            @elseif (! $postgresDply)
                                 {{ __('No storage recorded yet.') }}
                             @endif
                         </p>
@@ -945,7 +949,7 @@
                             <div>
                                 <x-input-label :value="__('Size')" />
                                 <select x-model="size" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink dark:bg-zinc-900">
-                                    @foreach (\App\Modules\Edge\Support\EdgeValkey::CLASSES as $classId => $class)
+                                    @foreach (\App\Modules\Edge\Support\EdgeValkey::offered() as $classId => $class)
                                         <option value="{{ $classId }}">{{ __($class['label']) }} · {{ __('up to $:price/mo', ['price' => number_format($class['cap_cents'] / 100, 0)]) }}</option>
                                     @endforeach
                                 </select>
@@ -1169,7 +1173,7 @@
                         <label class="block text-xs text-brand-moss">
                             {{ __('Size') }}
                             <select wire:model.live="valkeyClass" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink dark:bg-zinc-900">
-                                @foreach (\App\Modules\Edge\Support\EdgeValkey::CLASSES as $id => $class)
+                                @foreach (\App\Modules\Edge\Support\EdgeValkey::offered() as $id => $class)
                                     <option value="{{ $id }}">{{ __($class['label']) }} · {{ __('up to $:price/mo', ['price' => number_format($class['cap_cents'] / 100, 0)]) }}</option>
                                 @endforeach
                             </select>
@@ -1529,6 +1533,16 @@
                     @if ($databaseEngine === 'postgres')
                         @php $postgresLocked = ! $cardOnFile; @endphp
                         <div class="grid gap-2 sm:grid-cols-2">
+                            @if ($postgresDply)
+                            <label for="postgres-disk" class="block text-xs font-semibold text-brand-ink">
+                                {{ __('Disk') }}
+                                <select id="postgres-disk" wire:change="selectPostgresDisk(Number($event.target.value))" @disabled($postgresLocked) class="mt-1 block w-full rounded-md border border-brand-ink/15 bg-white py-1 ps-2 pe-6 text-xs font-semibold text-brand-ink disabled:opacity-60 dark:bg-zinc-900">
+                                    @foreach ($postgresDisks as $gb => $label)
+                                        <option value="{{ $gb }}" @selected($postgresDisk === $gb)>{{ __($label) }}</option>
+                                    @endforeach
+                                </select>
+                            </label>
+                            @else
                             <label for="postgres-location" class="block text-xs font-semibold text-brand-ink">
                                 {{ __('Location') }}
                                 <select id="postgres-location" wire:change="selectPostgresRegion($event.target.value)" @disabled($postgresRegionLocked || $postgresLocked) class="mt-1 block w-full rounded-md border border-brand-ink/15 bg-white py-1 ps-2 pe-6 text-xs font-semibold text-brand-ink disabled:opacity-60 dark:bg-zinc-900">
@@ -1545,6 +1559,8 @@
                                     @endforeach
                                 </select>
                             </label>
+                            @endif
+                            @unless ($postgresDply)
                             <label for="postgres-history" class="block text-xs font-semibold text-brand-ink">
                                 {{ __('Restore') }}
                                 <select id="postgres-history" wire:change="selectPostgresHistory(Number($event.target.value))" @disabled($postgresLocked) class="mt-1 block w-full rounded-md border border-brand-ink/15 bg-white py-1 ps-2 pe-6 text-xs font-semibold text-brand-ink disabled:opacity-60 dark:bg-zinc-900">
@@ -1553,13 +1569,16 @@
                                     @endforeach
                                 </select>
                             </label>
+                            @endunless
                             <label for="postgres-awake" class="block text-xs font-semibold text-brand-ink">
                                 {{ __('Hours awake') }}
                                 <input id="postgres-awake" type="number" min="0" max="24" wire:model.live="awakeHours" @disabled($postgresLocked) class="mt-1 block w-full rounded-md border border-brand-ink/15 bg-white py-1 ps-2 pe-2 text-xs font-semibold text-brand-ink disabled:opacity-60 dark:bg-zinc-900" />
                             </label>
                         </div>
                         <p class="text-xs text-brand-moss">
-                            @if ($postgresRegionLocked)
+                            @if ($postgresDply)
+                                {{ __('dply Postgres in New York. A disk only grows; pick more later if you need it.') }}
+                            @elseif ($postgresRegionLocked)
                                 {{ __('Stays in :location.', ['location' => $postgresRegions[$postgresRegion]]) }}
                             @else
                                 {{ __('Location is fixed after you save.') }}
@@ -1580,8 +1599,12 @@
                             @endforeach
                         </div>
                         <p class="text-xs text-brand-moss">
+                            @if ($postgresDply)
+                                {{ __('Disk $:gigabyte/GB each month, billed awake or asleep: :gb GB is $:disk/mo. Compute only while awake.', ['gigabyte' => $postgresGigabyte, 'gb' => $postgresDisk, 'disk' => number_format((float) $postgresGigabyte * $postgresDisk, 2)]) }}
+                            @else
                             {{ __('1 compute. Storage $:gigabyte/GB each month. Restore history $:history/GB each month.', ['gigabyte' => $postgresGigabyte, 'history' => $postgresHistoryRate]) }}
-                            @if ($postgresStored['recorded'])
+                            @endif
+                            @if ($postgresStored['recorded'] && ! $postgresDply)
                                 {{ __('Using :gigabytes GB, about $:month so far.', ['gigabytes' => $postgresStored['gigabytes'], 'month' => $postgresStored['month']]) }}
                             @endif
                         </p>

@@ -28,3 +28,17 @@ func TestCPURequest(t *testing.T) {
 		}
 	}
 }
+
+func TestTenantFromName(t *testing.T) {
+	for name, want := range map[string]string{
+		"pg-abc123.db.dply.io":     "pg-abc123",
+		"pg-abc123.cache.dply.io":  "", // a database name on the cache domain is not a database
+		"db.dply.io":               "",
+		"evil.db.dply.io.attacker": "",
+	} {
+		got, ok := tenantFromName(name, "db.dply.io")
+		if (want == "") == ok || got != want && want != "" {
+			t.Fatalf("%s: got %q ok=%v, want %q", name, got, ok, want)
+		}
+	}
+}

@@ -28,6 +28,7 @@ use App\Modules\Edge\Services\EdgeValkeyUsageCollector;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeContainerPlans;
 use App\Modules\Edge\Support\EdgeContainerSettings;
+use App\Modules\Edge\Support\EdgeDplyPostgres;
 use App\Modules\Edge\Support\EdgeEffectiveBindings;
 use App\Modules\Edge\Support\EdgeValkey;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
@@ -123,6 +124,9 @@ class Resources extends Component
 
     public int $draftPostgresHistory = 86400;
 
+    /** dply Postgres volume size in GB (EdgeDplyPostgres::DISKS). */
+    public int $draftPostgresDisk = 1;
+
     public string $connectionKind = '';
 
     public string $connectionMode = 'create';
@@ -166,7 +170,7 @@ class Resources extends Component
         $this->authorize('update', $this->site);
         $rows = EdgeContainerConnections::for($this->site);
         foreach ($rows as $index => $connection) {
-            if ($connection['host'] !== $host || ! EdgeValkey::isTarget($connection['target']) || ! isset(EdgeValkey::CLASSES[$class])) {
+            if ($connection['host'] !== $host || ! EdgeValkey::isTarget($connection['target']) || ! isset(EdgeValkey::offered()[$class])) {
                 continue;
             }
             $url = (string) ($this->site->edgeEnvVars()->where('scope', 'production')->where('key', 'REDIS_URL')->first()?->value ?? '');
@@ -1485,9 +1489,36 @@ class Resources extends Component
         if (! array_key_exists($size, EdgeAppDatabase::POSTGRES_SIZES)) {
             return;
         }
+        if ($this->usesDplyPostgres() && ! in_array($size, EdgeDplyPostgres::OFFERED_SIZES, true)) {
+            return;
+        }
 
         $this->draftPostgresSize = $size;
         $this->refreshPending();
+    }
+
+    public function selectPostgresDisk(int $gb): void
+    {
+        $this->authorize('update', $this->site);
+        if (! array_key_exists($gb, EdgeDplyPostgres::DISKS)) {
+            return;
+        }
+        $this->draftPostgresDisk = $gb;
+        $this->refreshPending();
+    }
+
+    /**
+     * dply Postgres for a new database (gateway configured) or one already on
+     * it. A database already on Neon keeps the Neon controls until it moves.
+     */
+    private function usesDplyPostgres(): bool
+    {
+        $stored = is_array($this->site->edgeMeta()['database'] ?? null) ? $this->site->edgeMeta()['database'] : [];
+        if (($stored['engine'] ?? '') === 'postgres' && (string) ($stored['remote_id'] ?? '') !== '') {
+            return EdgeAppDatabase::isDply($stored);
+        }
+
+        return EdgeDplyPostgres::enabled();
     }
 
     public function selectPostgresRegion(string $region): void
@@ -1757,8 +1788,9 @@ class Resources extends Component
         $databaseCost = app(EdgeAppDatabaseCost::class);
         $postgres = $databaseCost->presentation();
         $postgresStored = $databaseCost->stored($this->site);
+        $postgresDply = $this->usesDplyPostgres();
         $postgresSizes = [];
-        foreach (EdgeAppDatabase::POSTGRES_SIZES as $key => $size) {
+        foreach ($postgresDply ? EdgeDplyPostgres::sizes() : EdgeAppDatabase::POSTGRES_SIZES as $key => $size) {
             $size['hour'] = $databaseCost->hourly($size['cu']);
             $size['day'] = $databaseCost->daily($size['cu']);
             $size['month'] = $databaseCost->monthly($size['cu']);
@@ -1766,7 +1798,7 @@ class Resources extends Component
         }
         $postgresSuspend = EdgeAppDatabase::postgresSuspend($this->draftPostgresSuspend, $this->draftPostgresPlan);
         $postgresPlan = $postgresSuspend === -1 ? 'awake' : 'sleep';
-        $postgresSize = EdgeAppDatabase::postgresSize($this->draftPostgresSize);
+        $postgresSize = $postgresDply ? EdgeDplyPostgres::size($this->draftPostgresSize) : EdgeAppDatabase::postgresSize($this->draftPostgresSize);
         $postgresRegion = EdgeAppDatabase::postgresRegion($this->draftPostgresRegion);
         $postgresHistory = EdgeAppDatabase::postgresHistory($this->draftPostgresHistory);
         $awakeHours = max(0, min(24, $this->awakeHours));
@@ -1833,6 +1865,9 @@ class Resources extends Component
                 'postgresHistory' => $postgresHistory,
                 'postgresHistories' => EdgeAppDatabase::POSTGRES_HISTORY,
                 'postgresAwakeHours' => $awakeHours,
+                'postgresDply' => $postgresDply,
+                'postgresDisks' => EdgeDplyPostgres::DISKS,
+                'postgresDisk' => EdgeDplyPostgres::disk($this->draftPostgresDisk),
                 'postgresRegions' => NeonClient::REGIONS,
                 'postgresRegionLocked' => $databaseEngine === 'postgres'
                     && (string) ($storedDatabase['engine'] ?? '') === 'postgres'
@@ -1861,6 +1896,7 @@ class Resources extends Component
         $this->draftPostgresRegion = $state['postgres_region'];
         $this->draftPostgresSuspend = $state['postgres_suspend'];
         $this->draftPostgresHistory = $state['postgres_history'];
+        $this->draftPostgresDisk = $state['postgres_disk'];
         $this->draftPostgresPlan = $state['postgres_suspend'] === -1 ? 'awake' : 'sleep';
         $this->pending = false;
     }
@@ -1908,6 +1944,7 @@ class Resources extends Component
             'postgres_region' => EdgeAppDatabase::postgresRegion((string) ($database['region'] ?? '')),
             'postgres_suspend' => EdgeAppDatabase::postgresSuspend((int) ($database['suspend'] ?? 0), (string) ($database['plan'] ?? '')),
             'postgres_history' => EdgeAppDatabase::postgresHistory((int) ($database['history'] ?? 0)),
+            'postgres_disk' => EdgeDplyPostgres::disk((int) ($database['disk_gb'] ?? 0)),
         ];
     }
 
@@ -1943,6 +1980,7 @@ class Resources extends Component
             'postgres_region' => EdgeAppDatabase::postgresRegion($this->draftPostgresRegion),
             'postgres_suspend' => EdgeAppDatabase::postgresSuspend($this->draftPostgresSuspend, $this->draftPostgresPlan),
             'postgres_history' => EdgeAppDatabase::postgresHistory($this->draftPostgresHistory),
+            'postgres_disk' => EdgeDplyPostgres::disk($this->draftPostgresDisk),
         ];
     }
 
@@ -2027,6 +2065,7 @@ class Resources extends Component
             $this->draftPostgresRegion,
             $this->draftPostgresSuspend,
             $this->draftPostgresHistory,
+            $this->draftPostgresDisk,
         );
         if ($databaseError !== null) {
             $this->addError('database', $databaseError);

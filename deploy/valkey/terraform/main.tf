@@ -60,7 +60,7 @@ resource "digitalocean_container_registry" "dply" {
 }
 
 resource "digitalocean_kubernetes_cluster" "valkey" {
-  name                 = "dply-valkey"
+  name                 = "dply-pods"
   region               = var.region
   version              = data.digitalocean_kubernetes_versions.current.latest_version
   registry_integration = true
@@ -77,7 +77,8 @@ resource "digitalocean_kubernetes_cluster" "valkey" {
     size       = var.node_size
     auto_scale = true
     min_nodes  = 1
-    max_nodes  = 4
+    # Ceiling on surprise spend: 2 x $24. Raise when real load needs it.
+    max_nodes = 2
   }
 
   depends_on = [digitalocean_container_registry.dply]
@@ -106,8 +107,10 @@ output "registry" {
 # keeps flex pods and everything else off these machines.
 locals {
   pro_pools = {
-    "pro-16" = { size = "m-2vcpu-16gb", max_nodes = 4 } # $84/mo per node: Pro 5 GB, 12 GB
-    "pro-64" = { size = "m-8vcpu-64gb", max_nodes = 2 } # $336/mo per node: Pro 25 GB, 50 GB
+    "pro-16" = { size = "m-2vcpu-16gb", max_nodes = 1 } # $84/mo per node: Pro 5 GB, 12 GB
+    # "pro-64" (m-8vcpu-64gb, $336/mo per node) serves Pro 25 GB / 50 GB. Not
+    # created until a customer needs it; EdgeValkey::NOT_OFFERED hides those
+    # sizes meanwhile. Add it back here and remove them from NOT_OFFERED.
   }
 }
 

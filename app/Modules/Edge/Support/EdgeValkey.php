@@ -36,6 +36,19 @@ final class EdgeValkey
 
     public const DEFAULT_CLASS = 'flex_250m';
 
+    /**
+     * Sizes not sold yet: they need the 64 GB node pool (m-8vcpu-64gb,
+     * $336/mo per node), which is not created until a customer needs it.
+     * Offering them without the pool leaves the pod unschedulable.
+     */
+    public const NOT_OFFERED = ['pro_25g', 'pro_50g'];
+
+    /** @return array<string, array{label: string, memory_mb: int, sleeps: bool, per_second: float, cap_cents: int}> */
+    public static function offered(): array
+    {
+        return array_diff_key(self::CLASSES, array_flip(self::NOT_OFFERED));
+    }
+
     /** Idle time before a flex database sleeps, in seconds. 0 stays on. */
     public const SLEEPS = [
         300 => '5 minutes',
@@ -72,7 +85,7 @@ final class EdgeValkey
      */
     public static function provision(Site $site, string $resource, string $class, int $sleep): array
     {
-        $class = isset(self::CLASSES[$class]) ? $class : self::DEFAULT_CLASS;
+        $class = isset(self::offered()[$class]) ? $class : self::DEFAULT_CLASS;
         $spec = self::CLASSES[$class];
         $label = substr(trim((string) preg_replace('/[^a-z0-9]+/', '-', strtolower($resource)), '-'), 0, 12);
         $id = trim(strtolower((string) $site->id).'-'.$label, '-');
