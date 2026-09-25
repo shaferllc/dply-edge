@@ -264,7 +264,18 @@ func (g *gateway) wakeDatabase(ctx context.Context, id string) (string, error) {
 	s.ip = ip
 	s.lastActivity = time.Now()
 	go g.markAwake(context.Background(), id)
+	go g.setEvictable(context.Background(), id, false)
 	return ip, nil
+}
+
+// setEvictable marks a database pod for the cluster autoscaler: not safe to
+// evict while awake (a scale-down would cut queries and restores), safe while
+// parked so an emptied node can still be removed.
+func (g *gateway) setEvictable(ctx context.Context, id string, ok bool) {
+	patch := fmt.Sprintf(`{"metadata":{"annotations":{"cluster-autoscaler.kubernetes.io/safe-to-evict":"%t"}}}`, ok)
+	if _, err := g.kube.CoreV1().Pods(g.cfg.namespace).Patch(ctx, dbPodName(id), types.MergePatchType, []byte(patch), metav1.PatchOptions{}); err != nil && !apierrors.IsNotFound(err) {
+		log.Printf("tenant %s: safe-to-evict=%t: %v", id, ok, err)
+	}
 }
 
 // errBusy: an idle sleep was refused because a backup or an app query is
@@ -331,6 +342,7 @@ func (g *gateway) sleepDatabase(ctx context.Context, t tenant, idle bool) error 
 		log.Printf("tenant %s: shrink failed: %v", t.ID, err)
 	}
 	g.markAsleep(ctx, t.ID)
+	g.setEvictable(ctx, t.ID, true)
 	log.Printf("tenant %s: asleep", t.ID)
 	return nil
 }
