@@ -55,6 +55,8 @@ func main() {
 		e = &postgres{data: "/data/pg", run: "/data/run", admin: strings.TrimSpace(os.Getenv("AGENT_TOKEN"))}
 	case "mongodb":
 		e = &mongo{data: "/data/mongo", run: "/data/run", admin: strings.TrimSpace(os.Getenv("AGENT_TOKEN"))}
+	case "mysql":
+		e = &mysqlEngine{data: "/data/mysql", run: "/data/run", admin: strings.TrimSpace(os.Getenv("AGENT_TOKEN"))}
 	default:
 		log.Fatalf("unknown ENGINE %q", os.Getenv("ENGINE"))
 	}

@@ -65,12 +65,14 @@ func (m *mongo) init() error {
 	return os.WriteFile(m.marker(), []byte(time.Now().UTC().Format(time.RFC3339)), 0o600)
 }
 
-// running: mongod --fork detaches, so the server is reparented to dbagent
-// (PID 1). After it exits it stays a zombie until reaped, and a zombie still
-// answers kill(pid, 0). Read its state instead, and reap a zombie here, by
-// pid, so Go's own exec waits are never disturbed.
-func (m *mongo) running() bool {
-	b, err := os.ReadFile(m.pidFile())
+func (m *mongo) running() bool { return pidRunning(m.pidFile()) }
+
+// pidRunning: a server started with --fork/--daemonize detaches, so it is
+// reparented to dbagent (PID 1). After it exits it stays a zombie until
+// reaped, and a zombie still answers kill(pid, 0). Read its state instead,
+// and reap a zombie here, by pid, so Go's own exec waits are never disturbed.
+func pidRunning(pidFile string) bool {
+	b, err := os.ReadFile(pidFile)
 	if err != nil {
 		return false
 	}
@@ -83,7 +85,7 @@ func (m *mongo) running() bool {
 		if i := strings.LastIndexByte(string(stat), ')'); i >= 0 && i+2 < len(stat) && stat[i+2] == 'Z' {
 			var status syscall.WaitStatus
 			_, _ = syscall.Wait4(pid, &status, syscall.WNOHANG, nil)
-			_ = os.Remove(m.pidFile())
+			_ = os.Remove(pidFile)
 			return false
 		}
 	}

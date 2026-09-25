@@ -37,16 +37,22 @@ const (
 var dbImages = map[string]string{
 	"postgres": env("POSTGRES_IMAGE", "dply/postgres:17"),
 	"mongodb":  env("MONGO_IMAGE", "dply/mongodb:7"),
+	"mysql":    env("MYSQL_IMAGE", "dply/mysql:8"),
 }
 
 var dbPorts = map[string]string{
 	"postgres": "5432",
 	"mongodb":  "27017",
+	"mysql":    "3306",
 }
 
 func isDatabase(engine string) bool { _, ok := dbPorts[engine]; return ok }
 
 func dbPodName(id string) string { return "db-" + id }
+
+// wakeDeadline is how long a client connection may wait for its database to
+// wake or, the first time, to be built (volume, image, init).
+const wakeDeadline = 5 * time.Minute
 
 // ---- Postgres listener ----
 
@@ -172,6 +178,9 @@ func (g *gateway) pipeDatabase(client net.Conn, id, engine string, fail func(str
 		return
 	}
 	started := time.Now()
+	// A wake (or a brand-new database's first build) can outlast the
+	// listener's handshake deadline; the client just waits.
+	_ = client.SetDeadline(time.Now().Add(wakeDeadline))
 	ip, err := g.wakeDatabase(context.Background(), id)
 	if err != nil {
 		log.Printf("tenant %s: wake failed: %v", id, err)

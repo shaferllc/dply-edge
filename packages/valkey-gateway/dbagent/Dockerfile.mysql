@@ -1,0 +1,16 @@
+# dply MySQL image: stock MySQL 8.4 with dbagent as PID 1 (the pod stays up
+# while the database sleeps). Build from packages/valkey-gateway:
+#   docker build -f dbagent/Dockerfile.mysql -t dply/mysql:8 .
+FROM golang:1.24-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY dbagent/ ./dbagent/
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /dbagent ./dbagent
+
+FROM mysql:8.4
+COPY --from=build /dbagent /usr/local/bin/dbagent
+ENV ENGINE=mysql
+# uid 999, the same as the Postgres and MongoDB images.
+USER mysql
+ENTRYPOINT ["/usr/local/bin/dbagent"]

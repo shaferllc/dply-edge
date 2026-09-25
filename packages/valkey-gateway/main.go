@@ -150,6 +150,7 @@ func (g *gateway) serveProxy() {
 	}
 	go g.servePostgres(certs)
 	go g.serveMongo(certs)
+	go g.serveMySQL(certs)
 	ln, err := tls.Listen("tcp", g.cfg.proxyAddr, &tls.Config{GetCertificate: certs.get, MinVersion: tls.VersionTLS12})
 	if err != nil {
 		log.Fatal(err)
@@ -466,7 +467,7 @@ func (g *gateway) putTenant(w http.ResponseWriter, r *http.Request) {
 	t.ID = r.PathValue("id")
 	t.Engine = engineOrValkey(t.Engine)
 	if t.Engine != "valkey" && !isDatabase(t.Engine) {
-		http.Error(w, "engine must be valkey, postgres or mongodb", http.StatusUnprocessableEntity)
+		http.Error(w, "engine must be valkey, postgres, mongodb or mysql", http.StatusUnprocessableEntity)
 		return
 	}
 	if isDatabase(t.Engine) {
