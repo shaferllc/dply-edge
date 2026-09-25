@@ -24,8 +24,8 @@ use App\Modules\Edge\Console\CollectEdgeContainerUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeDataUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeKvUsageCommand;
 use App\Modules\Edge\Console\CollectEdgePostgresUsageCommand;
-use App\Modules\Edge\Console\CollectEdgeRedisUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeUsageCommand;
+use App\Modules\Edge\Console\CollectEdgeValkeyUsageCommand;
 use App\Modules\Edge\Console\EvaluateEdgeGuardrailsCommand;
 use App\Modules\Edge\Console\RollupEdgeAnalyticsEngineCommand;
 use App\Modules\Edge\Console\WarmEdgeBuildImagesCommand;
@@ -103,13 +103,11 @@ final class DplySchedule
         $schedule->command(CollectEdgeDataUsageCommand::class)
             ->dailyAt('01:50')
             ->name('edge-data-usage-yesterday');
-        $schedule->command(CollectEdgeRedisUsageCommand::class, ['--today'])
+        // dply Valkey awake seconds; each run adds what changed since the last.
+        $schedule->command(CollectEdgeValkeyUsageCommand::class)
             ->hourly()
             ->withoutOverlapping()
-            ->name('edge-redis-usage-today');
-        $schedule->command(CollectEdgeRedisUsageCommand::class)
-            ->dailyAt('01:55')
-            ->name('edge-redis-usage-yesterday');
+            ->name('edge-valkey-usage');
         $schedule->command(CollectEdgeKvUsageCommand::class, ['--today'])
             ->hourly()
             ->withoutOverlapping()

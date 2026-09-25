@@ -24,7 +24,8 @@ final class UpstashQstashClient
 
     public static function configured(): bool
     {
-        return UpstashRedisClient::configured()
+        return (string) config('edge.upstash.email') !== ''
+            && (string) config('edge.upstash.api_key') !== ''
             && (string) config('edge.upstash.qstash_token') !== '';
     }
 

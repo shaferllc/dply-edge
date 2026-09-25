@@ -10,8 +10,6 @@ use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeEffectiveBindings;
 use App\Modules\Edge\Support\FakeEdgeProvision;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
-use App\Modules\Providers\Upstash\UpstashRedisClient;
-use Illuminate\Support\Facades\Log;
 
 /**
  * Builds the list of Cloudflare binding descriptors uploaded with
@@ -72,45 +70,6 @@ class EdgeRepoBindingTranslator
         }
 
         return $out;
-    }
-
-    /**
-     * Upstash REST address and token for a Redis we started, fetched fresh so
-     * nothing new is stored. @upstash/redis reads these with Redis.fromEnv().
-     * REDIS_URL already reaches the Worker as an app env var.
-     *
-     * @return list<array<string, mixed>>
-     */
-    private function redisRestBindings(Site $site): array
-    {
-        foreach (EdgeContainerConnections::for($site) as $connection) {
-            if ($connection['kind'] !== 'redis' || $connection['asleep'] || ! EdgeRedisUsageCollector::isProvisionedId($connection['target'])) {
-                continue;
-            }
-            if (! $site->organization?->onAnyPaidPlan() || FakeEdgeProvision::enabled()) {
-                return [];
-            }
-            try {
-                $database = UpstashRedisClient::fromConfig()->database($connection['target']);
-            } catch (\Throwable $e) {
-                Log::warning('Upstash REST credentials unavailable for Worker deploy', ['site_id' => $site->id, 'error' => $e->getMessage()]);
-
-                return [];
-            }
-            $endpoint = (string) ($database['endpoint'] ?? '');
-            $token = (string) ($database['rest_token'] ?? '');
-            if ($endpoint === '' || $token === '') {
-                return [];
-            }
-            $host = str_contains($endpoint, '.') ? $endpoint : $endpoint.'.upstash.io';
-
-            return [
-                ['name' => 'UPSTASH_REDIS_REST_URL', 'type' => 'secret_text', 'text' => 'https://'.$host],
-                ['name' => 'UPSTASH_REDIS_REST_TOKEN', 'type' => 'secret_text', 'text' => $token],
-            ];
-        }
-
-        return [];
     }
 
     /**
@@ -183,7 +142,7 @@ class EdgeRepoBindingTranslator
             $used = array_merge($used, $env);
             // The platform Worker proves it is the one delivering a batch.
             $queueToken = $queues !== [] ? [['name' => 'DPLY_QUEUE_TOKEN', 'type' => 'secret_text', 'text' => EdgeQueueConsumers::token($site)]] : [];
-            foreach ([...EdgeContainerConnections::workerBindings($site), ...$queues, ...$queueToken, ...$this->stateBindings($site), ...$this->redisRestBindings($site)] as $binding) {
+            foreach ([...EdgeContainerConnections::workerBindings($site), ...$queues, ...$queueToken, ...$this->stateBindings($site)] as $binding) {
                 if (! $this->isUsableName($binding['name']) || in_array($binding['name'], $used, true)) {
                     continue;
                 }

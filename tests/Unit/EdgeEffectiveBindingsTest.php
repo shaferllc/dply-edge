@@ -154,6 +154,7 @@ test('translator emits dashboard bindings so they actually reach the worker', fu
         'UPLOADS' => 'r2_bucket',
         'DB' => 'd1',
         'JOBS' => 'queue',
+        'DPLY_QUEUE_TOKEN' => 'secret_text',
     ]);
 });
 

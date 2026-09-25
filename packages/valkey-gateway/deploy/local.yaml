@@ -1,0 +1,129 @@
+# Local stack for OrbStack Kubernetes: namespace, SeaweedFS S3 standing in for R2,
+# and the gateway. Apply with deploy/local-up.sh, which also makes the TLS
+# and API-token secrets.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dply-valkey
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: valkey-gateway
+  namespace: dply-valkey
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: valkey-gateway
+  namespace: dply-valkey
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "secrets", "persistentvolumeclaims"]
+    verbs: ["get", "list", "create", "update", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: valkey-gateway
+  namespace: dply-valkey
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: valkey-gateway
+subjects:
+  - kind: ServiceAccount
+    name: valkey-gateway
+    namespace: dply-valkey
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: s3
+  namespace: dply-valkey
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: s3 }
+  template:
+    metadata:
+      labels: { app: s3 }
+    spec:
+      containers:
+        - name: seaweedfs
+          image: chrislusf/seaweedfs:latest
+          imagePullPolicy: IfNotPresent
+          args: ["server", "-dir=/data", "-s3", "-s3.port=9000", "-s3.config=/etc/seaweedfs/s3.json", "-master.volumeSizeLimitMB=64"]
+          ports:
+            - containerPort: 9000
+          volumeMounts:
+            - { name: s3-config, mountPath: /etc/seaweedfs, readOnly: true }
+      volumes:
+        - name: s3-config
+          configMap: { name: s3-config }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: s3-config
+  namespace: dply-valkey
+data:
+  s3.json: |
+    {"identities": [{"name": "dply-local", "credentials": [{"accessKey": "dply-local", "secretKey": "dply-local-secret"}], "actions": ["Admin", "Read", "Write", "List"]}]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: s3
+  namespace: dply-valkey
+spec:
+  selector: { app: s3 }
+  ports:
+    - port: 9000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: valkey-gateway
+  namespace: dply-valkey
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: valkey-gateway }
+  template:
+    metadata:
+      labels: { app: valkey-gateway }
+    spec:
+      serviceAccountName: valkey-gateway
+      containers:
+        - name: gateway
+          image: dply/valkey-gateway:local
+          imagePullPolicy: Never
+          env:
+            - { name: DOMAIN, value: cache.dply.local }
+            - { name: S3_ENDPOINT, value: "http://s3.dply-valkey.svc.cluster.local:9000" }
+            - { name: S3_ACCESS_KEY, value: dply-local }
+            - { name: S3_SECRET_KEY, value: dply-local-secret }
+            - { name: S3_REGION, value: us-east-1 }
+            - name: API_TOKEN
+              valueFrom: { secretKeyRef: { name: valkey-gateway-api, key: token } }
+          ports:
+            - { containerPort: 6380, name: valkey }
+            - { containerPort: 8080, name: api }
+          volumeMounts:
+            - { name: tls, mountPath: /tls, readOnly: true }
+      volumes:
+        - name: tls
+          secret: { secretName: valkey-gateway-tls }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: valkey-gateway
+  namespace: dply-valkey
+spec:
+  type: LoadBalancer
+  selector: { app: valkey-gateway }
+  ports:
+    - { name: valkey, port: 6380, targetPort: 6380 }
+    - { name: api, port: 8080, targetPort: 8080 }

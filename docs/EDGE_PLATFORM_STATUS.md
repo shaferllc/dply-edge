@@ -52,6 +52,8 @@ Branch `feat/edge-platform`. One feature per commit.
 - a peer call, with `global_fetch_strictly_public` added (a same-zone fetch otherwise fails with error 1042);
 - `Redis.fromEnv()` working with the injected Upstash REST vars.
 
+**Global queue consumer (T-019, 2026-09-24).** The platform Worker (`packages/edge-worker`, `src/queue.ts`) now has a `queue()` handler, and it has to be redeployed before Worker-site queues run. Unit-tested on both ends (vitest `queue.test.ts`, and the wrapper's `/__dply/queue` path run under Node). Not yet seen on Cloudflare: a message going from a queue to the platform Worker to a Worker site's `queue()` export and being acked.
+
 No platform API token was available, so none of this has touched Cloudflare:
 
 1. **Containers inside a Workers for Platforms dispatch namespace.** Wrangler supports it; Cloudflare's docs don't mention it. The whole routing design depends on it. Run `spikes/cf-container/run.sh`.

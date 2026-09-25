@@ -339,14 +339,25 @@ return [
     */
     /*
     | https://upstash.com
-    | Platform Redis account. Read by UpstashRedisClient. A pasted address
-    | does not use it. User request: "ok so how can we implement upstash and bill for it".
+    | QStash only: the HTTP delivery resource (UpstashQstashClient). Redis
+    | is dply's own Valkey now (edge.valkey below).
     */
     'upstash' => [
         'email' => env('DPLY_UPSTASH_EMAIL'),
         'api_key' => env('DPLY_UPSTASH_API_KEY'),
-        'region' => env('DPLY_UPSTASH_REGION', 'us-east-1'),
         'qstash_token' => env('DPLY_QSTASH_TOKEN'),
+    ],
+
+    /*
+    | dply's own Valkey (packages/valkey-gateway, T-021). When api_url and
+    | token are set, "Create new" Redis on the Resources page starts one of
+    | these instead of an Upstash database.
+    */
+    'valkey' => [
+        'api_url' => env('DPLY_VALKEY_API_URL'),
+        'token' => env('DPLY_VALKEY_TOKEN'),
+        'domain' => env('DPLY_VALKEY_DOMAIN', 'cache.dply.local'),
+        'port' => (int) env('DPLY_VALKEY_PORT', 6380),
     ],
 
     /*

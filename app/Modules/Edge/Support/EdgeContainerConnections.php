@@ -5,10 +5,8 @@ declare(strict_types=1);
 namespace App\Modules\Edge\Support;
 
 use App\Models\Site;
-use App\Modules\Edge\Services\EdgeRedisUsageCollector;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use App\Modules\Providers\Upstash\UpstashQstashClient;
-use App\Modules\Providers\Upstash\UpstashRedisClient;
 
 /**
  * Container connections. Called from EdgeContainerDeployer::scaffold and
@@ -54,7 +52,7 @@ final class EdgeContainerConnections
     /**
      * Kinds a Worker site (ssr, hybrid) can use. Workflows are not supported
      * in Workers for Platforms (T-016 spike). State and Another app go through
-     * EdgeWorkerEntryWrapper; Redis through REDIS_URL and the Upstash REST vars.
+     * EdgeWorkerEntryWrapper; Redis through REDIS_URL.
      *
      * @var list<string>
      */
@@ -68,7 +66,7 @@ final class EdgeContainerConnections
     public const WORKER_HINTS = [
         'durable_object' => "await env.NAME.fetch('https://state/key', { method: 'PUT', body: 'value' }). GET reads it back. POST https://state/incr/key adds one.",
         'service' => "await env.NAME.fetch('/path') calls that app's live address with the same method, headers, and body.",
-        'redis' => 'Use @upstash/redis: Redis.fromEnv() reads UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN. REDIS_URL is set too, for clients that can open sockets.',
+        'redis' => 'REDIS_URL is set. Workers need a client that opens TCP sockets (cloudflare:sockets), such as node-redis with nodejs_compat.',
     ];
 
     /**
@@ -250,8 +248,7 @@ final class EdgeContainerConnections
             return false;
         }
 
-        return ! EdgeRedisUsageCollector::isProvisionedId((string) $connection['target'])
-            || (bool) $site->organization?->onAnyPaidPlan();
+        return ! EdgeValkey::isTarget((string) $connection['target']) || (bool) $site->organization?->onAnyPaidPlan();
     }
 
     /**
@@ -469,7 +466,7 @@ final class EdgeContainerConnections
         }
 
         $plan = (string) ($row['plan'] ?? '');
-        if (! in_array($plan, ['free', ...UpstashRedisClient::PLANS], true)) {
+        if (! isset(EdgeValkey::CLASSES[$plan])) {
             $plan = '';
         }
 
@@ -769,33 +766,6 @@ final class EdgeContainerConnections
     }
 
     /**
-     * @return array<string, string>
-     */
-    public static function redisRegions(): array
-    {
-        return UpstashRedisClient::REGIONS;
-    }
-
-    /**
-     * Start a Redis on the platform account. The id is stored on the
-     * connection. The URL is stored as an encrypted env var by the caller.
-     *
-     * @return array{id: string, url: string}
-     */
-    public static function provisionRedis(Site $site, string $resource, string $region, string $plan = 'payg'): array
-    {
-        $slug = strtolower((string) ($site->slug !== '' ? $site->slug : $site->name));
-        $app = trim((string) preg_replace('/[^a-z0-9]+/', '-', $slug), '-');
-        $label = trim((string) preg_replace('/[^a-z0-9]+/', '-', strtolower($resource)), '-');
-        $name = trim($app.'-'.$label, '-');
-        if ($name === '') {
-            $name = 'redis-'.substr((string) $site->id, -8);
-        }
-
-        return UpstashRedisClient::fromConfig()->create(substr($name, 0, 64), $region, $plan);
-    }
-
-    /**
      * Turn on HTTP delivery for this app. The shared account id is stored
      * on the connection. The publish token stays on the worker.
      */
@@ -810,8 +780,8 @@ final class EdgeContainerConnections
     public static function destroy(string $kind, string $target): void
     {
         if ($kind === 'redis') {
-            if (EdgeRedisUsageCollector::isProvisionedId($target)) {
-                UpstashRedisClient::fromConfig()->delete($target);
+            if (EdgeValkey::isTarget($target)) {
+                EdgeValkey::destroy($target);
             }
 
             return;

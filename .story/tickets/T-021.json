@@ -5,11 +5,12 @@
   ],
   "completedDate": null,
   "createdDate": "2026-09-25",
-  "description": "Per-app memory-limited pods, SNI proxy that holds connections while waking, operator (create/resize/sleep/wake/snapshot to R2), flex+pro classes billed per second, sleep picker, migrate Upstash Redis users.",
+  "description": "Per-app memory-limited pods, SNI proxy that holds connections while waking, operator (create/resize/sleep/wake/snapshot to R2), flex+pro classes billed per second, sleep picker, migrate Upstash Redis users.\n\n2026-09-24: packages/valkey-gateway built and verified on OrbStack k8s (deploy/local-verify.sh, 12/12, incl. awake-time counting). Laravel: ValkeyGatewayClient, EdgeValkey (classes/prices/sleeps), Resources create+settings, per-second billing (GET /usage -> hourly dply:edge:collect-valkey-usage -> edge_redis_usage.awake_seconds -> EdgeRedisCost, capped). Remaining: warm pool, Upstash user migration, DOKS/R2 production deploy, multi-replica gateway.",
+  "displayId": "T-021",
   "id": "T-021",
   "order": 60,
   "phase": "resources-everywhere",
-  "status": "open",
+  "status": "inprogress",
   "title": "Own managed Valkey on DOKS with sleep/wake",
   "type": "feature"
 }

@@ -64,8 +64,9 @@ class EdgeQueueConsumers
             'max_wait_time_ms' => (int) ($tier['queue_batch_wait_seconds'] ?? 5) * 1000,
         ];
         // null means the Cloudflare maximum, which is what omitting it gives.
-        if (($tier['queue_concurrency'] ?? 1) !== null) {
-            $settings['max_concurrency'] = (int) ($tier['queue_concurrency'] ?? 1);
+        $concurrency = array_key_exists('queue_concurrency', $tier) ? $tier['queue_concurrency'] : 1;
+        if ($concurrency !== null) {
+            $settings['max_concurrency'] = (int) $concurrency;
         }
 
         return $settings;

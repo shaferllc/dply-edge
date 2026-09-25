@@ -9,8 +9,8 @@ use App\Modules\Edge\Console\CollectEdgeContainerUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeDataUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeKvUsageCommand;
 use App\Modules\Edge\Console\CollectEdgePostgresUsageCommand;
-use App\Modules\Edge\Console\CollectEdgeRedisUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeUsageCommand;
+use App\Modules\Edge\Console\CollectEdgeValkeyUsageCommand;
 use App\Modules\Edge\Console\EdgeDoctorCommand;
 use App\Modules\Edge\Console\EdgeEnsureBuildDockerCommand;
 use App\Modules\Edge\Console\EdgeEnsureDeliveryFeaturesCommand;
@@ -59,7 +59,7 @@ class EdgeServiceProvider extends ServiceProvider
                 CollectEdgeDataUsageCommand::class,
                 CollectEdgeKvUsageCommand::class,
                 CollectEdgePostgresUsageCommand::class,
-                CollectEdgeRedisUsageCommand::class,
+                CollectEdgeValkeyUsageCommand::class,
                 CollectEdgeUsageCommand::class,
                 EdgeDoctorCommand::class,
                 EdgeSpikeWorkerBindingsCommand::class,
