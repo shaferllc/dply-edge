@@ -14,9 +14,9 @@ use Illuminate\Queue\InteractsWithQueue;
 use Throwable;
 
 /**
- * Restore of a dply database: Postgres to a point in time from wal-g, MongoDB
- * and MySQL from the newest daily dump at or before it. It can take minutes,
- * so it runs here, not in the request. Progress is on meta.edge.database.restore for the Resources tab.
+ * Point-in-time restore of a dply database: Postgres from wal-g, MongoDB and
+ * MySQL from a daily dump plus the oplog / binlog (dbagent). It can take
+ * minutes, so it runs here, not in the request. Progress is on meta.edge.database.restore for the Resources tab.
  *
  * Called from Resources::restorePostgres.
  */

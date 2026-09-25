@@ -120,9 +120,9 @@ spec:
             - { name: POOL, value: "250:1" }
             # Databases (ruling r-67chv2jdx2ha025q): one pod per app, data on a
             # DigitalOcean volume so it survives node upgrades and replacement.
-            - { name: POSTGRES_IMAGE, value: "registry.digitalocean.com/dply-cloud/postgres:17-202609251346" }
-            - { name: MONGO_IMAGE, value: "registry.digitalocean.com/dply-cloud/mongodb:7-202609251346" }
-            - { name: MYSQL_IMAGE, value: "registry.digitalocean.com/dply-cloud/mysql:8-202609251346" }
+            - { name: POSTGRES_IMAGE, value: "registry.digitalocean.com/dply-cloud/postgres:17-202609251431" }
+            - { name: MONGO_IMAGE, value: "registry.digitalocean.com/dply-cloud/mongodb:7-202609251450" }
+            - { name: MYSQL_IMAGE, value: "registry.digitalocean.com/dply-cloud/mysql:8-202609251431" }
             - { name: DB_STORAGE_CLASS, value: do-block-storage }
             # wal-g backups for databases: keys from this secret, by reference.
             - { name: DB_BACKUP_SECRET, value: valkey-gateway-r2 }

@@ -8,7 +8,13 @@ RUN go mod download
 COPY dbagent/ ./dbagent/
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /dbagent ./dbagent
 
-FROM mysql:8.4
+# The stock image is MySQL's "minimal" build, without mysqlbinlog (the
+# point-in-time replay tool). Percona's build of the same 8.4.11 needs only
+# system libraries. Keep both on the same 8.4 patch release.
+FROM percona/percona-server:8.4@sha256:e99ac73a80a3b60b6276c7ec5445aba457d175b5642449c983f089291266690e AS binlog
+
+FROM mysql:8.4.11
+COPY --from=binlog /usr/bin/mysqlbinlog /usr/bin/mysqlbinlog
 COPY --from=build /dbagent /usr/local/bin/dbagent
 ENV ENGINE=mysql
 # uid 999, the same as the Postgres and MongoDB images.

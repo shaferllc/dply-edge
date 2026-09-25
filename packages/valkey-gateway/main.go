@@ -401,6 +401,7 @@ func (g *gateway) serveAPI() {
 	mux.HandleFunc("DELETE /tenants/{id}", g.auth(g.deleteTenant))
 	mux.HandleFunc("POST /tenants/{id}/sleep", g.auth(g.sleepTenant))
 	mux.HandleFunc("POST /tenants/{id}/restore", g.auth(g.restoreTenant))
+	mux.HandleFunc("GET /tenants/{id}/backup", g.auth(g.backupStatus))
 	mux.HandleFunc("GET /usage", g.authOnly(g.usage))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 	log.Printf("api on %s", g.cfg.apiAddr)
@@ -505,7 +506,7 @@ func (g *gateway) putTenant(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if previous.MemoryMB != t.MemoryMB || previous.Password != t.Password {
-			if err := g.sleepDatabase(r.Context(), *previous, false); err != nil {
+			if err := g.sleepDatabaseSoon(r.Context(), *previous); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
@@ -563,6 +564,27 @@ func (g *gateway) restoreTenant(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, g.status(r.Context(), *t))
 }
 
+// backupStatus relays the database agent's last backup result. The pod
+// stays up while the database sleeps, so this answers either way.
+func (g *gateway) backupStatus(w http.ResponseWriter, r *http.Request) {
+	pod, ok := g.databasePod(r.Context(), r.PathValue("id"))
+	if !ok || pod.Status.PodIP == "" {
+		writeJSON(w, http.StatusOK, map[string]any{})
+		return
+	}
+	req, _ := http.NewRequestWithContext(r.Context(), http.MethodGet, "http://"+net.JoinHostPort(pod.Status.PodIP, agentPort)+"/backup-status", nil)
+	req.Header.Set("Authorization", "Bearer "+g.cfg.adminPassword)
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
+}
+
 func (g *gateway) getTenant(w http.ResponseWriter, r *http.Request) {
 	t, err := g.getTenantRecord(r.Context(), r.PathValue("id"))
 	if err != nil {
@@ -579,7 +601,7 @@ func (g *gateway) sleepTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if isDatabase(t.Engine) {
-		if err := g.sleepDatabase(r.Context(), *t, false); err != nil {
+		if err := g.sleepDatabaseSoon(r.Context(), *t); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

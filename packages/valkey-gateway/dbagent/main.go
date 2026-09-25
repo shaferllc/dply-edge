@@ -7,16 +7,17 @@
 // HTTP on :7000, bearer AGENT_TOKEN:
 //
 //	POST /start   create the data directory on first use, start, wait until ready
-//	POST /stop    clean stop (checkpoint), so the next start has no recovery
+//	POST /stop    clean stop (checkpoint), so the next start has no recovery;
+//	              ?unless_backing_up=1 answers 409 instead while a backup runs
 //	POST /tenant  {"password": "..."} create or update the app's login and database
-//	POST /restore {"target_time": "RFC3339"} restore (Postgres: point in time from wal-g;
-//	              MongoDB, MySQL: the newest daily dump at or before it). Empty: latest.
+//	POST /restore {"target_time": "RFC3339"} point-in-time restore (empty: latest)
+//	GET  /backup-status  last backup success and failure (JSON)
 //	GET  /healthz
 //
 // Backups (Postgres): with WALG_S3_PREFIX set, finished WAL segments stream
 // to object storage (archive_timeout 60 s) and a base backup is taken on the
 // first start and then daily while the database is up, keeping 7. MongoDB
-// and MySQL take a daily dump instead (dump.go).
+// and MySQL take a daily dump and ship their oplog / binlog (dump.go).
 package main
 
 import (
@@ -142,6 +143,19 @@ func main() {
 		go pg.backupLoop()
 	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
+	mux.HandleFunc("GET /backup-status", func(w http.ResponseWriter, r *http.Request) {
+		got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		b, err := os.ReadFile(backupStatusFile)
+		if err != nil {
+			b = []byte("{}")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(b)
+	})
 
 	srv := &http.Server{Addr: ":7000", Handler: mux}
 	go func() {
@@ -262,7 +276,9 @@ func (p *postgres) backupLoop() {
 		backupMu.Lock()
 		if run("pg_ctl", "-D", p.data, "status") == nil && dueSince(p.backupMarker(), 24*time.Hour) {
 			started := time.Now()
-			if _, err := p.walg("backup-push", p.data); err != nil {
+			_, err := p.walg("backup-push", p.data)
+			recordBackup(err)
+			if err != nil {
 				log.Printf("backup: %v", err)
 			} else {
 				_ = os.WriteFile(p.backupMarker(), []byte(time.Now().UTC().Format(time.RFC3339)), 0o600)
@@ -456,6 +472,29 @@ END $$; ALTER ROLE app WITH LOGIN NOSUPERUSER NOCREATEROLE NOREPLICATION PASSWOR
 		}
 	}
 	return nil
+}
+
+const backupStatusFile = "/data/backup-status.json"
+
+// recordBackup keeps the last success and the last failure for GET
+// /backup-status (the gateway relays it; the app shows it on Resources).
+func recordBackup(err error) {
+	var s struct {
+		LastOKAt    string `json:"last_ok_at,omitempty"`
+		LastError   string `json:"last_error,omitempty"`
+		LastErrorAt string `json:"last_error_at,omitempty"`
+	}
+	if b, rerr := os.ReadFile(backupStatusFile); rerr == nil {
+		_ = json.Unmarshal(b, &s)
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	if err == nil {
+		s.LastOKAt = now
+	} else {
+		s.LastError, s.LastErrorAt = lastLines(err.Error(), 2), now
+	}
+	b, _ := json.Marshal(s)
+	_ = os.WriteFile(backupStatusFile, b, 0o600)
 }
 
 // mustDumps starts the daily dump loop when backups are configured.

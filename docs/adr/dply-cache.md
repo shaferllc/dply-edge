@@ -238,7 +238,8 @@ attached.
    Folding into `Modules/Database` was rejected: that module owns *provisioning
    backends*, and the shared tier has nothing in common with `NeonBackend`
    except the word Redis. The dedicated tier's delegation is the right amount of
-   coupling.
+   coupling. *(2026-09-25: Neon was removed from dply-edge; databases are dply
+   pods behind the same gateway as Valkey.)*
 
 10. **Path 1 folds in, path 2 is adopted, paths 3 and 4 are left alone.**
 

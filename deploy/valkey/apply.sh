@@ -10,7 +10,7 @@
 #   ./apply.sh [image]     default: the last pushed gateway image
 set -euo pipefail
 cd "$(dirname "$0")"
-IMAGE=${1:-registry.digitalocean.com/dply-cloud/valkey-gateway:202609251346}
+IMAGE=${1:-registry.digitalocean.com/dply-cloud/valkey-gateway:202609251431}
 DOMAIN=${DOMAIN:-dply.io}
 CERT_MANAGER=v1.21.2
 # shellcheck source=/dev/null

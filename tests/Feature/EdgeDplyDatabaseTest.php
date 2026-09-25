@@ -8,6 +8,7 @@ use App\Enums\SiteType;
 use App\Livewire\Sites\Edge\Workspace\Resources;
 use App\Models\EdgePostgresUsage;
 use App\Models\EdgeSiteEnvVar;
+use App\Models\NotificationEvent;
 use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
@@ -237,7 +238,7 @@ test('a point-in-time restore runs as a queued job and records its result', func
     expect($this->site->fresh()->edgeMeta()['database']['restore']['status'])->toBe('done');
 });
 
-test('mongodb and mysql restore from their daily backups through the same job', function (string $engine) {
+test('mongodb and mysql restore to a point in time through the same job', function (string $engine) {
     Http::fake(['gateway.test/*' => Http::response([])]);
     EdgeAppDatabase::sync($this->site, 'sql', $engine);
     $this->site->save();
@@ -248,11 +249,28 @@ test('mongodb and mysql restore from their daily backups through the same job', 
     $target = now()->utc()->subDay()->startOfSecond()->format('Y-m-d\TH:i:s\Z');
 
     Livewire::actingAs($user)->test(Resources::class, ['server' => $this->site->server, 'site' => $this->site])
-        ->call('selectDatabase', $engine)->assertSee('Restore from a backup');
+        ->call('selectDatabase', $engine)->assertSee('Restore to a point in time');
 
     (new RestoreEdgeDplyPostgresJob((string) $this->site->id, $target))->handle();
     Http::assertSent(fn ($request): bool => $request->method() === 'POST' && str_ends_with($request->url(), '/restore') && $request['target_time'] === $target);
     expect($this->site->fresh()->edgeMeta()['database']['restore']['status'])->toBe('done');
     Livewire::actingAs($user)->test(Resources::class, ['server' => $this->site->server, 'site' => $this->site->fresh()])
-        ->call('selectDatabase', $engine)->assertSee('Restored from the newest backup taken at or before');
+        ->call('selectDatabase', $engine)->assertSee('Restored to');
 })->with(['mongodb', 'mysql']);
+
+test('the collector records backup status and notifies once when backups start failing', function () {
+    $status = ['last_ok_at' => '2026-09-24T10:00:00Z', 'last_error' => 'mysqldump: disk full', 'last_error_at' => '2026-09-25T10:00:00Z'];
+    Http::fake([
+        'gateway.test/usage' => Http::response(['awake_seconds' => []]),
+        'gateway.test/tenants/*/backup' => Http::response($status),
+        'gateway.test/*' => Http::response([]),
+    ]);
+    EdgeAppDatabase::sync($this->site, 'sql', 'mysql');
+    $this->site->save();
+
+    app(EdgeValkeyUsageCollector::class)->collect();
+    app(EdgeValkeyUsageCollector::class)->collect();
+
+    expect($this->site->fresh()->edgeMeta()['database']['backup'])->toMatchArray($status + ['alerted' => true])
+        ->and(NotificationEvent::query()->where('event_key', 'site.errors.operation_failed')->count())->toBe(1);
+});

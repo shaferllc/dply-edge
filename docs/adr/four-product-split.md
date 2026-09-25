@@ -58,6 +58,8 @@ and Realtime. Backups and Notifications reference each other.
    Logs are billable products today that attach to more than one kind; each of
    the four apps forks the ones it needs and sells its own. Two independent
    implementations of the Neon and PlanetScale integrations is the accepted cost.
+   *(2026-09-25: dply-edge removed Neon and PlanetScale; its databases run on
+   its own cluster.)*
 5. **Cross-product features die or fork.** Launch (a wizard referencing `edge`
    51×, `cloud` 49×) is deleted — it cannot span four products with four
    accounts. Insights, OpsCopilot and Projects fork to single-product versions.

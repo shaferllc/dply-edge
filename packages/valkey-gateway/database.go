@@ -270,6 +270,33 @@ func (g *gateway) wakeDatabase(ctx context.Context, id string) (string, error) {
 // errBackingUp: an idle sleep was refused because the database is mid-backup.
 var errBackingUp = errors.New("backup running")
 
+// sleepDatabaseSoon sleeps the database now, or, if a backup is running,
+// once it finishes: it retries each minute in the background and forces the
+// stop after 3 hours. Used for requested sleeps (resize, new password, API),
+// which only need to happen before the next wake, so a backup is never cut.
+func (g *gateway) sleepDatabaseSoon(ctx context.Context, t tenant) error {
+	err := g.sleepDatabase(ctx, t, true)
+	if !errors.Is(err, errBackingUp) {
+		return err
+	}
+	log.Printf("tenant %s: sleeping after its backup", t.ID)
+	go func() {
+		for deadline := time.Now().Add(3 * time.Hour); time.Now().Before(deadline); {
+			time.Sleep(time.Minute)
+			if err := g.sleepDatabase(context.Background(), t, true); !errors.Is(err, errBackingUp) {
+				if err != nil {
+					log.Printf("tenant %s: sleep failed: %v", t.ID, err)
+				}
+				return
+			}
+		}
+		if err := g.sleepDatabase(context.Background(), t, false); err != nil {
+			log.Printf("tenant %s: sleep failed: %v", t.ID, err)
+		}
+	}()
+	return nil
+}
+
 // sleepDatabase stops the database. idle (the reaper) is refused while a
 // backup runs, and the database stays awake until a later tick; an explicit
 // sleep (resize, API) stops it regardless.
@@ -362,6 +389,9 @@ func (g *gateway) databasePodSpec(t tenant) *corev1.Pod {
 			RestartPolicy:                 corev1.RestartPolicyAlways,
 			TerminationGracePeriodSeconds: &grace, // dbagent stops the database cleanly on SIGTERM
 			AutomountServiceAccountToken:  new(bool),
+			// The database's public name points at itself inside the pod: a
+			// MongoDB replica set member must recognise its own host name.
+			HostAliases: []corev1.HostAlias{{IP: "127.0.0.1", Hostnames: []string{t.ID + "." + g.cfg.dbDomain}}},
 			// OnRootMismatch: only fix ownership when the volume root doesn't match.
 			// The default re-chmods every file on every attach (slow on big
 			// volumes), which also made a moved database's data directory
@@ -376,7 +406,7 @@ func (g *gateway) databasePodSpec(t tenant) *corev1.Pod {
 				ImagePullPolicy: corev1.PullIfNotPresent,
 				Env: append([]corev1.EnvVar{{Name: "AGENT_TOKEN", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
 					LocalObjectReference: corev1.LocalObjectReference{Name: g.cfg.adminSecret}, Key: "password",
-				}}}}, backupEnv(t)...),
+				}}}, {Name: "DB_PUBLIC_HOST", Value: t.ID + "." + g.cfg.dbDomain}}, backupEnv(t)...),
 				Ports:        []corev1.ContainerPort{{ContainerPort: int32(atoi(dbPorts[t.Engine]))}, {ContainerPort: 7000}},
 				VolumeMounts: []corev1.VolumeMount{{Name: "data", MountPath: "/data"}},
 				// Memory is resized in place on wake and sleep; no restart.

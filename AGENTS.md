@@ -395,7 +395,7 @@ Match remaining questions to the layer that still exists:
 - **Resources** (container connections / bindings) use a **create-or-attach
   builder** (Laravel Cloud-style), not raw name/host/target fields. Prefer the
   full set of Cloudflare-native Resources the product supports; hide provider
-  jargon in customer copy (**never name Upstash / Neon / PlanetScale** — say
+  jargon in customer copy (**never name Upstash or other vendors** — say
   managed Redis / KV / queue / Postgres / MySQL). Choosing a resource type must
   open plan/size/settings before create — not a dead-end tile click. Platform-
   managed static assets **auto-provision** — no operator-facing binding values.
@@ -408,8 +408,9 @@ Match remaining questions to the layer that still exists:
   **Managed Redis** and **managed KV** are Upstash-backed (TCP/HTTP Redis; KV
   via platform SDKs) — create/attach on Resources, **bill with markup**, and
   require a payment method when billed. **Managed HTTP queues** use QStash the
-  same way. **Managed Postgres** is Neon-backed (ship first); **managed MySQL**
-  is PlanetScale-backed and stays **Coming soon** until wired. One **Database**
+  same way. **Postgres, MySQL and MongoDB** are dply databases (one pod each on
+  the dply-pods cluster, `EdgeDplyDatabase`; Neon and PlanetScale were removed
+  2026-09-25), shown as **Coming soon** when the gateway is not configured. One **Database**
   tile is enough — do not offer separate SQL-database / connection-pool
   resources when attach already injects the connection (no operator-facing
   binding/host fields to fill). Create UIs must be **compact**, explain

@@ -83,6 +83,19 @@ final class ValkeyGatewayClient
         return $this->http()->timeout(1200)->post('/tenants/'.$id.'/restore', ['target_time' => $targetTime])->throw()->json() ?? [];
     }
 
+    /**
+     * The database's last backup result from its agent: last_ok_at,
+     * last_error, last_error_at (RFC3339), any of which may be missing.
+     *
+     * @return array<string, string>
+     */
+    public function backupStatus(string $id): array
+    {
+        $status = $this->http()->timeout(5)->get('/tenants/'.$id.'/backup')->throw()->json();
+
+        return is_array($status) ? array_map('strval', $status) : [];
+    }
+
     public function sleep(string $id): void
     {
         $this->http()->post('/tenants/'.$id.'/sleep')->throw();

@@ -10,9 +10,11 @@ use App\Models\Site;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeDplyDatabase;
 use App\Modules\Edge\Support\EdgeValkey;
+use App\Modules\Notifications\Services\NotificationPublisher;
 use App\Modules\Providers\Valkey\ValkeyGatewayClient;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * Per-second billing for dply Valkey (T-021). The gateway reports a running
@@ -65,6 +67,9 @@ class EdgeValkeyUsageCollector
             ->when($siteId !== null, fn ($query) => $query->whereKey($siteId))
             ->each(function (Site $site) use ($totals, $date, $dryRun, &$sites, &$seconds): void {
                 $this->collectDplyPostgres($site, $totals, $date, $dryRun);
+                if (! $dryRun) {
+                    $this->trackBackup($site);
+                }
                 $counters = (array) ($site->edgeMeta()['valkey_counter'] ?? []);
                 $added = 0;
                 foreach (EdgeContainerConnections::for($site) as $connection) {
@@ -104,6 +109,46 @@ class EdgeValkeyUsageCollector
     }
 
     /** @param  array<string, int>  $totals */
+    /**
+     * Copies the database's last backup result onto meta.edge.database.backup
+     * for the Resources tab, and notifies once when backups start failing
+     * (again after the next success).
+     */
+    private function trackBackup(Site $site): void
+    {
+        $database = $site->edgeMeta()['database'] ?? null;
+        if (! is_array($database) || ! EdgeAppDatabase::isDply($database) || (string) ($database['remote_id'] ?? '') === '') {
+            return;
+        }
+        try {
+            $status = ValkeyGatewayClient::fromConfig()->backupStatus((string) $database['remote_id']);
+        } catch (Throwable) {
+            return; // the gateway or agent is unreachable; keep the last known status
+        }
+        $previous = (array) ($database['backup'] ?? []);
+        $failing = ($status['last_error_at'] ?? '') !== '' && ($status['last_error_at'] ?? '') > ($status['last_ok_at'] ?? '');
+        $alerted = $failing && ($previous['alerted'] ?? false);
+        if ($failing && ! $alerted) {
+            try {
+                app(NotificationPublisher::class)->publish(
+                    eventKey: 'site.errors.operation_failed',
+                    subject: $site,
+                    title: __('Database backup failed for :site', ['site' => $site->name]),
+                    body: (string) ($status['last_error'] ?? ''),
+                    url: route('sites.show', ['server' => $site->server_id, 'site' => $site->id, 'section' => 'resources']),
+                );
+                $alerted = true;
+            } catch (Throwable $e) {
+                report($e);
+            }
+        }
+        $backup = array_merge($status, ['alerted' => $alerted]);
+        if ($backup != $previous) {
+            $site->mergeEdgeMeta(['database' => array_merge($database, ['backup' => $backup])]);
+            $site->save();
+        }
+    }
+
     private function collectDplyPostgres(Site $site, array $totals, string $date, bool $dryRun): void
     {
         $database = $site->edgeMeta()['database'] ?? null;
