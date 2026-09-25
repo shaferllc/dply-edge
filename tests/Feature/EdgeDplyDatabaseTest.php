@@ -14,11 +14,13 @@ use App\Models\Site;
 use App\Models\User;
 use App\Modules\Billing\Models\Subscription;
 use App\Modules\Billing\Services\EdgeAppDatabaseCost;
+use App\Modules\Edge\Jobs\RestoreEdgeDplyPostgresJob;
 use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Edge\Services\EdgePostgresUsageCollector;
 use App\Modules\Edge\Services\EdgeValkeyUsageCollector;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
@@ -242,4 +244,27 @@ test('mysql is offered only when the gateway is configured', function () {
 
     config(['edge.valkey.api_url' => null]);
     $test()->assertSee('Coming soon')->call('selectDatabase', 'mysql')->assertNotSet('draftDatabase', 'mysql');
+});
+
+test('a point-in-time restore runs as a queued job and records its result', function () {
+    Queue::fake();
+    Http::fake(['gateway.test/*' => Http::response([])]);
+    EdgeAppDatabase::sync($this->site, 'sql', 'postgres');
+    $this->site->save();
+    $user = User::factory()->create();
+    $this->site->organization->users()->attach($user->id, ['role' => 'owner']);
+    $this->site->forceFill(['user_id' => $user->id, 'type' => SiteType::Static, 'status' => Site::STATUS_EDGE_ACTIVE])->save();
+    $this->site->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
+    $target = now()->utc()->subHour()->startOfSecond();
+
+    Livewire::actingAs($user)->test(Resources::class, ['server' => $this->site->server, 'site' => $this->site])
+        ->set('postgresRestoreAt', now()->utc()->subDays(8)->format('Y-m-d\TH:i:s'))->call('restorePostgres')->assertSet('postgresRestoreResult', 'Pick a time in the last 7 days.')
+        ->set('postgresRestoreAt', $target->format('Y-m-d\TH:i:s'))->call('restorePostgres')->assertSet('postgresRestoreResult', null);
+
+    Queue::assertPushedOn('dply', RestoreEdgeDplyPostgresJob::class);
+    expect($this->site->fresh()->edgeMeta()['database']['restore'])->toBe(['status' => 'running', 'target' => $target->format('Y-m-d\TH:i:s\Z')]);
+
+    (new RestoreEdgeDplyPostgresJob((string) $this->site->id, $target->format('Y-m-d\TH:i:s\Z')))->handle();
+    Http::assertSent(fn ($request): bool => $request->method() === 'POST' && str_ends_with($request->url(), '/restore') && $request['target_time'] === $target->format('Y-m-d\TH:i:s\Z'));
+    expect($this->site->fresh()->edgeMeta()['database']['restore']['status'])->toBe('done');
 });

@@ -21,6 +21,7 @@ use App\Modules\Billing\Services\EdgeContainerComputeCost;
 use App\Modules\Billing\Services\EdgeDataUsageCost;
 use App\Modules\Billing\Services\EdgeDeliveryCost;
 use App\Modules\Billing\Services\EdgeKvCost;
+use App\Modules\Edge\Jobs\RestoreEdgeDplyPostgresJob;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Edge\Services\EdgeQueueConsumers;
@@ -38,6 +39,7 @@ use App\Support\Http\PublicOutboundUrl;
 use App\Support\Http\UnsafeOutboundUrlException;
 use App\Support\Sites\EdgeSiteViewData;
 use Illuminate\Contracts\View\View;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Livewire\Component;
 
@@ -126,6 +128,11 @@ class Resources extends Component
 
     /** dply Postgres volume size in GB (EdgeDplyDatabase::DISKS). */
     public int $draftPostgresDisk = 1;
+
+    /** Point-in-time restore target (datetime-local, UTC); progress is on the database record. */
+    public string $postgresRestoreAt = '';
+
+    public ?string $postgresRestoreResult = null;
 
     public string $connectionKind = '';
 
@@ -1375,6 +1382,45 @@ class Resources extends Component
         $this->authorize('update', $this->site);
         $this->databaseVisible = true;
         $this->panel = '';
+    }
+
+    /**
+     * Restore dply Postgres to a moment within backup retention (7 days) from
+     * its wal-g backups. The current data is kept aside by the database until
+     * the next restore.
+     */
+    public function restorePostgres(): void
+    {
+        $this->authorize('update', $this->site);
+        $database = is_array($this->site->edgeMeta()['database'] ?? null) ? $this->site->edgeMeta()['database'] : [];
+        if (($database['engine'] ?? '') !== 'postgres' || ! EdgeAppDatabase::isDply($database) || (string) ($database['remote_id'] ?? '') === '') {
+            $this->postgresRestoreResult = __('Only a dply Postgres database can be restored here.');
+
+            return;
+        }
+        try {
+            $at = Carbon::parse($this->postgresRestoreAt, 'UTC');
+        } catch (\Throwable) {
+            $this->postgresRestoreResult = __('Pick a date and time.');
+
+            return;
+        }
+        if ($at->isFuture() || $at->lt(now()->subDays(7))) {
+            $this->postgresRestoreResult = __('Pick a time in the last 7 days.');
+
+            return;
+        }
+        if (($database['restore']['status'] ?? '') === 'running') {
+            $this->postgresRestoreResult = __('A restore is already running.');
+
+            return;
+        }
+        // Minutes of work (base backup + WAL replay): a queued job, not this request.
+        $target = $at->utc()->format('Y-m-d\TH:i:s\Z');
+        $this->site->mergeEdgeMeta(['database' => array_merge($database, ['restore' => ['status' => 'running', 'target' => $target]])]);
+        $this->site->save();
+        RestoreEdgeDplyPostgresJob::dispatch((string) $this->site->id, $target);
+        $this->postgresRestoreResult = null;
     }
 
     public function runDatabaseCommand(string $action): void

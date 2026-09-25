@@ -1611,6 +1611,32 @@ await db.collection('notes').countDocuments();" }}</pre>
                                 {{ __('Day and month assume :hours hours awake. That number does not change the database.', ['hours' => $postgresAwakeHours]) }}
                             @endif
                         </p>
+                        @if ($postgresDply && $databaseEngine === 'postgres' && ($site->edgeMeta()['database']['provider'] ?? '') === 'dply')
+                            <div class="rounded-lg border border-brand-ink/10 p-3">
+                                <p class="text-xs font-semibold text-brand-ink">{{ __('Restore to a point in time') }}</p>
+                                <p class="mt-1 text-xs text-brand-moss">{{ __('Changes are backed up continuously for 7 days. Restoring replaces the data with how it was at that moment (UTC); the data from before the restore is kept aside until the next one.') }}</p>
+                                <div class="mt-2 flex flex-wrap items-end gap-2">
+                                    <label class="text-xs font-semibold text-brand-ink">
+                                        {{ __('Time (UTC)') }}
+                                        <input type="datetime-local" step="1" wire:model="postgresRestoreAt" min="{{ now()->utc()->subDays(7)->format('Y-m-d\TH:i') }}" max="{{ now()->utc()->format('Y-m-d\TH:i:s') }}" class="mt-1 block rounded-md border border-brand-ink/15 bg-white px-2 py-1 text-xs text-brand-ink dark:bg-zinc-900" />
+                                    </label>
+                                    <x-secondary-button type="button" wire:click="restorePostgres" wire:confirm="{{ __('Replace this database with how it was at that time? Changes after it are set aside.') }}" wire:loading.attr="disabled" wire:target="restorePostgres">
+                                        <span wire:loading.remove wire:target="restorePostgres">{{ __('Restore') }}</span>
+                                        <span wire:loading wire:target="restorePostgres">{{ __('Restoring… this can take a few minutes') }}</span>
+                                    </x-secondary-button>
+                                </div>
+                                @php $restoreState = $site->edgeMeta()['database']['restore'] ?? null; @endphp
+                                @if ($postgresRestoreResult)
+                                    <p class="mt-2 text-xs font-semibold text-brand-ink">{{ $postgresRestoreResult }}</p>
+                                @elseif (is_array($restoreState) && ($restoreState['status'] ?? '') === 'running')
+                                    <p wire:poll.5s class="mt-2 flex items-center gap-2 text-xs font-semibold text-brand-ink"><x-spinner size="sm" />{{ __('Restoring to :time UTC… this can take a few minutes.', ['time' => str_replace(['T', 'Z'], [' ', ''], $restoreState['target'] ?? '')]) }}</p>
+                                @elseif (is_array($restoreState) && ($restoreState['status'] ?? '') === 'done')
+                                    <p class="mt-2 text-xs font-semibold text-brand-sage">{{ __('Restored to :time UTC. The app keeps its password and address.', ['time' => str_replace(['T', 'Z'], [' ', ''], $restoreState['target'] ?? '')]) }}</p>
+                                @elseif (is_array($restoreState) && ($restoreState['status'] ?? '') === 'failed')
+                                    <p class="mt-2 text-xs font-semibold text-red-700 dark:text-red-400">{{ __('Restore failed: :error', ['error' => $restoreState['error'] ?? '']) }}</p>
+                                @endif
+                            </div>
+                        @endif
                         <div class="grid gap-1 sm:grid-cols-2" role="radiogroup" aria-label="{{ __('Size') }}">
                             @foreach ($postgresSizes as $key => $size)
                                 <button type="button" wire:click="selectPostgresSize('{{ $key }}')" @disabled($postgresLocked) @class([
