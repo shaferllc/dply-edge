@@ -1386,8 +1386,8 @@ class Resources extends Component
     {
         $this->authorize('update', $this->site);
         $database = is_array($this->site->edgeMeta()['database'] ?? null) ? $this->site->edgeMeta()['database'] : [];
-        if (($database['engine'] ?? '') !== 'postgres' || ! EdgeAppDatabase::isDply($database) || (string) ($database['remote_id'] ?? '') === '') {
-            $this->postgresRestoreResult = __('Only a dply Postgres database can be restored here.');
+        if (! EdgeAppDatabase::isDply($database) || (string) ($database['remote_id'] ?? '') === '') {
+            $this->postgresRestoreResult = __('Only a dply database can be restored here.');
 
             return;
         }
@@ -1408,7 +1408,7 @@ class Resources extends Component
 
             return;
         }
-        // Minutes of work (base backup + WAL replay): a queued job, not this request.
+        // Minutes of work (fetch a backup, replay or load it): a queued job, not this request.
         $target = $at->utc()->format('Y-m-d\TH:i:s\Z');
         $this->site->mergeEdgeMeta(['database' => array_merge($database, ['restore' => ['status' => 'running', 'target' => $target]])]);
         $this->site->save();

@@ -14,9 +14,9 @@ use Illuminate\Queue\InteractsWithQueue;
 use Throwable;
 
 /**
- * Point-in-time restore of a dply Postgres from its wal-g backups. It can take
- * minutes (fetch a base backup, replay WAL), so it runs here, not in the
- * request. Progress is on meta.edge.database.restore for the Resources tab.
+ * Restore of a dply database: Postgres to a point in time from wal-g, MongoDB
+ * and MySQL from the newest daily dump at or before it. It can take minutes,
+ * so it runs here, not in the request. Progress is on meta.edge.database.restore for the Resources tab.
  *
  * Called from Resources::restorePostgres.
  */
@@ -41,7 +41,7 @@ class RestoreEdgeDplyPostgresJob implements ShouldQueue
     {
         $site = Site::query()->find($this->siteId);
         $database = is_array($site?->edgeMeta()['database'] ?? null) ? $site->edgeMeta()['database'] : [];
-        if (! $site instanceof Site || ($database['engine'] ?? '') !== 'postgres' || ! EdgeAppDatabase::isDply($database)) {
+        if (! $site instanceof Site || ! EdgeAppDatabase::isDply($database)) {
             return;
         }
 

@@ -9,12 +9,14 @@
 //	POST /start   create the data directory on first use, start, wait until ready
 //	POST /stop    clean stop (checkpoint), so the next start has no recovery
 //	POST /tenant  {"password": "..."} create or update the app's login and database
-//	POST /restore {"target_time": "RFC3339"} point-in-time restore from wal-g (empty: latest)
+//	POST /restore {"target_time": "RFC3339"} restore (Postgres: point in time from wal-g;
+//	              MongoDB, MySQL: the newest daily dump at or before it). Empty: latest.
 //	GET  /healthz
 //
 // Backups (Postgres): with WALG_S3_PREFIX set, finished WAL segments stream
 // to object storage (archive_timeout 60 s) and a base backup is taken on the
-// first start and then daily while the database is up, keeping 7.
+// first start and then daily while the database is up, keeping 7. MongoDB
+// and MySQL take a daily dump instead (dump.go).
 package main
 
 import (
@@ -54,9 +56,13 @@ func main() {
 	case "postgres":
 		e = &postgres{data: "/data/pg", run: "/data/run", admin: strings.TrimSpace(os.Getenv("AGENT_TOKEN"))}
 	case "mongodb":
-		e = &mongo{data: "/data/mongo", run: "/data/run", admin: strings.TrimSpace(os.Getenv("AGENT_TOKEN"))}
+		m := &mongo{data: "/data/mongo", run: "/data/run", admin: strings.TrimSpace(os.Getenv("AGENT_TOKEN"))}
+		m.backups = mustDumps(m)
+		e = m
 	case "mysql":
-		e = &mysqlEngine{data: "/data/mysql", run: "/data/run", admin: strings.TrimSpace(os.Getenv("AGENT_TOKEN"))}
+		m := &mysqlEngine{data: "/data/mysql", run: "/data/run", admin: strings.TrimSpace(os.Getenv("AGENT_TOKEN"))}
+		m.backups = mustDumps(m)
+		e = m
 	default:
 		log.Fatalf("unknown ENGINE %q", os.Getenv("ENGINE"))
 	}
@@ -231,7 +237,7 @@ func (p *postgres) backupMarker() string { return filepath.Join(filepath.Dir(p.d
 // retries.
 func (p *postgres) backupLoop() {
 	for {
-		if run("pg_ctl", "-D", p.data, "status") == nil && p.backupDue() {
+		if run("pg_ctl", "-D", p.data, "status") == nil && dueSince(p.backupMarker(), 24*time.Hour) {
 			started := time.Now()
 			if _, err := p.walg("backup-push", p.data); err != nil {
 				log.Printf("backup: %v", err)
@@ -245,15 +251,6 @@ func (p *postgres) backupLoop() {
 		}
 		time.Sleep(time.Minute)
 	}
-}
-
-func (p *postgres) backupDue() bool {
-	b, err := os.ReadFile(p.backupMarker())
-	if err != nil {
-		return true
-	}
-	at, err := time.Parse(time.RFC3339, strings.TrimSpace(string(b)))
-	return err != nil || time.Since(at) > 24*time.Hour
 }
 
 // restore replaces the data directory with a base backup plus WAL replayed
@@ -433,6 +430,31 @@ END $$; ALTER ROLE app WITH LOGIN NOSUPERUSER NOCREATEROLE NOREPLICATION PASSWOR
 		if err := psql("postgres", "CREATE DATABASE app OWNER app"); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// mustDumps starts the daily dump loop when backups are configured.
+// A bad backup setting logs and leaves them off; it never stops the database.
+func mustDumps(e dumper) *dumps {
+	d, err := newDumps(e, "/data/backup-at")
+	if err != nil {
+		// The database still runs; only backups are off.
+		log.Printf("backups disabled: %v", err)
+		return nil
+	}
+	if d != nil {
+		go d.loop()
+	}
+	return d
+}
+
+// runCaptured runs cmd and puts the end of its stderr in the error.
+func runCaptured(cmd *exec.Cmd) error {
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%s: %v: %s", filepath.Base(cmd.Path), err, strings.TrimSpace(lastLines(stderr.String(), 3)))
 	}
 	return nil
 }

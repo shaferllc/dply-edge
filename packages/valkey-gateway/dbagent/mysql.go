@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,7 +16,11 @@ import (
 // on database "app" through the gateway, which terminates client auth and
 // logs in here with mysql_native_password over the pod network (see the
 // gateway's mysql.go); that plugin is enabled for that reason only.
-type mysqlEngine struct{ data, run, admin string }
+// Backups are daily dumps (dump.go).
+type mysqlEngine struct {
+	data, run, admin string
+	backups          *dumps
+}
 
 func (m *mysqlEngine) marker() string  { return filepath.Join(m.data, ".dply-initialized") }
 func (m *mysqlEngine) pidFile() string { return filepath.Join(m.run, "mysqld.pid") }
@@ -129,6 +134,28 @@ func (m *mysqlEngine) setTenant(password string) error {
 		"GRANT ALL PRIVILEGES ON app.* TO 'app'@'%'")
 }
 
-func (m *mysqlEngine) restore(string) error {
-	return fmt.Errorf("restore is not available for MySQL yet")
+func (m *mysqlEngine) restore(target string) error {
+	if m.backups == nil {
+		return fmt.Errorf("backups are not configured")
+	}
+	return m.backups.restore(target)
+}
+
+// dump is "app" only: the app's login and grants live in mysql.*, so a load
+// never changes them.
+func (m *mysqlEngine) dump(w io.Writer) error {
+	cmd := exec.Command("mysqldump", "--socket="+m.socket(), "-uroot", "-p"+m.admin,
+		"--single-transaction", "--routines", "--triggers", "--events", "--set-gtid-purged=OFF", "app")
+	cmd.Stdout = w
+	return runCaptured(cmd)
+}
+
+// load recreates "app" empty first so tables created after the dump go too.
+func (m *mysqlEngine) load(r io.Reader) error {
+	if err := m.sql(true, "DROP DATABASE IF EXISTS app; CREATE DATABASE app"); err != nil {
+		return err
+	}
+	cmd := exec.Command("mysql", "--socket="+m.socket(), "-uroot", "-p"+m.admin, "app")
+	cmd.Stdin = r
+	return runCaptured(cmd)
 }

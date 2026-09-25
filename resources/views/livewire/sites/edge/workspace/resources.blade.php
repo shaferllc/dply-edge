@@ -1460,13 +1460,13 @@
                     <ol class="list-decimal space-y-1 pl-4 text-xs text-brand-ink">
                         <li>{{ __('Save and redeploy. The next deploy sets MONGODB_URI on the app.') }}</li>
                         <li>{{ __('It sleeps after the last connection and wakes on the next one; data stays on its disk.') }}</li>
-                        <li>{{ __('Disk is billed each month whether it is awake or asleep. Connections require TLS. Backups are not available for MongoDB yet.') }}</li>
+                        <li>{{ __('Disk is billed each month whether it is awake or asleep. Connections require TLS. It is backed up each day it is awake; the last 7 backups are kept.') }}</li>
                     </ol>
                 @elseif ($databaseEngine === 'mysql')
                     <ol class="list-decimal space-y-1 pl-4 text-xs text-brand-ink">
                         <li>{{ __('Save and redeploy. The next deploy sets DB_CONNECTION, the host, the password, and DATABASE_URL.') }}</li>
                         <li>{{ __('It sleeps after the last connection and wakes on the next one; data stays on its disk.') }}</li>
-                        <li>{{ __('Disk is billed each month whether it is awake or asleep. Connections require TLS. The mysql command line needs --tls-sni-servername=<host>, or the database id as the user. Backups are not available for MySQL yet.') }}</li>
+                        <li>{{ __('Disk is billed each month whether it is awake or asleep. Connections require TLS. The mysql command line needs --tls-sni-servername=<host>, or the database id as the user. It is backed up each day it is awake; the last 7 backups are kept.') }}</li>
                     </ol>
                 @elseif ($databaseEngine === 'sql')
                     <p class="text-xs text-brand-ink">{{ __('SQLite is a file inside the app. It is saved while the app runs and restored when the app wakes. One instance serves the app so that file stays consistent.') }}</p>
@@ -1554,10 +1554,15 @@ await db.collection('notes').countDocuments();" }}</pre>
                                 {{ __('Day and month assume :hours hours awake. That number does not change the database.', ['hours' => $postgresAwakeHours]) }}
                             @endif
                         </p>
-                        @if ($databaseEngine === 'postgres' && ($site->edgeMeta()['database']['provider'] ?? '') === 'dply')
+                        @if (($site->edgeMeta()['database']['provider'] ?? '') === 'dply' && ($site->edgeMeta()['database']['engine'] ?? '') === $databaseEngine)
                             <div class="rounded-lg border border-brand-ink/10 p-3">
-                                <p class="text-xs font-semibold text-brand-ink">{{ __('Restore to a point in time') }}</p>
-                                <p class="mt-1 text-xs text-brand-moss">{{ __('Changes are backed up continuously for 7 days. Restoring replaces the data with how it was at that moment (UTC); the data from before the restore is kept aside until the next one.') }}</p>
+                                @if ($databaseEngine === 'postgres')
+                                    <p class="text-xs font-semibold text-brand-ink">{{ __('Restore to a point in time') }}</p>
+                                    <p class="mt-1 text-xs text-brand-moss">{{ __('Changes are backed up continuously for 7 days. Restoring replaces the data with how it was at that moment (UTC); the data from before the restore is kept aside until the next one.') }}</p>
+                                @else
+                                    <p class="text-xs font-semibold text-brand-ink">{{ __('Restore from a backup') }}</p>
+                                    <p class="mt-1 text-xs text-brand-moss">{{ __('A backup is taken each day the database is awake; the last 7 are kept. Restoring loads the newest backup taken at or before that time (UTC). The data from before the restore is saved as a backup first.') }}</p>
+                                @endif
                                 <div class="mt-2 flex flex-wrap items-end gap-2">
                                     <label class="text-xs font-semibold text-brand-ink">
                                         {{ __('Time (UTC)') }}

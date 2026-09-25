@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,9 +15,12 @@ import (
 // mongo runs mongod as a forked child of dbagent. The admin user
 // (dply_admin, password AGENT_TOKEN) is created once with auth off and bound
 // to localhost; every later start has --auth on all interfaces. The app logs
-// in as "app" on database "app". No backups yet: wal-g's MongoDB support
-// needs a replica set.
-type mongo struct{ data, run, admin string }
+// in as "app" on database "app". Backups are daily dumps (dump.go): wal-g's
+// MongoDB support needs a replica set.
+type mongo struct {
+	data, run, admin string
+	backups          *dumps
+}
 
 func (m *mongo) marker() string  { return filepath.Join(m.data, ".dply-initialized") }
 func (m *mongo) pidFile() string { return filepath.Join(m.run, "mongod.pid") }
@@ -127,6 +131,31 @@ if (app.getUser("app")) { app.updateUser("app", {pwd: %q, roles}); } else { app.
 	return nil
 }
 
-func (m *mongo) restore(string) error {
-	return fmt.Errorf("restore is not available for MongoDB yet")
+func (m *mongo) restore(target string) error {
+	if m.backups == nil {
+		return fmt.Errorf("backups are not configured")
+	}
+	return m.backups.restore(target)
+}
+
+func (m *mongo) adminArgs(args ...string) []string {
+	return append([]string{"--port", "27017", "-u", "dply_admin", "-p", m.admin, "--authenticationDatabase", "admin"}, args...)
+}
+
+func (m *mongo) dump(w io.Writer) error {
+	cmd := exec.Command("mongodump", m.adminArgs("--db", "app", "--archive", "--quiet")...)
+	cmd.Stdout = w
+	return runCaptured(cmd)
+}
+
+// load drops "app" first so collections created after the dump go too. The
+// app's login lives on "app" but survives the drop (users are in admin).
+func (m *mongo) load(r io.Reader) error {
+	drop := exec.Command("mongosh", m.adminArgs("--quiet", "--eval", `db.getSiblingDB("app").dropDatabase()`)...)
+	if err := runCaptured(drop); err != nil {
+		return err
+	}
+	cmd := exec.Command("mongorestore", m.adminArgs("--archive", "--nsInclude", "app.*", "--quiet")...)
+	cmd.Stdin = r
+	return runCaptured(cmd)
 }

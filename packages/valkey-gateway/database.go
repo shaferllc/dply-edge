@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -362,7 +361,7 @@ func (g *gateway) databasePodSpec(t tenant) *corev1.Pod {
 				ImagePullPolicy: corev1.PullIfNotPresent,
 				Env: append([]corev1.EnvVar{{Name: "AGENT_TOKEN", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
 					LocalObjectReference: corev1.LocalObjectReference{Name: g.cfg.adminSecret}, Key: "password",
-				}}}}, backupEnv(t.ID)...),
+				}}}}, backupEnv(t)...),
 				Ports:        []corev1.ContainerPort{{ContainerPort: int32(atoi(dbPorts[t.Engine]))}, {ContainerPort: 7000}},
 				VolumeMounts: []corev1.VolumeMount{{Name: "data", MountPath: "/data"}},
 				// Memory is resized in place on wake and sleep; no restart.
@@ -440,22 +439,29 @@ func (g *gateway) deleteDatabase(ctx context.Context, id string) {
 	zero := int64(0)
 	_ = g.kube.CoreV1().Pods(g.cfg.namespace).Delete(ctx, dbPodName(id), metav1.DeleteOptions{GracePeriodSeconds: &zero})
 	_ = g.kube.CoreV1().PersistentVolumeClaims(g.cfg.namespace).Delete(ctx, dbPodName(id), metav1.DeleteOptions{})
-	// Its backups go with it.
+	// Its backups go with it (every engine's, under tenants/{id}/).
 	go func() {
-		if err := g.store.removePrefix(context.Background(), backupPrefix(id)); err != nil {
+		if err := g.store.removePrefix(context.Background(), "tenants/"+id+"/"); err != nil {
 			log.Printf("tenant %s: removing backups: %v", id, err)
 		}
 	}()
 }
 
-// ---- backups (wal-g in the database pod, ruling r-67chv2jdx2ha025q) ----
+// ---- backups (dbagent in the database pod, ruling r-67chv2jdx2ha025q) ----
 
-func backupPrefix(id string) string { return "tenants/" + id + "/pg/" }
+// backupPrefix: Postgres wal-g under tenants/{id}/pg, MongoDB and MySQL
+// daily dumps under tenants/{id}/{engine}.
+func backupPrefix(t tenant) string {
+	if t.Engine == "postgres" {
+		return "tenants/" + t.ID + "/pg"
+	}
+	return "tenants/" + t.ID + "/" + t.Engine
+}
 
-// backupEnv points a database pod's wal-g at tenants/{id}/pg/ in the same
+// backupEnv points a database pod's backups at backupPrefix in the same
 // bucket as Valkey snapshots. Keys come from DB_BACKUP_SECRET (the R2 secret)
 // by reference, never inlined. Unset (local), there are no backups.
-func backupEnv(id string) []corev1.EnvVar {
+func backupEnv(t tenant) []corev1.EnvVar {
 	secret, bucket := os.Getenv("DB_BACKUP_SECRET"), os.Getenv("S3_BUCKET")
 	if secret == "" || bucket == "" {
 		return nil
@@ -466,7 +472,7 @@ func backupEnv(id string) []corev1.EnvVar {
 		}}}
 	}
 	return []corev1.EnvVar{
-		{Name: "WALG_S3_PREFIX", Value: "s3://" + bucket + "/" + strings.TrimSuffix(backupPrefix(id), "/")},
+		{Name: "WALG_S3_PREFIX", Value: "s3://" + bucket + "/" + backupPrefix(t)},
 		{Name: "AWS_ENDPOINT", Value: os.Getenv("S3_ENDPOINT")},
 		{Name: "AWS_REGION", Value: env("S3_REGION", "auto")},
 		{Name: "AWS_S3_FORCE_PATH_STYLE", Value: "true"},

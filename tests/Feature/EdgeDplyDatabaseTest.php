@@ -236,3 +236,21 @@ test('a point-in-time restore runs as a queued job and records its result', func
     Http::assertSent(fn ($request): bool => $request->method() === 'POST' && str_ends_with($request->url(), '/restore') && $request['target_time'] === $target->format('Y-m-d\TH:i:s\Z'));
     expect($this->site->fresh()->edgeMeta()['database']['restore']['status'])->toBe('done');
 });
+
+test('mongodb and mysql restore from their daily backups through the same job', function (string $engine) {
+    Http::fake(['gateway.test/*' => Http::response([])]);
+    EdgeAppDatabase::sync($this->site, 'sql', $engine);
+    $this->site->save();
+    $user = User::factory()->create();
+    $this->site->organization->users()->attach($user->id, ['role' => 'owner']);
+    $this->site->forceFill(['user_id' => $user->id, 'type' => SiteType::Static, 'status' => Site::STATUS_EDGE_ACTIVE])->save();
+    $this->site->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
+    $target = now()->utc()->subDay()->startOfSecond()->format('Y-m-d\TH:i:s\Z');
+
+    Livewire::actingAs($user)->test(Resources::class, ['server' => $this->site->server, 'site' => $this->site])
+        ->call('selectDatabase', $engine)->assertSee('Restore from a backup');
+
+    (new RestoreEdgeDplyPostgresJob((string) $this->site->id, $target))->handle();
+    Http::assertSent(fn ($request): bool => $request->method() === 'POST' && str_ends_with($request->url(), '/restore') && $request['target_time'] === $target);
+    expect($this->site->fresh()->edgeMeta()['database']['restore']['status'])->toBe('done');
+})->with(['mongodb', 'mysql']);
