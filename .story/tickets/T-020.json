@@ -1,11 +1,11 @@
 {
   "blockedBy": [],
   "citesRulings": [
-    "r-72p0gkdn9dqwxqha"
+    "r-67chv2jdx2ha025q"
   ],
   "completedDate": null,
   "createdDate": "2026-09-25",
-  "description": "Ruling r-r5h70qp951w28qrh: parked pods on node-local disk, in-place resize, wal-g to R2, gateway proxies per protocol (Postgres SSLRequest+SNI, Mongo TLS SNI, MySQL auth proxy), per-second compute + per-GB storage billing.\n\n2026-09-24 Postgres done on OrbStack (13 checks): dbagent PID 1, parked pods (request shrinks to 16Mi in place; limit cannot drop below page cache), wake ~300ms client / ~140ms gateway, TLS required, app non-superuser. Next: MongoDB -> MySQL proxy -> wal-g -> Laravel/Resources/billing -> move Neon/PlanetScale users -> remove both.",
+  "description": "Ruling r-67chv2jdx2ha025q (supersedes r-r5h70qp951w28qrh; storage is DigitalOcean block volumes, not node-local): parked pods, in-place resize, wal-g to R2, gateway proxies per protocol (Postgres SSLRequest+SNI, Mongo TLS SNI, MySQL auth proxy), per-second compute + per-GB storage billing.\n\n2026-09-24 Postgres done on OrbStack (13 checks).\n\n2026-09-25 PRODUCTION on DOKS (cluster dply-valkey -> dply-pods, gateway 159.203.149.222, *.db.dply.io DNS + cert), branch feat/dply-postgres, all verified live:\n- Postgres: create/connect/grow disk/resize/delete through EdgeAppDatabase::sync; node-move drain keeps data; Resources tab (Disk picker, Neon controls hidden for dply); billing rows in edge_postgres_usage via EdgeValkeyUsageCollector (Neon collector skips dply).\n- Backups: wal-g (Debian image, builtin C.UTF-8 collation), WAL every 60 s + daily base backup keep 7, POST /tenants/{id}/restore; PITR verified (row written after base backup restored); Resources \"Restore to a point in time\" via RestoreEdgeDplyPostgresJob on the dply queue.\n- MongoDB: gateway 27017, dbagent mongod --auth; Resources engine mongodb (MONGODB_URI). No backups (wal-g needs a replica set).\n- MySQL: auth-terminating proxy on 3306 (caching_sha2 full auth over TLS / native vs own scramble; backend native in-cluster), SNI or username=tenant id; mysqld 8.4 in dbagent; Resources engine mysql (DB_*), PlanetScale records keep their path and flat price; dply MySQL metered (was double-billed).\nFixed on the way: fsGroup perms on re-attach, 5432 cert reload, putTenant reply blocked by first build, zombies under dbagent, handshake deadline during first wake, warm pool trimmed (POOL=250:1).\n\nRemaining: MongoDB/MySQL backups; moving existing Neon/PlanetScale databases to dply (dump/restore jobs) and then removing Neon + PlanetScale; restore UI for Mongo/MySQL; a pool for sizes over 2 GB (flex nodes are 4 GB); multi-region.",
   "displayId": "T-020",
   "id": "T-020",
   "order": 50,
