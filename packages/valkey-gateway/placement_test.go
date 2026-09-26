@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -80,5 +81,13 @@ func TestProPoolsOffPlacesProTenantsAnywhere(t *testing.T) {
 	cloud := &gateway{cfg: config{}}
 	if pod := cloud.podSpec("vk-x", 5120, true); pod.Spec.NodeSelector[nodePoolKey] != proSmallPool {
 		t.Fatalf("pro tenant not on %s: %v", proSmallPool, pod.Spec.NodeSelector)
+	}
+}
+
+func TestValkeyEvictsOnlyExpiringKeys(t *testing.T) {
+	pod := (&gateway{cfg: config{}}).podSpec("vk-x", 250, false)
+	args := strings.Join(pod.Spec.Containers[0].Args, " ")
+	if !strings.Contains(args, "--maxmemory-policy volatile-lru") {
+		t.Fatalf("eviction policy not volatile-lru: %s", args)
 	}
 }

@@ -700,6 +700,8 @@ class EdgeContainerDeployer
             '__QUEUE_SEND_PATH__' => json_encode(self::QUEUE_SEND_PATH, JSON_UNESCAPED_SLASHES),
             '__QUEUE_BINDINGS__' => json_encode((object) $queueBindings, JSON_UNESCAPED_SLASHES),
             '__SCHEDULE_PATH__' => json_encode(self::SCHEDULE_PATH, JSON_UNESCAPED_SLASHES),
+            // New per deploy: a schedule plan from older code is not trusted.
+            '__BUILD_ID__' => json_encode(bin2hex(random_bytes(6))),
             '__CRON_HANDLERS__' => json_encode((object) $crons, JSON_UNESCAPED_SLASHES),
             '__PAUSE_KEY__' => json_encode(StarterTrafficGate::KEY_PREFIX.$site->id),
             '__CONNECTIONS__' => json_encode($this->workerConnections($site), JSON_UNESCAPED_SLASHES),
@@ -752,6 +754,40 @@ const CRON_HANDLERS = __CRON_HANDLERS__; // schedule -> [artisan command / rake 
 const CONNECTIONS = __CONNECTIONS__;
 const QSTASH_TOKEN = __QSTASH_TOKEN__;
 const DELIVERY_USAGE_URL = __DELIVERY_USAGE_URL__;
+
+const BUILD_ID = __BUILD_ID__;
+
+// Whether a 5-field cron expression is due at `date` in time zone `tz`.
+// Anything it does not understand counts as due: waking early is safe,
+// skipping a task is not.
+function cronDue(expr, tz, date) {
+  try {
+    const f = String(expr).trim().split(/\s+/);
+    if (f.length !== 5) return true;
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz || 'UTC', hour12: false, minute: 'numeric', hour: 'numeric', day: 'numeric', month: 'numeric', weekday: 'short' })
+      .formatToParts(date).map((p) => [p.type, p.value]));
+    const dow = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(parts.weekday);
+    const now = [Number(parts.minute), Number(parts.hour) % 24, Number(parts.day), Number(parts.month), dow];
+    const ranges = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 7]];
+    const hit = (field, value, [lo, hi]) => field.split(',').some((part) => {
+      const [range, stepText] = part.split('/');
+      const step = stepText === undefined ? 1 : Number(stepText);
+      let [a, b] = range === '*' ? [lo, hi] : range.split('-').map(Number);
+      if (b === undefined) b = stepText === undefined ? a : hi;
+      if (![a, b, step].every(Number.isInteger) || step < 1) throw new Error('unsupported');
+      for (let v = a; v <= b; v += step) if (v === value || (value === 0 && v === 7 && hi === 7)) return true;
+      return false;
+    });
+    const [m, h, dom, mon, dw] = f;
+    if (!hit(m, now[0], ranges[0]) || !hit(h, now[1], ranges[1]) || !hit(mon, now[3], ranges[3])) return false;
+    // Day of month and day of week: either matches when both are restricted.
+    const domAny = dom === '*', dowAny = dw === '*';
+    const domHit = hit(dom, now[2], ranges[2]), dowHit = hit(dw, now[4], ranges[4]);
+    return domAny || dowAny ? domHit && dowHit : domHit || dowHit;
+  } catch {
+    return true;
+  }
+}
 
 // Queue worker groups: instances named {prefix}N (worker-0, worker-high-0, …).
 // max can run; the first min are always on, the rest start while dply's
@@ -861,6 +897,16 @@ export class App extends Container {
       for (let i = 0; i < 60 && this.container.running; i++) await new Promise((r) => setTimeout(r, 500));
     }
     await this.startAndWaitForPorts({ ports: [__PORT__], cancellationOptions: { portReadyTimeoutMS: 45000 } });
+  }
+
+  // The scheduler's plan lives in the storage of the "dply-schedule"
+  // instance, which never starts a container.
+  async schedulePlan() {
+    return (await this.ctx.storage.get('dply:schedule-plan')) ?? null;
+  }
+
+  async saveSchedulePlan(plan) {
+    await this.ctx.storage.put('dply:schedule-plan', plan);
   }
 
   async workerState(index) {
@@ -1353,11 +1399,28 @@ export default {
   async scheduled(controller, env, ctx) {
     if (!(await trafficOpen(env))) return;
     for (const handler of CRON_HANDLERS[controller.cron] ?? [null]) {
-      ctx.waitUntil((async () => proxy(env, new Request('http://app' + __SCHEDULE_PATH__, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-dply-queue-token': env.DPLY_QUEUE_TOKEN },
-        body: JSON.stringify({ cron: controller.cron, handler }),
-      }), await jobsTarget(env)))());
+      // The every-minute Laravel scheduler: wake the app only when a task is
+      // due (the app reports its tasks' crons after each run), so an app
+      // with a nightly task sleeps the rest of the day.
+      const plans = handler === 'schedule:run' && controller.cron === '* * * * *' ? getContainer(env.APP, 'dply-schedule') : null;
+      if (plans) {
+        const saved = await plans.schedulePlan();
+        const trusted = saved && saved.build === BUILD_ID && Date.now() - saved.at < 86400000 && Array.isArray(saved.plan);
+        if (trusted && !saved.plan.some((p) => cronDue(p.cron, p.tz, new Date(controller.scheduledTime)))) continue;
+      }
+      ctx.waitUntil((async () => {
+        const response = await proxy(env, new Request('http://app' + __SCHEDULE_PATH__, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dply-queue-token': env.DPLY_QUEUE_TOKEN },
+          body: JSON.stringify({ cron: controller.cron, handler }),
+        }), await jobsTarget(env));
+        if (plans) {
+          const body = await response.clone().json().catch(() => ({}));
+          // No plan (sub-minute tasks, an older dply/laravel): keep waking every minute.
+          await plans.saveSchedulePlan({ build: BUILD_ID, at: Date.now(), plan: Array.isArray(body.plan) ? body.plan : null });
+        }
+        return response;
+      })());
     }
   },
 

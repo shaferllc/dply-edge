@@ -462,7 +462,10 @@ func (g *gateway) podSpec(name string, memoryMB int, persistent bool) *corev1.Po
 	args := []string{
 		"valkey-server",
 		"--maxmemory", mb + "mb",
-		"--maxmemory-policy", "noeviction",
+		// When full, evict least-recently-used keys that have an expiry:
+		// cache entries (Laravel sets a TTL) go, queue lists (no TTL) stay.
+		// noeviction kept jobs safe but failed every cache write once full.
+		"--maxmemory-policy", "volatile-lru",
 		"--dir", "/data",
 		"--user", "default", "off",
 		"--user", adminUser, "on", ">$(ADMIN_PASSWORD)", "~*", "&*", "+@all",

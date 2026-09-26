@@ -118,6 +118,11 @@ class ScaleEdgeQueueWorkersCommand extends Command
         }
 
         $target = EdgeQueueWorkers::targetInstances($settings, $backlog, $queue['oldest_age'], $current);
+        // Scaled to zero, a delayed job falling due would wait for a store
+        // nobody wakes: keep one worker while any are scheduled.
+        if ($target === 0 && ($queue['delayed'] ?? 0) > 0) {
+            $target = min(1, $settings['max_instances']);
+        }
         if ($target >= $current) {
             $busyAt = now()->getTimestamp();
         } elseif (now()->getTimestamp() - $busyAt < self::SCALE_DOWN_AFTER) {

@@ -6,6 +6,7 @@ namespace Tests\Feature\EdgeQueueWorkersTest;
 
 use App\Enums\SiteType;
 use App\Livewire\Sites\Edge\Workspace\Resources;
+use App\Models\EdgeSiteEnvVar;
 use App\Models\NotificationEvent;
 use App\Models\Organization;
 use App\Models\Server;
@@ -855,4 +856,94 @@ test('each worker reports where it landed and how far its data is', function () 
         ->call('loadWorkersBacklog')
         ->assertSee('· ewr05 · db 13.1 ms · redis 2.4 ms')
         ->assertSee('· atl13 · redis 71.9 ms');
+});
+
+test('autoscaled workers can scale to zero, and come back for jobs', function () {
+    // 0 always-on only with autoscaling; the maximum stays at least 1.
+    expect(EdgeQueueWorkers::normalize(['autoscale' => true, 'instances' => 0, 'max_instances' => 0]))->toMatchArray(['instances' => 0, 'max_instances' => 1])
+        ->and(EdgeQueueWorkers::normalize(['autoscale' => false, 'instances' => 0])['instances'])->toBe(1);
+
+    $s = EdgeQueueWorkers::normalize(['autoscale' => true, 'instances' => 0, 'max_instances' => 3, 'processes' => 2, 'scale_per' => 10]);
+    expect(EdgeQueueWorkers::targetInstances($s, 0))->toBe(0)
+        ->and(EdgeQueueWorkers::targetInstances($s, 1))->toBe(1)
+        ->and(EdgeQueueWorkers::targetInstances($s, 45))->toBe(3);
+
+    // Free has no autoscaling: zero always-on becomes one.
+    $free = laravelApp(['container' => ['workers' => ['enabled' => true, 'autoscale' => true, 'instances' => 0]]], Organization::factory()->create());
+    expect(EdgeQueueWorkers::groups($free)[0]['instances'])->toBe(1);
+
+    // The scheduler needs an always-on worker-0; scaled to zero it stays on the Cron Trigger.
+    $zero = laravelApp(['container' => ['scheduler' => true, 'workers' => ['enabled' => true, 'autoscale' => true, 'instances' => 0, 'max_instances' => 2]]]);
+    expect(EdgeQueueWorkers::runsScheduler($zero))->toBeFalse()
+        ->and(EdgeContainerDeployer::cronHandlers($zero, null))->toBe(['* * * * *' => ['schedule:run']]);
+});
+
+test('scaled to zero, an asleep queue store is not woken to be checked, and delayed jobs keep one worker', function () {
+    config(['edge.valkey.api_url' => 'http://gateway.test', 'edge.valkey.token' => 'tok']);
+    $app = laravelApp([
+        'live_url' => 'https://shop.on-dply.live',
+        'database' => ['remote_id' => 'pg-x', 'host' => 'pg-x.db.dply.test'],
+        'container' => ['workers' => ['enabled' => true, 'autoscale' => true, 'instances' => 0, 'max_instances' => 2, 'connection' => 'database']],
+    ]);
+    $app->edgeEnvVars()->create(['key' => 'DB_PASSWORD', 'value' => 'pw', 'scope' => EdgeSiteEnvVar::SCOPE_PRODUCTION]);
+    Http::fake([
+        'gateway.test/*' => Http::response(['id' => 'pg-x', 'awake' => false]),
+        'shop.on-dply.live/*' => Http::response([['name' => 'worker-0', 'wanted' => false, 'ok' => true]]),
+    ]);
+
+    // Asleep: 0 waiting without connecting (a PDO connect to pg-x.db.dply.test would fail loudly).
+    expect(EdgeQueueWorkers::queueState($app))->toBe(['waiting' => 0, 'oldest_age' => null, 'delayed' => 0]);
+
+});
+
+test('scaled to zero, the scaler keeps one worker while delayed jobs are scheduled', function () {
+    $app = laravelApp(['live_url' => 'https://shop.on-dply.live', 'container' => ['workers' => ['enabled' => true, 'autoscale' => true, 'instances' => 0, 'max_instances' => 2]]]);
+    $delayed = 3;
+    Http::fake(function (Request $r) use (&$delayed) {
+        return str_ends_with($r->url(), '/_dply/command')
+            ? Http::response(['sizes' => ['default' => 0], 'total' => 0, 'delayed' => $delayed])
+            : Http::response([['name' => 'worker-0', 'wanted' => true, 'ok' => true]]);
+    });
+    $sent = fn () => Http::recorded(fn (Request $r) => str_ends_with($r->url(), '/_dply/workers/scale'))->map(fn ($p) => $p[0]['count'])->values()->all();
+
+    $this->artisan('dply:edge:scale-queue-workers')->assertSuccessful();
+    expect($sent())->toBe([1]);
+
+    $delayed = 0;
+    $this->travel(6)->minutes();
+    $this->artisan('dply:edge:scale-queue-workers')->assertSuccessful();
+    expect(last($sent()))->toBe(0);
+});
+
+test('the Worker wakes the app only when a scheduled task is due', function () {
+    $app = laravelApp(['container' => ['scheduler' => true]]);
+    $dir = sys_get_temp_dir().'/dply-workers-test-'.bin2hex(random_bytes(4));
+    (new EdgeContainerDeployer)->scaffold($dir, $app, '/x/Dockerfile', 8080, [], EdgeContainerDeployer::cronHandlers($app, null));
+    $js = File::get($dir.'/src/index.js');
+    expect($js)->toContain("getContainer(env.APP, 'dply-schedule')")->toContain('saved.build === BUILD_ID');
+
+    $start = strpos($js, 'function cronDue');
+    $end = strpos($js, "\n}\n", $start) + 3;
+    File::put($dir.'/cron.mjs', substr($js, $start, $end - $start).<<<'JS'
+const t = (iso) => new Date(iso);
+console.log(JSON.stringify([
+  cronDue('0 3 * * *', 'UTC', t('2026-09-26T03:00:00Z')),
+  cronDue('0 3 * * *', 'UTC', t('2026-09-26T03:01:00Z')),
+  cronDue('*/15 * * * *', 'UTC', t('2026-09-26T10:30:00Z')),
+  cronDue('*/15 * * * *', 'UTC', t('2026-09-26T10:31:00Z')),
+  cronDue('0 9 * * 1-5', 'America/New_York', t('2026-09-28T13:00:00Z')), // Monday 09:00 EDT
+  cronDue('0 9 * * 1-5', 'America/New_York', t('2026-09-27T13:00:00Z')), // Sunday
+  cronDue('0 9 * * 1-5', 'America/New_York', t('2026-09-28T09:00:00Z')), // 05:00 in New York
+  cronDue('0 0 1 * 0', 'UTC', t('2026-10-01T00:00:00Z')),  // the 1st (a Thursday): either field matches
+  cronDue('0 0 1 * 0', 'UTC', t('2026-09-27T00:00:00Z')),  // a Sunday
+  cronDue('0 0 1 * 0', 'UTC', t('2026-09-29T00:00:00Z')),  // neither
+  cronDue('0 0 * * 7', 'UTC', t('2026-09-27T00:00:00Z')),  // 7 is Sunday too
+  cronDue('0 12 * * MON', 'UTC', t('2026-09-26T12:00:00Z')), // names are not understood: due when the rest matches
+  cronDue('* * * * *', 'UTC', t('2026-09-26T03:07:00Z')),
+]));
+JS);
+    $run = Process::run(['node', $dir.'/cron.mjs']);
+    expect($run->successful())->toBeTrue($run->errorOutput())
+        ->and(json_decode($run->output(), true))->toBe([true, false, true, false, true, false, false, true, true, false, true, true, true]);
+    File::deleteDirectory($dir);
 });

@@ -154,7 +154,7 @@ return [
             'deployer_image' => env('DPLY_EDGE_CONTAINER_DEPLOYER_IMAGE', 'dply/edge-container-deployer:1'),
             'instance_type' => env('DPLY_EDGE_CONTAINER_INSTANCE_TYPE', 'basic'),
             'max_instances' => (int) env('DPLY_EDGE_CONTAINER_MAX_INSTANCES', 5),
-            'sleep_after' => env('DPLY_EDGE_CONTAINER_SLEEP_AFTER', '10m'),
+            'sleep_after' => env('DPLY_EDGE_CONTAINER_SLEEP_AFTER', '5m'),
             'default_port' => 8080,
             /*
              * Prebuilt PHP base with the extensions already compiled, e.g.

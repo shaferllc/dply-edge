@@ -34,7 +34,7 @@ class Container extends Component
 
     public int $min_instances = 0;
 
-    public string $sleep_after = '10m';
+    public string $sleep_after = '5m';
 
     public bool $migrate_on_boot = true;
 

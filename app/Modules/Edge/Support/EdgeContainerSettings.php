@@ -80,7 +80,7 @@ final class EdgeContainerSettings
     {
         $raw = is_array($site->edgeMeta()['container'] ?? null) ? $site->edgeMeta()['container'] : [];
         $type = (string) ($raw['instance_type'] ?? config('edge.build.containers.instance_type', 'basic'));
-        $sleep = (string) ($raw['sleep_after'] ?? config('edge.build.containers.sleep_after', '10m'));
+        $sleep = (string) ($raw['sleep_after'] ?? config('edge.build.containers.sleep_after', '5m'));
         $jurisdiction = (string) ($raw['jurisdiction'] ?? '');
         $mode = (string) ($raw['rollout_mode'] ?? 'gradual');
 
@@ -92,7 +92,7 @@ final class EdgeContainerSettings
                 max(1, min(self::MAX_INSTANCES, (int) ($raw['max_instances'] ?? config('edge.build.containers.max_instances', 5)))),
                 (int) ($raw['min_instances'] ?? 0),
             )),
-            'sleep_after' => in_array($sleep, self::SLEEP_AFTER, true) ? $sleep : '10m',
+            'sleep_after' => in_array($sleep, self::SLEEP_AFTER, true) ? $sleep : '5m',
             // Off by default: this runs a second full framework boot at the
             // moment a cold-starting container has the least memory, and it
             // re-runs on every wake from sleep. Opt in per site.

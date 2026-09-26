@@ -9,6 +9,7 @@ use App\Modules\Billing\Services\EdgeContainerComputeCost;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
+use App\Modules\Providers\Valkey\ValkeyGatewayClient;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 
@@ -52,7 +53,8 @@ final class EdgeQueueWorkers
     {
         $connection = (string) ($raw['connection'] ?? 'auto');
         $queues = self::cleanQueues((string) ($raw['queues'] ?? 'default'));
-        $instances = max(1, min(self::MAX_INSTANCES, (int) ($raw['instances'] ?? 1)));
+        // With autoscaling, 0 always-on is allowed: a worker starts when jobs arrive.
+        $instances = max(($raw['autoscale'] ?? false) ? 0 : 1, min(self::MAX_INSTANCES, (int) ($raw['instances'] ?? 1)));
 
         $groups = [];
         foreach (array_slice(array_values(array_filter((array) ($raw['groups'] ?? []), 'is_array')), 0, self::MAX_GROUPS) as $i => $group) {
@@ -77,7 +79,7 @@ final class EdgeQueueWorkers
             // Autoscaling: `instances` always run; up to `max_instances` start
             // while more than `scale_per` jobs wait per worker process.
             'autoscale' => (bool) ($raw['autoscale'] ?? false),
-            'max_instances' => max($instances, min(self::MAX_INSTANCES, (int) ($raw['max_instances'] ?? $instances))),
+            'max_instances' => max(1, $instances, min(self::MAX_INSTANCES, (int) ($raw['max_instances'] ?? $instances))),
             'scale_per' => max(1, min(1000, (int) ($raw['scale_per'] ?? 10))),
             // Also add a worker when the oldest ready job has waited this long (0 = off).
             'max_wait' => max(0, min(3600, (int) ($raw['max_wait'] ?? 60))),
@@ -104,7 +106,7 @@ final class EdgeQueueWorkers
         if ($key === '') {
             $key = substr(strtolower(preg_replace('/[^A-Za-z0-9]/', '', explode(',', $queues)[0] ?? '') ?? ''), 0, 12) ?: 'group'.($position + 1);
         }
-        $instances = max(1, min(self::MAX_INSTANCES, (int) ($raw['instances'] ?? 1)));
+        $instances = max(($raw['autoscale'] ?? false) ? 0 : 1, min(self::MAX_INSTANCES, (int) ($raw['instances'] ?? 1)));
 
         return [
             'key' => $key,
@@ -112,7 +114,7 @@ final class EdgeQueueWorkers
             'instances' => $instances,
             'processes' => max(1, min(self::MAX_PROCESSES, (int) ($raw['processes'] ?? 1))),
             'autoscale' => (bool) ($raw['autoscale'] ?? false),
-            'max_instances' => max($instances, min(self::MAX_INSTANCES, (int) ($raw['max_instances'] ?? $instances))),
+            'max_instances' => max(1, $instances, min(self::MAX_INSTANCES, (int) ($raw['max_instances'] ?? $instances))),
             'scale_per' => max(1, min(1000, (int) ($raw['scale_per'] ?? 10))),
             'max_wait' => max(0, min(3600, (int) ($raw['max_wait'] ?? 60))),
         ];
@@ -142,6 +144,7 @@ final class EdgeQueueWorkers
         foreach ($all as $g) {
             if (! $allow['autoscale']) {
                 $g['autoscale'] = false;
+                $g['instances'] = max(1, $g['instances']);
             }
             $capacity = $g['autoscale'] ? $g['max_instances'] : $g['instances'];
             if ($budget !== null) {
@@ -201,7 +204,9 @@ final class EdgeQueueWorkers
      */
     public static function runsScheduler(Site $site): bool
     {
-        return EdgeContainerSettings::for($site)['scheduler'] && self::runningInstances($site) > 0;
+        // worker-0 has to be always on: scaled to zero, the Cron Trigger runs it.
+        return EdgeContainerSettings::for($site)['scheduler'] && self::runningInstances($site) > 0
+            && (self::groups($site)[0]['instances'] ?? 0) >= 1;
     }
 
     /**
@@ -487,7 +492,11 @@ final class EdgeQueueWorkers
      * Jobs waiting and how long the oldest ready one has waited (null when
      * the queue cannot say).
      *
-     * @return array{waiting: int, oldest_age: ?int}
+     * A queue store that dply runs and that is asleep holds no new jobs (a
+     * push would have woken it), so it is not woken to be asked: with
+     * workers scaled to zero, checking must not keep the store awake.
+     *
+     * @return array{waiting: int, oldest_age: ?int, delayed: int}
      */
     public static function queueState(Site $site, string $group = ''): array
     {
@@ -499,20 +508,37 @@ final class EdgeQueueWorkers
             $valkey = collect(EdgeContainerConnections::for($site))->first(fn (array $c): bool => $c['kind'] === 'redis' && EdgeValkey::isTarget((string) $c['target']));
             $password = rawurldecode((string) (parse_url($env('REDIS_URL'), PHP_URL_PASS) ?? ''));
             if (is_array($valkey) && $password !== '') {
+                if (self::storeAsleep(EdgeValkey::tenantId((string) $valkey['target']))) {
+                    return ['waiting' => 0, 'oldest_age' => null, 'delayed' => 0];
+                }
+
                 return EdgeValkey::queueBacklog((string) $valkey['target'], $password, $queues);
             }
         }
         $database = $site->edgeMeta()['database'] ?? [];
         if ($connection === 'database' && is_array($database) && ($database['provider'] ?? '') === 'dply'
             && in_array($database['engine'] ?? '', ['postgres', 'mysql'], true) && $env('DB_PASSWORD') !== '') {
+            if (self::storeAsleep((string) $database['remote_id'])) {
+                return ['waiting' => 0, 'oldest_age' => null, 'delayed' => 0];
+            }
             $backlog = EdgeDplyDatabaseStats::queueBacklog((string) $database['engine'], (string) $database['host'], (string) $database['remote_id'], $env('DB_PASSWORD'), $queues);
 
-            return ['waiting' => array_sum($backlog['queues']), 'oldest_age' => $backlog['oldest_age']];
+            return ['waiting' => array_sum($backlog['queues']), 'oldest_age' => $backlog['oldest_age'], 'delayed' => $backlog['delayed']];
         }
 
         $body = self::command($site, 'queue-size', ['connection' => (string) $connection, 'queues' => $queues]);
 
-        return ['waiting' => (int) ($body['total'] ?? 0), 'oldest_age' => isset($body['oldest_age']) ? (int) $body['oldest_age'] : null];
+        return ['waiting' => (int) ($body['total'] ?? 0), 'oldest_age' => isset($body['oldest_age']) ? (int) $body['oldest_age'] : null, 'delayed' => (int) ($body['delayed'] ?? 0)];
+    }
+
+    /** Whether the gateway says this store is asleep. Asking never wakes it; unsure means awake. */
+    private static function storeAsleep(string $tenantId): bool
+    {
+        try {
+            return (ValkeyGatewayClient::fromConfig()->get($tenantId)['awake'] ?? true) === false;
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /**

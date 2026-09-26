@@ -21,7 +21,8 @@ final class EdgeContainerPlans
             'detail' => 'One small container. Sleeps when idle.',
             'instance_type' => 'basic',
             'max_instances' => 1,
-            'sleep_after' => '10m',
+            // Five idle minutes: a visit's tail is billed for half as long as at 10.
+            'sleep_after' => '5m',
             'scheduler' => false,
             'migrate_on_boot' => false,
         ],

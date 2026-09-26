@@ -105,8 +105,11 @@ class CommandController
             $queue = Queue::connection($connection !== '' ? $connection : null);
             $sizes = [];
             $oldest = null;
+            $delayed = 0;
             foreach ($queues as $name) {
-                $sizes[$name] = (int) $queue->size($name);
+                // Laravel 11+ splits ready from delayed; size() counts both.
+                $sizes[$name] = method_exists($queue, 'pendingSize') ? (int) $queue->pendingSize($name) : (int) $queue->size($name);
+                $delayed += method_exists($queue, 'delayedSize') ? (int) $queue->delayedSize($name) : 0;
                 // Laravel 11+: when the oldest ready job was queued.
                 if ($sizes[$name] > 0 && method_exists($queue, 'creationTimeOfOldestPendingJob')) {
                     $created = $queue->creationTimeOfOldestPendingJob($name);
@@ -119,7 +122,7 @@ class CommandController
             return new JsonResponse(['error' => $e->getMessage()], 500);
         }
 
-        return new JsonResponse(['sizes' => $sizes, 'total' => array_sum($sizes), 'oldest_age' => $oldest !== null ? max(0, time() - $oldest) : null]);
+        return new JsonResponse(['sizes' => $sizes, 'total' => array_sum($sizes), 'oldest_age' => $oldest !== null ? max(0, time() - $oldest) : null, 'delayed' => $delayed]);
     }
 
     /**

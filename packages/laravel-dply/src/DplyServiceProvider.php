@@ -27,6 +27,24 @@ class DplyServiceProvider extends ServiceProvider
 
         $this->registerStorageDisks();
         $this->registerKvStores();
+        $this->blockOnRedisQueue();
+    }
+
+    /**
+     * On dply, a Redis queue worker waits on the list for a job (BLPOP)
+     * instead of asking every few seconds: a job starts the moment it is
+     * pushed, and far fewer commands cross the network. Only when the app
+     * left block_for unset.
+     */
+    private function blockOnRedisQueue(): void
+    {
+        $config = $this->app['config'];
+        if ((string) env('DPLY_QUEUE_TOKEN', '') === '' || ! is_array($config->get('queue.connections.redis'))) {
+            return;
+        }
+        if ($config->get('queue.connections.redis.block_for') === null) {
+            $config->set('queue.connections.redis.block_for', max(1, (int) env('DPLY_REDIS_BLOCK_FOR', 5)));
+        }
     }
 
     public function boot(): void

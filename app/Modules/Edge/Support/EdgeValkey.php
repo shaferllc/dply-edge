@@ -269,7 +269,7 @@ final class EdgeValkey
      * Laravel pushes right and pops left).
      *
      * @param  list<string>  $queues
-     * @return array{waiting: int, oldest_age: ?int}
+     * @return array{waiting: int, oldest_age: ?int, delayed: int}
      */
     public static function queueBacklog(string $target, string $password, array $queues): array
     {
@@ -280,6 +280,7 @@ final class EdgeValkey
         try {
             self::send($socket, 'AUTH', 'default', $password);
             $total = 0;
+            $delayed = 0;
             $oldest = null;
             foreach ($queues as $queue) {
                 $remember = 'edge:valkey:'.$target.':queue-key:'.$queue;
@@ -292,6 +293,7 @@ final class EdgeValkey
                     Cache::put($remember, $key, now()->addHour());
                 }
                 $waiting = (int) self::send($socket, 'LLEN', $key);
+                $delayed += (int) self::send($socket, 'ZCARD', $key.':delayed');
                 $total += $waiting;
                 if ($waiting > 0) {
                     $created = (int) (json_decode(self::send($socket, 'LINDEX', $key, '0'), true)['createdAt'] ?? 0);
@@ -301,7 +303,7 @@ final class EdgeValkey
                 }
             }
 
-            return ['waiting' => $total, 'oldest_age' => $oldest !== null ? max(0, now()->getTimestamp() - $oldest) : null];
+            return ['waiting' => $total, 'oldest_age' => $oldest !== null ? max(0, now()->getTimestamp() - $oldest) : null, 'delayed' => $delayed];
         } finally {
             fclose($socket);
         }

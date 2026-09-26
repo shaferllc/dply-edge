@@ -187,7 +187,7 @@
                                 <dd><label class="inline-flex items-center gap-1.5 font-semibold text-brand-ink"><input id="workers-autoscale" type="checkbox" wire:model.live="workers.autoscale" @disabled(! $allow['autoscale']) class="rounded border-brand-ink/20 disabled:opacity-50" /> {{ ! $allow['autoscale'] ? __('On Pro and Team') : ($w['autoscale'] ? __('On, follows the backlog') : __('Off')) }}</label></dd>
                                 <dt><label for="workers-instances" class="text-brand-moss">{{ $w['autoscale'] ? __('Always on') : __('Instances') }}</label></dt>
                                 <dd><select id="workers-instances" wire:model.live="workers.instances" class="{{ $wField }}">
-                                    @for ($i = 1; $i <= \App\Modules\Edge\Support\EdgeQueueWorkers::MAX_INSTANCES; $i++)<option value="{{ $i }}">{{ $i }}</option>@endfor
+                                    @for ($i = $w['autoscale'] ? 0 : 1; $i <= \App\Modules\Edge\Support\EdgeQueueWorkers::MAX_INSTANCES; $i++)<option value="{{ $i }}">{{ $i === 0 ? __('0, start when jobs arrive') : $i }}</option>@endfor
                                 </select></dd>
                                 @if ($w['autoscale'])
                                     <dt><label for="workers-max" class="text-brand-moss">{{ __('Up to') }}</label></dt>
@@ -236,7 +236,7 @@
                                         <div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
                                             <label class="flex items-center gap-1"><span class="text-brand-moss">{{ $g['autoscale'] ? __('Always on') : __('Instances') }}</span>
                                                 <select wire:model.live="workers.groups.{{ $gi }}.instances" class="rounded-md border border-brand-ink/15 bg-white py-0.5 ps-1.5 pe-6 text-xs font-semibold text-brand-ink dark:bg-zinc-900">
-                                                    @for ($i = 1; $i <= \App\Modules\Edge\Support\EdgeQueueWorkers::MAX_INSTANCES; $i++)<option value="{{ $i }}">{{ $i }}</option>@endfor
+                                                    @for ($i = $g['autoscale'] ? 0 : 1; $i <= \App\Modules\Edge\Support\EdgeQueueWorkers::MAX_INSTANCES; $i++)<option value="{{ $i }}">{{ $i }}</option>@endfor
                                                 </select></label>
                                             <label class="flex items-center gap-1"><span class="text-brand-moss">{{ __('Processes') }}</span>
                                                 <select wire:model.live="workers.groups.{{ $gi }}.processes" class="rounded-md border border-brand-ink/15 bg-white py-0.5 ps-1.5 pe-6 text-xs font-semibold text-brand-ink dark:bg-zinc-900">
