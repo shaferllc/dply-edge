@@ -169,9 +169,9 @@ spec:
             - { name: POOL, value: "250:1" }
             # Databases (ruling r-67chv2jdx2ha025q): one pod per app, data on a
             # DigitalOcean volume so it survives node upgrades and replacement.
-            - { name: POSTGRES_IMAGE, value: "registry.digitalocean.com/dply-cloud/postgres:17-202609251504" }
-            - { name: MONGO_IMAGE, value: "registry.digitalocean.com/dply-cloud/mongodb:7-202609252245" }
-            - { name: MYSQL_IMAGE, value: "registry.digitalocean.com/dply-cloud/mysql:8-202609251504" }
+            - { name: POSTGRES_IMAGE, value: "registry.digitalocean.com/dply-cloud/postgres:17-202609261623" }
+            - { name: MONGO_IMAGE, value: "registry.digitalocean.com/dply-cloud/mongodb:7-202609261623" }
+            - { name: MYSQL_IMAGE, value: "registry.digitalocean.com/dply-cloud/mysql:8-202609261623" }
             - { name: DB_STORAGE_CLASS, value: do-block-storage }
             # Databases run on their own tainted pool, in their own namespace,
             # away from the cache nodes (deploy/valkey/terraform: the db pool).

@@ -7,8 +7,12 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"path"
+	"regexp"
+	"strings"
 	"time"
 
+	"github.com/minio/minio-go/v7"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -80,6 +84,58 @@ func (g *gateway) databaseAction(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	g.relayAgent(w, ctx, http.MethodPost, ip, "/action/"+name, body, timeout)
 	g.touch(id)
+}
+
+// Exports and imports live beside the backups, under tenants/{id}/exports/
+// and tenants/{id}/imports/. The app has no keys to the bucket, so the
+// gateway lists exports with download links and signs an upload for an
+// import. Keys are built here from the tenant id, never taken from a caller.
+
+var transferFile = regexp.MustCompile(`^[A-Za-z0-9._-]{1,120}$`)
+
+const transferLinkTTL = time.Hour
+
+func (g *gateway) databaseExports(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if t, err := g.getTenantRecord(r.Context(), id); err != nil || !isDatabase(t.Engine) {
+		http.Error(w, "not a database", http.StatusNotFound)
+		return
+	}
+	out := []map[string]any{}
+	prefix := "tenants/" + id + "/exports/"
+	for obj := range g.store.client.ListObjects(r.Context(), g.store.bucket, minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
+		if obj.Err != nil {
+			http.Error(w, obj.Err.Error(), http.StatusBadGateway)
+			return
+		}
+		link, err := g.store.client.PresignedGetObject(r.Context(), g.store.bucket, obj.Key, transferLinkTTL, nil)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		out = append(out, map[string]any{"file": path.Base(obj.Key), "key": obj.Key, "bytes": obj.Size, "at": obj.LastModified.UTC().Format(time.RFC3339), "url": link.String()})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"exports": out})
+}
+
+// databaseUploadLink signs a PUT for tenants/{id}/imports/{file}.
+func (g *gateway) databaseUploadLink(w http.ResponseWriter, r *http.Request) {
+	id, file := r.PathValue("id"), r.URL.Query().Get("file")
+	if t, err := g.getTenantRecord(r.Context(), id); err != nil || !isDatabase(t.Engine) {
+		http.Error(w, "not a database", http.StatusNotFound)
+		return
+	}
+	if !transferFile.MatchString(file) || strings.HasPrefix(file, ".") {
+		http.Error(w, "file: letters, digits, dot, dash and underscore", http.StatusUnprocessableEntity)
+		return
+	}
+	k := "tenants/" + id + "/imports/" + file
+	link, err := g.store.client.PresignedPutObject(r.Context(), g.store.bucket, k, transferLinkTTL)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"key": k, "url": link.String()})
 }
 
 func (g *gateway) relayAgent(w http.ResponseWriter, ctx context.Context, method, ip, path string, body []byte, timeout time.Duration) {

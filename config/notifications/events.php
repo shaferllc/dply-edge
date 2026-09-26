@@ -241,6 +241,8 @@ return [
                 'edge.rum.breach' => 'Real-user metric threshold breached (action required)',
                 'edge.workers.failed_jobs' => 'Queue jobs failing (action required)',
                 'edge.workers.crashing' => 'Queue workers keep exiting (action required)',
+                'edge.database.disk_filling' => 'Database disk over 80% full (action required)',
+                'edge.database.connections_high' => 'Database near its connection limit (action required)',
             ],
         ],
         'serverless' => [

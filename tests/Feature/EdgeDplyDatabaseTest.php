@@ -15,6 +15,7 @@ use App\Models\Site;
 use App\Models\User;
 use App\Modules\Billing\Models\Subscription;
 use App\Modules\Edge\Jobs\RestoreEdgeDplyPostgresJob;
+use App\Modules\Edge\Jobs\TransferEdgeDplyDatabaseJob;
 use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Edge\Services\EdgeValkeyUsageCollector;
 use App\Modules\Edge\Support\EdgeDplyDatabase;
@@ -351,4 +352,72 @@ test('mongodb stats come from its agent through the gateway, without the app pas
         ->assertSet('databaseStats.version', 'MongoDB 7.0.43')
         ->assertSee('notes')
         ->assertSee('501');
+});
+
+test('the panel reads insights from the snapshot, never waking the database', function () {
+    $id = EdgeDplyDatabase::tenantId($this->site);
+    Http::fake([
+        "gateway.test/tenants/{$id}/insights*" => Http::response([
+            'awake' => false, 'taken_at' => now()->subHour()->toIso8601String(), 'disk_bytes' => 10, 'disk_used_bytes' => 9,
+            'queries' => [['query' => 'select * from orders where user_id = $1', 'calls' => 1200, 'total_ms' => 4800.5, 'mean_ms' => 4, 'rows' => 1200]],
+            'full_scans' => [['table' => 'orders', 'scans' => 900, 'index_scans' => 3, 'rows' => 50000]],
+        ]),
+        'gateway.test/*' => Http::response([]),
+    ]);
+    EdgeAppDatabase::sync($this->site, 'sql', 'postgres');
+    $this->site->save();
+    $user = User::factory()->create();
+    $this->site->organization->users()->attach($user->id, ['role' => 'owner']);
+    $this->site->forceFill(['user_id' => $user->id, 'type' => SiteType::Static, 'status' => Site::STATUS_EDGE_ACTIVE])->save();
+    $this->site->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
+
+    Livewire::actingAs($user)->test(Resources::class, ['server' => $this->site->server, 'site' => $this->site->fresh()])
+        ->call('loadDatabaseInsights')
+        ->assertSee('select * from orders where user_id = $1')
+        ->assertSee('Probably needs an index')
+        ->assertSee('a disk only grows');
+
+    Http::assertSent(fn ($request): bool => str_contains($request->url(), '/insights?cached=1'));
+    Http::assertNotSent(fn ($request): bool => str_contains($request->url(), '/insights') && ! str_contains($request->url(), 'cached=1'));
+});
+
+test('an import loads only files under the app\'s own database, as one queued job', function () {
+    Queue::fake();
+    Http::fake(['gateway.test/*' => Http::response([])]);
+    EdgeAppDatabase::sync($this->site, 'sql', 'postgres');
+    $this->site->save();
+    $id = $this->site->fresh()->edgeMeta()['database']['remote_id'];
+    $user = User::factory()->create();
+    $this->site->organization->users()->attach($user->id, ['role' => 'owner']);
+    $this->site->forceFill(['user_id' => $user->id, 'type' => SiteType::Static, 'status' => Site::STATUS_EDGE_ACTIVE])->save();
+    $this->site->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
+
+    $panel = Livewire::actingAs($user)->test(Resources::class, ['server' => $this->site->server, 'site' => $this->site->fresh()]);
+    $panel->call('importDatabase', 'exports', '../../other/exports/x.pgdump');
+    $panel->call('importDatabase', 'backups', 'x.pgdump');
+    Queue::assertNotPushed(TransferEdgeDplyDatabaseJob::class);
+
+    $panel->call('importDatabase', 'imports', 'app.pgdump');
+    Queue::assertPushed(TransferEdgeDplyDatabaseJob::class, fn ($job): bool => $job->kind === 'import' && $job->key === "tenants/{$id}/imports/app.pgdump");
+    $panel->call('exportDatabase');
+    Queue::assertPushed(TransferEdgeDplyDatabaseJob::class, 1); // one at a time
+    expect((new TransferEdgeDplyDatabaseJob('x', 'import'))->tries)->toBe(1);
+});
+
+test('the database sampler keeps one point a day and alerts once on a filling disk', function () {
+    Http::fake([
+        'gateway.test/tenants/*/insights*' => Http::response(['awake' => false, 'size_bytes' => 800, 'disk_bytes' => 1000, 'disk_used_bytes' => 850, 'connections' => 2, 'max_connections' => 100]),
+        'gateway.test/*' => Http::response([]),
+    ]);
+    EdgeAppDatabase::sync($this->site, 'sql', 'postgres');
+    $this->site->save();
+
+    $this->artisan('dply:edge:sample-databases')->assertSuccessful();
+    $this->artisan('dply:edge:sample-databases')->assertSuccessful();
+
+    expect($this->site->fresh()->edgeMeta()['database']['history'])->toHaveCount(1)
+        ->and($this->site->fresh()->edgeMeta()['database']['history'][0])->toMatchArray(['size' => 800, 'disk_used' => 850, 'disk' => 1000])
+        ->and(NotificationEvent::query()->where('event_key', 'edge.database.disk_filling')->count())->toBe(1)
+        ->and(NotificationEvent::query()->where('event_key', 'edge.database.connections_high')->count())->toBe(0);
+    Http::assertNotSent(fn ($request): bool => str_contains($request->url(), '/insights') && ! str_contains($request->url(), 'cached=1'));
 });

@@ -19,6 +19,7 @@ use App\Console\Commands\SyncErrorEventsCommand;
 use App\Modules\Billing\Console\SnapshotOrganizationBillingCommand;
 use App\Modules\Billing\Console\SyncAllOrganizationBillingCommand;
 use App\Modules\Edge\Console\CheckEdgeQueueWorkersCommand;
+use App\Modules\Edge\Console\SampleEdgeDatabasesCommand;
 use App\Modules\Edge\Console\CheckEdgeRumAlertsCommand;
 use App\Modules\Edge\Console\CollectEdgeContainerUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeDataUsageCommand;
@@ -112,6 +113,13 @@ final class DplySchedule
             ->withoutOverlapping()
             ->runInBackground() // a slow neighbour must not delay scaling
             ->name('edge-check-queue-workers');
+        // dply database history and disk / connection alerts, from
+        // each database's last snapshot (never wakes one).
+        $schedule->command(SampleEdgeDatabasesCommand::class)
+            ->hourly()
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->name('edge-sample-databases');
         // Peak memory of awake container apps, for smaller-size suggestions.
         $schedule->command(SampleContainerMemoryCommand::class)
             ->hourly()

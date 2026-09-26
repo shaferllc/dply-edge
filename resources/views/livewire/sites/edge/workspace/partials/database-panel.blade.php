@@ -26,7 +26,11 @@
     $dbHost = (string) ($dbRecord['host'] ?? '');
     $dbPort = ['postgres' => '5432', 'mysql' => '3306', 'mongodb' => '27017'][$databaseEngine] ?? '';
     $dbDiskGb = (int) ($dbRecord['disk_gb'] ?? $postgresDisk);
-    $dbStats = is_array($databaseStats ?? null) ? $databaseStats : null;
+    $dbInsights = is_array($databaseInsights ?? null) ? $databaseInsights : null;
+    $dbSnapshotAt = ($dbInsights['taken_at'] ?? '') !== '' ? \Illuminate\Support\Carbon::parse($dbInsights['taken_at']) : null;
+    // Live stats when loaded, else the snapshot the agent took before it last slept (never wakes it).
+    $dbStats = is_array($databaseStats ?? null) ? $databaseStats : (isset($dbInsights['size_bytes'], $dbInsights['tables']) ? $dbInsights : null);
+    $dbStatsSnapshot = ! is_array($databaseStats ?? null) && $dbStats !== null;
     $dbBackupMeta = (array) ($site->edgeMeta()['database']['backup'] ?? []);
     $dbBackupLive = is_array($databaseBackup ?? null) ? $databaseBackup : [];
     $dbLastFull = ($dbBackupLive['last_ok_at'] ?? $dbBackupMeta['last_ok_at'] ?? '') !== '' ? \Illuminate\Support\Carbon::parse($dbBackupLive['last_ok_at'] ?? $dbBackupMeta['last_ok_at']) : null;
@@ -41,6 +45,9 @@
     $tabs = array_filter([
         'overview' => $dbDply ? __('Overview') : null,
         'stats' => $dbDply ? __('Statistics') : null,
+        'queries' => $dbDply ? __('Queries') : null,
+        'health' => $dbDply ? __('Health') : null,
+        'console' => $dbDply ? __('Console') : null,
         'backups' => $dbDply ? __('Backups') : null,
         'connect' => $databaseEngine !== 'none' ? __('Connect') : null,
         'settings' => $databaseEngine !== 'none' ? __('Settings') : null,
@@ -52,7 +59,7 @@
     <div
         class="flex max-h-[88vh] flex-col bg-white dark:bg-zinc-900"
         x-data="{ tab: @js($firstTab), password: '' }"
-        x-on:database-tab.window="tab = (Array.isArray($event.detail) ? $event.detail[0] : $event.detail); if (! @js(array_keys($tabs)).includes(tab)) tab = @js($firstTab); @if ($dbDply) $wire.loadDatabaseStatus(); @endif"
+        x-on:database-tab.window="tab = (Array.isArray($event.detail) ? $event.detail[0] : $event.detail); if (! @js(array_keys($tabs)).includes(tab)) tab = @js($firstTab); @if ($dbDply) $wire.loadDatabaseStatus(); $wire.loadDatabaseInsights(); @endif"
     >
         {{-- Header --}}
         <div class="flex flex-wrap items-start justify-between gap-4 border-b border-brand-ink/10 px-6 py-5">
@@ -147,6 +154,32 @@
                         </div>
                     @endif
 
+                    @php $history = array_values(array_filter((array) ($dbRecord['history'] ?? []), 'is_array')); @endphp
+                    @if (count($history) >= 2)
+                        @php
+                            $histMax = max(1, max(array_map(fn ($h) => max((int) ($h['disk_used'] ?? 0), (int) ($h['size'] ?? 0)), $history)));
+                            $histLast = end($history);
+                        @endphp
+                        <div class="rounded-xl border border-brand-ink/10 p-4">
+                            <div class="flex flex-wrap items-baseline justify-between gap-3">
+                                <p class="text-sm font-semibold text-brand-ink">{{ __('Size, last :n days', ['n' => count($history)]) }}</p>
+                                <p class="text-xs text-brand-moss">{{ __('Data :size · disk used :used of :disk', ['size' => $bytes((int) ($histLast['size'] ?? 0)), 'used' => $bytes((int) ($histLast['disk_used'] ?? 0)), 'disk' => $bytes((int) ($histLast['disk'] ?? 0))]) }}</p>
+                            </div>
+                            <div class="mt-4 flex h-24 items-end gap-1">
+                                @foreach ($history as $h)
+                                    <div class="group relative flex h-full flex-1 flex-col justify-end">
+                                        <div class="rounded-t bg-brand-sage/70 group-hover:bg-brand-sage" style="height: {{ max(2, (int) ($h['disk_used'] ?? $h['size'] ?? 0) / $histMax * 100) }}%"></div>
+                                        <span class="pointer-events-none absolute -top-6 left-1/2 hidden -translate-x-1/2 whitespace-nowrap rounded bg-brand-ink px-1.5 py-0.5 text-2xs text-white group-hover:block">{{ \Illuminate\Support\Carbon::parse($h['date'])->format('M j') }} · {{ $bytes((int) ($h['disk_used'] ?? 0)) }} · {{ trans_choice(':count connection|:count connections', (int) ($h['connections'] ?? 0), ['count' => (int) ($h['connections'] ?? 0)]) }}</span>
+                                    </div>
+                                @endforeach
+                            </div>
+                            <div class="mt-1 flex justify-between text-2xs text-brand-mist">
+                                <span>{{ \Illuminate\Support\Carbon::parse($history[0]['date'])->format('M j') }}</span>
+                                <span>{{ __('Today') }}</span>
+                            </div>
+                        </div>
+                    @endif
+
                     <div class="grid gap-3 sm:grid-cols-2">
                         <button type="button" x-on:click="tab = 'backups'" class="rounded-xl border border-brand-ink/10 p-4 text-left hover:border-brand-sage">
                             <p class="text-sm font-semibold text-brand-ink">{{ __('Backups') }}</p>
@@ -164,7 +197,13 @@
                 {{-- Statistics --}}
                 <div x-show="tab === 'stats'" x-cloak class="space-y-5">
                     <div class="flex flex-wrap items-center justify-between gap-3">
-                        <p class="max-w-xl text-xs text-brand-moss">{{ __('Read live from the database with the app\'s own login. Loading them wakes it if it is asleep, which counts as awake time.') }}</p>
+                        <p class="max-w-xl text-xs text-brand-moss">
+                            @if ($dbStatsSnapshot)
+                                {{ __('From the snapshot taken :ago, before the database last slept. Loading live stats wakes it, which counts as awake time.', ['ago' => $dbSnapshotAt?->diffForHumans() ?? __('earlier')]) }}
+                            @else
+                                {{ __('Read live from the database with the app\'s own login. Loading them wakes it if it is asleep, which counts as awake time.') }}
+                            @endif
+                        </p>
                         <x-secondary-button type="button" wire:click="loadDatabaseStats" wire:loading.attr="disabled" wire:target="loadDatabaseStats">
                             <span wire:loading.remove wire:target="loadDatabaseStats">{{ $dbStats ? __('Refresh') : __('Load live stats') }}</span>
                             <span wire:loading wire:target="loadDatabaseStats">{{ __('Waking and reading…') }}</span>
@@ -207,6 +246,268 @@
                     @elseif (! $databaseStatsError)
                         <div class="rounded-xl border border-dashed border-brand-ink/20 px-4 py-10 text-center text-xs text-brand-moss">
                             {{ $databaseEngine === 'mongodb' ? __('Size, collections, documents, connections, cache hit rate, and the largest collections. Load them when you need them.') : __('Size, tables, connections, cache hit rate, and the largest tables. Load them when you need them.') }}
+                        </div>
+                    @endif
+                </div>
+
+                {{-- Queries --}}
+                @php
+                    $dbQueries = is_array($dbInsights['queries'] ?? null) ? $dbInsights['queries'] : null;
+                    $dbRunning = is_array($dbInsights['running'] ?? null) ? $dbInsights['running'] : null;
+                    $dbQueryMax = $dbQueries ? max(1, max(array_map(fn ($q) => (float) ($q['total_ms'] ?? 0), $dbQueries) ?: [1])) : 1;
+                @endphp
+                <div x-show="tab === 'queries'" x-cloak class="space-y-5">
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                        <p class="max-w-xl text-xs text-brand-moss">
+                            {{ $dbSnapshotAt ? __('As of :ago:', ['ago' => $dbSnapshotAt->diffForHumans()]).' ' : '' }}{{ __('queries grouped by shape, with values stripped out. Refresh reads the database now, and wakes it if it is asleep.') }}
+                        </p>
+                        <div class="flex gap-2">
+                            @if ($dbQueries)
+                                <x-secondary-button type="button" wire:click="resetDatabaseQueries" wire:confirm="{{ __('Start the query counts fresh? Useful right after a fix.') }}" wire:loading.attr="disabled" wire:target="resetDatabaseQueries">{{ __('Reset counts') }}</x-secondary-button>
+                            @endif
+                            <x-secondary-button type="button" wire:click="loadDatabaseInsights(true)" wire:loading.attr="disabled" wire:target="loadDatabaseInsights">
+                                <span wire:loading.remove wire:target="loadDatabaseInsights">{{ __('Refresh') }}</span>
+                                <span wire:loading wire:target="loadDatabaseInsights">{{ __('Reading…') }}</span>
+                            </x-secondary-button>
+                        </div>
+                    </div>
+                    @if ($databaseInsightsError)
+                        <p class="rounded-lg bg-brand-sand/40 px-3 py-2 text-xs text-brand-ink">{{ $databaseInsightsError }}</p>
+                    @endif
+
+                    <div class="rounded-xl border border-brand-ink/10">
+                        <div class="flex items-baseline justify-between gap-3 border-b border-brand-ink/10 px-4 py-3">
+                            <p class="text-sm font-semibold text-brand-ink">{{ __('Running now') }}</p>
+                            @if (is_array($dbInsights['by_state'] ?? null) && $dbInsights['by_state'] !== [])
+                                <p class="text-xs text-brand-moss">{{ collect($dbInsights['by_state'])->map(fn ($n, $state) => $n.' '.$state)->implode(' · ') }}</p>
+                            @endif
+                        </div>
+                        @forelse ($dbRunning ?? [] as $run)
+                            @php $stuck = ($run['state'] ?? '') === 'idle in transaction'; @endphp
+                            <div class="flex items-start gap-3 px-4 py-2.5 text-xs [&:not(:last-child)]:border-b [&:not(:last-child)]:border-brand-ink/5">
+                                <span @class(['w-14 shrink-0 text-right font-semibold tabular-nums', 'text-red-700' => ($run['seconds'] ?? 0) >= 30, 'text-brand-ink' => ($run['seconds'] ?? 0) < 30])>{{ $duration((int) ($run['seconds'] ?? 0)) }}</span>
+                                <div class="min-w-0 flex-1">
+                                    <p class="truncate font-mono text-brand-ink" title="{{ $run['query'] ?? '' }}">{{ $run['query'] ?? '' }}</p>
+                                    <p class="mt-0.5 text-brand-moss">
+                                        {{ $run['state'] ?? '' }}
+                                        @if (! empty($run['wait'])) · {{ __('waiting on :what', ['what' => $run['wait']]) }} @endif
+                                        @if (! empty($run['blocked_by'])) · <span class="font-semibold text-amber-800">{{ __('blocked by :pids', ['pids' => implode(', ', (array) $run['blocked_by'])]) }}</span> @endif
+                                        @if ($stuck) · <span class="font-semibold text-amber-800">{{ __('a transaction left open: usually a missing commit, or a job that died mid-transaction') }}</span> @endif
+                                    </p>
+                                </div>
+                                @if (($dbInsights['awake'] ?? false) && isset($run['pid']))
+                                    <button type="button" wire:click="cancelDatabaseQuery({{ (int) $run['pid'] }})" wire:confirm="{{ __('Cancel this query? The app gets an error for it.') }}" class="shrink-0 font-semibold text-brand-ink underline">{{ __('Cancel') }}</button>
+                                @endif
+                            </div>
+                        @empty
+                            <p class="px-4 py-3 text-xs text-brand-moss">{{ $dbInsights ? __('Nothing running.') : __('Shown once the database has reported in.') }}</p>
+                        @endforelse
+                    </div>
+
+                    <div class="rounded-xl border border-brand-ink/10">
+                        <div class="flex items-baseline justify-between gap-3 border-b border-brand-ink/10 px-4 py-3">
+                            <p class="text-sm font-semibold text-brand-ink">{{ __('Top queries by total time') }}</p>
+                            @if (($dbInsights['queries_since'] ?? '') !== '')
+                                <p class="text-xs text-brand-moss">{{ __('since :when', ['when' => \Illuminate\Support\Carbon::parse($dbInsights['queries_since'])->diffForHumans()]) }}</p>
+                            @endif
+                        </div>
+                        @if ($dbQueries)
+                            <div class="hidden grid-cols-[1fr_5rem_6rem_6rem_5rem] gap-3 border-b border-brand-ink/5 px-4 py-2 text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist sm:grid">
+                                <span>{{ __('Query') }}</span><span class="text-right">{{ __('Calls') }}</span><span class="text-right">{{ __('Total') }}</span><span class="text-right">{{ __('Average') }}</span><span class="text-right">{{ __('Rows') }}</span>
+                            </div>
+                            @forelse ($dbQueries as $q)
+                                <div x-data="{ open: false }" class="px-4 py-2.5 text-xs [&:not(:last-child)]:border-b [&:not(:last-child)]:border-brand-ink/5">
+                                    <div class="grid grid-cols-2 gap-3 sm:grid-cols-[1fr_5rem_6rem_6rem_5rem]">
+                                        <button type="button" x-on:click="open = ! open" class="col-span-2 min-w-0 text-left sm:col-span-1">
+                                            <span class="block truncate font-mono text-brand-ink" x-show="! open">{{ $q['query'] ?? '' }}</span>
+                                            <span class="block h-1 overflow-hidden rounded-full bg-brand-ink/10" x-show="! open"><span class="block h-full rounded-full bg-brand-sage" style="width: {{ (float) ($q['total_ms'] ?? 0) / $dbQueryMax * 100 }}%"></span></span>
+                                        </button>
+                                        <span class="text-right tabular-nums text-brand-moss">{{ number_format((int) ($q['calls'] ?? 0)) }}</span>
+                                        <span class="text-right font-semibold tabular-nums text-brand-ink">{{ number_format((float) ($q['total_ms'] ?? 0) / 1000, 1) }} s</span>
+                                        <span @class(['text-right tabular-nums', 'font-semibold text-amber-800' => (float) ($q['mean_ms'] ?? 0) >= 100, 'text-brand-moss' => (float) ($q['mean_ms'] ?? 0) < 100])>{{ number_format((float) ($q['mean_ms'] ?? 0), 1) }} ms</span>
+                                        <span class="text-right tabular-nums text-brand-moss">{{ number_format((int) ($q['rows'] ?? 0)) }}</span>
+                                    </div>
+                                    <pre x-show="open" x-cloak x-on:click="open = false" class="mt-2 cursor-pointer overflow-x-auto whitespace-pre-wrap rounded-lg bg-brand-sand/40 p-3 font-mono text-xs text-brand-ink">{{ $q['query'] ?? '' }}</pre>
+                                </div>
+                            @empty
+                            @endforelse
+                            @if ($dbQueries === [])
+                                <p class="px-4 py-3 text-xs text-brand-moss">{{ __('No queries recorded since the counts were reset.') }}</p>
+                            @endif
+                        @elseif ($databaseEngine === 'mongodb')
+                            <p class="px-4 py-3 text-xs text-brand-moss">{{ __('MongoDB 7 keeps no per-query totals. Running operations are above.') }}</p>
+                        @else
+                            <p class="px-4 py-3 text-xs text-brand-moss">{{ ($dbInsights['queries_error'] ?? '') !== '' ? $dbInsights['queries_error'] : __('Recorded from the database\'s next wake on the updated image.') }}</p>
+                        @endif
+                    </div>
+                </div>
+
+                {{-- Health --}}
+                @php
+                    $dbDiskUsed = (int) ($dbInsights['disk_used_bytes'] ?? 0);
+                    $dbDiskAll = (int) ($dbInsights['disk_bytes'] ?? 0);
+                    $dbChecks = array_values(array_filter([
+                        $dbDiskAll > 0 ? [__('Disk'), $dbDiskUsed / $dbDiskAll >= 0.8 ? 'warn' : 'ok', __(':used of :all used', ['used' => $bytes($dbDiskUsed), 'all' => $bytes($dbDiskAll)]).($dbDiskUsed / $dbDiskAll >= 0.8 ? ' · '.__('a disk only grows: add more under Resources before it fills') : '')] : null,
+                        isset($dbStats['connections'], $dbStats['max_connections']) ? [__('Connections'), $dbStats['connections'] >= 0.8 * max(1, $dbStats['max_connections']) ? 'warn' : 'ok', __(':n of :max', ['n' => $dbStats['connections'], 'max' => $dbStats['max_connections']])] : null,
+                        [__('Backups'), $dbProblem ? 'warn' : ($dbLastFull ? 'ok' : 'wait'), $dbProblem ?? ($dbLastFull ? __('last full :ago', ['ago' => $dbLastFull->diffForHumans()]) : __('the first runs soon after the first start'))],
+                        isset($dbStats['cache_hit_ratio']) && $dbStats['cache_hit_ratio'] !== null ? [__('Cache hit rate'), $dbStats['cache_hit_ratio'] < 90 ? 'warn' : 'ok', $dbStats['cache_hit_ratio'].'%'.($dbStats['cache_hit_ratio'] < 90 ? ' · '.__('reads miss memory often: a larger size helps') : '')] : null,
+                    ]));
+                    $dbUnused = is_array($dbInsights['unused_indexes'] ?? null) ? $dbInsights['unused_indexes'] : [];
+                    $dbScans = is_array($dbInsights['full_scans'] ?? null) ? $dbInsights['full_scans'] : [];
+                    $dbVacuum = is_array($dbInsights['vacuum'] ?? null) ? $dbInsights['vacuum'] : [];
+                    $dbExtensions = is_array($dbInsights['extensions'] ?? null) ? $dbInsights['extensions'] : [];
+                @endphp
+                <div x-show="tab === 'health'" x-cloak class="space-y-5">
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        @foreach ($dbChecks as [$label, $state, $detail])
+                            <div @class(['flex items-start gap-3 rounded-xl border p-4', 'border-amber-300 bg-amber-50' => $state === 'warn', 'border-brand-ink/10' => $state !== 'warn'])>
+                                <span @class(['mt-1 h-2 w-2 shrink-0 rounded-full', 'bg-amber-500' => $state === 'warn', 'bg-emerald-500' => $state === 'ok', 'bg-brand-mist' => $state === 'wait'])></span>
+                                <div class="min-w-0">
+                                    <p class="text-sm font-semibold text-brand-ink">{{ $label }}</p>
+                                    <p class="mt-0.5 text-xs text-brand-moss">{{ $detail }}</p>
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+
+                    @if (! $dbInsights)
+                        <p class="rounded-lg bg-brand-sand/40 px-3 py-2 text-xs text-brand-ink">{{ $databaseInsightsError ?? __('Index and table health appear once the database has reported in.') }}</p>
+                    @endif
+
+                    @if ($dbScans !== [])
+                        <div class="rounded-xl border border-brand-ink/10">
+                            <div class="border-b border-brand-ink/10 px-4 py-3">
+                                <p class="text-sm font-semibold text-brand-ink">{{ __('Probably needs an index') }}</p>
+                                <p class="mt-0.5 text-xs text-brand-moss">{{ __('Large tables read mostly by scanning every row. Find the query that filters them under Queries and index its WHERE columns.') }}</p>
+                            </div>
+                            @foreach ($dbScans as $scan)
+                                <div class="flex items-center gap-3 px-4 py-2 text-xs [&:not(:last-child)]:border-b [&:not(:last-child)]:border-brand-ink/5">
+                                    <span class="min-w-0 flex-1 truncate font-mono text-brand-ink">{{ $scan['table'] ?? '' }}</span>
+                                    @if (isset($scan['scans']))
+                                        <span class="tabular-nums text-brand-moss">{{ __(':n full scans, :i by index', ['n' => number_format((int) $scan['scans']), 'i' => number_format((int) ($scan['index_scans'] ?? 0))]) }}</span>
+                                    @endif
+                                    @if (isset($scan['rows_scanned']))
+                                        <span class="tabular-nums text-brand-moss">{{ __(':n rows read by full scans', ['n' => number_format((int) $scan['rows_scanned'])]) }}</span>
+                                    @endif
+                                    @if (isset($scan['rows']))
+                                        <span class="w-24 text-right tabular-nums text-brand-ink">{{ number_format((int) $scan['rows']) }} {{ __('rows') }}</span>
+                                    @endif
+                                </div>
+                            @endforeach
+                        </div>
+                    @endif
+
+                    @if ($dbUnused !== [])
+                        <div class="rounded-xl border border-brand-ink/10">
+                            <div class="border-b border-brand-ink/10 px-4 py-3">
+                                <p class="text-sm font-semibold text-brand-ink">{{ __('Indexes never used') }}</p>
+                                <p class="mt-0.5 text-xs text-brand-moss">{{ __('Not read since the counts started. Each slows every write and takes disk; drop it in a migration if nothing needs it.') }}</p>
+                            </div>
+                            @foreach ($dbUnused as $index)
+                                <div class="flex items-center gap-3 px-4 py-2 text-xs [&:not(:last-child)]:border-b [&:not(:last-child)]:border-brand-ink/5">
+                                    <span class="min-w-0 flex-1 truncate font-mono text-brand-ink">{{ $index['index'] ?? '' }}</span>
+                                    <span class="truncate font-mono text-brand-moss">{{ $index['table'] ?? '' }}</span>
+                                    @if (isset($index['bytes']))
+                                        <span class="w-20 text-right tabular-nums text-brand-ink">{{ $bytes((int) $index['bytes']) }}</span>
+                                    @endif
+                                </div>
+                            @endforeach
+                        </div>
+                    @endif
+
+                    @if ($dbVacuum !== [])
+                        <div class="rounded-xl border border-brand-ink/10">
+                            <div class="border-b border-brand-ink/10 px-4 py-3">
+                                <p class="text-sm font-semibold text-brand-ink">{{ __('Dead rows') }}</p>
+                                <p class="mt-0.5 text-xs text-brand-moss">{{ __('Rows updated or deleted but not yet cleaned up. Postgres does this on its own; a big number that stays is worth a look.') }}</p>
+                            </div>
+                            @foreach ($dbVacuum as $v)
+                                <div class="flex items-center gap-3 px-4 py-2 text-xs [&:not(:last-child)]:border-b [&:not(:last-child)]:border-brand-ink/5">
+                                    <span class="min-w-0 flex-1 truncate font-mono text-brand-ink">{{ $v['table'] ?? '' }}</span>
+                                    <span class="tabular-nums text-brand-ink">{{ __(':n dead of :rows', ['n' => number_format((int) ($v['dead_rows'] ?? 0)), 'rows' => number_format((int) ($v['rows'] ?? 0))]) }}</span>
+                                    <span class="w-36 text-right text-brand-moss">{{ ($v['last_vacuum'] ?? null) ? __('cleaned :ago', ['ago' => \Illuminate\Support\Carbon::parse($v['last_vacuum'])->diffForHumans()]) : __('never cleaned') }}</span>
+                                </div>
+                            @endforeach
+                        </div>
+                    @endif
+
+                    @if ($dbExtensions !== [])
+                        <div class="rounded-xl border border-brand-ink/10">
+                            <div class="border-b border-brand-ink/10 px-4 py-3">
+                                <p class="text-sm font-semibold text-brand-ink">{{ __('Extensions') }}</p>
+                                <p class="mt-0.5 text-xs text-brand-moss">{{ __('Turning one on wakes the database. Turning one off is a migration (DROP EXTENSION).') }}</p>
+                            </div>
+                            <div class="grid sm:grid-cols-2">
+                                @foreach ($dbExtensions as $ext)
+                                    <div class="flex items-start gap-3 border-b border-brand-ink/5 px-4 py-2.5 text-xs">
+                                        <div class="min-w-0 flex-1">
+                                            <p class="font-mono font-semibold text-brand-ink">{{ $ext['name'] }}</p>
+                                            <p class="mt-0.5 text-brand-moss">{{ $ext['comment'] ?? '' }}</p>
+                                        </div>
+                                        @if (! empty($ext['installed']))
+                                            <span class="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-2xs font-semibold text-emerald-700">{{ __('On') }} · {{ $ext['installed'] }}</span>
+                                        @else
+                                            <button type="button" wire:click="enableDatabaseExtension(@js($ext['name']))" wire:loading.attr="disabled" wire:target="enableDatabaseExtension" class="shrink-0 rounded-md border border-brand-ink/15 px-2 py-1 font-semibold text-brand-ink hover:border-brand-sage">{{ __('Turn on') }}</button>
+                                        @endif
+                                    </div>
+                                @endforeach
+                            </div>
+                        </div>
+                    @endif
+                </div>
+
+                {{-- Console --}}
+                <div x-show="tab === 'console'" x-cloak class="space-y-4">
+                    <p class="max-w-2xl text-xs text-brand-moss">
+                        @if ($databaseEngine === 'mongodb')
+                            {{ __('Find documents in a collection, read-only, up to 200. Running a query wakes the database.') }}
+                        @else
+                            {{ __('One read-only statement as a login that can only SELECT, up to 200 rows and 15 seconds. Writes, several statements, and role changes are refused. Running a query wakes the database.') }}
+                        @endif
+                    </p>
+                    <form wire:submit="runDatabaseConsole" class="space-y-2">
+                        @if ($databaseEngine === 'mongodb')
+                            <div class="grid gap-2 sm:grid-cols-[12rem_1fr]">
+                                <input type="text" wire:model="databaseConsoleCollection" placeholder="{{ __('collection') }}" class="rounded-md border border-brand-ink/15 bg-white px-3 py-2 font-mono text-xs text-brand-ink" />
+                                <input type="text" wire:model="databaseConsoleFilter" placeholder='{"status": "open"}' class="rounded-md border border-brand-ink/15 bg-white px-3 py-2 font-mono text-xs text-brand-ink" />
+                            </div>
+                        @else
+                            <textarea wire:model="databaseConsoleSql" rows="4" spellcheck="false" placeholder="select id, email from users order by id desc limit 20" x-on:keydown.meta.enter.prevent="$wire.runDatabaseConsole()" x-on:keydown.ctrl.enter.prevent="$wire.runDatabaseConsole()" class="block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 font-mono text-xs text-brand-ink"></textarea>
+                        @endif
+                        <div class="flex items-center gap-3">
+                            <x-primary-button type="submit" wire:loading.attr="disabled" wire:target="runDatabaseConsole">
+                                <span wire:loading.remove wire:target="runDatabaseConsole">{{ __('Run') }}</span>
+                                <span wire:loading wire:target="runDatabaseConsole">{{ __('Running…') }}</span>
+                            </x-primary-button>
+                            @if ($databaseEngine !== 'mongodb')<span class="text-2xs text-brand-mist">⌘/Ctrl + Enter</span>@endif
+                            @if ($databaseConsoleResult)
+                                <span class="text-xs text-brand-moss">{{ trans_choice(':count row|:count rows', count($databaseConsoleResult['rows'] ?? []), ['count' => count($databaseConsoleResult['rows'] ?? [])]) }}{{ ($databaseConsoleResult['truncated'] ?? false) ? ' '.__('(first 200)') : '' }} · {{ $databaseConsoleResult['ms'] ?? 0 }} ms</span>
+                            @endif
+                        </div>
+                    </form>
+                    @if ($databaseConsoleError)
+                        <pre class="whitespace-pre-wrap rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-700">{{ $databaseConsoleError }}</pre>
+                    @endif
+                    @if ($databaseConsoleResult)
+                        <div class="max-h-[45vh] overflow-auto rounded-xl border border-brand-ink/10">
+                            <table class="min-w-full text-left text-xs">
+                                <thead class="sticky top-0 bg-brand-sand/60">
+                                    <tr>
+                                        @foreach ($databaseConsoleResult['columns'] ?? [] as $column)
+                                            <th class="whitespace-nowrap px-3 py-2 font-mono font-semibold text-brand-ink">{{ $column }}</th>
+                                        @endforeach
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach ($databaseConsoleResult['rows'] ?? [] as $row)
+                                        <tr class="border-t border-brand-ink/5 align-top">
+                                            @foreach ((array) $row as $value)
+                                                <td class="max-w-xs truncate whitespace-nowrap px-3 py-1.5 font-mono {{ $value === null ? 'italic text-brand-mist' : 'text-brand-ink' }}" title="{{ is_scalar($value) ? $value : json_encode($value) }}">{{ $value === null ? 'null' : (is_scalar($value) ? $value : json_encode($value)) }}</td>
+                                            @endforeach
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
                         </div>
                     @endif
                 </div>
@@ -302,6 +603,59 @@
                                 @endif
                             </div>
                         @endif
+
+                    {{-- Export and import --}}
+                    @php
+                        $transfer = is_array($dbRecord['transfer'] ?? null) ? $dbRecord['transfer'] : null;
+                        $loadEffect = $databaseEngine === 'mongodb' ? __('Everything in the database is replaced.') : __('Tables in the file are replaced; others are left alone.');
+                    @endphp
+                    <div class="rounded-xl border border-brand-ink/10" x-init="$wire.loadDatabaseExports()">
+                        <div class="flex flex-wrap items-baseline justify-between gap-3 border-b border-brand-ink/10 px-4 py-3">
+                            <div>
+                                <p class="text-sm font-semibold text-brand-ink">{{ __('Export and import') }}</p>
+                                <p class="mt-0.5 text-xs text-brand-moss">{{ __('A full copy of the data as one file (:format), kept beside the backups. Download it, or load it back.', ['format' => ['postgres' => 'pg_dump -Fc', 'mysql' => 'mysqldump, gzip', 'mongodb' => 'mongodump archive'][$databaseEngine] ?? '']) }}</p>
+                            </div>
+                            <x-secondary-button type="button" wire:click="exportDatabase" wire:loading.attr="disabled" wire:target="exportDatabase">{{ __('Export now') }}</x-secondary-button>
+                        </div>
+                        @if ($transfer && ($transfer['status'] ?? '') === 'running')
+                            <p wire:poll.5s="loadDatabaseExports" class="flex items-center gap-2 px-4 py-3 text-xs font-semibold text-brand-ink"><x-spinner size="sm" />{{ ($transfer['kind'] ?? '') === 'import' ? __('Loading :file…', ['file' => $transfer['file'] ?? '']) : __('Exporting… a large database takes a few minutes.') }}</p>
+                        @elseif ($transfer && ($transfer['status'] ?? '') === 'failed')
+                            <p class="px-4 py-3 text-xs font-semibold text-red-700">{{ ($transfer['kind'] ?? '') === 'import' ? __('Import failed: :error', ['error' => $transfer['error'] ?? '']) : __('Export failed: :error', ['error' => $transfer['error'] ?? '']) }}</p>
+                        @elseif ($transfer && ($transfer['status'] ?? '') === 'done' && ($transfer['kind'] ?? '') === 'import')
+                            <p class="px-4 py-3 text-xs font-semibold text-brand-sage">{{ __('Loaded :file :ago.', ['file' => $transfer['file'] ?? '', 'ago' => \Illuminate\Support\Carbon::parse($transfer['finished_at'] ?? 'now')->diffForHumans()]) }}</p>
+                        @endif
+                        @forelse ($databaseExports ?? [] as $export)
+                            <div class="flex flex-wrap items-center gap-3 border-t border-brand-ink/5 px-4 py-2 text-xs">
+                                <span class="min-w-0 flex-1 truncate font-mono text-brand-ink">{{ $export['file'] }}</span>
+                                <span class="text-brand-moss">{{ \Illuminate\Support\Carbon::parse($export['at'])->diffForHumans() }}</span>
+                                <span class="w-16 text-right tabular-nums text-brand-ink">{{ $bytes((int) $export['bytes']) }}</span>
+                                <a href="{{ $export['url'] }}" class="font-semibold text-brand-ink underline">{{ __('Download') }}</a>
+                                <button type="button" wire:click="importDatabase('exports', @js($export['file']))" wire:confirm="{{ __('Load this export into the database?').' '.$loadEffect }}" class="font-semibold text-brand-ink underline">{{ __('Load') }}</button>
+                            </div>
+                        @empty
+                            <p class="border-t border-brand-ink/5 px-4 py-3 text-xs text-brand-moss">{{ $databaseExports === null ? __('Loading…') : __('No exports yet.') }}</p>
+                        @endforelse
+                        @if ($databaseEngine !== 'mysql')
+                            <div class="border-t border-brand-ink/10 px-4 py-3">
+                                <p class="text-xs font-semibold text-brand-ink">{{ __('Import your own dump') }}</p>
+                                <p class="mt-0.5 text-xs text-brand-moss">{{ $databaseEngine === 'postgres' ? __('A pg_dump custom-format file (pg_dump -Fc). It is restored as the app\'s login.') : __('A mongodump --archive file, gzipped or not.') }}</p>
+                                <form wire:submit="prepareDatabaseUpload" class="mt-2 flex flex-wrap items-center gap-2">
+                                    <input type="text" wire:model="databaseImportFile" placeholder="{{ $databaseEngine === 'postgres' ? 'app.pgdump' : 'app.archive.gz' }}" class="w-56 rounded-md border border-brand-ink/15 bg-white px-2 py-1.5 font-mono text-xs text-brand-ink" />
+                                    <x-secondary-button type="submit">{{ __('Get upload command') }}</x-secondary-button>
+                                </form>
+                                @if ($databaseUploadCommand)
+                                    <div class="mt-2" x-data="{ copied: false }">
+                                        <pre class="overflow-x-auto rounded-lg bg-brand-ink px-3 py-2 font-mono text-xs text-brand-cream">{{ $databaseUploadCommand }}</pre>
+                                        <div class="mt-1 flex flex-wrap items-center gap-3 text-xs">
+                                            <button type="button" x-on:click="navigator.clipboard.writeText(@js($databaseUploadCommand)); copied = true; setTimeout(() => copied = false, 1200)" class="font-semibold underline" x-text="copied ? '{{ __('Copied') }}' : '{{ __('Copy') }}'"></button>
+                                            <span class="text-brand-moss">{{ __('Run it where the file is (the link works for an hour), then:') }}</span>
+                                            <button type="button" wire:click="importDatabase('imports', @js(trim($databaseImportFile)))" wire:confirm="{{ __('Load the uploaded file into the database?').' '.$loadEffect }}" class="font-semibold text-brand-ink underline">{{ __('Load it') }}</button>
+                                        </div>
+                                    </div>
+                                @endif
+                            </div>
+                        @endif
+                    </div>
                 </div>
 
                 {{-- Connect --}}
@@ -349,6 +703,25 @@
                             <pre class="mt-2 overflow-x-auto rounded-lg bg-brand-sand/40 px-4 py-3 font-mono text-xs text-brand-ink dark:bg-zinc-950">{{ $scheme }}://app:<span x-text="password || 'PASSWORD'"></span>{{ '@'.$dbHost.':'.$dbPort.'/app'.$query }}</pre>
                             <p class="mt-1 text-xs text-brand-moss">{{ __('The app already has this. Deploys set it as DATABASE_URL (MONGODB_URI for MongoDB).') }}</p>
                         </div>
+
+                        @if (in_array($databaseEngine, ['postgres', 'mongodb'], true))
+                            <div class="rounded-xl border border-brand-ink/10 p-4" x-data="{ ro: '' }">
+                                <div class="flex flex-wrap items-baseline justify-between gap-3">
+                                    <div>
+                                        <p class="text-sm font-semibold text-brand-ink">{{ __('Read-only login') }}</p>
+                                        <p class="mt-0.5 max-w-xl text-xs text-brand-moss">{{ __('User app_ro can read every table and change nothing. For BI tools like Metabase, or a teammate who only needs to look.') }}</p>
+                                    </div>
+                                    <div class="flex gap-2">
+                                        <x-secondary-button type="button" x-on:click="ro = await $wire.setDatabaseReadonlyLogin(true)">{{ ($dbRecord['readonly'] ?? false) ? __('New password') : __('Turn on') }}</x-secondary-button>
+                                        @if ($dbRecord['readonly'] ?? false)
+                                            <x-secondary-button type="button" x-on:click="ro = ''; $wire.setDatabaseReadonlyLogin(false)">{{ __('Turn off') }}</x-secondary-button>
+                                        @endif
+                                    </div>
+                                </div>
+                                <pre x-show="ro" x-cloak class="mt-3 overflow-x-auto rounded-lg bg-brand-sand/40 px-4 py-3 font-mono text-xs text-brand-ink">{{ $scheme }}://app_ro:<span x-text="ro"></span>{{ '@'.$dbHost.':'.$dbPort.'/app'.$query }}</pre>
+                                <p x-show="ro" x-cloak class="mt-1 text-xs text-brand-moss">{{ __('Shown once. Copy it now.') }}</p>
+                            </div>
+                        @endif
                     @endif
                     <div class="border-t border-brand-ink/10 pt-5">
                 @if ($databaseEngine === 'postgres' || $databaseEngine === 'mysql')
@@ -426,56 +799,67 @@ await db.collection('notes').countDocuments();" }}</pre>
 
             {{-- How it works --}}
             <div x-show="tab === 'how'" x-cloak>
-                @if ($databaseEngine === 'postgres')
-                    <ol class="list-decimal space-y-1 pl-4 text-xs text-brand-ink">
-                        <li>{{ __('Save and redeploy. The next deploy sets the database address on the app.') }}</li>
-                        @if ($postgresPlan === 'awake')
-                            <li>{{ __('This plan stays on at :memory, about $:hour/hour, $:day/day, $:month/month.', ['memory' => $postgresSizes[$postgresSize]['memory'], 'hour' => $postgresSizes[$postgresSize]['hour'], 'day' => $postgresSizes[$postgresSize]['day'], 'month' => $postgresSizes[$postgresSize]['month']]) }}</li>
-                        @elseif ($postgresSize === '0.25')
-                            <li>{{ __('This plan sleeps :sleep after the last connection. 1 GB is about $:hour/hour, $:day/day, $:month/month at :hours hours awake.', ['sleep' => __($postgresSleeps[$postgresSuspend]), 'hour' => $postgresSizes[$postgresSize]['hour'], 'day' => $postgresSizes[$postgresSize]['day'], 'month' => $postgresSizes[$postgresSize]['month'], 'hours' => $postgresAwakeHours]) }}</li>
-                        @else
-                            <li>{{ __('This plan sleeps :sleep after the last connection. It starts at 1 GB and grows to :memory, about $:hour/hour, $:day/day, $:month/month at full size for :hours hours awake.', ['sleep' => __($postgresSleeps[$postgresSuspend]), 'memory' => $postgresSizes[$postgresSize]['memory'], 'hour' => $postgresSizes[$postgresSize]['hour'], 'day' => $postgresSizes[$postgresSize]['day'], 'month' => $postgresSizes[$postgresSize]['month'], 'hours' => $postgresAwakeHours]) }}</li>
-                        @endif
-                        <li>{{ __('Storage is about $:gigabyte/GB each month, including while compute sleeps. Connections require TLS.', ['gigabyte' => $postgresGigabyte]) }}</li>
-                    </ol>
-                @elseif ($databaseEngine === 'mongodb')
-                    <ol class="list-decimal space-y-1 pl-4 text-xs text-brand-ink">
-                        <li>{{ __('Save and redeploy. The next deploy sets MONGODB_URI on the app.') }}</li>
-                        <li>{{ __('It sleeps after the last connection and wakes on the next one; data stays on its disk.') }}</li>
-                        <li>{{ __('Disk is billed each month whether it is awake or asleep. Connections require TLS. Changes are backed up continuously; restore to any second in the last 7 days.') }}</li>
-                    </ol>
-                @elseif ($databaseEngine === 'mysql')
-                    <ol class="list-decimal space-y-1 pl-4 text-xs text-brand-ink">
-                        <li>{{ __('Save and redeploy. The next deploy sets DB_CONNECTION, the host, the password, and DATABASE_URL.') }}</li>
-                        <li>{{ __('It sleeps after the last connection and wakes on the next one; data stays on its disk.') }}</li>
-                        <li>{{ __('Disk is billed each month whether it is awake or asleep. Connections require TLS. The mysql command line needs --tls-sni-servername=<host>, or the database id as the user. Changes are backed up continuously; restore to any second in the last 7 days.') }}</li>
-                    </ol>
+                @if ($dbDply)
+                    @php
+                        $plan = $postgresSizes[$postgresSize] ?? null;
+                        $sleepLabel = $postgresSuspend === -1 ? null : __($postgresSleeps[$postgresSuspend] ?? '5 minutes');
+                        $howCards = [
+                            [__('Connect'), __('Save and redeploy. The deploy sets :vars on the app, so there is nothing to copy. Connections use TLS only.', ['vars' => $databaseEngine === 'mongodb' ? 'MONGODB_URI' : ($databaseEngine === 'mysql' ? 'DB_CONNECTION, DB_HOST, DB_PASSWORD, DATABASE_URL' : 'DB_CONNECTION, DB_HOST, DB_PASSWORD, DATABASE_URL')]).($databaseEngine === 'mysql' ? ' '.__('The mysql command line needs --tls-sni-servername=<host>, or the database id as the user.') : ''), 'connect'],
+                            [__('Sleep and wake'), $sleepLabel ? __('It sleeps :sleep after the last connection closes and wakes on the next one in about a third of a second. The data stays on its disk.', ['sleep' => $sleepLabel]) : __('It stays on. Pick a sleep time under Resources to pay only while it is used.'), null],
+                            [__('Backups'), __('Every change is streamed to storage and a full backup runs daily. Restore to any second in the last 7 days, or export a copy to download.'), 'backups'],
+                            [__('Tuned for its size'), match ($databaseEngine) {
+                                'postgres' => __('Memory settings follow the plan: a quarter of it for shared buffers, working memory per query from the rest, the write-ahead log capped at a quarter of the disk and compressed. Query statistics are always on.'),
+                                'mysql' => __('The buffer pool gets half the memory, and per-query statistics are kept by performance_schema.'),
+                                default => __('The WiredTiger cache is sized to the memory the plan has.'),
+                            }, null],
+                            [__('See what is slow'), __('Queries lists the queries that take the most time and what is running now. Health flags a full disk, tables that need an index, and indexes nothing uses. None of it wakes the database until you refresh.'), 'queries'],
+                            [__('Look at the data'), __('Console runs read-only queries from here. :ro', ['ro' => in_array($databaseEngine, ['postgres', 'mongodb'], true) ? __('A read-only login for BI tools is under Connect.') : '']), 'console'],
+                        ];
+                    @endphp
+                    @if ($plan)
+                        <div class="mb-5 flex flex-wrap items-end gap-x-8 gap-y-3 rounded-xl border border-brand-ink/10 p-4">
+                            <div>
+                                <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Compute') }}</p>
+                                <p class="mt-1 text-xl font-semibold tabular-nums text-brand-ink">${{ $plan['hour'] }}<span class="text-sm font-normal text-brand-moss">/{{ __('hour awake') }}</span></p>
+                            </div>
+                            <div>
+                                <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('A month') }}</p>
+                                <p class="mt-1 text-xl font-semibold tabular-nums text-brand-ink">${{ $plan['month'] }}</p>
+                            </div>
+                            <div>
+                                <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Storage') }}</p>
+                                <p class="mt-1 text-xl font-semibold tabular-nums text-brand-ink">${{ $postgresGigabyte }}<span class="text-sm font-normal text-brand-moss">/GB {{ __('a month') }}</span></p>
+                            </div>
+                            <p class="min-w-[14rem] flex-1 text-xs text-brand-moss">
+                                @if ($postgresSuspend === -1)
+                                    {{ __('Stays on, so every hour bills. Storage bills while it sleeps too.') }}
+                                @elseif ($postgresSize === '0.25')
+                                    {{ __(':memory at :hours hours awake a day. Storage bills while it sleeps too.', ['memory' => $plan['memory'], 'hours' => $postgresAwakeHours]) }}
+                                @else
+                                    {{ __('Starts at 1 GB and grows to :memory under load; the month is at full size for :hours hours awake a day. Storage bills while it sleeps too.', ['memory' => $plan['memory'], 'hours' => $postgresAwakeHours]) }}
+                                @endif
+                            </p>
+                        </div>
+                    @endif
+                    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        @foreach ($howCards as $i => [$title, $body, $goto])
+                            <div class="flex flex-col rounded-xl border border-brand-ink/10 p-4">
+                                <p class="flex items-center gap-2 text-sm font-semibold text-brand-ink"><span class="flex h-5 w-5 items-center justify-center rounded-full bg-brand-sage/20 text-2xs font-semibold text-brand-ink">{{ $i + 1 }}</span>{{ $title }}</p>
+                                <p class="mt-2 flex-1 text-xs leading-relaxed text-brand-moss">{{ $body }}</p>
+                                @if ($goto && isset($tabs[$goto]))
+                                    <button type="button" x-on:click="tab = '{{ $goto }}'" class="mt-3 self-start text-xs font-semibold text-brand-ink underline">{{ __('Open :tab', ['tab' => $tabs[$goto]]) }}</button>
+                                @endif
+                            </div>
+                        @endforeach
+                    </div>
                 @elseif ($databaseEngine === 'sql')
-                    <p class="text-xs text-brand-ink">{{ __('SQLite is a file inside the app. It is saved while the app runs and restored when the app wakes. One instance serves the app so that file stays consistent.') }}</p>
+                    <div class="rounded-xl border border-brand-ink/10 p-4 text-xs text-brand-moss">
+                        <p class="text-sm font-semibold text-brand-ink">{{ __('SQLite') }}</p>
+                        <p class="mt-2">{{ __('SQLite is a file inside the app. It is saved while the app runs and restored when the app wakes. One instance serves the app so that file stays consistent.') }}</p>
+                        <p class="mt-2">{{ __('The next deploy sets DB_CONNECTION to sqlite and DB_DATABASE to /tmp/database.sqlite.') }}</p>
+                    </div>
                 @else
                     <p class="text-xs text-brand-ink">{{ __('No database is attached. Pick Postgres, MySQL, or SQLite, then save and redeploy.') }}</p>
-                @endif
-                @if ($databaseEngine === 'none' || $databaseEngine === 'sql')
-                    <div class="mt-4">
-                @if ($databaseEngine === 'postgres' || $databaseEngine === 'mysql')
-                    <p class="text-xs font-semibold text-brand-ink">{{ __('Laravel') }}</p>
-                    <p class="mt-1 max-w-xl text-xs text-brand-moss">{{ __('The next deploy sets DB_CONNECTION, the host, the password, and DATABASE_URL.') }}</p>
-                    <pre class="mt-2 overflow-x-auto rounded-lg bg-brand-sand/40 p-3 text-xs text-brand-ink dark:bg-zinc-950">DB::table('users')->count();</pre>
-                    <p class="mt-4 text-xs font-semibold text-brand-ink">{{ __('Rails') }}</p>
-                    <p class="mt-1 max-w-xl text-xs text-brand-moss">{{ __('The next deploy sets DATABASE_URL. ActiveRecord uses it.') }}</p>
-                    <pre class="mt-2 overflow-x-auto rounded-lg bg-brand-sand/40 p-3 text-xs text-brand-ink dark:bg-zinc-950">User.count</pre>
-                @elseif ($databaseEngine === 'mongodb')
-                    <p class="text-xs font-semibold text-brand-ink">{{ __('Node') }}</p>
-                    <p class="mt-1 max-w-xl text-xs text-brand-moss">{{ __('The next deploy sets MONGODB_URI (also MONGO_URL) and MONGODB_DATABASE.') }}</p>
-                    <pre class="mt-2 overflow-x-auto rounded-lg bg-brand-sand/40 p-3 text-xs text-brand-ink dark:bg-zinc-950">{{ "import { MongoClient } from 'mongodb';
-const db = new MongoClient(process.env.MONGODB_URI).db();
-await db.collection('notes').countDocuments();" }}</pre>
-                @elseif ($databaseEngine === 'sql')
-                    <p class="text-xs text-brand-moss">{{ __('The next deploy sets DB_CONNECTION to sqlite and DB_DATABASE to /tmp/database.sqlite.') }}</p>
-                @else
-                    <p class="text-xs text-brand-moss">{{ __('Pick a database first.') }}</p>
-                @endif
-                    </div>
                 @endif
             </div>
         </div>

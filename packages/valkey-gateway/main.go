@@ -457,6 +457,8 @@ func (g *gateway) serveAPI() {
 	mux.HandleFunc("GET /tenants/{id}/slowlog", g.auth(g.slowlog))
 	mux.HandleFunc("GET /tenants/{id}/insights", g.auth(g.databaseInsights))
 	mux.HandleFunc("POST /tenants/{id}/action/{name}", g.auth(g.databaseAction))
+	mux.HandleFunc("GET /tenants/{id}/exports", g.auth(g.databaseExports))
+	mux.HandleFunc("POST /tenants/{id}/upload-link", g.auth(g.databaseUploadLink))
 	mux.HandleFunc("GET /usage", g.authOnly(g.usage))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 	log.Printf("api on %s", g.cfg.apiAddr)

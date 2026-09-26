@@ -24,6 +24,7 @@ use App\Modules\Billing\Services\EdgeDeliveryCost;
 use App\Modules\Billing\Services\EdgeKvCost;
 use App\Modules\Edge\Console\ScaleEdgeQueueWorkersCommand;
 use App\Modules\Edge\Jobs\RestoreEdgeDplyPostgresJob;
+use App\Modules\Edge\Jobs\TransferEdgeDplyDatabaseJob;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Edge\Services\EdgeQueueConsumers;
@@ -652,6 +653,215 @@ class Resources extends Component
             $this->databaseStatsError = $e->getMessage();
         }
         $this->loadDatabaseStatus();
+    }
+
+    /** Database panel: queries, health, extensions (dbagent insights). */
+    public ?array $databaseInsights = null;
+
+    public ?string $databaseInsightsError = null;
+
+    public string $databaseConsoleSql = '';
+
+    public string $databaseConsoleCollection = '';
+
+    public string $databaseConsoleFilter = '{}';
+
+    public ?array $databaseConsoleResult = null;
+
+    public ?string $databaseConsoleError = null;
+
+    /** @var list<array{file: string, key: string, bytes: int, at: string, url: string}>|null */
+    public ?array $databaseExports = null;
+
+    public string $databaseImportFile = '';
+
+    public ?string $databaseUploadCommand = null;
+
+    /**
+     * Insights. Opening the panel reads the snapshot the agent took before its
+     * last stop, which never wakes the database; $live (Refresh) wakes it.
+     */
+    public function loadDatabaseInsights(bool $live = false): void
+    {
+        $this->authorize($live ? 'update' : 'view', $this->site);
+        $record = $this->dplyDatabaseRecord();
+        if ($record === null) {
+            return;
+        }
+        try {
+            $this->databaseInsights = ValkeyGatewayClient::fromConfig(EdgeDplyDatabase::regionOf($record))->insights((string) $record['remote_id'], ! $live);
+            $this->databaseInsightsError = null;
+        } catch (\Throwable $e) {
+            $this->databaseInsightsError = $this->databaseAgentMessage($e);
+        }
+    }
+
+    public function resetDatabaseQueries(): void
+    {
+        if ($this->databaseAgent('queries-reset') !== null) {
+            $this->toastSuccess(__('Query counts start fresh from now.'));
+            $this->loadDatabaseInsights(true);
+        }
+    }
+
+    public function cancelDatabaseQuery(int $pid): void
+    {
+        $out = $this->databaseAgent('cancel', ['pid' => $pid]);
+        if ($out !== null) {
+            ($out['ok'] ?? false) ? $this->toastSuccess(__('Cancelled.')) : $this->toastError(__('That query had already finished.'));
+            $this->loadDatabaseInsights(true);
+        }
+    }
+
+    public function enableDatabaseExtension(string $name): void
+    {
+        if ($this->databaseAgent('extension', ['name' => $name]) !== null) {
+            $this->toastSuccess(__(':name is on.', ['name' => $name]));
+            $this->loadDatabaseInsights(true);
+        }
+    }
+
+    /** One read-only statement (a find for MongoDB), at most 200 rows. */
+    public function runDatabaseConsole(): void
+    {
+        $this->authorize('update', $this->site);
+        $record = $this->dplyDatabaseRecord();
+        if ($record === null) {
+            return;
+        }
+        $body = ($record['engine'] ?? '') === 'mongodb'
+            ? ['collection' => trim($this->databaseConsoleCollection), 'filter' => trim($this->databaseConsoleFilter) ?: '{}']
+            : ['sql' => $this->databaseConsoleSql];
+        try {
+            $this->databaseConsoleResult = ValkeyGatewayClient::fromConfig(EdgeDplyDatabase::regionOf($record))->action((string) $record['remote_id'], 'query', $body);
+            $this->databaseConsoleError = null;
+        } catch (\Throwable $e) {
+            $this->databaseConsoleResult = null;
+            $this->databaseConsoleError = $this->databaseAgentMessage($e);
+        }
+    }
+
+    /**
+     * Turn the read-only login (app_ro) on with a fresh password, returned
+     * once to the page, or off. Postgres and MongoDB only: the MySQL gateway
+     * checks passwords itself.
+     */
+    public function setDatabaseReadonlyLogin(bool $on): string
+    {
+        $password = $on ? bin2hex(random_bytes(16)) : '';
+        if ($this->databaseAgent('readonly', ['password' => $password]) === null) {
+            return '';
+        }
+        $this->site->mergeEdgeMeta(['database' => array_merge($this->site->edgeMeta()['database'] ?? [], ['readonly' => $on])]);
+        $this->site->save();
+        $on ? $this->toastSuccess(__('Read-only login on. Copy the password now; it is not shown again.')) : $this->toastSuccess(__('Read-only login off.'));
+
+        return $password;
+    }
+
+    public function loadDatabaseExports(): void
+    {
+        $this->authorize('update', $this->site);
+        $record = $this->dplyDatabaseRecord();
+        if ($record === null) {
+            return;
+        }
+        try {
+            $this->databaseExports = array_reverse(ValkeyGatewayClient::fromConfig(EdgeDplyDatabase::regionOf($record))->databaseExports((string) $record['remote_id']));
+        } catch (\Throwable $e) {
+            $this->databaseExports = null;
+            $this->databaseInsightsError = $this->databaseAgentMessage($e);
+        }
+    }
+
+    public function exportDatabase(): void
+    {
+        $this->startDatabaseTransfer('export', '');
+    }
+
+    /** Load a file into this database: one it exported, or one uploaded to its imports. */
+    public function importDatabase(string $from, string $file): void
+    {
+        $record = $this->dplyDatabaseRecord();
+        if ($record === null || ! in_array($from, ['exports', 'imports'], true) || preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/', $file) !== 1) {
+            $this->toastError(__('Pick a file to load.'));
+
+            return;
+        }
+        // Built from this database's own id: never a key from the browser.
+        $this->startDatabaseTransfer('import', 'tenants/'.$record['remote_id'].'/'.$from.'/'.$file);
+    }
+
+    /** A curl command that uploads a dump to this database's imports, valid an hour. */
+    public function prepareDatabaseUpload(): void
+    {
+        $this->authorize('update', $this->site);
+        $record = $this->dplyDatabaseRecord();
+        $file = trim($this->databaseImportFile);
+        if ($record === null || preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/', $file) !== 1) {
+            $this->toastError(__('Name the file: letters, digits, dot, dash and underscore.'));
+
+            return;
+        }
+        try {
+            $link = ValkeyGatewayClient::fromConfig(EdgeDplyDatabase::regionOf($record))->databaseUploadLink((string) $record['remote_id'], $file);
+            $this->databaseUploadCommand = 'curl -fT '.escapeshellarg($file).' '.escapeshellarg($link['url']);
+        } catch (\Throwable $e) {
+            $this->toastError($this->databaseAgentMessage($e));
+        }
+    }
+
+    private function startDatabaseTransfer(string $kind, string $key): void
+    {
+        $this->authorize('update', $this->site);
+        $database = $this->dplyDatabaseRecord();
+        if ($database === null) {
+            return;
+        }
+        $running = $database['transfer'] ?? null;
+        // A job lasts at most an hour; past that a "running" row is a dead worker.
+        if (is_array($running) && ($running['status'] ?? '') === 'running' && Carbon::parse($running['started_at'] ?? 'now')->gt(now()->subMinutes(70))) {
+            $this->toastError(__('An export or import is already running.'));
+
+            return;
+        }
+        $this->site->mergeEdgeMeta(['database' => array_merge($database, ['transfer' => ['status' => 'running', 'kind' => $kind, 'file' => basename($key), 'started_at' => now()->toIso8601String()]])]);
+        $this->site->save();
+        TransferEdgeDplyDatabaseJob::dispatch((string) $this->site->id, $kind, $key);
+    }
+
+    /** @param array<string, mixed> $body */
+    private function databaseAgent(string $name, array $body = []): ?array
+    {
+        $this->authorize('update', $this->site);
+        $record = $this->dplyDatabaseRecord();
+        if ($record === null) {
+            return null;
+        }
+        try {
+            return ValkeyGatewayClient::fromConfig(EdgeDplyDatabase::regionOf($record))->action((string) $record['remote_id'], $name, $body);
+        } catch (\Throwable $e) {
+            $this->toastError($this->databaseAgentMessage($e));
+
+            return null;
+        }
+    }
+
+    /**
+     * A gateway or database agent from before insights answers 404: say it
+     * arrives with the update instead of showing "404 page not found".
+     */
+    private function databaseAgentMessage(\Throwable $e): string
+    {
+        $message = trim($e->getMessage());
+        if (preg_match('/\b404\b|page not found|not available for this engine|unknown action/i', $message) === 1) {
+            return __('This arrives with the next database update. A database moves onto it after its next sleep.');
+        }
+        if (preg_match('/timed out|timeout/i', $message) === 1) {
+            return __('The database is still waking up (the first start on a machine can take up to a minute). Try again in a few seconds.');
+        }
+
+        return $message;
     }
 
     /**

@@ -122,6 +122,58 @@ final class ValkeyGatewayClient
         return $this->http()->timeout(25)->get('/tenants/'.$id.'/stats')->throw()->json() ?? [];
     }
 
+    /**
+     * A database's Insights (packages/valkey-gateway/dbagent/insights.go):
+     * stats, top queries, running queries, index and vacuum health,
+     * extensions. $cached never wakes it: a sleeping database answers with
+     * the snapshot taken before it last stopped (awake: false).
+     *
+     * @return array<string, mixed>
+     */
+    public function insights(string $id, bool $cached = false): array
+    {
+        return $this->http()->timeout($cached ? 10 : 45)->get('/tenants/'.$id.'/insights', $cached ? ['cached' => 1] : [])->throw()->json() ?? [];
+    }
+
+    /**
+     * Run a database action: queries-reset, cancel {pid}, extension {name},
+     * readonly {password}, query {sql | collection, filter}, export, import
+     * {key}. Wakes the database. The agent's message comes back as the error.
+     *
+     * @param  array<string, mixed>  $body
+     * @return array<string, mixed>
+     */
+    public function action(string $id, string $name, array $body = []): array
+    {
+        $long = in_array($name, ['export', 'import'], true);
+        $response = $this->http()->timeout($long ? 3600 : 60)->asJson()->post('/tenants/'.$id.'/action/'.$name, (object) $body);
+        if ($response->failed()) {
+            throw new RuntimeException(trim($response->body()) ?: 'The database did not answer ('.$response->status().').');
+        }
+
+        return $response->json() ?? [];
+    }
+
+    /**
+     * This database's exports, newest last, each with an hour-long download link.
+     *
+     * @return list<array{file: string, key: string, bytes: int, at: string, url: string}>
+     */
+    public function databaseExports(string $id): array
+    {
+        return array_values((array) ($this->http()->timeout(10)->get('/tenants/'.$id.'/exports')->throw()->json('exports') ?? []));
+    }
+
+    /**
+     * A signed PUT for tenants/{id}/imports/{file}, valid an hour.
+     *
+     * @return array{key: string, url: string}
+     */
+    public function databaseUploadLink(string $id, string $file): array
+    {
+        return $this->http()->timeout(10)->post('/tenants/'.$id.'/upload-link?file='.rawurlencode($file))->throw()->json();
+    }
+
     public function sleep(string $id): void
     {
         $this->http()->post('/tenants/'.$id.'/sleep')->throw();
