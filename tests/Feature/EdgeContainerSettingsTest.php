@@ -752,3 +752,23 @@ test('warm-containers knocks only on live sites that keep instances awake', func
     Http::assertSent(fn ($request) => $request->url() === 'https://awake.example.test/_dply/warm'
         && $request->header('x-dply-queue-token')[0] === EdgeContainerDeployer::queueToken($awake));
 });
+
+test('an app that keeps its data with dply runs next to it unless it picks a region', function () {
+    config(['edge.valkey.data_region' => 'ENAM']);
+    $app = fn (array $edge): Site => Site::factory()->create(['meta' => ['edge' => array_replace_recursive(['runtime_mode' => 'container'], $edge)]]);
+
+    $postgres = $app(['database' => ['engine' => 'postgres', 'provider' => 'dply']]);
+    $valkey = $app(['connections' => [['kind' => 'redis', 'name' => 'REDIS', 'host' => 'redis.internal', 'target' => 'valkey:x']]]);
+    $chosen = $app(['database' => ['engine' => 'postgres', 'provider' => 'dply'], 'container' => ['regions' => ['WEUR']]]);
+    $eu = $app(['database' => ['engine' => 'postgres', 'provider' => 'dply'], 'container' => ['jurisdiction' => 'eu']]);
+    $sqlite = $app(['database' => ['engine' => 'sql']]);
+
+    expect(EdgeContainerSettings::constraints($postgres))->toBe(['regions' => ['ENAM']])
+        ->and(EdgeContainerSettings::constraints($valkey))->toBe(['regions' => ['ENAM']])
+        ->and(EdgeContainerSettings::constraints($chosen))->toBe(['regions' => ['WEUR']])
+        ->and(EdgeContainerSettings::constraints($eu))->toBe(['jurisdiction' => 'eu'])
+        ->and(EdgeContainerSettings::constraints($sqlite))->toBeNull();
+
+    config(['edge.valkey.data_region' => '']);
+    expect(EdgeContainerSettings::constraints($postgres))->toBeNull();
+});

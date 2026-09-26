@@ -7,6 +7,7 @@ namespace Dply\Laravel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Redis;
 use Throwable;
@@ -35,6 +36,9 @@ class CommandController
         $action = (string) $request->input('command', '');
         if ($action === 'redis-probe') {
             return $this->redisProbe();
+        }
+        if ($action === 'db-probe') {
+            return $this->databaseProbe();
         }
         if ($action === 'queue-size') {
             return $this->queueSizes((string) $request->input('connection', ''), array_values(array_filter(array_map('strval', (array) $request->input('queues', ['default'])))));
@@ -133,6 +137,41 @@ class CommandController
         }
 
         return new JsonResponse(['total' => count($all), 'jobs' => $jobs]);
+    }
+
+    /**
+     * Time the app's own database connection from inside the container, and
+     * say where the container runs: each queue job and most requests make
+     * several round trips, so this is what distance costs.
+     */
+    private function databaseProbe(): JsonResponse
+    {
+        try {
+            $db = DB::connection();
+            $start = hrtime(true);
+            $db->select('select 1');
+            $first = round((hrtime(true) - $start) / 1e6, 1);
+            $times = [];
+            for ($i = 0; $i < 10; $i++) {
+                $start = hrtime(true);
+                $db->select('select 1');
+                $times[] = round((hrtime(true) - $start) / 1e6, 1);
+            }
+            sort($times);
+        } catch (Throwable $e) {
+            return new JsonResponse(['ok' => false, 'error' => $e->getMessage()], 200);
+        }
+
+        return new JsonResponse([
+            'ok' => true,
+            'driver' => $db->getDriverName(),
+            'first_ms' => $first,
+            'rtt_median_ms' => $times[intdiv(count($times), 2)],
+            'rtt_max_ms' => max($times),
+            'region' => (string) (getenv('CLOUDFLARE_REGION') ?: ''),
+            'location' => (string) (getenv('CLOUDFLARE_LOCATION') ?: ''),
+            'country' => (string) (getenv('CLOUDFLARE_COUNTRY_A2') ?: ''),
+        ]);
     }
 
     /**

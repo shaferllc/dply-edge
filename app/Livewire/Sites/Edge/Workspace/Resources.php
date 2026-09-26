@@ -285,7 +285,12 @@ class Resources extends Component
     public function addWorkers(): void
     {
         $this->authorize('update', $this->site);
+        $saved = is_array($this->site->edgeMeta()['container']['workers'] ?? null);
         $this->workers = array_merge(EdgeQueueWorkers::normalize($this->workers), ['enabled' => true]);
+        if (! $saved) {
+            // First time: as many processes as the instance comfortably runs.
+            $this->workers['processes'] = EdgeQueueWorkers::recommendedProcesses($this->site);
+        }
         $this->panel = '';
         $this->refreshPending();
     }

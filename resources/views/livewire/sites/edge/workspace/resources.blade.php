@@ -1615,7 +1615,14 @@
             </div>
             <fieldset>
                 <legend class="text-xs font-semibold text-brand-ink">{{ __('Regions') }}</legend>
-                <p class="mt-1 text-xs text-brand-moss">{{ __('Leave all unchecked to use every region inside the choice above.') }}</p>
+                @php $nearData = $jurisdiction === '' && $regions === [] ? \App\Modules\Edge\Support\EdgeContainerSettings::dataRegion($site) : null; @endphp
+                <p class="mt-1 text-xs text-brand-moss">
+                    @if ($nearData)
+                        {{ __('Unchecked, this app runs in :region, next to its dply database and Valkey: each query is a short round trip instead of one across the continent. Check regions to choose yourself.', ['region' => $nearData.' · '.__(\App\Modules\Edge\Support\EdgeContainerSettings::REGIONS[$nearData])]) }}
+                    @else
+                        {{ __('Leave all unchecked to use every region inside the choice above.') }}
+                    @endif
+                </p>
                 <div class="mt-2 grid gap-2 sm:grid-cols-2">
                     @foreach (\App\Modules\Edge\Support\EdgeContainerSettings::REGIONS as $code => $label)
                         @continue($jurisdiction !== '' && ! in_array($code, \App\Modules\Edge\Support\EdgeContainerSettings::JURISDICTION_REGIONS[$jurisdiction] ?? [], true))

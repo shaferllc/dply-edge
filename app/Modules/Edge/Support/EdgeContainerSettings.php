@@ -239,6 +239,32 @@ final class EdgeContainerSettings
     }
 
     /**
+     * The region an app runs in when it left placement open but uses a dply
+     * database or dply Valkey: next to that data. Every query is a round trip,
+     * and from the other side of the continent one costs ~145 ms instead of
+     * ~13 (measured on waypost: queue throughput went 2 → 6.8 jobs/s). Null
+     * when the app chose regions or a jurisdiction, or keeps no data with dply.
+     */
+    public static function dataRegion(Site $site): ?string
+    {
+        $settings = self::for($site);
+        if ($settings['regions'] !== [] || $settings['jurisdiction'] !== '') {
+            return null;
+        }
+        $region = strtoupper((string) config('edge.valkey.data_region', ''));
+        if (! isset(self::REGIONS[$region])) {
+            return null;
+        }
+        $database = $site->edgeMeta()['database'] ?? [];
+        $dplyDatabase = is_array($database) && ($database['provider'] ?? '') === 'dply'
+            && in_array($database['engine'] ?? '', ['postgres', 'mysql', 'mongodb'], true);
+        $dplyValkey = collect(EdgeContainerConnections::for($site))
+            ->contains(fn (array $c): bool => $c['kind'] === 'redis' && EdgeValkey::isTarget($c['target']));
+
+        return $dplyDatabase || $dplyValkey ? $region : null;
+    }
+
+    /**
      * Wrangler `containers.constraints`. Null when the operator left placement open.
      *
      * @return array{regions?: list<string>, jurisdiction?: string}|null
@@ -249,6 +275,8 @@ final class EdgeContainerSettings
         $constraints = [];
         if ($settings['regions'] !== []) {
             $constraints['regions'] = $settings['regions'];
+        } elseif (($near = self::dataRegion($site)) !== null) {
+            $constraints['regions'] = [$near];
         }
         if ($settings['jurisdiction'] !== '') {
             $constraints['jurisdiction'] = $settings['jurisdiction'];

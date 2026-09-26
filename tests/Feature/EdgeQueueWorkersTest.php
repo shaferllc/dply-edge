@@ -134,6 +134,7 @@ test('queue workers are added, configured and saved with the redeploy', function
         ->assertSee('Queue workers')
         ->call('addWorkers')
         ->assertSet('workers.enabled', true)
+        ->assertSet('workers.processes', 3) // basic, 1 GiB: three per GiB
         ->assertSet('pending', true)
         ->set('workers.instances', 2)
         ->set('workers.queues', 'emails,default')

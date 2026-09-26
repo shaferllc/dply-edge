@@ -302,6 +302,19 @@ final class EdgeQueueWorkers
         return Http::timeout(15)->withHeaders(['x-dply-queue-token' => EdgeContainerDeployer::queueToken($site)]);
     }
 
+    /**
+     * Processes per instance to start with. Queue jobs mostly wait on the
+     * database, Redis or an API, so one instance runs several at once: about
+     * three per GiB, 1 to MAX_PROCESSES.
+     */
+    public static function recommendedProcesses(Site $site): int
+    {
+        $type = EdgeContainerSettings::for($site)['instance_type'];
+        $memoryGib = (float) (EdgeContainerSettings::INSTANCE_TYPES[$type][1] ?? ($site->edgeMeta()['container']['custom_memory_gib'] ?? 1));
+
+        return max(1, min(self::MAX_PROCESSES, (int) floor($memoryGib * 3)));
+    }
+
     /** Estimated cents a month for $instances workers on the app's instance size, always on. */
     public static function monthlyCents(Site $site, int $instances): int
     {
