@@ -119,7 +119,7 @@
                             <p class="max-w-md text-xs text-brand-moss">
                                 {{ __('Measured inside the app at its last deploy, running in :location (:region). Every query pays this; a queue job makes several.', ['location' => $placement['location'] ?: '?', 'region' => $placement['region'] ?: '?']) }}
                                 @if ($far) <span class="font-semibold text-amber-800 dark:text-amber-300">{{ __('That is far: redeploy to be placed again.') }}</span> @endif
-                                @if (($site->edgeMeta()['database']['engine'] ?? '') === 'mysql')
+                                @if (($site->edgeMeta()['database']['engine'] ?? '') === 'mysql' && ! $site->edgeEnvVars()->where('key', 'DPLY_MYSQL_ONE_ROUND_TRIP')->exists())
                                     {{ __('MySQL queries take two round trips. Set DPLY_MYSQL_ONE_ROUND_TRIP=true in Environment and redeploy to send each in one: parameters are then escaped into the query by PHP instead of bound by MySQL.') }}
                                 @endif
                             </p>
