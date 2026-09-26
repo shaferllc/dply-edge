@@ -221,7 +221,7 @@ test('invalid sizes are rejected', function () {
 test('logs load from workers observability for the container script', function () {
     config(['edge.cloudflare.account_id' => 'acct', 'edge.cloudflare.api_token' => 'tok']);
     [$user, $server, $site] = containerSite();
-    Http::fake(['api.cloudflare.com/client/v4/accounts/acct/workers/observability/telemetry/query' => Http::response(['success' => true, 'result' => ['events' => ['events' => [
+    Http::fake(['api.cloudflare.com/client/v4/accounts/acct/containers/applications' => Http::response(['success' => true, 'result' => []]), 'api.cloudflare.com/client/v4/accounts/acct/workers/observability/telemetry/query' => Http::response(['success' => true, 'result' => ['events' => ['events' => [
         ['timestamp' => 1_757_000_000_000, '$metadata' => ['message' => 'Laravel booted', 'level' => 'info', 'service' => 'dply-ctr-x']],
         ['timestamp' => 1_757_000_001_000, '$metadata' => ['message' => 'SQLSTATE connection refused', 'level' => 'error']],
     ]]]])]);
@@ -233,7 +233,7 @@ test('logs load from workers observability for the container script', function (
         ->assertSee('Laravel booted')
         ->assertSee('SQLSTATE connection refused');
 
-    Http::assertSent(fn ($request) => $request['parameters']['filters'][0]['value'] === 'dply-ctr-'.strtolower((string) $site->id));
+    Http::assertSent(fn ($request) => str_ends_with($request->url(), '/telemetry/query') && $request['parameters']['filters'][0]['value'] === 'dply-ctr-'.strtolower((string) $site->id));
 });
 
 test('state is one durable object the app calls by host', function () {

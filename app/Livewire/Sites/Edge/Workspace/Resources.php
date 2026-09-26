@@ -22,6 +22,7 @@ use App\Modules\Billing\Services\EdgeContainerComputeCost;
 use App\Modules\Billing\Services\EdgeDataUsageCost;
 use App\Modules\Billing\Services\EdgeDeliveryCost;
 use App\Modules\Billing\Services\EdgeKvCost;
+use App\Modules\Edge\Console\ScaleEdgeQueueWorkersCommand;
 use App\Modules\Edge\Jobs\RestoreEdgeDplyPostgresJob;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Services\EdgeAppDatabase;
@@ -42,6 +43,7 @@ use App\Support\Http\UnsafeOutboundUrlException;
 use App\Support\Sites\EdgeSiteViewData;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Livewire\Component;
 
@@ -98,6 +100,15 @@ class Resources extends Component
 
     /** @var list<array{name: string, status: string, since: ?int, exit_code: ?int}>|null */
     public ?array $workersStatus = null;
+
+    /** @var array{total: int, jobs: list<array<string, mixed>>}|null */
+    public ?array $failedJobs = null;
+
+    public ?string $failedJobsError = null;
+
+    public ?string $failedJobsNotice = null;
+
+    public bool $confirmFlushFailed = false;
 
     public ?string $workersStatusError = null;
 
@@ -335,15 +346,120 @@ class Resources extends Component
         }
     }
 
+    /** @var list<array{at: ?string, level: string, message: string}>|null */
+    public ?array $workerLogs = null;
+
+    public ?string $workerLogsError = null;
+
+    public function openWorkerLogs(): void
+    {
+        $this->panel = 'worker-logs';
+        $this->loadWorkerLogs();
+    }
+
+    public function loadWorkerLogs(): void
+    {
+        $this->authorize('view', $this->site);
+        try {
+            $this->workerLogs = EdgeQueueWorkers::logs($this->site);
+            $this->workerLogsError = null;
+        } catch (\Throwable $e) {
+            $this->workerLogs = null;
+            $this->workerLogsError = $e->getMessage();
+        }
+    }
+
+    /** The failed jobs panel: the app's own failed-job store, read through the live app. */
+    public function openFailedJobs(): void
+    {
+        $this->authorize('view', $this->site);
+        $this->panel = 'failed-jobs';
+        $this->confirmFlushFailed = false;
+        $this->failedJobsNotice = null;
+        $this->loadFailedJobs();
+    }
+
+    public function loadFailedJobs(): void
+    {
+        $this->authorize('view', $this->site);
+        $this->failedJobsError = null;
+        try {
+            $body = $this->appCommand('failed-jobs');
+            $this->failedJobs = ['total' => (int) ($body['total'] ?? 0), 'jobs' => array_values(array_filter((array) ($body['jobs'] ?? []), 'is_array'))];
+        } catch (\Throwable $e) {
+            $this->failedJobs = null;
+            $this->failedJobsError = $e->getMessage();
+        }
+    }
+
+    /** Retry one failed job, or every one when $id is null. */
+    public function retryFailedJobs(?string $id = null): void
+    {
+        $this->authorize('update', $this->site);
+        $this->runFailedJobsAction('retry', $id === null ? [] : [$id], $id === null ? __('Every failed job is back on its queue.') : __('The job is back on its queue.'));
+    }
+
+    public function forgetFailedJob(string $id): void
+    {
+        $this->authorize('update', $this->site);
+        $this->runFailedJobsAction('forget', [$id], __('Deleted the failed job.'));
+    }
+
+    public function flushFailedJobs(): void
+    {
+        $this->authorize('update', $this->site);
+        if (! $this->confirmFlushFailed) {
+            $this->confirmFlushFailed = true;
+
+            return;
+        }
+        $this->confirmFlushFailed = false;
+        $this->runFailedJobsAction('flush-failed', [], __('Deleted every failed job.'));
+    }
+
+    /** @param  list<string>  $ids */
+    private function runFailedJobsAction(string $command, array $ids, string $done): void
+    {
+        $this->failedJobsError = null;
+        try {
+            $this->appCommand($command, ['ids' => $ids]);
+            $this->failedJobsNotice = $done;
+        } catch (\Throwable $e) {
+            $this->failedJobsError = $e->getMessage();
+
+            return;
+        }
+        $this->loadFailedJobs();
+        $this->workersBacklog = null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $input
+     * @return array<string, mixed>
+     */
+    private function appCommand(string $command, array $input = []): array
+    {
+        return EdgeQueueWorkers::command($this->site, $command, $input);
+    }
+
     public function startWorkers(): void
     {
         $this->authorize('update', $this->site);
         try {
-            EdgeQueueWorkers::start($this->site);
-            $this->toastSuccess(__('Starting the workers. Check again in a few seconds.'));
+            $failed = collect(EdgeQueueWorkers::start($this->site))->reject(fn (array $w): bool => $w['ok']);
         } catch (\Throwable $e) {
-            $this->toastError(__('Could not start the workers: :error', ['error' => $e->getMessage()]));
+            $this->toastError(__('Could not reach the app to start the workers: :error', ['error' => $e->getMessage()]));
+
+            return;
         }
+        if ($failed->isNotEmpty()) {
+            $this->workersStatusError = $failed->map(fn (array $w): string => $w['name'].': '.($w['error'] ?? __('did not start')))->implode(' · ');
+            $this->toastError(__('Some workers did not start.'));
+
+            return;
+        }
+        $this->toastSuccess(__('Workers started.'));
+        $this->loadWorkersStatus();
     }
 
     /** Database panel: gateway state (never wakes it) and the agent's backup report. */
@@ -626,7 +742,7 @@ class Resources extends Component
 
     public function openPanel(string $panel): void
     {
-        if ($panel !== '' && ! in_array($panel, ['sleep', 'cache', 'databases', 'connection', 'delete-connection', 'browser', 'estimate'], true)) {
+        if ($panel !== '' && ! in_array($panel, ['sleep', 'cache', 'databases', 'connection', 'delete-connection', 'browser', 'estimate', 'failed-jobs', 'worker-logs'], true)) {
             return;
         }
 
@@ -1224,6 +1340,19 @@ class Resources extends Component
         }
 
         return $owners;
+    }
+
+    /**
+     * Workers on the database queue keep a sleeping database awake. Queue on
+     * dply Valkey instead: point the workers at Redis and open its setup.
+     */
+    public function useValkeyForWorkers(): void
+    {
+        $this->authorize('update', $this->site);
+        $this->workers['connection'] = 'redis';
+        $this->panel = 'connection';
+        $this->chooseConnectionKind('redis');
+        $this->refreshPending();
     }
 
     public function chooseConnectionKind(string $kind): void
@@ -2048,6 +2177,8 @@ class Resources extends Component
                 'workersUnavailable' => EdgeQueueWorkers::unavailableReason($this->site),
                 'workersConnection' => EdgeQueueWorkers::connection($this->site, (string) (EdgeQueueWorkers::normalize($this->workers)['connection'])),
                 'workersMonthlyCents' => EdgeQueueWorkers::monthlyCents($this->site, EdgeQueueWorkers::normalize($this->workers)['instances']),
+                'workersMaxMonthlyCents' => EdgeQueueWorkers::monthlyCents($this->site, EdgeQueueWorkers::normalize($this->workers)['max_instances']),
+                'workersScaler' => Cache::get(ScaleEdgeQueueWorkersCommand::stateKey($this->site)),
                 'databaseUsage' => $this->dplyDatabaseRecord() !== null ? $this->databaseUsage() : null,
                 'deployments' => $this->site->edgeDeployments()->orderByDesc('created_at')->limit(5)->get(),
             ],

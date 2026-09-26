@@ -8,6 +8,7 @@ use App\Models\Site;
 use App\Modules\Billing\Services\EdgeContainerComputeCost;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Services\EdgeAppDatabase;
+use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 
@@ -31,7 +32,7 @@ final class EdgeQueueWorkers
     public const CONNECTIONS = ['auto', 'redis', 'database'];
 
     /**
-     * @return array{enabled: bool, instances: int, processes: int, connection: string, queues: string, timeout: int, tries: int, sleep: int, memory: int, max_time: int}
+     * @return array{enabled: bool, instances: int, processes: int, connection: string, queues: string, timeout: int, tries: int, sleep: int, memory: int, max_time: int, autoscale: bool, max_instances: int, scale_per: int}
      */
     public static function for(Site $site): array
     {
@@ -42,7 +43,7 @@ final class EdgeQueueWorkers
 
     /**
      * @param  array<string, mixed>  $raw
-     * @return array{enabled: bool, instances: int, processes: int, connection: string, queues: string, timeout: int, tries: int, sleep: int, memory: int, max_time: int}
+     * @return array{enabled: bool, instances: int, processes: int, connection: string, queues: string, timeout: int, tries: int, sleep: int, memory: int, max_time: int, autoscale: bool, max_instances: int, scale_per: int}
      */
     public static function normalize(array $raw): array
     {
@@ -52,9 +53,11 @@ final class EdgeQueueWorkers
             explode(',', (string) ($raw['queues'] ?? 'default')),
         )));
 
+        $instances = max(1, min(self::MAX_INSTANCES, (int) ($raw['instances'] ?? 1)));
+
         return [
             'enabled' => (bool) ($raw['enabled'] ?? false),
-            'instances' => max(1, min(self::MAX_INSTANCES, (int) ($raw['instances'] ?? 1))),
+            'instances' => $instances,
             'processes' => max(1, min(self::MAX_PROCESSES, (int) ($raw['processes'] ?? 1))),
             'connection' => in_array($connection, self::CONNECTIONS, true) ? $connection : 'auto',
             'queues' => $queues !== '' ? $queues : 'default',
@@ -64,15 +67,40 @@ final class EdgeQueueWorkers
             'memory' => max(64, min(2048, (int) ($raw['memory'] ?? 128))),
             // Workers restart after this long so a leak or stale config cannot build up.
             'max_time' => max(60, min(86400, (int) ($raw['max_time'] ?? 3600))),
+            // Autoscaling: `instances` always run; up to `max_instances` start
+            // while more than `scale_per` jobs wait per worker process.
+            'autoscale' => (bool) ($raw['autoscale'] ?? false),
+            'max_instances' => max($instances, min(self::MAX_INSTANCES, (int) ($raw['max_instances'] ?? $instances))),
+            'scale_per' => max(1, min(1000, (int) ($raw['scale_per'] ?? 10))),
         ];
     }
 
-    /** Instances to keep running: 0 when off or when workers cannot run here. */
+    /**
+     * Worker instances the app is deployed with (the most that can run):
+     * 0 when off or when workers cannot run here.
+     */
     public static function runningInstances(Site $site): int
     {
         $settings = self::for($site);
+        if (! $settings['enabled'] || self::unavailableReason($site) !== null) {
+            return 0;
+        }
 
-        return $settings['enabled'] && self::unavailableReason($site) === null ? $settings['instances'] : 0;
+        return $settings['autoscale'] ? $settings['max_instances'] : $settings['instances'];
+    }
+
+    /**
+     * Worker instances to run for a backlog: enough that each process has
+     * at most `scale_per` waiting jobs, between the always-on count and the
+     * maximum.
+     *
+     * @param  array{instances: int, max_instances: int, processes: int, scale_per: int}  $settings
+     */
+    public static function targetInstances(array $settings, int $backlog): int
+    {
+        $needed = (int) ceil($backlog / ($settings['processes'] * $settings['scale_per']));
+
+        return max($settings['instances'], min($settings['max_instances'], $needed));
     }
 
     /**
@@ -104,6 +132,9 @@ final class EdgeQueueWorkers
         }
         if (self::connection($site, 'auto') === null) {
             return __('Workers pull jobs from Redis or a database both the app and the workers can reach. Add dply Valkey or a Postgres or MySQL database first. SQLite lives inside one container.');
+        }
+        if (self::connection($site) === null) {
+            return __('Workers are set to pull from :connection, which this app does not have yet.', ['connection' => self::for($site)['connection']]);
         }
 
         return null;
@@ -137,7 +168,7 @@ final class EdgeQueueWorkers
      * healthy, stopping, stopped or stopped_with_code). Reading it never
      * starts one.
      *
-     * @return list<array{name: string, status: string, since: ?int, exit_code: ?int}>
+     * @return list<array{name: string, status: string, since: ?int, exit_code: ?int, wanted: bool}>
      */
     public static function status(Site $site): array
     {
@@ -148,13 +179,98 @@ final class EdgeQueueWorkers
             'status' => (string) ($row['status'] ?? 'unknown'),
             'since' => isset($row['lastChange']) ? intdiv((int) $row['lastChange'], 1000) : null,
             'exit_code' => isset($row['exitCode']) ? (int) $row['exitCode'] : null,
+            'wanted' => (bool) ($row['wanted'] ?? true),
         ], array_filter(is_array($rows) ? $rows : [], 'is_array')));
     }
 
-    /** Start any stopped workers now instead of at the next scheduled warm. */
-    public static function start(Site $site): void
+    /**
+     * Start any stopped workers now instead of at the next scheduled warm,
+     * and report each one's outcome (Cloudflare's reason when it fails).
+     *
+     * @return list<array{name: string, ok: bool, error: ?string}>
+     */
+    public static function start(Site $site): array
     {
-        self::internal($site)->post(rtrim((string) $site->edgeLiveUrl(), '/').'/_dply/warm')->throw();
+        $rows = Http::timeout(60)->withHeaders(['x-dply-queue-token' => EdgeContainerDeployer::queueToken($site)])
+            ->post(rtrim((string) $site->edgeLiveUrl(), '/').'/_dply/workers/start')->throw()->json();
+
+        return array_values(array_map(static fn (array $row): array => [
+            'name' => (string) ($row['name'] ?? ''),
+            'ok' => (bool) ($row['ok'] ?? false),
+            'error' => isset($row['error']) ? (string) $row['error'] : null,
+        ], array_filter(is_array($rows) ? $rows : [], 'is_array')));
+    }
+
+    /**
+     * Run the first $count workers and stop the rest (stopping lets the
+     * running job finish).
+     *
+     * @return list<array{name: string, wanted: bool, ok: bool, error: ?string}>
+     */
+    public static function scale(Site $site, int $count): array
+    {
+        $rows = self::internal($site)->post(rtrim((string) $site->edgeLiveUrl(), '/').'/_dply/workers/scale', ['count' => $count])->throw()->json();
+
+        return array_values(array_map(static fn (array $row): array => [
+            'name' => (string) ($row['name'] ?? ''),
+            'wanted' => (bool) ($row['wanted'] ?? false),
+            'ok' => (bool) ($row['ok'] ?? false),
+            'error' => isset($row['error']) ? (string) $row['error'] : null,
+        ], array_filter(is_array($rows) ? $rows : [], 'is_array')));
+    }
+
+    /**
+     * Recent worker output from the app's Workers Logs, newest first:
+     * supervisor lines ("[dply-worker worker-N] …") and queue:work's job
+     * lines (… RUNNING / DONE / FAIL).
+     *
+     * @return list<array{at: ?string, level: string, message: string}>
+     */
+    public static function logs(Site $site, int $minutes = 60): array
+    {
+        $client = EdgeCloudflareClient::fromConfig();
+        $events = $client->workerLogs(EdgeContainerDeployer::logServices($site, $client), $minutes, 1000);
+
+        return array_values(array_filter(
+            $events,
+            static fn (array $e): bool => preg_match('/\[dply-worker |\s(RUNNING|DONE|FAIL)\s*$/', $e['message']) === 1,
+        ));
+    }
+
+    /** Jobs waiting on the workers' queues, as the app itself counts them. */
+    public static function backlog(Site $site): int
+    {
+        $settings = self::for($site);
+        $body = self::command($site, 'queue-size', ['connection' => (string) self::connection($site), 'queues' => explode(',', $settings['queues'])]);
+
+        return (int) ($body['total'] ?? 0);
+    }
+
+    /**
+     * Run an allowlisted command in the live app (dply/laravel's
+     * /_dply/command) and return its JSON.
+     *
+     * @param  array<string, mixed>  $input
+     * @return array<string, mixed>
+     */
+    public static function command(Site $site, string $command, array $input = []): array
+    {
+        $url = $site->edgeLiveUrl();
+        if (! is_string($url) || $url === '') {
+            throw new \RuntimeException(__('This app has no live URL yet. Deploy it first.'));
+        }
+        $response = Http::timeout(60)
+            ->withHeaders(['x-dply-queue-token' => EdgeContainerDeployer::queueToken($site)])
+            ->post(rtrim($url, '/').'/_dply/command', ['command' => $command] + $input);
+        $body = $response->json();
+        if ($response->status() === 422) {
+            throw new \RuntimeException(__('The app has an older dply package. Redeploy it to use this.'));
+        }
+        if (! $response->successful() || ! is_array($body)) {
+            throw new \RuntimeException(is_array($body) && isset($body['error']) ? (string) $body['error'] : __('The app answered HTTP :status.', ['status' => $response->status()]));
+        }
+
+        return $body;
     }
 
     private static function internal(Site $site): PendingRequest

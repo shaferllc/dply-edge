@@ -7,6 +7,7 @@ namespace Dply\Laravel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Redis;
 use Throwable;
 
@@ -35,6 +36,12 @@ class CommandController
         if ($action === 'redis-probe') {
             return $this->redisProbe();
         }
+        if ($action === 'queue-size') {
+            return $this->queueSizes((string) $request->input('connection', ''), array_values(array_filter(array_map('strval', (array) $request->input('queues', ['default'])))));
+        }
+        if (in_array($action, ['failed-jobs', 'retry', 'forget', 'flush-failed'], true)) {
+            return $this->failedJobs($action, array_values(array_filter(array_map('strval', (array) $request->input('ids', [])))));
+        }
         $command = self::COMMANDS[$action] ?? null;
         if ($command === null) {
             return new JsonResponse(['error' => 'Unknown command.'], 422);
@@ -55,6 +62,77 @@ class CommandController
             'exit' => $exit,
             'output' => mb_substr(Artisan::output(), -4000),
         ], $exit === 0 ? 200 : 500);
+    }
+
+    /**
+     * Jobs waiting per queue on a connection (the app's default when blank),
+     * for dply's worker autoscaler. Works for every queue driver.
+     *
+     * @param  list<string>  $queues
+     */
+    private function queueSizes(string $connection, array $queues): JsonResponse
+    {
+        try {
+            $queue = Queue::connection($connection !== '' ? $connection : null);
+            $sizes = [];
+            foreach ($queues as $name) {
+                $sizes[$name] = (int) $queue->size($name);
+            }
+        } catch (Throwable $e) {
+            return new JsonResponse(['error' => $e->getMessage()], 500);
+        }
+
+        return new JsonResponse(['sizes' => $sizes, 'total' => array_sum($sizes)]);
+    }
+
+    /**
+     * Failed jobs from the app's own failed-job store, whatever its driver:
+     * list (newest first, 50), retry or forget some (or all), or flush.
+     *
+     * @param  list<string>  $ids
+     */
+    private function failedJobs(string $action, array $ids): JsonResponse
+    {
+        try {
+            if ($action === 'retry') {
+                $exit = Artisan::call('queue:retry', ['id' => $ids === [] ? ['all'] : $ids]);
+            } elseif ($action === 'forget') {
+                foreach ($ids as $id) {
+                    Artisan::call('queue:forget', ['id' => $id]);
+                }
+                $exit = 0;
+            } elseif ($action === 'flush-failed') {
+                $exit = Artisan::call('queue:flush');
+            }
+            if (isset($exit)) {
+                return new JsonResponse(['exit' => $exit, 'output' => mb_substr(Artisan::output(), -4000)], $exit === 0 ? 200 : 500);
+            }
+
+            $failer = app('queue.failer');
+            $all = $failer->all();
+            $jobs = [];
+            foreach (array_slice($all, 0, 50) as $job) {
+                $job = (array) $job;
+                $payload = json_decode((string) ($job['payload'] ?? ''), true);
+                $exception = (string) ($job['exception'] ?? '');
+                $jobs[] = [
+                    'id' => (string) ($job['uuid'] ?? $job['id'] ?? ''),
+                    'name' => is_array($payload) ? (string) ($payload['displayName'] ?? $payload['job'] ?? '') : '',
+                    'connection' => (string) ($job['connection'] ?? ''),
+                    'queue' => (string) ($job['queue'] ?? ''),
+                    'failed_at' => (string) ($job['failed_at'] ?? ''),
+                    'attempts' => is_array($payload) ? (int) ($payload['attempts'] ?? 0) : 0,
+                    'error' => strtok($exception, "\n") ?: '',
+                    'trace' => mb_substr($exception, 0, 3000),
+                ];
+            }
+        } catch (Throwable $e) {
+            report($e);
+
+            return new JsonResponse(['error' => $e->getMessage()], 500);
+        }
+
+        return new JsonResponse(['total' => count($all), 'jobs' => $jobs]);
     }
 
     /**

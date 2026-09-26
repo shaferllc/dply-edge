@@ -573,14 +573,20 @@ final class EdgeContainerDockerfile
         $lines[] = is_file($checkout.'/composer.lock')
             ? 'COPY composer.json composer.lock ./'
             : 'COPY composer.json ./';
-        if ($injectLaravel && $laravel && ! self::composerRequires($checkout, 'dply/laravel')) {
+        $inject = $injectLaravel && $laravel && ! self::composerRequires($checkout, 'dply/laravel');
+        if ($inject) {
             self::stageLaravelPackage($checkout);
             $lines[] = 'COPY dply-laravel /opt/dply/laravel';
-            $lines[] = self::cachedRun('composer config repositories.dply \'{"type":"path","url":"/opt/dply/laravel","options":{"symlink":false}}\' && composer require dply/laravel:^1.0 --no-dev --no-interaction --no-progress --no-scripts --no-plugins --no-install && composer install --no-dev --no-interaction --no-progress --no-scripts --no-autoloader', '/root/.composer/cache');
+            // Keep the edited composer.json/lock: COPY . . below brings back
+            // the app's own, and the autoloader is dumped from those.
+            $lines[] = self::cachedRun('composer config repositories.dply \'{"type":"path","url":"/opt/dply/laravel","options":{"symlink":false}}\' && composer require dply/laravel:^1.0 --update-no-dev --no-interaction --no-progress --no-scripts --no-plugins --no-install && composer install --no-dev --no-interaction --no-progress --no-scripts --no-autoloader && cp composer.json composer.lock /opt/dply/', '/root/.composer/cache');
         } else {
             $lines[] = self::cachedRun('composer install --no-dev --no-interaction --no-progress --no-scripts --no-autoloader', '/root/.composer/cache');
         }
         $lines[] = 'COPY . .';
+        if ($inject) {
+            $lines[] = 'RUN cp /opt/dply/composer.json /opt/dply/composer.lock ./';
+        }
         if ($assets !== null) {
             $lines[] = 'COPY --from=assets /app/public /app/public';
         }
@@ -656,15 +662,21 @@ final class EdgeContainerDockerfile
         // DPLY_ROLE=worker, runs N queue:work loops instead of the web server.
         // On TERM the shell stops relaunching and every worker gets TERM,
         // which lets queue:work finish its current job before exiting.
+        // Supervisor lines start "[dply-worker worker-N]" so the workspace can
+        // pick worker output out of the app's logs (EdgeQueueWorkers::logs).
         $worker = 'if [ "$DPLY_ROLE" = "worker" ]; then '
-            .'trap \'trap "" TERM; kill -TERM 0; wait; exit 0\' TERM INT; '
+            .'w="[dply-worker ${DPLY_WORKER_NAME:-worker}]"; '
+            .'echo "$w starting ${DPLY_WORKER_PROCESSES:-1} x queue:work $DPLY_WORKER_CONNECTION --queue=${DPLY_WORKER_QUEUES:-default}"; '
+            .'trap \'echo "$w stopping after current jobs"; trap "" TERM; kill -TERM 0; wait; exit 0\' TERM INT; '
             .'i=0; while [ "$i" -lt "${DPLY_WORKER_PROCESSES:-1}" ]; do '
             // Each loop waits out its php on TERM (dash would otherwise die at
             // once and PID 1 exit, killing the job mid-run) and stops relaunching.
-            .'(trap "stop=1" TERM; while [ -z "$stop" ]; do php artisan queue:work "$DPLY_WORKER_CONNECTION" --queue="${DPLY_WORKER_QUEUES:-default}" '
+            .'(trap "stop=1" TERM; while [ -z "$stop" ]; do t=$(date +%s); php artisan queue:work "$DPLY_WORKER_CONNECTION" --queue="${DPLY_WORKER_QUEUES:-default}" '
             .'--sleep="${DPLY_WORKER_SLEEP:-3}" --tries="${DPLY_WORKER_TRIES:-3}" --timeout="${DPLY_WORKER_TIMEOUT:-60}" '
-            .'--memory="${DPLY_WORKER_MEMORY:-128}" --max-time="${DPLY_WORKER_MAX_TIME:-3600}" & p=$!; wait $p; wait $p 2>/dev/null; '
-            .'[ -z "$stop" ] && sleep 1; done) & '
+            .'--memory="${DPLY_WORKER_MEMORY:-128}" --max-time="${DPLY_WORKER_MAX_TIME:-3600}" & p=$!; wait $p; c=$?; wait $p 2>/dev/null; '
+            // A worker that dies on boot (bad config, missing class) backs
+            // off instead of restarting every second.
+            .'if [ -z "$stop" ]; then if [ $(($(date +%s) - t)) -lt 10 ]; then echo "$w queue:work exited ($c) within 10s, retrying in 5s"; sleep 5; else echo "$w queue:work exited ($c), restarting"; sleep 1; fi; fi; done) & '
             .'i=$((i+1)); done; wait; exit 0; fi; ';
         $boot = $laravel
             ? $worker.$sqlite.'if [ "$DPLY_MIGRATE_ON_BOOT" = "1" ]; then php artisan migrate --force --isolated || php artisan migrate --force || true; fi; '.$start

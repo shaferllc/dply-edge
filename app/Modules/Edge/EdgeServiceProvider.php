@@ -27,6 +27,7 @@ use App\Modules\Edge\Console\PruneEdgeAnalyticsCommand;
 use App\Modules\Edge\Console\PublishEdgeBaseImagesCommand;
 use App\Modules\Edge\Console\ReapStuckEdgeBuildsCommand;
 use App\Modules\Edge\Console\RollupEdgeAnalyticsEngineCommand;
+use App\Modules\Edge\Console\ScaleEdgeQueueWorkersCommand;
 use App\Modules\Edge\Console\WarmEdgeBuildImagesCommand;
 use App\Modules\Edge\Console\WarmEdgeContainersCommand;
 use App\Modules\Edge\Livewire\BuildJourney;
@@ -80,6 +81,7 @@ class EdgeServiceProvider extends ServiceProvider
                 RollupEdgeAnalyticsEngineCommand::class,
                 WarmEdgeBuildImagesCommand::class,
                 WarmEdgeContainersCommand::class,
+                ScaleEdgeQueueWorkersCommand::class,
             ]);
         }
     }

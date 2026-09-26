@@ -159,6 +159,11 @@ class EdgeContainerDeployer
         if (EdgeContainerSettings::for($site)['scheduler']) {
             return true;
         }
+        // The workspace's database tools (migrate, status, seed) and queue
+        // workers (failed jobs, autoscaling) run through /_dply/command.
+        if (($site->edgeMeta()['database']['engine'] ?? '') !== '' || EdgeQueueWorkers::for($site)['enabled']) {
+            return true;
+        }
         foreach (EdgeContainerConnections::for($site) as $connection) {
             if ($connection['asleep']) {
                 continue;
@@ -188,6 +193,29 @@ class EdgeContainerDeployer
             || ($settings['worker_instances'] ?? 0) > 0
             || ($settings['dedicated_jobs'] && $settings['jobs_always_on'])
             || array_filter($settings['schedules'], static fn (array $w): bool => $w['min'] > 0) !== [];
+    }
+
+    /**
+     * Where a container app's logs are: its Worker script, and the container
+     * applications wrangler named after it (their stdout/stderr).
+     *
+     * @return list<string>
+     */
+    public static function logServices(Site $site, EdgeCloudflareClient $client): array
+    {
+        $script = self::scriptName($site);
+        $services = [$script];
+        try {
+            foreach ($client->listContainerApplications() as $application) {
+                if ($application['id'] !== '' && str_starts_with($application['name'], $script)) {
+                    $services[] = $application['id'];
+                }
+            }
+        } catch (Throwable) {
+            // A token without Containers Read still shows the Worker's logs.
+        }
+
+        return $services;
     }
 
     /** Shared secret between the site Worker and the app for /_dply/* calls. */
@@ -584,6 +612,8 @@ class EdgeContainerDeployer
             '__STICKY__' => $settings['sticky_sessions'] ? 'true' : 'false',
             '__DEDICATED_JOBS__' => $settings['dedicated_jobs'] ? 'true' : 'false',
             '__WORKERS__' => (string) $settings['worker_instances'],
+            '__WORKERS_MIN__' => (string) min($settings['worker_instances'], EdgeQueueWorkers::for($site)['instances']),
+            '__WORKERS_AUTOSCALE__' => $settings['worker_instances'] > 0 && EdgeQueueWorkers::for($site)['autoscale'] ? 'true' : 'false',
             '__WORKER_ENV__' => json_encode((object) ($settings['worker_instances'] > 0 ? EdgeQueueWorkers::env($site) : []), JSON_UNESCAPED_SLASHES),
             '__FPM_CHILDREN__' => (string) EdgeContainerSettings::phpFpmPool($settings['instance_type'], $site)['max_children'],
             '__FPM_LIMIT__' => json_encode(EdgeContainerSettings::phpFpmPool($settings['instance_type'], $site)['memory_limit']),
@@ -644,7 +674,9 @@ const CONNECTIONS = __CONNECTIONS__;
 const QSTASH_TOKEN = __QSTASH_TOKEN__;
 const DELIVERY_USAGE_URL = __DELIVERY_USAGE_URL__;
 
-const WORKERS = __WORKERS__;
+const WORKERS = __WORKERS__; // the most that can run
+const WORKERS_MIN = __WORKERS_MIN__; // always on; the rest start while dply's autoscaler wants them
+const WORKERS_AUTOSCALE = __WORKERS_AUTOSCALE__;
 const WORKER_ENV = __WORKER_ENV__;
 function isWorker(name) { return typeof name === 'string' && name.startsWith('worker-'); }
 
@@ -690,14 +722,41 @@ export class App extends Container {
     });
     // Queue workers are App instances named worker-N. Whoever starts one
     // (warm, or the platform after a restart), it boots in worker mode.
-    if (isWorker(ctx.id.name)) Object.assign(this.envVars, WORKER_ENV);
+    if (isWorker(ctx.id.name)) Object.assign(this.envVars, WORKER_ENV, { DPLY_WORKER_NAME: ctx.id.name });
   }
 
-  // Queue workers run queue:work, not a web server: start without waiting for a port.
+  // Queue workers run queue:work, not a web server: start without waiting
+  // for a port. Each remembers whether it is wanted: the first WORKERS_MIN
+  // always are; the autoscaler turns the rest on and off.
+  async wanted(index) {
+    const flag = await this.ctx.storage.get('dply:wanted');
+    return flag ?? Number(String(index).slice(7)) < WORKERS_MIN;
+  }
+
   async startWorker(index) {
     await this.remember(index);
+    await this.ctx.storage.put('dply:wanted', true);
     if (this.container.running) return;
     await this.start({ envVars: this.envVars });
+  }
+
+  // SIGTERM: the supervisor lets the running job finish, then exits.
+  async stopWorker(index) {
+    await this.remember(index);
+    await this.ctx.storage.put('dply:wanted', false);
+    if (this.container.running) await this.stop('SIGTERM');
+  }
+
+  // Bring back a wanted worker Cloudflare restarted.
+  async resumeWorker(index) {
+    await this.remember(index);
+    if (!(await this.wanted(index)) || this.container.running) return;
+    await this.start({ envVars: this.envVars });
+  }
+
+  async workerState(index) {
+    await this.remember(index);
+    return { ...(await this.getState()), wanted: await this.wanted(index) };
   }
 
   // Autoscaling. The Worker asks instance-0, instance-1, … in order and
@@ -731,7 +790,7 @@ export class App extends Container {
   async onActivityExpired() {
     const index = this.index ?? (await this.ctx.storage.get('dply:index'));
     const keep = index === 'jobs' ? JOBS_ALWAYS_ON
-      : isWorker(index) ? Number(String(index).slice(7)) < WORKERS
+      : isWorker(index) ? Number(String(index).slice(7)) < WORKERS && (await this.wanted(index))
       : typeof index === 'number' && index < limits().min;
     // A paused site (usage credit used up) lets its always-on instances sleep.
     if (keep && (await trafficOpen(this.env))) return;
@@ -990,7 +1049,9 @@ async function warm(env) {
       await container.remember(index);
       await container.startAndWaitForPorts({ ports: [__PORT__], cancellationOptions: { portReadyTimeoutMS: 45000 } });
     }),
-    ...workers.map((name) => getContainer(env.APP, name).startWorker(name)),
+    // Without autoscaling every worker is always on (this also clears a
+    // flag left from when the app autoscaled).
+    ...workers.map((name) => WORKERS_AUTOSCALE ? getContainer(env.APP, name).resumeWorker(name) : getContainer(env.APP, name).startWorker(name)),
   ]);
 }
 
@@ -1012,7 +1073,7 @@ async function trafficOpen(env) {
 // A rollout or a cold start can exit the process before the port is open.
 // container.fetch turns that into a 500 ("not running, consider calling start()")
 // on the first try. Start again and give FrankenPHP time to listen.
-function httpRequest(request) {
+function httpRequest(request, body) {
   const url = new URL(request.url);
   url.protocol = 'http:';
   const init = {
@@ -1020,13 +1081,20 @@ function httpRequest(request) {
     headers: new Headers(request.headers),
     redirect: 'manual',
   };
-  if (request.method !== 'GET' && request.method !== 'HEAD') init.body = request.body;
+  if (request.method !== 'GET' && request.method !== 'HEAD') init.body = body ?? request.body;
   return new Request(url, init);
 }
 
 async function proxy(env, request, target) {
+  // A retry needs the body again, and a stream can only be read once: buffer
+  // small bodies (forms, JSON, dply's own commands); stream large uploads and
+  // do not retry them.
+  const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
+  const retryable = !hasBody || Number(request.headers.get('content-length') ?? Infinity) <= 1048576;
+  const body = hasBody && retryable ? await request.arrayBuffer() : undefined;
   // The public URL stays HTTPS. The container only accepts HTTP on this hop.
-  request = httpRequest(request);
+  const fresh = () => httpRequest(request, body);
+  request = fresh();
   const container = target.container;
   try {
     await container.startAndWaitForPorts({
@@ -1037,7 +1105,7 @@ async function proxy(env, request, target) {
     // fetch() below starts the container again.
   }
   let response = await container.fetch(request);
-  for (let attempt = 0; attempt < 2 && response.status >= 500; attempt++) {
+  for (let attempt = 0; retryable && attempt < 2 && response.status >= 500; attempt++) {
     const preview = await response.clone().text();
     if (!/not running|Failed to start container|Container crashed|suddenly disconnected/.test(preview)) {
       return revealAppErrors(env, response);
@@ -1050,7 +1118,7 @@ async function proxy(env, request, target) {
     } catch {
       // fetch() below starts the container again.
     }
-    response = await container.fetch(request);
+    response = await container.fetch(fresh());
   }
   if (target.cookie !== null) response = withStickyCookie(response, target.cookie);
   return revealAppErrors(env, response);
@@ -1078,7 +1146,34 @@ export default {
       // Queue worker state for the workspace. Reading it never starts one.
       if (url.pathname === '/_dply/workers' && request.method === 'GET') {
         const names = Array.from({ length: WORKERS }, (_, i) => 'worker-' + i);
-        return Response.json(await Promise.all(names.map(async (name) => ({ name, ...(await getContainer(env.APP, name).getState()) }))));
+        return Response.json(await Promise.all(names.map(async (name) => ({ name, ...(await getContainer(env.APP, name).workerState(name)) }))));
+      }
+      // The autoscaler: run the first `count` workers, stop the rest.
+      if (url.pathname === '/_dply/workers/scale' && request.method === 'POST') {
+        const { count = WORKERS_MIN } = await request.json();
+        const want = Math.max(WORKERS_MIN, Math.min(WORKERS, Number(count) || 0));
+        const names = Array.from({ length: WORKERS }, (_, i) => 'worker-' + i);
+        return Response.json(await Promise.all(names.map(async (name, i) => {
+          try {
+            const c = getContainer(env.APP, name);
+            await (i < want ? c.startWorker(name) : c.stopWorker(name));
+            return { name, wanted: i < want, ok: true };
+          } catch (e) {
+            return { name, wanted: i < want, ok: false, error: String(e && e.message ? e.message : e) };
+          }
+        })));
+      }
+      // Start the workers now and say what happened to each (warm does it in the background).
+      if (url.pathname === '/_dply/workers/start' && request.method === 'POST') {
+        const names = Array.from({ length: WORKERS }, (_, i) => 'worker-' + i);
+        return Response.json(await Promise.all(names.map(async (name) => {
+          try {
+            await getContainer(env.APP, name).resumeWorker(name);
+            return { name, ok: true };
+          } catch (e) {
+            return { name, ok: false, error: String(e && e.message ? e.message : e) };
+          }
+        })));
       }
       if (url.pathname === '/_dply/command' && request.method === 'POST') {
         return proxy(env, request, await webTarget(env, request));

@@ -161,7 +161,8 @@ class Container extends Component
     {
         $this->authorize('view', $this->site);
         try {
-            $this->logs = array_reverse(EdgeCloudflareClient::fromConfig()->workerLogs(EdgeContainerDeployer::scriptName($this->site)));
+            $client = EdgeCloudflareClient::fromConfig();
+            $this->logs = array_reverse($client->workerLogs(EdgeContainerDeployer::logServices($this->site, $client)));
             $this->logsError = null;
         } catch (\Throwable $e) {
             $this->logs = null;

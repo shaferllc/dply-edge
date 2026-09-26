@@ -28,6 +28,7 @@ use App\Modules\Edge\Console\CollectEdgeValkeyUsageCommand;
 use App\Modules\Edge\Console\EvaluateEdgeGuardrailsCommand;
 use App\Modules\Edge\Console\ReapStuckEdgeBuildsCommand;
 use App\Modules\Edge\Console\RollupEdgeAnalyticsEngineCommand;
+use App\Modules\Edge\Console\ScaleEdgeQueueWorkersCommand;
 use App\Modules\Edge\Console\WarmEdgeBuildImagesCommand;
 use App\Modules\Edge\Console\WarmEdgeContainersCommand;
 use App\Modules\Edge\Jobs\VerifyEdgeCustomDomainsJob;
@@ -96,6 +97,11 @@ final class DplySchedule
             ->everyFiveMinutes()
             ->withoutOverlapping()
             ->name('edge-warm-containers');
+        // Autoscaled queue workers follow each app's backlog.
+        $schedule->command(ScaleEdgeQueueWorkersCommand::class)
+            ->everyMinute()
+            ->withoutOverlapping()
+            ->name('edge-scale-queue-workers');
         $schedule->command(CollectEdgeDataUsageCommand::class, ['--today'])
             ->hourly()
             ->withoutOverlapping()

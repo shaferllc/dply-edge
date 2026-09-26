@@ -439,8 +439,23 @@ test('a laravel app that needs the package gets dply/laravel in the image', func
 
     expect(EdgeContainerDeployer::needsLaravelPackage($site, $dir))->toBeTrue();
 
+    // Database tools and queue workers run through /_dply/command too.
+    $withDatabase = new Site;
+    $withDatabase->meta = ['edge' => ['database' => ['engine' => 'postgres', 'provider' => 'dply']]];
+    $withWorkers = new Site;
+    $withWorkers->meta = ['edge' => ['container' => ['workers' => ['enabled' => true]]]];
+    $plain = new Site;
+    $plain->meta = ['edge' => []];
+    expect(EdgeContainerDeployer::needsLaravelPackage($withDatabase, $dir))->toBeTrue()
+        ->and(EdgeContainerDeployer::needsLaravelPackage($withWorkers, $dir))->toBeTrue()
+        ->and(EdgeContainerDeployer::needsLaravelPackage($plain, $dir))->toBeFalse();
+
     $dockerfile = File::get(EdgeContainerDockerfile::prepare($dir, true)['path']);
 
+    // COPY . . brings back the app's own composer files; the injected ones
+    // must be put back before the autoloader is dumped.
+    expect(strpos($dockerfile, 'RUN cp /opt/dply/composer.json /opt/dply/composer.lock ./'))->toBeGreaterThan(strpos($dockerfile, 'COPY . .'))
+        ->and(strpos($dockerfile, 'RUN cp /opt/dply/composer.json'))->toBeLessThan(strpos($dockerfile, 'composer dump-autoload'));
     expect($dockerfile)->toContain('COPY dply-laravel /opt/dply/laravel')
         ->and($dockerfile)->toContain('composer require dply/laravel:^1.0')
         ->and(File::exists($dir.'/dply-laravel/src/DplyServiceProvider.php'))->toBeTrue()

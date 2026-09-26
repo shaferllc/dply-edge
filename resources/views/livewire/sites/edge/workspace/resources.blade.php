@@ -166,10 +166,20 @@
                             <p class="mt-2 text-xs text-brand-ink">{{ $workersUnavailable }}</p>
                         @else
                             <dl class="mt-2 grid grid-cols-[auto_1fr] items-center gap-x-2 gap-y-1.5 text-xs">
-                                <dt><label for="workers-instances" class="text-brand-moss">{{ __('Instances') }}</label></dt>
+                                <dt><label for="workers-autoscale" class="text-brand-moss">{{ __('Autoscale') }}</label></dt>
+                                <dd><label class="inline-flex items-center gap-1.5 font-semibold text-brand-ink"><input id="workers-autoscale" type="checkbox" wire:model.live="workers.autoscale" class="rounded border-brand-ink/20" /> {{ $w['autoscale'] ? __('On, follows the backlog') : __('Off') }}</label></dd>
+                                <dt><label for="workers-instances" class="text-brand-moss">{{ $w['autoscale'] ? __('Always on') : __('Instances') }}</label></dt>
                                 <dd><select id="workers-instances" wire:model.live="workers.instances" class="{{ $wField }}">
                                     @for ($i = 1; $i <= \App\Modules\Edge\Support\EdgeQueueWorkers::MAX_INSTANCES; $i++)<option value="{{ $i }}">{{ $i }}</option>@endfor
                                 </select></dd>
+                                @if ($w['autoscale'])
+                                    <dt><label for="workers-max" class="text-brand-moss">{{ __('Up to') }}</label></dt>
+                                    <dd><select id="workers-max" wire:model.live="workers.max_instances" class="{{ $wField }}">
+                                        @for ($i = $w['instances']; $i <= \App\Modules\Edge\Support\EdgeQueueWorkers::MAX_INSTANCES; $i++)<option value="{{ $i }}">{{ trans_choice(':count instance|:count instances', $i) }}</option>@endfor
+                                    </select></dd>
+                                    <dt><label for="workers-scale-per" class="text-brand-moss">{{ __('Add one at') }}</label></dt>
+                                    <dd class="flex items-center gap-1.5"><input id="workers-scale-per" type="number" min="1" max="1000" wire:model.live.debounce.500ms="workers.scale_per" class="block w-16 rounded-md border border-brand-ink/15 bg-white px-2 py-1 text-xs font-semibold text-brand-ink dark:bg-zinc-900" /><span class="text-brand-moss">{{ __('jobs waiting per process') }}</span></dd>
+                                @endif
                                 <dt><label for="workers-processes" class="text-brand-moss">{{ __('Processes') }}</label></dt>
                                 <dd><select id="workers-processes" wire:model.live="workers.processes" class="{{ $wField }}">
                                     @for ($i = 1; $i <= \App\Modules\Edge\Support\EdgeQueueWorkers::MAX_PROCESSES; $i++)<option value="{{ $i }}">{{ trans_choice(':count per instance|:count per instance', $i) }}</option>@endfor
@@ -186,7 +196,10 @@
                             @if ($workersConnection === null)
                                 <p class="mt-2 text-xs font-semibold text-red-700 dark:text-red-400">{{ __('This app has no :connection for workers to pull from.', ['connection' => $w['connection']]) }}</p>
                             @elseif ($workersConnection === 'database' && ($site->edgeMeta()['database']['provider'] ?? '') === 'dply' && (int) ($site->edgeMeta()['database']['suspend'] ?? -1) !== -1)
-                                <p class="mt-2 text-xs text-brand-ink">{{ __('Workers check the database every :sleep s, so it will not sleep while they run. Use dply Valkey as the queue to let it sleep.', ['sleep' => $w['sleep']]) }}</p>
+                                <p class="mt-2 text-xs text-brand-ink">
+                                    {{ __('Workers check the database every :sleep s, so it will not sleep while they run.', ['sleep' => $w['sleep']]) }}
+                                    <button type="button" wire:click="useValkeyForWorkers" x-on:click="$dispatch('open-modal', 'resources-connection')" class="font-semibold underline">{{ __('Queue on dply Valkey instead') }}</button>
+                                </p>
                             @endif
                             <details class="mt-2 text-xs">
                                 <summary class="cursor-pointer font-semibold text-brand-ink">{{ __('Worker options') }}</summary>
@@ -200,8 +213,20 @@
                                 <p class="mt-2 font-mono text-2xs text-brand-moss">php artisan queue:work {{ $workersConnection ?? '…' }} --queue={{ $w['queues'] }} --tries={{ $w['tries'] }} --timeout={{ $w['timeout'] }} --sleep={{ $w['sleep'] }} --memory={{ $w['memory'] }} --max-time={{ $w['max_time'] }}</p>
                             </details>
                             <div class="mt-2 rounded-lg bg-white/70 px-2.5 py-2 text-xs dark:bg-zinc-900/70">
-                                <p class="font-semibold text-brand-ink">{{ __('About $:total/mo', ['total' => number_format($workersMonthlyCents / 100, 2)]) }}</p>
-                                <p class="mt-0.5 text-brand-moss">{{ __(':instances × :size, always on · :n workers in all', ['instances' => $w['instances'], 'size' => $settings['instance_type'] ?? 'basic', 'n' => $w['instances'] * $w['processes']]) }}</p>
+                                @if ($w['autoscale'] && $w['max_instances'] > $w['instances'])
+                                    <p class="font-semibold text-brand-ink">{{ __('About $:min–$:max/mo', ['min' => number_format($workersMonthlyCents / 100, 2), 'max' => number_format($workersMaxMonthlyCents / 100, 2)]) }}</p>
+                                    <p class="mt-0.5 text-brand-moss">{{ __(':min–:max × :size · billed only while running · :n–:m workers', ['min' => $w['instances'], 'max' => $w['max_instances'], 'size' => $settings['instance_type'] ?? 'basic', 'n' => $w['instances'] * $w['processes'], 'm' => $w['max_instances'] * $w['processes']]) }}</p>
+                                @else
+                                    <p class="font-semibold text-brand-ink">{{ __('About $:total/mo', ['total' => number_format($workersMonthlyCents / 100, 2)]) }}</p>
+                                    <p class="mt-0.5 text-brand-moss">{{ __(':instances × :size, always on · :n workers in all', ['instances' => $w['instances'], 'size' => $settings['instance_type'] ?? 'basic', 'n' => $w['instances'] * $w['processes']]) }}</p>
+                                @endif
+                                @if ($w['autoscale'] && is_array($workersScaler))
+                                    <p @class(['mt-1', 'text-red-700 dark:text-red-400' => $workersScaler['error'] ?? null, 'text-brand-moss' => ! ($workersScaler['error'] ?? null)])>
+                                        {{ ($workersScaler['error'] ?? null)
+                                            ? __('Autoscaler: :error', ['error' => $workersScaler['error']])
+                                            : __('Autoscaler: :count running for :backlog waiting · :ago', ['count' => $workersScaler['count'] ?? '?', 'backlog' => $workersScaler['backlog'] ?? '?', 'ago' => \Illuminate\Support\Carbon::createFromTimestamp($workersScaler['at'] ?? time())->diffForHumans()]) }}
+                                    </p>
+                                @endif
                             </div>
                             <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                                 <button type="button" wire:click="loadWorkersBacklog" wire:loading.attr="disabled" wire:target="loadWorkersBacklog" class="font-semibold text-brand-ink underline disabled:opacity-50">
@@ -216,24 +241,29 @@
                                         <span @class(['tabular-nums', 'font-semibold text-red-700 dark:text-red-400' => $workersBacklog['failed'] > 0, 'text-brand-moss' => $workersBacklog['failed'] === 0])>{{ trans_choice(':count failed|:count failed', $workersBacklog['failed']) }}</span>
                                     @endif
                                 @endif
+                                <button type="button" wire:click="openFailedJobs" x-on:click="$dispatch('open-modal', 'resources-failed-jobs')" class="font-semibold text-brand-ink underline">{{ __('Failed jobs') }}</button>
+                                <button type="button" wire:click="openWorkerLogs" x-on:click="$dispatch('open-modal', 'resources-worker-logs')" class="font-semibold text-brand-ink underline">{{ __('Logs') }}</button>
                                 @if ($workersBacklogError)
                                     <span class="text-red-700 dark:text-red-400">{{ $workersBacklogError }}</span>
                                 @endif
                             </div>
                             @if (is_array($workersStatus) || $workersStatusError)
                                 @php
-                                    $stoppedWorkers = collect($workersStatus ?? [])->whereIn('status', ['stopped', 'stopped_with_code'])->count();
+                                    $stoppedWorkers = collect($workersStatus ?? [])->where('wanted', true)->whereIn('status', ['stopped', 'stopped_with_code'])->count();
                                 @endphp
                                 <ul class="mt-2 space-y-1 text-xs" wire:key="workers-status">
                                     @foreach ($workersStatus ?? [] as $worker)
-                                        @php $up = in_array($worker['status'], ['running', 'healthy'], true); @endphp
+                                        @php
+                                            $up = in_array($worker['status'], ['running', 'healthy'], true);
+                                            $idle = ! $up && ! ($worker['wanted'] ?? true);
+                                        @endphp
                                         <li class="flex items-center justify-between gap-2">
                                             <span class="flex items-center gap-1.5 font-mono text-brand-ink">
-                                                <span @class(['h-1.5 w-1.5 rounded-full', 'bg-emerald-500' => $up, 'bg-amber-500' => $worker['status'] === 'stopping', 'bg-red-500' => ! $up && $worker['status'] !== 'stopping'])></span>
+                                                <span @class(['h-1.5 w-1.5 rounded-full', 'bg-emerald-500' => $up, 'bg-amber-500' => $worker['status'] === 'stopping', 'bg-brand-ink/20' => $idle && $worker['status'] !== 'stopping', 'bg-red-500' => ! $up && ! $idle && $worker['status'] !== 'stopping'])></span>
                                                 {{ $worker['name'] }}
                                             </span>
                                             <span class="text-brand-moss">
-                                                {{ match ($worker['status']) {
+                                                {{ $idle && $worker['status'] !== 'stopping' ? __('Idle (scaled down)') : match ($worker['status']) {
                                                     'running', 'healthy' => __('Running'),
                                                     'stopping' => __('Stopping'),
                                                     'stopped_with_code' => __('Exited (code :code)', ['code' => $worker['exit_code'] ?? '?']),
@@ -1196,6 +1226,88 @@
                 <button type="button" wire:click="$set('panel', '')" x-on:click="$dispatch('close-modal', 'resources-delete-connection')" class="rounded-md border border-brand-ink/15 px-3 py-1.5 text-xs font-semibold text-brand-ink">{{ __('Cancel') }}</button>
                 <button type="button" wire:click="deleteConnection" class="rounded-md bg-red-700 px-3 py-1.5 text-xs font-semibold text-white">{{ __('Delete resource') }}</button>
             </div>
+        </div>
+    </x-modal>
+
+    <x-modal name="resources-worker-logs" :show="$panel === 'worker-logs'" maxWidth="4xl" focusable>
+        <div class="space-y-4 p-6">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <h2 class="text-sm font-semibold text-brand-ink">{{ __('Worker logs') }}</h2>
+                    <p class="mt-1 text-xs text-brand-moss">{{ __('The last hour of queue worker output, newest first: each job as it runs and finishes, and each worker starting, restarting and stopping. Logs reach here about a minute after they happen.') }}</p>
+                </div>
+                <button type="button" class="text-xs font-semibold text-brand-ink underline" x-on:click="$dispatch('close-modal', 'resources-worker-logs')" wire:click="openPanel('')">{{ __('Close') }}</button>
+            </div>
+            <div class="flex items-center gap-2 text-xs">
+                <button type="button" wire:click="loadWorkerLogs" wire:loading.attr="disabled" wire:target="loadWorkerLogs,openWorkerLogs" class="rounded-md border border-brand-ink/15 px-2.5 py-1.5 font-semibold text-brand-ink disabled:opacity-50">{{ __('Refresh') }}</button>
+                <span wire:loading wire:target="loadWorkerLogs,openWorkerLogs" class="text-brand-moss">{{ __('Loading…') }}</span>
+            </div>
+            @if ($workerLogsError)
+                <p class="text-xs text-red-700 dark:text-red-400">{{ $workerLogsError }}</p>
+            @elseif (is_array($workerLogs))
+                @if ($workerLogs === [])
+                    <p class="rounded-lg border border-dashed border-brand-ink/15 px-4 py-6 text-center text-xs text-brand-moss">{{ __('No worker output in the last hour.') }}</p>
+                @else
+                    <ol class="max-h-[28rem] overflow-auto rounded-lg bg-zinc-950 p-3 font-mono text-2xs leading-relaxed text-zinc-200">
+                        @foreach ($workerLogs as $line)
+                            <li @class(['whitespace-pre-wrap break-words', 'text-red-400' => str_ends_with(rtrim($line['message']), 'FAIL') || $line['level'] === 'error', 'text-emerald-400' => str_ends_with(rtrim($line['message']), 'DONE'), 'text-sky-300' => str_starts_with($line['message'], '[dply-worker')])><span class="text-zinc-500">{{ $line['at'] ? \Illuminate\Support\Carbon::parse($line['at'])->format('H:i:s') : '' }}</span> {{ $line['message'] }}</li>
+                        @endforeach
+                    </ol>
+                @endif
+            @endif
+        </div>
+    </x-modal>
+
+    <x-modal name="resources-failed-jobs" :show="$panel === 'failed-jobs'" maxWidth="3xl" focusable>
+        <div class="space-y-4 p-6">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <h2 class="text-sm font-semibold text-brand-ink">{{ __('Failed jobs') }}</h2>
+                    <p class="mt-1 text-xs text-brand-moss">{{ __('From the app\'s own failed-job store. Retry puts a job back on its queue for the workers; Delete removes it for good.') }}</p>
+                </div>
+                <button type="button" class="text-xs font-semibold text-brand-ink underline" x-on:click="$dispatch('close-modal', 'resources-failed-jobs')" wire:click="openPanel('')">{{ __('Close') }}</button>
+            </div>
+            <div class="flex flex-wrap items-center gap-2 text-xs">
+                <button type="button" wire:click="loadFailedJobs" wire:loading.attr="disabled" wire:target="loadFailedJobs,retryFailedJobs,forgetFailedJob,flushFailedJobs" class="rounded-md border border-brand-ink/15 px-2.5 py-1.5 font-semibold text-brand-ink disabled:opacity-50">{{ __('Refresh') }}</button>
+                @if (($failedJobs['total'] ?? 0) > 0)
+                    <button type="button" wire:click="retryFailedJobs" wire:loading.attr="disabled" wire:target="loadFailedJobs,retryFailedJobs,forgetFailedJob,flushFailedJobs" class="rounded-md border border-brand-ink/15 px-2.5 py-1.5 font-semibold text-brand-ink disabled:opacity-50">{{ __('Retry all') }}</button>
+                    <button type="button" wire:click="flushFailedJobs" wire:loading.attr="disabled" wire:target="loadFailedJobs,retryFailedJobs,forgetFailedJob,flushFailedJobs" @class(['rounded-md border px-2.5 py-1.5 font-semibold disabled:opacity-50', 'border-red-600 bg-red-600 text-white' => $confirmFlushFailed, 'border-brand-ink/15 text-red-700 dark:text-red-400' => ! $confirmFlushFailed])>{{ $confirmFlushFailed ? __('Delete all :count? Click again', ['count' => $failedJobs['total']]) : __('Delete all') }}</button>
+                @endif
+                <span wire:loading wire:target="loadFailedJobs,retryFailedJobs,forgetFailedJob,flushFailedJobs,openFailedJobs" class="text-brand-moss">{{ __('Asking the app…') }}</span>
+            </div>
+            @if ($failedJobsNotice)
+                <p class="text-xs font-semibold text-emerald-700 dark:text-emerald-400">{{ $failedJobsNotice }}</p>
+            @endif
+            @if ($failedJobsError)
+                <p class="text-xs text-red-700 dark:text-red-400">{{ $failedJobsError }}</p>
+            @elseif (is_array($failedJobs))
+                @if ($failedJobs['jobs'] === [])
+                    <p class="rounded-lg border border-dashed border-brand-ink/15 px-4 py-6 text-center text-xs text-brand-moss">{{ __('No failed jobs.') }}</p>
+                @else
+                    @if ($failedJobs['total'] > count($failedJobs['jobs']))
+                        <p class="text-xs text-brand-moss">{{ __('Showing the newest :shown of :total.', ['shown' => count($failedJobs['jobs']), 'total' => $failedJobs['total']]) }}</p>
+                    @endif
+                    <ul class="divide-y divide-brand-ink/10 rounded-lg border border-brand-ink/10 text-xs">
+                        @foreach ($failedJobs['jobs'] as $job)
+                            <li class="space-y-1 px-3 py-2.5" wire:key="failed-job-{{ $job['id'] }}">
+                                <div class="flex flex-wrap items-center justify-between gap-2">
+                                    <p class="min-w-0 truncate font-mono font-semibold text-brand-ink">{{ $job['name'] ?: __('Unknown job') }}</p>
+                                    <div class="flex shrink-0 gap-3">
+                                        <button type="button" wire:click="retryFailedJobs('{{ $job['id'] }}')" wire:loading.attr="disabled" class="font-semibold text-brand-ink underline">{{ __('Retry') }}</button>
+                                        <button type="button" wire:click="forgetFailedJob('{{ $job['id'] }}')" wire:loading.attr="disabled" class="font-semibold text-red-700 underline dark:text-red-400">{{ __('Delete') }}</button>
+                                    </div>
+                                </div>
+                                <p class="text-brand-moss">{{ implode(' · ', array_filter([$job['queue'] ?? '', $job['connection'] ?? '', ($job['failed_at'] ?? '') !== '' ? \Illuminate\Support\Carbon::parse($job['failed_at'])->diffForHumans() : '', ($job['attempts'] ?? 0) > 0 ? trans_choice(':count attempt|:count attempts', $job['attempts']) : ''])) }}</p>
+                                <p class="break-words text-red-700 dark:text-red-400">{{ $job['error'] }}</p>
+                                <details>
+                                    <summary class="cursor-pointer text-brand-moss">{{ __('Stack trace') }}</summary>
+                                    <pre class="mt-1 max-h-64 overflow-auto whitespace-pre-wrap rounded bg-brand-ink/5 p-2 font-mono text-2xs text-brand-ink">{{ $job['trace'] }}</pre>
+                                </details>
+                            </li>
+                        @endforeach
+                    </ul>
+                @endif
+            @endif
         </div>
     </x-modal>
 
