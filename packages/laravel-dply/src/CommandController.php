@@ -197,10 +197,27 @@ class CommandController
         };
         $mb = static fn (?int $bytes): ?float => $bytes === null ? null : round($bytes / 1048576, 1);
 
+        $peak = $mb($read('/sys/fs/cgroup/memory.peak', '/sys/fs/cgroup/memory/memory.max_usage_in_bytes'));
+        $now = $mb($read('/sys/fs/cgroup/memory.current', '/sys/fs/cgroup/memory/memory.usage_in_bytes'));
+        $limit = $mb($read('/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory/memory.limit_in_bytes'));
+        $source = 'cgroup';
+        // Cloudflare Containers are small VMs without cgroup memory files: the
+        // whole VM is the instance, so MemTotal - MemAvailable is what it uses.
+        if ($peak === null && $now === null && is_readable('/proc/meminfo')) {
+            preg_match_all('/^(MemTotal|MemAvailable):\s+(\d+) kB/m', (string) file_get_contents('/proc/meminfo'), $m, PREG_SET_ORDER);
+            $kb = array_column(array_map(static fn ($row) => [$row[1], (int) $row[2]], $m), 1, 0);
+            if (isset($kb['MemTotal'], $kb['MemAvailable'])) {
+                $now = round(($kb['MemTotal'] - $kb['MemAvailable']) / 1024, 1);
+                $limit = round($kb['MemTotal'] / 1024, 1);
+                $source = 'meminfo'; // no high-water mark: dply keeps the highest hourly sample
+            }
+        }
+
         return new JsonResponse([
-            'memory_peak_mb' => $mb($read('/sys/fs/cgroup/memory.peak', '/sys/fs/cgroup/memory/memory.max_usage_in_bytes')),
-            'memory_now_mb' => $mb($read('/sys/fs/cgroup/memory.current', '/sys/fs/cgroup/memory/memory.usage_in_bytes')),
-            'memory_limit_mb' => $mb($read('/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory/memory.limit_in_bytes')),
+            'memory_peak_mb' => $peak ?? $now,
+            'memory_now_mb' => $now,
+            'memory_limit_mb' => $limit,
+            'source' => $source,
         ]);
     }
 
