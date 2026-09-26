@@ -183,7 +183,8 @@
                         @else
                             <dl class="mt-2 grid grid-cols-[auto_1fr] items-center gap-x-2 gap-y-1.5 text-xs">
                                 <dt><label for="workers-autoscale" class="text-brand-moss">{{ __('Autoscale') }}</label></dt>
-                                <dd><label class="inline-flex items-center gap-1.5 font-semibold text-brand-ink"><input id="workers-autoscale" type="checkbox" wire:model.live="workers.autoscale" class="rounded border-brand-ink/20" /> {{ $w['autoscale'] ? __('On, follows the backlog') : __('Off') }}</label></dd>
+                                @php $allow = \App\Modules\Edge\Support\EdgeQueueWorkers::allowance($site); @endphp
+                                <dd><label class="inline-flex items-center gap-1.5 font-semibold text-brand-ink"><input id="workers-autoscale" type="checkbox" wire:model.live="workers.autoscale" @disabled(! $allow['autoscale']) class="rounded border-brand-ink/20 disabled:opacity-50" /> {{ ! $allow['autoscale'] ? __('On Pro and Team') : ($w['autoscale'] ? __('On, follows the backlog') : __('Off')) }}</label></dd>
                                 <dt><label for="workers-instances" class="text-brand-moss">{{ $w['autoscale'] ? __('Always on') : __('Instances') }}</label></dt>
                                 <dd><select id="workers-instances" wire:model.live="workers.instances" class="{{ $wField }}">
                                     @for ($i = 1; $i <= \App\Modules\Edge\Support\EdgeQueueWorkers::MAX_INSTANCES; $i++)<option value="{{ $i }}">{{ $i }}</option>@endfor
@@ -252,8 +253,10 @@
                                         <p class="mt-1 font-mono text-2xs text-brand-moss">worker-{{ $g['key'] }}-N · queue:work --queue={{ $g['queues'] }}</p>
                                     </div>
                                 @endforeach
-                                @if (count((array) ($workers['groups'] ?? [])) < \App\Modules\Edge\Support\EdgeQueueWorkers::MAX_GROUPS)
+                                @if (count((array) ($workers['groups'] ?? [])) < min(\App\Modules\Edge\Support\EdgeQueueWorkers::MAX_GROUPS, $allow['groups']))
                                     <button type="button" wire:click="addWorkerGroup" class="mt-2 font-semibold text-brand-ink underline">{{ __('Add a group') }}</button>
+                                @elseif ($allow['groups'] === 0)
+                                    <p class="mt-1 text-brand-moss">{{ __('Groups are on Pro and Team.') }}</p>
                                 @endif
                             </div>
                             <details class="mt-2 text-xs">
@@ -267,6 +270,22 @@
                                 </div>
                                 <p class="mt-2 font-mono text-2xs text-brand-moss">php artisan queue:work {{ $workersConnection ?? '…' }} --queue={{ $w['queues'] }} --tries={{ $w['tries'] }} --timeout={{ $w['timeout'] }} --sleep={{ $w['sleep'] }} --memory={{ $w['memory'] }} --max-time={{ $w['max_time'] }}</p>
                             </details>
+                            @php
+                                $draftSpan = \App\Modules\Edge\Support\EdgeQueueWorkers::draftInstances($workers);
+                                $overPlan = ($allow['instances'] !== null && $draftSpan['max'] > $allow['instances'])
+                                    || count((array) ($workers['groups'] ?? [])) > $allow['groups']
+                                    || (! $allow['autoscale'] && ($w['autoscale'] || collect($w['groups'])->contains('autoscale', true)));
+                            @endphp
+                            @if ($overPlan)
+                                <p class="mt-2 rounded-md bg-amber-50 px-2 py-1.5 text-xs font-semibold text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                                    {{ __(':plan runs :n worker instance(s) per app:autoscale:groups. The rest of these settings are not deployed. Choose a plan on the billing page for more.', [
+                                        'plan' => $allow['plan'] ?: __('This plan'),
+                                        'n' => $allow['instances'] ?? '∞',
+                                        'autoscale' => $allow['autoscale'] ? '' : __(', without autoscaling'),
+                                        'groups' => $allow['groups'] > 0 ? __(', :g extra group(s)', ['g' => $allow['groups']]) : __(', no extra groups'),
+                                    ]) }}
+                                </p>
+                            @endif
                             <div class="mt-2 rounded-lg bg-white/70 px-2.5 py-2 text-xs dark:bg-zinc-900/70">
                                 @php $span = \App\Modules\Edge\Support\EdgeQueueWorkers::draftInstances($workers); @endphp
                                 @if ($span['max'] > $span['min'])

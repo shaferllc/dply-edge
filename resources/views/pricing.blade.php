@@ -61,6 +61,7 @@
             [__('Container apps (PHP, Rails, Node)'), fn ($t) => $t['containers'] ? __(':credit compute included', ['credit' => '$'.number_format(($t['compute_credit_cents'] ?? 0) / 100, 0)]) : '—'],
             [__('Usage credit'), fn ($t) => isset($t['spending_limit_cents']) ? __('$ :n, then apps pause', ['n' => number_format(((int) $t['spending_limit_cents']) / 100, 0)]) : __('Billed as overage')],
             [__('Managed queues'), fn ($t) => $unitLabel($t['queues'] ?? null)],
+            [__('Queue workers per app'), fn ($t) => ! ($t['containers'] ?? false) ? '—' : trim(($t['worker_instances'] === null ? __('Unlimited') : trans_choice(':count worker|:count workers', (int) $t['worker_instances'])).(($t['worker_autoscale'] ?? false) ? __(' · autoscaling') : '').((int) ($t['worker_groups'] ?? 0) > 0 ? __(' · :g groups', ['g' => (int) $t['worker_groups']]) : ''))],
             [__('Scale to zero'), fn ($t) => $t['containers'] ? __('Sleeps when idle') : '—'],
             [__('DDoS mitigation'), fn () => __('Yes')],
             [__('Request logs'), fn () => __(':d days', ['d' => (int) config('edge.analytics.access_logs_days', 7)])],

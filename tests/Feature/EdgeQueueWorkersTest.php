@@ -29,10 +29,10 @@ use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
 
-/** A Laravel container app with a Postgres database (so workers can use the database queue). */
+/** A Laravel container app with a Postgres database (so workers can use the database queue). On Team unless an org is given. */
 function laravelApp(array $edge = [], ?Organization $org = null): Site
 {
-    $org ??= Organization::factory()->create();
+    $org ??= teamOrg();
 
     return Site::factory()->create([
         'organization_id' => $org->id,
@@ -46,7 +46,17 @@ function laravelApp(array $edge = [], ?Organization $org = null): Site
     ]);
 }
 
-/** An organization on Pro: dply Valkey is wired into its apps. */
+/** An organization on Team: 10 worker instances, autoscaling, four groups. */
+function teamOrg(): Organization
+{
+    config(['subscription.standard.stripe.tier_team' => 'price_tier_team']);
+    $org = Organization::factory()->create();
+    Subscription::factory()->withPrice('price_tier_team')->active()->create(['organization_id' => $org->id]);
+
+    return $org;
+}
+
+/** An organization on Pro. */
 function proOrg(): Organization
 {
     config(['subscription.standard.stripe.tier_pro' => 'price_tier_pro']);
@@ -431,13 +441,13 @@ test('the app dispatches to the connection its workers pull from', function () {
     $redis = laravelApp($valkey, proOrg());
     // Flex Valkey is on every plan. A Pro size on Free is not wired into the
     // app: no workers on it, and the app keeps its own connection.
-    expect(EdgeQueueWorkers::dispatchEnv(laravelApp($valkey)))->toBe(['QUEUE_CONNECTION' => 'redis']);
+    expect(EdgeQueueWorkers::dispatchEnv(laravelApp($valkey, Organization::factory()->create())))->toBe(['QUEUE_CONNECTION' => 'redis']);
     $proSize = array_replace_recursive($valkey, ['connections' => [['plan' => 'pro_5g']]]);
-    $free = laravelApp($proSize);
+    $free = laravelApp($proSize, Organization::factory()->create());
     expect(EdgeQueueWorkers::dispatchEnv($free))->toBe([])
         ->and(EdgeQueueWorkers::runningInstances($free))->toBe(0)
         ->and(EdgeQueueWorkers::unavailableReason($free))->toContain('needs a paid plan')
-        ->and(EdgeQueueWorkers::connection(laravelApp(array_replace_recursive($proSize, ['container' => ['workers' => ['connection' => 'auto']]]))))->toBe('database')
+        ->and(EdgeQueueWorkers::connection(laravelApp(array_replace_recursive($proSize, ['container' => ['workers' => ['connection' => 'auto']]]), Organization::factory()->create())))->toBe('database')
         ->and(EdgeQueueWorkers::dispatchEnv(laravelApp($proSize, proOrg())))->toBe(['QUEUE_CONNECTION' => 'redis']);
     $database = laravelApp(['container' => ['workers' => ['enabled' => true]]]);
     $none = laravelApp();
@@ -759,4 +769,45 @@ test('re-placement stops when Cloudflare picks the same place again', function (
 
     expect(Http::recorded(fn (Request $r) => str_ends_with($r->url(), '/_dply/replace')))->toHaveCount(1)
         ->and(end($lines))->toBe('Now running in atl13 (ENAM), 73 ms to the database.');
+});
+
+test('the plan caps workers: instances, autoscaling and groups', function () {
+    $wants = ['container' => ['workers' => [
+        'enabled' => true, 'instances' => 3, 'max_instances' => 6, 'autoscale' => true,
+        'groups' => [
+            ['key' => 'high', 'queues' => 'high', 'instances' => 2, 'max_instances' => 4, 'autoscale' => true],
+            ['key' => 'mail', 'queues' => 'mail', 'instances' => 1],
+            ['key' => 'slow', 'queues' => 'slow', 'instances' => 1],
+        ],
+    ]]];
+
+    // Free: one worker, no autoscaling, no groups.
+    $free = EdgeQueueWorkers::groups(laravelApp($wants, Organization::factory()->create()));
+    expect(array_column($free, 'key'))->toBe([''])
+        ->and($free[0])->toMatchArray(['instances' => 1, 'autoscale' => false, 'capacity' => 1]);
+
+    // Pro: five in all and two groups; the main group is served first
+    // (up to 6 asked, 5 allowed), so nothing is left for `high`.
+    $pro = EdgeQueueWorkers::groups(laravelApp($wants, proOrg()));
+    expect(array_column($pro, 'key'))->toBe([''])
+        ->and($pro[0])->toMatchArray(['instances' => 3, 'max_instances' => 5, 'capacity' => 5]);
+
+    // Team: ten in all, four groups: main 6 + high 4, nothing left for the rest.
+    $team = EdgeQueueWorkers::groups(laravelApp($wants));
+    expect(array_column($team, 'key'))->toBe(['', 'high'])
+        ->and(array_column($team, 'capacity'))->toBe([6, 4]);
+});
+
+test('the card says what the plan allows and does not offer more', function () {
+    $app = laravelApp(['container' => ['workers' => ['enabled' => true, 'instances' => 3]]], Organization::factory()->create());
+    $user = User::factory()->create();
+    $app->organization->users()->attach($user->id, ['role' => 'owner']);
+    $app->forceFill(['user_id' => $user->id, 'type' => SiteType::Static, 'status' => Site::STATUS_EDGE_ACTIVE])->save();
+    $app->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
+
+    Livewire::actingAs($user)->test(Resources::class, ['server' => $app->server, 'site' => $app])
+        ->assertSee('Free runs 1 worker instance(s) per app, without autoscaling, no extra groups.')
+        ->assertSee('Groups are on Pro and Team.')
+        ->assertDontSee('Add a group');
+    expect(EdgeContainerSettings::for($app)['worker_instances'])->toBe(1);
 });

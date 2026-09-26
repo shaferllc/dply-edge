@@ -132,10 +132,53 @@ final class EdgeQueueWorkers
             $all[] = $group;
         }
 
-        return array_map(static fn (array $g): array => $g + [
-            'capacity' => $g['autoscale'] ? $g['max_instances'] : $g['instances'],
-            'prefix' => 'worker-'.($g['key'] !== '' ? $g['key'].'-' : ''),
-        ], $all);
+        // The plan's allowances, main group first: extra groups beyond the
+        // plan are dropped, autoscaling is off where the plan has none, and
+        // instances are trimmed to the plan's total.
+        $allow = self::allowance($site);
+        $all = array_slice($all, 0, 1 + $allow['groups']);
+        $budget = $allow['instances'];
+        $out = [];
+        foreach ($all as $g) {
+            if (! $allow['autoscale']) {
+                $g['autoscale'] = false;
+            }
+            $capacity = $g['autoscale'] ? $g['max_instances'] : $g['instances'];
+            if ($budget !== null) {
+                $capacity = min($capacity, $budget);
+                if ($capacity < 1) {
+                    break;
+                }
+                $g['instances'] = min($g['instances'], $capacity);
+                $g['max_instances'] = max($g['instances'], min($g['max_instances'], $capacity));
+                $budget -= $capacity;
+            }
+            $out[] = $g + [
+                'capacity' => $capacity,
+                'prefix' => 'worker-'.($g['key'] !== '' ? $g['key'].'-' : ''),
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * What the organization's plan allows for queue workers per app
+     * (subscription.standard.tiers.*.worker_*). A tier without the keys is
+     * not capped.
+     *
+     * @return array{instances: ?int, autoscale: bool, groups: int, plan: string}
+     */
+    public static function allowance(Site $site): array
+    {
+        $tier = $site->organization?->tierAllowances() ?? (array) config('subscription.standard.tiers.free');
+
+        return [
+            'instances' => array_key_exists('worker_instances', $tier) && $tier['worker_instances'] !== null ? max(1, (int) $tier['worker_instances']) : null,
+            'autoscale' => (bool) ($tier['worker_autoscale'] ?? true),
+            'groups' => max(0, min(self::MAX_GROUPS, (int) ($tier['worker_groups'] ?? self::MAX_GROUPS))),
+            'plan' => (string) ($tier['label'] ?? ''),
+        ];
     }
 
     /** One group by key ('' = main), or null. */

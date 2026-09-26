@@ -49,6 +49,9 @@
                         <li>{{ __('$ :amount usage credit, then apps pause', ['amount' => number_format(((int) $tier['spending_limit_cents']) / 100, 0)]) }}</li>
                     @endif
                     <li>{{ $tier['containers'] ? __('Container apps with :credit compute included. Sleeps when idle.', ['credit' => '$'.number_format(($tier['compute_credit_cents'] ?? 0) / 100, 0)]) : __('No container apps') }}</li>
+                    @if ($tier['containers'] && array_key_exists('worker_instances', $tier))
+                        <li>{{ ($tier['worker_instances'] === null ? __('Unlimited queue workers per app') : trans_choice(':count queue worker per app|:count queue workers per app', (int) $tier['worker_instances'])).(($tier['worker_autoscale'] ?? false) ? __(', autoscaling') : '').((int) ($tier['worker_groups'] ?? 0) > 0 ? __(', :g worker groups', ['g' => (int) $tier['worker_groups']]) : '') }}</li>
+                    @endif
                     @if ($tier['audit_log'])
                         <li>{{ __('Audit log') }}</li>
                     @endif
