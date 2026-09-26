@@ -44,7 +44,7 @@ test('guest can join the coming soon list', function () {
         ->call('submit')
         ->assertSet('submitted', true)
         ->assertSet('alreadySubscribed', false)
-        ->assertSee('You are on the list');
+        ->assertSee('on the list, thanks');
 
     $this->assertDatabaseHas('coming_soon_signups', [
         'email' => 'founder@example.com',

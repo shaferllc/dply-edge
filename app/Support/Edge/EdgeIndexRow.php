@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Support\Edge;
 
+use App\Models\EdgeDeployment;
 use App\Models\Site;
 use App\Models\User;
 use Illuminate\Support\Carbon;
@@ -38,10 +39,35 @@ final readonly class EdgeIndexRow
         public string $requestsLabel,
         public string $bandwidthLabel,
         public string $lastDeployLabel,
+        /** @var list<int> daily requests, oldest first (last 30 days) */
+        public array $requestSeries = [],
+        public ?string $commitSha = null,
+        public ?string $commitBranch = null,
+        public ?string $failureReason = null,
     ) {}
 
     /**
-     * @param  array{requests?: int, bytes?: int, published_at?: mixed}  $stats
+     * SVG path for the traffic chart, in a $w × $h box. Null when there is
+     * no traffic yet so the card can show an empty state instead of a flat line.
+     */
+    public function sparkPath(int $w, int $h, bool $closed = false): ?string
+    {
+        $max = max($this->requestSeries ?: [0]);
+        if ($max === 0 || count($this->requestSeries) < 2) {
+            return null;
+        }
+        $step = $w / (count($this->requestSeries) - 1);
+        $d = '';
+        foreach ($this->requestSeries as $i => $v) {
+            $y = $h - 2 - ($v / ($max * 1.1)) * ($h - 4);
+            $d .= ($i === 0 ? 'M' : ' L').round($i * $step, 1).' '.round($y, 1);
+        }
+
+        return $closed ? $d." L{$w} {$h} L0 {$h} Z" : $d;
+    }
+
+    /**
+     * @param  array{requests?: int, bytes?: int, published_at?: mixed, series?: list<int>, latest?: ?EdgeDeployment}  $stats
      */
     public static function fromSite(Site $site, bool $isPreviewChild = false, ?User $user = null, array $stats = []): self
     {
@@ -59,6 +85,7 @@ final readonly class EdgeIndexRow
         $repo = is_string($repo) && $repo !== '' ? $repo : null;
         $branch = is_string($branch) && $branch !== '' ? $branch : null;
         $previewPr = $edgeMeta['preview_pr_number'] ?? null;
+        $latest = $stats['latest'] ?? null;
         $manageHref = $site->server
             ? route('sites.show', ['server' => $site->server, 'site' => $site])
             : null;
@@ -74,7 +101,11 @@ final readonly class EdgeIndexRow
             sourceLabel: $repo !== null ? $repo.'@'.($branch ?? 'main') : null,
             sourceRepo: $repo,
             sourceBranch: $branch,
-            runtimeLabel: $runtimeMode === 'hybrid' ? __('Hybrid') : __('Static'),
+            runtimeLabel: match ($runtimeMode) {
+                'hybrid' => __('Hybrid'),
+                'container' => __('Container'),
+                default => __('Static'),
+            },
             frameworkLabel: ($framework !== '' && strtolower($framework) !== 'unknown')
                 ? (string) str($framework)->replace(['_', '-'], ' ')->title()
                 : null,
@@ -92,6 +123,10 @@ final readonly class EdgeIndexRow
             lastDeployLabel: filled($stats['published_at'] ?? null)
                 ? Carbon::parse($stats['published_at'])->diffForHumans()
                 : '—',
+            requestSeries: $stats['series'] ?? [],
+            commitSha: filled($latest?->git_commit) ? substr((string) $latest->git_commit, 0, 7) : null,
+            commitBranch: $latest?->git_branch ?: $branch,
+            failureReason: $latest?->status === EdgeDeployment::STATUS_FAILED ? $latest->failure_reason : null,
         );
     }
 

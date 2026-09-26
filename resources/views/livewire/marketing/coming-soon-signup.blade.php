@@ -34,7 +34,7 @@
                         </div>
                         <div class="border border-edge-line bg-edge-panel p-4">
                             <dt class="text-xs font-semibold uppercase tracking-[0.18em] text-edge-faint">{{ __('For teams') }}</dt>
-                            <dd class="mt-2 text-sm font-medium text-edge-text">{{ __('Ops, platform, and delivery') }}</dd>
+                            <dd class="mt-2 text-sm font-medium text-edge-text">{{ __('Laravel, Rails and Node developers') }}</dd>
                         </div>
                         <div class="border border-edge-line bg-edge-panel p-4">
                             <dt class="text-xs font-semibold uppercase tracking-[0.18em] text-edge-faint">{{ __('Existing users') }}</dt>
@@ -55,7 +55,7 @@
                     </div>
 
                     <p class="mt-4 text-sm leading-6 text-edge-mute">
-                        {{ __('Leave your email and we will reach out when the live rollout is ready. Existing customers can continue straight to login.') }}
+                        {{ __('Drop your email and we’ll let you know the moment it opens. Already have an account? Log in below.') }}
                     </p>
 
                     @if ($submitted)

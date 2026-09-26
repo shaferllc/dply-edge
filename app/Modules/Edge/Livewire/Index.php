@@ -328,7 +328,7 @@ class Index extends Component
 
     /**
      * @param  list<mixed>  $siteIds
-     * @return array<string, array{requests: int, bytes: int, published_at: mixed}>
+     * @return array<string, array{requests: int, bytes: int, published_at: mixed, series: list<int>, latest: ?EdgeDeployment}>
      */
     private function statsBySite(array $siteIds): array
     {
@@ -353,14 +353,40 @@ class Index extends Component
             ->selectRaw('site_id, MAX(published_at) AS published_at')
             ->pluck('published_at', 'site_id');
 
+        // Snapshots are daily, so the card's traffic chart is one point per day.
+        $seriesStart = now()->subDays(29)->startOfDay();
+        $daily = EdgeUsageSnapshot::query()
+            ->whereIn('site_id', $siteIds)
+            ->where('period_start', '>=', $seriesStart->toDateString())
+            ->groupBy('site_id', 'period_start')
+            ->selectRaw('site_id, period_start, COALESCE(SUM(requests), 0) AS requests')
+            ->get()
+            ->groupBy(fn ($row) => (string) $row->site_id);
+
+        $latest = EdgeDeployment::query()
+            ->whereIn('site_id', $siteIds)
+            ->selectRaw('DISTINCT ON (site_id) site_id, git_commit, git_branch, status, failure_reason, created_at')
+            ->orderBy('site_id')
+            ->orderByDesc('created_at')
+            ->get()
+            ->keyBy(fn ($row) => (string) $row->site_id);
+
         $stats = [];
         foreach ($siteIds as $siteId) {
             $id = (string) $siteId;
             $row = $usage->get($id);
+            $byDay = ($daily->get($id) ?? collect())
+                ->mapWithKeys(fn ($r) => [Carbon::parse($r->period_start)->toDateString() => (int) $r->requests]);
+            $series = [];
+            for ($i = 0; $i < 30; $i++) {
+                $series[] = (int) ($byDay[$seriesStart->copy()->addDays($i)->toDateString()] ?? 0);
+            }
             $stats[$id] = [
                 'requests' => (int) ($row->requests ?? 0),
                 'bytes' => (int) ($row->bytes_egress ?? 0),
                 'published_at' => $published->get($siteId) ?? $published->get($id),
+                'series' => $series,
+                'latest' => $latest->get($id),
             ];
         }
 

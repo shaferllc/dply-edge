@@ -47,7 +47,7 @@
                     </h1>
 
                     <p class="reveal mt-7 max-w-xl text-base leading-7 text-edge-dim" style="transition-delay:.12s">
-                        Static sites, server rendering, and PHP, Rails or Node servers — deployed from Git onto a global edge. The database, cache and queue workers they need live next to them. No servers to patch, one bill.
+                        Your Laravel, Rails or Node app, your static and server-rendered sites, deployed straight from Git. The database, cache and queue workers they need live right next to them. No servers to patch, nothing to configure first, and one bill for all of it.
                     </p>
 
                     <div class="reveal mt-9 flex flex-col items-start gap-4 sm:flex-row sm:items-center" style="transition-delay:.18s">
@@ -57,10 +57,16 @@
                         <p class="font-terminal text-[13px] text-edge-mute">then $20/mo · cancel anytime</p>
                     </div>
 
+                    <p class="reveal mt-4 text-sm text-edge-mute" style="transition-delay:.21s">
+                        Not ready to add a card?
+                        <a href="{{ route('coming-soon') }}" class="border-b border-edge-lime/50 pb-0.5 text-edge-text transition-colors hover:border-edge-lime hover:text-edge-lime">Join the waitlist</a>
+                        and we’ll keep you posted.
+                    </p>
+
                     <p class="reveal mt-6 text-sm text-edge-mute" style="transition-delay:.24s">
-                        Moving from Forge, Heroku, Vercel or Netlify?
+                        Coming from Forge, Heroku, Vercel or Netlify?
                         <a href="{{ route('register') }}" class="border-b border-edge-lime/50 pb-0.5 text-edge-text transition-colors hover:border-edge-lime hover:text-edge-lime">Point us at the repo</a>
-                        — we detect the framework and keep your build settings.
+                        and we’ll detect the framework and bring your build settings with you.
                     </p>
                 </div>
 
@@ -75,7 +81,7 @@
                             <p><span class="text-edge-faint">detected</span> laravel 12 · php 8.4</p>
                             <p><span class="text-edge-lime">✓</span> build image <span class="text-edge-faint">41.3s</span></p>
                             <p><span class="text-edge-lime">✓</span> assets → edge cache <span class="text-edge-faint">2.1s</span></p>
-                            <p><span class="text-edge-lime">✓</span> app container · 3 regions <span class="text-edge-faint">9.8s</span></p>
+                            <p><span class="text-edge-lime">✓</span> app container · autoscale 1–5 <span class="text-edge-faint">9.8s</span></p>
                             <p><span class="text-edge-lime">✓</span> postgres · valkey attached <span class="text-edge-faint">0.4s</span></p>
                             <p><span class="text-edge-lime">✓</span> queue workers × 2 <span class="text-edge-faint">3.6s</span></p>
                             <p class="mt-3 border-t border-edge-line pt-3 text-edge-text">storefront.on-dply.app<span class="edge-cursor ml-1 text-edge-lime">▊</span></p>
@@ -222,9 +228,12 @@
         <section class="border-t border-edge-line">
             <div class="mx-auto flex max-w-6xl flex-col items-start justify-between gap-8 px-6 py-16 lg:flex-row lg:items-center lg:px-10">
                 <h2 class="reveal text-2xl font-bold tracking-[-0.03em] sm:text-3xl">Your next deploy could be the last one you configure.</h2>
-                <a href="{{ route('register') }}" class="reveal font-terminal inline-flex shrink-0 items-center bg-edge-lime px-7 py-3.5 text-sm font-bold text-edge-void transition-colors hover:bg-edge-lime-bright" style="transition-delay:.08s">
-                    start a 5-day trial →
-                </a>
+                <div class="reveal flex shrink-0 flex-col items-start gap-3 lg:items-end" style="transition-delay:.08s">
+                    <a href="{{ route('register') }}" class="font-terminal inline-flex items-center bg-edge-lime px-7 py-3.5 text-sm font-bold text-edge-void transition-colors hover:bg-edge-lime-bright">
+                        start a 5-day trial →
+                    </a>
+                    <a href="{{ route('coming-soon') }}" class="text-sm text-edge-mute transition-colors hover:text-edge-lime">or join the waitlist</a>
+                </div>
             </div>
         </section>
     </main>

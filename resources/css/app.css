@@ -878,3 +878,24 @@ h1, h2, h3 {
 p {
     text-wrap: pretty;
 }
+
+/* Overview service map: requests "flowing" along the connectors. */
+.dply-flow {
+    fill: none;
+    stroke-width: 1.5;
+    stroke-dasharray: 4 6;
+    vector-effect: non-scaling-stroke;
+    animation: dply-flow 1s linear infinite;
+}
+
+@keyframes dply-flow {
+    to {
+        stroke-dashoffset: -20;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dply-flow {
+        animation: none;
+    }
+}
