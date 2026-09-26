@@ -59,7 +59,7 @@ final class SiteErrorsNotificationDispatcher
         }
 
         $fallbackUrl = $site->server
-            ? route('sites.show', [$site->server, $site, 'logs'], absolute: true)
+            ? route('sites.show', ['site' => $site, 'section' => 'logs'], absolute: true)
             : null;
 
         $this->publisher->publish(

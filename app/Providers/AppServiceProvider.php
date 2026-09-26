@@ -53,6 +53,7 @@ use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Foundation\DevCommands;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
@@ -138,6 +139,12 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // A project's Overview is the project URL itself: every
+        // route('sites.show', [..., 'section' => 'general']) drops the segment.
+        URL::formatPathUsing(static fn (string $path, $route = null): string => $route?->getName() === 'sites.show'
+            ? (string) preg_replace('#/general$#', '', $path)
+            : $path);
+
         Blaze::optimize()
             ->in(resource_path('views/components/spinner.blade.php'), memo: true)
             ->in(resource_path('views/components/application-logo.blade.php'), memo: true)

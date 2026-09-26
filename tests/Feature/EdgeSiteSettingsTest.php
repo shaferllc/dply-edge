@@ -414,3 +414,17 @@ function makeEdgeSiteForSettings(bool $withGithub = false, bool $hybrid = false)
 
     return [$user, $server, $site->fresh()];
 }
+
+test('the overview is the project url: links drop /general and old /general, /overview urls redirect there', function () {
+    $user = \App\Models\User::factory()->create();
+    $org = \App\Models\Organization::factory()->create();
+    $org->users()->attach($user->id, ['role' => 'owner']);
+    $server = \App\Models\Server::factory()->create(['organization_id' => $org->id, 'user_id' => $user->id, 'meta' => ['host_kind' => \App\Models\Server::HOST_KIND_DPLY_EDGE]]);
+    $site = \App\Models\Site::factory()->create(['organization_id' => $org->id, 'server_id' => $server->id, 'user_id' => $user->id, 'edge_backend' => 'dply_edge', 'status' => \App\Models\Site::STATUS_EDGE_ACTIVE]);
+
+    expect(route('sites.show', ['site' => $site, 'section' => 'general'], false))->toBe('/projects/'.$site->id)
+        ->and(route('sites.show', ['site' => $site, 'section' => 'logs'], false))->toBe('/projects/'.$site->id.'/logs');
+
+    $this->actingAs($user)->get('/projects/'.$site->id.'/general?tab=x')->assertRedirect('/projects/'.$site->id.'?tab=x')->assertStatus(301);
+    $this->actingAs($user)->get('/projects/'.$site->id.'/overview')->assertRedirect('/projects/'.$site->id);
+});
