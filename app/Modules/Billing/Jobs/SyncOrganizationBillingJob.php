@@ -5,13 +5,13 @@ namespace App\Modules\Billing\Jobs;
 use App\Models\BillingSubscriptionSyncEvent;
 use App\Models\Organization;
 use App\Modules\Billing\Services\BillingSubscriptionSyncEventRecorder;
+use App\Modules\Billing\Services\OrganizationBillingEnforcer;
 use App\Modules\Billing\Services\OrganizationBillingStateComputer;
 use App\Modules\Billing\Services\StripeSubscriptionSyncer;
 use App\Modules\Edge\Services\EdgeQueueConsumers;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
-use Illuminate\Support\Facades\Artisan;
 use Throwable;
 
 /**
@@ -54,7 +54,7 @@ class SyncOrganizationBillingJob implements ShouldBeUnique, ShouldQueue
 
         // Pause or resume now rather than at the next hourly run: a payment
         // should bring the sites back at once.
-        Artisan::call('dply:billing:enforce', ['--org' => $organization->id]);
+        app(OrganizationBillingEnforcer::class)->enforce($organization);
 
         // Only sync orgs on the new Standard plan. Enterprise subs are managed
         // by hand in Stripe; legacy Pro subs are flat-fee and have no quantities.

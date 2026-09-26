@@ -56,6 +56,27 @@ test('publishes the deploy footer flag when the site enables it', function () {
     });
 });
 
+test('a paused org serves the paused page as maintenance; an org with a plan does not', function () {
+    config(['edge.fake.enabled' => false]);
+    Http::fake(['api.cloudflare.com/*' => Http::response(['success' => true, 'result' => []], 200)]);
+    $sent = fn () => collect(Http::recorded())->map(fn ($pair) => json_decode($pair[0]->body(), true))->filter()->last();
+
+    [$site, $deployment, $context] = scaffoldOrgSite();
+    app(EdgeHostMapPublisher::class)->publishHostname($site, $deployment, 'app.example.com', $context);
+    expect($sent())->not->toHaveKey('maintenance_mode');
+
+    // Trial over, unpaid, paused (ruling r-f17p5zgeh120cm5t).
+    $site->organization->forceFill(['trial_ends_at' => now()->subDays(2), 'billing_paused_at' => now()->subDay()])->save();
+    app(EdgeHostMapPublisher::class)->publishHostname($site->fresh(), $deployment, 'app.example.com', $context);
+    expect($sent()['maintenance_mode'] ?? null)->toBeTrue()
+        ->and($sent()['maintenance_html'] ?? '')->toContain('This site is paused');
+
+    // Paid again (comped here): the page comes down even before the flag clears.
+    $site->organization->forceFill(['comped_until' => now()->addYear()])->save();
+    app(EdgeHostMapPublisher::class)->publishHostname($site->fresh(), $deployment, 'app.example.com', $context);
+    expect($sent())->not->toHaveKey('maintenance_mode');
+});
+
 /**
  * @return array{0: Site, 1: EdgeDeployment, 2: EdgeDeliveryContext}
  */
