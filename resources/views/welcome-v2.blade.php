@@ -4,8 +4,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <x-seo-meta
-        full-title="{{ config('app.name') }} – Push a repo, get a site on the edge"
-        description="dply edge builds your Git repository and publishes it on Dply Edge. Static, hybrid or Worker SSR — with an HTTPS hostname before the first build finishes." />
+        full-title="{{ config('app.name') }} – Your whole app, deployed from Git"
+        description="dply edge deploys static sites, server-rendered apps and PHP, Rails or Node servers from a Git push — with managed Postgres, MySQL, Valkey and queue workers alongside. One bill, no servers to run." />
     <meta name="csrf-token" content="{{ csrf_token() }}">
 
     @include('partials.theme-head')
@@ -19,7 +19,7 @@
         .reveal { opacity: 0; transform: translateY(20px); transition: opacity .6s cubic-bezier(.2,.7,.2,1), transform .6s cubic-bezier(.2,.7,.2,1); }
         .reveal.reveal-in { opacity: 1; transform: none; }
 
-        /* The one moving part on the page: the cursor at the end of the build
+        /* The one moving part on the page: the cursor at the end of the deploy
            trace. Everything else is still, which is what makes it read. */
         @keyframes edge-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
         .edge-cursor { animation: edge-blink 1.1s step-end infinite; }
@@ -40,124 +40,142 @@
         <section class="border-b border-edge-line">
             <div class="mx-auto max-w-6xl px-6 pb-16 pt-16 lg:grid lg:grid-cols-12 lg:gap-14 lg:px-10 lg:pb-20 lg:pt-24">
                 <div class="lg:col-span-7">
-                    <p class="reveal font-terminal text-xs tracking-[0.12em] text-edge-lime">STATIC · HYBRID · WORKER_SSR</p>
+                    <p class="reveal font-terminal text-xs tracking-[0.12em] text-edge-lime">SITES · SERVER_APPS · DATABASES · WORKERS</p>
 
                     <h1 class="reveal mt-6 text-[2.75rem] font-bold leading-[1.02] tracking-[-0.045em] sm:text-6xl lg:text-[3.9rem]" style="transition-delay:.06s">
-                        Push a repo.<br>Get a site<br>on the edge.
+                        Push a repo.<br>Get the whole app<br>running.
                     </h1>
 
                     <p class="reveal mt-7 max-w-xl text-base leading-7 text-edge-dim" style="transition-delay:.12s">
-                        dply edge builds your Git repository in a clean container and publishes the output on Dply Edge. You get an HTTPS hostname before the first build finishes.
+                        Static sites, server rendering, and PHP, Rails or Node servers — deployed from Git onto a global edge. The database, cache and queue workers they need live next to them. No servers to patch, one bill.
                     </p>
 
                     <div class="reveal mt-9 flex flex-col items-start gap-4 sm:flex-row sm:items-center" style="transition-delay:.18s">
                         <a href="{{ route('register') }}" class="font-terminal inline-flex items-center gap-2.5 bg-edge-lime px-6 py-3.5 text-sm font-bold text-edge-void transition-colors hover:bg-edge-lime-bright">
-                            deploy your first site →
+                            start a 5-day trial →
                         </a>
-                        <p class="font-terminal text-[13px] text-edge-mute">$2/site/mo + usage</p>
+                        <p class="font-terminal text-[13px] text-edge-mute">then $20/mo · cancel anytime</p>
                     </div>
 
                     <p class="reveal mt-6 text-sm text-edge-mute" style="transition-delay:.24s">
-                        Already on Vercel, Netlify or Pages?
-                        <a href="{{ route('register') }}" class="border-b border-edge-lime/50 pb-0.5 text-edge-text transition-colors hover:border-edge-lime hover:text-edge-lime">Import the project</a>
-                        and keep your build settings.
+                        Moving from Forge, Heroku, Vercel or Netlify?
+                        <a href="{{ route('register') }}" class="border-b border-edge-lime/50 pb-0.5 text-edge-text transition-colors hover:border-edge-lime hover:text-edge-lime">Point us at the repo</a>
+                        — we detect the framework and keep your build settings.
                     </p>
                 </div>
 
-                {{-- The build, as the machine reported it. --}}
+                {{-- One deploy of a real-shaped app: site, server, data, workers. --}}
                 <div class="reveal mt-12 lg:col-span-5 lg:mt-0" style="transition-delay:.3s">
                     <div class="border border-edge-line bg-edge-panel">
                         <div class="flex items-center justify-between border-b border-edge-line px-4 py-2.5">
-                            <span class="font-terminal truncate text-[11px] text-edge-mute">tomshafer/marketing-site@main</span>
+                            <span class="font-terminal truncate text-[11px] text-edge-mute">acme/storefront@main</span>
                             <span class="font-terminal shrink-0 text-[11px] text-edge-lime">● LIVE</span>
                         </div>
                         <div class="font-terminal space-y-1 px-4 py-4 text-xs leading-6 text-edge-dim">
-                            <p><span class="text-edge-lime">✓</span> clone a3f91c2 <span class="text-edge-faint">4.2s</span></p>
-                            <p><span class="text-edge-lime">✓</span> npm ci <span class="text-edge-faint">11.0s</span></p>
-                            <p><span class="text-edge-lime">✓</span> npm run build <span class="text-edge-faint">38.1s</span></p>
-                            <p><span class="text-edge-lime">✓</span> publish → r2 <span class="text-edge-faint">2.4s</span></p>
-                            <p class="mt-3 border-t border-edge-line pt-3 text-edge-text">marketing-site.on-dply.app<span class="edge-cursor ml-1 text-edge-lime">▊</span></p>
-                            <p class="text-edge-faint">https ready · 42ms p95 · 0 errors</p>
+                            <p><span class="text-edge-faint">detected</span> laravel 12 · php 8.4</p>
+                            <p><span class="text-edge-lime">✓</span> build image <span class="text-edge-faint">41.3s</span></p>
+                            <p><span class="text-edge-lime">✓</span> assets → edge cache <span class="text-edge-faint">2.1s</span></p>
+                            <p><span class="text-edge-lime">✓</span> app container · 3 regions <span class="text-edge-faint">9.8s</span></p>
+                            <p><span class="text-edge-lime">✓</span> postgres · valkey attached <span class="text-edge-faint">0.4s</span></p>
+                            <p><span class="text-edge-lime">✓</span> queue workers × 2 <span class="text-edge-faint">3.6s</span></p>
+                            <p class="mt-3 border-t border-edge-line pt-3 text-edge-text">storefront.on-dply.app<span class="edge-cursor ml-1 text-edge-lime">▊</span></p>
+                            <p class="text-edge-faint">https ready · migrations ran · 0 failed jobs</p>
                         </div>
                     </div>
                 </div>
             </div>
         </section>
 
-        {{-- ========================= DELIVERY MODES ========================= --}}
-        <section class="border-b border-edge-line">
-            <div class="mx-auto grid max-w-6xl grid-cols-1 md:grid-cols-3">
-                @foreach ([
-                    ['01', 'Static / SSG', '$2/mo', 'CDN-only. Astro, Eleventy, Hugo, Vite, plain HTML. Most sites belong here.'],
-                    ['02', 'Hybrid', '$2/mo', 'Static assets on the edge, your own HTTPS origin behind the routes that need a server.'],
-                    ['03', 'Worker SSR', '$7/mo', 'Server rendering on the edge itself. No origin to run. Replaces the $2 site fee.'],
-                ] as $i => [$num, $name, $price, $body])
-                    <div @class([
-                        'reveal px-6 py-7 lg:px-10',
-                        'border-b border-edge-line md:border-b-0 md:border-r' => $i < 2,
-                    ]) style="transition-delay:{{ .06 * $i }}s">
-                        <p class="font-terminal text-[11px] text-edge-faint">{{ $num }}</p>
-                        <p class="mt-2 text-lg font-bold tracking-[-0.02em]">{{ $name }}</p>
-                        <p class="mt-1.5 text-sm leading-6 text-edge-mute">{{ $body }}</p>
-                        <p class="font-terminal mt-3 text-[13px] text-edge-lime">{{ $price }}</p>
-                    </div>
-                @endforeach
-            </div>
-        </section>
-
-        {{-- ========================== HOW IT WORKS ========================== --}}
-        <section id="how-it-works" class="border-b border-edge-line">
+        {{-- ========================== WHAT RUNS HERE ========================= --}}
+        <section id="what-runs-here" class="border-b border-edge-line">
             <div class="mx-auto max-w-6xl px-6 py-20 lg:px-10">
-                <p class="reveal font-terminal text-xs tracking-[0.12em] text-edge-lime">HOW_IT_WORKS</p>
+                <p class="reveal font-terminal text-xs tracking-[0.12em] text-edge-lime">WHAT_RUNS_HERE</p>
                 <h2 class="reveal mt-4 max-w-2xl text-3xl font-bold tracking-[-0.035em] sm:text-[2.5rem] sm:leading-[1.1]" style="transition-delay:.06s">
-                    Two screens between a repo and a hostname
+                    Everything an app needs, in one project
                 </h2>
                 <p class="reveal mt-4 max-w-2xl text-base leading-7 text-edge-dim" style="transition-delay:.1s">
-                    There is no pipeline to assemble and no config file required. Connect the repo, confirm what we detected, deploy.
+                    Start with a marketing site. Add the API, the database and the workers when you need them — same repo, same dashboard, same invoice.
                 </p>
 
-                <div class="mt-12 grid gap-px bg-edge-line md:grid-cols-3">
+                <div class="mt-12 grid gap-px bg-edge-line sm:grid-cols-2 lg:grid-cols-4">
                     @foreach ([
-                        ['01', 'Connect Git', 'Pick a repo from a connected account or paste a public remote. Target a branch, a tag, or a specific commit — a tag pins the build, a branch redeploys when you push.'],
-                        ['02', 'Confirm the build', 'We read the repo and fill in the framework, build command and output directory — including the right package in a monorepo. Override any of it, or don’t.'],
-                        ['03', 'Watch it go live', 'Four steps, timed, with the build log streaming as it happens. The hostname resolves with HTTPS before the build finishes, so you can share the link immediately.'],
-                    ] as $i => [$num, $title, $body])
-                        <div class="reveal bg-edge-void p-7" style="transition-delay:{{ .06 * $i + .14 }}s">
-                            <p class="font-terminal text-[11px] text-edge-lime">{{ $num }}</p>
+                        ['SITES', 'Static & SSR', 'Astro, Next.js, Nuxt, SvelteKit, Hugo or plain HTML. Files served from the edge; server routes render there too.', ['Preview per branch', 'Instant rollback', 'Custom domains + TLS']],
+                        ['SERVER_APPS', 'PHP, Rails & Node', 'Your framework, unchanged, in a container. It scales out on traffic and sleeps when idle, so the meter stops too.', ['Laravel, Rails, Express', 'Scale to zero', 'Logs + live tail']],
+                        ['DATA', 'Databases & cache', 'Managed Postgres, MySQL, MongoDB and Valkey beside your app, plus SQLite at the edge for lighter work.', ['Daily backups', 'Point-in-time restore', 'Query console']],
+                        ['WORKERS', 'Queues & jobs', 'Always-on queue workers that autoscale on backlog, with the scheduler built in and failed jobs one click from retry.', ['Autoscaling', 'Worker groups', 'Failed-job alerts']],
+                    ] as $i => [$tag, $title, $body, $points])
+                        <div class="reveal flex flex-col bg-edge-void p-7" style="transition-delay:{{ .06 * $i + .14 }}s">
+                            <p class="font-terminal text-[11px] text-edge-lime">{{ $tag }}</p>
                             <h3 class="mt-3 text-lg font-bold tracking-[-0.02em]">{{ $title }}</h3>
                             <p class="mt-2 text-sm leading-6 text-edge-mute">{{ $body }}</p>
+                            <ul class="font-terminal mt-5 space-y-1.5 border-t border-edge-line pt-4 text-xs text-edge-dim">
+                                @foreach ($points as $point)
+                                    <li><span class="text-edge-lime">+</span> {{ $point }}</li>
+                                @endforeach
+                            </ul>
                         </div>
                     @endforeach
                 </div>
             </div>
         </section>
 
-        {{-- ============================= DAY TWO ============================ --}}
-        <section class="border-b border-edge-line">
+        {{-- ========================== HOW IT WORKS ========================== --}}
+        <section id="how-it-works" class="border-b border-edge-line">
             <div class="mx-auto max-w-6xl px-6 py-20 lg:grid lg:grid-cols-12 lg:gap-14 lg:px-10">
                 <div class="lg:col-span-5">
-                    <p class="reveal font-terminal text-xs tracking-[0.12em] text-edge-lime">DAY_TWO</p>
+                    <p class="reveal font-terminal text-xs tracking-[0.12em] text-edge-lime">HOW_IT_WORKS</p>
                     <h2 class="reveal mt-4 text-3xl font-bold tracking-[-0.035em] sm:text-[2.5rem] sm:leading-[1.1]" style="transition-delay:.06s">
-                        The parts you only notice later
+                        No pipeline to assemble
                     </h2>
                     <p class="reveal mt-4 text-base leading-7 text-edge-dim" style="transition-delay:.1s">
-                        Rollback, preview URLs and request logs ship with every site — no add-ons, no second product.
+                        We read the repo and fill in the rest. Nothing to write before the first deploy — a <span class="font-terminal text-[13px] text-edge-text">dply.yaml</span> is there if you want one later.
                     </p>
-                    <a href="{{ route('features') }}" class="reveal font-terminal mt-7 inline-flex items-center gap-2 border border-edge-line px-5 py-3 text-sm text-edge-text transition-colors hover:border-edge-lime hover:text-edge-lime" style="transition-delay:.14s">
+                </div>
+
+                <ol class="mt-12 space-y-px bg-edge-line lg:col-span-7 lg:mt-0">
+                    @foreach ([
+                        ['01', 'Connect Git', 'GitHub, GitLab or Bitbucket. Deploy a branch on every push, or pin a tag.'],
+                        ['02', 'Confirm what we found', 'Framework, build command, runtime, and whether it needs a server — monorepo packages included. Override anything.'],
+                        ['03', 'Attach what it needs', 'A database, a cache, a queue. Credentials land in the environment; you don’t copy connection strings around.'],
+                        ['04', 'Ship', 'A timed, streaming build log and an HTTPS hostname before it finishes. Every later push does it again.'],
+                    ] as $i => [$num, $title, $body])
+                        <li class="reveal flex gap-6 bg-edge-void p-6" style="transition-delay:{{ .06 * $i + .14 }}s">
+                            <p class="font-terminal pt-0.5 text-[11px] text-edge-lime">{{ $num }}</p>
+                            <div>
+                                <h3 class="text-base font-bold tracking-[-0.02em]">{{ $title }}</h3>
+                                <p class="mt-1.5 text-sm leading-6 text-edge-mute">{{ $body }}</p>
+                            </div>
+                        </li>
+                    @endforeach
+                </ol>
+            </div>
+        </section>
+
+        {{-- ============================= DAY TWO ============================ --}}
+        <section class="border-b border-edge-line">
+            <div class="mx-auto max-w-6xl px-6 py-20 lg:px-10">
+                <div class="flex flex-col items-start justify-between gap-6 md:flex-row md:items-end">
+                    <div>
+                        <p class="reveal font-terminal text-xs tracking-[0.12em] text-edge-lime">DAY_TWO</p>
+                        <h2 class="reveal mt-4 text-3xl font-bold tracking-[-0.035em] sm:text-[2.5rem] sm:leading-[1.1]" style="transition-delay:.06s">
+                            The parts you only notice later
+                        </h2>
+                    </div>
+                    <a href="{{ route('features') }}" class="reveal font-terminal inline-flex shrink-0 items-center gap-2 border border-edge-line px-5 py-3 text-sm text-edge-text transition-colors hover:border-edge-lime hover:text-edge-lime" style="transition-delay:.1s">
                         see everything included →
                     </a>
                 </div>
 
-                <div class="mt-12 grid gap-px bg-edge-line sm:grid-cols-2 lg:col-span-7 lg:mt-0">
+                <div class="mt-12 grid gap-px bg-edge-line sm:grid-cols-2 lg:grid-cols-3">
                     @foreach ([
-                        ['Preview branches', 'Every branch gets its own hostname, with comments pinned to the page.'],
+                        ['Preview branches', 'Every branch gets its own URL, with review comments pinned to the page.'],
                         ['Instant rollback', 'Every deploy is kept. Promote an old one back in a click — no rebuild.'],
-                        ['Access rules', 'Password-gate a staging site, allow-list an office, rate-limit a path.'],
+                        ['Access rules', 'Password-gate staging, allow-list an office, rate-limit a path.'],
                         ['Real request logs', 'Live tail, CSV export, and Core Web Vitals from actual visitors.'],
-                        ['Your account, optionally', 'Run on our account, or bring a credential and keep the zone yourself.'],
-                        ['dply.yaml, if you want it', 'Export what you configured in the UI and check it into the repo.'],
+                        ['Restore to a minute', 'Point-in-time recovery on managed databases, not just nightly dumps.'],
+                        ['Alerts that matter', 'Failed jobs, crashing workers and downtime reach Slack, email or PagerDuty.'],
                     ] as $i => [$title, $body])
-                        <div class="reveal bg-edge-void p-5" style="transition-delay:{{ .04 * $i + .16 }}s">
+                        <div class="reveal bg-edge-void p-6" style="transition-delay:{{ .04 * $i + .14 }}s">
                             <h3 class="text-sm font-bold tracking-[-0.01em]">{{ $title }}</h3>
                             <p class="mt-1.5 text-sm leading-6 text-edge-mute">{{ $body }}</p>
                         </div>
@@ -168,19 +186,45 @@
 
         {{-- ============================= PRICING ============================ --}}
         <section>
-            <div class="mx-auto flex max-w-6xl flex-col items-start justify-between gap-10 px-6 py-20 lg:flex-row lg:items-center lg:px-10">
-                <div class="reveal">
-                    <h2 class="text-3xl font-bold tracking-[-0.035em] sm:text-[2.5rem] sm:leading-[1.1]">Free, then Pro and Team</h2>
-                    <p class="mt-4 max-w-2xl text-base leading-7 text-edge-dim">
-                        Free includes unlimited sites, seats, and builds, with $5 of usage credit and container apps that sleep when idle. Pro and Team include more traffic and compute, then $2/mo for each site past the plan. Worker SSR sites are $7/mo. Preview branches count as usage.
+            <div class="mx-auto max-w-6xl px-6 py-20 lg:grid lg:grid-cols-12 lg:gap-14 lg:px-10">
+                <div class="lg:col-span-5">
+                    <p class="reveal font-terminal text-xs tracking-[0.12em] text-edge-lime">PRICING</p>
+                    <h2 class="reveal mt-4 text-3xl font-bold tracking-[-0.035em] sm:text-[2.5rem] sm:leading-[1.1]" style="transition-delay:.06s">
+                        Two plans. Usage past them is metered.
+                    </h2>
+                    <p class="reveal mt-4 text-base leading-7 text-edge-dim" style="transition-delay:.1s">
+                        Try Pro free for 5 days. Past a plan’s allowance, extra sites are $2/mo, Worker SSR sites $7/mo, and compute is billed by the second it runs — nothing is throttled.
                     </p>
+                    <a href="{{ route('pricing') }}" class="reveal mt-6 inline-block text-sm text-edge-mute transition-colors hover:text-edge-text" style="transition-delay:.14s">See full pricing →</a>
                 </div>
-                <div class="reveal flex shrink-0 flex-col items-stretch gap-3" style="transition-delay:.08s">
-                    <a href="{{ route('register') }}" class="font-terminal inline-flex items-center justify-center bg-edge-lime px-7 py-3.5 text-sm font-bold text-edge-void transition-colors hover:bg-edge-lime-bright">
-                        deploy your first site →
-                    </a>
-                    <a href="{{ route('pricing') }}" class="text-center text-sm text-edge-mute transition-colors hover:text-edge-text">See full pricing</a>
+
+                <div class="mt-12 grid gap-px bg-edge-line sm:grid-cols-2 lg:col-span-7 lg:mt-0">
+                    @foreach ([
+                        ['Pro', '$20', 'For real projects', ['10 sites · 3 seats', '1,000 build minutes', '10 databases · 10 queues', '$5 compute included', 'Autoscaling workers']],
+                        ['Team', '$49', 'For your whole company', ['50 sites · 5 seats', '3,000 build minutes', '50 databases · 50 queues', '$20 compute included', 'Audit log']],
+                    ] as $i => [$name, $price, $tagline, $points])
+                        <div class="reveal flex flex-col bg-edge-void p-7" style="transition-delay:{{ .06 * $i + .14 }}s">
+                            <p class="text-lg font-bold tracking-[-0.02em]">{{ $name }}</p>
+                            <p class="mt-1 text-sm text-edge-mute">{{ $tagline }}</p>
+                            <p class="mt-5"><span class="text-4xl font-bold tracking-[-0.04em]">{{ $price }}</span><span class="font-terminal text-[13px] text-edge-mute"> /mo</span></p>
+                            <ul class="font-terminal mt-6 space-y-1.5 text-xs text-edge-dim">
+                                @foreach ($points as $point)
+                                    <li><span class="text-edge-lime">+</span> {{ $point }}</li>
+                                @endforeach
+                            </ul>
+                        </div>
+                    @endforeach
                 </div>
+            </div>
+        </section>
+
+        {{-- ============================== CLOSE ============================= --}}
+        <section class="border-t border-edge-line">
+            <div class="mx-auto flex max-w-6xl flex-col items-start justify-between gap-8 px-6 py-16 lg:flex-row lg:items-center lg:px-10">
+                <h2 class="reveal text-2xl font-bold tracking-[-0.03em] sm:text-3xl">Your next deploy could be the last one you configure.</h2>
+                <a href="{{ route('register') }}" class="reveal font-terminal inline-flex shrink-0 items-center bg-edge-lime px-7 py-3.5 text-sm font-bold text-edge-void transition-colors hover:bg-edge-lime-bright" style="transition-delay:.08s">
+                    start a 5-day trial →
+                </a>
             </div>
         </section>
     </main>
