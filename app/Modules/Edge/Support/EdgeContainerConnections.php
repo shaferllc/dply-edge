@@ -246,7 +246,8 @@ final class EdgeContainerConnections
      *
      * @param  array{kind: string, asleep: bool, target: string}  $connection
      */
-    private static function redisSuppliesEnv(Site $site, array $connection): bool
+    /** Whether a Redis connection's address actually reaches the app (dply Valkey is wired in on paid plans). */
+    public static function redisSuppliesEnv(Site $site, array $connection): bool
     {
         if ($connection['kind'] !== 'redis' || $connection['asleep']) {
             return false;

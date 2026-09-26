@@ -136,7 +136,12 @@ final class EdgeQueueWorkers
             return __('Workers pull jobs from Redis or a database both the app and the workers can reach. Add dply Valkey or a Postgres or MySQL database first. SQLite lives inside one container.');
         }
         if (self::connection($site) === null) {
-            return __('Workers are set to pull from :connection, which this app does not have yet.', ['connection' => self::for($site)['connection']]);
+            $valkeyNeedsPlan = self::for($site)['connection'] === 'redis' && collect(EdgeContainerConnections::for($site))
+                ->contains(fn (array $c): bool => $c['kind'] === 'redis' && ! $c['asleep'] && EdgeValkey::isTarget((string) $c['target']));
+
+            return $valkeyNeedsPlan
+                ? __('dply Valkey is wired into apps on Pro and Team. Choose a plan, or set Connection to database.')
+                : __('Workers are set to pull from :connection, which this app does not have yet.', ['connection' => self::for($site)['connection']]);
         }
 
         return null;
@@ -356,7 +361,9 @@ final class EdgeQueueWorkers
 
     private static function hasRedis(Site $site): bool
     {
-        return collect(EdgeContainerConnections::for($site))->contains(fn (array $c): bool => $c['kind'] === 'redis' && ! $c['asleep']);
+        // The same rule that decides whether the app gets REDIS_*: workers (and
+        // QUEUE_CONNECTION) on Redis the app cannot reach would break the app.
+        return collect(EdgeContainerConnections::for($site))->contains(fn (array $c): bool => EdgeContainerConnections::redisSuppliesEnv($site, $c));
     }
 
     private static function hasSharedDatabase(Site $site): bool

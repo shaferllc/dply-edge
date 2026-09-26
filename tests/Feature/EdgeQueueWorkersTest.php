@@ -11,6 +11,7 @@ use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
+use App\Modules\Billing\Models\Subscription;
 use App\Modules\Edge\Console\ScaleEdgeQueueWorkersCommand;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Services\Containers\EdgeContainerDockerfile;
@@ -41,6 +42,16 @@ function laravelApp(array $edge = [], ?Organization $org = null): Site
             'database' => ['engine' => 'postgres', 'provider' => 'dply'],
         ], $edge)],
     ]);
+}
+
+/** An organization on Pro: dply Valkey is wired into its apps. */
+function proOrg(): Organization
+{
+    config(['subscription.standard.stripe.tier_pro' => 'price_tier_pro']);
+    $org = Organization::factory()->create();
+    Subscription::factory()->withPrice('price_tier_pro')->active()->create(['organization_id' => $org->id]);
+
+    return $org;
 }
 
 test('settings are clamped and queue names cleaned', function () {
@@ -336,7 +347,7 @@ test('worker logs pick worker output out of the app logs', function () {
 });
 
 test('workers on a sleeping database can switch to dply Valkey', function () {
-    $app = laravelApp(['database' => ['suspend' => 300], 'container' => ['workers' => ['enabled' => true]]]);
+    $app = laravelApp(['database' => ['suspend' => 300], 'container' => ['workers' => ['enabled' => true]]], proOrg());
     $user = User::factory()->create();
     $app->organization->users()->attach($user->id, ['role' => 'owner']);
     $app->forceFill(['user_id' => $user->id, 'type' => SiteType::Static, 'status' => Site::STATUS_EDGE_ACTIVE])->save();
@@ -416,7 +427,14 @@ test('failing jobs and crash-looping workers raise one alert each per half hour'
 });
 
 test('the app dispatches to the connection its workers pull from', function () {
-    $redis = laravelApp(['connections' => [['kind' => 'redis', 'name' => 'REDIS', 'host' => 'redis.internal', 'target' => 'valkey:x']], 'container' => ['workers' => ['enabled' => true, 'connection' => 'redis']]]);
+    $valkey = ['connections' => [['kind' => 'redis', 'name' => 'REDIS', 'host' => 'redis.internal', 'target' => 'valkey:x']], 'container' => ['workers' => ['enabled' => true, 'connection' => 'redis']]];
+    $redis = laravelApp($valkey, proOrg());
+    // On Free, dply Valkey is not wired into the app: no workers on it, and the app keeps its connection.
+    $free = laravelApp($valkey);
+    expect(EdgeQueueWorkers::dispatchEnv($free))->toBe([])
+        ->and(EdgeQueueWorkers::runningInstances($free))->toBe(0)
+        ->and(EdgeQueueWorkers::unavailableReason($free))->toContain('Pro and Team')
+        ->and(EdgeQueueWorkers::connection(laravelApp(array_replace_recursive($valkey, ['container' => ['workers' => ['connection' => 'auto']]]))))->toBe('database');
     $database = laravelApp(['container' => ['workers' => ['enabled' => true]]]);
     $none = laravelApp();
 
@@ -432,7 +450,7 @@ test('a test job goes through the app, and a dispatch mismatch is caught', funct
         'live_url' => 'https://shop.on-dply.live',
         'connections' => [['kind' => 'redis', 'name' => 'REDIS', 'host' => 'redis.internal', 'target' => 'valkey:x']],
         'container' => ['workers' => ['enabled' => true, 'connection' => 'redis', 'queues' => 'emails,default']],
-    ]);
+    ], proOrg());
     $user = User::factory()->create();
     $app->organization->users()->attach($user->id, ['role' => 'owner']);
     $app->forceFill(['user_id' => $user->id, 'type' => SiteType::Static, 'status' => Site::STATUS_EDGE_ACTIVE])->save();
