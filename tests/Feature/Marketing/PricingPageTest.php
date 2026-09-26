@@ -3,15 +3,6 @@
 namespace Tests\Feature\Marketing\PricingPageTest;
 
 use Illuminate\Support\Facades\Config;
-use Laravel\Pennant\Feature;
-use Tests\Concerns\WithFeatures;
-
-uses(WithFeatures::class);
-
-beforeEach(function () {
-    Feature::define('global.billing_enabled', fn () => true);
-    Feature::flushCache();
-});
 
 test('pricing page lists the free, pro and team plans from config', function () {
     $response = $this->withoutMiddleware()->get(route('pricing'));

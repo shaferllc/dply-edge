@@ -8,13 +8,9 @@ use App\Models\ProviderCredential;
 use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Laravel\Pennant\Feature;
 use Livewire\Livewire;
-use Tests\Concerns\WithFeatures;
 
 uses(RefreshDatabase::class);
-
-uses(WithFeatures::class);
 
 // DNS/CDN providers default off (config server_providers.enabled.*); enable the
 // ones these tests connect so ServerProviderGate::enabled() doesn't refuse them.
@@ -211,28 +207,4 @@ test('cdn tab lists only cdn capable providers', function () {
     expect($ids)->toContain('vercel_dns');
     expect($ids)->not->toContain('namecheap');
     expect($ids)->not->toContain('digitalocean');
-});
-
-test('compute vm providers are grouped under vps and cloud not infrastructure hub label', function () {
-    config([
-        'server_providers.enabled.upcloud' => true,
-        'server_providers.enabled.linode' => true,
-    ]);
-    Feature::define('provider.upcloud', fn (): bool => true);
-    Feature::define('provider.linode', fn (): bool => true);
-    Feature::flushCache();
-
-    $nav = CredentialsIndex::credentialProviderNav();
-    $groupById = [];
-    foreach ($nav as $group) {
-        foreach ($group['items'] as $item) {
-            $groupById[$item['id']] = $group['label'];
-        }
-    }
-
-    $vpsGroup = __('VPS & cloud');
-
-    expect($groupById['upcloud'] ?? null)->toBe($vpsGroup);
-    expect($groupById['linode'] ?? null)->toBe($vpsGroup);
-    expect(array_column($nav, 'label'))->not->toContain(__('Infrastructure'));
 });

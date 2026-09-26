@@ -16,8 +16,6 @@ use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
 
-usesFeatures('surface.status_pages');
-
 function userWithOrg(string $role = 'owner'): User
 {
     $user = User::factory()->create();

@@ -20,7 +20,6 @@
         "laravel/mcp": "^0.8.0",
         "laravel/octane": "^2.18",
         "laravel/passkeys": "^0.2.1",
-        "laravel/pennant": "^1.23",
         "laravel/pulse": "^1.7",
         "laravel/reverb": "^1.9",
         "laravel/socialite": "^5.25",

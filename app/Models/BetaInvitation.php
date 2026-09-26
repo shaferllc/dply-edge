@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Models;
 
-use App\Support\Beta\BetaProgram;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;
@@ -146,7 +145,7 @@ class BetaInvitation extends Model
 
     /**
      * Mark this invite redeemed by a freshly-registered user, flag the resulting
-     * org as a beta participant, and apply the beta feature bundle.
+     * org as a beta participant.
      */
     public function redeem(User $user, Organization $organization): void
     {
@@ -160,7 +159,6 @@ class BetaInvitation extends Model
             $organization->forceFill(['beta_joined_at' => now()])->save();
         }
 
-        BetaProgram::applyBundle($organization);
     }
 
     public function revoke(): void

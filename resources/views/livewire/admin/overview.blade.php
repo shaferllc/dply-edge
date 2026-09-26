@@ -18,7 +18,6 @@
     $quickLinks = [
         ['route' => 'admin.operations', 'icon' => 'heroicon-o-wrench-screwdriver', 'label' => __('Operations'), 'note' => __('Runtime, queues, logs, exports, cache')],
         ['route' => 'admin.audit', 'icon' => 'heroicon-o-clipboard-document-list', 'label' => __('Audit log'), 'note' => __('Filter and export platform activity')],
-        ['route' => 'admin.flags.global', 'icon' => 'heroicon-o-flag', 'label' => __('Global flags'), 'note' => __('App-wide kill switches')],
         ['route' => 'admin.organizations.index', 'icon' => 'heroicon-o-building-office-2', 'label' => __('Organizations'), 'note' => __('Search orgs and manage overrides')],
     ];
 @endphp

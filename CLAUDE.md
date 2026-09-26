@@ -5,7 +5,7 @@ sites** — first-party Netlify-style static/SSG/SSR hosting on Cloudflare R2 +
 Workers. It is the Edge-only cut of dply: the VM platform and every other
 product line are gone (see the cut note below). This file is the **structural
 map**: how the code is organized and where to find things. For product/UI
-**conventions** (styling, Livewire patterns, feature-flag layers, billing
+**conventions** (styling, Livewire patterns, enablement layers, billing
 model, etc.) see **`AGENTS.md`**. For the *why* of the structure see
 **`docs/adr/modular-monolith-structure.md`**.
 

@@ -58,7 +58,6 @@ return [
         'livewire' => env('DEBUGBAR_COLLECTORS_LIVEWIRE', true),         // Display Livewire (when available)
         'inertia' => env('DEBUGBAR_COLLECTORS_INERTIA', true),          // Display Inertia (when available)
         'jobs' => env('DEBUGBAR_COLLECTORS_JOBS', true),             // Display dispatched jobs
-        'pennant' => env('DEBUGBAR_COLLECTORS_PENNANT', true),          // Display Pennant feature flags
         'http_client' => env('DEBUGBAR_COLLECTORS_HTTP_CLIENT', true),      // Display HTTP Client requests
     ],
 

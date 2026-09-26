@@ -8,13 +8,8 @@ use App\Models\ApiToken;
 use App\Models\Organization;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Laravel\Pennant\Feature;
 
 uses(RefreshDatabase::class);
-
-beforeEach(function (): void {
-    Feature::define('global.billing_enabled', fn () => true);
-});
 
 /**
  * @return array{0: Organization, 1: string}
@@ -85,15 +80,6 @@ test('billing endpoints require billing.read ability', function (): void {
 
 test('billing endpoints require org admin role', function (): void {
     [, $plain] = billingToken(['billing.read'], 'member');
-
-    $this->getJson('/api/v1/billing', [
-        'Authorization' => 'Bearer '.$plain,
-    ])->assertForbidden();
-});
-
-test('billing endpoints respect billing feature flag', function (): void {
-    Feature::define('global.billing_enabled', fn () => false);
-    [, $plain] = billingToken(['billing.read']);
 
     $this->getJson('/api/v1/billing', [
         'Authorization' => 'Bearer '.$plain,

@@ -12,13 +12,10 @@ use App\Modules\Billing\Models\Subscription;
 use App\Modules\Edge\Livewire\Create;
 use App\Modules\SourceControl\Services\SourceControlRepositoryBrowser;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Laravel\Pennant\Feature;
 use Livewire\Livewire;
 use ReflectionMethod;
 
 uses(RefreshDatabase::class);
-
-usesFeatures('surface.edge', 'surface.cloud');
 
 test('guest is redirected from edge create', function () {
     $this->get(route('edge.create'))
@@ -91,17 +88,6 @@ test('newly saved cloudflare credential is selected for byo delivery', function 
         ->assertSet('form.edge_provider_credential_id', 'cred-123');
 });
 
-test('returns 404 when surface edge inactive', function () {
-    Feature::define('surface.edge', fn () => false);
-    Feature::flushCache();
-
-    $user = ownerWithOrg();
-
-    $this->actingAs($user)
-        ->get(route('edge.create'))
-        ->assertStatus(404);
-});
-
 test('ssr detection still selects hybrid when output_dir is present', function () {
     $user = ownerWithOrg();
 
@@ -166,7 +152,9 @@ test('rejects ssr-looking detection on deploy when hybrid origin missing', funct
     expect(Site::query()->count())->toBe(0);
 });
 
-test('laravel repos are container workloads, and free orgs cannot deploy them', function () {
+test('laravel repos are container workloads, and a plan without containers cannot deploy them', function () {
+    // Free includes containers (within its compute credit); the gate still holds for a tier that does not.
+    config(['subscription.standard.tiers.free.containers' => false]);
     $user = ownerWithOrg();
 
     Livewire::actingAs($user)
@@ -250,7 +238,7 @@ test('renders repo picker when git accounts linked', function () {
             return [['id' => 'acct-1', 'provider' => 'github', 'label' => 'Github - acme']];
         }
 
-        public function repositoriesForAccount($account): array
+        public function repositoriesForAccount($account, ?int $maxPages = null): array
         {
             return [
                 ['url' => 'https://github.com/acme/web', 'label' => 'acme/web', 'branch' => 'main'],
@@ -289,7 +277,7 @@ test('picker selection populates repo and branch', function () {
             return [['id' => $this->accountId, 'provider' => 'github', 'label' => 'Github - acme']];
         }
 
-        public function repositoriesForAccount($account): array
+        public function repositoriesForAccount($account, ?int $maxPages = null): array
         {
             return [
                 ['url' => 'https://github.com/acme/marketing.git', 'label' => 'acme/marketing', 'branch' => 'develop'],
@@ -300,6 +288,7 @@ test('picker selection populates repo and branch', function () {
 
     Livewire::actingAs($user)
         ->test(Create::class)
+        ->call('nextStep') // the picker (and its repository list) lives on step 2
         ->set('repository_selection', 'https://github.com/acme/marketing.git')
         ->assertSet('repo', 'acme/marketing')
         ->assertSet('branch', 'develop');
@@ -317,7 +306,7 @@ test('pasting a repository url works while an account is linked', function () {
             return [['id' => 'acct-1', 'provider' => 'github', 'label' => 'Github - acme']];
         }
 
-        public function repositoriesForAccount($account): array
+        public function repositoriesForAccount($account, ?int $maxPages = null): array
         {
             return [];
         }

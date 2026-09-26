@@ -5,7 +5,6 @@ namespace App\Http\Middleware;
 use App\Models\Team;
 use Closure;
 use Illuminate\Http\Request;
-use Laravel\Pennant\Feature;
 use Symfony\Component\HttpFoundation\Response;
 
 class SetCurrentOrganization
@@ -57,13 +56,6 @@ class SetCurrentOrganization
 
             return $next($request);
         }
-
-        // Warm every defined flag for the org scope in one batched load so the
-        // dozens of Feature::active() calls scattered across the nav, sidebar
-        // and page partials hit Pennant's in-memory cache instead of firing a
-        // separate `select … from features` per check. Pennant resolves the
-        // full set in ~2 queries (vs. one-per-flag N+1) and persists nothing.
-        Feature::loadAll();
 
         $teamId = session('current_team_id');
         if ($teamId) {

@@ -4,7 +4,6 @@ namespace App\Livewire\StatusPages;
 
 use App\Livewire\Concerns\ConfirmsActionWithModal;
 use App\Livewire\Concerns\DispatchesToastNotifications;
-use App\Livewire\Concerns\RequiresFeature;
 use App\Models\Incident;
 use App\Models\Server;
 use App\Models\Site;
@@ -19,10 +18,6 @@ use Livewire\Component;
 #[Layout('layouts.app')]
 class Manage extends Component
 {
-    use RequiresFeature;
-
-    protected string $requiredFeature = 'surface.status_pages';
-
     use ConfirmsActionWithModal;
     use DispatchesToastNotifications;
 

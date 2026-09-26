@@ -4,16 +4,14 @@ declare(strict_types=1);
 
 namespace App\Support\Beta;
 
-use App\Models\Organization;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Carbon;
-use Laravel\Pennant\Feature;
 use Throwable;
 
 /**
  * One home for the closed-beta program's cross-cutting rules: the global cutover
  * date, whether beta is still open, the comp window stamped on a free managed
- * box, and the per-org feature bundle applied at redemption.
+ * box.
  *
  * Beta is a single global program (not per-org windows): one `cutover_at` date
  * ends it for everyone. Before the cutover, beta orgs pay $0, trial/pause is
@@ -61,29 +59,5 @@ final class BetaProgram
         $cutover = self::cutoverAt();
 
         return $cutover === null ? null : Carbon::instance($cutover->toDateTime());
-    }
-
-    /**
-     * The list of Pennant flags enabled per-org at redemption ("what beta orgs
-     * get to see"). Curated in config/features.php `beta_bundle`.
-     *
-     * @return list<string>
-     */
-    public static function bundle(): array
-    {
-        return array_values(array_filter(
-            (array) config('features.beta_bundle', []),
-            static fn ($flag): bool => is_string($flag) && $flag !== '',
-        ));
-    }
-
-    /**
-     * Apply the beta feature bundle as per-org Pennant overrides. Idempotent.
-     */
-    public static function applyBundle(Organization $organization): void
-    {
-        foreach (self::bundle() as $flag) {
-            Feature::for($organization)->activate($flag);
-        }
     }
 }

@@ -15,8 +15,6 @@ use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
 
-usesFeatures('surface.edge');
-
 test('empty state when no edge sites', function () {
     $user = ownerWithOrg();
 

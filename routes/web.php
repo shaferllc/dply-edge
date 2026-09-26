@@ -12,9 +12,6 @@ use App\Livewire\Admin\AuditLog as AdminAuditLog;
 use App\Livewire\Admin\BetaInvites as AdminBetaInvites;
 use App\Livewire\Admin\ComingSoonAccess as AdminComingSoonAccess;
 use App\Livewire\Admin\Connections as AdminConnections;
-use App\Livewire\Admin\Flags\AllFlags as AdminAllFlags;
-use App\Livewire\Admin\Flags\GlobalFlags as AdminGlobalFlags;
-use App\Livewire\Admin\Flags\ProductLineFlags as AdminProductLineFlags;
 use App\Livewire\Admin\Operations as AdminOperations;
 use App\Livewire\Admin\Organizations\Index as AdminOrganizationsIndex;
 use App\Livewire\Admin\Organizations\Show as AdminOrganizationsShow;
@@ -66,7 +63,6 @@ use App\Modules\Edge\Livewire\Queues;
 use App\Modules\Edge\Livewire\Templates;
 use App\Modules\Edge\Livewire\Usage;
 use App\Modules\Secrets\Livewire\Secrets as OrganizationsSecrets;
-use App\Support\Admin\AdminFeatureFlags;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Route;
@@ -74,7 +70,7 @@ use Illuminate\Support\Facades\Route;
 Broadcast::routes(['middleware' => ['web', 'auth']]);
 
 // Standalone diagnostic page for Redis-backend failures. Lives outside the
-// `web` middleware group on purpose — StartSession/CSRF/Pennant all touch
+// `web` middleware group on purpose — StartSession/CSRF all touch
 // Cache, so if Redis is down a normal route would recurse on the very error
 // it tries to render. Reads only the config repository, which is an in-memory
 // array by this point — no Cache, no Redis, no DB.
@@ -190,23 +186,6 @@ Route::middleware(['auth', 'verified', 'org'])->group(function () {
             Route::livewire('/audit', AdminAuditLog::class)->name('audit');
             Route::livewire('/users', Index::class)->name('users.index');
             Route::post('/impersonate/{user}', [ImpersonationController::class, 'start'])->name('impersonate.start');
-            Route::livewire('/flags/all', AdminAllFlags::class)->name('flags.all');
-            Route::livewire('/flags/global', AdminGlobalFlags::class)->name('flags.global');
-            Route::livewire('/flags/edge', AdminProductLineFlags::class)->defaults('line', 'edge')->name('flags.edge');
-            Route::livewire('/flags/platform', AdminProductLineFlags::class)->defaults('line', 'platform')->name('flags.platform');
-            Route::get('/flags/defaults/{group}', function (string $group) {
-                $target = AdminFeatureFlags::legacyDefaultGroupRedirectTarget($group);
-                if ($target === null) {
-                    abort(404);
-                }
-
-                $routeName = AdminFeatureFlags::productLineRoute($target);
-                if ($routeName === null) {
-                    abort(404);
-                }
-
-                return redirect()->route($routeName);
-            })->name('flags.defaults');
             Route::livewire('/organizations', AdminOrganizationsIndex::class)->name('organizations.index');
             Route::livewire('/organizations/{organization}', AdminOrganizationsShow::class)->name('organizations.show');
             Route::livewire('/beta-invites', AdminBetaInvites::class)->name('beta-invites');

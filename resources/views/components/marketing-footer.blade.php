@@ -17,10 +17,7 @@
                 <a href="{{ route('pricing') }}" class="hover:text-brand-cream transition-colors">Pricing</a>
                 @auth
                     <a href="{{ route('dashboard') }}" class="hover:text-brand-cream transition-colors">Dashboard</a>
-                    {{-- Moved here from the header "More" menu; same auth + feature gates. --}}
-                    @feature('surface.status_pages')
-                        <a href="{{ route('status-pages.index') }}" class="hover:text-brand-cream transition-colors">{{ __('Status') }}</a>
-                    @endfeature
+                    <a href="{{ route('status-pages.index') }}" class="hover:text-brand-cream transition-colors">{{ __('Status') }}</a>
                 @else
                     <a href="{{ route('login') }}" class="hover:text-brand-cream transition-colors">Log in</a>
                     <a href="{{ route('register') }}" class="font-medium text-brand-gold/90 hover:text-brand-cream transition-colors">Start trial</a>

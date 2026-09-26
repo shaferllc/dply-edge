@@ -29,7 +29,7 @@ test('legacy call sites still resolve after the folder move', function () {
     expect(config('testing_domains.vm'))->toBeArray()->not->toBeEmpty();
 });
 
-test('config root only keeps Laravel, packages, and Pennant landmines', function () {
+test('config root only keeps Laravel and package config', function () {
     $root = collect(glob(config_path('*.php')) ?: [])
         ->map(fn (string $path): string => basename($path))
         ->sort()

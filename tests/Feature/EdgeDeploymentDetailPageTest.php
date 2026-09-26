@@ -13,7 +13,6 @@ use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Laravel\Pennant\Feature;
 use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
@@ -129,7 +128,7 @@ test('deploys table links deployment id to edge deployment detail', function () 
 });
 
 test('promote confirmation modal includes structured preview diff', function () {
-    Feature::define('global.deploy_contract', false);
+    config(['deploy_contract.require_for_promote' => false]);
 
     [$user, $server, $site] = makeEdgeDeploymentDetailFixtures();
     $preview = Site::factory()->create([

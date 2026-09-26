@@ -260,12 +260,11 @@ has **no breadcrumb**.
 
 ### Enablement layers — what to flip, and where
 
-Product rollout flags are **retired**. `config/features.php` is an **empty
-map** so `FeatureServiceProvider` registers nothing. Edge, status pages,
-billing, signups, delivery, deploy contract, and shadow replay are **always
-on**. Do not reintroduce Pennant gates for product surfaces. Persisted rows
-in `features` / `feature_platform_overrides` from the old catalog are inert
-until a flag is registered again.
+There are **no feature flags**: Laravel Pennant, the flag admin pages and the
+`features` / `feature_platform_overrides` tables were removed on 2026-09-25.
+Edge, status pages, billing, signups, delivery, deploy contract, and shadow
+replay are **always on**. Don't reintroduce flags for product surfaces; gate on
+the plan tier or on config.
 
 Match remaining questions to the layer that still exists:
 
@@ -659,9 +658,6 @@ Match remaining questions to the layer that still exists:
   tests (`APP_ENV=testing`) use local `*.test` apexes so the suite never talks
   to a public zone. Edge delivery resolves through `EdgeTestingDomains`, which
   falls back to `TestingDomains::edge()`.
-- Procedural Pest tests behind Pennant gates need **`usesFeatures()`** in
-  `tests/Pest.php` — `WithFeatures` only works when the PHPUnit class sets
-  `$features`.
 - For routing sub-tabs, an HTTP GET with `?tab=…` does not activate the panel
   on a full-page Livewire component — use
   `Livewire::withQueryParams(['tab' => '…'])`. Lazy-tab tests may need the tab

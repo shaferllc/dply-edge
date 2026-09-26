@@ -12,13 +12,8 @@ use App\Modules\Edge\Livewire\Create;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
-use Tests\Concerns\WithFeatures;
 
 uses(RefreshDatabase::class);
-
-uses(WithFeatures::class);
-
-usesFeatures('surface.edge');
 
 test('connect provider modal shows oauth and personal access token entry', function () {
     $user = User::factory()->create();

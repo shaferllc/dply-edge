@@ -14,33 +14,17 @@ use App\Modules\Edge\Livewire\Index as EdgeIndex;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
-use Laravel\Pennant\Feature;
 use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
 
 test('guest is redirected from edge index', function () {
-    Feature::define('surface.edge', fn () => true);
-    Feature::flushCache();
 
     $this->get(route('dashboard'))
         ->assertRedirect(route('login'));
 });
 
-test('dashboard stays reachable when the retired surface edge flag is off', function () {
-    Feature::define('surface.edge', fn () => false);
-    Feature::flushCache();
-
-    $user = ownerWithOrg();
-
-    $this->actingAs($user)
-        ->get(route('dashboard'))
-        ->assertOk();
-});
-
 test('authenticated user sees edge sites index when surface edge active', function () {
-    Feature::define('surface.edge', fn () => true);
-    Feature::flushCache();
 
     $user = ownerWithOrg();
 
@@ -52,8 +36,6 @@ test('authenticated user sees edge sites index when surface edge active', functi
 });
 
 test('redesigned index renders richer edge site metadata', function () {
-    Feature::define('surface.edge', fn () => true);
-    Feature::flushCache();
 
     $user = ownerWithOrg();
     $org = $user->currentOrganization();
@@ -80,8 +62,6 @@ test('redesigned index renders richer edge site metadata', function () {
 });
 
 test('delete modal opens for authorized edge site', function () {
-    Feature::define('surface.edge', fn () => true);
-    Feature::flushCache();
 
     $user = ownerWithOrg();
     $org = $user->currentOrganization();
@@ -96,8 +76,6 @@ test('delete modal opens for authorized edge site', function () {
 });
 
 test('delete site removes edge site from index', function () {
-    Feature::define('surface.edge', fn () => true);
-    Feature::flushCache();
     Queue::getFacadeRoot()->except([TeardownEdgeSiteJob::class]);
 
     $user = ownerWithOrg();
@@ -115,8 +93,6 @@ test('delete site removes edge site from index', function () {
 });
 
 test('delete in 30 minutes queues delayed teardown for edge site', function () {
-    Feature::define('surface.edge', fn () => true);
-    Feature::flushCache();
     Queue::fake();
 
     $user = ownerWithOrg();
@@ -144,8 +120,6 @@ test('delete in 30 minutes queues delayed teardown for edge site', function () {
 });
 
 test('scheduled delete queues teardown for selected future date and time', function () {
-    Feature::define('surface.edge', fn () => true);
-    Feature::flushCache();
     Queue::fake();
 
     $user = ownerWithOrg();

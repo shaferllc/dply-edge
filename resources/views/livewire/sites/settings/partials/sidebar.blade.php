@@ -45,16 +45,11 @@
     @persist('site-sidebar-'.$site->id)
     <div class="{{ $card }}">
         <div class="ws-hide-collapsed border-b border-brand-ink/10 p-4 sm:p-5">
-            {{-- The @feature guards keep these "back to the index" links from
-                 pointing at a parked surface: the workspace stays reachable for
-                 existing sites, but its index is gated. --}}
-            @feature('surface.edge')
-                <a href="{{ route('dashboard') }}" wire:navigate
-                    class="-ms-1 mb-3 inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs font-medium text-brand-moss transition-colors hover:bg-brand-sand/50 hover:text-brand-ink">
-                    <x-heroicon-o-arrow-left class="h-4 w-4 shrink-0" aria-hidden="true" />
-                    {{ __('Back to projects') }}
-                </a>
-            @endfeature
+            <a href="{{ route('dashboard') }}" wire:navigate
+                class="-ms-1 mb-3 inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs font-medium text-brand-moss transition-colors hover:bg-brand-sand/50 hover:text-brand-ink">
+                <x-heroicon-o-arrow-left class="h-4 w-4 shrink-0" aria-hidden="true" />
+                {{ __('Back to projects') }}
+            </a>
             <div class="flex items-start gap-3">
                 <x-entity-avatar :seed="$site->name" :image="$site->logoUrl()" class="h-12 w-12 text-base" />
                 <div class="min-w-0 flex-1">

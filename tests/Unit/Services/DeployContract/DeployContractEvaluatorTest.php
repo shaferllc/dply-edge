@@ -12,7 +12,6 @@ use App\Models\Site;
 use App\Models\User;
 use App\Services\DeployContract\DeployContractEvaluator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Laravel\Pennant\Feature;
 
 uses(RefreshDatabase::class);
 
@@ -43,15 +42,12 @@ test('evaluator persists passed run when build and review checks pass', function
 });
 
 test('evaluator fails when replay pass rate is below threshold', function () {
-    Feature::purge('global.edge_deploy_replay');
     config([
-        'features.global.edge_deploy_replay' => true,
         'deploy_contract.require_replay_when_enabled' => true,
         'deploy_contract.min_replay_pass_rate' => 99,
         'edge.preview_review.require_approval' => false,
         'edge.preview_review.block_open_comments' => false,
     ]);
-    Feature::flushCache();
 
     [$parent, $preview] = deployContractSitePair();
 
