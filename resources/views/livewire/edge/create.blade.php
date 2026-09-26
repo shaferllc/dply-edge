@@ -252,7 +252,7 @@
                         @endif
 
                         @if (! $edgeEligible && filled($edgeIneligibleMessage))
-                            <div class="rounded-xl border border-amber-200/80 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100">
+                            <div class="rounded-xl border border-amber-200/80 bg-amber-50 px-4 py-3 text-sm text-amber-950">
                                 <p>{{ $edgeIneligibleMessage }}</p>
                             </div>
                         @endif

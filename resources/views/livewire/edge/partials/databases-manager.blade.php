@@ -99,7 +99,7 @@
                     <p class="text-xs text-brand-mist sm:col-span-3">{{ __('Available to Worker, SSR and middleware code as env.:binding after the next deploy. Container apps use an external database (DB_URL / DATABASE_URL).', ['binding' => $bindingName ?: 'DB']) }}</p>
                 </form>
 
-                <div x-data="{ confirm: '' }" class="rounded-xl border border-red-200 bg-red-50/60 p-3 dark:bg-red-950/20">
+                <div x-data="{ confirm: '' }" class="rounded-xl border border-red-200 bg-red-50/60 p-3">
                     <p class="text-sm font-semibold text-red-800">{{ __('Delete database') }}</p>
                     <p class="text-xs text-red-800/80">{{ __('Permanently deletes the database and all its data. Type its name to confirm.') }}</p>
                     <div class="mt-2 flex gap-2">

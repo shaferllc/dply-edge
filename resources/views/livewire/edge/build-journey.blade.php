@@ -72,7 +72,7 @@
                 </div>
             </div>
             @if ($journey['hasFailed'] && $journey['error'])
-                <p class="border-t border-red-200 px-4 py-2 font-mono text-xs text-red-800 dark:border-red-900/40 dark:text-red-200">{{ $journey['error'] }}</p>
+                <p class="border-t border-red-200 px-4 py-2 font-mono text-xs text-red-800">{{ $journey['error'] }}</p>
             @endif
         </div>
         @include('livewire.partials.confirm-action-modal')

@@ -157,7 +157,7 @@
                             </div>
                         </div>
                         <div class="flex justify-end">
-                            <button type="button" wire:click="removeSchedule({{ $i }})" class="rounded-lg px-2 py-2 text-xs font-medium text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30">{{ __('Remove') }}</button>
+                            <button type="button" wire:click="removeSchedule({{ $i }})" class="rounded-lg px-2 py-2 text-xs font-medium text-red-700 hover:bg-red-50">{{ __('Remove') }}</button>
                         </div>
                         @foreach (['days', 'start', 'end', 'timezone', 'min', 'max'] as $field)
                             <x-input-error :messages="$errors->get('schedules.'.$i.'.'.$field)" class="sm:col-span-7" />
