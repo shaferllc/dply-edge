@@ -183,7 +183,7 @@
                             </span>
                         </div>
                         @if ($w['paused'])
-                            <p class="mt-2 rounded-md bg-amber-50 px-2 py-1.5 text-xs font-semibold text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">{{ __('Paused. Jobs wait on the queue until you resume; deploys and autoscaling leave the workers stopped.') }}</p>
+                            <p class="mt-2 rounded-md border border-amber-500/50 bg-amber-500/10 px-2 py-1.5 text-xs font-medium text-brand-ink">{{ __('Paused. Jobs wait on the queue until you resume; deploys and autoscaling leave the workers stopped.') }}</p>
                         @endif
                         @if ($workersUnavailable)
                             <p class="mt-2 text-xs text-brand-ink">{{ $workersUnavailable }}</p>
@@ -284,7 +284,7 @@
                                     || (! $allow['autoscale'] && ($w['autoscale'] || collect($w['groups'])->contains('autoscale', true)));
                             @endphp
                             @if ($overPlan)
-                                <p class="mt-2 rounded-md bg-amber-50 px-2 py-1.5 text-xs font-semibold text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                                <p class="mt-2 rounded-md border border-amber-500/50 bg-amber-500/10 px-2 py-1.5 text-xs font-medium text-brand-ink">
                                     {{ __(':plan runs :n worker instance(s) per app:autoscale:groups. The rest of these settings are not deployed. Choose a plan on the billing page for more.', [
                                         'plan' => $allow['plan'] ?: __('This plan'),
                                         'n' => $allow['instances'] ?? '∞',
