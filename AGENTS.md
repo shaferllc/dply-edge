@@ -557,6 +557,9 @@ Match remaining questions to the layer that still exists:
   - Comped orgs (`comped_until`, `dply:billing:comp`) are Team with no bill.
     The migration comps orgs that a platform admin (`PLATFORM_ADMIN_EMAILS`)
     belongs to. Beta orgs get the trial like everyone.
+  - A paying customer whose card fails keeps running while Stripe retries
+    (`liveSubscription()`: past due counts); the first charge after a trial
+    failing does not. Unpaid or canceled pauses.
   - **Any paid subscription bills overage** (`quotaLimit()` returns null).
     Extra sites bill, so a cap on payers is no revenue lever.
 - **Extra sites** (managed `dply_edge` only): static, hybrid, and container

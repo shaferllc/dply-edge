@@ -114,3 +114,18 @@ test('comp command comps and un-comps an org', function () {
     $this->artisan('dply:billing:comp', ['organization' => $org->id, '--off' => true])->assertSuccessful();
     expect($org->fresh()->isComped())->toBeFalse();
 });
+
+test('a paying customer keeps running while Stripe retries the card; a failed first charge after a trial does not', function () {
+    config(['subscription.standard.stripe.tier_pro' => 'price_tier_pro']);
+    $payer = trialOrg(['trial_ends_at' => null]);
+    Subscription::factory()->withPrice('price_tier_pro')->create(['organization_id' => $payer->id, 'stripe_status' => 'past_due', 'trial_ends_at' => now()->subMonths(3)]);
+    expect($payer->fresh()->billingTier())->toBe('pro');
+
+    $converting = trialOrg(['trial_ends_at' => null]);
+    Subscription::factory()->withPrice('price_tier_pro')->create(['organization_id' => $converting->id, 'stripe_status' => 'past_due', 'trial_ends_at' => now()->subDay()]);
+    expect($converting->fresh()->billingTier())->toBe('none');
+
+    $gone = trialOrg(['trial_ends_at' => null]);
+    Subscription::factory()->withPrice('price_tier_pro')->create(['organization_id' => $gone->id, 'stripe_status' => 'unpaid']);
+    expect($gone->fresh()->billingTier())->toBe('none');
+});

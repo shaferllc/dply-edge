@@ -91,8 +91,8 @@ trait ManagesOrganizationSubscription
         if ($this->isComped()) {
             return false;
         }
-        $subscription = $this->subscription('default');
-        if ($subscription !== null && $subscription->valid()) {
+        $subscription = $this->liveSubscription();
+        if ($subscription !== null) {
             return $subscription->onTrial();
         }
 
@@ -197,12 +197,32 @@ trait ManagesOrganizationSubscription
     }
 
     /**
+     * The subscription while it counts: valid (active, trialing, canceled but
+     * paid through), or past due while Stripe retries a paying customer's
+     * card. The first charge after a trial failing is not a paying customer
+     * yet, so that one does not count (ruling r-f17p5zgeh120cm5t).
+     */
+    public function liveSubscription(): ?\Laravel\Cashier\Subscription
+    {
+        $subscription = $this->subscription('default');
+        if ($subscription === null) {
+            return null;
+        }
+        if ($subscription->valid()) {
+            return $subscription;
+        }
+        $firstChargeAfterTrial = $subscription->trial_ends_at !== null && $subscription->trial_ends_at->gt(now()->subDays(35));
+
+        return $subscription->pastDue() && ! $firstChargeAfterTrial ? $subscription : null;
+    }
+
+    /**
      * @param  list<?string>  $priceIds
      */
     private function subscriptionMatchesAnyPrice(array $priceIds): bool
     {
-        $subscription = $this->subscription('default');
-        if (! $subscription || ! $subscription->valid()) {
+        $subscription = $this->liveSubscription();
+        if ($subscription === null) {
             return false;
         }
 

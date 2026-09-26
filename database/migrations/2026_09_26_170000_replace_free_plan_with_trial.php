@@ -38,7 +38,7 @@ return new class extends Migration
 
         DB::table('organizations')
             ->whereNull('comped_until')
-            ->whereNotIn('id', DB::table('subscriptions')->whereIn('stripe_status', ['active', 'trialing'])->select('organization_id'))
+            ->whereNotIn('id', DB::table('subscriptions')->whereIn('stripe_status', ['active', 'trialing', 'past_due'])->select('organization_id'))
             ->update(['trial_ends_at' => now()->addDays((int) config('subscription.standard.trial.days', 5))]);
     }
 
