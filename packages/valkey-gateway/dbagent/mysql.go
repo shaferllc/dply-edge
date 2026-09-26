@@ -37,15 +37,11 @@ func (m *mysqlEngine) initialized() bool {
 	return err == nil
 }
 
-// bufferPool is a quarter of the pod's memory limit (cgroup v2), at least 128 MB.
+// bufferPool is half the pod's memory limit, at least 128 MB: the pod runs
+// nothing else, and reads served from the pool skip the network volume.
+// Connections, performance_schema and the binlog cache fit in the rest.
 func bufferPool() string {
-	bytes := float64(128 << 20)
-	if b, err := os.ReadFile("/sys/fs/cgroup/memory.max"); err == nil {
-		if n, err := strconv.ParseFloat(strings.TrimSpace(string(b)), 64); err == nil {
-			bytes = max(bytes, n/4)
-		}
-	}
-	return strconv.FormatInt(int64(bytes), 10)
+	return strconv.FormatInt(max(memoryLimit(0)/2, 128<<20), 10)
 }
 
 func (m *mysqlEngine) mysqld(extra ...string) error {
@@ -54,7 +50,9 @@ func (m *mysqlEngine) mysqld(extra ...string) error {
 		// The binlog is the point-in-time log; it is shipped and purged each
 		// minute. The expiry only caps it if shipping stops, so it cannot fill the disk.
 		"--server-id=1", "--log-bin=binlog", "--binlog-expire-logs-seconds=259200",
-		"--innodb-buffer-pool-size=" + bufferPool()}, extra...)
+		"--innodb-buffer-pool-size=" + bufferPool(),
+		// SSD volumes: flush dirty pages at SSD speed, not the 200 IOPS default.
+		"--innodb-io-capacity=1000"}, extra...)
 	if err := run("mysqld", args...); err != nil {
 		tail, _ := os.ReadFile(m.logFile())
 		return fmt.Errorf("%v; mysqld: %s", err, lastLines(string(tail), 3))
@@ -148,10 +146,13 @@ func (m *mysqlEngine) stop() error {
 
 func (m *mysqlEngine) setTenant(password string) error {
 	q := "'" + strings.ReplaceAll(strings.ReplaceAll(password, `\`, `\\`), "'", "''") + "'"
-	return m.sql(true, "CREATE DATABASE IF NOT EXISTS app; "+
+	if err := m.sql(true, "CREATE DATABASE IF NOT EXISTS app; "+
 		"CREATE USER IF NOT EXISTS 'app'@'%' IDENTIFIED WITH mysql_native_password BY "+q+"; "+
 		"ALTER USER 'app'@'%' IDENTIFIED WITH mysql_native_password BY "+q+"; "+
-		"GRANT ALL PRIVILEGES ON app.* TO 'app'@'%'")
+		"GRANT ALL PRIVILEGES ON app.* TO 'app'@'%'"); err != nil {
+		return err
+	}
+	return m.consoleUser()
 }
 
 func (m *mysqlEngine) restore(target string) error {

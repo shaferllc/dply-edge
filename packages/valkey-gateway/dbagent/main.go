@@ -13,6 +13,7 @@
 //	POST /restore {"target_time": "RFC3339"} point-in-time restore (empty: latest)
 //	GET  /backup-status  last backup success and failure (JSON)
 //	GET  /stats          size, collections, connections (MongoDB; JSON)
+//	GET  /insights, POST /action/{name}   see insights.go
 //	GET  /healthz
 //
 // Backups (Postgres): with WALG_S3_PREFIX set, finished WAL segments stream
@@ -125,6 +126,7 @@ func main() {
 				return fmt.Errorf("%w: %d queries running", errBusy, n)
 			}
 		}
+		snapshotBeforeStop(e)
 		return e.stop()
 	})
 	handle("POST /tenant", func(r *http.Request) error {
@@ -148,6 +150,7 @@ func main() {
 		defer backupMu.Unlock()
 		return e.restore(body.TargetTime)
 	})
+	registerInsights(mux, e, token, &mu)
 	if pg, ok := e.(*postgres); ok && backupsEnabled() {
 		go pg.backupLoop()
 	}
@@ -195,6 +198,7 @@ func main() {
 		signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)
 		<-stop
 		mu.Lock()
+		snapshotBeforeStop(e)
 		_ = e.stop() // a pod shutdown still stops the database cleanly
 		mu.Unlock()
 		_ = srv.Shutdown(context.Background())
@@ -267,7 +271,15 @@ func (p *postgres) start() error {
 			return err
 		}
 	}
-	return run("pg_ctl", "-D", p.data, "-w", "-t", "60", "-l", filepath.Join(p.run, "postgres.log"), "-o", archiveOptions(), "start")
+	if err := run("pg_ctl", "-D", p.data, "-w", "-t", "60", "-l", filepath.Join(p.run, "postgres.log"), "-o", p.startOptions(), "start"); err != nil {
+		return err
+	}
+	// Top queries read pg_stat_statements from the admin's own database, so
+	// the extension never appears in the app's schema or its dumps.
+	if _, err := p.psqlValue("CREATE EXTENSION IF NOT EXISTS pg_stat_statements"); err != nil {
+		log.Printf("pg_stat_statements: %v", err)
+	}
+	return nil
 }
 
 // ---- backups (wal-g) ----
@@ -406,7 +418,7 @@ func (p *postgres) restore(target string) error {
 	if err := os.WriteFile(filepath.Join(p.data, "recovery.signal"), nil, 0o600); err != nil {
 		return undo(err)
 	}
-	opts := archiveOptions() + ` -c 'restore_command=wal-g wal-fetch %f %p' -c recovery_target_action=promote`
+	opts := p.startOptions() + ` -c 'restore_command=wal-g wal-fetch %f %p' -c recovery_target_action=promote`
 	if target != "" {
 		// Postgres wants its own timestamp form, not RFC3339's "T…Z".
 		at, _ := time.Parse(time.RFC3339, target)
@@ -538,7 +550,7 @@ END $$; ALTER ROLE app WITH LOGIN NOSUPERUSER NOCREATEROLE NOREPLICATION PASSWOR
 			return err
 		}
 	}
-	return nil
+	return p.readOnlyRole()
 }
 
 const backupStatusFile = "/data/backup-status.json"

@@ -27,6 +27,8 @@ RUN set -eu; \
     curl -fsSL -o /usr/local/bin/wal-g "https://github.com/wal-g/wal-g/releases/download/${WALG_VERSION}/wal-g-pg-22.04-${arch}"; \
     echo "$sum  /usr/local/bin/wal-g" | sha256sum -c -; \
     chmod 0755 /usr/local/bin/wal-g; \
+    # pgvector, offered on the Database panel's Extensions list (PGDG repo, already configured).
+    apt-get install -y -qq --no-install-recommends postgresql-17-pgvector >/dev/null; \
     apt-get purge -y -qq curl >/dev/null; apt-get autoremove -y -qq >/dev/null; rm -rf /var/lib/apt/lists/*
 COPY --from=build /dbagent /usr/local/bin/dbagent
 ENV ENGINE=postgres

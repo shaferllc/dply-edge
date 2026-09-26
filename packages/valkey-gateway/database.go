@@ -350,6 +350,7 @@ func (g *gateway) sleepDatabase(ctx context.Context, t tenant, idle bool) error 
 	g.markAsleep(ctx, t.ID)
 	g.setEvictable(ctx, t.ID, true)
 	log.Printf("tenant %s: asleep", t.ID)
+	go g.rollDatabaseImage(t) // after the lock is released
 	return nil
 }
 
