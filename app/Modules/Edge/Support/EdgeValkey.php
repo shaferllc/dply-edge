@@ -265,11 +265,13 @@ final class EdgeValkey
      * Jobs waiting on these queues, cheap enough to ask every few seconds.
      * Laravel's list is `{prefix}queues:{name}` and only the app knows its
      * prefix, so the key is found once (SCAN, server side) and remembered;
-     * after that each check is one LLEN.
+     * after that each check is one LLEN (plus LINDEX 0 for the oldest job:
+     * Laravel pushes right and pops left).
      *
      * @param  list<string>  $queues
+     * @return array{waiting: int, oldest_age: ?int}
      */
-    public static function queueBacklog(string $target, string $password, array $queues): int
+    public static function queueBacklog(string $target, string $password, array $queues): array
     {
         [$host, $port] = explode(':', self::address($target));
         $socket = self::open($host, (int) $port);
@@ -278,6 +280,7 @@ final class EdgeValkey
         try {
             self::send($socket, 'AUTH', 'default', $password);
             $total = 0;
+            $oldest = null;
             foreach ($queues as $queue) {
                 $remember = 'edge:valkey:'.$target.':queue-key:'.$queue;
                 $key = Cache::get($remember);
@@ -288,10 +291,17 @@ final class EdgeValkey
                     }
                     Cache::put($remember, $key, now()->addHour());
                 }
-                $total += (int) self::send($socket, 'LLEN', $key);
+                $waiting = (int) self::send($socket, 'LLEN', $key);
+                $total += $waiting;
+                if ($waiting > 0) {
+                    $created = (int) (json_decode(self::send($socket, 'LINDEX', $key, '0'), true)['createdAt'] ?? 0);
+                    if ($created > 0) {
+                        $oldest = min($oldest ?? PHP_INT_MAX, $created);
+                    }
+                }
             }
 
-            return $total;
+            return ['waiting' => $total, 'oldest_age' => $oldest !== null ? max(0, now()->getTimestamp() - $oldest) : null];
         } finally {
             fclose($socket);
         }

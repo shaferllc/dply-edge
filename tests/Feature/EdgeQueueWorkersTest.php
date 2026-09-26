@@ -518,3 +518,47 @@ test('the app card shows where the app runs and flags a placement far from its d
         ->assertSee('Running in ewr05 (ENAM), 13 ms to the database.')
         ->assertDontSee('That is far');
 });
+
+test('a deploy that lands far from the database is placed again', function () {
+    $app = laravelApp(['live_url' => 'https://shop.on-dply.live']);
+    $probes = [['location' => 'yyz04', 'rtt_median_ms' => 52.1], ['location' => 'ewr05', 'rtt_median_ms' => 13.2]];
+    Http::fake(function (Request $r) use (&$probes) {
+        if (str_ends_with($r->url(), '/_dply/replace')) {
+            return Http::response(['ok' => true]);
+        }
+
+        return Http::response(['ok' => true, 'driver' => 'pgsql', 'region' => 'ENAM'] + array_shift($probes));
+    });
+    $lines = [];
+
+    (new EdgeContainerDeployer)->recordPlacement($app, function (string $line) use (&$lines) {
+        $lines[] = trim($line);
+    });
+
+    expect($lines)->toBe([
+        'Running in yyz04 (ENAM), 52.1 ms to the database.',
+        'That is far for a database round trip. Starting the app again to be placed closer.',
+        'Now running in ewr05 (ENAM), 13.2 ms to the database.',
+    ])->and($app->fresh()->edgeMeta()['placement'])->toMatchArray(['location' => 'ewr05', 'rtt_ms' => 13.2]);
+    Http::assertSentCount(3);
+});
+
+test('a job that has waited too long adds a worker even when the count is low', function () {
+    $s = EdgeQueueWorkers::normalize(['instances' => 1, 'max_instances' => 4, 'processes' => 4, 'scale_per' => 10, 'autoscale' => true, 'max_wait' => 30]);
+
+    expect(EdgeQueueWorkers::targetInstances($s, 5, 10, 1))->toBe(1)    // 5 waiting, none for long
+        ->and(EdgeQueueWorkers::targetInstances($s, 5, 45, 1))->toBe(2)  // the oldest waited 45 s
+        ->and(EdgeQueueWorkers::targetInstances($s, 5, 45, 2))->toBe(3)  // still waiting after the last step: one more
+        ->and(EdgeQueueWorkers::targetInstances($s, 5, 45, 4))->toBe(4)  // never past the maximum
+        ->and(EdgeQueueWorkers::targetInstances(array_merge($s, ['max_wait' => 0]), 5, 900, 1))->toBe(1); // off
+
+    // The scaler passes the oldest age through.
+    $app = laravelApp(['live_url' => 'https://shop.on-dply.live', 'container' => ['workers' => ['enabled' => true, 'instances' => 1, 'max_instances' => 4, 'processes' => 4, 'scale_per' => 10, 'autoscale' => true, 'max_wait' => 30]]]);
+    Http::fake(function (Request $r) {
+        return str_ends_with($r->url(), '/_dply/command')
+            ? Http::response(['sizes' => ['default' => 5], 'total' => 5, 'oldest_age' => 90])
+            : Http::response([['name' => 'worker-0', 'wanted' => true, 'ok' => true]]);
+    });
+    $this->artisan('dply:edge:scale-queue-workers')->assertSuccessful();
+    Http::assertSent(fn (Request $r): bool => str_ends_with($r->url(), '/_dply/workers/scale') && $r['count'] === 2);
+});

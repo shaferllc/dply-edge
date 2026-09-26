@@ -55,7 +55,7 @@ final class EdgeDplyDatabaseStats
      * `jobs`, and the `failed_jobs` total. Missing tables read as zero.
      *
      * @param  list<string>  $queues
-     * @return array{queues: array<string, int>, failed: int}
+     * @return array{queues: array<string, int>, failed: int, oldest_age: ?int}
      */
     public static function queueBacklog(string $engine, string $host, string $id, string $password, array $queues): array
     {
@@ -79,7 +79,12 @@ final class EdgeDplyDatabaseStats
             $out[$queue] = $count('select count(*) from jobs where queue = ?', [$queue]);
         }
 
-        return ['queues' => $out, 'failed' => $count('select count(*) from failed_jobs')];
+        // Longest a ready job has waited (delayed jobs are not waiting yet).
+        $now = now()->getTimestamp();
+        $marks = implode(',', array_fill(0, count($queues), '?'));
+        $since = $queues === [] ? 0 : $count("select coalesce(min(available_at), 0) from jobs where reserved_at is null and available_at <= ? and queue in ({$marks})", [$now, ...$queues]);
+
+        return ['queues' => $out, 'failed' => $count('select count(*) from failed_jobs'), 'oldest_age' => $since > 0 ? max(0, $now - $since) : null];
     }
 
     /** @return array<string, mixed> */

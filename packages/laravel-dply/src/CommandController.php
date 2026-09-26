@@ -104,14 +104,22 @@ class CommandController
         try {
             $queue = Queue::connection($connection !== '' ? $connection : null);
             $sizes = [];
+            $oldest = null;
             foreach ($queues as $name) {
                 $sizes[$name] = (int) $queue->size($name);
+                // Laravel 11+: when the oldest ready job was queued.
+                if ($sizes[$name] > 0 && method_exists($queue, 'creationTimeOfOldestPendingJob')) {
+                    $created = $queue->creationTimeOfOldestPendingJob($name);
+                    if (is_int($created)) {
+                        $oldest = min($oldest ?? PHP_INT_MAX, $created);
+                    }
+                }
             }
         } catch (Throwable $e) {
             return new JsonResponse(['error' => $e->getMessage()], 500);
         }
 
-        return new JsonResponse(['sizes' => $sizes, 'total' => array_sum($sizes)]);
+        return new JsonResponse(['sizes' => $sizes, 'total' => array_sum($sizes), 'oldest_age' => $oldest !== null ? max(0, time() - $oldest) : null]);
     }
 
     /**

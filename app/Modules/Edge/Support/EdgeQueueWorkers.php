@@ -32,7 +32,7 @@ final class EdgeQueueWorkers
     public const CONNECTIONS = ['auto', 'redis', 'database'];
 
     /**
-     * @return array{enabled: bool, instances: int, processes: int, connection: string, queues: string, timeout: int, tries: int, sleep: int, memory: int, max_time: int, autoscale: bool, max_instances: int, scale_per: int, paused: bool}
+     * @return array{enabled: bool, instances: int, processes: int, connection: string, queues: string, timeout: int, tries: int, sleep: int, memory: int, max_time: int, autoscale: bool, max_instances: int, scale_per: int, max_wait: int, paused: bool}
      */
     public static function for(Site $site): array
     {
@@ -43,7 +43,7 @@ final class EdgeQueueWorkers
 
     /**
      * @param  array<string, mixed>  $raw
-     * @return array{enabled: bool, instances: int, processes: int, connection: string, queues: string, timeout: int, tries: int, sleep: int, memory: int, max_time: int, autoscale: bool, max_instances: int, scale_per: int, paused: bool}
+     * @return array{enabled: bool, instances: int, processes: int, connection: string, queues: string, timeout: int, tries: int, sleep: int, memory: int, max_time: int, autoscale: bool, max_instances: int, scale_per: int, max_wait: int, paused: bool}
      */
     public static function normalize(array $raw): array
     {
@@ -72,6 +72,8 @@ final class EdgeQueueWorkers
             'autoscale' => (bool) ($raw['autoscale'] ?? false),
             'max_instances' => max($instances, min(self::MAX_INSTANCES, (int) ($raw['max_instances'] ?? $instances))),
             'scale_per' => max(1, min(1000, (int) ($raw['scale_per'] ?? 10))),
+            // Also add a worker when the oldest ready job has waited this long (0 = off).
+            'max_wait' => max(0, min(3600, (int) ($raw['max_wait'] ?? 60))),
             // Stopped from the workspace; they stay stopped until resumed.
             'paused' => (bool) ($raw['paused'] ?? false),
         ];
@@ -96,11 +98,17 @@ final class EdgeQueueWorkers
      * at most `scale_per` waiting jobs, between the always-on count and the
      * maximum.
      *
-     * @param  array{instances: int, max_instances: int, processes: int, scale_per: int}  $settings
+     * @param  array{instances: int, max_instances: int, processes: int, scale_per: int, max_wait?: int}  $settings
      */
-    public static function targetInstances(array $settings, int $backlog): int
+    public static function targetInstances(array $settings, int $backlog, ?int $oldestAge = null, ?int $current = null): int
     {
         $needed = (int) ceil($backlog / ($settings['processes'] * $settings['scale_per']));
+        // A few slow jobs can matter more than many fast ones: one that has
+        // waited too long adds a worker beyond what the count asks for.
+        $maxWait = (int) ($settings['max_wait'] ?? 0);
+        if ($maxWait > 0 && $oldestAge !== null && $oldestAge > $maxWait) {
+            $needed = max($needed, ($current ?? $settings['instances']) + 1);
+        }
 
         return max($settings['instances'], min($settings['max_instances'], $needed));
     }
@@ -288,6 +296,17 @@ final class EdgeQueueWorkers
      */
     public static function backlog(Site $site): int
     {
+        return self::queueState($site)['waiting'];
+    }
+
+    /**
+     * Jobs waiting and how long the oldest ready one has waited (null when
+     * the queue cannot say).
+     *
+     * @return array{waiting: int, oldest_age: ?int}
+     */
+    public static function queueState(Site $site): array
+    {
         $settings = self::for($site);
         $queues = explode(',', $settings['queues']);
         $connection = self::connection($site);
@@ -305,12 +324,12 @@ final class EdgeQueueWorkers
             && in_array($database['engine'] ?? '', ['postgres', 'mysql'], true) && $env('DB_PASSWORD') !== '') {
             $backlog = EdgeDplyDatabaseStats::queueBacklog((string) $database['engine'], (string) $database['host'], (string) $database['remote_id'], $env('DB_PASSWORD'), $queues);
 
-            return array_sum($backlog['queues']);
+            return ['waiting' => array_sum($backlog['queues']), 'oldest_age' => $backlog['oldest_age']];
         }
 
         $body = self::command($site, 'queue-size', ['connection' => (string) $connection, 'queues' => $queues]);
 
-        return (int) ($body['total'] ?? 0);
+        return ['waiting' => (int) ($body['total'] ?? 0), 'oldest_age' => isset($body['oldest_age']) ? (int) $body['oldest_age'] : null];
     }
 
     /**

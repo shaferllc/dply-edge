@@ -46,6 +46,9 @@ class EdgeContainerDeployer
     /** A database round trip above this (ms) means the app landed far from its data (next door is ~13 ms). */
     public const FAR_FROM_DATABASE_MS = 40;
 
+    /** Restarts of the web instance to try for a closer placement. */
+    public const REPLACE_ATTEMPTS = 2;
+
     public const QUEUE_PATH = '/_dply/queue';
 
     public const QUEUE_SEND_PATH = '/_dply/queue/send';
@@ -206,33 +209,53 @@ class EdgeContainerDeployer
      *
      * @param  callable(string): void  $log
      */
-    private function recordPlacement(Site $site, callable $log): void
+    public function recordPlacement(Site $site, callable $log): void
     {
         $database = $site->edgeMeta()['database'] ?? [];
         if (! $site->isLaravelFrameworkDetected() || ! is_array($database) || ($database['provider'] ?? '') !== 'dply'
             || ! in_array($database['engine'] ?? '', ['postgres', 'mysql'], true)) {
             return;
         }
-        try {
-            $probe = EdgeQueueWorkers::command($site, 'db-probe');
-        } catch (Throwable) {
+        $probe = static function () use ($site): ?array {
+            try {
+                $body = EdgeQueueWorkers::command($site, 'db-probe');
+            } catch (Throwable) {
+                return null;
+            }
+
+            return ($body['ok'] ?? false) ? [
+                'location' => strtolower((string) ($body['location'] ?? '')),
+                'region' => (string) ($body['region'] ?? ''),
+                'rtt_ms' => (float) ($body['rtt_median_ms'] ?? 0),
+                'at' => now()->getTimestamp(),
+            ] : null;
+        };
+        $describe = static fn (array $p): string => sprintf('%s (%s), %s ms to the database', $p['location'] ?: '?', $p['region'] ?: '?', rtrim(rtrim(number_format($p['rtt_ms'], 1), '0'), '.'));
+
+        $best = $probe();
+        if ($best === null) {
             return;
         }
-        if (! ($probe['ok'] ?? false)) {
-            return;
+        $log('Running in '.$describe($best).".\n");
+        // Cloudflare places by region, not city: a far landing is re-rolled.
+        for ($try = 1; $try <= self::REPLACE_ATTEMPTS && $best['rtt_ms'] > self::FAR_FROM_DATABASE_MS; $try++) {
+            $log("That is far for a database round trip. Starting the app again to be placed closer.\n");
+            try {
+                Http::timeout(120)->withHeaders(['x-dply-queue-token' => self::queueToken($site)])
+                    ->post(rtrim((string) $site->edgeLiveUrl(), '/').'/_dply/replace', ['index' => 0])->throw();
+            } catch (Throwable $e) {
+                $log('Could not restart it: '.$e->getMessage()."\n");
+                break;
+            }
+            $again = $probe();
+            if ($again === null) {
+                break;
+            }
+            $log('Now running in '.$describe($again).".\n");
+            $best = $again; // what is running now, even if an earlier landing was closer
         }
-        $placement = [
-            'location' => strtolower((string) ($probe['location'] ?? '')),
-            'region' => (string) ($probe['region'] ?? ''),
-            'rtt_ms' => (float) ($probe['rtt_median_ms'] ?? 0),
-            'at' => now()->getTimestamp(),
-        ];
-        $site->mergeEdgeMeta(['placement' => $placement]);
+        $site->mergeEdgeMeta(['placement' => $best]);
         $site->save();
-        $log(sprintf("Running in %s (%s), %s ms to the database.\n", $placement['location'] ?: '?', $placement['region'] ?: '?', rtrim(rtrim(number_format($placement['rtt_ms'], 1), '0'), '.')));
-        if ($placement['rtt_ms'] > self::FAR_FROM_DATABASE_MS) {
-            $log("That is far for a database round trip: every query pays it. Redeploy to be placed again, or pick a region closer to the data.\n");
-        }
     }
 
     /**
@@ -800,6 +823,17 @@ export class App extends Container {
     await this.start({ envVars: this.envVars });
   }
 
+  // Stop this instance and start it again: Cloudflare places it afresh.
+  // dply uses it when a deploy lands far from the app's data.
+  async replace(index) {
+    await this.remember(index);
+    if (this.container.running) {
+      await this.stop('SIGTERM');
+      for (let i = 0; i < 60 && this.container.running; i++) await new Promise((r) => setTimeout(r, 500));
+    }
+    await this.startAndWaitForPorts({ ports: [__PORT__], cancellationOptions: { portReadyTimeoutMS: 45000 } });
+  }
+
   async workerState(index) {
     await this.remember(index);
     return { ...(await this.getState()), wanted: await this.wanted(index), paused: Boolean(await this.ctx.storage.get('dply:paused')) };
@@ -1218,6 +1252,15 @@ export default {
             return { name, ok: false, error: String(e && e.message ? e.message : e) };
           }
         })));
+      }
+      if (url.pathname === '/_dply/replace' && request.method === 'POST') {
+        const { index = 0 } = await request.json();
+        try {
+          await instance(env, Number(index) || 0).replace(Number(index) || 0);
+          return Response.json({ ok: true });
+        } catch (e) {
+          return Response.json({ ok: false, error: String(e && e.message ? e.message : e) }, { status: 500 });
+        }
       }
       // The autoscaler: run the first `count` workers, stop the rest.
       if (url.pathname === '/_dply/workers/scale' && request.method === 'POST') {

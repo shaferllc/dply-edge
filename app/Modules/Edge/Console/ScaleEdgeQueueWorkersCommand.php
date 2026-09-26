@@ -103,14 +103,15 @@ class ScaleEdgeQueueWorkersCommand extends Command
         $busyAt = (int) ($state['busy_at'] ?? 0);
 
         try {
-            $backlog = EdgeQueueWorkers::backlog($site);
+            $queue = EdgeQueueWorkers::queueState($site);
+            $backlog = $queue['waiting'];
         } catch (Throwable $e) {
             Cache::put($key, array_merge($state, ['error' => $e->getMessage(), 'at' => now()->getTimestamp()]), now()->addDay());
 
             return;
         }
 
-        $target = EdgeQueueWorkers::targetInstances($settings, $backlog);
+        $target = EdgeQueueWorkers::targetInstances($settings, $backlog, $queue['oldest_age'], $current);
         if ($target >= $current) {
             $busyAt = now()->getTimestamp();
         } elseif (now()->getTimestamp() - $busyAt < self::SCALE_DOWN_AFTER) {
@@ -136,7 +137,7 @@ class ScaleEdgeQueueWorkersCommand extends Command
             $syncedAt = $now;
         }
 
-        Cache::put($key, ['count' => $target, 'busy_at' => $busyAt, 'backlog' => $backlog, 'at' => $now, 'synced_at' => $syncedAt, 'error' => $error], now()->addDay());
+        Cache::put($key, ['count' => $target, 'busy_at' => $busyAt, 'backlog' => $backlog, 'oldest_age' => $queue['oldest_age'], 'at' => $now, 'synced_at' => $syncedAt, 'error' => $error], now()->addDay());
         // One chart point a minute, keeping the minute's peak.
         $history = self::history($site);
         $last = end($history);

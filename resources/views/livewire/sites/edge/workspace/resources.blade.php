@@ -195,6 +195,8 @@
                                     </select></dd>
                                     <dt><label for="workers-scale-per" class="text-brand-moss">{{ __('Add one at') }}</label></dt>
                                     <dd class="flex items-center gap-1.5"><input id="workers-scale-per" type="number" min="1" max="1000" wire:model.live.debounce.500ms="workers.scale_per" class="block w-16 rounded-md border border-brand-ink/15 bg-white px-2 py-1 text-xs font-semibold text-brand-ink dark:bg-zinc-900" /><span class="text-brand-moss">{{ __('jobs waiting per process') }}</span></dd>
+                                    <dt><label for="workers-max-wait" class="text-brand-moss">{{ __('Or when') }}</label></dt>
+                                    <dd class="flex items-center gap-1.5"><span class="text-brand-moss">{{ __('a job waits') }}</span><input id="workers-max-wait" type="number" min="0" max="3600" wire:model.live.debounce.500ms="workers.max_wait" class="block w-16 rounded-md border border-brand-ink/15 bg-white px-2 py-1 text-xs font-semibold text-brand-ink dark:bg-zinc-900" /><span class="text-brand-moss">{{ __('s (0 = off)') }}</span></dd>
                                 @endif
                                 <dt><label for="workers-processes" class="text-brand-moss">{{ __('Processes') }}</label></dt>
                                 <dd><select id="workers-processes" wire:model.live="workers.processes" class="{{ $wField }}">
@@ -268,7 +270,7 @@
                                     <p @class(['mt-1', 'text-red-700 dark:text-red-400' => $workersScaler['error'] ?? null, 'text-brand-moss' => ! ($workersScaler['error'] ?? null)])>
                                         {{ ($workersScaler['error'] ?? null)
                                             ? __('Autoscaler: :error', ['error' => $workersScaler['error']])
-                                            : __('Autoscaler: :count running for :backlog waiting · :ago', ['count' => $workersScaler['count'] ?? '?', 'backlog' => $workersScaler['backlog'] ?? '?', 'ago' => \Illuminate\Support\Carbon::createFromTimestamp($workersScaler['at'] ?? time())->diffForHumans()]) }}
+                                            : __('Autoscaler: :count running for :backlog waiting:oldest · :ago', ['count' => $workersScaler['count'] ?? '?', 'backlog' => $workersScaler['backlog'] ?? '?', 'oldest' => isset($workersScaler['oldest_age']) ? __(', oldest :s s', ['s' => $workersScaler['oldest_age']]) : '', 'ago' => \Illuminate\Support\Carbon::createFromTimestamp($workersScaler['at'] ?? time())->diffForHumans()]) }}
                                     </p>
                                 @endif
                             </div>
