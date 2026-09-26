@@ -454,6 +454,7 @@ func (g *gateway) serveAPI() {
 	mux.HandleFunc("POST /tenants/{id}/restore", g.auth(g.restoreTenant))
 	mux.HandleFunc("GET /tenants/{id}/backup", g.auth(g.backupStatus))
 	mux.HandleFunc("GET /tenants/{id}/stats", g.auth(g.databaseStats))
+	mux.HandleFunc("GET /tenants/{id}/slowlog", g.auth(g.slowlog))
 	mux.HandleFunc("GET /usage", g.authOnly(g.usage))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 	log.Printf("api on %s", g.cfg.apiAddr)
@@ -671,6 +672,72 @@ func (g *gateway) getTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, g.status(r.Context(), *t))
+}
+
+// slowlog returns a Valkey tenant's slowest recent commands (SLOWLOG GET,
+// which tenants cannot run themselves). Only the command and its key: values
+// can hold app data. An asleep tenant is not woken; it has nothing to report.
+func (g *gateway) slowlog(w http.ResponseWriter, r *http.Request) {
+	t, err := g.getTenantRecord(r.Context(), r.PathValue("id"))
+	if err != nil || isDatabase(t.Engine) {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	ip, awake := g.podIP(r.Context(), t.ID)
+	if !awake {
+		writeJSON(w, http.StatusOK, map[string]any{"awake": false, "entries": []any{}})
+		return
+	}
+	c, err := dialAdmin(net.JoinHostPort(ip, "6379"), g.cfg.adminPassword)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer c.Close()
+	reply, err := c.do("SLOWLOG", "GET", "10")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"awake": true, "entries": slowlogEntries(reply)})
+}
+
+// slowlogEntries turns SLOWLOG GET's reply into {at, micros, command, key}.
+func slowlogEntries(reply any) []map[string]any {
+	out := []map[string]any{}
+	rows, _ := reply.([]any)
+	for _, row := range rows {
+		fields, ok := row.([]any)
+		if !ok || len(fields) < 4 {
+			continue
+		}
+		at, _ := fields[1].(int64)
+		micros, _ := fields[2].(int64)
+		args, _ := fields[3].([]any)
+		entry := map[string]any{"at": at, "micros": micros, "command": "", "key": ""}
+		if len(args) > 0 {
+			entry["command"] = strings.ToUpper(bulkString(args[0]))
+		}
+		if len(args) > 1 {
+			key := bulkString(args[1])
+			if len(key) > 120 {
+				key = key[:120] + "…"
+			}
+			entry["key"] = key
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+func bulkString(v any) string {
+	switch x := v.(type) {
+	case []byte:
+		return string(x)
+	case string:
+		return x
+	}
+	return ""
 }
 
 func (g *gateway) sleepTenant(w http.ResponseWriter, r *http.Request) {

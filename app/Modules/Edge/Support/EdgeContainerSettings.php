@@ -6,6 +6,7 @@ namespace App\Modules\Edge\Support;
 
 use App\Models\EdgeDeployment;
 use App\Models\Site;
+use App\Modules\Billing\Services\EdgeContainerComputeCost;
 
 /**
  * Per-site container settings (`edgeMeta()['container']`), read by
@@ -262,6 +263,41 @@ final class EdgeContainerSettings
             ->contains(fn (array $c): bool => $c['kind'] === 'redis' && EdgeValkey::isTarget($c['target']));
 
         return $dplyDatabase || $dplyValkey ? $region : null;
+    }
+
+    /**
+     * A smaller, cheaper size when a week of memory peaks says the app never
+     * needs what it has: the smallest size whose memory leaves 30% headroom
+     * over the highest peak. Needs six hourly samples on the current size.
+     * Never suggests a bigger one.
+     *
+     * @return array{type: string, peak_mb: float, samples: int, save_per_hour: float}|null
+     */
+    public static function sizeSuggestion(Site $site): ?array
+    {
+        $current = self::for($site)['instance_type'];
+        $memory = $site->edgeMeta()['memory'] ?? [];
+        if (! isset(self::INSTANCE_TYPES[$current]) || ($memory['type'] ?? null) !== $current) {
+            return null;
+        }
+        $since = now()->subDays(7)->getTimestamp();
+        $peaks = array_map(static fn ($s): float => (float) $s[1], array_filter((array) ($memory['samples'] ?? []), static fn ($s): bool => is_array($s) && ($s[0] ?? 0) >= $since));
+        if (count($peaks) < 6) {
+            return null;
+        }
+        $peak = max($peaks);
+        $cost = app(EdgeContainerComputeCost::class);
+        $perHour = static fn (string $type): float => $cost->perMinuteMillicents(...self::INSTANCE_TYPES[$type]) * 60 / 100_000;
+        foreach (array_keys(self::INSTANCE_TYPES) as $type) {
+            if ($type === $current) {
+                return null; // nothing smaller fits
+            }
+            if (self::INSTANCE_TYPES[$type][1] * 1024 * 0.7 >= $peak) {
+                return ['type' => $type, 'peak_mb' => $peak, 'samples' => count($peaks), 'save_per_hour' => round($perHour($current) - $perHour($type), 4)];
+            }
+        }
+
+        return null;
     }
 
     /**

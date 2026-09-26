@@ -28,6 +28,7 @@ use App\Modules\Edge\Console\CollectEdgeValkeyUsageCommand;
 use App\Modules\Edge\Console\EvaluateEdgeGuardrailsCommand;
 use App\Modules\Edge\Console\ReapStuckEdgeBuildsCommand;
 use App\Modules\Edge\Console\RollupEdgeAnalyticsEngineCommand;
+use App\Modules\Edge\Console\SampleContainerMemoryCommand;
 use App\Modules\Edge\Console\ScaleEdgeQueueWorkersCommand;
 use App\Modules\Edge\Console\WarmEdgeBuildImagesCommand;
 use App\Modules\Edge\Console\WarmEdgeContainersCommand;
@@ -111,6 +112,12 @@ final class DplySchedule
             ->withoutOverlapping()
             ->runInBackground() // a slow neighbour must not delay scaling
             ->name('edge-check-queue-workers');
+        // Peak memory of awake container apps, for smaller-size suggestions.
+        $schedule->command(SampleContainerMemoryCommand::class)
+            ->hourly()
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->name('edge-sample-container-memory');
         $schedule->command(CollectEdgeDataUsageCommand::class, ['--today'])
             ->hourly()
             ->withoutOverlapping()

@@ -102,6 +102,19 @@ final class ValkeyGatewayClient
      *
      * @return array<string, mixed>
      */
+    /**
+     * A Valkey store's slowest recent commands (command and key only). Never
+     * wakes an asleep store.
+     *
+     * @return array{awake: bool, entries: list<array{at: int, micros: int, command: string, key: string}>}
+     */
+    public function slowlog(string $id): array
+    {
+        $body = $this->http()->timeout(15)->get('/tenants/'.$id.'/slowlog')->throw()->json();
+
+        return ['awake' => (bool) ($body['awake'] ?? false), 'entries' => array_values(array_filter((array) ($body['entries'] ?? []), 'is_array'))];
+    }
+
     public function databaseStats(string $id): array
     {
         return $this->http()->timeout(25)->get('/tenants/'.$id.'/stats')->throw()->json() ?? [];

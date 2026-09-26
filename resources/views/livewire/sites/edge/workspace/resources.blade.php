@@ -142,6 +142,13 @@
                                 <button type="submit" class="rounded-md bg-brand-ink px-2 py-1 text-xs font-semibold text-white">{{ __('Save custom size') }}</button>
                             </form>
                         @endif
+                        @php $smaller = \App\Modules\Edge\Support\EdgeContainerSettings::sizeSuggestion($site); @endphp
+                        @if ($smaller && $draftInstanceType !== $smaller['type'])
+                            <div class="mt-2 rounded-md bg-emerald-50 px-2 py-1.5 text-xs text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
+                                {{ __('Peak memory this week: :peak MB. :size fits with room to spare and saves $:save an hour while awake.', ['peak' => round($smaller['peak_mb']), 'size' => __(ucfirst(str_replace('-', ' ', $smaller['type']))), 'save' => rtrim(rtrim(number_format($smaller['save_per_hour'], 4), '0'), '.')]) }}
+                                <button type="button" wire:click="selectSize('{{ $smaller['type'] }}')" class="font-semibold underline">{{ __('Use it') }}</button>
+                            </div>
+                        @endif
                         @php $placement = $site->edgeMeta()['placement'] ?? null; @endphp
                         @if (is_array($placement) && ($placement['location'] ?? '') !== '')
                             @php $far = ($placement['rtt_ms'] ?? 0) > \App\Modules\Edge\Services\Containers\EdgeContainerDeployer::FAR_FROM_DATABASE_MS; @endphp
@@ -1107,6 +1114,9 @@
                                     [__('Commands'), number_format($valkeyStats['commands'])],
                                     [__('Ops per second'), number_format($valkeyStats['ops_per_sec'])],
                                     [__('Clients connected'), number_format($valkeyStats['clients'])],
+                                    [__('Evicted keys'), number_format($valkeyStats['evicted_keys'])],
+                                    [__('Expired keys'), number_format($valkeyStats['expired_keys'])],
+                                    [__('Up for'), \Carbon\CarbonInterval::seconds($valkeyStats['uptime_seconds'])->cascade()->forHumans(['short' => true, 'parts' => 2])],
                                 ] as [$statLabel, $statValue])
                                     <div class="rounded-lg border border-brand-ink/10 p-2">
                                         <p class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ $statLabel }}</p>
@@ -1119,7 +1129,28 @@
                                     <div @class(['h-full', 'bg-brand-sage' => $usedPct < 80, 'bg-amber-500' => $usedPct >= 80 && $usedPct < 95, 'bg-red-600' => $usedPct >= 95]) style="width: {{ $usedPct }}%"></div>
                                 </div>
                             @endif
-                            <p class="text-xs text-brand-moss">{{ __('Hits :hits · misses :misses · expired keys :expired · Valkey :version. Counts reset when it sleeps.', ['hits' => number_format($valkeyStats['hits']), 'misses' => number_format($valkeyStats['misses']), 'expired' => number_format($valkeyStats['expired_keys']), 'version' => $valkeyStats['version']]) }}</p>
+                            <p class="text-xs text-brand-moss">{{ __('Hits :hits · misses :misses · Valkey :version. Counts reset when it sleeps. When full it evicts keys that expire (cache entries), never queued jobs.', ['hits' => number_format($valkeyStats['hits']), 'misses' => number_format($valkeyStats['misses']), 'version' => $valkeyStats['version']]) }}</p>
+                            @if (is_array($valkeySlowlog))
+                                <div>
+                                    <p class="text-xs font-semibold text-brand-ink">{{ __('Slowest recent commands') }}</p>
+                                    @if ($valkeySlowlog === [])
+                                        <p class="mt-1 text-xs text-brand-moss">{{ __('None over 10 ms since it last woke.') }}</p>
+                                    @else
+                                        <table class="mt-1 w-full text-left text-xs">
+                                            <tbody class="divide-y divide-brand-ink/5">
+                                                @foreach ($valkeySlowlog as $slow)
+                                                    <tr>
+                                                        <td class="py-1 pe-2 font-mono font-semibold text-brand-ink">{{ $slow['command'] }}</td>
+                                                        <td class="max-w-[16rem] truncate py-1 pe-2 font-mono text-brand-moss">{{ $slow['key'] }}</td>
+                                                        <td class="py-1 pe-2 text-right tabular-nums text-brand-ink">{{ number_format($slow['micros'] / 1000, 1) }} ms</td>
+                                                        <td class="py-1 text-right text-brand-moss">{{ \Illuminate\Support\Carbon::createFromTimestamp($slow['at'])->diffForHumans(short: true) }}</td>
+                                                    </tr>
+                                                @endforeach
+                                            </tbody>
+                                        </table>
+                                    @endif
+                                </div>
+                            @endif
                         @endif
                     </div>
 

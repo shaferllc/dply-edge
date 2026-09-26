@@ -410,7 +410,10 @@ Match remaining questions to the layer that still exists:
   require a payment method when billed. dply Valkey is on **every plan**; only
   the always-on **Pro** sizes need a paid plan (owner ruling
   r-bpg8ddw2gza360sr) — `EdgeContainerConnections::redisSuppliesEnv` is the
-  one rule for whether an app gets `REDIS_*`, and queue workers use it too. **Managed HTTP queues** use QStash the
+  one rule for whether an app gets `REDIS_*`, and queue workers use it too.
+  Valkey evicts `volatile-lru` when full (cache entries with a TTL go, queue
+  lists stay); Redis queue workers block for jobs (`block_for` 5, set by
+  dply/laravel). The gateway hop costs ~1.2 ms; distance is the rest. **Managed HTTP queues** use QStash the
   same way. **Postgres, MySQL and MongoDB** are dply databases (one pod each on
   the dply-pods cluster, `EdgeDplyDatabase`; Neon and PlanetScale were removed
   2026-09-25), shown as **Coming soon** when the gateway is not configured. One **Database**
@@ -451,8 +454,18 @@ Match remaining questions to the layer that still exists:
     reads the backlog **from the queue itself** (Valkey `LLEN`, or the jobs
     table) so it never wakes the web container; up at once, down after 5
     quiet minutes; also up when the oldest job waited past `max_wait`.
-  - **Scheduler**: with workers it runs as `schedule:work` in `worker-0`
-    (the app can sleep); without, a Cron Trigger calls `schedule:run`.
+  - **Scale to zero**: with autoscaling, 0 always-on is allowed. An asleep
+    queue store is not woken to be checked (the gateway says so); one worker
+    stays while delayed jobs exist.
+  - **Scheduler**: with an always-on `worker-0` it runs as `schedule:work`
+    there (the app can sleep). Otherwise the Worker's every-minute cron wakes
+    the app **only when a task is due**: after each `schedule:run` the app
+    reports its tasks' crons and time zones, and the Worker keeps that plan
+    per deploy (`cronDue`; anything unclear means wake).
+  - **Plans**: `worker_instances` / `worker_autoscale` / `worker_groups` per
+    tier, applied in `EdgeQueueWorkers::groups()`.
+  - **Right-size**: an hourly job samples awake apps' `memory.peak`; the App
+    card suggests a smaller size after six samples with 30% headroom.
   - **dply/laravel** is injected for apps with a database or workers
     (commands: migrate/status/seed, failed jobs, queue-size, queue-test,
     db-probe). After a deploy dply measures the database round trip from

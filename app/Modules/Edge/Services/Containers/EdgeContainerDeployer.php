@@ -1311,6 +1311,11 @@ export default {
         ctx.waitUntil(warm(env));
         return new Response(null, { status: 202 });
       }
+      // Web instance state (running or not), for sampling only awake apps.
+      if (url.pathname === '/_dply/instances' && request.method === 'GET') {
+        const names = Array.from({ length: INSTANCES }, (_, i) => 'instance-' + i);
+        return Response.json(await Promise.all(names.map(async (name) => ({ name, ...(await getContainer(env.APP, name).getState()) }))));
+      }
       // Queue worker state for the workspace. Reading it never starts one.
       if (url.pathname === '/_dply/workers' && request.method === 'GET') {
         const names = allWorkerNames();

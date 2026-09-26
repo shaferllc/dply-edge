@@ -18,6 +18,7 @@ use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Services\Containers\EdgeContainerDockerfile;
 use App\Modules\Edge\Support\EdgeContainerSettings;
 use App\Modules\Edge\Support\EdgeQueueWorkers;
+use App\Modules\Providers\Valkey\ValkeyGatewayClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
@@ -946,4 +947,58 @@ JS);
     expect($run->successful())->toBeTrue($run->errorOutput())
         ->and(json_decode($run->output(), true))->toBe([true, false, true, false, true, false, false, true, true, false, true, true, true]);
     File::deleteDirectory($dir);
+});
+
+test('a week of low memory peaks suggests a smaller, cheaper size', function () {
+    $t = now()->getTimestamp();
+    $samples = fn (array $peaks) => array_map(fn ($p, $i) => [$t - $i * 3600, $p], $peaks, array_keys($peaks));
+    $app = fn (array $peaks, string $measuredOn = 'basic') => laravelApp(['container' => ['instance_type' => 'basic'], 'memory' => ['type' => $measuredOn, 'samples' => $samples($peaks)]]);
+
+    expect(EdgeContainerSettings::sizeSuggestion($app([120, 150, 90, 110, 140, 130])))->toMatchArray(['type' => 'lite', 'peak_mb' => 150.0, 'samples' => 6])
+        ->and(EdgeContainerSettings::sizeSuggestion($app([120, 150, 90, 110, 140, 130]))['save_per_hour'])->toBeGreaterThan(0.02)
+        ->and(EdgeContainerSettings::sizeSuggestion($app([120, 150, 90, 110, 140, 190])))->toBeNull()  // 190 MB leaves Lite under 30% headroom
+        ->and(EdgeContainerSettings::sizeSuggestion($app([120, 150, 90])))->toBeNull()                  // too few samples
+        ->and(EdgeContainerSettings::sizeSuggestion($app([120, 150, 90, 110, 140, 130], 'standard-1')))->toBeNull(); // measured on another size
+});
+
+test('the memory sampler asks only awake apps', function () {
+    $awake = laravelApp(['live_url' => 'https://up.on-dply.live']);
+    $asleep = laravelApp(['live_url' => 'https://down.on-dply.live']);
+    Http::fake([
+        'up.on-dply.live/_dply/instances' => Http::response([['name' => 'instance-0', 'status' => 'healthy']]),
+        'down.on-dply.live/_dply/instances' => Http::response([['name' => 'instance-0', 'status' => 'stopped']]),
+        'up.on-dply.live/_dply/command' => Http::response(['memory_peak_mb' => 142.5, 'memory_now_mb' => 98.1, 'memory_limit_mb' => 1024]),
+    ]);
+
+    $this->artisan('dply:edge:sample-container-memory')->assertSuccessful();
+
+    expect($awake->fresh()->edgeMeta()['memory']['samples'][0][1])->toBe(142.5)
+        ->and($asleep->fresh()->edgeMeta()['memory'] ?? null)->toBeNull();
+    Http::assertNotSent(fn (Request $r): bool => $r->url() === 'https://down.on-dply.live/_dply/command');
+});
+
+test('the app card offers the smaller size', function () {
+    $t = now()->getTimestamp();
+    $app = laravelApp(['container' => ['instance_type' => 'basic'], 'memory' => ['type' => 'basic', 'samples' => array_map(fn ($i) => [$t - $i * 3600, 140.0], range(0, 7))]]);
+    $user = User::factory()->create();
+    $app->organization->users()->attach($user->id, ['role' => 'owner']);
+    $app->forceFill(['user_id' => $user->id, 'type' => SiteType::Static, 'status' => Site::STATUS_EDGE_ACTIVE])->save();
+    $app->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
+
+    Livewire::actingAs($user)->test(Resources::class, ['server' => $app->server, 'site' => $app])
+        ->assertSee('Peak memory this week: 140 MB. Lite fits with room to spare')
+        ->call('selectSize', 'lite')
+        ->assertSet('draftInstanceType', 'lite')
+        ->assertDontSee('Peak memory this week');
+});
+
+test('valkey slow commands come from the gateway, command and key only', function () {
+    config(['edge.valkey.api_url' => 'http://gateway.test', 'edge.valkey.token' => 'tok']);
+    Http::fake(['gateway.test/tenants/vk-1/slowlog' => Http::response(['awake' => true, 'entries' => [
+        ['at' => 1790400000, 'micros' => 15230, 'command' => 'SET', 'key' => 'cache:user:42'],
+    ]])]);
+
+    $slow = ValkeyGatewayClient::fromConfig()->slowlog('vk-1');
+    expect($slow['awake'])->toBeTrue()
+        ->and($slow['entries'][0])->toBe(['at' => 1790400000, 'micros' => 15230, 'command' => 'SET', 'key' => 'cache:user:42']);
 });

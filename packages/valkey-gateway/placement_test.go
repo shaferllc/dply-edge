@@ -91,3 +91,25 @@ func TestValkeyEvictsOnlyExpiringKeys(t *testing.T) {
 		t.Fatalf("eviction policy not volatile-lru: %s", args)
 	}
 }
+
+func TestSlowlogEntriesShowCommandAndKeyOnly(t *testing.T) {
+	reply := []any{
+		[]any{int64(7), int64(1790400000), int64(15230), []any{[]byte("set"), []byte("cache:user:42"), []byte("secret-value")}, []byte("10.0.0.1:5000"), []byte("")},
+		[]any{int64(6), int64(1790399990), int64(9000), []any{[]byte("KEYS"), []byte("*")}},
+		"junk",
+	}
+	got := slowlogEntries(reply)
+	if len(got) != 2 {
+		t.Fatalf("entries = %d", len(got))
+	}
+	if got[0]["command"] != "SET" || got[0]["key"] != "cache:user:42" || got[0]["micros"] != int64(15230) {
+		t.Fatalf("first entry = %v", got[0])
+	}
+	for _, e := range got {
+		for _, v := range e {
+			if v == "secret-value" {
+				t.Fatal("a value leaked into the slowlog entry")
+			}
+		}
+	}
+}

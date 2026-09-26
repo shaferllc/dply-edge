@@ -40,6 +40,9 @@ class CommandController
         if ($action === 'db-probe') {
             return $this->databaseProbe();
         }
+        if ($action === 'resources') {
+            return $this->containerResources();
+        }
         if ($action === 'queue-test') {
             return $this->queueTest((int) $request->input('count', 1), (string) $request->input('queue', ''));
         }
@@ -173,6 +176,32 @@ class CommandController
         }
 
         return new JsonResponse(['total' => count($all), 'jobs' => $jobs]);
+    }
+
+    /**
+     * This container's memory: the high-water mark since it started, what it
+     * uses now, and its limit (cgroup v2, else v1). dply samples it from
+     * awake apps to suggest a smaller, cheaper size.
+     */
+    private function containerResources(): JsonResponse
+    {
+        $read = static function (string ...$paths): ?int {
+            foreach ($paths as $path) {
+                $value = @file_get_contents($path);
+                if (is_string($value) && is_numeric(trim($value))) {
+                    return (int) trim($value);
+                }
+            }
+
+            return null;
+        };
+        $mb = static fn (?int $bytes): ?float => $bytes === null ? null : round($bytes / 1048576, 1);
+
+        return new JsonResponse([
+            'memory_peak_mb' => $mb($read('/sys/fs/cgroup/memory.peak', '/sys/fs/cgroup/memory/memory.max_usage_in_bytes')),
+            'memory_now_mb' => $mb($read('/sys/fs/cgroup/memory.current', '/sys/fs/cgroup/memory/memory.usage_in_bytes')),
+            'memory_limit_mb' => $mb($read('/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory/memory.limit_in_bytes')),
+        ]);
     }
 
     /**

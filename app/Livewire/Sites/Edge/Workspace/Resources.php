@@ -257,6 +257,9 @@ class Resources extends Component
 
     public ?string $valkeyStatsError = null;
 
+    /** @var list<array{at: int, micros: int, command: string, key: string}>|null */
+    public ?array $valkeySlowlog = null;
+
     public function updatedValkeyHost(): void
     {
         if ($this->valkeyHost !== '') {
@@ -726,6 +729,11 @@ class Resources extends Component
         try {
             $this->valkeyStats = EdgeValkey::stats($connection['target'], $password);
             $this->valkeyStatsError = null;
+            try {
+                $this->valkeySlowlog = ValkeyGatewayClient::fromConfig()->slowlog(EdgeValkey::tenantId($connection['target']))['entries'];
+            } catch (\Throwable) {
+                $this->valkeySlowlog = null; // an older gateway: stats still show
+            }
         } catch (\Throwable $e) {
             $this->valkeyStatsError = $e->getMessage();
         }
