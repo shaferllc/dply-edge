@@ -96,6 +96,17 @@ final class ValkeyGatewayClient
         return is_array($status) ? array_map('strval', $status) : [];
     }
 
+    /**
+     * Live stats from the database's agent (MongoDB: the app has no driver).
+     * Wakes the database; a first wake on a node can take a while.
+     *
+     * @return array<string, mixed>
+     */
+    public function databaseStats(string $id): array
+    {
+        return $this->http()->timeout(25)->get('/tenants/'.$id.'/stats')->throw()->json() ?? [];
+    }
+
     public function sleep(string $id): void
     {
         $this->http()->post('/tenants/'.$id.'/sleep')->throw();

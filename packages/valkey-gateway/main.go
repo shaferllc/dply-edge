@@ -22,9 +22,11 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -37,6 +39,8 @@ type config struct {
 	adminSecret   string
 	pool          map[int]int // memory MB -> warm pods kept ready
 	namespace     string
+	dbNamespace   string // database pods and volumes; tenant records stay in namespace
+	dbNodePool    string // node pool databases run on; "" = anywhere
 	domain        string
 	dbDomain      string // databases: {tenant}.{dbDomain}:5432
 	image         string
@@ -58,6 +62,8 @@ func env(key, fallback string) string {
 func main() {
 	cfg := config{
 		namespace:     env("NAMESPACE", "dply-valkey"),
+		dbNamespace:   env("DB_NAMESPACE", env("NAMESPACE", "dply-valkey")),
+		dbNodePool:    os.Getenv("DB_NODE_POOL"),
 		domain:        env("DOMAIN", "cache.dply.local"),
 		dbDomain:      env("DB_DOMAIN", env("DOMAIN", "cache.dply.local")),
 		image:         env("VALKEY_IMAGE", "valkey/valkey:8-alpine"),
@@ -92,7 +98,11 @@ func main() {
 	}
 
 	g := &gateway{cfg: cfg, kube: kube, store: store, tenants: map[string]*tenantState{}}
-	go g.reap(context.Background())
+	// SIGTERM cancels ctx: the active gateway gives up its lease so a standby
+	// takes over at once (leader.go).
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+	defer stop()
+	g.runActive(ctx)
 	go g.serveAPI()
 	g.serveProxy()
 }
@@ -105,6 +115,7 @@ type tenantState struct {
 	conns        map[net.Conn]struct{}
 	restarts     map[string]int32 // container restarts seen, per pod
 	ip           string           // set once the pod answered PING; cleared on sleep
+	checkedPod   bool             // databases: looked for an awake pod after becoming active
 
 }
 
@@ -256,8 +267,16 @@ func copyTouching(dst net.Conn, src net.Conn, touch func()) {
 
 // ---- sleep ----
 
+// reap runs on the active gateway only, until ctx ends (leadership lost).
 func (g *gateway) reap(ctx context.Context) {
-	for range time.Tick(10 * time.Second) {
+	tick := time.NewTicker(10 * time.Second)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
 		g.fillPool(ctx)
 		tenants, err := g.listTenants(ctx)
 		if err != nil {
@@ -314,7 +333,23 @@ func (g *gateway) reapDatabase(ctx context.Context, t tenant) {
 	}
 	awake := s.ip != ""
 	idle := time.Since(s.lastActivity)
+	checked := s.checkedPod
+	s.checkedPod = true
 	s.mu.Unlock()
+	if !awake && !checked {
+		// A gateway that just became active (deploy, failover) has no memory
+		// of which databases are awake, and would never park them. Pick the
+		// awake ones up from their pods, once, and give them a full sleep-after.
+		if pod, ok := g.databasePod(ctx, t.ID); ok && !databaseParked(pod) {
+			s.mu.Lock()
+			if s.ip == "" {
+				s.ip = pod.Status.PodIP
+				s.lastActivity = time.Now()
+			}
+			s.mu.Unlock()
+		}
+		return
+	}
 	if awake && t.SleepAfter > 0 && idle > time.Duration(t.SleepAfter)*time.Second {
 		if err := g.sleepDatabase(ctx, t, true); errors.Is(err, errBusy) {
 			// A backup or a long query with no traffic: it is not idle. Look
@@ -411,6 +446,7 @@ func (g *gateway) serveAPI() {
 	mux.HandleFunc("POST /tenants/{id}/sleep", g.auth(g.sleepTenant))
 	mux.HandleFunc("POST /tenants/{id}/restore", g.auth(g.restoreTenant))
 	mux.HandleFunc("GET /tenants/{id}/backup", g.auth(g.backupStatus))
+	mux.HandleFunc("GET /tenants/{id}/stats", g.auth(g.databaseStats))
 	mux.HandleFunc("GET /usage", g.authOnly(g.usage))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 	log.Printf("api on %s", g.cfg.apiAddr)
@@ -584,6 +620,33 @@ func (g *gateway) backupStatus(w http.ResponseWriter, r *http.Request) {
 	req, _ := http.NewRequestWithContext(r.Context(), http.MethodGet, "http://"+net.JoinHostPort(pod.Status.PodIP, agentPort)+"/backup-status", nil)
 	req.Header.Set("Authorization", "Bearer "+g.cfg.adminPassword)
 	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
+}
+
+// databaseStats wakes the database and returns its agent's /stats: for
+// engines the app cannot read directly (MongoDB). The client waits for a wake.
+func (g *gateway) databaseStats(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if t, err := g.getTenantRecord(r.Context(), id); err != nil || !isDatabase(t.Engine) {
+		http.Error(w, "not a database", http.StatusNotFound)
+		return
+	}
+	ip, err := g.wakeDatabase(r.Context(), id)
+	if err != nil {
+		http.Error(w, "this database could not start: "+err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	g.touch(id) // reading stats counts as use, like a connection
+	req, _ := http.NewRequestWithContext(r.Context(), http.MethodGet, "http://"+net.JoinHostPort(ip, agentPort)+"/stats", nil)
+	req.Header.Set("Authorization", "Bearer "+g.cfg.adminPassword)
+	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return

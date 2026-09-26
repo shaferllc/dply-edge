@@ -12,6 +12,7 @@
 //	POST /tenant  {"password": "..."} create or update the app's login and database
 //	POST /restore {"target_time": "RFC3339"} point-in-time restore (empty: latest)
 //	GET  /backup-status  last backup success and failure (JSON)
+//	GET  /stats          size, collections, connections (MongoDB; JSON)
 //	GET  /healthz
 //
 // Backups (Postgres): with WALG_S3_PREFIX set, finished WAL segments stream
@@ -160,6 +161,29 @@ func main() {
 		b, err := os.ReadFile(backupStatusFile)
 		if err != nil {
 			b = []byte("{}")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(b)
+	})
+
+	// Engines that report their own stats (MongoDB: the app has no driver for it).
+	mux.HandleFunc("GET /stats", func(w http.ResponseWriter, r *http.Request) {
+		got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		st, ok := e.(interface {
+			stats() (json.RawMessage, error)
+		})
+		if !ok {
+			http.Error(w, "stats are read from the app for this engine", http.StatusNotFound)
+			return
+		}
+		b, err := st.stats()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(b)

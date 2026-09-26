@@ -24,12 +24,50 @@ rules:
   - apiGroups: [""]
     resources: ["pods/resize"]
     verbs: ["patch"]
+  # Active/standby: the gateways share this Lease (packages/valkey-gateway/leader.go).
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "create", "update"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: valkey-gateway
   namespace: dply-valkey
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: valkey-gateway
+subjects:
+  - kind: ServiceAccount
+    name: valkey-gateway
+    namespace: dply-valkey
+---
+# Databases' pods and volumes (DB_NAMESPACE). Tenant records stay in
+# dply-valkey; the gateway only manages pods and volumes here.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dply-db
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: valkey-gateway
+  namespace: dply-db
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "persistentvolumeclaims"]
+    verbs: ["get", "list", "create", "update", "patch", "delete", "deletecollection"]
+  - apiGroups: [""]
+    resources: ["pods/resize"]
+    verbs: ["patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: valkey-gateway
+  namespace: dply-db
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -77,11 +115,14 @@ metadata:
   name: valkey-gateway
   namespace: dply-valkey
 spec:
-  # One gateway: idle-sleep tracking is in memory, and a rolling update would
-  # briefly run two (packages/valkey-gateway/README.md).
-  replicas: 1
+  # Active + standby on different nodes. Only the pod holding the Lease is
+  # labelled role=active, and the Service selects that label, so one gateway
+  # serves at a time (its idle tracking is in memory). The standby takes over
+  # ~15 s after the active one dies, ~5 s after it is shut down.
+  replicas: 2
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 0, maxUnavailable: 1 } # two nodes, two pods: replace one at a time
   selector:
     matchLabels: { app: valkey-gateway }
   template:
@@ -89,6 +130,11 @@ spec:
       labels: { app: valkey-gateway }
     spec:
       serviceAccountName: valkey-gateway
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector: { matchLabels: { app: valkey-gateway } }
+              topologyKey: kubernetes.io/hostname
       # DOKS registry integration copies this secret into each namespace but
       # only attaches it to the "default" service account.
       imagePullSecrets:
@@ -100,6 +146,9 @@ spec:
             - { name: DOMAIN, value: "cache.__DOMAIN__" }
             - { name: DB_DOMAIN, value: "db.__DOMAIN__" }
             - { name: API_TLS, value: "1" }
+            - { name: LEADER_ELECT, value: "1" }
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
             # The edge R2 bucket: snapshots live under tenants/, sites under edge/.
             - name: S3_BUCKET
               valueFrom: { secretKeyRef: { name: valkey-gateway-r2, key: bucket } }
@@ -121,9 +170,13 @@ spec:
             # Databases (ruling r-67chv2jdx2ha025q): one pod per app, data on a
             # DigitalOcean volume so it survives node upgrades and replacement.
             - { name: POSTGRES_IMAGE, value: "registry.digitalocean.com/dply-cloud/postgres:17-202609251504" }
-            - { name: MONGO_IMAGE, value: "registry.digitalocean.com/dply-cloud/mongodb:7-202609251504" }
+            - { name: MONGO_IMAGE, value: "registry.digitalocean.com/dply-cloud/mongodb:7-202609252245" }
             - { name: MYSQL_IMAGE, value: "registry.digitalocean.com/dply-cloud/mysql:8-202609251504" }
             - { name: DB_STORAGE_CLASS, value: do-block-storage }
+            # Databases run on their own tainted pool, in their own namespace,
+            # away from the cache nodes (deploy/valkey/terraform: the db pool).
+            - { name: DB_NAMESPACE, value: dply-db }
+            - { name: DB_NODE_POOL, value: db }
             # wal-g backups for databases: keys from this secret, by reference.
             - { name: DB_BACKUP_SECRET, value: valkey-gateway-r2 }
           ports:
@@ -152,10 +205,21 @@ metadata:
   namespace: dply-valkey
 spec:
   type: LoadBalancer
-  selector: { app: valkey-gateway }
+  selector: { app: valkey-gateway, role: active } # only the Lease holder (leader.go)
   ports:
     - { name: valkey, port: 6380, targetPort: 6380 }
     - { name: postgres, port: 5432, targetPort: 5432 }
     - { name: mongodb, port: 27017, targetPort: 27017 }
     - { name: mysql, port: 3306, targetPort: 3306 }
     - { name: api, port: 8080, targetPort: 8080 }
+---
+# A node drain or upgrade never takes both gateways at once.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: valkey-gateway
+  namespace: dply-valkey
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: valkey-gateway }

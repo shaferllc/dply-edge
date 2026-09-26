@@ -273,7 +273,7 @@ func (g *gateway) wakeDatabase(ctx context.Context, id string) (string, error) {
 // parked so an emptied node can still be removed.
 func (g *gateway) setEvictable(ctx context.Context, id string, ok bool) {
 	patch := fmt.Sprintf(`{"metadata":{"annotations":{"cluster-autoscaler.kubernetes.io/safe-to-evict":"%t"}}}`, ok)
-	if _, err := g.kube.CoreV1().Pods(g.cfg.namespace).Patch(ctx, dbPodName(id), types.MergePatchType, []byte(patch), metav1.PatchOptions{}); err != nil && !apierrors.IsNotFound(err) {
+	if _, err := g.kube.CoreV1().Pods(g.cfg.dbNamespace).Patch(ctx, dbPodName(id), types.MergePatchType, []byte(patch), metav1.PatchOptions{}); err != nil && !apierrors.IsNotFound(err) {
 		log.Printf("tenant %s: safe-to-evict=%t: %v", id, ok, err)
 	}
 }
@@ -347,8 +347,15 @@ func (g *gateway) sleepDatabase(ctx context.Context, t tenant, idle bool) error 
 	return nil
 }
 
+// databaseParked reports whether the pod is parked (asleep): its memory
+// request is shrunk to parkedAsk.
+func databaseParked(p *corev1.Pod) bool {
+	ask := p.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory]
+	return ask.Cmp(resource.MustParse(parkedAsk)) == 0
+}
+
 func (g *gateway) databasePod(ctx context.Context, id string) (*corev1.Pod, bool) {
-	p, err := g.kube.CoreV1().Pods(g.cfg.namespace).Get(ctx, dbPodName(id), metav1.GetOptions{})
+	p, err := g.kube.CoreV1().Pods(g.cfg.dbNamespace).Get(ctx, dbPodName(id), metav1.GetOptions{})
 	if err != nil || p.DeletionTimestamp != nil || p.Status.Phase != corev1.PodRunning || p.Status.PodIP == "" {
 		return nil, false
 	}
@@ -361,7 +368,7 @@ func (g *gateway) ensureDatabasePod(ctx context.Context, t tenant) (*corev1.Pod,
 	if p, ok := g.databasePod(ctx, t.ID); ok {
 		return p, nil
 	}
-	pvcs := g.kube.CoreV1().PersistentVolumeClaims(g.cfg.namespace)
+	pvcs := g.kube.CoreV1().PersistentVolumeClaims(g.cfg.dbNamespace)
 	pvc := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{Name: dbPodName(t.ID), Labels: map[string]string{"app": "dply-db", "tenant": t.ID}},
 		Spec: corev1.PersistentVolumeClaimSpec{
@@ -375,7 +382,8 @@ func (g *gateway) ensureDatabasePod(ctx context.Context, t tenant) (*corev1.Pod,
 	if _, err := pvcs.Create(ctx, pvc, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
 		return nil, err
 	}
-	pods := g.kube.CoreV1().Pods(g.cfg.namespace)
+	pods := g.kube.CoreV1().Pods(g.cfg.dbNamespace)
+	g.clearStuckDatabasePod(ctx, t.ID)
 	if _, err := pods.Create(ctx, g.databasePodSpec(t), metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
 		return nil, err
 	}
@@ -389,15 +397,56 @@ func (g *gateway) ensureDatabasePod(ctx context.Context, t tenant) (*corev1.Pod,
 	return nil, fmt.Errorf("database pod did not start in time")
 }
 
+// clearStuckDatabasePod force-deletes a pod left behind by a dead node. The
+// node never confirms the delete, so the pod stays Terminating and holds the
+// fixed name: without this every wake fails "already exists" until someone
+// deletes it by hand. Forcing it also lets the volume detach and move.
+func (g *gateway) clearStuckDatabasePod(ctx context.Context, id string) {
+	pods := g.kube.CoreV1().Pods(g.cfg.dbNamespace)
+	p, err := pods.Get(ctx, dbPodName(id), metav1.GetOptions{})
+	if err != nil || p.DeletionTimestamp == nil {
+		return
+	}
+	grace := int64(30)
+	if p.DeletionGracePeriodSeconds != nil {
+		grace = *p.DeletionGracePeriodSeconds
+	}
+	if time.Since(p.DeletionTimestamp.Time) < time.Duration(grace+15)*time.Second {
+		return
+	}
+	zero := int64(0)
+	log.Printf("tenant %s: pod stuck terminating on %s since %s; forcing delete", id, p.Spec.NodeName, p.DeletionTimestamp.Format(time.RFC3339))
+	_ = pods.Delete(ctx, p.Name, metav1.DeleteOptions{GracePeriodSeconds: &zero})
+}
+
+// databasePlacement keeps databases on their own pool (DB_NODE_POOL, tainted
+// dply.dev/db), off the cache nodes. Evicting 30 s after its node stops
+// answering (default 300 s) starts recovery elsewhere sooner.
+func (g *gateway) databasePlacement() (map[string]string, []corev1.Toleration) {
+	gone := int64(30)
+	tolerations := []corev1.Toleration{
+		{Key: "node.kubernetes.io/not-ready", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoExecute, TolerationSeconds: &gone},
+		{Key: "node.kubernetes.io/unreachable", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoExecute, TolerationSeconds: &gone},
+	}
+	if g.cfg.dbNodePool == "" {
+		return nil, tolerations
+	}
+	return map[string]string{nodePoolKey: g.cfg.dbNodePool},
+		append(tolerations, corev1.Toleration{Key: dbTaintKey, Operator: corev1.TolerationOpEqual, Value: "true", Effect: corev1.TaintEffectNoSchedule})
+}
+
 func (g *gateway) databasePodSpec(t tenant) *corev1.Pod {
 	uid := int64(999) // postgres in the Debian image (dbagent/Dockerfile.postgres)
 	grace := int64(30)
+	nodeSelector, tolerations := g.databasePlacement()
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   dbPodName(t.ID),
 			Labels: map[string]string{"app": "dply-db-pod", "engine": t.Engine, "tenant": t.ID},
 		},
 		Spec: corev1.PodSpec{
+			NodeSelector:                  nodeSelector,
+			Tolerations:                   tolerations,
 			RestartPolicy:                 corev1.RestartPolicyAlways,
 			TerminationGracePeriodSeconds: &grace, // dbagent stops the database cleanly on SIGTERM
 			AutomountServiceAccountToken:  new(bool),
@@ -421,8 +470,8 @@ func (g *gateway) databasePodSpec(t tenant) *corev1.Pod {
 				}}}, {Name: "DB_PUBLIC_HOST", Value: t.ID + "." + g.cfg.dbDomain}}, backupEnv(t)...),
 				Ports:        []corev1.ContainerPort{{ContainerPort: int32(atoi(dbPorts[t.Engine]))}, {ContainerPort: 7000}},
 				VolumeMounts: []corev1.VolumeMount{{Name: "data", MountPath: "/data"}},
-				// Memory is resized in place on wake and sleep; no restart.
-				ResizePolicy: []corev1.ContainerResizePolicy{{ResourceName: corev1.ResourceMemory, RestartPolicy: corev1.NotRequired}},
+				// Memory and CPU are resized in place on wake and sleep; no restart.
+				ResizePolicy: []corev1.ContainerResizePolicy{{ResourceName: corev1.ResourceMemory, RestartPolicy: corev1.NotRequired}, {ResourceName: corev1.ResourceCPU, RestartPolicy: corev1.NotRequired}},
 				Resources:    databaseResources(t, true),
 			}},
 		},
@@ -433,28 +482,41 @@ func (g *gateway) databasePodSpec(t tenant) *corev1.Pod {
 // shrinks: that frees the node's room for awake databases. The limit stays,
 // because the kubelet will not set a limit below current use, and a stopped
 // database still has its data files in (reclaimable) page cache.
+//
+// CPU follows the same rule: an awake database is guaranteed a share in step
+// with its size, so one busy neighbour on the node cannot starve it; parked,
+// it drops to almost nothing. No CPU limit, so it still bursts into idle CPU.
 func databaseResources(t tenant, awake bool) corev1.ResourceRequirements {
 	mb := resource.MustParse(strconv.Itoa(t.MemoryMB) + "Mi")
 	ask := mb
+	cpu := resource.MustParse(databaseCPU(t.MemoryMB))
 	if !awake {
 		ask = resource.MustParse(parkedAsk)
+		cpu = resource.MustParse("10m")
 	}
 	return corev1.ResourceRequirements{
-		Requests: corev1.ResourceList{corev1.ResourceMemory: ask, corev1.ResourceCPU: resource.MustParse("10m")},
+		Requests: corev1.ResourceList{corev1.ResourceMemory: ask, corev1.ResourceCPU: cpu},
 		Limits:   corev1.ResourceList{corev1.ResourceMemory: mb},
 	}
 }
 
-// resizeDatabase changes the pod's memory in place (Kubernetes 1.33+).
+// databaseCPU is an awake database's guaranteed CPU: 250m per GB of memory,
+// at least 100m, at most one core.
+func databaseCPU(memoryMB int) string {
+	return strconv.Itoa(min(1000, max(100, memoryMB*250/1024))) + "m"
+}
+
+// resizeDatabase changes the pod's memory and CPU in place (Kubernetes 1.33+).
 func (g *gateway) resizeDatabase(ctx context.Context, pod *corev1.Pod, t tenant, awake bool) error {
 	want := databaseResources(t, awake)
 	haveAsk := pod.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory]
+	haveCPU := pod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
 	haveLimit := pod.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory]
-	if haveAsk.Cmp(want.Requests[corev1.ResourceMemory]) == 0 && haveLimit.Cmp(want.Limits[corev1.ResourceMemory]) == 0 {
+	if haveAsk.Cmp(want.Requests[corev1.ResourceMemory]) == 0 && haveCPU.Cmp(want.Requests[corev1.ResourceCPU]) == 0 && haveLimit.Cmp(want.Limits[corev1.ResourceMemory]) == 0 {
 		return nil
 	}
 	patch, _ := json.Marshal(map[string]any{"spec": map[string]any{"containers": []map[string]any{{"name": "db", "resources": want}}}})
-	_, err := g.kube.CoreV1().Pods(g.cfg.namespace).Patch(ctx, pod.Name, types.StrategicMergePatchType, patch, metav1.PatchOptions{}, "resize")
+	_, err := g.kube.CoreV1().Pods(g.cfg.dbNamespace).Patch(ctx, pod.Name, types.StrategicMergePatchType, patch, metav1.PatchOptions{}, "resize")
 	return err
 }
 
@@ -498,8 +560,8 @@ func (g *gateway) agentWait(ip, path string, body any, timeout time.Duration) er
 
 func (g *gateway) deleteDatabase(ctx context.Context, id string) {
 	zero := int64(0)
-	_ = g.kube.CoreV1().Pods(g.cfg.namespace).Delete(ctx, dbPodName(id), metav1.DeleteOptions{GracePeriodSeconds: &zero})
-	_ = g.kube.CoreV1().PersistentVolumeClaims(g.cfg.namespace).Delete(ctx, dbPodName(id), metav1.DeleteOptions{})
+	_ = g.kube.CoreV1().Pods(g.cfg.dbNamespace).Delete(ctx, dbPodName(id), metav1.DeleteOptions{GracePeriodSeconds: &zero})
+	_ = g.kube.CoreV1().PersistentVolumeClaims(g.cfg.dbNamespace).Delete(ctx, dbPodName(id), metav1.DeleteOptions{})
 	// Its backups go with it (every engine's, under tenants/{id}/).
 	go func() {
 		if err := g.store.removePrefix(context.Background(), "tenants/"+id+"/"); err != nil {
@@ -567,7 +629,7 @@ func (g *gateway) restoreDatabase(ctx context.Context, t tenant, target string) 
 // database keeps running.
 func (g *gateway) growDatabaseVolume(ctx context.Context, id string, diskGB int) error {
 	patch := fmt.Sprintf(`{"spec":{"resources":{"requests":{"storage":"%dGi"}}}}`, diskGB)
-	_, err := g.kube.CoreV1().PersistentVolumeClaims(g.cfg.namespace).Patch(ctx, dbPodName(id), types.MergePatchType, []byte(patch), metav1.PatchOptions{})
+	_, err := g.kube.CoreV1().PersistentVolumeClaims(g.cfg.dbNamespace).Patch(ctx, dbPodName(id), types.MergePatchType, []byte(patch), metav1.PatchOptions{})
 	if apierrors.IsNotFound(err) {
 		return nil // not created yet; the first wake creates it at the new size
 	}

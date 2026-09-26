@@ -233,6 +233,32 @@ final class EdgeValkey
         ];
     }
 
+    /**
+     * Jobs waiting per Laravel queue. Laravel prefixes its keys with the app
+     * name (REDIS_PREFIX), so each queue's list is found by pattern and summed
+     * server-side; the reply is one integer per queue.
+     *
+     * @param  list<string>  $queues
+     * @return array<string, int>
+     */
+    public static function queueLengths(string $target, string $password, array $queues): array
+    {
+        [$host, $port] = explode(':', self::address($target));
+        $socket = self::open($host, (int) $port);
+        $sum = "local n = 0 for _, k in ipairs(redis.call('KEYS', ARGV[1])) do if redis.call('TYPE', k).ok == 'list' then n = n + redis.call('LLEN', k) end end return n";
+        try {
+            self::send($socket, 'AUTH', 'default', $password);
+            $out = [];
+            foreach ($queues as $queue) {
+                $out[$queue] = (int) self::send($socket, 'EVAL', $sum, '0', '*queues:'.$queue);
+            }
+
+            return $out;
+        } finally {
+            fclose($socket);
+        }
+    }
+
     /** @return resource TLS socket to a tenant, as an app connects. */
     private static function open(string $host, int $port)
     {

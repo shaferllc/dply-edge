@@ -13,6 +13,7 @@ import (
 // once the last pro tenant on it is gone. Flex tenants stay on the shared pool.
 const (
 	proTaintKey  = "dply.dev/pro"
+	dbTaintKey   = "dply.dev/db" // the db pool (DB_NODE_POOL): databases only"
 	nodePoolKey  = "doks.digitalocean.com/node-pool"
 	proSmallPool = "pro-16" // m-2vcpu-16gb: Pro 5 GB and 12 GB
 	proLargePool = "pro-64" // m-8vcpu-64gb: Pro 25 GB and 50 GB

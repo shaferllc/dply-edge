@@ -100,6 +100,9 @@ test('removing a dply database deletes the tenant', function () {
 });
 
 test('the collector bills dply postgres compute while awake and the disk every hour', function () {
+    // Storage bills by the second: a tick between setting storage_at and
+    // collecting would make it 7201 s, not two hours.
+    $this->freezeTime();
     Http::fake(['gateway.test/tenants/*' => Http::response([])]);
     EdgeAppDatabase::sync($this->site, 'sql', 'postgres', 'sleep', '0.5', 300, 5);
     $id = $this->site->edgeMeta()['database']['remote_id'];
@@ -175,10 +178,10 @@ test('mongodb is only offered when the gateway is configured', function () {
     $this->site->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
     $test = fn () => Livewire::actingAs($user)->test(Resources::class, ['server' => $this->site->server, 'site' => $this->site]);
 
-    $test()->assertSeeHtml("selectDatabase('mongodb')")->call('selectDatabase', 'mongodb')->assertSet('draftDatabase', 'mongodb')->assertSeeHtml('id="postgres-disk"');
+    $test()->assertSeeHtml('<option value="mongodb" >')->call('selectDatabase', 'mongodb')->assertSet('draftDatabase', 'mongodb')->assertSeeHtml('id="postgres-disk"');
 
     config(['edge.valkey.api_url' => null]);
-    $test()->assertDontSeeHtml("selectDatabase('mongodb')")->call('selectDatabase', 'mongodb')->assertNotSet('draftDatabase', 'mongodb');
+    $test()->assertSeeHtml('<option value="mongodb" disabled>')->call('selectDatabase', 'mongodb')->assertNotSet('draftDatabase', 'mongodb');
 });
 
 test('mysql is a dply database: DB_* on 3306, resize with DB_PASSWORD, delete through the gateway', function () {
@@ -299,4 +302,53 @@ test('a failing change log and a lost window of changes are reported', function 
             'Database backup failed for '.$this->site->name,
             'Some database changes for '.$this->site->name.' cannot be restored',
         ]);
+});
+
+test('the database panel shows its state, backups, and how to connect without waking it', function () {
+    $id = EdgeDplyDatabase::tenantId($this->site);
+    Http::fake([
+        "gateway.test/tenants/{$id}/backup" => Http::response(['last_ok_at' => now()->subMinutes(20)->toIso8601String()]),
+        "gateway.test/tenants/{$id}" => fn ($request) => $request->method() === 'GET'
+            ? Http::response(['id' => $id, 'awake' => true, 'idle_seconds' => 60, 'sleep_after' => 300])
+            : Http::response([]),
+        'gateway.test/*' => Http::response([]),
+    ]);
+    EdgeAppDatabase::sync($this->site, 'sql', 'postgres');
+    $this->site->save();
+    $user = User::factory()->create();
+    $this->site->organization->users()->attach($user->id, ['role' => 'owner']);
+    $this->site->forceFill(['user_id' => $user->id, 'type' => SiteType::Static, 'status' => Site::STATUS_EDGE_ACTIVE])->save();
+    $this->site->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
+
+    Livewire::actingAs($user)->test(Resources::class, ['server' => $this->site->server, 'site' => $this->site->fresh()])
+        ->call('loadDatabaseStatus')
+        ->assertSee('Awake')
+        ->assertSee('Sleeps in 4m without a connection')
+        ->assertSee('Healthy')
+        ->assertSee('psql')
+        ->assertSee($this->site->edgeMeta()['database']['host']);
+
+    // Status only reads: it never asks the gateway to sleep, restore, or change the database.
+    Http::assertNotSent(fn ($request): bool => in_array($request->method(), ['POST', 'DELETE'], true));
+});
+
+test('mongodb stats come from its agent through the gateway, without the app password', function () {
+    $id = EdgeDplyDatabase::tenantId($this->site, 'mongodb');
+    Http::fake([
+        "gateway.test/tenants/{$id}/stats" => Http::response(['engine' => 'mongodb', 'version' => 'MongoDB 7.0.43', 'uptime_seconds' => 60, 'size_bytes' => 126721, 'tables' => 2, 'rows' => 501, 'connections' => 5, 'max_connections' => 8192, 'cache_hit_ratio' => 100, 'commits' => 501, 'rollbacks' => 0, 'largest' => [['name' => 'notes', 'rows' => 500, 'bytes' => 122596]]]),
+        'gateway.test/*' => Http::response([]),
+    ]);
+    EdgeAppDatabase::sync($this->site, 'sql', 'mongodb');
+    $this->site->save();
+    $user = User::factory()->create();
+    $this->site->organization->users()->attach($user->id, ['role' => 'owner']);
+    $this->site->forceFill(['user_id' => $user->id, 'type' => SiteType::Static, 'status' => Site::STATUS_EDGE_ACTIVE])->save();
+    $this->site->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
+
+    Livewire::actingAs($user)->test(Resources::class, ['server' => $this->site->server, 'site' => $this->site->fresh()])
+        ->call('loadDatabaseStats')
+        ->assertSet('databaseStatsError', null)
+        ->assertSet('databaseStats.version', 'MongoDB 7.0.43')
+        ->assertSee('notes')
+        ->assertSee('501');
 });

@@ -72,13 +72,15 @@ resource "digitalocean_kubernetes_cluster" "valkey" {
     start_time = "06:00"
   }
 
+  # The cache pool: flex Valkey tenants and the gateway. Kept named "flex":
+  # renaming the cluster's default pool replaces the whole cluster. Two nodes
+  # so one failing does not take every cache down.
   node_pool {
     name       = "flex"
     size       = var.node_size
     auto_scale = true
-    min_nodes  = 1
-    # Ceiling on surprise spend: 2 x $24. Raise when real load needs it.
-    max_nodes = 2
+    min_nodes  = 2
+    max_nodes  = 3
   }
 
   depends_on = [digitalocean_container_registry.dply]
@@ -99,6 +101,26 @@ output "cluster_id" {
 
 output "registry" {
   value = "registry.digitalocean.com/${digitalocean_container_registry.dply.name}"
+}
+
+# Databases only (Postgres, MySQL, MongoDB): the gateway sets DB_NODE_POOL=db,
+# and the taint keeps cache pods off. Their disk I/O and page cache would
+# otherwise slow the cache nodes. Two nodes, so a database whose node fails
+# reattaches its volume on the other one.
+resource "digitalocean_kubernetes_node_pool" "db" {
+  cluster_id = digitalocean_kubernetes_cluster.valkey.id
+  name       = "db"
+  size       = var.node_size
+  auto_scale = true
+  min_nodes  = 2
+  max_nodes  = 4
+  node_count = 2
+
+  taint {
+    key    = "dply.dev/db"
+    value  = "true"
+    effect = "NoSchedule"
+  }
 }
 
 # Pro tenants only (packages/valkey-gateway/placement.go). Both pools sit at

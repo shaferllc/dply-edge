@@ -72,8 +72,11 @@ would remove the list.
 - Pool size per class should follow demand. It is a fixed `POOL` setting today.
 - Moving existing Upstash users across. The Laravel client, Resources UI, and per-second billing are in.
 - A production cluster (DOKS), with R2 credentials and a real wildcard certificate.
-- The gateway itself is one replica. A second one needs shared activity tracking
-  (for example, an annotation on the pod) before idle sleep is safe.
+- Two gateways run active/standby (`leader.go`): they share a Lease, the holder
+  labels its pod `role=active`, and the Service only sends traffic there, so the
+  in-memory idle tracking stays correct. Takeover: ~5 s on shutdown, ~15 s when the
+  active one freezes or its node dies (verified locally 2026-09-25 with SIGTERM,
+  SIGKILL and a paused container). Active/active would need shared activity tracking.
 
 ## Databases (T-020)
 
