@@ -442,6 +442,27 @@ class Resources extends Component
         return EdgeQueueWorkers::command($this->site, $command, $input);
     }
 
+    /** Stop every worker (running jobs finish) until resumed; or resume. */
+    public function pauseWorkers(bool $paused = true): void
+    {
+        $this->authorize('update', $this->site);
+        try {
+            $failed = collect(EdgeQueueWorkers::pause($this->site, $paused))->reject(fn (array $w): bool => $w['ok']);
+        } catch (\Throwable $e) {
+            $this->toastError(__('Could not reach the app: :error', ['error' => $e->getMessage()]));
+
+            return;
+        }
+        $this->site->refresh();
+        $this->workers['paused'] = $paused;
+        $this->refreshPending();
+        if ($failed->isNotEmpty()) {
+            $this->workersStatusError = $failed->map(fn (array $w): string => $w['name'].': '.$w['error'])->implode(' · ');
+        }
+        $this->toastSuccess($paused ? __('Workers paused. Running jobs finish first.') : __('Workers resumed.'));
+        $this->loadWorkersStatus();
+    }
+
     public function startWorkers(): void
     {
         $this->authorize('update', $this->site);
@@ -2179,6 +2200,7 @@ class Resources extends Component
                 'workersMonthlyCents' => EdgeQueueWorkers::monthlyCents($this->site, EdgeQueueWorkers::normalize($this->workers)['instances']),
                 'workersMaxMonthlyCents' => EdgeQueueWorkers::monthlyCents($this->site, EdgeQueueWorkers::normalize($this->workers)['max_instances']),
                 'workersScaler' => Cache::get(ScaleEdgeQueueWorkersCommand::stateKey($this->site)),
+                'workersHistory' => ScaleEdgeQueueWorkersCommand::history($this->site),
                 'databaseUsage' => $this->dplyDatabaseRecord() !== null ? $this->databaseUsage() : null,
                 'deployments' => $this->site->edgeDeployments()->orderByDesc('created_at')->limit(5)->get(),
             ],

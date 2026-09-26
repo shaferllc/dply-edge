@@ -735,6 +735,7 @@ export class App extends Container {
 
   async startWorker(index) {
     await this.remember(index);
+    if (await this.ctx.storage.get('dply:paused')) return;
     await this.ctx.storage.put('dply:wanted', true);
     if (this.container.running) return;
     await this.start({ envVars: this.envVars });
@@ -750,13 +751,26 @@ export class App extends Container {
   // Bring back a wanted worker Cloudflare restarted.
   async resumeWorker(index) {
     await this.remember(index);
-    if (!(await this.wanted(index)) || this.container.running) return;
+    if ((await this.ctx.storage.get('dply:paused')) || !(await this.wanted(index)) || this.container.running) return;
     await this.start({ envVars: this.envVars });
   }
 
   async workerState(index) {
     await this.remember(index);
-    return { ...(await this.getState()), wanted: await this.wanted(index) };
+    return { ...(await this.getState()), wanted: await this.wanted(index), paused: Boolean(await this.ctx.storage.get('dply:paused')) };
+  }
+
+  // Paused workers stay stopped through warms, scaling and deploys until
+  // resumed. Stopping lets the running job finish.
+  async pauseWorker(index, paused) {
+    await this.remember(index);
+    await this.ctx.storage.put('dply:paused', paused);
+    if (paused) {
+      if (this.container.running) await this.stop('SIGTERM');
+      return;
+    }
+    await this.ctx.storage.delete('dply:wanted'); // back to the default: the always-on ones run
+    await this.resumeWorker(index);
   }
 
   // Autoscaling. The Worker asks instance-0, instance-1, … in order and
@@ -790,7 +804,7 @@ export class App extends Container {
   async onActivityExpired() {
     const index = this.index ?? (await this.ctx.storage.get('dply:index'));
     const keep = index === 'jobs' ? JOBS_ALWAYS_ON
-      : isWorker(index) ? Number(String(index).slice(7)) < WORKERS && (await this.wanted(index))
+      : isWorker(index) ? Number(String(index).slice(7)) < WORKERS && (await this.wanted(index)) && !(await this.ctx.storage.get('dply:paused'))
       : typeof index === 'number' && index < limits().min;
     // A paused site (usage credit used up) lets its always-on instances sleep.
     if (keep && (await trafficOpen(this.env))) return;
@@ -1147,6 +1161,18 @@ export default {
       if (url.pathname === '/_dply/workers' && request.method === 'GET') {
         const names = Array.from({ length: WORKERS }, (_, i) => 'worker-' + i);
         return Response.json(await Promise.all(names.map(async (name) => ({ name, ...(await getContainer(env.APP, name).workerState(name)) }))));
+      }
+      if (url.pathname === '/_dply/workers/pause' && request.method === 'POST') {
+        const { paused = true } = await request.json();
+        const names = Array.from({ length: WORKERS }, (_, i) => 'worker-' + i);
+        return Response.json(await Promise.all(names.map(async (name) => {
+          try {
+            await getContainer(env.APP, name).pauseWorker(name, Boolean(paused));
+            return { name, ok: true };
+          } catch (e) {
+            return { name, ok: false, error: String(e && e.message ? e.message : e) };
+          }
+        })));
       }
       // The autoscaler: run the first `count` workers, stop the rest.
       if (url.pathname === '/_dply/workers/scale' && request.method === 'POST') {

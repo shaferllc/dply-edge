@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge;
 
+use App\Modules\Edge\Console\CheckEdgeQueueWorkersCommand;
 use App\Modules\Edge\Console\CheckEdgeRumAlertsCommand;
 use App\Modules\Edge\Console\CollectEdgeContainerUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeDataUsageCommand;
@@ -82,6 +83,7 @@ class EdgeServiceProvider extends ServiceProvider
                 WarmEdgeBuildImagesCommand::class,
                 WarmEdgeContainersCommand::class,
                 ScaleEdgeQueueWorkersCommand::class,
+                CheckEdgeQueueWorkersCommand::class,
             ]);
         }
     }

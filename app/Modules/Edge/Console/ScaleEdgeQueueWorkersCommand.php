@@ -36,7 +36,8 @@ class ScaleEdgeQueueWorkersCommand extends Command
             ->get()
             ->filter(fn (Site $site): bool => ! $site->isEdgePreview()
                 && is_string($site->edgeLiveUrl()) && $site->edgeLiveUrl() !== ''
-                && EdgeQueueWorkers::runningInstances($site) > 0);
+                && EdgeQueueWorkers::runningInstances($site) > 0
+                && ! EdgeQueueWorkers::for($site)['paused']);
 
         foreach ($sites as $site) {
             $this->scale($site);
@@ -45,9 +46,29 @@ class ScaleEdgeQueueWorkersCommand extends Command
         return self::SUCCESS;
     }
 
+    /** Points kept for the workspace chart: one a minute, six hours. */
+    public const HISTORY_POINTS = 360;
+
     public static function stateKey(Site $site): string
     {
         return 'edge:workers:'.$site->id.':scaler';
+    }
+
+    public static function historyKey(Site $site): string
+    {
+        return 'edge:workers:'.$site->id.':history';
+    }
+
+    /**
+     * Workers running and jobs waiting, oldest first.
+     *
+     * @return list<array{at: int, count: int, backlog: int}>
+     */
+    public static function history(Site $site): array
+    {
+        $points = Cache::get(self::historyKey($site), []);
+
+        return is_array($points) ? array_values($points) : [];
     }
 
     private function scale(Site $site): void
@@ -86,6 +107,9 @@ class ScaleEdgeQueueWorkersCommand extends Command
         }
 
         Cache::put($key, ['count' => $target, 'busy_at' => $busyAt, 'backlog' => $backlog, 'at' => now()->getTimestamp(), 'error' => $error], now()->addDay());
+        $history = self::history($site);
+        $history[] = ['at' => now()->getTimestamp(), 'count' => $target, 'backlog' => $backlog];
+        Cache::put(self::historyKey($site), array_slice($history, -self::HISTORY_POINTS), now()->addDay());
         if ($target !== $current) {
             $this->line(sprintf('%s: %d → %d workers (%d waiting)', $site->name, $current, $target, $backlog));
         }

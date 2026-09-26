@@ -78,6 +78,7 @@ class NotificationEventRegistry
             || str_ends_with($eventKey, 'health.warning_finding')
             || str_ends_with($eventKey, 'errors.deploy_failed')
             || str_ends_with($eventKey, 'errors.operation_failed')
+            || str_starts_with($eventKey, 'edge.workers.')
         ) {
             return 'warning';
         }

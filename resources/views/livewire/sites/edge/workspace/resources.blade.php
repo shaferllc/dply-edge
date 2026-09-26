@@ -160,8 +160,16 @@
                                 <x-resource-kind-icon kind="queue" class="h-3.5 w-3.5 shrink-0" />
                                 {{ __('Queue workers') }}
                             </p>
-                            <button type="button" wire:click="removeWorkers" class="text-xs font-semibold text-brand-ink underline">{{ __('Remove') }}</button>
+                            <span class="flex items-center gap-3">
+                                @if (\App\Modules\Edge\Support\EdgeQueueWorkers::for($site)['enabled'])
+                                    <button type="button" wire:click="pauseWorkers({{ $w['paused'] ? 'false' : 'true' }})" wire:loading.attr="disabled" wire:target="pauseWorkers" class="text-xs font-semibold text-brand-ink underline">{{ $w['paused'] ? __('Resume') : __('Pause') }}</button>
+                                @endif
+                                <button type="button" wire:click="removeWorkers" class="text-xs font-semibold text-brand-ink underline">{{ __('Remove') }}</button>
+                            </span>
                         </div>
+                        @if ($w['paused'])
+                            <p class="mt-2 rounded-md bg-amber-50 px-2 py-1.5 text-xs font-semibold text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">{{ __('Paused. Jobs wait on the queue until you resume; deploys and autoscaling leave the workers stopped.') }}</p>
+                        @endif
                         @if ($workersUnavailable)
                             <p class="mt-2 text-xs text-brand-ink">{{ $workersUnavailable }}</p>
                         @else
@@ -220,6 +228,34 @@
                                     <p class="font-semibold text-brand-ink">{{ __('About $:total/mo', ['total' => number_format($workersMonthlyCents / 100, 2)]) }}</p>
                                     <p class="mt-0.5 text-brand-moss">{{ __(':instances × :size, always on · :n workers in all', ['instances' => $w['instances'], 'size' => $settings['instance_type'] ?? 'basic', 'n' => $w['instances'] * $w['processes']]) }}</p>
                                 @endif
+                                @if ($w['autoscale'] && count($workersHistory) >= 2)
+                                    @php
+                                        // Six hours of the autoscaler: jobs waiting (area) and workers running (steps).
+                                        $chartW = 240; $chartH = 44;
+                                        $t0 = $workersHistory[0]['at']; $span = max(1, end($workersHistory)['at'] - $t0);
+                                        $peakBacklog = max(1, max(array_column($workersHistory, 'backlog')));
+                                        $peakWorkers = max(1, $w['max_instances'], max(array_column($workersHistory, 'count')));
+                                        $x = fn ($p) => round(($p['at'] - $t0) / $span * $chartW, 1);
+                                        $backlogPts = collect($workersHistory)->map(fn ($p) => $x($p).','.round($chartH - $p['backlog'] / $peakBacklog * ($chartH - 2), 1))->implode(' ');
+                                        $steps = []; $prev = null;
+                                        foreach ($workersHistory as $p) {
+                                            $y = round($chartH - $p['count'] / $peakWorkers * ($chartH - 2), 1);
+                                            if ($prev !== null) { $steps[] = $x($p).','.$prev; }
+                                            $steps[] = $x($p).','.$y; $prev = $y;
+                                        }
+                                    @endphp
+                                    <figure class="mt-2">
+                                        <svg viewBox="0 0 {{ $chartW }} {{ $chartH }}" class="h-11 w-full" preserveAspectRatio="none" role="img" aria-label="{{ __('Workers and waiting jobs over the last :h hours', ['h' => max(1, (int) round($span / 3600))]) }}">
+                                            <polygon points="0,{{ $chartH }} {{ $backlogPts }} {{ $chartW }},{{ $chartH }}" class="fill-amber-400/25" />
+                                            <polyline points="{{ $backlogPts }}" fill="none" class="stroke-amber-500" stroke-width="1" vector-effect="non-scaling-stroke" />
+                                            <polyline points="{{ implode(' ', $steps) }}" fill="none" class="stroke-emerald-600" stroke-width="1.5" vector-effect="non-scaling-stroke" />
+                                        </svg>
+                                        <figcaption class="mt-0.5 flex justify-between text-2xs text-brand-moss">
+                                            <span><span class="text-emerald-700 dark:text-emerald-400">━</span> {{ __('workers, up to :n', ['n' => max(array_column($workersHistory, 'count'))]) }} · <span class="text-amber-600">━</span> {{ __('waiting, peak :n', ['n' => max(array_column($workersHistory, 'backlog'))]) }}</span>
+                                            <span>{{ \Illuminate\Support\Carbon::createFromTimestamp($t0)->diffForHumans(short: true) }}</span>
+                                        </figcaption>
+                                    </figure>
+                                @endif
                                 @if ($w['autoscale'] && is_array($workersScaler))
                                     <p @class(['mt-1', 'text-red-700 dark:text-red-400' => $workersScaler['error'] ?? null, 'text-brand-moss' => ! ($workersScaler['error'] ?? null)])>
                                         {{ ($workersScaler['error'] ?? null)
@@ -249,13 +285,13 @@
                             </div>
                             @if (is_array($workersStatus) || $workersStatusError)
                                 @php
-                                    $stoppedWorkers = collect($workersStatus ?? [])->where('wanted', true)->whereIn('status', ['stopped', 'stopped_with_code'])->count();
+                                    $stoppedWorkers = $w['paused'] ? 0 : collect($workersStatus ?? [])->where('wanted', true)->whereIn('status', ['stopped', 'stopped_with_code'])->count();
                                 @endphp
                                 <ul class="mt-2 space-y-1 text-xs" wire:key="workers-status">
                                     @foreach ($workersStatus ?? [] as $worker)
                                         @php
                                             $up = in_array($worker['status'], ['running', 'healthy'], true);
-                                            $idle = ! $up && ! ($worker['wanted'] ?? true);
+                                            $idle = ! $up && (! ($worker['wanted'] ?? true) || ($worker['paused'] ?? false));
                                         @endphp
                                         <li class="flex items-center justify-between gap-2">
                                             <span class="flex items-center gap-1.5 font-mono text-brand-ink">
@@ -263,7 +299,7 @@
                                                 {{ $worker['name'] }}
                                             </span>
                                             <span class="text-brand-moss">
-                                                {{ $idle && $worker['status'] !== 'stopping' ? __('Idle (scaled down)') : match ($worker['status']) {
+                                                {{ $idle && $worker['status'] !== 'stopping' ? (($worker['paused'] ?? false) ? __('Paused') : __('Idle (scaled down)')) : match ($worker['status']) {
                                                     'running', 'healthy' => __('Running'),
                                                     'stopping' => __('Stopping'),
                                                     'stopped_with_code' => __('Exited (code :code)', ['code' => $worker['exit_code'] ?? '?']),

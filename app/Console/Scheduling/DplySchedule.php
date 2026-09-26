@@ -14,11 +14,11 @@ use App\Console\Commands\PruneErrorEventsCommand;
 use App\Console\Commands\PruneNotificationInboxItemsCommand;
 use App\Console\Commands\PruneOrphanedSiteDataCommand;
 use App\Console\Commands\PruneSiteUptimeCheckResultsCommand;
-use App\Console\Commands\PruneTestingHostnameRecordsCommand;
 use App\Console\Commands\ReapStuckConsoleActionsCommand;
 use App\Console\Commands\SyncErrorEventsCommand;
 use App\Modules\Billing\Console\SnapshotOrganizationBillingCommand;
 use App\Modules\Billing\Console\SyncAllOrganizationBillingCommand;
+use App\Modules\Edge\Console\CheckEdgeQueueWorkersCommand;
 use App\Modules\Edge\Console\CheckEdgeRumAlertsCommand;
 use App\Modules\Edge\Console\CollectEdgeContainerUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeDataUsageCommand;
@@ -102,6 +102,11 @@ final class DplySchedule
             ->everyMinute()
             ->withoutOverlapping()
             ->name('edge-scale-queue-workers');
+        // Failing jobs and crash-looping workers, from the workers' logs.
+        $schedule->command(CheckEdgeQueueWorkersCommand::class)
+            ->everyFiveMinutes()
+            ->withoutOverlapping()
+            ->name('edge-check-queue-workers');
         $schedule->command(CollectEdgeDataUsageCommand::class, ['--today'])
             ->hourly()
             ->withoutOverlapping()
@@ -153,7 +158,6 @@ final class DplySchedule
         $schedule->command(PruneErrorEventsCommand::class)->dailyAt('03:25');
         $schedule->command(PruneNotificationInboxItemsCommand::class)->dailyAt('03:35');
         $schedule->command(PruneAuditLogsCommand::class)->dailyAt('03:20');
-        $schedule->command(PruneTestingHostnameRecordsCommand::class)->dailyAt('03:30');
         $schedule->command(PruneOrphanedSiteDataCommand::class)->weeklyOn(1, '04:40');
         $schedule->command(PruneSiteUptimeCheckResultsCommand::class)->dailyAt('03:55');
 

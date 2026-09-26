@@ -32,7 +32,7 @@ final class EdgeQueueWorkers
     public const CONNECTIONS = ['auto', 'redis', 'database'];
 
     /**
-     * @return array{enabled: bool, instances: int, processes: int, connection: string, queues: string, timeout: int, tries: int, sleep: int, memory: int, max_time: int, autoscale: bool, max_instances: int, scale_per: int}
+     * @return array{enabled: bool, instances: int, processes: int, connection: string, queues: string, timeout: int, tries: int, sleep: int, memory: int, max_time: int, autoscale: bool, max_instances: int, scale_per: int, paused: bool}
      */
     public static function for(Site $site): array
     {
@@ -43,7 +43,7 @@ final class EdgeQueueWorkers
 
     /**
      * @param  array<string, mixed>  $raw
-     * @return array{enabled: bool, instances: int, processes: int, connection: string, queues: string, timeout: int, tries: int, sleep: int, memory: int, max_time: int, autoscale: bool, max_instances: int, scale_per: int}
+     * @return array{enabled: bool, instances: int, processes: int, connection: string, queues: string, timeout: int, tries: int, sleep: int, memory: int, max_time: int, autoscale: bool, max_instances: int, scale_per: int, paused: bool}
      */
     public static function normalize(array $raw): array
     {
@@ -72,6 +72,8 @@ final class EdgeQueueWorkers
             'autoscale' => (bool) ($raw['autoscale'] ?? false),
             'max_instances' => max($instances, min(self::MAX_INSTANCES, (int) ($raw['max_instances'] ?? $instances))),
             'scale_per' => max(1, min(1000, (int) ($raw['scale_per'] ?? 10))),
+            // Stopped from the workspace; they stay stopped until resumed.
+            'paused' => (bool) ($raw['paused'] ?? false),
         ];
     }
 
@@ -180,6 +182,7 @@ final class EdgeQueueWorkers
             'since' => isset($row['lastChange']) ? intdiv((int) $row['lastChange'], 1000) : null,
             'exit_code' => isset($row['exitCode']) ? (int) $row['exitCode'] : null,
             'wanted' => (bool) ($row['wanted'] ?? true),
+            'paused' => (bool) ($row['paused'] ?? false),
         ], array_filter(is_array($rows) ? $rows : [], 'is_array')));
     }
 
@@ -235,6 +238,27 @@ final class EdgeQueueWorkers
             $events,
             static fn (array $e): bool => preg_match('/\[dply-worker |\s(RUNNING|DONE|FAIL)\s*$/', $e['message']) === 1,
         ));
+    }
+
+    /**
+     * Pause (stop every worker, letting running jobs finish) or resume, and
+     * remember it on the site so warms, scaling and deploys leave them be.
+     *
+     * @return list<array{name: string, ok: bool, error: ?string}>
+     */
+    public static function pause(Site $site, bool $paused): array
+    {
+        $rows = self::internal($site)->post(rtrim((string) $site->edgeLiveUrl(), '/').'/_dply/workers/pause', ['paused' => $paused])->throw()->json();
+        $container = $site->edgeMeta()['container'] ?? [];
+        $container['workers'] = array_merge(self::for($site), ['paused' => $paused]);
+        $site->mergeEdgeMeta(['container' => $container]);
+        $site->save();
+
+        return array_values(array_map(static fn (array $row): array => [
+            'name' => (string) ($row['name'] ?? ''),
+            'ok' => (bool) ($row['ok'] ?? false),
+            'error' => isset($row['error']) ? (string) $row['error'] : null,
+        ], array_filter(is_array($rows) ? $rows : [], 'is_array')));
     }
 
     /** Jobs waiting on the workers' queues, as the app itself counts them. */
