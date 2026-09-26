@@ -12,6 +12,7 @@ use App\Modules\Edge\Support\EdgeDplyDatabase;
 use App\Modules\Edge\Support\EdgeValkey;
 use App\Modules\Notifications\Services\NotificationPublisher;
 use App\Modules\Providers\Valkey\ValkeyGatewayClient;
+use App\Modules\Providers\Valkey\ValkeyRegions;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -58,7 +59,13 @@ class EdgeValkeyUsageCollector
     /** @return array{sites: int, seconds: int} */
     private function collectLocked(bool $dryRun, ?string $siteId): array
     {
-        $totals = ValkeyGatewayClient::fromConfig()->usage();
+        // Every region's gateway: tenant ids are unique across regions.
+        $totals = [];
+        foreach (array_keys(ValkeyRegions::all()) as $region) {
+            if (ValkeyGatewayClient::configured($region)) {
+                $totals += ValkeyGatewayClient::fromConfig($region)->usage();
+            }
+        }
         $date = now()->utc()->toDateString();
         $sites = 0;
         $seconds = 0;
@@ -121,7 +128,7 @@ class EdgeValkeyUsageCollector
             return;
         }
         try {
-            $status = ValkeyGatewayClient::fromConfig()->backupStatus((string) $database['remote_id']);
+            $status = ValkeyGatewayClient::fromConfig(EdgeDplyDatabase::regionOf($database))->backupStatus((string) $database['remote_id']);
         } catch (Throwable) {
             return; // the gateway or agent is unreachable; keep the last known status
         }

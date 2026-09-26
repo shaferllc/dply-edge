@@ -6,6 +6,7 @@ namespace App\Modules\Edge\Support;
 
 use App\Models\Site;
 use App\Modules\Providers\Valkey\ValkeyGatewayClient;
+use App\Modules\Providers\Valkey\ValkeyRegions;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
@@ -65,9 +66,28 @@ final class EdgeValkey
         return str_starts_with($target, self::PREFIX);
     }
 
+    /**
+     * The gateway's id for a target. Targets are valkey:{id} (default
+     * region) or valkey:{region}:{id}; the gateway only sees the id.
+     */
     public static function tenantId(string $target): string
     {
-        return substr($target, strlen(self::PREFIX));
+        $rest = substr($target, strlen(self::PREFIX));
+
+        return str_contains($rest, ':') ? substr($rest, strpos($rest, ':') + 1) : $rest;
+    }
+
+    /** The region a target lives in (ValkeyRegions key). */
+    public static function region(string $target): string
+    {
+        $rest = substr($target, strlen(self::PREFIX));
+
+        return str_contains($rest, ':') ? substr($rest, 0, strpos($rest, ':')) : ValkeyRegions::default();
+    }
+
+    public static function target(string $id, string $region): string
+    {
+        return self::PREFIX.($region === ValkeyRegions::default() ? '' : $region.':').$id;
     }
 
     public static function sleepAfter(string $class, int $sleep): int
@@ -84,17 +104,18 @@ final class EdgeValkey
      *
      * @return array{target: string, url: string}
      */
-    public static function provision(Site $site, string $resource, string $class, int $sleep): array
+    public static function provision(Site $site, string $resource, string $class, int $sleep, ?string $region = null): array
     {
         $class = isset(self::offered()[$class]) ? $class : self::DEFAULT_CLASS;
         $spec = self::CLASSES[$class];
         $label = substr(trim((string) preg_replace('/[^a-z0-9]+/', '-', strtolower($resource)), '-'), 0, 12);
         $id = trim(strtolower((string) $site->id).'-'.$label, '-');
         $password = Str::random(40);
+        $region = ValkeyRegions::get($region ?? DataRegion::forSite($site))['key'];
 
-        ValkeyGatewayClient::fromConfig()->put($id, $password, $spec['memory_mb'], self::sleepAfter($class, $sleep), ! $spec['sleeps']);
+        ValkeyGatewayClient::fromConfig($region)->put($id, $password, $spec['memory_mb'], self::sleepAfter($class, $sleep), ! $spec['sleeps']);
 
-        return ['target' => self::PREFIX.$id, 'url' => self::url($id, $password)];
+        return ['target' => self::target($id, $region), 'url' => self::url($id, $password, $region)];
     }
 
     /** New size or sleep time. The password stays; it is read back from REDIS_URL. */
@@ -102,12 +123,12 @@ final class EdgeValkey
     {
         $spec = self::CLASSES[$class] ?? self::CLASSES[self::DEFAULT_CLASS];
         $password = rawurldecode((string) (parse_url($url, PHP_URL_PASS) ?? ''));
-        ValkeyGatewayClient::fromConfig()->put(self::tenantId($target), $password, $spec['memory_mb'], self::sleepAfter($class, $sleep), ! $spec['sleeps']);
+        ValkeyGatewayClient::fromConfig(self::region($target))->put(self::tenantId($target), $password, $spec['memory_mb'], self::sleepAfter($class, $sleep), ! $spec['sleeps']);
     }
 
     public static function destroy(string $target): void
     {
-        ValkeyGatewayClient::fromConfig()->delete(self::tenantId($target));
+        ValkeyGatewayClient::fromConfig(self::region($target))->delete(self::tenantId($target));
     }
 
     /**
@@ -122,7 +143,9 @@ final class EdgeValkey
     /** host:port an app connects to (TLS). */
     public static function address(string $target): string
     {
-        return self::tenantId($target).'.'.config('edge.valkey.domain', 'cache.dply.local').':'.(int) config('edge.valkey.port', 6380);
+        $region = ValkeyRegions::get(self::region($target));
+
+        return self::tenantId($target).'.'.$region['domain'].':'.$region['port'];
     }
 
     /**
@@ -358,11 +381,10 @@ final class EdgeValkey
         return substr($line, 1);
     }
 
-    public static function url(string $id, string $password): string
+    public static function url(string $id, string $password, ?string $region = null): string
     {
-        $domain = (string) config('edge.valkey.domain', 'cache.dply.local');
-        $port = (int) config('edge.valkey.port', 6380);
+        $settings = ValkeyRegions::get($region);
 
-        return 'rediss://default:'.rawurlencode($password).'@'.$id.'.'.$domain.':'.$port;
+        return 'rediss://default:'.rawurlencode($password).'@'.$id.'.'.$settings['domain'].':'.$settings['port'];
     }
 }

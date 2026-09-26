@@ -18,18 +18,20 @@ final class ValkeyGatewayClient
         private readonly string $token,
     ) {}
 
-    public static function configured(): bool
+    public static function configured(?string $region = null): bool
     {
-        return trim((string) config('edge.valkey.api_url')) !== '' && trim((string) config('edge.valkey.token')) !== '';
+        return ValkeyRegions::configured($region);
     }
 
-    public static function fromConfig(): self
+    /** The gateway of a region (ValkeyRegions); null or unknown means the default region. */
+    public static function fromConfig(?string $region = null): self
     {
-        if (! self::configured()) {
-            throw new RuntimeException('dply Valkey is not configured. Set DPLY_VALKEY_API_URL and DPLY_VALKEY_TOKEN.');
+        if (! self::configured($region)) {
+            throw new RuntimeException('dply Valkey is not configured for region '.ValkeyRegions::get($region)['key'].'. Set DPLY_VALKEY_API_URL and DPLY_VALKEY_TOKEN (or DPLY_VALKEY_REGIONS).');
         }
+        $settings = ValkeyRegions::get($region);
 
-        return new self(rtrim((string) config('edge.valkey.api_url'), '/'), (string) config('edge.valkey.token'));
+        return new self($settings['api_url'], $settings['token']);
     }
 
     /**

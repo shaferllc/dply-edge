@@ -31,7 +31,7 @@ final class EdgeDplyDatabaseStats
     /**
      * @return array{engine: string, version: string, uptime_seconds: int, size_bytes: int, tables: int, rows: int, connections: int, max_connections: int, cache_hit_ratio: ?float, commits: int, rollbacks: int, largest: list<array{name: string, rows: int, bytes: int}>}
      */
-    public static function read(string $engine, string $host, string $id, string $password): array
+    public static function read(string $engine, string $host, string $id, string $password, ?string $region = null): array
     {
         $started = microtime(true);
         try {
@@ -39,7 +39,7 @@ final class EdgeDplyDatabaseStats
                 'postgres' => self::postgres($host, $password),
                 'mysql' => self::mysql($host, $id, $password),
                 // No MongoDB driver in PHP here: the database's own agent reports them.
-                'mongodb' => ValkeyGatewayClient::fromConfig()->databaseStats($id),
+                'mongodb' => ValkeyGatewayClient::fromConfig($region)->databaseStats($id),
                 default => throw new \RuntimeException(__('Live stats are not available for this database.')),
             };
         } catch (\PDOException $e) {

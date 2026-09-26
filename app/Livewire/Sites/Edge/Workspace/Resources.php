@@ -622,7 +622,7 @@ class Resources extends Component
         if ($record === null) {
             return;
         }
-        $client = ValkeyGatewayClient::fromConfig();
+        $client = ValkeyGatewayClient::fromConfig(EdgeDplyDatabase::regionOf($record));
         try {
             $this->databaseStatus = $client->get((string) $record['remote_id']);
         } catch (\Throwable $e) {
@@ -646,7 +646,7 @@ class Resources extends Component
             return;
         }
         try {
-            $this->databaseStats = EdgeDplyDatabaseStats::read((string) $record['engine'], (string) $record['host'], (string) $record['remote_id'], $password);
+            $this->databaseStats = EdgeDplyDatabaseStats::read((string) $record['engine'], (string) $record['host'], (string) $record['remote_id'], $password, EdgeDplyDatabase::regionOf($record));
             $this->databaseStatsError = null;
         } catch (\Throwable $e) {
             $this->databaseStatsError = $e->getMessage();
@@ -710,7 +710,7 @@ class Resources extends Component
             return;
         }
         try {
-            $this->valkeyStatus = ValkeyGatewayClient::fromConfig()->get(EdgeValkey::tenantId($connection['target']));
+            $this->valkeyStatus = ValkeyGatewayClient::fromConfig(EdgeValkey::region($connection['target']))->get(EdgeValkey::tenantId($connection['target']));
             $this->valkeyStatsError = null;
         } catch (\Throwable $e) {
             $this->valkeyStatsError = $e->getMessage();
@@ -730,7 +730,7 @@ class Resources extends Component
             $this->valkeyStats = EdgeValkey::stats($connection['target'], $password);
             $this->valkeyStatsError = null;
             try {
-                $this->valkeySlowlog = ValkeyGatewayClient::fromConfig()->slowlog(EdgeValkey::tenantId($connection['target']))['entries'];
+                $this->valkeySlowlog = ValkeyGatewayClient::fromConfig(EdgeValkey::region($connection['target']))->slowlog(EdgeValkey::tenantId($connection['target']))['entries'];
             } catch (\Throwable) {
                 $this->valkeySlowlog = null; // an older gateway: stats still show
             }

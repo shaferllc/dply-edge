@@ -252,17 +252,10 @@ final class EdgeContainerSettings
         if ($settings['regions'] !== [] || $settings['jurisdiction'] !== '') {
             return null;
         }
-        $region = strtoupper((string) config('edge.valkey.data_region', ''));
-        if (! isset(self::REGIONS[$region])) {
-            return null;
-        }
-        $database = $site->edgeMeta()['database'] ?? [];
-        $dplyDatabase = is_array($database) && ($database['provider'] ?? '') === 'dply'
-            && in_array($database['engine'] ?? '', ['postgres', 'mysql', 'mongodb'], true);
-        $dplyValkey = collect(EdgeContainerConnections::for($site))
-            ->contains(fn (array $c): bool => $c['kind'] === 'redis' && EdgeValkey::isTarget($c['target']));
+        // The Cloudflare region paired with the region its data is in.
+        $region = DataRegion::cloudflareFor($site);
 
-        return $dplyDatabase || $dplyValkey ? $region : null;
+        return $region !== null && isset(self::REGIONS[$region]) ? $region : null;
     }
 
     /**

@@ -408,7 +408,7 @@ await db.collection('notes').countDocuments();" }}</pre>
                         </div>
                     @endif
                         <p class="text-xs text-brand-moss">
-                            {{ __('dply :engine in New York. A disk only grows; pick more later if you need it.', ['engine' => ['mongodb' => 'MongoDB', 'mysql' => 'MySQL'][$databaseEngine] ?? 'Postgres']) }}
+                            {{ __('dply :engine in :region. A disk only grows; pick more later if you need it.', ['engine' => ['mongodb' => 'MongoDB', 'mysql' => 'MySQL'][$databaseEngine] ?? 'Postgres', 'region' => \App\Modules\Providers\Valkey\ValkeyRegions::get(\App\Modules\Edge\Support\DataRegion::forSite($site))['label']]) }}
                             @if ($postgresSuspend === -1)
                                 {{ __('Stays on bills every hour. Hours awake is only the estimate.') }}
                             @else

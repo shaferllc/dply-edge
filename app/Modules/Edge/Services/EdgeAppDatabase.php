@@ -198,7 +198,7 @@ final class EdgeAppDatabase
             return;
         }
         if (self::isDply($current)) {
-            EdgeDplyDatabase::destroy($remoteId);
+            EdgeDplyDatabase::destroy($remoteId, EdgeDplyDatabase::regionOf($current));
         }
         self::forgetCredentials($site);
     }
@@ -217,6 +217,7 @@ final class EdgeAppDatabase
             'status' => 'ready',
             'remote_id' => $created['id'],
             'host' => $created['host'],
+            'region' => $created['region'],
             'plan' => $suspend === -1 ? 'awake' : 'sleep',
             'size' => $size,
             'suspend' => $suspend,
@@ -251,7 +252,7 @@ final class EdgeAppDatabase
             $password = $engine === 'mongodb'
                 ? rawurldecode((string) (parse_url($env('MONGODB_URI'), PHP_URL_PASS) ?? ''))
                 : $env('DB_PASSWORD');
-            EdgeDplyDatabase::update((string) $current['remote_id'], $password, $size, $suspend, $disk, $engine);
+            EdgeDplyDatabase::update((string) $current['remote_id'], $password, $size, $suspend, $disk, $engine, EdgeDplyDatabase::regionOf($current));
             self::remember($site, array_merge($current, [
                 'plan' => $suspend === -1 ? 'awake' : 'sleep',
                 'size' => $size,

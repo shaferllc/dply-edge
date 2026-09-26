@@ -35,6 +35,30 @@ variable "registry_name" {
   default     = "dply-cloud"
 }
 
+variable "cluster_name" {
+  description = "dply-pods for the first region; e.g. dply-pods-sfo3 for more (docs/DATA_REGIONS.md)."
+  type        = string
+  default     = "dply-pods"
+}
+
+variable "create_registry" {
+  description = "Only the first region creates the account's registry."
+  type        = bool
+  default     = true
+}
+
+variable "dns_suffix" {
+  description = "Empty for the first region (*.cache.dply.io); e.g. \".sfo\" for *.cache.sfo.dply.io."
+  type        = string
+  default     = ""
+}
+
+variable "manage_db_record" {
+  description = "Let Terraform own *.db{suffix}: true for new regions."
+  type        = bool
+  default     = false
+}
+
 variable "node_size" {
   description = "Flex tenants only (250 MB - 2.5 GB). Pro sizes (5-50 GB) need a bigger pool."
   type        = string
@@ -53,14 +77,23 @@ provider "digitalocean" {
 
 data "digitalocean_kubernetes_versions" "current" {}
 
+# One registry per DigitalOcean account: only the first region creates it;
+# other regions (create_registry = false) pull from the same one.
 resource "digitalocean_container_registry" "dply" {
+  count                  = var.create_registry ? 1 : 0
   name                   = var.registry_name
   subscription_tier_slug = "basic"
   region                 = var.region
 }
 
+# The registry gained a count: same resource, not a new one.
+moved {
+  from = digitalocean_container_registry.dply
+  to   = digitalocean_container_registry.dply[0]
+}
+
 resource "digitalocean_kubernetes_cluster" "valkey" {
-  name                 = "dply-pods"
+  name                 = var.cluster_name
   region               = var.region
   version              = data.digitalocean_kubernetes_versions.current.latest_version
   registry_integration = true
@@ -90,7 +123,7 @@ resource "digitalocean_record" "cache_wildcard" {
   count  = var.gateway_ip == "" ? 0 : 1
   domain = var.domain
   type   = "A"
-  name   = "*.cache"
+  name   = "*.cache${var.dns_suffix}"
   value  = var.gateway_ip
   ttl    = 300
 }
@@ -99,8 +132,19 @@ output "cluster_id" {
   value = digitalocean_kubernetes_cluster.valkey.id
 }
 
+# Databases answer on {id}.db{suffix}.{domain}. The first region's record was
+# made by hand before this; new regions let Terraform own it.
+resource "digitalocean_record" "db_wildcard" {
+  count  = var.gateway_ip != "" && var.manage_db_record ? 1 : 0
+  domain = var.domain
+  type   = "A"
+  name   = "*.db${var.dns_suffix}"
+  value  = var.gateway_ip
+  ttl    = 300
+}
+
 output "registry" {
-  value = "registry.digitalocean.com/${digitalocean_container_registry.dply.name}"
+  value = "registry.digitalocean.com/${var.registry_name}"
 }
 
 # Databases only (Postgres, MySQL, MongoDB): the gateway sets DB_NODE_POOL=db,

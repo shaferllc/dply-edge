@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\ServiceProvider;
 use League\Flysystem\Filesystem;
+use Pdo\Pgsql;
 
 class DplyServiceProvider extends ServiceProvider
 {
@@ -28,6 +29,40 @@ class DplyServiceProvider extends ServiceProvider
         $this->registerStorageDisks();
         $this->registerKvStores();
         $this->blockOnRedisQueue();
+        $this->oneRoundTripPostgres();
+    }
+
+    /**
+     * On dply, Postgres queries go in one round trip instead of three.
+     * Laravel prepares a new statement for every query; pdo_pgsql then
+     * sends PREPARE, EXECUTE and DEALLOCATE as separate round trips (265 ms
+     * vs 88 ms per query measured through the dply gateway at ~88 ms RTT).
+     * PGSQL_ATTR_DISABLE_PREPARES sends the query and its parameters together
+     * (PQexecParams): the server still binds the parameters, so typing and
+     * injection safety are unchanged. Only when the app did not set it.
+     */
+    private function oneRoundTripPostgres(): void
+    {
+        $config = $this->app['config'];
+        if ((string) env('DPLY_QUEUE_TOKEN', '') === '') {
+            return;
+        }
+        // PHP 8.4+ names it Pdo\Pgsql::ATTR_DISABLE_PREPARES (the PDO:: one is deprecated in 8.5).
+        $attribute = class_exists(Pgsql::class) ? Pgsql::ATTR_DISABLE_PREPARES
+            : (defined('PDO::PGSQL_ATTR_DISABLE_PREPARES') ? constant('PDO::PGSQL_ATTR_DISABLE_PREPARES') : null);
+        if ($attribute === null) {
+            return;
+        }
+        foreach ((array) $config->get('database.connections', []) as $name => $connection) {
+            if (! is_array($connection) || ($connection['driver'] ?? '') !== 'pgsql') {
+                continue;
+            }
+            $options = (array) ($connection['options'] ?? []);
+            if (! array_key_exists($attribute, $options)) {
+                $options[$attribute] = true;
+                $config->set("database.connections.{$name}.options", $options);
+            }
+        }
     }
 
     /**

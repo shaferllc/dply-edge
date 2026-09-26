@@ -367,6 +367,22 @@ return [
         // Cloudflare region nearest the gateway's cluster (DOKS nyc3). Container
         // apps using a dply database or Valkey run here unless they pick a region.
         'data_region' => env('DPLY_EDGE_DATA_REGION', 'ENAM'),
+        // One gateway cluster per region (ValkeyRegions). The first is the
+        // original single-region setup; add more with DPLY_VALKEY_REGIONS, a
+        // JSON list of {key, label, cloudflare, api_url, token, domain, db_domain}.
+        'regions' => array_values(array_filter([
+            [
+                'key' => env('DPLY_VALKEY_REGION', 'nyc3'),
+                'label' => env('DPLY_VALKEY_REGION_LABEL', 'New York'),
+                'cloudflare' => env('DPLY_EDGE_DATA_REGION', 'ENAM'),
+                'api_url' => env('DPLY_VALKEY_API_URL'),
+                'token' => env('DPLY_VALKEY_TOKEN'),
+                'domain' => env('DPLY_VALKEY_DOMAIN', 'cache.dply.local'),
+                'db_domain' => env('DPLY_VALKEY_DB_DOMAIN', 'db.dply.local'),
+                'port' => (int) env('DPLY_VALKEY_PORT', 6380),
+            ],
+            ...(array) (json_decode((string) env('DPLY_VALKEY_REGIONS', '[]'), true) ?: []),
+        ], 'is_array')),
     ],
 
     /*

@@ -508,7 +508,7 @@ final class EdgeQueueWorkers
             $valkey = collect(EdgeContainerConnections::for($site))->first(fn (array $c): bool => $c['kind'] === 'redis' && EdgeValkey::isTarget((string) $c['target']));
             $password = rawurldecode((string) (parse_url($env('REDIS_URL'), PHP_URL_PASS) ?? ''));
             if (is_array($valkey) && $password !== '') {
-                if (self::storeAsleep(EdgeValkey::tenantId((string) $valkey['target']))) {
+                if (self::storeAsleep(EdgeValkey::tenantId((string) $valkey['target']), EdgeValkey::region((string) $valkey['target']))) {
                     return ['waiting' => 0, 'oldest_age' => null, 'delayed' => 0];
                 }
 
@@ -518,7 +518,7 @@ final class EdgeQueueWorkers
         $database = $site->edgeMeta()['database'] ?? [];
         if ($connection === 'database' && is_array($database) && ($database['provider'] ?? '') === 'dply'
             && in_array($database['engine'] ?? '', ['postgres', 'mysql'], true) && $env('DB_PASSWORD') !== '') {
-            if (self::storeAsleep((string) $database['remote_id'])) {
+            if (self::storeAsleep((string) $database['remote_id'], EdgeDplyDatabase::regionOf($database))) {
                 return ['waiting' => 0, 'oldest_age' => null, 'delayed' => 0];
             }
             $backlog = EdgeDplyDatabaseStats::queueBacklog((string) $database['engine'], (string) $database['host'], (string) $database['remote_id'], $env('DB_PASSWORD'), $queues);
@@ -532,10 +532,10 @@ final class EdgeQueueWorkers
     }
 
     /** Whether the gateway says this store is asleep. Asking never wakes it; unsure means awake. */
-    private static function storeAsleep(string $tenantId): bool
+    private static function storeAsleep(string $tenantId, ?string $region = null): bool
     {
         try {
-            return (ValkeyGatewayClient::fromConfig()->get($tenantId)['awake'] ?? true) === false;
+            return (ValkeyGatewayClient::fromConfig($region)->get($tenantId)['awake'] ?? true) === false;
         } catch (\Throwable) {
             return false;
         }

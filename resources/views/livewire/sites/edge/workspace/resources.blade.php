@@ -585,7 +585,7 @@
                                 <p class="mt-0.5 text-brand-moss">{{ __('Scales from 1/4 vCPU · 1 GB; priced at full size.') }}</p>
                             @endif
                         </div>
-                        <p class="mt-2 text-xs text-brand-moss">{{ __('dply :engine · New York', ['engine' => ['mongodb' => 'MongoDB', 'mysql' => 'MySQL'][$databaseEngine] ?? 'Postgres']) }}</p>
+                        <p class="mt-2 text-xs text-brand-moss">{{ __('dply :engine · :region', ['engine' => ['mongodb' => 'MongoDB', 'mysql' => 'MySQL'][$databaseEngine] ?? 'Postgres', 'region' => \App\Modules\Providers\Valkey\ValkeyRegions::get(\App\Modules\Edge\Support\DataRegion::forSite($site))['label']]) }}</p>
                     @elseif ($databaseEngine === 'sql')
                         <p class="mt-2 text-xs text-brand-moss">{{ __('A file inside the app, saved while it runs and restored when it wakes.') }}</p>
                     @endif

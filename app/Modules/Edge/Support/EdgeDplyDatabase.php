@@ -7,6 +7,7 @@ namespace App\Modules\Edge\Support;
 use App\Models\Site;
 use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Providers\Valkey\ValkeyGatewayClient;
+use App\Modules\Providers\Valkey\ValkeyRegions;
 use Illuminate\Support\Str;
 
 /**
@@ -67,9 +68,9 @@ final class EdgeDplyDatabase
         return self::ENGINES[$engine][0].'-'.strtolower((string) $site->id);
     }
 
-    public static function host(string $id): string
+    public static function host(string $id, ?string $region = null): string
     {
-        return $id.'.'.config('edge.valkey.db_domain', 'db.dply.local');
+        return $id.'.'.ValkeyRegions::get($region)['db_domain'];
     }
 
     public static function memoryMb(string $size): int
@@ -84,26 +85,33 @@ final class EdgeDplyDatabase
     }
 
     /**
-     * @return array{id: string, host: string, port: string, database: string, username: string, password: string}
+     * @return array{id: string, host: string, port: string, database: string, username: string, password: string, region: string}
      */
-    public static function provision(Site $site, string $size, int $suspend, int $disk, string $engine = 'postgres'): array
+    public static function provision(Site $site, string $size, int $suspend, int $disk, string $engine = 'postgres', ?string $region = null): array
     {
         $id = self::tenantId($site, $engine);
         $password = Str::random(40);
-        ValkeyGatewayClient::fromConfig()->put($id, $password, self::memoryMb($size), self::sleepAfter($suspend), true, $engine, self::disk($disk));
+        $region = ValkeyRegions::get($region ?? DataRegion::forSite($site))['key'];
+        ValkeyGatewayClient::fromConfig($region)->put($id, $password, self::memoryMb($size), self::sleepAfter($suspend), true, $engine, self::disk($disk));
 
-        return ['id' => $id, 'host' => self::host($id), 'port' => self::ENGINES[$engine][1], 'database' => 'app', 'username' => 'app', 'password' => $password];
+        return ['id' => $id, 'host' => self::host($id, $region), 'port' => self::ENGINES[$engine][1], 'database' => 'app', 'username' => 'app', 'password' => $password, 'region' => $region];
     }
 
     /** New size, sleep time or a bigger disk. The gateway applies memory on the next wake. */
-    public static function update(string $id, string $password, string $size, int $suspend, int $disk, string $engine = 'postgres'): void
+    public static function update(string $id, string $password, string $size, int $suspend, int $disk, string $engine = 'postgres', ?string $region = null): void
     {
-        ValkeyGatewayClient::fromConfig()->put($id, $password, self::memoryMb($size), self::sleepAfter($suspend), true, $engine, self::disk($disk));
+        ValkeyGatewayClient::fromConfig($region)->put($id, $password, self::memoryMb($size), self::sleepAfter($suspend), true, $engine, self::disk($disk));
     }
 
-    public static function destroy(string $id): void
+    public static function destroy(string $id, ?string $region = null): void
     {
-        ValkeyGatewayClient::fromConfig()->delete($id);
+        ValkeyGatewayClient::fromConfig($region)->delete($id);
+    }
+
+    /** A dply database record's region (records from before regions are in the default one). */
+    public static function regionOf(array $record): string
+    {
+        return ValkeyRegions::get((string) ($record['region'] ?? ''))['key'];
     }
 
     /**
