@@ -74,3 +74,26 @@ those apps in Europe, so today they are the worst case: EU app, NYC data.
 Dallas and paying 145 ms. Add **EU (`fra1`)** with the first EU-jurisdiction
 customer (option C is B's first step there). Stay on A until one of those
 customers exists: the baseline is ~$108/mo per region with nobody in it.
+
+## Status (2026-09-26)
+
+Built, with one region live (`nyc3`):
+
+- **Control plane is region-aware.** `ValkeyRegions` (config
+  `edge.valkey.regions`; the first entry is the original setup, more via
+  `DPLY_VALKEY_REGIONS`). Valkey targets carry their region
+  (`valkey:{region}:{id}`), databases store `region`, every gateway call routes
+  by it, and new data goes to the app's region (`DataRegion`). Apps run in the
+  Cloudflare region paired with their data's region.
+- **Adding a region** is `regions/sfo3.tfvars` (its own Terraform workspace),
+  then `DOMAIN=sfo.dply.io ./apply.sh`, which deploys the gateway, gets its
+  certificate and writes `*.cache.sfo` / `*.db.sfo` into **Cloudflare DNS**
+  (dply.io's nameservers are Cloudflare's; DigitalOcean's copy of the zone is
+  unused), then one entry in `DPLY_VALKEY_REGIONS`.
+- Not built: moving an existing store between regions (snapshot/backup in R2,
+  restore in the new region, switch the address).
+
+A bigger, free win landed first: Laravel queries on dply Postgres took three
+round trips each (prepare, execute, deallocate). dply/laravel now sends them in
+one, so every query is ~3× faster wherever the app runs (Toronto: 52 → 17 ms).
+

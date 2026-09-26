@@ -48,3 +48,25 @@ kubectl -n dply-valkey wait certificate/valkey-gateway-tls --for=condition=Ready
 kubectl -n dply-valkey rollout status deploy/valkey-gateway --timeout=300s
 ip=$(kubectl -n dply-valkey get svc valkey-gateway -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
 echo "Gateway load balancer: ${ip:-pending}"
+
+# DNS for this region lives in Cloudflare (dply.io's nameservers), not in
+# DigitalOcean: point *.cache.$DOMAIN and *.db.$DOMAIN at this load balancer.
+# Idempotent: an existing record is updated in place.
+if [ -n "${ip:-}" ]; then
+  zone="${ZONE:-dply.io}"
+  node -e '
+    const [token, zone, domain, ip] = process.argv.slice(1);
+    const api = (path, init = {}) => fetch("https://api.cloudflare.com/client/v4" + path, { ...init, headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" } }).then((r) => r.json());
+    (async () => {
+      const zoneId = (await api("/zones?name=" + zone)).result?.[0]?.id;
+      if (!zoneId) throw new Error("zone " + zone + " not found");
+      for (const name of ["*.cache." + domain, "*.db." + domain]) {
+        const existing = (await api(`/zones/${zoneId}/dns_records?type=A&name=${encodeURIComponent(name)}`)).result?.[0];
+        const body = JSON.stringify({ type: "A", name, content: ip, ttl: 300, proxied: false });
+        const res = existing ? await api(`/zones/${zoneId}/dns_records/${existing.id}`, { method: "PUT", body }) : await api(`/zones/${zoneId}/dns_records`, { method: "POST", body });
+        if (!res.success) throw new Error(name + ": " + JSON.stringify(res.errors));
+        console.log(`DNS ${name} -> ${ip}`);
+      }
+    })().catch((e) => { console.error(e.message); process.exit(1); });
+  ' "$(app_env DPLY_EDGE_CF_API_TOKEN)" "$zone" "$DOMAIN" "$ip"
+fi

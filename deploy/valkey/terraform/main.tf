@@ -47,18 +47,6 @@ variable "create_registry" {
   default     = true
 }
 
-variable "dns_suffix" {
-  description = "Empty for the first region (*.cache.dply.io); e.g. \".sfo\" for *.cache.sfo.dply.io."
-  type        = string
-  default     = ""
-}
-
-variable "manage_db_record" {
-  description = "Let Terraform own *.db{suffix}: true for new regions."
-  type        = bool
-  default     = false
-}
-
 variable "node_size" {
   description = "Flex tenants only (250 MB - 2.5 GB). Pro sizes (5-50 GB) need a bigger pool."
   type        = string
@@ -123,24 +111,13 @@ resource "digitalocean_record" "cache_wildcard" {
   count  = var.gateway_ip == "" ? 0 : 1
   domain = var.domain
   type   = "A"
-  name   = "*.cache${var.dns_suffix}"
+  name   = "*.cache"
   value  = var.gateway_ip
   ttl    = 300
 }
 
 output "cluster_id" {
   value = digitalocean_kubernetes_cluster.valkey.id
-}
-
-# Databases answer on {id}.db{suffix}.{domain}. The first region's record was
-# made by hand before this; new regions let Terraform own it.
-resource "digitalocean_record" "db_wildcard" {
-  count  = var.gateway_ip != "" && var.manage_db_record ? 1 : 0
-  domain = var.domain
-  type   = "A"
-  name   = "*.db${var.dns_suffix}"
-  value  = var.gateway_ip
-  ttl    = 300
 }
 
 output "registry" {
