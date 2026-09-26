@@ -101,11 +101,13 @@ final class DplySchedule
         $schedule->command(ScaleEdgeQueueWorkersCommand::class)
             ->everyMinute()
             ->withoutOverlapping()
+            ->runInBackground() // a slow neighbour must not delay scaling
             ->name('edge-scale-queue-workers');
         // Failing jobs and crash-looping workers, from the workers' logs.
         $schedule->command(CheckEdgeQueueWorkersCommand::class)
             ->everyFiveMinutes()
             ->withoutOverlapping()
+            ->runInBackground() // a slow neighbour must not delay scaling
             ->name('edge-check-queue-workers');
         $schedule->command(CollectEdgeDataUsageCommand::class, ['--today'])
             ->hourly()
