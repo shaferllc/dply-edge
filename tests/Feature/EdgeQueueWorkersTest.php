@@ -1007,3 +1007,30 @@ test('valkey slow commands come from the gateway, command and key only', functio
     expect($slow['awake'])->toBeTrue()
         ->and($slow['entries'][0])->toBe(['at' => 1790400000, 'micros' => 15230, 'command' => 'SET', 'key' => 'cache:user:42']);
 });
+
+test('the resources chain puts workers under the store their queue uses', function () {
+    $render = function (string $connection): string {
+        $app = laravelApp([
+            'database' => ['engine' => 'postgres', 'provider' => 'dply', 'remote_id' => 'pg-x', 'host' => 'pg-x.db.dply.test'],
+            'connections' => [['kind' => 'redis', 'name' => 'REDIS', 'host' => 'redis.internal', 'target' => 'dply-valkey:x']],
+            'container' => ['workers' => ['enabled' => true, 'connection' => $connection]],
+        ]);
+        $user = User::factory()->create();
+        $app->organization->users()->attach($user->id, ['role' => 'owner']);
+        $app->forceFill(['user_id' => $user->id, 'type' => SiteType::Static, 'status' => Site::STATUS_EDGE_ACTIVE])->save();
+        $app->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
+
+        return Livewire::actingAs($user)->test(Resources::class, ['server' => $app->server, 'site' => $app])->html();
+    };
+
+    // Redis: App → the Redis card → Queue workers.
+    $html = $render('redis');
+    expect(strpos($html, 'redis.internal'))->toBeLessThan(strpos($html, 'wire:key="queue-workers-card"'));
+
+    // Database: the workers sit in the database's column, row 2.
+    $html = $render('database');
+    preg_match('/grid-column: [57]; grid-row: 2/', $html, $slot, PREG_OFFSET_CAPTURE);
+    expect(substr_count($html, 'wire:key="queue-workers-card"'))->toBe(1)
+        ->and($slot)->not->toBeEmpty()
+        ->and(strpos($html, 'wire:key="queue-workers-card"'))->toBeGreaterThan($slot[0][1] ?? PHP_INT_MAX);
+});
