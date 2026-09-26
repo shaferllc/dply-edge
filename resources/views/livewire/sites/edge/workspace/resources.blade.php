@@ -194,7 +194,7 @@
                                 <dd><label class="inline-flex items-center gap-1.5 font-semibold text-brand-ink"><input id="workers-autoscale" type="checkbox" wire:model.live="workers.autoscale" @disabled(! $allow['autoscale']) class="rounded border-brand-ink/20 disabled:opacity-50" /> {{ ! $allow['autoscale'] ? __('On Pro and Team') : ($w['autoscale'] ? __('On, follows the backlog') : __('Off')) }}</label></dd>
                                 <dt><label for="workers-instances" class="text-brand-moss">{{ $w['autoscale'] ? __('Always on') : __('Instances') }}</label></dt>
                                 <dd><select id="workers-instances" wire:model.live="workers.instances" class="{{ $wField }}">
-                                    @for ($i = $w['autoscale'] ? 0 : 1; $i <= \App\Modules\Edge\Support\EdgeQueueWorkers::MAX_INSTANCES; $i++)<option value="{{ $i }}">{{ $i === 0 ? __('0, start when jobs arrive') : $i }}</option>@endfor
+                                    @for ($i = $w['autoscale'] ? 0 : 1; $i <= \App\Modules\Edge\Support\EdgeQueueWorkers::MAX_INSTANCES; $i++)<option value="{{ $i }}">{{ $i === 0 ? __('0, start when jobs arrive, stop 5 min after') : $i }}</option>@endfor
                                 </select></dd>
                                 @if ($w['autoscale'])
                                     <dt><label for="workers-max" class="text-brand-moss">{{ __('Up to') }}</label></dt>

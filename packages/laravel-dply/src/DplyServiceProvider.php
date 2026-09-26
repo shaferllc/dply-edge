@@ -30,6 +30,35 @@ class DplyServiceProvider extends ServiceProvider
         $this->registerKvStores();
         $this->blockOnRedisQueue();
         $this->oneRoundTripPostgres();
+        $this->oneRoundTripMysql();
+    }
+
+    /**
+     * Opt-in (DPLY_MYSQL_ONE_ROUND_TRIP=true): MySQL queries in one round trip
+     * instead of two. Laravel turns emulated prepares off, so pdo_mysql sends
+     * PREPARE and EXECUTE separately. Emulated, PDO escapes the parameters
+     * into the query itself (with the connection's charset) and sends it once.
+     * Since PHP 8.1 numbers still come back as ints and floats. What changes:
+     * parameters reach MySQL as quoted literals, so a column compared to a
+     * string parameter is cast by MySQL, not bound by type. Only when the app
+     * did not set it.
+     */
+    private function oneRoundTripMysql(): void
+    {
+        if ((string) env('DPLY_QUEUE_TOKEN', '') === '' || ! filter_var(env('DPLY_MYSQL_ONE_ROUND_TRIP', false), FILTER_VALIDATE_BOOL)) {
+            return;
+        }
+        $config = $this->app['config'];
+        foreach ((array) $config->get('database.connections', []) as $name => $connection) {
+            if (! is_array($connection) || ! in_array($connection['driver'] ?? '', ['mysql', 'mariadb'], true)) {
+                continue;
+            }
+            $options = (array) ($connection['options'] ?? []);
+            if (! array_key_exists(\PDO::ATTR_EMULATE_PREPARES, $options)) {
+                $options[\PDO::ATTR_EMULATE_PREPARES] = true;
+                $config->set("database.connections.{$name}.options", $options);
+            }
+        }
     }
 
     /**

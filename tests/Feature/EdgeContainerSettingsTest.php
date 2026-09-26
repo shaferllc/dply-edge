@@ -222,16 +222,25 @@ test('logs load from workers observability for the container script', function (
     config(['edge.cloudflare.account_id' => 'acct', 'edge.cloudflare.api_token' => 'tok']);
     [$user, $server, $site] = containerSite();
     Http::fake(['api.cloudflare.com/client/v4/accounts/acct/containers/applications' => Http::response(['success' => true, 'result' => []]), 'api.cloudflare.com/client/v4/accounts/acct/workers/observability/telemetry/query' => Http::response(['success' => true, 'result' => ['events' => ['events' => [
-        ['timestamp' => 1_757_000_000_000, '$metadata' => ['message' => 'Laravel booted', 'level' => 'info', 'service' => 'dply-ctr-x']],
+        ['timestamp' => 1_757_000_000_000, '$metadata' => ['message' => 'Laravel booted', 'level' => 'info', 'service' => 'dply-ctr-'.strtolower((string) $site->id)]],
         ['timestamp' => 1_757_000_001_000, '$metadata' => ['message' => 'SQLSTATE connection refused', 'level' => 'error']],
+        ['timestamp' => 1_757_000_002_000, '$metadata' => ['message' => '[dply-worker worker-emails-1] starting 2 x queue:work', 'level' => 'info']],
     ]]]])]);
 
-    Livewire::actingAs($user)
+    $logs = Livewire::actingAs($user)
         ->test(Container::class, ['server' => $server, 'site' => $site])
         ->call('loadLogs')
         ->assertSet('logsError', null)
         ->assertSee('Laravel booted')
-        ->assertSee('SQLSTATE connection refused');
+        ->assertSee('SQLSTATE connection refused')
+        ->assertSee('Queue workers')
+        ->get('logs');
+
+    expect(array_column($logs, 'source', 'message'))->toBe([
+        'Laravel booted' => 'routing',
+        'SQLSTATE connection refused' => 'app',
+        '[dply-worker worker-emails-1] starting 2 x queue:work' => 'workers',
+    ])->and($logs[2]['worker'])->toBe('worker-emails-1');
 
     Http::assertSent(fn ($request) => str_ends_with($request->url(), '/telemetry/query') && $request['parameters']['filters'][0]['value'] === 'dply-ctr-'.strtolower((string) $site->id));
 });

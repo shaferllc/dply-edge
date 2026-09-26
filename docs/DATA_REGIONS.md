@@ -90,8 +90,42 @@ Built, with one region live (`nyc3`):
   certificate and writes `*.cache.sfo` / `*.db.sfo` into **Cloudflare DNS**
   (dply.io's nameservers are Cloudflare's; DigitalOcean's copy of the zone is
   unused), then one entry in `DPLY_VALKEY_REGIONS`.
-- Not built: moving an existing store between regions (snapshot/backup in R2,
-  restore in the new region, switch the address).
+- Not built: moving an existing store between regions. See below.
+
+### Moving data between regions: the design, and why it is not built yet
+
+The obvious version, where the same tenant id is used in the new region and
+its latest backup is restored from the shared R2 keys (`tenants/{id}/…`), **loses
+data**. A new database tenant starts empty (the gateway builds it on `PUT`),
+and in its first minute the agent:
+
+- Postgres: pushes a base backup, which becomes `LATEST`, and archives WAL on
+  timeline 1 under the same segment names as the old chain;
+- MySQL/MongoDB: ships its fresh binlog/oplog under colliding names and
+  takes a dump that becomes the newest.
+
+The restore that follows then brings back an empty database, and the old
+history in R2 has been overwritten.
+
+The safe shape is **copy, don't share**: the new region gets a new tenant id
+(its own prefix), and the gateway gets a "restore from `tenants/{old}/…`"
+option that runs *instead of* the first initdb, with the backup loop held
+until it is done. Then:
+
+1. Fence the old store: new random password, forced sleep (today's sleep of
+   a busy database waits up to 3 h), wake so the password applies.
+2. Wait for the tail to reach R2. Postgres: `pg_stat_archiver.last_archived_wal`
+   past the fence LSN. The agent's `log_ok_at` is **not** proof, since it is set
+   whenever no upload has failed.
+3. Create the new tenant from the old prefix. Flex Valkey only needs its
+   `keys.dump` copied. Refuse Pro Valkey, which has no R2 snapshot.
+4. Verify (table count; Valkey key count within a tolerance), switch the app's
+   env and meta (`database.host/region`, the Valkey target, `valkey_sleep`),
+   redeploy, then delete the old tenant normally.
+
+Move the database and every dply Valkey store of the app together, since the
+app is pinned to its data's region. Build this with the second region, when
+it can be tested end to end. Estimate: 2–3 days including failure tests.
 
 A bigger, free win landed first: Laravel queries on dply Postgres took three
 round trips each (prepare, execute, deallocate). dply/laravel now sends them in

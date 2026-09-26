@@ -275,15 +275,39 @@
         @if ($logsError)
             <p class="mt-2 text-sm text-red-700">{{ __('Could not load logs: :error', ['error' => $logsError]) }}</p>
         @elseif ($logs !== null)
-            <div class="mt-2 max-h-96 overflow-auto rounded-xl border border-brand-ink/10 bg-zinc-950 p-3 font-mono text-xs leading-5 text-zinc-100">
-                @forelse ($logs as $line)
-                    <div @class(['text-red-300' => in_array($line['level'], ['error', 'fatal'], true), 'text-amber-200' => $line['level'] === 'warn'])>
-                        <span class="text-zinc-500">{{ $line['at'] ? \Illuminate\Support\Carbon::parse($line['at'])->format('H:i:s') : '' }}</span>
-                        {{ $line['message'] }}
-                    </div>
-                @empty
-                    <p class="text-zinc-400">{{ __('No log lines in the last 15 minutes. Containers log to stdout/stderr; logs appear after the next deploy enables them.') }}</p>
-                @endforelse
+            @php($sources = ['app' => __('App'), 'workers' => __('Queue workers'), 'routing' => __('Routing')])
+            @php($counts = array_count_values(array_column($logs, 'source')))
+            @php($workerNames = collect(array_column($logs, 'worker'))->filter()->unique()->sort()->values()->all())
+            <div x-data="{ source: 'all', worker: '' }">
+                <div class="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+                    <button type="button" x-on:click="source = 'all'; worker = ''" :class="source === 'all' ? 'bg-brand-ink text-white' : 'border border-brand-ink/15 text-brand-moss'" class="rounded-full px-2.5 py-1">{{ __('All') }} <span class="tabular-nums opacity-70">{{ count($logs) }}</span></button>
+                    @foreach ($sources as $key => $label)
+                        @if (($counts[$key] ?? 0) > 0)
+                            <button type="button" x-on:click="source = '{{ $key }}'; worker = ''" :class="source === '{{ $key }}' ? 'bg-brand-ink text-white' : 'border border-brand-ink/15 text-brand-moss'" class="rounded-full px-2.5 py-1">{{ $label }} <span class="tabular-nums opacity-70">{{ $counts[$key] }}</span></button>
+                        @endif
+                    @endforeach
+                    @if (count($workerNames) > 1)
+                        <select x-model="worker" x-on:change="if (worker) source = 'workers'" class="rounded-full border-brand-ink/15 py-0.5 pl-2.5 pr-7 text-xs text-brand-moss" aria-label="{{ __('Queue worker') }}">
+                            <option value="">{{ __('Every worker') }}</option>
+                            @foreach ($workerNames as $name)
+                                <option value="{{ $name }}">{{ $name }}</option>
+                            @endforeach
+                        </select>
+                    @endif
+                </div>
+                <div class="mt-2 max-h-96 overflow-auto rounded-xl border border-brand-ink/10 bg-zinc-950 p-3 font-mono text-xs leading-5 text-zinc-100">
+                    @forelse ($logs as $line)
+                        <div x-show="(source === 'all' || source === @js($line['source'])) && (! worker || worker === @js($line['worker']))" @class(['text-red-300' => in_array($line['level'], ['error', 'fatal'], true), 'text-amber-200' => $line['level'] === 'warn'])>
+                            <span class="text-zinc-500">{{ $line['at'] ? \Illuminate\Support\Carbon::parse($line['at'])->format('H:i:s') : '' }}</span>
+                            @if ($line['source'] === 'routing')
+                                <span class="text-sky-300">[routing]</span>
+                            @endif
+                            {{ $line['message'] }}
+                        </div>
+                    @empty
+                        <p class="text-zinc-400">{{ __('No log lines in the last 15 minutes. Containers log to stdout/stderr; logs appear after the next deploy enables them.') }}</p>
+                    @endforelse
+                </div>
             </div>
         @endif
     </section>

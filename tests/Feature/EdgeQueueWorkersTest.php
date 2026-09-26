@@ -910,8 +910,13 @@ test('scaled to zero, the scaler keeps one worker while delayed jobs are schedul
     $this->artisan('dply:edge:scale-queue-workers')->assertSuccessful();
     expect($sent())->toBe([1]);
 
+    // Nothing left: the worker stays warm for SCALE_DOWN_AFTER, then goes.
     $delayed = 0;
-    $this->travel(6)->minutes();
+    $this->travel(3)->minutes();
+    $this->artisan('dply:edge:scale-queue-workers')->assertSuccessful();
+    expect(last($sent()))->toBe(1);
+
+    $this->travel(3)->minutes();
     $this->artisan('dply:edge:scale-queue-workers')->assertSuccessful();
     expect(last($sent()))->toBe(0);
 });

@@ -162,7 +162,14 @@ class Container extends Component
         $this->authorize('view', $this->site);
         try {
             $client = EdgeCloudflareClient::fromConfig();
-            $this->logs = array_reverse($client->workerLogs(EdgeContainerDeployer::logServices($this->site, $client)));
+            $script = EdgeContainerDeployer::scriptName($this->site);
+            // Where a line came from: the site Worker in front (routing, wake,
+            // scaling), a queue worker ("[dply-worker NAME] …"), or the app.
+            $this->logs = array_map(static function (array $line) use ($script): array {
+                $worker = preg_match('/^\[dply-worker ([^\]]+)\]/', $line['message'], $m) === 1 ? $m[1] : null;
+
+                return $line + ['source' => $line['service'] === $script ? 'routing' : ($worker !== null ? 'workers' : 'app'), 'worker' => $worker];
+            }, array_reverse($client->workerLogs(EdgeContainerDeployer::logServices($this->site, $client))));
             $this->logsError = null;
         } catch (\Throwable $e) {
             $this->logs = null;
