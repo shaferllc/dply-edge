@@ -456,7 +456,9 @@ Match remaining questions to the layer that still exists:
   - **dply/laravel** is injected for apps with a database or workers
     (commands: migrate/status/seed, failed jobs, queue-size, queue-test,
     db-probe). After a deploy dply measures the database round trip from
-    inside the app and re-places a far instance (`recordPlacement`).
+    inside the app and restarts a far instance once or twice to be placed
+    again (`recordPlacement`). Best effort: Cloudflare often picks the same
+    location again (waypost: atl13 three times), so it stops when it does.
   - **Placement**: an app using a dply database or Valkey with no region set
     runs in `DPLY_EDGE_DATA_REGION` (ENAM). From the wrong side of the
     continent a round trip is ~145 ms instead of ~13.

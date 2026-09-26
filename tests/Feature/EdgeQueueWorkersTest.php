@@ -744,3 +744,19 @@ test('the scheduler is a resource: added from the picker, run on demand, removed
 
     Http::assertSent(fn (Request $r): bool => str_ends_with($r->url(), '/_dply/schedule') && $r['handler'] === 'schedule:run');
 });
+
+test('re-placement stops when Cloudflare picks the same place again', function () {
+    $app = laravelApp(['live_url' => 'https://shop.on-dply.live']);
+    Http::fake(function (Request $r) {
+        return str_ends_with($r->url(), '/_dply/replace')
+            ? Http::response(['ok' => true])
+            : Http::response(['ok' => true, 'region' => 'ENAM', 'location' => 'atl13', 'rtt_median_ms' => 73.0]);
+    });
+    $lines = [];
+    (new EdgeContainerDeployer)->recordPlacement($app, function (string $line) use (&$lines) {
+        $lines[] = trim($line);
+    });
+
+    expect(Http::recorded(fn (Request $r) => str_ends_with($r->url(), '/_dply/replace')))->toHaveCount(1)
+        ->and(end($lines))->toBe('Now running in atl13 (ENAM), 73 ms to the database.');
+});

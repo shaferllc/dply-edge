@@ -32,7 +32,7 @@ Branch `feat/edge-platform`. One feature per commit.
 | Scheduler | Cron Triggers → `/_dply/schedule` → artisan command / rake task; with queue workers, `schedule:work` in `worker-0` instead (the app can sleep) |
 | Queue workers | Always-on `queue:work` instances (`EdgeQueueWorkers`): Redis (dply Valkey) or database queue, autoscaling every 10 s on backlog and oldest-job wait, worker groups per queue set, pause/resume, failed jobs (list/retry/delete), worker logs, status, test job, alerts (`edge.workers.failed_jobs`, `edge.workers.crashing`) |
 | dply databases | Postgres / MySQL / MongoDB pods on the `db` pool behind an active/standby gateway; statistics, backups, point-in-time restore |
-| Placement | Apps with dply data run in `DPLY_EDGE_DATA_REGION` (ENAM) by default; every deploy records where it landed and its database round trip, and re-places a far instance |
+| Placement | Apps with dply data run in `DPLY_EDGE_DATA_REGION` (ENAM) by default; every deploy records where it landed and its database round trip, and restarts a far instance to be placed again (best effort: Cloudflare often picks the same location) |
 | Databases | Projects → Databases: D1 create / query / attach / delete |
 | Queues UI | Projects → Queues: create, backlog, send test, attach, delete |
 | Metering | Per-second container compute (containersUsageAdaptiveGroups), D1 + Queues usage; billed on Pro/Team |

@@ -252,7 +252,13 @@ class EdgeContainerDeployer
                 break;
             }
             $log('Now running in '.$describe($again).".\n");
+            $same = $again['location'] === $best['location'];
             $best = $again; // what is running now, even if an earlier landing was closer
+            if ($same) {
+                // Cloudflare chose the same place again (seen on waypost: atl13
+                // three times); another restart only costs time.
+                break;
+            }
         }
         $site->mergeEdgeMeta(['placement' => $best]);
         $site->save();
