@@ -93,8 +93,10 @@ final class DplySchedule
             ->name('edge-container-usage-yesterday');
         // Min instances, scaling windows and always-on jobs instances. Windows
         // start on the minute, so an instance can take up to 5 minutes to follow.
+        // Every minute: a deploy's rolling update restarts containers after the
+        // deploy's own warm, and always-on workers should not wait long.
         $schedule->command(WarmEdgeContainersCommand::class)
-            ->everyFiveMinutes()
+            ->everyMinute()
             ->withoutOverlapping()
             ->name('edge-warm-containers');
         // Autoscaled queue workers follow each app's backlog.
