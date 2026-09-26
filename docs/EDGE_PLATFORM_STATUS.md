@@ -29,7 +29,10 @@ Branch `feat/edge-platform`. One feature per commit.
 | Container build | Repo Dockerfile or generated one; `wrangler deploy --dispatch-namespace` in `docker/edge-container-deployer` |
 | Container ops | Container tab (size, min/max instances, sleep, jurisdiction, migrations, scheduler), rollback = rebuild commit, post-deploy health check, generated APP_KEY / SECRET_KEY_BASE |
 | Queues | `dply/laravel` + `dply-rails` drivers; Worker consumes Cloudflare Queues and POSTs batches to `/_dply/queue` |
-| Scheduler | Cron Triggers → `/_dply/schedule` → artisan command / rake task |
+| Scheduler | Cron Triggers → `/_dply/schedule` → artisan command / rake task; with queue workers, `schedule:work` in `worker-0` instead (the app can sleep) |
+| Queue workers | Always-on `queue:work` instances (`EdgeQueueWorkers`): Redis (dply Valkey) or database queue, autoscaling every 10 s on backlog and oldest-job wait, worker groups per queue set, pause/resume, failed jobs (list/retry/delete), worker logs, status, test job, alerts (`edge.workers.failed_jobs`, `edge.workers.crashing`) |
+| dply databases | Postgres / MySQL / MongoDB pods on the `db` pool behind an active/standby gateway; statistics, backups, point-in-time restore |
+| Placement | Apps with dply data run in `DPLY_EDGE_DATA_REGION` (ENAM) by default; every deploy records where it landed and its database round trip, and re-places a far instance |
 | Databases | Projects → Databases: D1 create / query / attach / delete |
 | Queues UI | Projects → Queues: create, backlog, send test, attach, delete |
 | Metering | Per-second container compute (containersUsageAdaptiveGroups), D1 + Queues usage; billed on Pro/Team |
@@ -44,6 +47,18 @@ Branch `feat/edge-platform`. One feature per commit.
   - Another dispatch script can bind that class with `script_name` **plus `dispatch_namespace`**. Without `dispatch_namespace` Cloudflare answers "class in script … does not exist".
   - A `dply-entry.js` main module that does `export * from './worker.js'` and wraps the default export uploads fine.
   - Workflows do not work in Workers for Platforms. A `workflow` binding uploads, but `PUT /workflows/{name}` for a dispatch script returns 500 and the workflow stays not-found. Workflow stays container-only.
+
+- 2026-09-25/26 on waypost (Laravel, Cloudflare Containers, dply Postgres + Valkey), 3,000 `inspire` jobs:
+
+  | setup | drain |
+  |---|---|
+  | Dallas (WNAM), database queue, 1 process | ~2 jobs/s (~25 min) |
+  | Placed in ENAM next to the data | ~6.8 jobs/s |
+  | + 3 processes per worker | ~30 jobs/s (97 s) |
+  | + dply Valkey queue, 6 processes | ~92 jobs/s (49 s) |
+  | + 10 s autoscaling up to 5 workers | ~320 jobs/s peak (19 s) |
+
+  Database round trip from inside the container: ~145 ms from Dallas, ~13 ms from Newark. Worker groups: 1,000 jobs on `high` drained in 15 s while the main group stayed idle. Scale up and down, pause/resume, failed jobs and worker logs all checked live.
 
 ## Not verified against a real Cloudflare account
 

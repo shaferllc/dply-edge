@@ -404,9 +404,13 @@ Match remaining questions to the layer that still exists:
   overview card). Auto-require framework helpers (`laravel-dply` / `dply-rails`)
   when a resource needs them. Resource cards show a **cost estimate**; omit
   cards for disabled capabilities (e.g. no Cache card when cache is off).
-  **Managed Redis** and **managed KV** are Upstash-backed (TCP/HTTP Redis; KV
-  via platform SDKs) — create/attach on Resources, **bill with markup**, and
-  require a payment method when billed. **Managed HTTP queues** use QStash the
+  **Managed Redis** is **dply Valkey** (one pod per store on the dply-pods
+  cluster, TLS through the gateway, `EdgeValkey`); **managed KV** is
+  Cloudflare KV. Create/attach on Resources, **bill with markup**, and
+  require a payment method when billed. dply Valkey is on **every plan**; only
+  the always-on **Pro** sizes need a paid plan (owner ruling
+  r-bpg8ddw2gza360sr) — `EdgeContainerConnections::redisSuppliesEnv` is the
+  one rule for whether an app gets `REDIS_*`, and queue workers use it too. **Managed HTTP queues** use QStash the
   same way. **Postgres, MySQL and MongoDB** are dply databases (one pod each on
   the dply-pods cluster, `EdgeDplyDatabase`; Neon and PlanetScale were removed
   2026-09-25), shown as **Coming soon** when the gateway is not configured. One **Database**
@@ -433,6 +437,31 @@ Match remaining questions to the layer that still exists:
   operator configures. Queued resource/app deletes must show an in-progress /
   deleting state — not a silent “queued” toast that leaves the row looking
   live.
+- **Queue workers** (`EdgeQueueWorkers`, Laravel Cloud-style) are always-on
+  App instances named `worker-N` (extra groups: `worker-{group}-N`) that run
+  the app's own image with `DPLY_ROLE=worker`: the generated Dockerfile's
+  supervisor runs N `queue:work` loops, lets the current job finish on TERM,
+  backs off when one dies on boot, and tags its lines `[dply-worker …]` (how
+  worker logs and alerts find them). The Worker template's `WORKER_GROUPS`
+  table drives warm, keep-alive, pause, status and scaling.
+  - **Connection**: auto picks Redis (dply Valkey) when the app can reach it,
+    else its dply Postgres/MySQL. The app is pointed at the same connection
+    (`QUEUE_CONNECTION` via `dispatchEnv`) unless it sets its own.
+  - **Autoscaling**: `dply:edge:scale-queue-workers --for=50 --every=10`
+    reads the backlog **from the queue itself** (Valkey `LLEN`, or the jobs
+    table) so it never wakes the web container; up at once, down after 5
+    quiet minutes; also up when the oldest job waited past `max_wait`.
+  - **Scheduler**: with workers it runs as `schedule:work` in `worker-0`
+    (the app can sleep); without, a Cron Trigger calls `schedule:run`.
+  - **dply/laravel** is injected for apps with a database or workers
+    (commands: migrate/status/seed, failed jobs, queue-size, queue-test,
+    db-probe). After a deploy dply measures the database round trip from
+    inside the app and re-places a far instance (`recordPlacement`).
+  - **Placement**: an app using a dply database or Valkey with no region set
+    runs in `DPLY_EDGE_DATA_REGION` (ENAM). From the wrong side of the
+    continent a round trip is ~145 ms instead of ~13.
+  - Local Horizon keeps old classes in memory: run `php artisan
+    queue:restart` before a real deploy from freshly edited code.
 - **PHP + frontend assets:** when `package.json` has `scripts.build`, detection
   appends the frontend asset step (`FrontendAssetBuild`) beside Composer so the
   stored build command matches the image's Node assets stage (default
