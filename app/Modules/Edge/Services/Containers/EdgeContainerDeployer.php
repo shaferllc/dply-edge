@@ -43,6 +43,9 @@ class EdgeContainerDeployer
     /** Silence longer than this during a deploy gets a heartbeat line. */
     private const HEARTBEAT_AFTER_SECONDS = 30;
 
+    /** A database round trip above this (ms) means the app landed far from its data (next door is ~13 ms). */
+    public const FAR_FROM_DATABASE_MS = 40;
+
     public const QUEUE_PATH = '/_dply/queue';
 
     public const QUEUE_SEND_PATH = '/_dply/queue/send';
@@ -193,6 +196,43 @@ class EdgeContainerDeployer
             || ($settings['worker_instances'] ?? 0) > 0
             || ($settings['dedicated_jobs'] && $settings['jobs_always_on'])
             || array_filter($settings['schedules'], static fn (array $w): bool => $w['min'] > 0) !== [];
+    }
+
+    /**
+     * Where the app landed and how far that is from its dply database: the
+     * app's own round trip, measured from inside the container (dply/laravel
+     * db-probe). Cloudflare places by region, not city, so this is how a
+     * far-off placement shows up. Best effort: never fails a deploy.
+     *
+     * @param  callable(string): void  $log
+     */
+    private function recordPlacement(Site $site, callable $log): void
+    {
+        $database = $site->edgeMeta()['database'] ?? [];
+        if (! $site->isLaravelFrameworkDetected() || ! is_array($database) || ($database['provider'] ?? '') !== 'dply'
+            || ! in_array($database['engine'] ?? '', ['postgres', 'mysql'], true)) {
+            return;
+        }
+        try {
+            $probe = EdgeQueueWorkers::command($site, 'db-probe');
+        } catch (Throwable) {
+            return;
+        }
+        if (! ($probe['ok'] ?? false)) {
+            return;
+        }
+        $placement = [
+            'location' => strtolower((string) ($probe['location'] ?? '')),
+            'region' => (string) ($probe['region'] ?? ''),
+            'rtt_ms' => (float) ($probe['rtt_median_ms'] ?? 0),
+            'at' => now()->getTimestamp(),
+        ];
+        $site->mergeEdgeMeta(['placement' => $placement]);
+        $site->save();
+        $log(sprintf("Running in %s (%s), %s ms to the database.\n", $placement['location'] ?: '?', $placement['region'] ?: '?', rtrim(rtrim(number_format($placement['rtt_ms'], 1), '0'), '.')));
+        if ($placement['rtt_ms'] > self::FAR_FROM_DATABASE_MS) {
+            $log("That is far for a database round trip: every query pays it. Redeploy to be placed again, or pick a region closer to the data.\n");
+        }
     }
 
     /**
@@ -389,6 +429,8 @@ class EdgeContainerDeployer
                 $log('Could not start them now: '.$e->getMessage()."\n");
             }
         }
+
+        $this->recordPlacement($site, $log);
 
         return [
             'script_name' => self::scriptName($site),

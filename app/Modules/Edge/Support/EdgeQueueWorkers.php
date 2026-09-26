@@ -25,7 +25,7 @@ use Illuminate\Support\Facades\Http;
  */
 final class EdgeQueueWorkers
 {
-    public const MAX_INSTANCES = 5;
+    public const MAX_INSTANCES = 10;
 
     public const MAX_PROCESSES = 8;
 
@@ -279,11 +279,36 @@ final class EdgeQueueWorkers
         return ['queued' => (int) ($body['queued'] ?? 0), 'connection' => (string) ($body['connection'] ?? ''), 'queue' => (string) ($body['queue'] ?? '')];
     }
 
-    /** Jobs waiting on the workers' queues, as the app itself counts them. */
+    /**
+     * Jobs waiting on the workers' queues. Read from the queue itself when
+     * dply runs it (Valkey, or a dply Postgres/MySQL): the workers keep those
+     * awake anyway, while asking the app would wake its web container on
+     * every check and keep it from ever sleeping. Other queues are asked of
+     * the app.
+     */
     public static function backlog(Site $site): int
     {
         $settings = self::for($site);
-        $body = self::command($site, 'queue-size', ['connection' => (string) self::connection($site), 'queues' => explode(',', $settings['queues'])]);
+        $queues = explode(',', $settings['queues']);
+        $connection = self::connection($site);
+        $env = fn (string $key): string => (string) ($site->edgeEnvVars()->where('scope', 'production')->where('key', $key)->first()?->value ?? '');
+
+        if ($connection === 'redis') {
+            $valkey = collect(EdgeContainerConnections::for($site))->first(fn (array $c): bool => $c['kind'] === 'redis' && EdgeValkey::isTarget((string) $c['target']));
+            $password = rawurldecode((string) (parse_url($env('REDIS_URL'), PHP_URL_PASS) ?? ''));
+            if (is_array($valkey) && $password !== '') {
+                return EdgeValkey::queueBacklog((string) $valkey['target'], $password, $queues);
+            }
+        }
+        $database = $site->edgeMeta()['database'] ?? [];
+        if ($connection === 'database' && is_array($database) && ($database['provider'] ?? '') === 'dply'
+            && in_array($database['engine'] ?? '', ['postgres', 'mysql'], true) && $env('DB_PASSWORD') !== '') {
+            $backlog = EdgeDplyDatabaseStats::queueBacklog((string) $database['engine'], (string) $database['host'], (string) $database['remote_id'], $env('DB_PASSWORD'), $queues);
+
+            return array_sum($backlog['queues']);
+        }
+
+        $body = self::command($site, 'queue-size', ['connection' => (string) $connection, 'queues' => $queues]);
 
         return (int) ($body['total'] ?? 0);
     }

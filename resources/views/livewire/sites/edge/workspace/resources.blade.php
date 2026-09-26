@@ -142,6 +142,14 @@
                                 <button type="submit" class="rounded-md bg-brand-ink px-2 py-1 text-xs font-semibold text-white">{{ __('Save custom size') }}</button>
                             </form>
                         @endif
+                        @php $placement = $site->edgeMeta()['placement'] ?? null; @endphp
+                        @if (is_array($placement) && ($placement['location'] ?? '') !== '')
+                            @php $far = ($placement['rtt_ms'] ?? 0) > \App\Modules\Edge\Services\Containers\EdgeContainerDeployer::FAR_FROM_DATABASE_MS; @endphp
+                            <p @class(['mt-2 text-xs', 'font-semibold text-amber-800 dark:text-amber-300' => $far, 'text-brand-moss' => ! $far])>
+                                {{ __('Running in :location (:region), :ms ms to the database.', ['location' => $placement['location'], 'region' => $placement['region'], 'ms' => rtrim(rtrim(number_format((float) $placement['rtt_ms'], 1), '0'), '.')]) }}
+                                @if ($far) {{ __('That is far: redeploy to be placed again.') }} @endif
+                            </p>
+                        @endif
                         <button type="button" wire:click="openPanel('sleep')" x-on:click="$dispatch('open-modal', 'resources-sleep')" class="mt-auto pt-3 text-left text-xs font-semibold text-brand-ink underline">{{ __('Sleep, region, scheduler') }}</button>
                     @else
                         <p class="mt-2 text-xs text-brand-moss">{{ __('This app is served as :mode. No container size to pick.', ['mode' => $runtimeMode]) }}</p>

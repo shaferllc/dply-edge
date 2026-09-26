@@ -23,6 +23,7 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Sleep;
 use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
@@ -56,7 +57,7 @@ function proOrg(): Organization
 
 test('settings are clamped and queue names cleaned', function () {
     expect(EdgeQueueWorkers::normalize(['enabled' => true, 'instances' => 99, 'processes' => 0, 'queues' => ' high , de fault;x ,', 'connection' => 'sqs', 'timeout' => 0]))
-        ->toMatchArray(['enabled' => true, 'instances' => 5, 'processes' => 1, 'queues' => 'high,defaultx', 'connection' => 'auto', 'timeout' => 1]);
+        ->toMatchArray(['enabled' => true, 'instances' => 10, 'processes' => 1, 'queues' => 'high,defaultx', 'connection' => 'auto', 'timeout' => 1]);
 });
 
 test('automatic connection prefers redis, falls back to the database, and needs one of them', function () {
@@ -471,4 +472,49 @@ test('a test job goes through the app, and a dispatch mismatch is caught', funct
     $page->call('sendTestJob')->assertDispatched('notify', fn ($name, $params) => str_contains($params['message'] ?? '', 'Test job queued on emails'));
 
     Http::assertSent(fn (Request $r): bool => $r['command'] === 'queue-test' && $r['queue'] === 'emails' && $r['count'] === 1);
+});
+
+test('within one run the scaler checks every few seconds and calls the Worker only on change', function () {
+    Sleep::fake(syncWithCarbon: true);
+    $app = laravelApp([
+        'live_url' => 'https://shop.on-dply.live',
+        'container' => ['workers' => ['enabled' => true, 'instances' => 1, 'max_instances' => 4, 'processes' => 1, 'scale_per' => 10, 'autoscale' => true]],
+    ]);
+    $backlogs = [0, 0, 35, 35, 35, 35];
+    Http::fake(function (Request $r) use (&$backlogs) {
+        if (str_ends_with($r->url(), '/_dply/command')) {
+            $n = array_shift($backlogs) ?? 35;
+
+            return Http::response(['sizes' => ['default' => $n], 'total' => $n]);
+        }
+
+        return Http::response([['name' => 'worker-0', 'wanted' => true, 'ok' => true]]);
+    });
+
+    $this->artisan('dply:edge:scale-queue-workers', ['--for' => 50, '--every' => 10])->assertSuccessful();
+
+    $scales = Http::recorded(fn (Request $r) => str_ends_with($r->url(), '/_dply/workers/scale'))->map(fn ($pair) => $pair[0]['count'])->values()->all();
+    // Six checks in the minute; the Worker hears 1 (first sync), then 4 once 35 are waiting.
+    expect(Http::recorded(fn (Request $r) => str_ends_with($r->url(), '/_dply/command'))->count())->toBe(6)
+        ->and($scales)->toBe([1, 4])
+        ->and(ScaleEdgeQueueWorkersCommand::history($app))->toHaveCount(1)
+        ->and(ScaleEdgeQueueWorkersCommand::history($app)[0]['backlog'])->toBe(35);
+});
+
+test('the app card shows where the app runs and flags a placement far from its database', function () {
+    $app = laravelApp(['placement' => ['location' => 'yyz04', 'region' => 'ENAM', 'rtt_ms' => 52.4, 'at' => now()->getTimestamp()]]);
+    $user = User::factory()->create();
+    $app->organization->users()->attach($user->id, ['role' => 'owner']);
+    $app->forceFill(['user_id' => $user->id, 'type' => SiteType::Static, 'status' => Site::STATUS_EDGE_ACTIVE])->save();
+    $app->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
+
+    Livewire::actingAs($user)->test(Resources::class, ['server' => $app->server, 'site' => $app])
+        ->assertSee('Running in yyz04 (ENAM), 52.4 ms to the database.')
+        ->assertSee('That is far: redeploy to be placed again.');
+
+    $app->mergeEdgeMeta(['placement' => ['location' => 'ewr05', 'region' => 'ENAM', 'rtt_ms' => 13.0, 'at' => now()->getTimestamp()]]);
+    $app->save();
+    Livewire::actingAs($user)->test(Resources::class, ['server' => $app->server, 'site' => $app->fresh()])
+        ->assertSee('Running in ewr05 (ENAM), 13 ms to the database.')
+        ->assertDontSee('That is far');
 });

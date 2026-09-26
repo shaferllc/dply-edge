@@ -6,6 +6,7 @@ namespace App\Modules\Edge\Support;
 
 use App\Models\Site;
 use App\Modules\Providers\Valkey\ValkeyGatewayClient;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 /**
@@ -260,6 +261,42 @@ final class EdgeValkey
     }
 
     /** @return resource TLS socket to a tenant, as an app connects. */
+    /**
+     * Jobs waiting on these queues, cheap enough to ask every few seconds.
+     * Laravel's list is `{prefix}queues:{name}` and only the app knows its
+     * prefix, so the key is found once (SCAN, server side) and remembered;
+     * after that each check is one LLEN.
+     *
+     * @param  list<string>  $queues
+     */
+    public static function queueBacklog(string $target, string $password, array $queues): int
+    {
+        [$host, $port] = explode(':', self::address($target));
+        $socket = self::open($host, (int) $port);
+        $find = "local c = '0' repeat local r = redis.call('SCAN', c, 'MATCH', ARGV[1], 'COUNT', 1000) c = r[1] "
+            ."for _, k in ipairs(r[2]) do if redis.call('TYPE', k).ok == 'list' then return k end end until c == '0' return false";
+        try {
+            self::send($socket, 'AUTH', 'default', $password);
+            $total = 0;
+            foreach ($queues as $queue) {
+                $remember = 'edge:valkey:'.$target.':queue-key:'.$queue;
+                $key = Cache::get($remember);
+                if (! is_string($key) || $key === '') {
+                    $key = self::send($socket, 'EVAL', $find, '0', '*queues:'.$queue);
+                    if ($key === '(nil)' || $key === '') {
+                        continue; // nothing queued yet: Laravel creates the list on the first push
+                    }
+                    Cache::put($remember, $key, now()->addHour());
+                }
+                $total += (int) self::send($socket, 'LLEN', $key);
+            }
+
+            return $total;
+        } finally {
+            fclose($socket);
+        }
+    }
+
     private static function open(string $host, int $port)
     {
         $context = stream_context_create(['ssl' => ['peer_name' => $host, 'SNI_enabled' => true, 'verify_peer' => true]]);

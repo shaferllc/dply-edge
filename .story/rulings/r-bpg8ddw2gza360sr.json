@@ -1,0 +1,16 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-26",
+  "id": "r-bpg8ddw2gza360sr",
+  "recordedBy": {
+    "client": "claude",
+    "id": "f20904ff-02dd-4dbf-a887-a002dfcc1fc2"
+  },
+  "scopeTags": [
+    "valkey",
+    "billing",
+    "plans"
+  ],
+  "supersedes": null,
+  "text": "we allow val key on all plans just not the advanced plans"
+}

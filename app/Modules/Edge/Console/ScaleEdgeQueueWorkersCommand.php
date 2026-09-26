@@ -8,12 +8,17 @@ use App\Models\Site;
 use App\Modules\Edge\Support\EdgeQueueWorkers;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Sleep;
 use Throwable;
 
 /**
  * Autoscale queue workers: ask each autoscaling app how many jobs wait on
  * its workers' queues, and run enough workers that each process has at most
  * `scale_per` of them (between the always-on count and the maximum).
+ *
+ * Scheduled every minute with --for=50: it checks every 10 seconds, reading
+ * the backlog from the queue itself (EdgeQueueWorkers::backlog), so a burst
+ * gets workers within seconds without waking the app.
  *
  * Up is immediate. Down waits until the target has stayed lower for
  * SCALE_DOWN_AFTER, so a queue that drains between bursts keeps its workers.
@@ -24,11 +29,31 @@ class ScaleEdgeQueueWorkersCommand extends Command
 {
     public const SCALE_DOWN_AFTER = 300;
 
-    protected $signature = 'dply:edge:scale-queue-workers';
+    /** Tell the Worker the count again this often even when it has not changed (self-heal). */
+    public const RESYNC_EVERY = 60;
+
+    protected $signature = 'dply:edge:scale-queue-workers
+        {--for=0 : Keep checking for this many seconds (the schedule runs it for most of each minute)}
+        {--every=10 : Seconds between checks while --for runs}';
 
     protected $description = 'Start or stop autoscaled queue workers to match each app\'s backlog.';
 
     public function handle(): int
+    {
+        $until = now()->getTimestamp() + max(0, (int) $this->option('for'));
+        $every = max(1, (int) $this->option('every'));
+        do {
+            $this->pass();
+            $more = now()->getTimestamp() + $every <= $until;
+            if ($more) {
+                Sleep::for($every)->seconds();
+            }
+        } while ($more);
+
+        return self::SUCCESS;
+    }
+
+    private function pass(): void
     {
         $sites = Site::query()
             ->where('meta->edge->runtime_mode', 'container')
@@ -42,8 +67,6 @@ class ScaleEdgeQueueWorkersCommand extends Command
         foreach ($sites as $site) {
             $this->scale($site);
         }
-
-        return self::SUCCESS;
     }
 
     /** Points kept for the workspace chart: one a minute, six hours. */
@@ -96,19 +119,32 @@ class ScaleEdgeQueueWorkersCommand extends Command
         // Clamp a count left from older settings.
         $target = max($settings['instances'], min($settings['max_instances'], $target));
 
-        $error = null;
-        try {
-            $failed = collect(EdgeQueueWorkers::scale($site, $target))->reject(fn (array $w): bool => $w['ok']);
-            if ($failed->isNotEmpty()) {
-                $error = $failed->map(fn (array $w): string => $w['name'].': '.$w['error'])->implode(' · ');
+        $now = now()->getTimestamp();
+        $error = $state['error'] ?? null;
+        $syncedAt = (int) ($state['synced_at'] ?? 0);
+        // Only tell the Worker when the count changes, and once a minute anyway.
+        if ($target !== $current || $now - $syncedAt >= self::RESYNC_EVERY || $error !== null) {
+            $error = null;
+            try {
+                $failed = collect(EdgeQueueWorkers::scale($site, $target))->reject(fn (array $w): bool => $w['ok']);
+                if ($failed->isNotEmpty()) {
+                    $error = $failed->map(fn (array $w): string => $w['name'].': '.$w['error'])->implode(' · ');
+                }
+            } catch (Throwable $e) {
+                $error = $e->getMessage();
             }
-        } catch (Throwable $e) {
-            $error = $e->getMessage();
+            $syncedAt = $now;
         }
 
-        Cache::put($key, ['count' => $target, 'busy_at' => $busyAt, 'backlog' => $backlog, 'at' => now()->getTimestamp(), 'error' => $error], now()->addDay());
+        Cache::put($key, ['count' => $target, 'busy_at' => $busyAt, 'backlog' => $backlog, 'at' => $now, 'synced_at' => $syncedAt, 'error' => $error], now()->addDay());
+        // One chart point a minute, keeping the minute's peak.
         $history = self::history($site);
-        $history[] = ['at' => now()->getTimestamp(), 'count' => $target, 'backlog' => $backlog];
+        $last = end($history);
+        if (is_array($last) && $now - $last['at'] < 55) {
+            $history[array_key_last($history)] = ['at' => $last['at'], 'count' => max($last['count'], $target), 'backlog' => max($last['backlog'], $backlog)];
+        } else {
+            $history[] = ['at' => $now, 'count' => $target, 'backlog' => $backlog];
+        }
         Cache::put(self::historyKey($site), array_slice($history, -self::HISTORY_POINTS), now()->addDay());
         if ($target !== $current) {
             $this->line(sprintf('%s: %d → %d workers (%d waiting)', $site->name, $current, $target, $backlog));

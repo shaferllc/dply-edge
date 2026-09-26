@@ -98,7 +98,7 @@ final class DplySchedule
             ->withoutOverlapping()
             ->name('edge-warm-containers');
         // Autoscaled queue workers follow each app's backlog.
-        $schedule->command(ScaleEdgeQueueWorkersCommand::class)
+        $schedule->command(ScaleEdgeQueueWorkersCommand::class, ['--for' => 50, '--every' => 10])
             ->everyMinute()
             ->withoutOverlapping()
             ->runInBackground() // a slow neighbour must not delay scaling
