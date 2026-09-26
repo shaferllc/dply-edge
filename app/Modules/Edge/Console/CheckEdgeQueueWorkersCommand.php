@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace App\Modules\Edge\Console;
 
 use App\Models\Site;
+use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Support\EdgeQueueWorkers;
 use App\Modules\Notifications\Services\NotificationPublisher;
+use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Throwable;
@@ -44,16 +46,36 @@ class CheckEdgeQueueWorkersCommand extends Command
                 && EdgeQueueWorkers::runningInstances($site) > 0
                 && ! EdgeQueueWorkers::for($site)['paused']);
 
-        foreach ($sites as $site) {
-            try {
-                $lines = EdgeQueueWorkers::logs($site, self::WINDOW_MINUTES);
-            } catch (Throwable $e) {
-                $this->warn($site->name.': '.$e->getMessage());
+        if ($sites->isEmpty()) {
+            return self::SUCCESS;
+        }
 
-                continue;
+        // Three Cloudflare API calls per run however many apps there are:
+        // Cloudflare allows 1,200 per 5 minutes per account, and one query
+        // set per app would run out at a few hundred apps.
+        try {
+            $client = EdgeCloudflareClient::fromConfig();
+            $applications = $client->listContainerApplications();
+            $failLines = $client->workerLogs([], self::WINDOW_MINUTES, 2000, ' FAIL');
+            $crashLines = $client->workerLogs([], self::WINDOW_MINUTES, 2000, 'within 10s, retrying');
+        } catch (Throwable $e) {
+            $this->warn($e->getMessage());
+
+            return self::SUCCESS;
+        }
+
+        foreach ($sites as $site) {
+            // A site's lines: its Worker script and the container applications named after it.
+            $script = EdgeContainerDeployer::scriptName($site);
+            $services = [$script => true];
+            foreach ($applications as $application) {
+                if ($application['id'] !== '' && str_starts_with($application['name'], $script)) {
+                    $services[$application['id']] = true;
+                }
             }
-            $failed = array_values(array_filter($lines, static fn (array $l): bool => str_ends_with(rtrim($l['message']), 'FAIL')));
-            $crashes = array_values(array_filter($lines, static fn (array $l): bool => str_contains($l['message'], 'within 10s, retrying')));
+            $mine = static fn (array $l): bool => isset($services[$l['service']]);
+            $failed = array_values(array_filter($failLines, static fn (array $l): bool => $mine($l) && str_ends_with(rtrim($l['message']), 'FAIL')));
+            $crashes = array_values(array_filter($crashLines, static fn (array $l): bool => $mine($l) && str_contains($l['message'], 'within 10s, retrying')));
 
             if ($failed !== []) {
                 $this->notifyOnce($publisher, $site, 'edge.workers.failed_jobs',

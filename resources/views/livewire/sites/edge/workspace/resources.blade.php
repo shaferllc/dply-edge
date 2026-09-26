@@ -333,6 +333,10 @@
                                             <span class="flex items-center gap-1.5 font-mono text-brand-ink">
                                                 <span @class(['h-1.5 w-1.5 rounded-full', 'bg-emerald-500' => $up, 'bg-amber-500' => $worker['status'] === 'stopping', 'bg-brand-ink/20' => $idle && $worker['status'] !== 'stopping', 'bg-red-500' => ! $up && ! $idle && $worker['status'] !== 'stopping'])></span>
                                                 {{ $worker['name'] }}
+                                                @if ($p = $workersPlacement[$worker['name']] ?? null)
+                                                    @php $far = max($p['db_ms'] ?? 0, $p['redis_ms'] ?? 0) > \App\Modules\Edge\Services\Containers\EdgeContainerDeployer::FAR_FROM_DATABASE_MS; @endphp
+                                                    <span @class(['font-sans', 'text-brand-moss' => ! $far, 'font-semibold text-amber-800 dark:text-amber-300' => $far])>· {{ $p['location'] ?: '?' }}{{ $p['db_ms'] !== null ? ' · db '.$p['db_ms'].' ms' : '' }}{{ $p['redis_ms'] !== null ? ' · redis '.$p['redis_ms'].' ms' : '' }}</span>
+                                                @endif
                                             </span>
                                             <span class="text-brand-moss">
                                                 {{ $idle && $worker['status'] !== 'stopping' ? (($worker['paused'] ?? false) ? __('Paused') : __('Idle (scaled down)')) : match ($worker['status']) {

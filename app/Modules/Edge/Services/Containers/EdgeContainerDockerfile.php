@@ -667,6 +667,8 @@ final class EdgeContainerDockerfile
         $worker = 'if [ "$DPLY_ROLE" = "worker" ]; then '
             .'w="[dply-worker ${DPLY_WORKER_NAME:-worker}]"; '
             .'echo "$w starting ${DPLY_WORKER_PROCESSES:-1} x queue:work $DPLY_WORKER_CONNECTION --queue=${DPLY_WORKER_QUEUES:-default}"; '
+            // Where this worker landed and how far its data is (read back from the logs).
+            .'(php artisan dply:probe --prefix="$w" 2>/dev/null || true) & '
             .'trap \'echo "$w stopping after current jobs"; trap "" TERM; kill -TERM 0; wait; exit 0\' TERM INT; '
             .'i=0; while [ "$i" -lt "${DPLY_WORKER_PROCESSES:-1}" ]; do '
             // Each loop waits out its php on TERM (dash would otherwise die at

@@ -413,27 +413,34 @@ test('pausing stops the workers until resumed, and the autoscaler leaves a pause
 test('failing jobs and crash-looping workers raise one alert each per half hour', function () {
     config(['edge.cloudflare.account_id' => 'acct', 'edge.cloudflare.api_token' => 'tok']);
     $app = laravelApp(['container' => ['workers' => ['enabled' => true]]]);
+    $other = laravelApp(['container' => ['workers' => ['enabled' => true]]]);
     $script = EdgeContainerDeployer::scriptName($app);
-    $event = fn (string $message) => ['timestamp' => now()->getTimestampMs(), '$metadata' => ['message' => $message, 'level' => 'log']];
+    $event = fn (string $service, string $message) => ['timestamp' => now()->getTimestampMs(), '$metadata' => ['service' => $service, 'message' => $message, 'level' => 'log']];
     Http::fake(function (Request $r) use ($event, $script) {
         if (str_ends_with($r->url(), '/containers/applications')) {
-            return Http::response(['success' => true, 'result' => [['id' => 'app-uuid', 'name' => $script]]]);
+            return Http::response(['success' => true, 'result' => [['id' => 'app-uuid', 'name' => $script], ['id' => 'other-uuid', 'name' => 'someone-else']]]);
         }
+        // Account-wide: no service filter, only the message filter.
+        $filters = $r['parameters']['filters'];
+        expect($filters)->toHaveCount(1);
+        $events = str_contains($filters[0]['value'], 'FAIL') ? [
+            $event('app-uuid', '  2026-09-26 03:00:01 App\\Jobs\\SendInvoice ... 812.40ms FAIL'),
+            $event('other-uuid', '  2026-09-26 03:00:02 App\\Jobs\\Theirs ... 5ms FAIL'),
+        ] : array_fill(0, 3, $event('app-uuid', '[dply-worker worker-0] queue:work exited (1) within 10s, retrying in 5s'));
 
-        return Http::response(['success' => true, 'result' => ['events' => ['events' => ($r['parameters']['filters'][0]['value'] ?? '') === 'app-uuid' ? [
-            $event('  2026-09-26 03:00:01 App\\Jobs\\SendInvoice ... 812.40ms FAIL'),
-            $event('[dply-worker worker-0] queue:work exited (1) within 10s, retrying in 5s'),
-            $event('[dply-worker worker-0] queue:work exited (1) within 10s, retrying in 5s'),
-            $event('[dply-worker worker-0] queue:work exited (1) within 10s, retrying in 5s'),
-        ] : []]]]);
+        return Http::response(['success' => true, 'result' => ['events' => ['events' => $events]]]);
     });
 
     $this->artisan('dply:edge:check-queue-workers')->assertSuccessful();
     $this->artisan('dply:edge:check-queue-workers')->assertSuccessful();
 
     $events = NotificationEvent::query()->where('subject_id', (string) $app->id)->pluck('event_key')->sort()->values()->all();
-    expect($events)->toBe(['edge.workers.crashing', 'edge.workers.failed_jobs']);
-    expect(NotificationEvent::query()->where('event_key', 'edge.workers.failed_jobs')->first()->body)->toContain('SendInvoice');
+    expect($events)->toBe(['edge.workers.crashing', 'edge.workers.failed_jobs'])
+        ->and(NotificationEvent::query()->where('event_key', 'edge.workers.failed_jobs')->where('subject_id', (string) $app->id)->first()->body)->toContain('SendInvoice')
+        // The other app's failure is not this app's; it has no lines of its own.
+        ->and(NotificationEvent::query()->where('subject_id', (string) $other->id)->count())->toBe(0);
+    // Three calls a run however many apps: two runs, six calls.
+    Http::assertSentCount(6);
 });
 
 test('the app dispatches to the connection its workers pull from', function () {
@@ -810,4 +817,42 @@ test('the card says what the plan allows and does not offer more', function () {
         ->assertSee('Groups are on Pro and Team.')
         ->assertDontSee('Add a group');
     expect(EdgeContainerSettings::for($app)['worker_instances'])->toBe(1);
+});
+
+test('each worker reports where it landed and how far its data is', function () {
+    config(['edge.cloudflare.account_id' => 'acct', 'edge.cloudflare.api_token' => 'tok']);
+    $app = laravelApp(['live_url' => 'https://shop.on-dply.live', 'container' => ['workers' => ['enabled' => true, 'instances' => 2]]]);
+    $user = User::factory()->create();
+    $app->organization->users()->attach($user->id, ['role' => 'owner']);
+    $app->forceFill(['user_id' => $user->id, 'type' => SiteType::Static, 'status' => Site::STATUS_EDGE_ACTIVE])->save();
+    $app->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
+    $script = EdgeContainerDeployer::scriptName($app);
+    $event = fn (string $m, int $ago) => ['timestamp' => now()->subMinutes($ago)->getTimestampMs(), '$metadata' => ['message' => $m, 'level' => 'log']];
+    Http::fake(function (Request $r) use ($script, $event) {
+        if (str_ends_with($r->url(), '/containers/applications')) {
+            return Http::response(['success' => true, 'result' => [['id' => 'app-uuid', 'name' => $script]]]);
+        }
+        if (str_ends_with($r->url(), '/telemetry/query')) {
+            $filters = $r['parameters']['filters'];
+            $events = $filters[0]['value'] === 'app-uuid' && ($filters[1]['value'] ?? null) === '] probe {' ? [
+                $event('[dply-worker worker-0] probe {"location":"ewr05","region":"ENAM","db_ms":13.1,"redis_ms":2.4}', 1),
+                $event('[dply-worker worker-1] probe {"location":"atl13","region":"ENAM","redis_ms":71.9}', 2),
+                $event('[dply-worker worker-0] probe {"location":"dfw14","region":"WNAM","db_ms":145}', 60), // older start
+            ] : [];
+
+            return Http::response(['success' => true, 'result' => ['events' => ['events' => $events]]]);
+        }
+
+        return Http::response([['name' => 'worker-0', 'status' => 'running', 'wanted' => true], ['name' => 'worker-1', 'status' => 'running', 'wanted' => true]]);
+    });
+
+    $placements = EdgeQueueWorkers::placements($app);
+    expect(array_keys($placements))->toBe(['worker-0', 'worker-1'])
+        ->and($placements['worker-0'])->toMatchArray(['location' => 'ewr05', 'region' => 'ENAM', 'db_ms' => 13.1, 'redis_ms' => 2.4]) // newest start wins
+        ->and($placements['worker-1'])->toMatchArray(['location' => 'atl13', 'redis_ms' => 71.9, 'db_ms' => null]);
+
+    Livewire::actingAs($user)->test(Resources::class, ['server' => $app->server, 'site' => $app])
+        ->call('loadWorkersBacklog')
+        ->assertSee('· ewr05 · db 13.1 ms · redis 2.4 ms')
+        ->assertSee('· atl13 · redis 71.9 ms');
 });

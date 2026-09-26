@@ -1423,18 +1423,23 @@ class EdgeCloudflareClient
      * fields are read defensively.
      *
      * @param  string|list<string>  $services
-     * @return list<array{at: ?string, level: string, message: string}>
+     * @return list<array{at: ?string, level: string, message: string, service: string}>
      */
-    public function workerLogs(string|array $services, int $minutes = 15, int $limit = 200): array
+    public function workerLogs(string|array $services, int $minutes = 15, int $limit = 200, ?string $contains = null): array
     {
         $events = [];
-        foreach ((array) $services as $service) {
+        // An empty list means the whole account (one query, however many apps).
+        foreach ($services === [] ? [null] : (array) $services as $service) {
+            $filters = $service === null ? [] : [['key' => '$metadata.service', 'operation' => 'eq', 'type' => 'string', 'value' => $service]];
+            if ($contains !== null) {
+                $filters[] = ['key' => '$metadata.message', 'operation' => 'includes', 'type' => 'string', 'value' => $contains];
+            }
             $payload = $this->decode(Http::withToken($this->apiToken)->post(self::BASE.'/accounts/'.$this->accountId.'/workers/observability/telemetry/query', [
-                'queryId' => 'dply-logs-'.$service,
+                'queryId' => 'dply-logs-'.($service ?? 'account-'.md5((string) $contains)),
                 'view' => 'events',
                 'limit' => $limit,
                 'timeframe' => ['from' => now()->subMinutes($minutes)->getTimestampMs(), 'to' => now()->getTimestampMs()],
-                'parameters' => ['filters' => [['key' => '$metadata.service', 'operation' => 'eq', 'type' => 'string', 'value' => $service]]],
+                'parameters' => ['filters' => $filters],
             ]));
             array_push($events, ...array_values((array) data_get($payload, 'events.events', data_get($payload, 'events', []))));
         }
@@ -1447,6 +1452,7 @@ class EdgeCloudflareClient
                 'at' => is_numeric($timestamp) ? Carbon::createFromTimestampMs((int) $timestamp)->toIso8601String() : (is_string($timestamp) ? $timestamp : null),
                 'level' => (string) data_get($event, '$metadata.level', data_get($event, 'source.level', 'log')),
                 'message' => is_string($message) ? $message : (string) json_encode($message ?? data_get($event, 'source')),
+                'service' => (string) data_get($event, '$metadata.service', ''),
             ];
         }
 

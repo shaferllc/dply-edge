@@ -112,6 +112,9 @@ class Resources extends Component
 
     public ?string $workersStatusError = null;
 
+    /** @var array<string, array{location: string, region: string, db_ms: ?float, redis_ms: ?float, at: ?string}> */
+    public array $workersPlacement = [];
+
     public bool $migrateOnBoot = false;
 
     public string $databaseCommandOutput = '';
@@ -420,6 +423,11 @@ class Resources extends Component
         }
         try {
             $this->workersStatus = EdgeQueueWorkers::status($this->site);
+            try {
+                $this->workersPlacement = EdgeQueueWorkers::placements($this->site);
+            } catch (\Throwable) {
+                $this->workersPlacement = []; // logs unreadable: status still shows
+            }
         } catch (\Throwable $e) {
             $this->workersStatusError = __('Could not reach the app for worker status: :error', ['error' => $e->getMessage()]);
         }

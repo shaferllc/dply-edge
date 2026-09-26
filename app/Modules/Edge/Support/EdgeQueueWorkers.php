@@ -390,6 +390,36 @@ final class EdgeQueueWorkers
     }
 
     /**
+     * Where each worker landed and how far its data is, from the line it
+     * logs at start (dply/laravel `dply:probe`). Newest per worker.
+     *
+     * @return array<string, array{location: string, region: string, db_ms: ?float, redis_ms: ?float, at: ?string}>
+     */
+    public static function placements(Site $site, int $minutes = 1440): array
+    {
+        $client = EdgeCloudflareClient::fromConfig();
+        $out = [];
+        foreach ($client->workerLogs(EdgeContainerDeployer::logServices($site, $client), $minutes, 200, '] probe {') as $line) {
+            if (preg_match('/\[dply-worker ([a-z0-9-]+)\] probe (\{.*\})\s*$/', $line['message'], $m) !== 1 || isset($out[$m[1]])) {
+                continue;
+            }
+            $probe = json_decode($m[2], true);
+            if (! is_array($probe)) {
+                continue;
+            }
+            $out[$m[1]] = [
+                'location' => (string) ($probe['location'] ?? ''),
+                'region' => (string) ($probe['region'] ?? ''),
+                'db_ms' => isset($probe['db_ms']) ? (float) $probe['db_ms'] : null,
+                'redis_ms' => isset($probe['redis_ms']) ? (float) $probe['redis_ms'] : null,
+                'at' => $line['at'],
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
      * Recent worker output from the app's Workers Logs, newest first:
      * supervisor lines ("[dply-worker worker-N] …") and queue:work's job
      * lines (… RUNNING / DONE / FAIL).

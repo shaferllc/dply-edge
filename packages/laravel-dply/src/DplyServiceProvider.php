@@ -31,6 +31,10 @@ class DplyServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        if ($this->app->runningInConsole()) {
+            $this->commands([ProbeCommand::class]);
+        }
+
         /** @var QueueManager $manager */
         $manager = $this->app['queue'];
         $manager->addConnector('dply', fn () => new DplyConnector);
