@@ -679,6 +679,7 @@ class EdgeContainerDeployer
             '__JOBS_ALWAYS_ON__' => $settings['dedicated_jobs'] && $settings['jobs_always_on'] ? 'true' : 'false',
             '__STICKY__' => $settings['sticky_sessions'] ? 'true' : 'false',
             '__DEDICATED_JOBS__' => $settings['dedicated_jobs'] ? 'true' : 'false',
+            '__SCHEDULER_WORKER__' => json_encode(EdgeQueueWorkers::runsScheduler($site) ? 'worker-0' : ''),
             '__WORKER_GROUPS__' => json_encode($settings['worker_instances'] > 0 ? array_map(static fn (array $g): array => [
                 'key' => $g['key'],
                 'prefix' => $g['prefix'],
@@ -750,6 +751,8 @@ const DELIVERY_USAGE_URL = __DELIVERY_USAGE_URL__;
 // max can run; the first min are always on, the rest start while dply's
 // autoscaler wants them.
 const WORKER_GROUPS = __WORKER_GROUPS__;
+// The worker that also runs the Laravel scheduler (schedule:work), or ''.
+const SCHEDULER_WORKER = __SCHEDULER_WORKER__;
 function isWorker(name) { return typeof name === 'string' && name.startsWith('worker-'); }
 // The group a worker name belongs to (longest prefix wins: worker-high-0 is
 // not the main group's), and its index in it.
@@ -809,7 +812,7 @@ export class App extends Container {
     // Queue workers are App instances named worker-N. Whoever starts one
     // (warm, or the platform after a restart), it boots in worker mode.
     const worker = isWorker(ctx.id.name) ? workerGroup(ctx.id.name) : null;
-    if (worker) Object.assign(this.envVars, worker.group.env, { DPLY_WORKER_NAME: ctx.id.name });
+    if (worker) Object.assign(this.envVars, worker.group.env, { DPLY_WORKER_NAME: ctx.id.name }, ctx.id.name === SCHEDULER_WORKER ? { DPLY_WORKER_SCHEDULER: '1' } : {});
   }
 
   // Queue workers run queue:work, not a web server: start without waiting
@@ -1394,7 +1397,9 @@ JS, $replace);
         }
 
         $crons = [];
-        if (EdgeContainerSettings::for($site)['scheduler']) {
+        // With queue workers the scheduler runs in worker-0 instead, so the
+        // web container is not woken every minute.
+        if (EdgeContainerSettings::for($site)['scheduler'] && ! EdgeQueueWorkers::runsScheduler($site)) {
             $crons['* * * * *'][] = 'schedule:run';
         }
         foreach (EdgeEffectiveCrons::for($site, $deployment) as $cron) {

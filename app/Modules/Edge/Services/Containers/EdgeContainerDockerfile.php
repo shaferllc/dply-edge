@@ -677,7 +677,11 @@ final class EdgeContainerDockerfile
             // A worker that dies on boot (bad config, missing class) backs
             // off instead of restarting every second.
             .'if [ -z "$stop" ]; then if [ $(($(date +%s) - t)) -lt 10 ]; then echo "$w queue:work exited ($c) within 10s, retrying in 5s"; sleep 5; else echo "$w queue:work exited ($c), restarting"; sleep 1; fi; fi; done) & '
-            .'i=$((i+1)); done; wait; exit 0; fi; ';
+            .'i=$((i+1)); done; '
+            // worker-0 also runs the scheduler when told to (EdgeQueueWorkers::runsScheduler).
+            .'if [ "$DPLY_WORKER_SCHEDULER" = "1" ]; then echo "$w running the scheduler (schedule:work)"; '
+            .'(trap "stop=1" TERM; while [ -z "$stop" ]; do php artisan schedule:work & p=$!; wait $p; wait $p 2>/dev/null; [ -z "$stop" ] && sleep 5; done) & fi; '
+            .'wait; exit 0; fi; ';
         $boot = $laravel
             ? $worker.$sqlite.'if [ "$DPLY_MIGRATE_ON_BOOT" = "1" ]; then php artisan migrate --force --isolated || php artisan migrate --force || true; fi; '.$start
             : $start;

@@ -108,6 +108,21 @@
                         @endforeach
                     </div>
 
+                    @php $placement = $site->edgeMeta()['placement'] ?? null; @endphp
+                    @if (is_array($placement) && ($placement['rtt_ms'] ?? 0) > 0)
+                        @php $far = $placement['rtt_ms'] > \App\Modules\Edge\Services\Containers\EdgeContainerDeployer::FAR_FROM_DATABASE_MS; @endphp
+                        <div @class(['flex flex-wrap items-baseline justify-between gap-3 rounded-xl border p-4', 'border-amber-300 bg-amber-50/60 dark:border-amber-700 dark:bg-amber-950/30' => $far, 'border-brand-ink/10' => ! $far])>
+                            <div>
+                                <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('From the app') }}</p>
+                                <p class="mt-1 text-xl font-semibold tabular-nums text-brand-ink">{{ __(':ms ms per round trip', ['ms' => rtrim(rtrim(number_format((float) $placement['rtt_ms'], 1), '0'), '.')]) }}</p>
+                            </div>
+                            <p class="max-w-md text-xs text-brand-moss">
+                                {{ __('Measured inside the app at its last deploy, running in :location (:region). Every query pays this; a queue job makes several.', ['location' => $placement['location'] ?: '?', 'region' => $placement['region'] ?: '?']) }}
+                                @if ($far) <span class="font-semibold text-amber-800 dark:text-amber-300">{{ __('That is far: redeploy to be placed again.') }}</span> @endif
+                            </p>
+                        </div>
+                    @endif
+
                     @if ($usage)
                         <div class="rounded-xl border border-brand-ink/10 p-4">
                             <div class="flex items-baseline justify-between gap-3">

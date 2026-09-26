@@ -295,6 +295,48 @@ class Resources extends Component
         $this->refreshPending();
     }
 
+    public ?string $schedulerOutput = null;
+
+    /** The Laravel scheduler as a resource: every minute, in a worker when the app has them. */
+    public function addScheduler(): void
+    {
+        $this->authorize('update', $this->site);
+        $this->scheduler = true;
+        $this->panel = '';
+        $this->refreshPending();
+    }
+
+    public function removeScheduler(): void
+    {
+        $this->authorize('update', $this->site);
+        $this->scheduler = false;
+        $this->schedulerOutput = null;
+        $this->refreshPending();
+    }
+
+    /** Run schedule:run once now, in the live app, and show what it printed. */
+    public function runSchedulerNow(): void
+    {
+        $this->authorize('update', $this->site);
+        $url = $this->site->edgeLiveUrl();
+        if (! is_string($url) || $url === '') {
+            $this->schedulerOutput = __('This app has no live URL yet. Deploy it first.');
+
+            return;
+        }
+        try {
+            $response = Http::timeout(120)
+                ->withHeaders(['x-dply-queue-token' => EdgeContainerDeployer::queueToken($this->site)])
+                ->post(rtrim($url, '/').'/_dply/schedule', ['handler' => 'schedule:run']);
+            $body = $response->json();
+            $this->schedulerOutput = is_array($body)
+                ? trim((string) ($body['output'] ?? $body['error'] ?? '')) ?: __('schedule:run finished with nothing to print.')
+                : __('The app answered HTTP :status. Deploy once with the scheduler on so dply/laravel is in the image.', ['status' => $response->status()]);
+        } catch (\Throwable $e) {
+            $this->schedulerOutput = $e->getMessage();
+        }
+    }
+
     /** Another group of workers for other queues, sized and scaled on its own. */
     public function addWorkerGroup(): void
     {
@@ -2256,8 +2298,12 @@ class Resources extends Component
                 'workersConnection' => EdgeQueueWorkers::connection($this->site, (string) (EdgeQueueWorkers::normalize($this->workers)['connection'])),
                 'workersMonthlyCents' => EdgeQueueWorkers::monthlyCents($this->site, EdgeQueueWorkers::draftInstances($this->workers)['min']),
                 'workersMaxMonthlyCents' => EdgeQueueWorkers::monthlyCents($this->site, EdgeQueueWorkers::draftInstances($this->workers)['max']),
-                'workersScaler' => Cache::get(ScaleEdgeQueueWorkersCommand::stateKey($this->site)),
-                'workersHistory' => ScaleEdgeQueueWorkersCommand::history($this->site),
+                'workerScaling' => array_values(array_map(fn (array $g): array => [
+                    'label' => $g['key'] !== '' ? $g['key'] : __('main'),
+                    'max' => $g['max_instances'],
+                    'history' => ScaleEdgeQueueWorkersCommand::history($this->site, $g['key']),
+                    'scaler' => Cache::get(ScaleEdgeQueueWorkersCommand::stateKey($this->site, $g['key'])),
+                ], array_filter(EdgeQueueWorkers::groups($this->site), static fn (array $g): bool => $g['autoscale']))),
                 'databaseUsage' => $this->dplyDatabaseRecord() !== null ? $this->databaseUsage() : null,
                 'deployments' => $this->site->edgeDeployments()->orderByDesc('created_at')->limit(5)->get(),
             ],

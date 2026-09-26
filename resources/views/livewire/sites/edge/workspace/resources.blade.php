@@ -276,41 +276,9 @@
                                     <p class="font-semibold text-brand-ink">{{ __('About $:total/mo', ['total' => number_format($workersMonthlyCents / 100, 2)]) }}</p>
                                     <p class="mt-0.5 text-brand-moss">{{ __(':instances × :size, always on', ['instances' => $span['min'], 'size' => $settings['instance_type'] ?? 'basic']) }}</p>
                                 @endif
-                                @if ($w['autoscale'] && count($workersHistory) >= 2)
-                                    @php
-                                        // Six hours of the autoscaler: jobs waiting (area) and workers running (steps).
-                                        $chartW = 240; $chartH = 44;
-                                        $t0 = $workersHistory[0]['at']; $span = max(1, end($workersHistory)['at'] - $t0);
-                                        $peakBacklog = max(1, max(array_column($workersHistory, 'backlog')));
-                                        $peakWorkers = max(1, $w['max_instances'], max(array_column($workersHistory, 'count')));
-                                        $x = fn ($p) => round(($p['at'] - $t0) / $span * $chartW, 1);
-                                        $backlogPts = collect($workersHistory)->map(fn ($p) => $x($p).','.round($chartH - $p['backlog'] / $peakBacklog * ($chartH - 2), 1))->implode(' ');
-                                        $steps = []; $prev = null;
-                                        foreach ($workersHistory as $p) {
-                                            $y = round($chartH - $p['count'] / $peakWorkers * ($chartH - 2), 1);
-                                            if ($prev !== null) { $steps[] = $x($p).','.$prev; }
-                                            $steps[] = $x($p).','.$y; $prev = $y;
-                                        }
-                                    @endphp
-                                    <figure class="mt-2">
-                                        <svg viewBox="0 0 {{ $chartW }} {{ $chartH }}" class="h-11 w-full" preserveAspectRatio="none" role="img" aria-label="{{ __('Workers and waiting jobs over the last :h hours', ['h' => max(1, (int) round($span / 3600))]) }}">
-                                            <polygon points="0,{{ $chartH }} {{ $backlogPts }} {{ $chartW }},{{ $chartH }}" class="fill-amber-400/25" />
-                                            <polyline points="{{ $backlogPts }}" fill="none" class="stroke-amber-500" stroke-width="1" vector-effect="non-scaling-stroke" />
-                                            <polyline points="{{ implode(' ', $steps) }}" fill="none" class="stroke-emerald-600" stroke-width="1.5" vector-effect="non-scaling-stroke" />
-                                        </svg>
-                                        <figcaption class="mt-0.5 flex justify-between text-2xs text-brand-moss">
-                                            <span><span class="text-emerald-700 dark:text-emerald-400">━</span> {{ __('workers, up to :n', ['n' => max(array_column($workersHistory, 'count'))]) }} · <span class="text-amber-600">━</span> {{ __('waiting, peak :n', ['n' => max(array_column($workersHistory, 'backlog'))]) }}</span>
-                                            <span>{{ \Illuminate\Support\Carbon::createFromTimestamp($t0)->diffForHumans(short: true) }}</span>
-                                        </figcaption>
-                                    </figure>
-                                @endif
-                                @if ($w['autoscale'] && is_array($workersScaler))
-                                    <p @class(['mt-1', 'text-red-700 dark:text-red-400' => $workersScaler['error'] ?? null, 'text-brand-moss' => ! ($workersScaler['error'] ?? null)])>
-                                        {{ ($workersScaler['error'] ?? null)
-                                            ? __('Autoscaler: :error', ['error' => $workersScaler['error']])
-                                            : __('Autoscaler: :count running for :backlog waiting:oldest · :ago', ['count' => $workersScaler['count'] ?? '?', 'backlog' => $workersScaler['backlog'] ?? '?', 'oldest' => isset($workersScaler['oldest_age']) ? __(', oldest :s s', ['s' => $workersScaler['oldest_age']]) : '', 'ago' => \Illuminate\Support\Carbon::createFromTimestamp($workersScaler['at'] ?? time())->diffForHumans()]) }}
-                                    </p>
-                                @endif
+                                @foreach ($workerScaling as $scaling)
+                                    @include('livewire.sites.edge.workspace.partials.worker-autoscale', $scaling + ['labelled' => count($workerScaling) > 1])
+                                @endforeach
                             </div>
                             <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                                 <button type="button" wire:click="loadWorkersBacklog" wire:loading.attr="disabled" wire:target="loadWorkersBacklog" class="font-semibold text-brand-ink underline disabled:opacity-50">
@@ -366,6 +334,31 @@
                                     <p class="mt-1 text-xs text-red-700 dark:text-red-400">{{ $workersStatusError }}</p>
                                 @endif
                             @endif
+                        @endif
+                    </div>
+                @endif
+                @if ($isContainer && $scheduler)
+                    @php $schedulerOnWorker = ($workers['enabled'] ?? false) && \App\Modules\Edge\Support\EdgeQueueWorkers::unavailableReason($site) === null; @endphp
+                    <div class="flex justify-center py-0.5" aria-hidden="true"><span class="resource-flow resource-flow-y"></span></div>
+                    <div class="rounded-xl border border-brand-sage bg-brand-sage/5 p-3" wire:key="scheduler-card">
+                        <div class="flex items-center justify-between gap-2">
+                            <p class="flex items-center gap-1.5 text-xs font-semibold text-brand-ink"><x-heroicon-o-clock class="h-3.5 w-3.5 shrink-0" /> {{ __('Scheduler') }}</p>
+                            <button type="button" wire:click="removeScheduler" class="text-xs font-semibold text-brand-ink underline">{{ __('Remove') }}</button>
+                        </div>
+                        <p class="mt-1.5 font-mono text-2xs text-brand-moss">{{ $schedulerOnWorker ? 'php artisan schedule:work' : 'php artisan schedule:run · * * * * *' }}</p>
+                        <p class="mt-1 text-xs text-brand-moss">
+                            {{ $schedulerOnWorker
+                                ? __('Runs in worker-0 beside the queue workers, so the app itself can still sleep. Pausing the workers pauses it too.')
+                                : __('A Cron Trigger calls the app every minute, which keeps it from sleeping. Add queue workers and it moves into a worker instead.') }}
+                        </p>
+                        <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                            <button type="button" wire:click="runSchedulerNow" wire:loading.attr="disabled" wire:target="runSchedulerNow" class="font-semibold text-brand-ink underline disabled:opacity-50">
+                                <span wire:loading.remove wire:target="runSchedulerNow">{{ __('Run now') }}</span>
+                                <span wire:loading wire:target="runSchedulerNow">{{ __('Running…') }}</span>
+                            </button>
+                        </div>
+                        @if ($schedulerOutput)
+                            <pre class="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-zinc-950 p-2 font-mono text-2xs text-zinc-200">{{ $schedulerOutput }}</pre>
                         @endif
                     </div>
                 @endif
@@ -1403,6 +1396,12 @@
                     <h2 class="text-sm font-semibold text-brand-ink">{{ __('Add a resource') }}</h2>
                 </div>
                 <div class="grid gap-2 sm:grid-cols-3">
+                    @if ($isContainer && ! $scheduler && $site->isLaravelFrameworkDetected())
+                    <button type="button" wire:click="addScheduler" x-on:click="$dispatch('close-modal', 'resources-connection')" class="flex items-center gap-2 rounded-xl border border-brand-ink/10 px-3 py-2 text-left text-xs font-semibold text-brand-ink hover:border-brand-sage">
+                        <x-heroicon-o-clock class="h-4 w-4 shrink-0" />
+                        {{ __('Scheduler') }}
+                    </button>
+                    @endif
                     @if ($isContainer && ! ($workers['enabled'] ?? false))
                     <button type="button" wire:click="addWorkers" x-on:click="$dispatch('close-modal', 'resources-connection')" class="flex items-center gap-2 rounded-xl border border-brand-ink/10 px-3 py-2 text-left text-xs font-semibold text-brand-ink hover:border-brand-sage">
                         <x-resource-kind-icon kind="queue" />
@@ -1734,7 +1733,7 @@
                 <input type="checkbox" wire:model.live="scheduler" class="mt-0.5 rounded border-brand-ink/20 text-brand-sage" />
                 <span class="text-sm">
                     <span class="font-medium text-brand-ink">{{ __('Run the Laravel scheduler every minute') }}</span>
-                    <span class="block text-xs text-brand-moss">{{ __('Calls schedule:run through dply/laravel.') }}</span>
+                    <span class="block text-xs text-brand-moss">{{ __('With queue workers it runs in worker-0 (schedule:work) and the app can sleep. Without them, a Cron Trigger calls schedule:run in the app every minute.') }}</span>
                 </span>
             </label>
             <label class="flex items-start gap-3">

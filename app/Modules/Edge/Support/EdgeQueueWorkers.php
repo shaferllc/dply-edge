@@ -151,6 +151,17 @@ final class EdgeQueueWorkers
     }
 
     /**
+     * Whether the Laravel scheduler runs inside worker-0 (schedule:work)
+     * instead of a Cron Trigger that wakes the web container every minute:
+     * when the scheduler is on and the app has queue workers, which are
+     * always on anyway. Pausing the workers pauses the scheduler with them.
+     */
+    public static function runsScheduler(Site $site): bool
+    {
+        return EdgeContainerSettings::for($site)['scheduler'] && self::runningInstances($site) > 0;
+    }
+
+    /**
      * Worker instances an unsaved draft runs: always on, and at most.
      *
      * @param  array<string, mixed>  $draft

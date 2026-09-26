@@ -19,6 +19,7 @@ use App\Modules\Edge\Support\EdgeContainerSettings;
 use App\Modules\Edge\Support\EdgeQueueWorkers;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Process;
@@ -94,7 +95,7 @@ test('enabled workers add named worker instances to the container app and boot i
         ->and($worker)->toContain('"DPLY_WORKER_QUEUES":"high,default"')
         ->and($worker)->toContain('"DPLY_WORKER_PROCESSES":"3"')
         ->and($worker)->toContain('getContainer(env.APP, name).startWorker(name)')
-        ->and($worker)->toContain('if (worker) Object.assign(this.envVars, worker.group.env, { DPLY_WORKER_NAME: ctx.id.name })')
+        ->and($worker)->toContain('if (worker) Object.assign(this.envVars, worker.group.env, { DPLY_WORKER_NAME: ctx.id.name }')
         ->and($worker)->toContain("url.pathname === '/_dply/workers'")
         ->and($worker)->toContain("url.pathname === '/_dply/workers/start'")
         ->and($worker)->not->toContain('__');
@@ -663,4 +664,83 @@ test('groups are added, edited and saved from the card', function () {
         ->call('removeWorkerGroup', 0)
         ->assertSet('workers.groups', [])
         ->assertSet('pending', true);
+});
+
+test('each autoscaling group gets its own chart and status', function () {
+    $app = laravelApp(['container' => ['workers' => [
+        'enabled' => true, 'autoscale' => true, 'max_instances' => 3,
+        'groups' => [['key' => 'high', 'queues' => 'high', 'autoscale' => true, 'max_instances' => 2]],
+    ]]]);
+    $user = User::factory()->create();
+    $app->organization->users()->attach($user->id, ['role' => 'owner']);
+    $app->forceFill(['user_id' => $user->id, 'type' => SiteType::Static, 'status' => Site::STATUS_EDGE_ACTIVE])->save();
+    $app->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
+    $S = ScaleEdgeQueueWorkersCommand::class;
+    $t = now()->getTimestamp();
+    Cache::put($S::historyKey($app), [['at' => $t - 120, 'count' => 1, 'backlog' => 3], ['at' => $t, 'count' => 3, 'backlog' => 80]], 3600);
+    Cache::put($S::historyKey($app, 'high'), [['at' => $t - 120, 'count' => 1, 'backlog' => 0], ['at' => $t, 'count' => 2, 'backlog' => 250]], 3600);
+    Cache::put($S::stateKey($app, 'high'), ['count' => 2, 'backlog' => 250, 'oldest_age' => 12, 'at' => $t, 'error' => null], 3600);
+
+    Livewire::actingAs($user)->test(Resources::class, ['server' => $app->server, 'site' => $app])
+        ->assertSee('waiting, peak 80')
+        ->assertSee('waiting, peak 250')
+        ->assertSee('[high] Autoscaler: 2 running for 250 waiting, oldest 12 s', false);
+});
+
+test('the database panel shows the round trip measured from the app', function () {
+    $app = laravelApp(['database' => ['remote_id' => 'pg-x', 'host' => 'pg-x.db.dply.test'], 'placement' => ['location' => 'ewr01', 'region' => 'ENAM', 'rtt_ms' => 12.7, 'at' => now()->getTimestamp()]]);
+    $user = User::factory()->create();
+    $app->organization->users()->attach($user->id, ['role' => 'owner']);
+    $app->forceFill(['user_id' => $user->id, 'type' => SiteType::Static, 'status' => Site::STATUS_EDGE_ACTIVE])->save();
+    $app->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
+    Http::fake();
+
+    Livewire::actingAs($user)->test(Resources::class, ['server' => $app->server, 'site' => $app])
+        ->call('openPanel', 'databases')
+        ->assertSee('12.7 ms per round trip')
+        ->assertSee('running in ewr01 (ENAM)');
+});
+
+test('the scheduler runs in worker-0 when the app has workers, otherwise on a Cron Trigger', function () {
+    $withWorkers = laravelApp(['container' => ['scheduler' => true, 'workers' => ['enabled' => true]]]);
+    $without = laravelApp(['container' => ['scheduler' => true]]);
+
+    expect(EdgeQueueWorkers::runsScheduler($withWorkers))->toBeTrue()
+        ->and(EdgeContainerDeployer::cronHandlers($withWorkers, null))->toBe([])
+        ->and(EdgeQueueWorkers::runsScheduler($without))->toBeFalse()
+        ->and(EdgeContainerDeployer::cronHandlers($without, null))->toBe(['* * * * *' => ['schedule:run']]);
+
+    $dir = sys_get_temp_dir().'/dply-workers-test-'.bin2hex(random_bytes(4));
+    (new EdgeContainerDeployer)->scaffold($dir, $withWorkers, '/x/Dockerfile', 8080, []);
+    expect(File::get($dir.'/src/index.js'))->toContain('const SCHEDULER_WORKER = "worker-0";')
+        ->toContain("ctx.id.name === SCHEDULER_WORKER ? { DPLY_WORKER_SCHEDULER: '1' } : {}");
+    File::deleteDirectory($dir);
+
+    File::ensureDirectoryExists($dir);
+    File::put($dir.'/composer.json', '{"require":{"php":"^8.3"}}');
+    File::put($dir.'/artisan', '');
+    expect(File::get(EdgeContainerDockerfile::prepare($dir)['path']))->toContain('php artisan schedule:work');
+    File::deleteDirectory($dir);
+});
+
+test('the scheduler is a resource: added from the picker, run on demand, removed', function () {
+    $app = laravelApp(['live_url' => 'https://shop.on-dply.live', 'container' => ['workers' => ['enabled' => true]]]);
+    $user = User::factory()->create();
+    $app->organization->users()->attach($user->id, ['role' => 'owner']);
+    $app->forceFill(['user_id' => $user->id, 'type' => SiteType::Static, 'status' => Site::STATUS_EDGE_ACTIVE])->save();
+    $app->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
+    Http::fake(['shop.on-dply.live/_dply/schedule' => Http::response(['command' => 'schedule:run', 'exit' => 0, 'output' => '  Running [reports:send] .... DONE'])]);
+
+    Livewire::actingAs($user)->test(Resources::class, ['server' => $app->server, 'site' => $app])
+        ->call('addScheduler')
+        ->assertSet('scheduler', true)
+        ->assertSet('pending', true)
+        ->assertSee('Runs in worker-0 beside the queue workers')
+        ->call('runSchedulerNow')
+        ->assertSee('Running [reports:send] .... DONE')
+        ->call('removeScheduler')
+        ->assertSet('scheduler', false)
+        ->assertSet('pending', false);
+
+    Http::assertSent(fn (Request $r): bool => str_ends_with($r->url(), '/_dply/schedule') && $r['handler'] === 'schedule:run');
 });
