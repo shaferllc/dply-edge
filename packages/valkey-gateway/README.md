@@ -44,7 +44,10 @@ deploy/local-up.sh       # build, deploy gateway + SeaweedFS S3 (stands in for R
 deploy/local-verify.sh   # end-to-end checks
 ```
 
-Verified locally on 2026-09-24. All 17 checks pass:
+Verified locally on 2026-09-24; rerun 2026-09-26 with the Postgres checks, all
+passing. Local clusters have no `pro-16` / `pro-64` pools, so `deploy/local.yaml`
+sets `PRO_NODE_POOLS=off` and Pro tenants run on the local node (production
+leaves it unset). Checks:
 
 - first connection starts the tenant, it reads back, and its awake time is counted;
 - the tenant gets NOPERM on `CONFIG`;

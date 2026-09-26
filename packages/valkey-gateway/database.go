@@ -173,14 +173,18 @@ func (g *gateway) serveMongo(certs *certReloader) {
 // protocol of the port the client came in on; a tenant of another engine is
 // refused before anything wakes.
 func (g *gateway) pipeDatabase(client net.Conn, id, engine string, fail func(string)) {
+	// A wake (or a brand-new database's first build) can outlast the
+	// listener's handshake deadline; the client just waits. Set it before
+	// the first lookup too, so a slow API server cannot drop the client.
+	_ = client.SetDeadline(time.Now().Add(wakeDeadline))
 	if t, err := g.getTenantRecord(context.Background(), id); err != nil || t.Engine != engine {
+		if err != nil && err != errNotFound {
+			log.Printf("tenant %s: lookup failed: %v", id, err)
+		}
 		fail("no " + engine + " database at this address")
 		return
 	}
 	started := time.Now()
-	// A wake (or a brand-new database's first build) can outlast the
-	// listener's handshake deadline; the client just waits.
-	_ = client.SetDeadline(time.Now().Add(wakeDeadline))
 	ip, err := g.wakeDatabase(context.Background(), id)
 	if err != nil {
 		log.Printf("tenant %s: wake failed: %v", id, err)
@@ -192,6 +196,8 @@ func (g *gateway) pipeDatabase(client net.Conn, id, engine string, fail func(str
 	}
 	t, err := g.getTenantRecord(context.Background(), id)
 	if err != nil {
+		log.Printf("tenant %s: lookup failed: %v", id, err)
+		fail("this database is not reachable")
 		return
 	}
 	upstream, err := net.DialTimeout("tcp", net.JoinHostPort(ip, dbPorts[t.Engine]), 5*time.Second)

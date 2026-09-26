@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -33,6 +34,7 @@ type tenant struct {
 func objectName(id string) string { return "vk-" + id }
 
 func (g *gateway) saveTenant(ctx context.Context, t tenant) error {
+	defer g.records.drop(t.ID)
 	if t.Persistent && !isDatabase(t.Engine) {
 		t.SleepAfter = 0 // Valkey pro stays on; databases sleep with their data on the volume
 	}
@@ -87,7 +89,51 @@ func engineOrValkey(e string) string {
 
 func debugTiming() bool { return os.Getenv("DEBUG_TIMING") != "" }
 
+// tenantCache keeps tenant records for a few seconds: every client connect
+// reads one, and a burst of connects (an app booting, workers polling) must
+// not each go to the API server. This gateway's own writes drop the entry;
+// another replica's writes are seen within recordTTL.
+type tenantCache struct {
+	mu   sync.Mutex
+	byID map[string]cachedTenant
+}
+
+type cachedTenant struct {
+	t  tenant
+	at time.Time
+}
+
+const recordTTL = 10 * time.Second
+
+func (c *tenantCache) get(id string) (tenant, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.byID[id]
+	if !ok || time.Since(e.at) > recordTTL {
+		return tenant{}, false
+	}
+	return e.t, true
+}
+
+func (c *tenantCache) put(t tenant) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.byID == nil {
+		c.byID = map[string]cachedTenant{}
+	}
+	c.byID[t.ID] = cachedTenant{t: t, at: time.Now()}
+}
+
+func (c *tenantCache) drop(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.byID, id)
+}
+
 func (g *gateway) getTenantRecord(ctx context.Context, id string) (*tenant, error) {
+	if t, ok := g.records.get(id); ok {
+		return &t, nil
+	}
 	s, err := g.kube.CoreV1().Secrets(g.cfg.namespace).Get(ctx, objectName(id), metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		return nil, errNotFound
@@ -96,6 +142,7 @@ func (g *gateway) getTenantRecord(ctx context.Context, id string) (*tenant, erro
 		return nil, err
 	}
 	t := tenantFromSecret(s)
+	g.records.put(t)
 	return &t, nil
 }
 
@@ -112,6 +159,7 @@ func (g *gateway) listTenants(ctx context.Context) ([]tenant, error) {
 }
 
 func (g *gateway) deleteTenantRecord(ctx context.Context, id string) error {
+	defer g.records.drop(id)
 	err := g.kube.CoreV1().Secrets(g.cfg.namespace).Delete(ctx, objectName(id), metav1.DeleteOptions{})
 	if apierrors.IsNotFound(err) {
 		return nil
@@ -434,6 +482,9 @@ func (g *gateway) podSpec(name string, memoryMB int, persistent bool) *corev1.Po
 	limit := resource.MustParse(strconv.Itoa(memoryMB*3/2+32) + "Mi")
 	grace := int64(2)
 	nodeSelector, tolerations := proPlacement(memoryMB, persistent)
+	if g.cfg.noProPools {
+		nodeSelector, tolerations = nil, nil
+	}
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: map[string]string{"app": "dply-valkey-pod", "memory": mb}},
 		Spec: corev1.PodSpec{
@@ -497,6 +548,7 @@ func (g *gateway) markAsleep(ctx context.Context, id string) {
 }
 
 func (g *gateway) annotate(ctx context.Context, id string, change func(map[string]string)) {
+	defer g.records.drop(id)
 	secrets := g.kube.CoreV1().Secrets(g.cfg.namespace)
 	for attempt := 0; attempt < 3; attempt++ {
 		s, err := secrets.Get(ctx, objectName(id), metav1.GetOptions{})

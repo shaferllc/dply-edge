@@ -41,6 +41,7 @@ type config struct {
 	namespace     string
 	dbNamespace   string // database pods and volumes; tenant records stay in namespace
 	dbNodePool    string // node pool databases run on; "" = anywhere
+	noProPools    bool   // PRO_NODE_POOLS=off: Pro tenants run anywhere (local clusters have no pro pools)
 	domain        string
 	dbDomain      string // databases: {tenant}.{dbDomain}:5432
 	image         string
@@ -64,6 +65,7 @@ func main() {
 		namespace:     env("NAMESPACE", "dply-valkey"),
 		dbNamespace:   env("DB_NAMESPACE", env("NAMESPACE", "dply-valkey")),
 		dbNodePool:    os.Getenv("DB_NODE_POOL"),
+		noProPools:    os.Getenv("PRO_NODE_POOLS") == "off",
 		domain:        env("DOMAIN", "cache.dply.local"),
 		dbDomain:      env("DB_DOMAIN", env("DOMAIN", "cache.dply.local")),
 		image:         env("VALKEY_IMAGE", "valkey/valkey:8-alpine"),
@@ -88,6 +90,10 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	// client-go defaults to 5 requests/s (burst 10), shared by every client
+	// connect, the reaper and leader election. Past that, calls queue on
+	// the client for seconds and a connect misses its 15s deadline.
+	restCfg.QPS, restCfg.Burst = 50, 100
 	kube, err := kubernetes.NewForConfig(restCfg)
 	if err != nil {
 		log.Fatal(err)
@@ -125,6 +131,7 @@ type gateway struct {
 	store   *snapshotStore
 	mu      sync.Mutex
 	tenants map[string]*tenantState
+	records tenantCache
 }
 
 func (g *gateway) state(id string) *tenantState {

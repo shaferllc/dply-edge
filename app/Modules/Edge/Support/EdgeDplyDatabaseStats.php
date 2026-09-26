@@ -24,6 +24,10 @@ final class EdgeDplyDatabaseStats
      */
     private const CONNECT_TIMEOUT = 20;
 
+    // Postgres DSNs set gssencmode=disable: libpq's default (prefer) looks
+    // for Kerberos credentials after connecting, which under PHP-FPM can
+    // stall past the gateway's 15s handshake deadline and drop the connection.
+
     /**
      * @return array{engine: string, version: string, uptime_seconds: int, size_bytes: int, tables: int, rows: int, connections: int, max_connections: int, cache_hit_ratio: ?float, commits: int, rollbacks: int, largest: list<array{name: string, rows: int, bytes: int}>}
      */
@@ -56,7 +60,7 @@ final class EdgeDplyDatabaseStats
     public static function queueBacklog(string $engine, string $host, string $id, string $password, array $queues): array
     {
         $pdo = match ($engine) {
-            'postgres' => new PDO("pgsql:host={$host};port=5432;dbname=app;sslmode=require;connect_timeout=".self::CONNECT_TIMEOUT, 'app', $password, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]),
+            'postgres' => new PDO("pgsql:host={$host};port=5432;dbname=app;sslmode=require;gssencmode=disable;connect_timeout=".self::CONNECT_TIMEOUT, 'app', $password, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]),
             'mysql' => new PDO("mysql:host={$host};port=3306;dbname=app", $id, $password, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_TIMEOUT => self::CONNECT_TIMEOUT, PDO::MYSQL_ATTR_SSL_CA => true, PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT => false]),
             default => throw new \RuntimeException(__('The database queue needs Postgres or MySQL.')),
         };
@@ -81,7 +85,7 @@ final class EdgeDplyDatabaseStats
     /** @return array<string, mixed> */
     private static function postgres(string $host, string $password): array
     {
-        $pdo = new PDO("pgsql:host={$host};port=5432;dbname=app;sslmode=require;connect_timeout=".self::CONNECT_TIMEOUT, 'app', $password, [
+        $pdo = new PDO("pgsql:host={$host};port=5432;dbname=app;sslmode=require;gssencmode=disable;connect_timeout=".self::CONNECT_TIMEOUT, 'app', $password, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         ]);

@@ -71,3 +71,14 @@ func TestDatabaseCPU(t *testing.T) {
 		t.Fatalf("awake %s parked %s, want 250m and 10m", awake.String(), parked.String())
 	}
 }
+
+func TestProPoolsOffPlacesProTenantsAnywhere(t *testing.T) {
+	local := &gateway{cfg: config{noProPools: true}}
+	if pod := local.podSpec("vk-x", 5120, true); pod.Spec.NodeSelector != nil || pod.Spec.Tolerations != nil {
+		t.Fatalf("PRO_NODE_POOLS=off still pins the pod: %v %v", pod.Spec.NodeSelector, pod.Spec.Tolerations)
+	}
+	cloud := &gateway{cfg: config{}}
+	if pod := cloud.podSpec("vk-x", 5120, true); pod.Spec.NodeSelector[nodePoolKey] != proSmallPool {
+		t.Fatalf("pro tenant not on %s: %v", proSmallPool, pod.Spec.NodeSelector)
+	}
+}
