@@ -246,14 +246,21 @@ final class EdgeContainerConnections
      *
      * @param  array{kind: string, asleep: bool, target: string}  $connection
      */
-    /** Whether a Redis connection's address actually reaches the app (dply Valkey is wired in on paid plans). */
+    /** Whether a Redis connection's address actually reaches the app (dply Valkey's Pro sizes need a paid plan). */
     public static function redisSuppliesEnv(Site $site, array $connection): bool
     {
         if ($connection['kind'] !== 'redis' || $connection['asleep']) {
             return false;
         }
 
-        return ! EdgeValkey::isTarget((string) $connection['target']) || (bool) $site->organization?->onAnyPaidPlan();
+        if (! EdgeValkey::isTarget((string) $connection['target'])) {
+            return true;
+        }
+        // dply Valkey is on every plan; only the advanced Pro sizes (always
+        // on, append-only file) need a paid plan.
+        $class = (string) ($connection['plan'] ?? EdgeValkey::DEFAULT_CLASS);
+
+        return (EdgeValkey::CLASSES[$class]['sleeps'] ?? true) || (bool) $site->organization?->onAnyPaidPlan();
     }
 
     /**

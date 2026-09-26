@@ -352,6 +352,18 @@ test('starting redis requires a card', function () {
         'created_by_user_id' => $user->id,
     ]))->save();
 
+    // dply Valkey is on every plan: a Flex size is wired in on Free.
+    expect(EdgeContainerConnections::redisDriverEnv($site->fresh()))->toHaveKey('REDIS_HOST', 'app-cache.cache.dply.test');
+
+    // Only the Pro sizes need a paid plan.
+    $site->mergeEdgeMeta(['connections' => [[
+        'kind' => 'redis',
+        'name' => 'CACHE',
+        'host' => 'cache.internal',
+        'target' => 'valkey:app-cache',
+        'plan' => 'pro_5g',
+    ]]]);
+    $site->save();
     expect(EdgeContainerConnections::redisDriverEnv($site->fresh()))->toBe([])
         ->and(EdgeContainerConnections::omitAsleepRedis($site->fresh(), ['REDIS_URL' => 'rediss://x', 'APP_NAME' => 'book']))->toBe(['APP_NAME' => 'book']);
 });

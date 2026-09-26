@@ -429,12 +429,16 @@ test('failing jobs and crash-looping workers raise one alert each per half hour'
 test('the app dispatches to the connection its workers pull from', function () {
     $valkey = ['connections' => [['kind' => 'redis', 'name' => 'REDIS', 'host' => 'redis.internal', 'target' => 'valkey:x']], 'container' => ['workers' => ['enabled' => true, 'connection' => 'redis']]];
     $redis = laravelApp($valkey, proOrg());
-    // On Free, dply Valkey is not wired into the app: no workers on it, and the app keeps its connection.
-    $free = laravelApp($valkey);
+    // Flex Valkey is on every plan. A Pro size on Free is not wired into the
+    // app: no workers on it, and the app keeps its own connection.
+    expect(EdgeQueueWorkers::dispatchEnv(laravelApp($valkey)))->toBe(['QUEUE_CONNECTION' => 'redis']);
+    $proSize = array_replace_recursive($valkey, ['connections' => [['plan' => 'pro_5g']]]);
+    $free = laravelApp($proSize);
     expect(EdgeQueueWorkers::dispatchEnv($free))->toBe([])
         ->and(EdgeQueueWorkers::runningInstances($free))->toBe(0)
-        ->and(EdgeQueueWorkers::unavailableReason($free))->toContain('Pro and Team')
-        ->and(EdgeQueueWorkers::connection(laravelApp(array_replace_recursive($valkey, ['container' => ['workers' => ['connection' => 'auto']]]))))->toBe('database');
+        ->and(EdgeQueueWorkers::unavailableReason($free))->toContain('needs a paid plan')
+        ->and(EdgeQueueWorkers::connection(laravelApp(array_replace_recursive($proSize, ['container' => ['workers' => ['connection' => 'auto']]]))))->toBe('database')
+        ->and(EdgeQueueWorkers::dispatchEnv(laravelApp($proSize, proOrg())))->toBe(['QUEUE_CONNECTION' => 'redis']);
     $database = laravelApp(['container' => ['workers' => ['enabled' => true]]]);
     $none = laravelApp();
 

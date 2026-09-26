@@ -206,11 +206,7 @@
                             @elseif ($workersConnection === 'database' && ($site->edgeMeta()['database']['provider'] ?? '') === 'dply' && (int) ($site->edgeMeta()['database']['suspend'] ?? -1) !== -1)
                                 <p class="mt-2 text-xs text-brand-ink">
                                     {{ __('Workers check the database every :sleep s, so it will not sleep while they run.', ['sleep' => $w['sleep']]) }}
-                                    @if ($site->organization?->onAnyPaidPlan())
-                                        <button type="button" wire:click="useValkeyForWorkers" x-on:click="$dispatch('open-modal', 'resources-connection')" class="font-semibold underline">{{ __('Queue on dply Valkey instead') }}</button>
-                                    @else
-                                        {{ __('On Pro, queue on dply Valkey instead to let it sleep.') }}
-                                    @endif
+                                    <button type="button" wire:click="useValkeyForWorkers" x-on:click="$dispatch('open-modal', 'resources-connection')" class="font-semibold underline">{{ __('Queue on dply Valkey instead') }}</button>
                                 </p>
                             @endif
                             <details class="mt-2 text-xs">

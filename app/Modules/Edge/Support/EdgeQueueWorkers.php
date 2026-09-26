@@ -140,7 +140,7 @@ final class EdgeQueueWorkers
                 ->contains(fn (array $c): bool => $c['kind'] === 'redis' && ! $c['asleep'] && EdgeValkey::isTarget((string) $c['target']));
 
             return $valkeyNeedsPlan
-                ? __('dply Valkey is wired into apps on Pro and Team. Choose a plan, or set Connection to database.')
+                ? __('This dply Valkey size needs a paid plan. Choose a plan or a Flex size, or set Connection to database.')
                 : __('Workers are set to pull from :connection, which this app does not have yet.', ['connection' => self::for($site)['connection']]);
         }
 
