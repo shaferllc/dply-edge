@@ -13,8 +13,8 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
 
-test('a free org under the credit can still build', function () {
-    $org = Organization::factory()->create();
+test('a trial under its credit can still build', function () {
+    $org = Organization::factory()->create(['trial_ends_at' => now()->addDays(3)]);
 
     $status = app(StarterUsageBudget::class)->status($org);
 
@@ -24,9 +24,9 @@ test('a free org under the credit can still build', function () {
         ->and(app(StarterUsageBudget::class)->alertKind($status))->toBeNull();
 });
 
-test('build minutes draw the free credit', function () {
-    config(['subscription.standard.tiers.free.spending_limit_cents' => 1]);
-    $org = Organization::factory()->create();
+test('build minutes draw the trial credit', function () {
+    config(['subscription.standard.trial.spending_limit_cents' => 1]);
+    $org = Organization::factory()->create(['trial_ends_at' => now()->addDays(3)]);
     $server = Server::factory()->for($org)->create();
     $site = Site::factory()->for($org)->for($server)->create();
     EdgeDeployment::query()->create([
@@ -40,4 +40,12 @@ test('build minutes draw the free credit', function () {
     expect($status['used_cents'])->toBe(2)
         ->and($status['exhausted'])->toBeTrue()
         ->and(app(StarterUsageBudget::class)->alertKind($status))->toBe('over');
+});
+
+test('a paid org is never capped', function () {
+    config(['subscription.standard.stripe.tier_pro' => 'price_tier_pro']);
+    $org = Organization::factory()->create();
+    \App\Modules\Billing\Models\Subscription::factory()->withPrice('price_tier_pro')->active()->create(['organization_id' => $org->id]);
+
+    expect(app(StarterUsageBudget::class)->status($org->fresh())['limit_cents'])->toBeNull();
 });

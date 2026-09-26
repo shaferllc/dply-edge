@@ -604,8 +604,11 @@ class Create extends Component
     private function planCostSummary(): array
     {
         $org = auth()->user()?->currentOrganization();
-        $tier = $org?->tierAllowances() ?? (array) config('subscription.standard.tiers.free');
-        $label = (string) ($tier['label'] ?? 'Free');
+        $tier = $org?->tierAllowances() ?? (array) config('subscription.standard.tiers.none');
+        $label = (string) ($tier['label'] ?? 'No plan');
+        if (! ($org?->hasPlan() ?? false)) {
+            return ['plan' => $label, 'headline' => __('Start a trial'), 'detail' => __(':days days of Pro, then $20/mo. Start it on the billing page.', ['days' => (int) config('subscription.standard.trial.days', 5)])];
+        }
         $mode = (string) $this->form->runtime_mode;
         $money = static fn (float $dollars, int $decimals = 2): string => '$'.number_format($dollars, $decimals);
 
@@ -635,10 +638,8 @@ class Create extends Component
 
         return [
             'plan' => $label,
-            'headline' => $label === 'Free' ? __('Upgrade') : $money((int) config('subscription.standard.edge_cents', 200) / 100).'/mo',
-            'detail' => $label === 'Free'
-                ? __('Free includes :count site. Pro includes 10.', ['count' => $included])
-                : __('Extra site beyond the :count on :plan.', ['count' => $included, 'plan' => $label]),
+            'headline' => $money((int) config('subscription.standard.edge_cents', 200) / 100).'/mo',
+            'detail' => __('Extra site beyond the :count on :plan.', ['count' => $included, 'plan' => $label]),
         ];
     }
 }

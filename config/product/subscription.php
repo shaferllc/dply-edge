@@ -66,20 +66,36 @@ return [
         |   requests/egress  billed at dply.edge.usage_billing rates
         |   container compute  per second of vCPU / memory / disk after the
         |                  tier's compute_credit_cents
-        | Free needs no card. The audit log is a tier feature.
+        | The audit log is a tier feature.
         */
+        /*
+        | No Free plan (ruling r-f17p5zgeh120cm5t, 2026-09-26). A new org gets
+        | a trial of `tier` for `days`, card required (Stripe trial; it bills
+        | on the next day unless canceled). While on trial, usage past
+        | spending_limit_cents pauses builds and container traffic. An org
+        | with no plan (trial over, unpaid, canceled) is paused; its data is
+        | deleted keep_data_days later, only once purge_enabled is on.
+        */
+        'trial' => [
+            'days' => 5,
+            'tier' => 'pro',
+            'spending_limit_cents' => 500,
+            'card_required' => true,
+            'keep_data_days' => 7,
+            'purge_enabled' => (bool) env('DPLY_BILLING_PURGE_ENABLED', false),
+        ],
         'tiers' => [
-            'free' => [
-                'label' => 'Free', 'price_cents' => 0,
-                // Unlimited apps, seats, and builds. Metered usage draws down
-                // the credit; at spending_limit_cents new builds and container traffic pause.
-                'sites' => null, 'ssr' => false, 'seats' => null, 'extra_seat_cents' => null,
-                'build_minutes' => null, 'build_minute_overage_millicents' => null,
-                'concurrent_builds' => 1, 'build_timeout_minutes' => 20,
-                'requests' => 1_000_000, 'egress_gb' => 10,
-                'custom_domains_per_site' => 10, 'addons' => false, 'audit_log' => false, 'containers' => true, 'compute_credit_cents' => 500, 'spending_limit_cents' => 500, 'build_minute_credit_millicents' => 1000, 'databases' => 1, 'queues' => 1, 'queue_concurrency' => 1, 'queue_batch_wait_seconds' => 5,
-                // Queue workers per app: instances across all groups (null = no cap), autoscaling, extra groups.
-                'worker_instances' => 1, 'worker_autoscale' => false, 'worker_groups' => 0,
+            // No plan: the trial ended or the subscription lapsed. Nothing
+            // runs (EnforceOrganizationBillingCommand pauses the org), so every
+            // allowance is zero. Not offered; never shown as a plan.
+            'none' => [
+                'label' => 'No plan', 'price_cents' => 0,
+                'sites' => 0, 'ssr' => false, 'seats' => null, 'extra_seat_cents' => null,
+                'build_minutes' => 0, 'build_minute_overage_millicents' => null,
+                'concurrent_builds' => 0, 'build_timeout_minutes' => 0,
+                'requests' => 0, 'egress_gb' => 0,
+                'custom_domains_per_site' => 0, 'addons' => false, 'audit_log' => false, 'containers' => false, 'compute_credit_cents' => 0, 'spending_limit_cents' => 0, 'build_minute_credit_millicents' => 0, 'databases' => 0, 'queues' => 0, 'queue_concurrency' => 1, 'queue_batch_wait_seconds' => 5,
+                'worker_instances' => 0, 'worker_autoscale' => false, 'worker_groups' => 0,
             ],
             'pro' => [
                 'label' => 'Pro', 'price_cents' => 2000,

@@ -9,7 +9,7 @@
 
     <x-seo-meta
         title="Pricing"
-        description="Free, Pro and Team plans for Edge sites, with metered usage past what your plan includes." />
+        description="Pro and Team plans for sites, server apps, databases and queue workers, with a 5-day trial and metered usage past what your plan includes." />
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @livewireStyles
     <style>
@@ -20,19 +20,26 @@
 @include('partials.skip-link')
     @php
         /*
-         | Plan tiers + usage (ruling r-zdescb7y05vp1bxx). Everything below is
+         | Plan tiers + usage (rulings r-zdescb7y05vp1bxx, r-wdxrhbm4ww21hgj3 —
+         | no Free plan, a card-up-front Pro trial instead). Everything below is
          | read from the billing config the invoice is built from, so the page
          | cannot drift from it:
          |   subscription.standard.tiers.*          plans and allowances
          |   subscription.standard.edge_cents       extra site, SSR site prices
+         |   subscription.standard.trial.*          trial length, plan, data grace
          |   dply.edge.usage_billing.*              overage rates + storage allowances
+         |   EdgeAppDatabaseCost / EdgeValkey        managed database + Valkey prices
          */
         $estimator = app(\App\Modules\Billing\Services\ManagedProductCostEstimator::class);
         $rates = $estimator->edgeUsageRates();
 
         $sitePrice = ((int) config('subscription.standard.edge_cents', 200)) / 100;
         $ssrPrice = ((int) config('subscription.standard.edge_ssr_cents', 700)) / 100;
-        $tiers = collect(config('subscription.standard.tiers'))->only(['free', 'pro', 'team'])->all();
+        $tiers = collect(config('subscription.standard.tiers'))->only(['pro', 'team'])->all();
+
+        $trialDays = (int) config('subscription.standard.trial.days', 5);
+        $trialPlan = $tiers[config('subscription.standard.trial.tier', 'pro')]['label'] ?? 'Pro';
+        $keepDays = (int) config('subscription.standard.trial.keep_data_days', 7);
 
         $includedStorage = (int) $rates['included_r2_storage_gb_per_site'];
         $includedClassA = (int) config('dply.edge.usage_billing.included_r2_class_a_ops_per_site', 100_000);
@@ -49,7 +56,7 @@
 
         // Plan comparison rows: label => per-tier cell.
         $compare = [
-            [__('Sites included'), fn ($t, $k) => $unitLabel($t['sites']).($k !== 'free' ? __(' · then $:p each', ['p' => number_format($sitePrice, 0)]) : '')],
+            [__('Sites included'), fn ($t) => $unitLabel($t['sites']).__(' · then $:p each', ['p' => number_format($sitePrice, 0)])],
             [__('Worker SSR sites'), fn ($t) => $t['ssr'] ? __('$:p each', ['p' => number_format($ssrPrice, 0)]) : '—'],
             [__('Seats'), fn ($t) => $unitLabel($t['seats']).($t['extra_seat_cents'] ? __(' · then $:p each', ['p' => number_format($t['extra_seat_cents'] / 100, 0)]) : '')],
             [__('Build minutes / mo'), fn ($t) => $t['build_minutes'] === null ? __('Unlimited') : number_format((int) $t['build_minutes']).($t['build_minute_overage_millicents'] ? __(' · then $:p/min', ['p' => rtrim(rtrim(number_format($t['build_minute_overage_millicents'] / 100_000, 3), '0'), '.')]) : __(' · then builds pause'))],
@@ -59,9 +66,12 @@
             [__('Egress / mo'), fn ($t) => $t['egress_gb'] === null ? __('Unlimited') : number_format((int) $t['egress_gb']).' GB'],
             [__('Custom domains per site'), fn ($t) => $unitLabel($t['custom_domains_per_site'])],
             [__('Container apps (PHP, Rails, Node)'), fn ($t) => $t['containers'] ? __(':credit compute included', ['credit' => '$'.number_format(($t['compute_credit_cents'] ?? 0) / 100, 0)]) : '—'],
-            [__('Usage credit'), fn ($t) => isset($t['spending_limit_cents']) ? __('$ :n, then apps pause', ['n' => number_format(((int) $t['spending_limit_cents']) / 100, 0)]) : __('Billed as overage')],
+            [__('Postgres, MySQL, MongoDB'), fn () => __('By usage · see below')],
+            [__('Valkey (Redis)'), fn () => __('By usage · see below')],
+            [__('Edge SQL databases (D1)'), fn ($t) => $unitLabel($t['databases'] ?? null)],
             [__('Managed queues'), fn ($t) => $unitLabel($t['queues'] ?? null)],
             [__('Queue workers per app'), fn ($t) => ! ($t['containers'] ?? false) ? '—' : trim(($t['worker_instances'] === null ? __('Unlimited') : trans_choice(':count worker|:count workers', (int) $t['worker_instances'])).(($t['worker_autoscale'] ?? false) ? __(' · autoscaling') : '').((int) ($t['worker_groups'] ?? 0) > 0 ? __(' · :g groups', ['g' => (int) $t['worker_groups']]) : ''))],
+            [__('Scheduler in worker'), fn ($t) => $t['containers'] ? __('Yes') : '—'],
             [__('Scale to zero'), fn ($t) => $t['containers'] ? __('Sleeps when idle') : '—'],
             [__('DDoS mitigation'), fn () => __('Yes')],
             [__('Request logs'), fn () => __(':d days', ['d' => (int) config('edge.analytics.access_logs_days', 7)])],
@@ -92,10 +102,25 @@
             'month' => '$'.number_format($computeCost->perMinuteMillicents($t[1], $t[2], $t[3]) * 60 * 730 / 100_000, 2),
         ], $instanceTypes);
 
+        // Managed databases: compute units while awake + disk always. Valkey:
+        // per second awake, capped at the class's monthly price.
+        $dbRates = app(\App\Modules\Billing\Services\EdgeAppDatabaseCost::class)->presentation();
+        $dbSmallestMonth = app(\App\Modules\Billing\Services\EdgeAppDatabaseCost::class)->monthly(0.25);
+        $valkeyRows = array_map(static fn (array $c): array => [
+            'label' => $c['label'],
+            'hour' => '$'.number_format($c['per_second'] * 3600, 4),
+            'cap' => '$'.number_format($c['cap_cents'] / 100, 0),
+            'sleeps' => $c['sleeps'],
+        ], array_values(\App\Modules\Edge\Support\EdgeValkey::offered()));
+
         $faqs = [
             [
+                'q' => __('How does the trial work?'),
+                'a' => __(':days days of :plan with a card on file. You are billed on day :next unless you cancel first. Trial compute has a spending limit, so a busy trial cannot run up a bill. If a trial ends without payment, sites stop serving and apps sleep; your data is kept :keep days, then deleted.', ['days' => $trialDays, 'plan' => $trialPlan, 'next' => $trialDays + 1, 'keep' => $keepDays]),
+            ],
+            [
                 'q' => __('What exactly am I paying for?'),
-                'a' => __('Your plan’s monthly fee, plus anything past its allowance: extra sites, Worker SSR sites, extra seats on Team, and metered delivery or build minutes. Free needs no card and includes $5 of usage.'),
+                'a' => __('Your plan’s monthly fee, plus anything past its allowance: extra sites, Worker SSR sites, extra seats on Team, metered delivery and build minutes, and the seconds your containers, databases and Valkey are awake.'),
             ],
             [
                 'q' => __('Do preview deployments cost anything?'),
@@ -103,11 +128,15 @@
             ],
             [
                 'q' => __('What happens if I go past my plan?'),
-                'a' => __('On Pro and Team, sites keep serving and builds keep running; the extra is metered at the rates above and lands on your next invoice. On Free, builds and traffic pause until the next month once the $5 usage credit is used.'),
+                'a' => __('Sites keep serving and builds keep running; the extra is metered at the rates above and lands on your next invoice. Nothing is throttled.'),
             ],
             [
                 'q' => __('How is Worker SSR different?'),
                 'a' => __('Worker SSR renders on Dply Edge instead of shipping prebuilt files, so each SSR site carries its own monthly fee on Pro and Team.'),
+            ],
+            [
+                'q' => __('Do databases sleep too?'),
+                'a' => __('Flex databases and Flex Valkey sleep after an idle period you choose and wake on the next connection; while asleep you pay only for disk. Pro Valkey stays on. Valkey’s monthly price is a ceiling, not a floor.'),
             ],
             [
                 'q' => __('Can I pay yearly?'),
@@ -131,12 +160,12 @@
                     {{ __('Pick a plan. Pay for what you outgrow.') }}
                 </h1>
                 <p class="mt-5 max-w-2xl text-base leading-7 text-edge-mute">
-                    {{ __('Free to start with unlimited apps and $5 of usage, Pro for real projects, Team for your whole company. Anything past a paid plan is metered, previews included.') }}
+                    {{ __('Pro for real projects, Team for your whole company. Sites, server apps, databases and workers on one bill — anything past your plan is metered, previews included.') }}
                 </p>
 
                 <div class="mt-8 flex flex-wrap items-center gap-4">
                     <a href="{{ route('register') }}" class="font-terminal inline-flex items-center gap-2 bg-edge-lime px-5 py-3 text-sm font-bold text-edge-void transition-colors hover:bg-edge-lime-bright">
-                        {{ __('Deploy a site') }} <span aria-hidden="true">→</span>
+                        {{ __('Start a :d-day trial', ['d' => $trialDays]) }} <span aria-hidden="true">→</span>
                     </a>
                     <a href="#estimate" class="font-terminal border-b border-edge-lime pb-0.5 text-sm text-edge-text transition-colors hover:text-edge-lime">
                         {{ __('estimate a bill') }}
@@ -147,7 +176,7 @@
 
         {{-- ============================== PLANS ============================= --}}
         <section class="border-b border-edge-line">
-            <div class="mx-auto grid max-w-6xl grid-cols-1 md:grid-cols-3">
+            <div class="mx-auto grid max-w-6xl grid-cols-1 md:grid-cols-2">
                 @foreach ($tiers as $key => $tier)
                     <div @class([
                         'px-6 py-8 lg:px-10',
@@ -165,7 +194,7 @@
             </div>
             <div class="border-t border-edge-line">
                 <p class="mx-auto max-w-6xl px-6 py-4 text-sm text-edge-mute lg:px-10">
-                    {{ __('Billed monthly. Preview usage counts toward your plan. Enterprise pricing on request.') }}
+                    {{ __('Try :plan free for :d days — card required, billed on day :next unless you cancel. Billed monthly after that. Enterprise pricing on request.', ['plan' => $trialPlan, 'd' => $trialDays, 'next' => $trialDays + 1]) }}
                 </p>
             </div>
         </section>
@@ -206,7 +235,7 @@
             <div class="mx-auto max-w-6xl px-6 py-14 lg:px-10">
                 <h2 class="text-2xl font-bold tracking-[-0.02em]">{{ __('If you outgrow your plan') }}</h2>
                 <p class="mt-2 max-w-2xl text-sm leading-6 text-edge-mute">
-                    {{ __('On Pro and Team, usage past your plan is metered at these rates and billed monthly in arrears. Nothing is throttled; the meter simply runs.') }}
+                    {{ __('Usage past your plan is metered at these rates and billed monthly in arrears. Nothing is throttled; the meter simply runs.') }}
                 </p>
 
                 <div class="mt-8 overflow-x-auto border border-edge-line">
@@ -268,6 +297,65 @@
             </div>
         </section>
 
+        {{-- ========================== DATABASES & CACHE ===================== --}}
+        <section class="border-b border-edge-line">
+            <div class="mx-auto max-w-6xl px-6 py-14 lg:px-10">
+                <h2 class="text-2xl font-bold tracking-[-0.02em]">{{ __('Databases and cache, by the second') }}</h2>
+                <p class="mt-2 max-w-2xl text-sm leading-6 text-edge-mute">
+                    {{ __('Managed Postgres, MySQL and MongoDB with backups and point-in-time restore, and Valkey for cache, sessions and queues. Priced while awake — flex sizes sleep when idle.') }}
+                </p>
+
+                <div class="mt-8 grid gap-6 lg:grid-cols-2">
+                    <div class="overflow-x-auto border border-edge-line">
+                        <table class="min-w-full text-left text-sm">
+                            <thead class="font-terminal border-b border-edge-line bg-edge-panel text-[11px] uppercase tracking-[0.16em] text-edge-faint">
+                                <tr>
+                                    <th class="px-5 py-3 font-normal">{{ __('Postgres · MySQL · MongoDB') }}</th>
+                                    <th class="px-5 py-3 font-normal">{{ __('Rate') }}</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-edge-line">
+                                <tr>
+                                    <td class="px-5 py-3.5 text-edge-text">{{ __('Compute, smallest size (¼ CU)') }}</td>
+                                    <td class="font-terminal px-5 py-3.5 text-edge-lime">${{ $dbRates['hour'] }}<span class="text-edge-mute">/hr</span></td>
+                                </tr>
+                                <tr>
+                                    <td class="px-5 py-3.5 text-edge-text">{{ __('Same, awake all month') }}</td>
+                                    <td class="font-terminal px-5 py-3.5 text-edge-mute">${{ $dbSmallestMonth }}</td>
+                                </tr>
+                                <tr>
+                                    <td class="px-5 py-3.5 text-edge-text">{{ __('Storage') }}</td>
+                                    <td class="font-terminal px-5 py-3.5 text-edge-lime">${{ $dbRates['gigabyte'] }}<span class="text-edge-mute">/GB-mo</span></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <p class="border-t border-edge-line px-5 py-3 text-xs text-edge-mute">{{ __('Larger sizes scale linearly with compute units. Storage bills whether awake or asleep.') }}</p>
+                    </div>
+
+                    <div class="overflow-x-auto border border-edge-line">
+                        <table class="min-w-full text-left text-sm">
+                            <thead class="font-terminal border-b border-edge-line bg-edge-panel text-[11px] uppercase tracking-[0.16em] text-edge-faint">
+                                <tr>
+                                    <th class="px-5 py-3 font-normal">{{ __('Valkey') }}</th>
+                                    <th class="px-5 py-3 font-normal">{{ __('Per hour') }}</th>
+                                    <th class="px-5 py-3 font-normal">{{ __('Max / mo') }}</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-edge-line">
+                                @foreach ($valkeyRows as $row)
+                                    <tr>
+                                        <td class="px-5 py-3 text-edge-text">{{ $row['label'] }} @if ($row['sleeps'])<span class="text-xs text-edge-mute">· {{ __('sleeps') }}</span>@endif</td>
+                                        <td class="font-terminal px-5 py-3 text-edge-lime">{{ $row['hour'] }}</td>
+                                        <td class="font-terminal px-5 py-3 text-edge-mute">{{ $row['cap'] }}</td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         {{-- ============================ ESTIMATOR =========================== --}}
         <section id="estimate" class="border-b border-edge-line scroll-mt-16">
             <div class="mx-auto max-w-6xl px-6 py-14 lg:px-10">
@@ -313,11 +401,11 @@
         <section>
             <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-6 px-6 py-14 lg:px-10">
                 <div>
-                    <h2 class="text-2xl font-bold tracking-[-0.02em]">{{ __('Push a repo, get a site on the edge.') }}</h2>
-                    <p class="mt-2 text-sm text-edge-mute">{{ __('First deploy takes about a minute. No card to start.') }}</p>
+                    <h2 class="text-2xl font-bold tracking-[-0.02em]">{{ __('Push a repo, get the whole app running.') }}</h2>
+                    <p class="mt-2 text-sm text-edge-mute">{{ __(':d days of :plan to try it. Cancel before day :next and you pay nothing.', ['d' => $trialDays, 'plan' => $trialPlan, 'next' => $trialDays + 1]) }}</p>
                 </div>
                 <a href="{{ route('register') }}" class="font-terminal inline-flex items-center gap-2 bg-edge-lime px-5 py-3 text-sm font-bold text-edge-void transition-colors hover:bg-edge-lime-bright">
-                    {{ __('Deploy a site') }} <span aria-hidden="true">→</span>
+                    {{ __('Start a :d-day trial', ['d' => $trialDays]) }} <span aria-hidden="true">→</span>
                 </a>
             </div>
         </section>

@@ -383,6 +383,14 @@ class EdgeHostMapPublisher
         if ($effErrors['maintenance_enabled']) {
             $payload['maintenance_mode'] = true;
         }
+        // Billing pause (ruling r-f17p5zgeh120cm5t): the org's trial ended
+        // unpaid. Served as maintenance so nothing behind it wakes; the
+        // site's own maintenance setting is left as it was.
+        $organization = $site->organization;
+        if ($organization !== null && $organization->billing_paused_at !== null && ! $organization->hasPlan()) {
+            $payload['maintenance_mode'] = true;
+            $payload['maintenance_html'] = view('edge.billing-paused')->render();
+        }
 
         if (($edgeMeta['runtime_mode'] ?? 'static') === 'hybrid') {
             // Hybrid origin (P55-followup): repo-declared `origin:` from

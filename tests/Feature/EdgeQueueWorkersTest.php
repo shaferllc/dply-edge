@@ -790,8 +790,8 @@ test('the plan caps workers: instances, autoscaling and groups', function () {
         ],
     ]]];
 
-    // Free: one worker, no autoscaling, no groups.
-    $free = EdgeQueueWorkers::groups(laravelApp($wants, Organization::factory()->create()));
+    // No plan (the old Free caps): one worker, no autoscaling, no groups.
+    $free = EdgeQueueWorkers::groups(laravelApp($wants, Organization::factory()->noPlan()->create()));
     expect(array_column($free, 'key'))->toBe([''])
         ->and($free[0])->toMatchArray(['instances' => 1, 'autoscale' => false, 'capacity' => 1]);
 
@@ -808,17 +808,17 @@ test('the plan caps workers: instances, autoscaling and groups', function () {
 });
 
 test('the card says what the plan allows and does not offer more', function () {
-    $app = laravelApp(['container' => ['workers' => ['enabled' => true, 'instances' => 3]]], Organization::factory()->create());
+    // No plan (trial over): workers do not run, and nothing more is offered.
+    $app = laravelApp(['container' => ['workers' => ['enabled' => true, 'instances' => 3]]], Organization::factory()->create(['trial_ends_at' => now()->subDay()]));
     $user = User::factory()->create();
     $app->organization->users()->attach($user->id, ['role' => 'owner']);
     $app->forceFill(['user_id' => $user->id, 'type' => SiteType::Static, 'status' => Site::STATUS_EDGE_ACTIVE])->save();
     $app->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
 
     Livewire::actingAs($user)->test(Resources::class, ['server' => $app->server, 'site' => $app])
-        ->assertSee('Free runs 1 worker instance(s) per app, without autoscaling, no extra groups.')
+        ->assertSee('Workers don’t run without a plan.')
         ->assertSee('Groups are on Pro and Team.')
         ->assertDontSee('Add a group');
-    expect(EdgeContainerSettings::for($app)['worker_instances'])->toBe(1);
 });
 
 test('each worker reports where it landed and how far its data is', function () {
@@ -869,8 +869,8 @@ test('autoscaled workers can scale to zero, and come back for jobs', function ()
         ->and(EdgeQueueWorkers::targetInstances($s, 1))->toBe(1)
         ->and(EdgeQueueWorkers::targetInstances($s, 45))->toBe(3);
 
-    // Free has no autoscaling: zero always-on becomes one.
-    $free = laravelApp(['container' => ['workers' => ['enabled' => true, 'autoscale' => true, 'instances' => 0]]], Organization::factory()->create());
+    // Without a plan there is no autoscaling: zero always-on becomes one.
+    $free = laravelApp(['container' => ['workers' => ['enabled' => true, 'autoscale' => true, 'instances' => 0]]], Organization::factory()->noPlan()->create());
     expect(EdgeQueueWorkers::groups($free)[0]['instances'])->toBe(1);
 
     // The scheduler needs an always-on worker-0; scaled to zero it stays on the Cron Trigger.

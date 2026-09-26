@@ -119,7 +119,11 @@
                                     || count((array) ($workers['groups'] ?? [])) > $allow['groups']
                                     || (! $allow['autoscale'] && ($w['autoscale'] || collect($w['groups'])->contains('autoscale', true)));
                             @endphp
-                            @if ($overPlan)
+                            @if (! $site->organization?->hasPlan())
+                                <p class="mt-2 rounded-md border border-amber-500/50 bg-amber-500/10 px-2 py-1.5 text-xs font-medium text-brand-ink">
+                                    {{ __('Workers don’t run without a plan. Start a trial or choose a plan on the billing page.') }}
+                                </p>
+                            @elseif ($overPlan)
                                 <p class="mt-2 rounded-md border border-amber-500/50 bg-amber-500/10 px-2 py-1.5 text-xs font-medium text-brand-ink">
                                     {{ __(':plan runs :n worker instance(s) per app:autoscale:groups. The rest of these settings are not deployed. Choose a plan on the billing page for more.', [
                                         'plan' => $allow['plan'] ?: __('This plan'),

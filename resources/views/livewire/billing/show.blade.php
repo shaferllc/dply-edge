@@ -7,10 +7,25 @@
 
     $betaFeeWaived = $this->organization->betaFeeWaived();
 
-    if ($betaFeeWaived) {
+    $org = $this->organization;
+    if ($org->isComped()) {
+        $statusTone = 'success';
+        $statusLabel = __('Comped');
+        $statusSub = __(':plan · nothing due', ['plan' => $org->planTierLabel()]);
+    } elseif ($betaFeeWaived) {
         $statusTone = 'success';
         $statusLabel = __('Beta');
         $statusSub = __('$0 — nothing due');
+    } elseif ($org->onTrialPlan()) {
+        $statusTone = 'info';
+        $statusLabel = __('Trial');
+        $statusSub = __(':plan until :date', ['plan' => $org->planTierLabel(), 'date' => $org->planTrialEndsAt()?->toFormattedDayDateString()]);
+    } elseif (! $org->hasPlan()) {
+        $statusTone = $org->billing_paused_at ? 'danger' : 'neutral';
+        $statusLabel = $org->billing_paused_at ? __('Paused') : __('No plan');
+        $statusSub = $org->eligibleForTrial()
+            ? __('Start a :days-day trial below', ['days' => (int) config('subscription.standard.trial.days', 5)])
+            : __('Choose a plan below');
     } elseif ($this->onGracePeriod) {
         $statusTone = 'warning';
         $statusLabel = __('Cancelled');

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Auth;
 
+use App\Actions\Organizations\EnsureUserHasWorkspaceOrganization;
 use App\Http\Controllers\Controller;
 use App\Models\SocialAccount;
 use App\Models\User;
@@ -87,6 +88,13 @@ class OAuthController extends Controller
         }
 
         Auth::login($user, true);
+        // A new OAuth account gets its workspace here, as a registered one
+        // does; without it the user has nowhere to start the trial.
+        $organization = EnsureUserHasWorkspaceOrganization::run($user);
+        session(['current_organization_id' => session('current_organization_id', $organization->id)]);
+        if (! $organization->hasPlan() && $organization->eligibleForTrial()) {
+            return redirect()->route('billing.show', $organization);
+        }
 
         return redirect()->intended(route('dashboard', absolute: false));
     }

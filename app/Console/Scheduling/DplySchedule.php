@@ -17,6 +17,7 @@ use App\Console\Commands\PruneSiteUptimeCheckResultsCommand;
 use App\Console\Commands\ReapStuckConsoleActionsCommand;
 use App\Console\Commands\SyncErrorEventsCommand;
 use App\Modules\Billing\Console\SnapshotOrganizationBillingCommand;
+use App\Modules\Billing\Console\EnforceOrganizationBillingCommand;
 use App\Modules\Billing\Console\SyncAllOrganizationBillingCommand;
 use App\Modules\Edge\Console\CheckEdgeQueueWorkersCommand;
 use App\Modules\Edge\Console\SampleEdgeDatabasesCommand;
@@ -76,6 +77,8 @@ final class DplySchedule
             ->name('reap-stuck-console-actions');
 
         $schedule->command(SyncAllOrganizationBillingCommand::class)->dailyAt('02:30');
+        // Trials: emails, pause when unpaid, resume when paid (ruling r-f17p5zgeh120cm5t).
+        $schedule->command(EnforceOrganizationBillingCommand::class)->hourly()->withoutOverlapping()->onOneServer();
         $schedule->command(SnapshotOrganizationBillingCommand::class)->dailyAt('02:10');
 
         // Value-less flags must be scheduled as `--today` (not `--today => true`,

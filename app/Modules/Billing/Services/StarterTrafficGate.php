@@ -47,7 +47,8 @@ final class StarterTrafficGate
 
     public function syncOrganization(Organization $organization): void
     {
-        $pause = $this->budget->status($organization)['exhausted'];
+        // No plan (trial over, unpaid): nothing runs. On a trial: past its cap.
+        $pause = ! $organization->hasPlan() || $this->budget->status($organization)['exhausted'];
 
         Site::query()
             ->where('organization_id', $organization->id)

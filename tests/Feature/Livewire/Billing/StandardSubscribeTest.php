@@ -16,7 +16,7 @@ uses(RefreshDatabase::class);
 
 beforeEach(function () {
     $this->admin = User::factory()->create();
-    $this->org = Organization::factory()->create();
+    $this->org = Organization::factory()->newSignup()->create();
     $this->org->users()->attach($this->admin->id, ['role' => 'admin']);
 
     Config::set('subscription.standard.stripe.edge', 'price_test_edge_monthly');
@@ -36,8 +36,10 @@ test('billing page renders edge-site billing with no server plan residue', funct
         ->test(BillingShow::class, ['organization' => $this->org])
         ->assertOk()
         ->assertSee('Edge sites')
-        ->assertSee('Choose Pro')
-        ->assertSee('Choose Team')
+        // No Free plan: a new org is offered the trial (ruling r-f17p5zgeh120cm5t).
+        ->assertSee('Start 5-day Pro trial')
+        ->assertSee('Start 5-day Team trial')
+        ->assertSee('card required')
         ->assertSee('How billing works')
         ->assertSee('Cost forecast')
         ->assertSee('Invoices')

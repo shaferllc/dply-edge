@@ -8,6 +8,7 @@ use App\Modules\Billing\Services\BillingAnalytics;
 use App\Modules\Billing\Services\DesiredBillingState;
 use App\Modules\Billing\Services\OrganizationBillingStateComputer;
 use App\Modules\Billing\Services\StandardSubscriptionCreator;
+use App\Modules\Billing\Services\StarterTrafficGate;
 use App\Modules\Billing\Services\SubscriptionPlanResolver;
 use App\Modules\Billing\Services\VatInsightService;
 use Carbon\CarbonInterface;
@@ -197,7 +198,7 @@ class Show extends Component
             return null;
         }
 
-        if ($this->organization->subscription('default') !== null) {
+        if ($this->organization->subscription('default')?->valid()) {
             $this->addError('billing', __('This organization already has a subscription. Change plan below instead.'));
 
             return null;
@@ -222,10 +223,25 @@ class Show extends Component
             $builder->price($item['price'], $item['quantity']);
         }
 
-        $checkout = $builder->checkout([
+        // The trial (ruling r-f17p5zgeh120cm5t): a first-time org gets
+        // trial.days with a card on file; an org still on its card-less
+        // trial keeps the days it has left. Either way Checkout takes the
+        // card, and a trial that ends without one cancels instead of going
+        // past due.
+        $sessionOptions = [
             'success_url' => $subscriptionUrl.'?checkout=success',
             'cancel_url' => $subscriptionUrl.'?checkout=cancelled',
-        ], []);
+        ];
+        $trialUntil = $this->organization->onGenericTrial()
+            ? $this->organization->trial_ends_at
+            : ($this->organization->eligibleForTrial() ? now()->addDays((int) config('subscription.standard.trial.days', 5)) : null);
+        if ($trialUntil !== null) {
+            $builder->trialUntil($trialUntil);
+            $sessionOptions['payment_method_collection'] = 'always';
+            $sessionOptions['subscription_data'] = ['trial_settings' => ['end_behavior' => ['missing_payment_method' => 'cancel']]];
+        }
+
+        $checkout = $builder->checkout($sessionOptions, []);
 
         // Stripe Checkout lives on a different origin (checkout.stripe.com),
         // so Livewire's default wire:navigate redirect fails silently — pass
@@ -267,9 +283,12 @@ class Show extends Component
         ]);
 
         try {
-            $subscription->swapAndInvoice(collect($items)->mapWithKeys(
+            $prices = collect($items)->mapWithKeys(
                 static fn (array $item): array => [$item['price'] => ['quantity' => $item['quantity']]],
-            )->all());
+            )->all();
+            // During a trial there is nothing to prorate: swap and keep the
+            // trial (Cashier keeps trial_end while onTrial()).
+            $subscription->onTrial() ? $subscription->swap($prices) : $subscription->swapAndInvoice($prices);
         } catch (Throwable $e) {
             report($e);
 
@@ -281,6 +300,29 @@ class Show extends Component
         return $this->billingRedirect('billing_status', __('You\'re now on :plan.', [
             'plan' => (string) config('subscription.standard.tiers.'.$tier.'.label'),
         ]));
+    }
+
+    /**
+     * End a card trial now and start paying: lifts the trial's spending cap.
+     */
+    public function endTrial(): mixed
+    {
+        $this->authorize('update', $this->organization);
+        $subscription = $this->organization->subscription('default');
+        if (! $subscription || ! $subscription->onTrial()) {
+            return $this->billingRedirect('billing_error', __('There is no trial to end.'));
+        }
+        try {
+            $subscription->endTrial();
+        } catch (Throwable $e) {
+            report($e);
+
+            return $this->billingRedirect('billing_error', __('Could not end the trial. Please try again or contact support.'));
+        }
+        audit_log($this->organization, auth()->user(), 'billing.trial_ended_early');
+        app(StarterTrafficGate::class)->syncOrganization($this->organization->fresh());
+
+        return $this->billingRedirect('billing_status', __('Your plan is active and billed from today.'));
     }
 
     /**

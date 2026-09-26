@@ -4,12 +4,13 @@ namespace Tests\Feature\Marketing\PricingPageTest;
 
 use Illuminate\Support\Facades\Config;
 
-test('pricing page lists the free, pro and team plans from config', function () {
+test('pricing page lists pro and team with the trial, and no free plan', function () {
     $response = $this->withoutMiddleware()->get(route('pricing'));
 
     $response->assertOk()
         ->assertSee('Pick a plan. Pay for what you outgrow.')
-        ->assertSee('Free')
+        ->assertSee('5-day')
+        ->assertDontSee('No card needed')
         ->assertSee('Pro')
         ->assertSee('Team')
         ->assertSee('$20')

@@ -1,10 +1,12 @@
 {{--
   Callers: livewire.billing.show (@include), right after payment-method.
   Actions: Show::subscribeTier (no subscription) and Show::changeTier.
-  Tiers come from config subscription.standard.tiers (ruling r-zdescb7y05vp1bxx).
+  Tiers come from config subscription.standard.tiers; no Free plan, a trial instead (ruling r-f17p5zgeh120cm5t).
 --}}
 @php
-    $tiers = collect(config('subscription.standard.tiers'))->only(['free', 'pro', 'team']);
+    $tiers = collect(config('subscription.standard.tiers'))->only(['pro', 'team']);
+    $trialDays = (int) config('subscription.standard.trial.days', 5);
+    $trialOffered = $this->organization->eligibleForTrial();
     $current = $this->organization->billingTier();
     $hasSubscription = (bool) $this->subscription;
     $extraSite = '$'.number_format(((int) config('subscription.standard.edge_cents', 200)) / 100, 0);
@@ -18,7 +20,10 @@
         :title="__('Plan')"
         :note="__('Billed monthly. Usage over your plan’s allowance is added to the same invoice.')"
     />
-    <div class="grid gap-3 px-3 py-3 sm:px-4 md:grid-cols-3">
+    @if ($trialOffered)
+        <p class="px-3 pt-3 text-sm text-brand-ink sm:px-4">{{ __(':days days free, card required. It bills on day :next unless you cancel before then.', ['days' => $trialDays, 'next' => $trialDays + 1]) }}</p>
+    @endif
+    <div class="grid gap-3 px-3 py-3 sm:px-4 md:grid-cols-2">
         @foreach ($tiers as $key => $tier)
             @php $isCurrent = $key === $current; @endphp
             <div @class([
@@ -37,7 +42,7 @@
                     <span class="text-sm text-brand-moss">{{ __('/mo') }}</span>
                 </p>
                 <ul class="mt-3 flex-1 space-y-1.5 text-sm text-brand-moss">
-                    <li>{{ $tier['sites'] === null ? __('Unlimited sites') : trans_choice(':count site|:count sites', (int) $tier['sites'], ['count' => $num($tier['sites'])]) }}@if ($key !== 'free'){{ __(', then :price each', ['price' => $extraSite]) }}@endif</li>
+                    <li>{{ $tier['sites'] === null ? __('Unlimited sites') : trans_choice(':count site|:count sites', (int) $tier['sites'], ['count' => $num($tier['sites'])]) }}{{ __(', then :price each', ['price' => $extraSite]) }}</li>
                     <li>{{ $tier['ssr'] ? __('SSR sites :price each', ['price' => $ssrSite]) : __('Static and hybrid sites only') }}</li>
                     <li>
                         {{ $tier['seats'] === null ? __('Unlimited seats') : trans_choice(':count seat|:count seats', (int) $tier['seats'], ['count' => $num($tier['seats'])]) }}@if ($tier['extra_seat_cents']){{ __(', then $:price each', ['price' => number_format($tier['extra_seat_cents'] / 100, 0)]) }}@endif
@@ -58,12 +63,10 @@
                 </ul>
                 <div class="mt-4">
                     @if ($isCurrent)
-                        <p class="text-xs text-brand-mist">{{ $key === 'free' ? __('No card needed.') : __('Your current plan.') }}</p>
-                    @elseif ($key === 'free')
-                        <p class="text-xs text-brand-mist">{{ __('Cancel your subscription below to return to Free.') }}</p>
+                        <p class="text-xs text-brand-mist">{{ $this->organization->onTrialPlan() ? __('On trial until :date.', ['date' => $this->organization->planTrialEndsAt()?->toFormattedDayDateString()]) : __('Your current plan.') }}</p>
                     @elseif (! $hasSubscription)
                         <x-primary-button type="button" class="w-full justify-center" wire:click="subscribeTier('{{ $key }}')" wire:loading.attr="disabled" wire:target="subscribeTier" @disabled(! $this->standardPricingAvailable)>
-                            {{ __('Choose :plan', ['plan' => $tier['label']]) }}
+                            {{ $trialOffered ? __('Start :days-day :plan trial', ['days' => $trialDays, 'plan' => $tier['label']]) : __('Choose :plan', ['plan' => $tier['label']]) }}
                         </x-primary-button>
                     @else
                         <x-secondary-button type="button" class="w-full justify-center" wire:click="changeTier('{{ $key }}')" wire:confirm="{{ __('Switch to :plan? The prorated difference is invoiced now.', ['plan' => $tier['label']]) }}" wire:loading.attr="disabled" wire:target="changeTier">

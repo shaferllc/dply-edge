@@ -52,6 +52,9 @@ use Laravel\Cashier\Billable;
  * @property ?Carbon $trial_ends_at
  * @property ?Carbon $beta_joined_at
  * @property bool $is_internal
+ * @property ?\Illuminate\Support\Carbon $comped_until
+ * @property ?\Illuminate\Support\Carbon $billing_paused_at
+ * @property ?array<string, string> $billing_notices
  * @property ?Carbon $created_at
  * @property ?Carbon $updated_at
  * @property-read Collection<int, User> $users
@@ -120,6 +123,9 @@ class Organization extends Model
             'trial_ends_at' => 'datetime',
             'beta_joined_at' => 'datetime',
             'is_internal' => 'boolean',
+            'comped_until' => 'datetime',
+            'billing_paused_at' => 'datetime',
+            'billing_notices' => 'array',
             'deploy_email_notifications_enabled' => 'boolean',
             'email_server_credentials_enabled' => 'boolean',
             'email_database_credentials_enabled' => 'boolean',

@@ -35,6 +35,7 @@ trait ManagesOrganizationBeta
      */
     public function betaFeeWaived(): bool
     {
-        return $this->isBeta() && ! $this->onAnyPaidPlan();
+        // Beta orgs get the same trial as everyone (ruling r-f17p5zgeh120cm5t).
+        return false;
     }
 }

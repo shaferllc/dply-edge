@@ -8,9 +8,10 @@ use App\Models\Organization;
 use App\Modules\Edge\Support\EdgeBuildMinutes;
 
 /**
- * Free starter spending cap. Paid plans bill overage on the invoice. An org
- * with no card cannot, so compute, delivery past the allowance, and build
- * minutes pause new builds once spending_limit_cents is reached.
+ * Trial spending cap (subscription.standard.trial.spending_limit_cents).
+ * Paid plans bill overage on the invoice; a trial has not been charged yet,
+ * so compute, delivery past the allowance, and build minutes pause new
+ * builds once the cap is reached.
  *
  * Called from BuildEdgeSiteJob::handle before a build starts.
  */
@@ -32,8 +33,11 @@ final class StarterUsageBudget
     public function status(Organization $organization): array
     {
         $tier = $organization->tierAllowances();
-        $limit = $tier['spending_limit_cents'] ?? null;
-        if ($limit === null || $organization->onAnyPaidPlan()) {
+        // A trial (card or not) is capped: a trialing subscription counts as
+        // paid, but nothing has been charged yet.
+        $trial = $organization->onTrialPlan();
+        $limit = $trial ? config('subscription.standard.trial.spending_limit_cents') : ($tier['spending_limit_cents'] ?? null);
+        if ($limit === null || (! $trial && $organization->onAnyPaidPlan())) {
             return ['used_cents' => 0, 'limit_cents' => null, 'exhausted' => false];
         }
 

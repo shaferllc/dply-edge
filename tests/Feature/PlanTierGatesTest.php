@@ -17,7 +17,7 @@ use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
 
-/** Tier allowances enforced where each thing happens (ruling r-zdescb7y05vp1bxx). */
+/** Tier allowances enforced where each thing happens (rulings r-zdescb7y05vp1bxx, r-f17p5zgeh120cm5t: no Free plan). */
 beforeEach(function () {
     config([
         'edge.fake.enabled' => true,
@@ -26,7 +26,7 @@ beforeEach(function () {
         'subscription.standard.stripe.tier_pro' => 'price_tier_pro',
         'subscription.standard.stripe.tier_team' => 'price_tier_team',
     ]);
-    $this->org = Organization::factory()->create();
+    $this->org = Organization::factory()->noPlan()->create();
 });
 
 function onTier(Organization $org, string $tier): Organization
@@ -48,7 +48,7 @@ function liveSite(Organization $org): Site
 }
 
 test('the tier is read from the subscription price', function () {
-    expect($this->org->billingTier())->toBe('free')
+    expect($this->org->billingTier())->toBe('none')
         ->and(onTier($this->org, 'team')->billingTier())->toBe('team');
 });
 
@@ -58,20 +58,24 @@ test('seats hard-cap on pro and bill past the allowance on team; free is unlimit
         ->and(onTier(Organization::factory()->create(), 'team')->effectiveMemberSeatCap())->toBeNull();
 });
 
-test('free sites get ten custom domains, pro sites get more', function () {
+test('custom domains follow the plan, and an org without one gets none', function () {
     $provisioner = app(EdgeCustomDomainProvisioner::class);
 
-    $free = liveSite($this->org);
-    $provisioner->provision($free, 'one.example.com');
-    $provisioner->provision($free->fresh(), 'one.example.com'); // re-provisioning is not a new domain
-    $provisioner->provision($free->fresh(), 'two.example.com');
+    expect(fn () => $provisioner->provision(liveSite($this->org), 'one.example.com'))
+        ->toThrow(\RuntimeException::class, 'no plan');
 
-    config(['subscription.standard.tiers.free.custom_domains_per_site' => 1]);
-    $capped = liveSite(Organization::factory()->create());
+    $trial = liveSite(Organization::factory()->create(['trial_ends_at' => now()->addDays(3)]));
+    $provisioner->provision($trial, 'one.example.com');
+    $provisioner->provision($trial->fresh(), 'one.example.com'); // re-provisioning is not a new domain
+    $provisioner->provision($trial->fresh(), 'two.example.com');
+
+    config(['subscription.standard.tiers.pro.custom_domains_per_site' => 1]);
+    $capped = liveSite(Organization::factory()->create(['trial_ends_at' => now()->addDays(3)]));
     $provisioner->provision($capped, 'one.example.com');
     expect(fn () => $provisioner->provision($capped->fresh(), 'two.example.com'))
         ->toThrow(\RuntimeException::class, 'Upgrade to Pro');
 
+    config(['subscription.standard.tiers.pro.custom_domains_per_site' => 100]);
     $pro = liveSite(onTier(Organization::factory()->create(), 'pro'));
     $provisioner->provision($pro, 'one.example.com');
     $provisioner->provision($pro->fresh(), 'two.example.com');

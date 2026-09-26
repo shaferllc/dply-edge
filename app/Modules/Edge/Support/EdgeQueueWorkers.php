@@ -174,7 +174,7 @@ final class EdgeQueueWorkers
      */
     public static function allowance(Site $site): array
     {
-        $tier = $site->organization?->tierAllowances() ?? (array) config('subscription.standard.tiers.free');
+        $tier = $site->organization?->tierAllowances() ?? (array) config('subscription.standard.tiers.none');
 
         return [
             'instances' => array_key_exists('worker_instances', $tier) && $tier['worker_instances'] !== null ? max(1, (int) $tier['worker_instances']) : null,

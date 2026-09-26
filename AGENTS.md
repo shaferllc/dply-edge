@@ -530,22 +530,35 @@ Match remaining questions to the layer that still exists:
 
 ### Billing
 
-- **Plan tiers + usage** (ruling r-zdescb7y05vp1bxx, 2026-09-16): Free $0,
-  Pro $20, Team $49 — monthly only, all allowances in
-  `subscription.standard.tiers`. `Organization::billingTier()` reads the tier
-  price off the subscription. Sites past the tier's count bill at `edge_cents`;
-  seats hard-cap on Pro and bill `extra_seat_cents` on Team; build minutes
-  are unlimited on Free (they draw the $5 credit) and bill overage on Pro/Team.
-  No trial. Previews consume a usage credit, not a site slot.
-- **Free is the starter plan** (parity target: Laravel Cloud starter): unlimited
-  apps, seats, and builds (`plans.free.max_edge_apps` and `tiers.free.sites` /
-  `seats` / `build_minutes` are null), containers on, scale-to-zero compute, 10
-  custom domains, 1 managed queue, short log retention, spending limits/alerts,
-  and a **$5 usage credit** (`spending_limit_cents`). `StarterUsageBudget`
-  pauses new builds when that credit is used, and `StarterTrafficGate` stops
-  managed container traffic, because a free org has no card.
-  **Any paid subscription bills overage** (`quotaLimit()` returns null) —
-  extra sites bill, so a cap on payers is no revenue lever.
+- **Plan tiers + usage** (ruling r-zdescb7y05vp1bxx, 2026-09-16): Pro $20,
+  Team $49, monthly only, all allowances in `subscription.standard.tiers`.
+  `Organization::billingTier()` reads the tier price off the subscription.
+  Sites past the tier's count bill at `edge_cents`; seats hard-cap on Pro and
+  bill `extra_seat_cents` on Team; build minutes bill overage. Previews
+  consume a usage credit, not a site slot.
+- **No Free plan: a 5-day Pro trial** (ruling r-f17p5zgeh120cm5t, 2026-09-26),
+  settings in `subscription.standard.trial`:
+  - Checkout (`Show::subscribeTier`) adds the trial for an org that has never
+    had one (`eligibleForTrial()`: one per owner). The card is required, and a
+    trial that ends without a card cancels rather than going past due. Orgs
+    that were on Free got a card-less trial (`organizations.trial_ends_at`).
+  - A trial (card or not) is capped at `trial.spending_limit_cents` ($5).
+    `StarterUsageBudget` pauses builds and `StarterTrafficGate` stops container
+    traffic past it; **End trial now** on the billing page lifts the cap.
+  - No plan (`billingTier() === 'none'`): no deploys, no site creation, no
+    domains. `dply:billing:enforce` pauses the org (the host map serves
+    `edge.billing-paused` as maintenance, the container gate is set, queue
+    workers are paused and flagged `billing_paused`) and resumes it when paid.
+    It also sends the four `OrganizationBillingNotice` emails, once each.
+  - Data is deleted 7 days after the pause (`OrganizationDataPurger`: sites,
+    dply databases, Valkey, D1, queues), but only with
+    `DPLY_BILLING_PURGE_ENABLED=true`. Review `dply:billing:enforce --dry-run`
+    before turning it on.
+  - Comped orgs (`comped_until`, `dply:billing:comp`) are Team with no bill.
+    The migration comps orgs that a platform admin (`PLATFORM_ADMIN_EMAILS`)
+    belongs to. Beta orgs get the trial like everyone.
+  - **Any paid subscription bills overage** (`quotaLimit()` returns null).
+    Extra sites bill, so a cap on payers is no revenue lever.
 - **Extra sites** (managed `dply_edge` only): static, hybrid, and container
   sites **past** the plan's included count bill at `edge_cents` ($2). Every
   Worker-native SSR site bills at `edge_ssr_cents` ($7) and does not use an
@@ -577,8 +590,8 @@ Match remaining questions to the layer that still exists:
   browser alert.
 - Org billing is **one page** (`billing.show`). `/billing/analytics` and
   `/invoices` redirect there. Forecast and invoices live on that page — no
-  separate analytics/invoices nav. Copy names the plan (Free/Pro/Team) and
-  what it includes; the plan picker sits under the payment method. The **payment method** (add/manage card) is the primary CTA;
+  separate analytics/invoices nav. Copy names the plan (Pro/Team) and
+  what it includes; new orgs are offered the trial; the plan picker sits under the payment method. The **payment method** (add/manage card) is the primary CTA;
   forecast and invoices sit below.
 - Billing numbers are customer-facing (`authorize('update', $organization)`),
   so write them from the **payer's** side. The MRR/ARR tiles and competitor

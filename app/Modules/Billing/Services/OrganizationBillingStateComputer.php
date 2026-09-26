@@ -110,10 +110,10 @@ class OrganizationBillingStateComputer
         $seatCount = $organization->users()->count();
         $tierKey = $forceTier
             ?? $organization->subscribedTier()
-            ?? ($organization->onStandardSubscription() ? self::cheapestPaidTier($edgeCount - $edgeSsrCount, $seatCount) : 'free');
+            ?? ($organization->onStandardSubscription() ? self::cheapestPaidTier($edgeCount - $edgeSsrCount, $seatCount) : ($organization->hasPlan() ? $organization->billingTier() : 'none'));
         $tier = (array) config('subscription.standard.tiers.'.$tierKey);
-        // Free has no card to bill and Enterprise is invoiced by hand: both
-        // owe nothing through this path.
+        // No plan, a card-less trial and comped orgs have nothing to bill;
+        // Enterprise is invoiced by hand. None owe anything through this path.
         $billable = in_array($tierKey, ['pro', 'team'], true);
 
         [$usagePeriodStart, $usagePeriodEnd] = $this->usageReader->currentMonthWindow();

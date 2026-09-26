@@ -22,6 +22,8 @@ class SyncBillingOnSubscriptionWebhook
     private const RELEVANT_EVENTS = [
         'customer.subscription.created',
         'customer.subscription.updated',
+        // A canceled or unpaid subscription pauses the org at once.
+        'customer.subscription.deleted',
     ];
 
     public function handle(WebhookReceived $event): void

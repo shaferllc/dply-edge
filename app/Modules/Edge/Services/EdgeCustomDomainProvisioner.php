@@ -46,7 +46,7 @@ final class EdgeCustomDomainProvisioner
         $limit = $site->organization?->tierAllowances()['custom_domains_per_site'] ?? null;
         if ($limit !== null && ! isset($attached[$hostname]) && count($attached) >= (int) $limit) {
             throw new RuntimeException(trans_choice(
-                '{1} Your plan includes :count custom domain per site. Upgrade to Pro for up to 100.|[2,*] Your plan includes :count custom domains per site.',
+                '{0} This organization has no plan. Choose one on the billing page to add domains.|{1} Your plan includes :count custom domain per site. Upgrade to Pro for up to 100.|[2,*] Your plan includes :count custom domains per site.',
                 (int) $limit,
             ));
         }

@@ -84,6 +84,14 @@ class BuildEdgeSiteJob implements ShouldQueue
             return;
         }
 
+        if (! $organization->hasPlan()) {
+            $this->pauseDeploy($site, $deployment, $organization->eligibleForTrial()
+                ? __('Start your :days-day trial on the billing page to deploy.', ['days' => (int) config('subscription.standard.trial.days', 5)])
+                : __('This organization has no plan, so deploys are paused. Choose a plan on the billing page.'));
+
+            return;
+        }
+
         $tier = $organization->tierAllowances();
         if (EdgeBuildMinutes::exhausted(EdgeBuildMinutes::usedThisMonth($organization), $tier)) {
             $this->pauseDeploy($site, $deployment, __('This month’s :minutes build minutes are used up. Upgrade to Pro for more, or wait until the 1st.', ['minutes' => number_format((int) $tier['build_minutes'])]));
@@ -97,7 +105,9 @@ class BuildEdgeSiteJob implements ShouldQueue
         if ($spend['exhausted']) {
             app(StarterTrafficGate::class)->syncOrganization($organization);
             $limit = number_format(((int) $spend['limit_cents']) / 100, 0);
-            $this->pauseDeploy($site, $deployment, __('This month’s $:limit usage credit is used up. Builds and traffic pause until the 1st, or upgrade to Pro.', ['limit' => $limit]));
+            $this->pauseDeploy($site, $deployment, $organization->onTrialPlan()
+                ? __('The trial’s $:limit usage credit is used up. Builds and traffic pause until the trial ends; end it early on the billing page to continue now.', ['limit' => $limit])
+                : __('This month’s $:limit usage credit is used up. Builds and traffic pause until the 1st, or upgrade to Pro.', ['limit' => $limit]));
 
             return;
         }

@@ -116,7 +116,18 @@ unrelated WIP commit three days earlier, so the boundary was silently unchecked.
 >   subscription is swapped onto its cheapest tier by the next billing sync.
 >   Allowances (sites, seats, build minutes, concurrency, timeout, requests,
 >   egress, custom domains, add-ons, audit log) are enforced where each thing
->   happens, not centrally. The 14-day trial and bundled products are gone.
+>   happens, not centrally. Bundled products are gone.
+> - **No Free plan: a 5-day Pro trial, card up front (2026-09-26, ruling
+>   r-f17p5zgeh120cm5t).** `subscription.standard.trial` holds the length,
+>   tier, $5 trial spending cap and the 7-day keep period. `billingTier()` is
+>   `team` for a comped org (`organizations.comped_until`, `dply:billing:comp`),
+>   the subscription's tier (a trialing Stripe sub counts), the trial tier on a
+>   card-less trial (`trial_ends_at`, given to orgs that were on Free), else
+>   `none`: no plan. `dply:billing:enforce` (hourly and after each billing
+>   webhook) sends the trial emails, pauses a no-plan org (paused page through
+>   the host map, container gate, workers paused) and resumes it when paid.
+>   Deleting a paused org's data after 7 days ships **off**
+>   (`DPLY_BILLING_PURGE_ENABLED`); `--dry-run` lists what it would delete.
 > - **The CLI (`packages/dply-cli`) and API-token catalog are Edge-only.** Token
 >   abilities live in `config/product/api_token_permissions.php`; the deployer
 >   allowlist must cover `cli.device_flow_role_caps.deployer` (a test guards it).

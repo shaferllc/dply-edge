@@ -153,8 +153,8 @@ test('rejects ssr-looking detection on deploy when hybrid origin missing', funct
 });
 
 test('laravel repos are container workloads, and a plan without containers cannot deploy them', function () {
-    // Free includes containers (within its compute credit); the gate still holds for a tier that does not.
-    config(['subscription.standard.tiers.free.containers' => false]);
+    // Trials run as Pro, which includes containers; the gate still holds for a tier that does not.
+    config(['subscription.standard.tiers.pro.containers' => false]);
     $user = ownerWithOrg();
 
     Livewire::actingAs($user)

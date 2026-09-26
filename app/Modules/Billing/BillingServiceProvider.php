@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Modules\Billing;
 
+use App\Modules\Billing\Console\CompOrganizationCommand;
+use App\Modules\Billing\Console\EnforceOrganizationBillingCommand;
 use App\Modules\Billing\Console\ProvisionStripeBillingCommand;
 use App\Modules\Billing\Console\SnapshotOrganizationBillingCommand;
 use App\Modules\Billing\Console\SyncAllOrganizationBillingCommand;
@@ -33,6 +35,8 @@ class BillingServiceProvider extends ServiceProvider
     {
         if ($this->app->runningInConsole()) {
             $this->commands([
+                CompOrganizationCommand::class,
+                EnforceOrganizationBillingCommand::class,
                 ProvisionStripeBillingCommand::class,
                 SnapshotOrganizationBillingCommand::class,
                 SyncAllOrganizationBillingCommand::class,

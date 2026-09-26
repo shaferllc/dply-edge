@@ -50,12 +50,82 @@ trait ManagesOrganizationSubscription
     }
 
     /**
-     * Tier used for allowances and feature gates. A pre-tier per-site
-     * subscription reads as Pro until the sync moves it.
+     * Tier used for allowances and feature gates (ruling r-f17p5zgeh120cm5t):
+     * a comped org is Team; a subscription's tier (a Stripe trial reads as
+     * its tier: valid() is true while trialing); a pre-tier per-site
+     * subscription reads as Pro until the sync moves it; an org on its
+     * card-less trial (organizations.trial_ends_at) gets the trial tier.
+     * Anything else is `none`: no plan, paused.
      */
     public function billingTier(): string
     {
-        return $this->subscribedTier() ?? ($this->onStandardSubscription() ? 'pro' : 'free');
+        if ($this->isComped()) {
+            return 'team';
+        }
+
+        return $this->subscribedTier()
+            ?? ($this->onStandardSubscription() ? 'pro' : null)
+            ?? ($this->onGenericTrial() ? (string) config('subscription.standard.trial.tier', 'pro') : 'none');
+    }
+
+    /** False once the trial is over and nothing is paid: the org is paused. */
+    public function hasPlan(): bool
+    {
+        return $this->billingTier() !== 'none';
+    }
+
+    /** dply's own orgs and hand-picked ones: Team, no bill. */
+    public function isComped(): bool
+    {
+        $until = $this->getAttribute('comped_until');
+
+        return $until !== null && $until->isFuture();
+    }
+
+    /**
+     * On a trial, card or not: capped by the trial spending limit, and
+     * shown as a trial in billing. Comped and paid orgs are not.
+     */
+    public function onTrialPlan(): bool
+    {
+        if ($this->isComped()) {
+            return false;
+        }
+        $subscription = $this->subscription('default');
+        if ($subscription !== null && $subscription->valid()) {
+            return $subscription->onTrial();
+        }
+
+        return $this->onGenericTrial();
+    }
+
+    /** When the trial ends (Stripe's or the card-less one), or null. */
+    public function planTrialEndsAt(): ?\Carbon\CarbonInterface
+    {
+        $subscription = $this->subscription('default');
+        if ($subscription !== null && $subscription->onTrial()) {
+            return $subscription->trial_ends_at;
+        }
+
+        return $this->onGenericTrial() ? $this->trial_ends_at : null;
+    }
+
+    /**
+     * Whether Checkout should start a trial: only an org that has never had
+     * one or a subscription, whose owners have not had one on another org.
+     */
+    public function eligibleForTrial(): bool
+    {
+        if ($this->trial_ends_at !== null || $this->subscriptions()->exists()) {
+            return false;
+        }
+        $owners = $this->users()->wherePivot('role', 'owner')->pluck('users.id');
+
+        return ! static::query()
+            ->whereKeyNot($this->getKey())
+            ->whereHas('users', fn ($q) => $q->whereIn('users.id', $owners)->where('organization_user.role', 'owner'))
+            ->where(fn ($q) => $q->whereNotNull('trial_ends_at')->orWhereHas('subscriptions'))
+            ->exists();
     }
 
     /**
@@ -72,7 +142,7 @@ trait ManagesOrganizationSubscription
      */
     public function onAnyPaidPlan(): bool
     {
-        return $this->onStandardSubscription() || $this->onEnterpriseSubscription();
+        return $this->isComped() || $this->onStandardSubscription() || $this->onEnterpriseSubscription();
     }
 
     /**

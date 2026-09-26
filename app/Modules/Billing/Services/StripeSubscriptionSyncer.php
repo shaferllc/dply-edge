@@ -129,21 +129,28 @@ class StripeSubscriptionSyncer
             // for the change rather than accumulating it for the next renewal.
             // Customers see "you added a site, here's the prorated charge"
             // same-day, which is especially important for yearly subscriptions
-            // where renewals are far apart.
+            // where renewals are far apart. During a trial nothing is billed
+            // yet, so lines change without an invoice (the first one, at the
+            // trial's end, carries them).
+            if ($subscription->onTrial()) {
+                $subscription->noProrate();
+            } else {
+                $subscription->alwaysInvoice();
+            }
             if ($currentQty === null && $desiredQty > 0) {
-                $subscription->alwaysInvoice()->addPrice($priceId, $desiredQty);
+                $subscription->addPrice($priceId, $desiredQty);
 
                 return ['action' => 'add', 'from' => null, 'to' => $desiredQty];
             }
 
             if ($currentQty !== null && $desiredQty === 0) {
-                $subscription->alwaysInvoice()->removePrice($priceId);
+                $subscription->removePrice($priceId);
 
                 return ['action' => 'remove', 'from' => $currentQty, 'to' => 0];
             }
 
             if ($currentQty !== null && $currentQty !== $desiredQty) {
-                $subscription->alwaysInvoice()->updateQuantity($desiredQty, $priceId);
+                $subscription->updateQuantity($desiredQty, $priceId);
 
                 return ['action' => 'update', 'from' => $currentQty, 'to' => $desiredQty];
             }

@@ -135,7 +135,7 @@ trait ManagesOrganizationQuotas
 
         // Only unsubscribed orgs reach here — quotaLimit() is null once paying.
         return sprintf(
-            'The Free plan includes %d %s. Upgrade to Pro on the organization billing page for 10 sites, plus $2 for each site after that.',
+            'This plan includes %d %s. Choose Pro on the organization billing page for 10 sites, plus $2 for each site after that.',
             $limit,
             trans_choice($surface->nounKey(), $limit),
         );
