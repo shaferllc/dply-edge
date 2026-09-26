@@ -295,6 +295,38 @@ class Resources extends Component
         $this->refreshPending();
     }
 
+    /** Another group of workers for other queues, sized and scaled on its own. */
+    public function addWorkerGroup(): void
+    {
+        $this->authorize('update', $this->site);
+        $groups = array_values((array) ($this->workers['groups'] ?? []));
+        if (count($groups) >= EdgeQueueWorkers::MAX_GROUPS) {
+            return;
+        }
+        $taken = array_map(static fn ($g): string => (string) ($g['queues'] ?? ''), $groups);
+        $groups[] = [
+            'key' => '',
+            'queues' => in_array('high', $taken, true) ? 'group'.(count($groups) + 1) : 'high',
+            'instances' => 1,
+            'processes' => EdgeQueueWorkers::recommendedProcesses($this->site),
+            'autoscale' => false,
+            'max_instances' => 1,
+            'scale_per' => 10,
+            'max_wait' => 60,
+        ];
+        $this->workers['groups'] = $groups;
+        $this->refreshPending();
+    }
+
+    public function removeWorkerGroup(int $index): void
+    {
+        $this->authorize('update', $this->site);
+        $groups = array_values((array) ($this->workers['groups'] ?? []));
+        unset($groups[$index]);
+        $this->workers['groups'] = array_values($groups);
+        $this->refreshPending();
+    }
+
     public function removeWorkers(): void
     {
         $this->authorize('update', $this->site);
@@ -2222,8 +2254,8 @@ class Resources extends Component
                 'dplyDatabase' => $this->dplyDatabaseRecord(),
                 'workersUnavailable' => EdgeQueueWorkers::unavailableReason($this->site),
                 'workersConnection' => EdgeQueueWorkers::connection($this->site, (string) (EdgeQueueWorkers::normalize($this->workers)['connection'])),
-                'workersMonthlyCents' => EdgeQueueWorkers::monthlyCents($this->site, EdgeQueueWorkers::normalize($this->workers)['instances']),
-                'workersMaxMonthlyCents' => EdgeQueueWorkers::monthlyCents($this->site, EdgeQueueWorkers::normalize($this->workers)['max_instances']),
+                'workersMonthlyCents' => EdgeQueueWorkers::monthlyCents($this->site, EdgeQueueWorkers::draftInstances($this->workers)['min']),
+                'workersMaxMonthlyCents' => EdgeQueueWorkers::monthlyCents($this->site, EdgeQueueWorkers::draftInstances($this->workers)['max']),
                 'workersScaler' => Cache::get(ScaleEdgeQueueWorkersCommand::stateKey($this->site)),
                 'workersHistory' => ScaleEdgeQueueWorkersCommand::history($this->site),
                 'databaseUsage' => $this->dplyDatabaseRecord() !== null ? $this->databaseUsage() : null,

@@ -219,6 +219,43 @@
                                     <button type="button" wire:click="useValkeyForWorkers" x-on:click="$dispatch('open-modal', 'resources-connection')" class="font-semibold underline">{{ __('Queue on dply Valkey instead') }}</button>
                                 </p>
                             @endif
+                            <div class="mt-3 border-t border-brand-ink/10 pt-2 text-xs">
+                                <p class="font-semibold text-brand-ink">{{ __('Groups') }}</p>
+                                <p class="mt-0.5 text-brand-moss">{{ __('More workers for other queues, sized and scaled on their own, so a flood on one queue cannot hold up another.') }}</p>
+                                @foreach (array_values((array) ($workers['groups'] ?? [])) as $gi => $rawGroup)
+                                    @php $g = \App\Modules\Edge\Support\EdgeQueueWorkers::normalizeGroup($rawGroup, $gi); @endphp
+                                    <div class="mt-2 rounded-lg border border-brand-ink/10 p-2" wire:key="worker-group-{{ $gi }}">
+                                        <div class="flex items-center justify-between gap-2">
+                                            <label class="flex min-w-0 flex-1 items-center gap-1.5">
+                                                <span class="text-brand-moss">{{ __('Queues') }}</span>
+                                                <input type="text" wire:model.live.debounce.500ms="workers.groups.{{ $gi }}.queues" placeholder="high" class="block w-full min-w-0 rounded-md border border-brand-ink/15 bg-white px-2 py-1 font-mono text-xs text-brand-ink dark:bg-zinc-900" />
+                                            </label>
+                                            <button type="button" wire:click="removeWorkerGroup({{ $gi }})" class="shrink-0 font-semibold text-brand-ink underline">{{ __('Remove') }}</button>
+                                        </div>
+                                        <div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                                            <label class="flex items-center gap-1"><span class="text-brand-moss">{{ $g['autoscale'] ? __('Always on') : __('Instances') }}</span>
+                                                <select wire:model.live="workers.groups.{{ $gi }}.instances" class="rounded-md border border-brand-ink/15 bg-white py-0.5 ps-1.5 pe-6 text-xs font-semibold text-brand-ink dark:bg-zinc-900">
+                                                    @for ($i = 1; $i <= \App\Modules\Edge\Support\EdgeQueueWorkers::MAX_INSTANCES; $i++)<option value="{{ $i }}">{{ $i }}</option>@endfor
+                                                </select></label>
+                                            <label class="flex items-center gap-1"><span class="text-brand-moss">{{ __('Processes') }}</span>
+                                                <select wire:model.live="workers.groups.{{ $gi }}.processes" class="rounded-md border border-brand-ink/15 bg-white py-0.5 ps-1.5 pe-6 text-xs font-semibold text-brand-ink dark:bg-zinc-900">
+                                                    @for ($i = 1; $i <= \App\Modules\Edge\Support\EdgeQueueWorkers::MAX_PROCESSES; $i++)<option value="{{ $i }}">{{ $i }}</option>@endfor
+                                                </select></label>
+                                            <label class="flex items-center gap-1 font-semibold text-brand-ink"><input type="checkbox" wire:model.live="workers.groups.{{ $gi }}.autoscale" class="rounded border-brand-ink/20" /> {{ __('Autoscale') }}</label>
+                                            @if ($g['autoscale'])
+                                                <label class="flex items-center gap-1"><span class="text-brand-moss">{{ __('up to') }}</span>
+                                                    <select wire:model.live="workers.groups.{{ $gi }}.max_instances" class="rounded-md border border-brand-ink/15 bg-white py-0.5 ps-1.5 pe-6 text-xs font-semibold text-brand-ink dark:bg-zinc-900">
+                                                        @for ($i = $g['instances']; $i <= \App\Modules\Edge\Support\EdgeQueueWorkers::MAX_INSTANCES; $i++)<option value="{{ $i }}">{{ $i }}</option>@endfor
+                                                    </select></label>
+                                            @endif
+                                        </div>
+                                        <p class="mt-1 font-mono text-2xs text-brand-moss">worker-{{ $g['key'] }}-N · queue:work --queue={{ $g['queues'] }}</p>
+                                    </div>
+                                @endforeach
+                                @if (count((array) ($workers['groups'] ?? [])) < \App\Modules\Edge\Support\EdgeQueueWorkers::MAX_GROUPS)
+                                    <button type="button" wire:click="addWorkerGroup" class="mt-2 font-semibold text-brand-ink underline">{{ __('Add a group') }}</button>
+                                @endif
+                            </div>
                             <details class="mt-2 text-xs">
                                 <summary class="cursor-pointer font-semibold text-brand-ink">{{ __('Worker options') }}</summary>
                                 <div class="mt-2 grid grid-cols-2 gap-2">
@@ -231,12 +268,13 @@
                                 <p class="mt-2 font-mono text-2xs text-brand-moss">php artisan queue:work {{ $workersConnection ?? '…' }} --queue={{ $w['queues'] }} --tries={{ $w['tries'] }} --timeout={{ $w['timeout'] }} --sleep={{ $w['sleep'] }} --memory={{ $w['memory'] }} --max-time={{ $w['max_time'] }}</p>
                             </details>
                             <div class="mt-2 rounded-lg bg-white/70 px-2.5 py-2 text-xs dark:bg-zinc-900/70">
-                                @if ($w['autoscale'] && $w['max_instances'] > $w['instances'])
+                                @php $span = \App\Modules\Edge\Support\EdgeQueueWorkers::draftInstances($workers); @endphp
+                                @if ($span['max'] > $span['min'])
                                     <p class="font-semibold text-brand-ink">{{ __('About $:min–$:max/mo', ['min' => number_format($workersMonthlyCents / 100, 2), 'max' => number_format($workersMaxMonthlyCents / 100, 2)]) }}</p>
-                                    <p class="mt-0.5 text-brand-moss">{{ __(':min–:max × :size · billed only while running · :n–:m workers', ['min' => $w['instances'], 'max' => $w['max_instances'], 'size' => $settings['instance_type'] ?? 'basic', 'n' => $w['instances'] * $w['processes'], 'm' => $w['max_instances'] * $w['processes']]) }}</p>
+                                    <p class="mt-0.5 text-brand-moss">{{ __(':min–:max × :size · the extra ones billed only while running', ['min' => $span['min'], 'max' => $span['max'], 'size' => $settings['instance_type'] ?? 'basic']) }}</p>
                                 @else
                                     <p class="font-semibold text-brand-ink">{{ __('About $:total/mo', ['total' => number_format($workersMonthlyCents / 100, 2)]) }}</p>
-                                    <p class="mt-0.5 text-brand-moss">{{ __(':instances × :size, always on · :n workers in all', ['instances' => $w['instances'], 'size' => $settings['instance_type'] ?? 'basic', 'n' => $w['instances'] * $w['processes']]) }}</p>
+                                    <p class="mt-0.5 text-brand-moss">{{ __(':instances × :size, always on', ['instances' => $span['min'], 'size' => $settings['instance_type'] ?? 'basic']) }}</p>
                                 @endif
                                 @if ($w['autoscale'] && count($workersHistory) >= 2)
                                     @php

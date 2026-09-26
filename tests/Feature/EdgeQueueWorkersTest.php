@@ -88,13 +88,13 @@ test('enabled workers add named worker instances to the container app and boot i
         ->and(EdgeContainerDeployer::keepsInstancesAwake(EdgeContainerSettings::for($app)))->toBeTrue()
         // two web instances + two workers
         ->and($config['containers'][0]['max_instances'])->toBeGreaterThanOrEqual(4)
-        ->and($worker)->toContain('const WORKERS = 2')
+        ->and($worker)->toContain('const WORKER_GROUPS = [{"key":"","prefix":"worker-","max":2,"min":2,"autoscale":false')
         ->and($worker)->toContain('"DPLY_ROLE":"worker"')
         ->and($worker)->toContain('"DPLY_WORKER_CONNECTION":"database"')
         ->and($worker)->toContain('"DPLY_WORKER_QUEUES":"high,default"')
         ->and($worker)->toContain('"DPLY_WORKER_PROCESSES":"3"')
         ->and($worker)->toContain('getContainer(env.APP, name).startWorker(name)')
-        ->and($worker)->toContain('if (isWorker(ctx.id.name)) Object.assign(this.envVars, WORKER_ENV, { DPLY_WORKER_NAME: ctx.id.name })')
+        ->and($worker)->toContain('if (worker) Object.assign(this.envVars, worker.group.env, { DPLY_WORKER_NAME: ctx.id.name })')
         ->and($worker)->toContain("url.pathname === '/_dply/workers'")
         ->and($worker)->toContain("url.pathname === '/_dply/workers/start'")
         ->and($worker)->not->toContain('__');
@@ -111,7 +111,7 @@ test('without workers nothing changes in the container app', function () {
 
     (new EdgeContainerDeployer)->scaffold($dir, $app, '/x/Dockerfile', 8080, []);
 
-    expect(File::get($dir.'/src/index.js'))->toContain('const WORKERS = 0')->toContain('const WORKER_ENV = {}')
+    expect(File::get($dir.'/src/index.js'))->toContain('const WORKER_GROUPS = [];')
         ->and(EdgeContainerSettings::for($app)['worker_instances'])->toBe(0);
     File::deleteDirectory($dir);
 });
@@ -261,9 +261,7 @@ test('autoscaling runs enough workers for the backlog, between the always-on cou
     $worker = File::get($dir.'/src/index.js');
 
     expect(EdgeContainerSettings::for($app)['worker_instances'])->toBe(4)
-        ->and($worker)->toContain('const WORKERS = 4;')
-        ->and($worker)->toContain('const WORKERS_MIN = 1;')
-        ->and($worker)->toContain('const WORKERS_AUTOSCALE = true;')
+        ->and($worker)->toContain('const WORKER_GROUPS = [{"key":"","prefix":"worker-","max":4,"min":1,"autoscale":true')
         ->and($worker)->toContain("url.pathname === '/_dply/workers/scale'");
     $check = Process::run(['node', '--check', $dir.'/src/index.js']);
     expect($check->successful())->toBeTrue($check->errorOutput());
@@ -561,4 +559,108 @@ test('a job that has waited too long adds a worker even when the count is low', 
     });
     $this->artisan('dply:edge:scale-queue-workers')->assertSuccessful();
     Http::assertSent(fn (Request $r): bool => str_ends_with($r->url(), '/_dply/workers/scale') && $r['count'] === 2);
+});
+
+test('worker groups get their own instances, queues and scaling', function () {
+    $app = laravelApp(['container' => ['workers' => [
+        'enabled' => true, 'instances' => 1, 'processes' => 2, 'queues' => 'default',
+        'groups' => [
+            ['key' => 'high', 'queues' => 'high', 'instances' => 1, 'max_instances' => 3, 'autoscale' => true, 'processes' => 4],
+            ['queues' => 'emails,notify', 'instances' => 2],           // key from its first queue
+            ['key' => 'High!', 'queues' => 'dupe'],                     // same key as the first: dropped
+        ],
+    ]]]);
+
+    $groups = EdgeQueueWorkers::groups($app);
+    expect(array_column($groups, 'key'))->toBe(['', 'high', 'emails'])
+        ->and(array_column($groups, 'prefix'))->toBe(['worker-', 'worker-high-', 'worker-emails-'])
+        ->and(array_column($groups, 'capacity'))->toBe([1, 3, 2])
+        ->and(EdgeQueueWorkers::runningInstances($app))->toBe(6)
+        ->and(EdgeQueueWorkers::env($app, 'high'))->toMatchArray(['DPLY_WORKER_QUEUES' => 'high', 'DPLY_WORKER_PROCESSES' => '4'])
+        ->and(EdgeContainerSettings::for($app)['worker_instances'])->toBe(6);
+
+    // The Worker's own group logic, run in Node.
+    $dir = sys_get_temp_dir().'/dply-workers-test-'.bin2hex(random_bytes(4));
+    (new EdgeContainerDeployer)->scaffold($dir, $app, '/x/Dockerfile', 8080, []);
+    $js = File::get($dir.'/src/index.js');
+    $start = strpos($js, 'const WORKER_GROUPS');
+    $end = strpos($js, "\n", strpos($js, 'function allWorkerNames'));
+    File::put($dir.'/groups.mjs', substr($js, $start, $end - $start)."\n".<<<'JS'
+const out = {
+  names: allWorkerNames(),
+  high0: workerGroup('worker-high-0')?.group.key,
+  main0: workerGroup('worker-0')?.group.key,
+  emails1: workerGroup('worker-emails-1')?.index,
+  stranger: workerGroup('worker-nope-0'),
+};
+console.log(JSON.stringify(out));
+JS);
+    $run = Process::run(['node', $dir.'/groups.mjs']);
+    expect($run->successful())->toBeTrue($run->errorOutput());
+    expect(json_decode($run->output(), true))->toBe([
+        'names' => ['worker-0', 'worker-high-0', 'worker-high-1', 'worker-high-2', 'worker-emails-0', 'worker-emails-1'],
+        'high0' => 'high',
+        'main0' => '',
+        'emails1' => 1,
+        'stranger' => null,
+    ]);
+    File::deleteDirectory($dir);
+});
+
+test('each autoscaling group follows its own queues', function () {
+    $app = laravelApp([
+        'live_url' => 'https://shop.on-dply.live',
+        'container' => ['workers' => [
+            'enabled' => true, 'instances' => 1, 'max_instances' => 3, 'processes' => 1, 'scale_per' => 10, 'autoscale' => true, 'queues' => 'default',
+            'groups' => [['key' => 'high', 'queues' => 'high', 'instances' => 1, 'max_instances' => 4, 'processes' => 1, 'scale_per' => 10, 'autoscale' => true]],
+        ]],
+    ]);
+    // A flood on `high`, nothing on `default`.
+    Http::fake(function (Request $r) {
+        if (str_ends_with($r->url(), '/_dply/command')) {
+            $n = in_array('high', (array) $r['queues'], true) ? 35 : 0;
+
+            return Http::response(['sizes' => [], 'total' => $n]);
+        }
+
+        return Http::response([['name' => 'x', 'wanted' => true, 'ok' => true]]);
+    });
+
+    $this->artisan('dply:edge:scale-queue-workers')->assertSuccessful();
+
+    $scales = Http::recorded(fn (Request $r) => str_ends_with($r->url(), '/_dply/workers/scale'))
+        ->mapWithKeys(fn ($pair) => [$pair[0]['group'] => $pair[0]['count']])->all();
+    expect($scales)->toBe(['' => 1, 'high' => 4]);
+});
+
+test('groups are added, edited and saved from the card', function () {
+    Queue::fake();
+    Process::fake();
+    $app = laravelApp(['database' => ['engine' => 'sql', 'provider' => null], 'connections' => [['kind' => 'redis', 'name' => 'REDIS', 'host' => 'redis.internal', 'target' => 'dply-valkey:x']], 'container' => ['workers' => ['enabled' => true]]]);
+    $user = User::factory()->create();
+    $app->organization->users()->attach($user->id, ['role' => 'owner']);
+    $app->forceFill(['user_id' => $user->id, 'type' => SiteType::Static, 'status' => Site::STATUS_EDGE_ACTIVE])->save();
+    $app->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
+
+    Livewire::actingAs($user)->test(Resources::class, ['server' => $app->server, 'site' => $app])
+        ->assertSee('Add a group')
+        ->call('addWorkerGroup')
+        ->assertSet('workers.groups.0.queues', 'high')
+        ->assertSet('pending', true)
+        ->set('workers.groups.0.instances', 2)
+        ->set('workers.groups.0.autoscale', true)
+        ->set('workers.groups.0.max_instances', 4)
+        ->assertSee('worker-high-N')
+        ->assertSee('3–5 × basic') // main 1 + high 2 always on, up to 1 + 4
+        ->call('redeploySettings')
+        ->assertHasNoErrors();
+
+    $groups = EdgeQueueWorkers::groups($app->fresh());
+    expect(array_column($groups, 'key'))->toBe(['', 'high'])
+        ->and($groups[1])->toMatchArray(['queues' => 'high', 'instances' => 2, 'autoscale' => true, 'max_instances' => 4, 'capacity' => 4]);
+
+    Livewire::actingAs($user)->test(Resources::class, ['server' => $app->server, 'site' => $app->fresh()])
+        ->call('removeWorkerGroup', 0)
+        ->assertSet('workers.groups', [])
+        ->assertSet('pending', true);
 });

@@ -679,10 +679,14 @@ class EdgeContainerDeployer
             '__JOBS_ALWAYS_ON__' => $settings['dedicated_jobs'] && $settings['jobs_always_on'] ? 'true' : 'false',
             '__STICKY__' => $settings['sticky_sessions'] ? 'true' : 'false',
             '__DEDICATED_JOBS__' => $settings['dedicated_jobs'] ? 'true' : 'false',
-            '__WORKERS__' => (string) $settings['worker_instances'],
-            '__WORKERS_MIN__' => (string) min($settings['worker_instances'], EdgeQueueWorkers::for($site)['instances']),
-            '__WORKERS_AUTOSCALE__' => $settings['worker_instances'] > 0 && EdgeQueueWorkers::for($site)['autoscale'] ? 'true' : 'false',
-            '__WORKER_ENV__' => json_encode((object) ($settings['worker_instances'] > 0 ? EdgeQueueWorkers::env($site) : []), JSON_UNESCAPED_SLASHES),
+            '__WORKER_GROUPS__' => json_encode($settings['worker_instances'] > 0 ? array_map(static fn (array $g): array => [
+                'key' => $g['key'],
+                'prefix' => $g['prefix'],
+                'max' => $g['capacity'],
+                'min' => min($g['capacity'], $g['instances']),
+                'autoscale' => $g['autoscale'],
+                'env' => (object) EdgeQueueWorkers::env($site, $g['key']),
+            ], EdgeQueueWorkers::groups($site)) : [], JSON_UNESCAPED_SLASHES),
             '__FPM_CHILDREN__' => (string) EdgeContainerSettings::phpFpmPool($settings['instance_type'], $site)['max_children'],
             '__FPM_LIMIT__' => json_encode(EdgeContainerSettings::phpFpmPool($settings['instance_type'], $site)['memory_limit']),
             '__QUEUE_PATH__' => json_encode(self::QUEUE_PATH, JSON_UNESCAPED_SLASHES),
@@ -742,11 +746,25 @@ const CONNECTIONS = __CONNECTIONS__;
 const QSTASH_TOKEN = __QSTASH_TOKEN__;
 const DELIVERY_USAGE_URL = __DELIVERY_USAGE_URL__;
 
-const WORKERS = __WORKERS__; // the most that can run
-const WORKERS_MIN = __WORKERS_MIN__; // always on; the rest start while dply's autoscaler wants them
-const WORKERS_AUTOSCALE = __WORKERS_AUTOSCALE__;
-const WORKER_ENV = __WORKER_ENV__;
+// Queue worker groups: instances named {prefix}N (worker-0, worker-high-0, …).
+// max can run; the first min are always on, the rest start while dply's
+// autoscaler wants them.
+const WORKER_GROUPS = __WORKER_GROUPS__;
 function isWorker(name) { return typeof name === 'string' && name.startsWith('worker-'); }
+// The group a worker name belongs to (longest prefix wins: worker-high-0 is
+// not the main group's), and its index in it.
+function workerGroup(name) {
+  let found = null;
+  for (const g of WORKER_GROUPS) {
+    const rest = String(name).slice(g.prefix.length);
+    if (String(name).startsWith(g.prefix) && /^\d+$/.test(rest) && (!found || g.prefix.length > found.group.prefix.length)) {
+      found = { group: g, index: Number(rest) };
+    }
+  }
+  return found;
+}
+function workerNames(group) { return Array.from({ length: group.max }, (_, i) => group.prefix + i); }
+function allWorkerNames() { return WORKER_GROUPS.flatMap(workerNames); }
 
 export class App extends Container {
   defaultPort = __PORT__;
@@ -790,15 +808,17 @@ export class App extends Container {
     });
     // Queue workers are App instances named worker-N. Whoever starts one
     // (warm, or the platform after a restart), it boots in worker mode.
-    if (isWorker(ctx.id.name)) Object.assign(this.envVars, WORKER_ENV, { DPLY_WORKER_NAME: ctx.id.name });
+    const worker = isWorker(ctx.id.name) ? workerGroup(ctx.id.name) : null;
+    if (worker) Object.assign(this.envVars, worker.group.env, { DPLY_WORKER_NAME: ctx.id.name });
   }
 
   // Queue workers run queue:work, not a web server: start without waiting
-  // for a port. Each remembers whether it is wanted: the first WORKERS_MIN
+  // for a port. Each remembers whether it is wanted: each group's first `min`
   // always are; the autoscaler turns the rest on and off.
   async wanted(index) {
     const flag = await this.ctx.storage.get('dply:wanted');
-    return flag ?? Number(String(index).slice(7)) < WORKERS_MIN;
+    const worker = workerGroup(index);
+    return flag ?? (worker !== null && worker.index < worker.group.min);
   }
 
   async startWorker(index) {
@@ -883,7 +903,7 @@ export class App extends Container {
   async onActivityExpired() {
     const index = this.index ?? (await this.ctx.storage.get('dply:index'));
     const keep = index === 'jobs' ? JOBS_ALWAYS_ON
-      : isWorker(index) ? Number(String(index).slice(7)) < WORKERS && (await this.wanted(index)) && !(await this.ctx.storage.get('dply:paused'))
+      : isWorker(index) ? (workerGroup(index)?.index ?? Infinity) < (workerGroup(index)?.group.max ?? 0) && (await this.wanted(index)) && !(await this.ctx.storage.get('dply:paused'))
       : typeof index === 'number' && index < limits().min;
     // A paused site (usage credit used up) lets its always-on instances sleep.
     if (keep && (await trafficOpen(this.env))) return;
@@ -1136,7 +1156,7 @@ async function warm(env) {
   if (!(await trafficOpen(env))) return;
   const targets = Array.from({ length: limits().min }, (_, i) => [instance(env, i), i]);
   if (JOBS_ALWAYS_ON) targets.push([getContainer(env.APP, 'jobs'), 'jobs']);
-  const workers = Array.from({ length: WORKERS }, (_, i) => 'worker-' + i);
+  const workers = WORKER_GROUPS.flatMap((g) => workerNames(g).map((name) => [name, g]));
   await Promise.all([
     ...targets.map(async ([container, index]) => {
       await container.remember(index);
@@ -1144,7 +1164,7 @@ async function warm(env) {
     }),
     // Without autoscaling every worker is always on (this also clears a
     // flag left from when the app autoscaled).
-    ...workers.map((name) => WORKERS_AUTOSCALE ? getContainer(env.APP, name).resumeWorker(name) : getContainer(env.APP, name).startWorker(name)),
+    ...workers.map(([name, g]) => g.autoscale ? getContainer(env.APP, name).resumeWorker(name) : getContainer(env.APP, name).startWorker(name)),
   ]);
 }
 
@@ -1238,12 +1258,12 @@ export default {
       }
       // Queue worker state for the workspace. Reading it never starts one.
       if (url.pathname === '/_dply/workers' && request.method === 'GET') {
-        const names = Array.from({ length: WORKERS }, (_, i) => 'worker-' + i);
-        return Response.json(await Promise.all(names.map(async (name) => ({ name, ...(await getContainer(env.APP, name).workerState(name)) }))));
+        const names = allWorkerNames();
+        return Response.json(await Promise.all(names.map(async (name) => ({ name, group: workerGroup(name)?.group.key ?? '', ...(await getContainer(env.APP, name).workerState(name)) }))));
       }
       if (url.pathname === '/_dply/workers/pause' && request.method === 'POST') {
         const { paused = true } = await request.json();
-        const names = Array.from({ length: WORKERS }, (_, i) => 'worker-' + i);
+        const names = allWorkerNames();
         return Response.json(await Promise.all(names.map(async (name) => {
           try {
             await getContainer(env.APP, name).pauseWorker(name, Boolean(paused));
@@ -1262,11 +1282,13 @@ export default {
           return Response.json({ ok: false, error: String(e && e.message ? e.message : e) }, { status: 500 });
         }
       }
-      // The autoscaler: run the first `count` workers, stop the rest.
+      // The autoscaler: run a group's first `count` workers, stop the rest.
       if (url.pathname === '/_dply/workers/scale' && request.method === 'POST') {
-        const { count = WORKERS_MIN } = await request.json();
-        const want = Math.max(WORKERS_MIN, Math.min(WORKERS, Number(count) || 0));
-        const names = Array.from({ length: WORKERS }, (_, i) => 'worker-' + i);
+        const { count = 0, group = '' } = await request.json();
+        const g = WORKER_GROUPS.find((x) => x.key === group);
+        if (!g) return Response.json({ error: `No worker group ${group}` }, { status: 404 });
+        const want = Math.max(g.min, Math.min(g.max, Number(count) || 0));
+        const names = workerNames(g);
         return Response.json(await Promise.all(names.map(async (name, i) => {
           try {
             const c = getContainer(env.APP, name);
@@ -1279,7 +1301,7 @@ export default {
       }
       // Start the workers now and say what happened to each (warm does it in the background).
       if (url.pathname === '/_dply/workers/start' && request.method === 'POST') {
-        const names = Array.from({ length: WORKERS }, (_, i) => 'worker-' + i);
+        const names = allWorkerNames();
         return Response.json(await Promise.all(names.map(async (name) => {
           try {
             await getContainer(env.APP, name).resumeWorker(name);

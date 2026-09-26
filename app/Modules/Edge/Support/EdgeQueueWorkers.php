@@ -31,8 +31,11 @@ final class EdgeQueueWorkers
 
     public const CONNECTIONS = ['auto', 'redis', 'database'];
 
+    /** Extra worker groups beside the main one (Laravel Cloud's clusters). */
+    public const MAX_GROUPS = 4;
+
     /**
-     * @return array{enabled: bool, instances: int, processes: int, connection: string, queues: string, timeout: int, tries: int, sleep: int, memory: int, max_time: int, autoscale: bool, max_instances: int, scale_per: int, max_wait: int, paused: bool}
+     * @return array{enabled: bool, instances: int, processes: int, connection: string, queues: string, timeout: int, tries: int, sleep: int, memory: int, max_time: int, autoscale: bool, max_instances: int, scale_per: int, max_wait: int, paused: bool, groups: list<array{key: string, queues: string, instances: int, processes: int, autoscale: bool, max_instances: int, scale_per: int, max_wait: int}>}
      */
     public static function for(Site $site): array
     {
@@ -43,17 +46,21 @@ final class EdgeQueueWorkers
 
     /**
      * @param  array<string, mixed>  $raw
-     * @return array{enabled: bool, instances: int, processes: int, connection: string, queues: string, timeout: int, tries: int, sleep: int, memory: int, max_time: int, autoscale: bool, max_instances: int, scale_per: int, max_wait: int, paused: bool}
+     * @return array{enabled: bool, instances: int, processes: int, connection: string, queues: string, timeout: int, tries: int, sleep: int, memory: int, max_time: int, autoscale: bool, max_instances: int, scale_per: int, max_wait: int, paused: bool, groups: list<array{key: string, queues: string, instances: int, processes: int, autoscale: bool, max_instances: int, scale_per: int, max_wait: int}>}
      */
     public static function normalize(array $raw): array
     {
         $connection = (string) ($raw['connection'] ?? 'auto');
-        $queues = implode(',', array_filter(array_map(
-            static fn (string $q): string => preg_replace('/[^A-Za-z0-9_\-:.]/', '', trim($q)) ?? '',
-            explode(',', (string) ($raw['queues'] ?? 'default')),
-        )));
-
+        $queues = self::cleanQueues((string) ($raw['queues'] ?? 'default'));
         $instances = max(1, min(self::MAX_INSTANCES, (int) ($raw['instances'] ?? 1)));
+
+        $groups = [];
+        foreach (array_slice(array_values(array_filter((array) ($raw['groups'] ?? []), 'is_array')), 0, self::MAX_GROUPS) as $i => $group) {
+            $group = self::normalizeGroup($group, $i);
+            if (! in_array($group['key'], array_column($groups, 'key'), true)) {
+                $groups[] = $group;
+            }
+        }
 
         return [
             'enabled' => (bool) ($raw['enabled'] ?? false),
@@ -76,7 +83,98 @@ final class EdgeQueueWorkers
             'max_wait' => max(0, min(3600, (int) ($raw['max_wait'] ?? 60))),
             // Stopped from the workspace; they stay stopped until resumed.
             'paused' => (bool) ($raw['paused'] ?? false),
+            // More workers for other queues (e.g. `high`), sized and scaled on
+            // their own so a flood on one queue cannot starve another.
+            'groups' => $groups,
         ];
+    }
+
+    /**
+     * An extra group: its own queues, size and scaling. Connection and the
+     * job options (timeout, tries, memory, …) are the main group's.
+     *
+     * @param  array<string, mixed>  $raw
+     * @return array{key: string, queues: string, instances: int, processes: int, autoscale: bool, max_instances: int, scale_per: int, max_wait: int}
+     */
+    public static function normalizeGroup(array $raw, int $position = 0): array
+    {
+        // The key names the instances (worker-{key}-N): letters and digits only.
+        $key = substr(strtolower(preg_replace('/[^A-Za-z0-9]/', '', (string) ($raw['key'] ?? '')) ?? ''), 0, 12);
+        $queues = self::cleanQueues((string) ($raw['queues'] ?? ''));
+        if ($key === '') {
+            $key = substr(strtolower(preg_replace('/[^A-Za-z0-9]/', '', explode(',', $queues)[0] ?? '') ?? ''), 0, 12) ?: 'group'.($position + 1);
+        }
+        $instances = max(1, min(self::MAX_INSTANCES, (int) ($raw['instances'] ?? 1)));
+
+        return [
+            'key' => $key,
+            'queues' => $queues !== '' ? $queues : 'default',
+            'instances' => $instances,
+            'processes' => max(1, min(self::MAX_PROCESSES, (int) ($raw['processes'] ?? 1))),
+            'autoscale' => (bool) ($raw['autoscale'] ?? false),
+            'max_instances' => max($instances, min(self::MAX_INSTANCES, (int) ($raw['max_instances'] ?? $instances))),
+            'scale_per' => max(1, min(1000, (int) ($raw['scale_per'] ?? 10))),
+            'max_wait' => max(0, min(3600, (int) ($raw['max_wait'] ?? 60))),
+        ];
+    }
+
+    /**
+     * Every group that runs, main first (key ''), each with the instance
+     * names it can use and how many are always on.
+     *
+     * @return list<array{key: string, queues: string, instances: int, processes: int, autoscale: bool, max_instances: int, scale_per: int, max_wait: int, capacity: int, prefix: string}>
+     */
+    public static function groups(Site $site): array
+    {
+        $main = self::for($site);
+        $all = [['key' => ''] + array_intersect_key($main, array_flip(['queues', 'instances', 'processes', 'autoscale', 'max_instances', 'scale_per', 'max_wait']))];
+        foreach ($main['groups'] as $group) {
+            $all[] = $group;
+        }
+
+        return array_map(static fn (array $g): array => $g + [
+            'capacity' => $g['autoscale'] ? $g['max_instances'] : $g['instances'],
+            'prefix' => 'worker-'.($g['key'] !== '' ? $g['key'].'-' : ''),
+        ], $all);
+    }
+
+    /** One group by key ('' = main), or null. */
+    public static function group(Site $site, string $key): ?array
+    {
+        foreach (self::groups($site) as $group) {
+            if ($group['key'] === $key) {
+                return $group;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Worker instances an unsaved draft runs: always on, and at most.
+     *
+     * @param  array<string, mixed>  $draft
+     * @return array{min: int, max: int}
+     */
+    public static function draftInstances(array $draft): array
+    {
+        $main = self::normalize($draft);
+        $min = $main['instances'];
+        $max = $main['autoscale'] ? $main['max_instances'] : $main['instances'];
+        foreach ($main['groups'] as $g) {
+            $min += $g['instances'];
+            $max += $g['autoscale'] ? $g['max_instances'] : $g['instances'];
+        }
+
+        return ['min' => $min, 'max' => $max];
+    }
+
+    private static function cleanQueues(string $queues): string
+    {
+        return implode(',', array_filter(array_map(
+            static fn (string $q): string => preg_replace('/[^A-Za-z0-9_\-:.]/', '', trim($q)) ?? '',
+            explode(',', $queues),
+        )));
     }
 
     /**
@@ -90,7 +188,7 @@ final class EdgeQueueWorkers
             return 0;
         }
 
-        return $settings['autoscale'] ? $settings['max_instances'] : $settings['instances'];
+        return array_sum(array_column(self::groups($site), 'capacity'));
     }
 
     /**
@@ -161,15 +259,16 @@ final class EdgeQueueWorkers
      *
      * @return array<string, string>
      */
-    public static function env(Site $site): array
+    public static function env(Site $site, string $group = ''): array
     {
         $s = self::for($site);
+        $g = self::group($site, $group) ?? self::groups($site)[0];
 
         return [
             'DPLY_ROLE' => 'worker',
             'DPLY_WORKER_CONNECTION' => (string) self::connection($site),
-            'DPLY_WORKER_QUEUES' => $s['queues'],
-            'DPLY_WORKER_PROCESSES' => (string) $s['processes'],
+            'DPLY_WORKER_QUEUES' => $g['queues'],
+            'DPLY_WORKER_PROCESSES' => (string) $g['processes'],
             'DPLY_WORKER_TIMEOUT' => (string) $s['timeout'],
             'DPLY_WORKER_TRIES' => (string) $s['tries'],
             'DPLY_WORKER_SLEEP' => (string) $s['sleep'],
@@ -191,6 +290,7 @@ final class EdgeQueueWorkers
 
         return array_values(array_map(static fn (array $row): array => [
             'name' => (string) ($row['name'] ?? ''),
+            'group' => (string) ($row['group'] ?? ''),
             'status' => (string) ($row['status'] ?? 'unknown'),
             'since' => isset($row['lastChange']) ? intdiv((int) $row['lastChange'], 1000) : null,
             'exit_code' => isset($row['exitCode']) ? (int) $row['exitCode'] : null,
@@ -223,9 +323,9 @@ final class EdgeQueueWorkers
      *
      * @return list<array{name: string, wanted: bool, ok: bool, error: ?string}>
      */
-    public static function scale(Site $site, int $count): array
+    public static function scale(Site $site, int $count, string $group = ''): array
     {
-        $rows = self::internal($site)->post(rtrim((string) $site->edgeLiveUrl(), '/').'/_dply/workers/scale', ['count' => $count])->throw()->json();
+        $rows = self::internal($site)->post(rtrim((string) $site->edgeLiveUrl(), '/').'/_dply/workers/scale', ['count' => $count, 'group' => $group])->throw()->json();
 
         return array_values(array_map(static fn (array $row): array => [
             'name' => (string) ($row['name'] ?? ''),
@@ -294,9 +394,9 @@ final class EdgeQueueWorkers
      * every check and keep it from ever sleeping. Other queues are asked of
      * the app.
      */
-    public static function backlog(Site $site): int
+    public static function backlog(Site $site, string $group = ''): int
     {
-        return self::queueState($site)['waiting'];
+        return self::queueState($site, $group)['waiting'];
     }
 
     /**
@@ -305,10 +405,9 @@ final class EdgeQueueWorkers
      *
      * @return array{waiting: int, oldest_age: ?int}
      */
-    public static function queueState(Site $site): array
+    public static function queueState(Site $site, string $group = ''): array
     {
-        $settings = self::for($site);
-        $queues = explode(',', $settings['queues']);
+        $queues = explode(',', (self::group($site, $group) ?? self::groups($site)[0])['queues']);
         $connection = self::connection($site);
         $env = fn (string $key): string => (string) ($site->edgeEnvVars()->where('scope', 'production')->where('key', $key)->first()?->value ?? '');
 

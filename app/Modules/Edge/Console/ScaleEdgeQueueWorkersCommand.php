@@ -57,7 +57,7 @@ class ScaleEdgeQueueWorkersCommand extends Command
     {
         $sites = Site::query()
             ->where('meta->edge->runtime_mode', 'container')
-            ->where('meta->edge->container->workers->autoscale', true)
+            ->where('meta->edge->container->workers->enabled', true)
             ->get()
             ->filter(fn (Site $site): bool => ! $site->isEdgePreview()
                 && is_string($site->edgeLiveUrl()) && $site->edgeLiveUrl() !== ''
@@ -65,21 +65,26 @@ class ScaleEdgeQueueWorkersCommand extends Command
                 && ! EdgeQueueWorkers::for($site)['paused']);
 
         foreach ($sites as $site) {
-            $this->scale($site);
+            foreach (EdgeQueueWorkers::groups($site) as $group) {
+                if ($group['autoscale']) {
+                    $this->scale($site, $group);
+                }
+            }
         }
     }
 
     /** Points kept for the workspace chart: one a minute, six hours. */
     public const HISTORY_POINTS = 360;
 
-    public static function stateKey(Site $site): string
+    /** Per group; the main group ('') keeps the original keys. */
+    public static function stateKey(Site $site, string $group = ''): string
     {
-        return 'edge:workers:'.$site->id.':scaler';
+        return 'edge:workers:'.$site->id.':scaler'.($group !== '' ? ':'.$group : '');
     }
 
-    public static function historyKey(Site $site): string
+    public static function historyKey(Site $site, string $group = ''): string
     {
-        return 'edge:workers:'.$site->id.':history';
+        return 'edge:workers:'.$site->id.':history'.($group !== '' ? ':'.$group : '');
     }
 
     /**
@@ -87,23 +92,24 @@ class ScaleEdgeQueueWorkersCommand extends Command
      *
      * @return list<array{at: int, count: int, backlog: int}>
      */
-    public static function history(Site $site): array
+    public static function history(Site $site, string $group = ''): array
     {
-        $points = Cache::get(self::historyKey($site), []);
+        $points = Cache::get(self::historyKey($site, $group), []);
 
         return is_array($points) ? array_values($points) : [];
     }
 
-    private function scale(Site $site): void
+    /** @param  array{key: string, instances: int, max_instances: int, processes: int, scale_per: int, max_wait: int}  $settings */
+    private function scale(Site $site, array $settings): void
     {
-        $settings = EdgeQueueWorkers::for($site);
-        $key = self::stateKey($site);
+        $group = $settings['key'];
+        $key = self::stateKey($site, $group);
         $state = Cache::get($key, []);
         $current = (int) ($state['count'] ?? $settings['instances']);
         $busyAt = (int) ($state['busy_at'] ?? 0);
 
         try {
-            $queue = EdgeQueueWorkers::queueState($site);
+            $queue = EdgeQueueWorkers::queueState($site, $group);
             $backlog = $queue['waiting'];
         } catch (Throwable $e) {
             Cache::put($key, array_merge($state, ['error' => $e->getMessage(), 'at' => now()->getTimestamp()]), now()->addDay());
@@ -127,7 +133,7 @@ class ScaleEdgeQueueWorkersCommand extends Command
         if ($target !== $current || $now - $syncedAt >= self::RESYNC_EVERY || $error !== null) {
             $error = null;
             try {
-                $failed = collect(EdgeQueueWorkers::scale($site, $target))->reject(fn (array $w): bool => $w['ok']);
+                $failed = collect(EdgeQueueWorkers::scale($site, $target, $group))->reject(fn (array $w): bool => $w['ok']);
                 if ($failed->isNotEmpty()) {
                     $error = $failed->map(fn (array $w): string => $w['name'].': '.$w['error'])->implode(' · ');
                 }
@@ -139,16 +145,16 @@ class ScaleEdgeQueueWorkersCommand extends Command
 
         Cache::put($key, ['count' => $target, 'busy_at' => $busyAt, 'backlog' => $backlog, 'oldest_age' => $queue['oldest_age'], 'at' => $now, 'synced_at' => $syncedAt, 'error' => $error], now()->addDay());
         // One chart point a minute, keeping the minute's peak.
-        $history = self::history($site);
+        $history = self::history($site, $group);
         $last = end($history);
         if (is_array($last) && $now - $last['at'] < 55) {
             $history[array_key_last($history)] = ['at' => $last['at'], 'count' => max($last['count'], $target), 'backlog' => max($last['backlog'], $backlog)];
         } else {
             $history[] = ['at' => $now, 'count' => $target, 'backlog' => $backlog];
         }
-        Cache::put(self::historyKey($site), array_slice($history, -self::HISTORY_POINTS), now()->addDay());
+        Cache::put(self::historyKey($site, $group), array_slice($history, -self::HISTORY_POINTS), now()->addDay());
         if ($target !== $current) {
-            $this->line(sprintf('%s: %d → %d workers (%d waiting)', $site->name, $current, $target, $backlog));
+            $this->line(sprintf('%s%s: %d → %d workers (%d waiting)', $site->name, $group !== '' ? ' ['.$group.']' : '', $current, $target, $backlog));
         }
     }
 }
