@@ -53,7 +53,7 @@
                     <div class="grid gap-3 sm:grid-cols-3">
                         <div>
                             <x-input-label :value="__('Name')" />
-                            <x-text-input wire:model="items.{{ $i }}.name" type="text" class="mt-1 block w-full text-sm" @disabled(! $managedDelivery) />
+                            <x-text-input wire:model="items.{{ $i }}.name" type="text" class="mt-1 block w-full text-sm" :disabled="! $managedDelivery" />
                         </div>
                         <div>
                             <x-input-label :value="__('Inject')" />
@@ -64,7 +64,7 @@
                         </div>
                         <div>
                             <x-input-label :value="__('Path')" />
-                            <x-text-input wire:model="items.{{ $i }}.path" type="text" class="mt-1 block w-full font-mono text-sm" @disabled(! $managedDelivery) />
+                            <x-text-input wire:model="items.{{ $i }}.path" type="text" class="mt-1 block w-full font-mono text-sm" :disabled="! $managedDelivery" />
                         </div>
                     </div>
                     <div>
@@ -79,7 +79,7 @@
 
             <div class="flex flex-wrap items-center justify-between gap-3">
                 <button type="button" wire:click="addItem" class="text-sm font-semibold text-brand-sage" @disabled(! $managedDelivery)>{{ __('Add snippet') }}</button>
-                <x-primary-button type="button" wire:click="save" @disabled(! $managedDelivery)>{{ __('Save') }}</x-primary-button>
+                <x-primary-button type="button" wire:click="save" :disabled="! $managedDelivery">{{ __('Save') }}</x-primary-button>
             </div>
         </div>
     </section>

@@ -105,6 +105,8 @@ final class EdgeContainerSettings
             'dedicated_jobs' => (bool) ($raw['dedicated_jobs'] ?? false),
             // The jobs instance stays awake instead of sleeping with the app.
             'jobs_always_on' => (bool) ($raw['jobs_always_on'] ?? false),
+            // Always-on queue:work instances (EdgeQueueWorkers); 0 when off.
+            'worker_instances' => EdgeQueueWorkers::runningInstances($site),
             'schedules' => self::normalizeSchedules(is_array($raw['schedules'] ?? null) ? $raw['schedules'] : []),
             'rollout_mode' => in_array($mode, self::ROLLOUT_MODES, true) ? $mode : 'gradual',
             'rollout_step_percentage' => self::validRolloutSteps($raw['rollout_step_percentage'] ?? []),
@@ -264,11 +266,11 @@ final class EdgeContainerSettings
      * "Maximum number of running container instances exceeded". A dedicated
      * jobs container is another instance on top of that.
      */
-    public static function wranglerMaxInstances(int $desired, bool $dedicatedJobs = false, bool $overlap = false): int
+    public static function wranglerMaxInstances(int $desired, bool $dedicatedJobs = false, bool $overlap = false, int $workers = 0): int
     {
         $desired = max(1, min(self::MAX_INSTANCES, $desired));
 
-        return $desired + ($overlap ? 1 : 0) + ($dedicatedJobs ? 1 : 0);
+        return $desired + ($overlap ? 1 : 0) + ($dedicatedJobs ? 1 : 0) + max(0, $workers);
     }
 
     /**

@@ -1,4 +1,4 @@
-<div @if ($polling) wire:poll.1s="tail" @endif>
+<div @if ($polling) wire:poll.2s="tail" @endif>
     @if ($missing || $journey === null)
         <div class="rounded-2xl border border-dashed border-brand-ink/15 bg-white/40 px-5 py-6 text-center text-xs text-brand-moss">
             {{ __('Deployment no longer available.') }}
@@ -23,10 +23,12 @@
                     },
                     init() {
                         this.$nextTick(() => { $refs.logPre.scrollTop = $refs.logPre.scrollHeight; });
-                        Livewire.hook('morph.updated', () => {
-                            if (this.pinned && $refs.logPre) { $refs.logPre.scrollTop = $refs.logPre.scrollHeight; }
+                        this.stopHook = Livewire.hook('morph.updated', () => {
+                            const el = this.$refs.logPre;
+                        if (this.pinned && el) { el.scrollTop = el.scrollHeight; }
                         });
                     },
+                    destroy() { this.stopHook?.(); },
                 }"
             >
                 <pre
@@ -195,10 +197,12 @@
                                                 },
                                                 init() {
                                                     this.$nextTick(() => { $refs.logPre.scrollTop = $refs.logPre.scrollHeight; });
-                                                    Livewire.hook('morph.updated', () => {
-                                                        if (this.pinned) { $refs.logPre.scrollTop = $refs.logPre.scrollHeight; }
+                                                    this.stopHook = Livewire.hook('morph.updated', () => {
+                                                        const el = this.$refs.logPre;
+                                                    if (this.pinned && el) { el.scrollTop = el.scrollHeight; }
                                                     });
                                                 },
+                                                destroy() { this.stopHook?.(); },
                                             }"
                                             class="relative mt-2"
                                         >

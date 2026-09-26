@@ -66,7 +66,7 @@
                 </span>
                 <x-toggle-switch
                     :enabled="(bool) $enabled"
-                    wire:model.live="enabled" @disabled(! $managedDelivery)
+                    wire:model.live="enabled" :disabled="! $managedDelivery"
                     :on-label="__('On')"
                     :off-label="__('Off')"
                 />
@@ -75,17 +75,17 @@
             <div class="grid gap-3 sm:grid-cols-3">
                 <div>
                     <x-input-label for="total_active_users" :value="__('Max active visitors')" />
-                    <x-text-input id="total_active_users" wire:model="total_active_users" type="number" min="1" class="mt-1 block w-full text-sm" @disabled(! $managedDelivery) />
+                    <x-text-input id="total_active_users" wire:model="total_active_users" type="number" min="1" class="mt-1 block w-full text-sm" :disabled="! $managedDelivery" />
                     <p class="mt-1 text-xs text-brand-moss">{{ __('How many admitted browsers can browse at once.') }}</p>
                 </div>
                 <div>
                     <x-input-label for="new_users_per_minute" :value="__('New admits / minute')" />
-                    <x-text-input id="new_users_per_minute" wire:model="new_users_per_minute" type="number" min="1" class="mt-1 block w-full text-sm" @disabled(! $managedDelivery) />
+                    <x-text-input id="new_users_per_minute" wire:model="new_users_per_minute" type="number" min="1" class="mt-1 block w-full text-sm" :disabled="! $managedDelivery" />
                     <p class="mt-1 text-xs text-brand-moss">{{ __('How fast the queue drains into the site.') }}</p>
                 </div>
                 <div>
                     <x-input-label for="session_duration_minutes" :value="__('Session (minutes)')" />
-                    <x-text-input id="session_duration_minutes" wire:model="session_duration_minutes" type="number" min="1" class="mt-1 block w-full text-sm" @disabled(! $managedDelivery) />
+                    <x-text-input id="session_duration_minutes" wire:model="session_duration_minutes" type="number" min="1" class="mt-1 block w-full text-sm" :disabled="! $managedDelivery" />
                     <p class="mt-1 text-xs text-brand-moss">{{ __('Cookie lifetime after admit; then they may re-queue.') }}</p>
                 </div>
             </div>
@@ -97,7 +97,7 @@
             </div>
 
             <div class="flex justify-end">
-                <x-primary-button type="button" wire:click="save" @disabled(! $managedDelivery)>{{ __('Save') }}</x-primary-button>
+                <x-primary-button type="button" wire:click="save" :disabled="! $managedDelivery">{{ __('Save') }}</x-primary-button>
             </div>
         </div>
     </section>

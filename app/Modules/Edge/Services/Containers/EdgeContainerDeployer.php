@@ -14,6 +14,7 @@ use App\Modules\Edge\Support\EdgeContainerSettings;
 use App\Modules\Edge\Support\EdgeEffectiveBindings;
 use App\Modules\Edge\Support\EdgeEffectiveCrons;
 use App\Modules\Edge\Support\EdgeLogCopy;
+use App\Modules\Edge\Support\EdgeQueueWorkers;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Contracts\Process\ProcessResult;
 use Illuminate\Process\PendingProcess;
@@ -184,6 +185,7 @@ class EdgeContainerDeployer
     public static function keepsInstancesAwake(array $settings): bool
     {
         return $settings['min_instances'] > 0
+            || ($settings['worker_instances'] ?? 0) > 0
             || ($settings['dedicated_jobs'] && $settings['jobs_always_on'])
             || array_filter($settings['schedules'], static fn (array $w): bool => $w['min'] > 0) !== [];
     }
@@ -327,7 +329,7 @@ class EdgeContainerDeployer
         }
 
         // Cloudflare can report the rollout idle while the public URL never
-        // answers. Any HTTP status is enough — a 500 is the app. A hang is not.
+        // answers, or answers with the worker's own "container not running".
         $url = $site->edgeLiveUrl();
         if (! is_string($url) || $url === '') {
             throw new RuntimeException('Container deploy failed: the app has no live URL to check.');
@@ -339,6 +341,10 @@ class EdgeContainerDeployer
             throw new RuntimeException("Container deploy failed: {$url} did not answer: ".$e->getMessage(), previous: $e);
         }
         $log(sprintf("App answered HTTP %d.\n", $response->status()));
+        $unhealthy = self::unhealthyReason($url, $response->status(), $response->body());
+        if ($unhealthy !== null) {
+            throw new RuntimeException('Container deploy failed: '.$unhealthy);
+        }
 
         if (self::keepsInstancesAwake($settings)) {
             $log("Starting the always-on instances.\n");
@@ -361,6 +367,26 @@ class EdgeContainerDeployer
             'rollout' => $rollout,
             'fingerprint' => $fingerprint,
         ];
+    }
+
+    /**
+     * Why a live-URL check means the app is not up, or null when it is. A 4xx
+     * is the app answering (a 404 at / is fine); a 5xx is not — including the
+     * worker's own 500 when the container would not start.
+     */
+    public static function unhealthyReason(string $url, ?int $status, string $body, ?string $error = null): ?string
+    {
+        if ($status === null) {
+            return "{$url} did not answer: ".($error ?? 'no response');
+        }
+        if ($status < 500) {
+            return null;
+        }
+        $detail = trim(mb_substr(strip_tags($body), 0, 300));
+
+        return preg_match('/not running|Failed to start container|Container crashed|suddenly disconnected|port \d+ is available/i', $body) === 1
+            ? "the container did not start ({$url} answered HTTP {$status}: {$detail}). Check the container logs for why it exited."
+            : "{$url} answered HTTP {$status}".($detail !== '' ? ": {$detail}" : '.');
     }
 
     /**
@@ -474,7 +500,7 @@ class EdgeContainerDeployer
                 'class_name' => 'App',
                 'image' => $dockerfile,
                 'instance_type' => EdgeContainerSettings::wranglerInstanceType($site),
-                'max_instances' => EdgeContainerSettings::wranglerMaxInstances(EdgeContainerSettings::peakInstances($settings), $settings['dedicated_jobs'], EdgeContainerSettings::deployOverlap($site)),
+                'max_instances' => EdgeContainerSettings::wranglerMaxInstances(EdgeContainerSettings::peakInstances($settings), $settings['dedicated_jobs'], EdgeContainerSettings::deployOverlap($site), $settings['worker_instances']),
                 'constraints' => EdgeContainerSettings::constraints($site),
                 'rollout_step_percentage' => $settings['rollout_step_percentage'] !== [] ? $settings['rollout_step_percentage'] : null,
                 'rollout_active_grace_period' => $settings['rollout_active_grace_period'] > 0 ? $settings['rollout_active_grace_period'] : null,
@@ -557,6 +583,8 @@ class EdgeContainerDeployer
             '__JOBS_ALWAYS_ON__' => $settings['dedicated_jobs'] && $settings['jobs_always_on'] ? 'true' : 'false',
             '__STICKY__' => $settings['sticky_sessions'] ? 'true' : 'false',
             '__DEDICATED_JOBS__' => $settings['dedicated_jobs'] ? 'true' : 'false',
+            '__WORKERS__' => (string) $settings['worker_instances'],
+            '__WORKER_ENV__' => json_encode((object) ($settings['worker_instances'] > 0 ? EdgeQueueWorkers::env($site) : []), JSON_UNESCAPED_SLASHES),
             '__FPM_CHILDREN__' => (string) EdgeContainerSettings::phpFpmPool($settings['instance_type'], $site)['max_children'],
             '__FPM_LIMIT__' => json_encode(EdgeContainerSettings::phpFpmPool($settings['instance_type'], $site)['memory_limit']),
             '__QUEUE_PATH__' => json_encode(self::QUEUE_PATH, JSON_UNESCAPED_SLASHES),
@@ -616,6 +644,10 @@ const CONNECTIONS = __CONNECTIONS__;
 const QSTASH_TOKEN = __QSTASH_TOKEN__;
 const DELIVERY_USAGE_URL = __DELIVERY_USAGE_URL__;
 
+const WORKERS = __WORKERS__;
+const WORKER_ENV = __WORKER_ENV__;
+function isWorker(name) { return typeof name === 'string' && name.startsWith('worker-'); }
+
 export class App extends Container {
   defaultPort = __PORT__;
   sleepAfter = __SLEEP__;
@@ -656,6 +688,16 @@ export class App extends Container {
       DPLY_PHP_FPM_MAX_CHILDREN: '__FPM_CHILDREN__',
       DPLY_PHP_MEMORY_LIMIT: __FPM_LIMIT__,
     });
+    // Queue workers are App instances named worker-N. Whoever starts one
+    // (warm, or the platform after a restart), it boots in worker mode.
+    if (isWorker(ctx.id.name)) Object.assign(this.envVars, WORKER_ENV);
+  }
+
+  // Queue workers run queue:work, not a web server: start without waiting for a port.
+  async startWorker(index) {
+    await this.remember(index);
+    if (this.container.running) return;
+    await this.start({ envVars: this.envVars });
   }
 
   // Autoscaling. The Worker asks instance-0, instance-1, … in order and
@@ -688,7 +730,9 @@ export class App extends Container {
 
   async onActivityExpired() {
     const index = this.index ?? (await this.ctx.storage.get('dply:index'));
-    const keep = index === 'jobs' ? JOBS_ALWAYS_ON : typeof index === 'number' && index < limits().min;
+    const keep = index === 'jobs' ? JOBS_ALWAYS_ON
+      : isWorker(index) ? Number(String(index).slice(7)) < WORKERS
+      : typeof index === 'number' && index < limits().min;
     // A paused site (usage credit used up) lets its always-on instances sleep.
     if (keep && (await trafficOpen(this.env))) return;
     return super.onActivityExpired();
@@ -940,10 +984,14 @@ async function warm(env) {
   if (!(await trafficOpen(env))) return;
   const targets = Array.from({ length: limits().min }, (_, i) => [instance(env, i), i]);
   if (JOBS_ALWAYS_ON) targets.push([getContainer(env.APP, 'jobs'), 'jobs']);
-  await Promise.all(targets.map(async ([container, index]) => {
-    await container.remember(index);
-    await container.startAndWaitForPorts({ ports: [__PORT__], cancellationOptions: { portReadyTimeoutMS: 45000 } });
-  }));
+  const workers = Array.from({ length: WORKERS }, (_, i) => 'worker-' + i);
+  await Promise.all([
+    ...targets.map(async ([container, index]) => {
+      await container.remember(index);
+      await container.startAndWaitForPorts({ ports: [__PORT__], cancellationOptions: { portReadyTimeoutMS: 45000 } });
+    }),
+    ...workers.map((name) => getContainer(env.APP, name).startWorker(name)),
+  ]);
 }
 
 function withStickyCookie(response, id) {
@@ -1026,6 +1074,11 @@ export default {
       if (url.pathname === '/_dply/warm' && request.method === 'POST') {
         ctx.waitUntil(warm(env));
         return new Response(null, { status: 202 });
+      }
+      // Queue worker state for the workspace. Reading it never starts one.
+      if (url.pathname === '/_dply/workers' && request.method === 'GET') {
+        const names = Array.from({ length: WORKERS }, (_, i) => 'worker-' + i);
+        return Response.json(await Promise.all(names.map(async (name) => ({ name, ...(await getContainer(env.APP, name).getState()) }))));
       }
       if (url.pathname === '/_dply/command' && request.method === 'POST') {
         return proxy(env, request, await webTarget(env, request));

@@ -9,9 +9,12 @@ use App\Models\EdgeDeployment;
 use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
+use App\Modules\Edge\Actions\CancelStuckEdgeDeployment;
 use App\Modules\Edge\Actions\DeployEdgeCommit;
 use App\Modules\Edge\Jobs\BuildEdgeSiteJob;
+use App\Modules\Edge\Support\EdgeBuildSlots;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Queue;
 
 uses(RefreshDatabase::class);
@@ -127,3 +130,38 @@ function scaffoldEdgeSiteWithCommit(): array
 
     return [$site->refresh(), $live, $old];
 }
+
+test('a new deploy cancels older in-flight builds for the site', function () {
+    Queue::fake();
+    Process::fake();
+    [$site, $live] = scaffoldEdgeSiteWithCommit();
+    $stuck = EdgeDeployment::query()->create(['site_id' => $site->id, 'organization_id' => $site->organization_id, 'status' => EdgeDeployment::STATUS_BUILDING, 'storage_prefix' => 'edge/stuck']);
+
+    $new = (new DeployEdgeCommit)->handle($site, '9999999999999999999999999999999999999999');
+
+    expect($stuck->fresh()->status)->toBe(EdgeDeployment::STATUS_FAILED)
+        ->and($stuck->fresh()->wasCancelledByOperator())->toBeTrue()
+        ->and($stuck->fresh()->failure_reason)->toContain($new->id)
+        ->and($new->fresh()->status)->toBe(EdgeDeployment::STATUS_BUILDING)
+        ->and($live->fresh()->status)->toBe(EdgeDeployment::STATUS_LIVE);
+    Process::assertRan(fn ($p) => in_array('kill', (array) $p->command, true));
+});
+
+test('the reaper fails builds whose worker died, frees the slot, and restores the site', function () {
+    Process::fake();
+    [$site, $live] = scaffoldEdgeSiteWithCommit();
+    $site->update(['status' => Site::STATUS_EDGE_PROVISIONING]);
+    $dead = EdgeDeployment::query()->create(['site_id' => $site->id, 'organization_id' => $site->organization_id, 'status' => EdgeDeployment::STATUS_BUILDING, 'storage_prefix' => 'edge/dead', 'build_started_at' => now()->subHours(2)]);
+    $fresh = EdgeDeployment::query()->create(['site_id' => $site->id, 'organization_id' => $site->organization_id, 'status' => EdgeDeployment::STATUS_BUILDING, 'storage_prefix' => 'edge/fresh', 'build_started_at' => now()->subMinutes(2)]);
+    $slot = EdgeBuildSlots::acquire($site->organization, 3600);
+
+    expect((new CancelStuckEdgeDeployment)->reapStuck())->toBe(1)
+        ->and($dead->fresh()->wasCancelledByOperator())->toBeTrue()
+        ->and($fresh->fresh()->status)->toBe(EdgeDeployment::STATUS_BUILDING)
+        ->and(EdgeBuildSlots::acquire($site->organization, 60))->not->toBeNull()
+        ->and($site->fresh()->status)->toBe(Site::STATUS_EDGE_PROVISIONING);
+
+    $fresh->markCancelledByOperator();
+    CancelStuckEdgeDeployment::restoreSiteStatus($site);
+    expect($site->fresh()->status)->toBe(Site::STATUS_EDGE_ACTIVE);
+});

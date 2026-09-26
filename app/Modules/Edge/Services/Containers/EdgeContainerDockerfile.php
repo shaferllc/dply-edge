@@ -637,7 +637,9 @@ final class EdgeContainerDockerfile
         // ready, and before this every cold start's first request got a 502.
         $start = match ($server) {
             'swoole' => 'exec php artisan octane:start --server=swoole --host=0.0.0.0 --port=8080',
-            'roadrunner' => 'exec php artisan octane:start --server=roadrunner --host=0.0.0.0 --port=8080 --rr-config=.rr.yaml',
+            // No --rr-config: Octane then uses the repo's .rr.yaml, or touches an
+            // empty one. With the flag, a repo without the file exits on boot.
+            'roadrunner' => 'exec php artisan octane:start --server=roadrunner --host=0.0.0.0 --port=8080',
             'fpm' => 'children="${DPLY_PHP_FPM_MAX_CHILDREN:-2}"; limit="${DPLY_PHP_MEMORY_LIMIT:-128M}"; mkdir -p /tmp/views /tmp/client_body /tmp/fastcgi; chmod 1777 /tmp/views /tmp/client_body /tmp/fastcgi; export VIEW_COMPILED_PATH=/tmp/views; printf "[global]\npid = /tmp/php-fpm.pid\nerror_log = /tmp/php-fpm.log\ndaemonize = no\n[www]\nuser = www-data\ngroup = www-data\nlisten = 127.0.0.1:9000\npm = ondemand\npm.max_children = %s\npm.process_idle_timeout = 10s\npm.max_requests = 500\nclear_env = no\n" "$children" > /tmp/php-fpm.conf; php-fpm -F -y /tmp/php-fpm.conf -d "memory_limit=$limit" -d opcache.enable=1 -d opcache.memory_consumption=64 -d opcache.max_accelerated_files=10000 & until php -r \'exit(@fsockopen("127.0.0.1", 9000) ? 0 : 1);\'; do sleep 0.1; done; exec nginx -g "daemon off;"',
             default => 'exec frankenphp run --config /etc/frankenphp/Caddyfile',
         };
@@ -646,8 +648,26 @@ final class EdgeContainerDockerfile
             $start = 'php artisan inertia:start-ssr & '.$start;
         }
         $sqlite = 'if [ "$DB_CONNECTION" = "sqlite" ] && [ -n "$DB_DATABASE" ]; then mkdir -p "$(dirname "$DB_DATABASE")"; if [ "$DPLY_SQLITE_SYNC" = "1" ]; then php -r \'@copy("http://sqlite.dply/db", getenv("DB_DATABASE"));\'; fi; [ -f "$DB_DATABASE" ] || touch "$DB_DATABASE"; chmod 666 "$DB_DATABASE"; if [ "$DPLY_SQLITE_SYNC" = "1" ]; then ( while true; do php -r \'$p=getenv("DB_DATABASE"); if(!is_file($p)) exit; $b=file_get_contents($p); $c=stream_context_create(["http"=>["method"=>"PUT","header"=>"Content-Type: application/octet-stream\r\n","content"=>$b,"timeout"=>60]]); @file_get_contents("http://sqlite.dply/db", false, $c);\' ; sleep 20; done ) & fi; fi; ';
+        // --isolated takes a cache lock. With CACHE_STORE=database on a new
+        // database, cache_locks does not exist until migrate creates it, so
+        // retry once without the lock.
+        // ponytail: that retry is unlocked; two instances booting a new database at once could both migrate.
+        // Queue workers (EdgeQueueWorkers): the same image, started with
+        // DPLY_ROLE=worker, runs N queue:work loops instead of the web server.
+        // On TERM the shell stops relaunching and every worker gets TERM,
+        // which lets queue:work finish its current job before exiting.
+        $worker = 'if [ "$DPLY_ROLE" = "worker" ]; then '
+            .'trap \'trap "" TERM; kill -TERM 0; wait; exit 0\' TERM INT; '
+            .'i=0; while [ "$i" -lt "${DPLY_WORKER_PROCESSES:-1}" ]; do '
+            // Each loop waits out its php on TERM (dash would otherwise die at
+            // once and PID 1 exit, killing the job mid-run) and stops relaunching.
+            .'(trap "stop=1" TERM; while [ -z "$stop" ]; do php artisan queue:work "$DPLY_WORKER_CONNECTION" --queue="${DPLY_WORKER_QUEUES:-default}" '
+            .'--sleep="${DPLY_WORKER_SLEEP:-3}" --tries="${DPLY_WORKER_TRIES:-3}" --timeout="${DPLY_WORKER_TIMEOUT:-60}" '
+            .'--memory="${DPLY_WORKER_MEMORY:-128}" --max-time="${DPLY_WORKER_MAX_TIME:-3600}" & p=$!; wait $p; wait $p 2>/dev/null; '
+            .'[ -z "$stop" ] && sleep 1; done) & '
+            .'i=$((i+1)); done; wait; exit 0; fi; ';
         $boot = $laravel
-            ? $sqlite.'if [ "$DPLY_MIGRATE_ON_BOOT" = "1" ]; then php artisan migrate --force --isolated || true; fi; '.$start
+            ? $worker.$sqlite.'if [ "$DPLY_MIGRATE_ON_BOOT" = "1" ]; then php artisan migrate --force --isolated || php artisan migrate --force || true; fi; '.$start
             : $start;
         $lines[] = 'CMD ["sh", "-c", '.json_encode($boot, JSON_UNESCAPED_SLASHES).']';
 

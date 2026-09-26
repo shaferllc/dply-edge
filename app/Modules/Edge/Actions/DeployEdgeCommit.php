@@ -73,6 +73,7 @@ class DeployEdgeCommit
 
         $site->update(['status' => Site::STATUS_EDGE_PROVISIONING]);
 
+        (new CancelStuckEdgeDeployment)->supersedeInFlight($site, $deployment);
         BuildEdgeSiteJob::dispatch($deployment->id, $sha);
 
         return $deployment;

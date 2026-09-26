@@ -1,5 +1,15 @@
 import './bootstrap';
 
+// Livewire drops a wire:poll tick when the component's previous request is
+// still in flight, and rejects that tick's promise with a null status. Nothing
+// failed, but wire:poll never catches it, so it logs "Uncaught (in promise)".
+window.addEventListener('unhandledrejection', (e) => {
+    const r = e.reason;
+    if (r && typeof r === 'object' && r.status === null && 'errors' in r && 'json' in r) {
+        e.preventDefault();
+    }
+});
+
 import {
     dplyEnsureDocsProseStyles,
     registerDplyLazyAssetListeners,

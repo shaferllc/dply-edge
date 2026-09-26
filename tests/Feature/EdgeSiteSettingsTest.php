@@ -44,7 +44,8 @@ test('edge site settings sidebar shows edge sections not byo runtime', function 
         ->assertSee('Environment')
         ->assertSee('Deploy triggers')
         ->assertSee('Delivery')
-        ->assertSee('Domains')
+        // Domains live under Routing (with redirects, rewrites and headers).
+        ->assertSee('Routing')
         ->assertSee('Billing & usage')
         ->assertSee('Traffic & analytics')
         ->assertSee('Build & deploy logs')

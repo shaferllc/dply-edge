@@ -53,7 +53,9 @@ test('cancel build marks deployment cancelled before teardown so workers cannot 
     $deployment->refresh();
     expect($deployment->wasCancelledByOperator())->toBeTrue()
         ->and($deployment->status)->toBe(EdgeDeployment::STATUS_FAILED)
-        ->and($site->fresh()->status)->toBe(Site::STATUS_EDGE_FAILED);
+        // First deploy with nothing live: the site is torn down, and reads as
+        // deleting until TeardownEdgeSiteJob (queued here) removes it.
+        ->and($site->fresh()->status)->toBe(Site::STATUS_EDGE_DELETING);
 
     Queue::assertPushed(TeardownEdgeSiteJob::class);
 

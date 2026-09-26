@@ -68,7 +68,8 @@ test('laravel gets a php-fpm image with assets, migrations on boot and port 8080
         ->and($dockerfile)->toContain('http://sqlite.dply/db')
         ->and($dockerfile)->toContain('chmod 666')
         ->and($dockerfile)->not->toContain('DPLY_MIGRATE_ON_BOOT" = "1" ]; then if [ "$DB_CONNECTION" = "sqlite"')
-        ->and($dockerfile)->toContain('php artisan migrate --force --isolated')
+        // cache_locks does not exist on a new database, so --isolated fails; retry unlocked.
+        ->and($dockerfile)->toContain('php artisan migrate --force --isolated || php artisan migrate --force || true')
         ->and($dockerfile)->toContain('RUN npm run build')
         ->and($dockerfile)->toContain('SERVER_NAME=":8080"')
         ->and(EdgeContainerDockerfile::logSummary($dockerfile))->toContain('RUN npm run build');
@@ -522,4 +523,16 @@ test('the worker picks the most specific scaling window in its own time zone', f
 
     expect(trim((string) shell_exec('node '.escapeshellarg($dir.'/limits.mjs').' 2>&1')))
         ->toBe('{"min":6,"max":12}|{"min":4,"max":9}|{"min":2,"max":5}|{"min":1,"max":3}|{"min":0,"max":2}');
+});
+
+test('roadrunner starts without --rr-config so a repo without .rr.yaml still boots', function () {
+    $dir = checkout([
+        'composer.json' => '{"require":{"php":"^8.3","laravel/octane":"^2.0","spiral/roadrunner-http":"^3.0"}}',
+        'artisan' => '',
+    ]);
+
+    $dockerfile = File::get(EdgeContainerDockerfile::prepare($dir)['path']);
+
+    expect($dockerfile)->toContain('octane:start --server=roadrunner --host=0.0.0.0 --port=8080')
+        ->and($dockerfile)->not->toContain('--rr-config');
 });

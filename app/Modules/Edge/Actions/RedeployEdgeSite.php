@@ -56,6 +56,7 @@ class RedeployEdgeSite
             'meta' => $meta,
         ]);
 
+        (new CancelStuckEdgeDeployment)->supersedeInFlight($site, $deployment);
         BuildEdgeSiteJob::dispatch($deployment->id);
 
         return $deployment;

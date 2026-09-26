@@ -33,7 +33,7 @@
                 </span>
                 <x-toggle-switch
                     :enabled="(bool) $enabled"
-                    wire:model.live="enabled" @disabled(! $managedDelivery)
+                    wire:model.live="enabled" :disabled="! $managedDelivery"
                     :on-label="__('On')"
                     :off-label="__('Off')"
                 />
@@ -60,7 +60,7 @@
                             class="shrink-0"
                             wire:click="requestGenerateKeys"
                             wire:loading.attr="disabled"
-                            @disabled(! $managedDelivery)
+                            :disabled="! $managedDelivery"
                         >
                             <span wire:loading.remove wire:target="requestGenerateKeys,generateKeys">{{ __('Generate keys') }}</span>
                             <span wire:loading wire:target="requestGenerateKeys,generateKeys">{{ __('Generating…') }}</span>
@@ -71,7 +71,7 @@
 
             <div>
                 <x-input-label for="site_key" :value="__('Site key (public)')" />
-                <x-text-input id="site_key" wire:model="site_key" type="text" class="mt-1 block w-full font-mono text-sm" placeholder="0x4AAAA…" autocomplete="off" @disabled(! $managedDelivery) />
+                <x-text-input id="site_key" wire:model="site_key" type="text" class="mt-1 block w-full font-mono text-sm" placeholder="0x4AAAA…" autocomplete="off" :disabled="! $managedDelivery" />
                 <p class="mt-1 text-xs text-brand-moss">
                     @if ($canGenerateKeys)
                         {{ __('Filled by Generate keys, or paste a public site key. Safe to expose in HTML.') }}
@@ -85,13 +85,13 @@
 
             <div>
                 <x-input-label for="secret_key" :value="__('Secret key')" />
-                <x-text-input id="secret_key" wire:model="secret_key" type="password" class="mt-1 block w-full font-mono text-sm" autocomplete="new-password" @disabled(! $managedDelivery) />
+                <x-text-input id="secret_key" wire:model="secret_key" type="password" class="mt-1 block w-full font-mono text-sm" autocomplete="new-password" :disabled="! $managedDelivery" />
                 <p class="mt-1 text-xs text-brand-moss">{{ __('Used only on Dply-hosted Edge to verify tokens — never put this in your frontend repo.') }}</p>
                 <x-input-error :messages="$errors->get('secret_key')" class="mt-2" />
             </div>
 
             <div class="flex justify-end">
-                <x-primary-button type="button" wire:click="save" wire:loading.attr="disabled" @disabled(! $managedDelivery)>
+                <x-primary-button type="button" wire:click="save" wire:loading.attr="disabled" :disabled="! $managedDelivery">
                     <span wire:loading.remove wire:target="save">{{ __('Save') }}</span>
                     <span wire:loading wire:target="save">{{ __('Saving…') }}</span>
                 </x-primary-button>

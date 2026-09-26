@@ -148,6 +148,112 @@
                     @endif
                 </div>
                 <div class="flex min-w-0 flex-col gap-1" style="grid-column: 3; grid-row: 2">
+                @if ($isContainer && ($workers['enabled'] ?? false))
+                    @php
+                        $w = \App\Modules\Edge\Support\EdgeQueueWorkers::normalize($workers);
+                        $wField = 'block w-full rounded-md border border-brand-ink/15 bg-white py-1 ps-2 pe-6 text-xs font-semibold text-brand-ink dark:bg-zinc-900';
+                    @endphp
+                    <div class="flex justify-center py-0.5" aria-hidden="true"><span class="resource-flow resource-flow-y"></span></div>
+                    <div class="rounded-xl border border-brand-sage bg-brand-sage/5 p-3" wire:key="queue-workers-card">
+                        <div class="flex items-center justify-between gap-2">
+                            <p class="flex items-center gap-1.5 text-xs font-semibold text-brand-ink">
+                                <x-resource-kind-icon kind="queue" class="h-3.5 w-3.5 shrink-0" />
+                                {{ __('Queue workers') }}
+                            </p>
+                            <button type="button" wire:click="removeWorkers" class="text-xs font-semibold text-brand-ink underline">{{ __('Remove') }}</button>
+                        </div>
+                        @if ($workersUnavailable)
+                            <p class="mt-2 text-xs text-brand-ink">{{ $workersUnavailable }}</p>
+                        @else
+                            <dl class="mt-2 grid grid-cols-[auto_1fr] items-center gap-x-2 gap-y-1.5 text-xs">
+                                <dt><label for="workers-instances" class="text-brand-moss">{{ __('Instances') }}</label></dt>
+                                <dd><select id="workers-instances" wire:model.live="workers.instances" class="{{ $wField }}">
+                                    @for ($i = 1; $i <= \App\Modules\Edge\Support\EdgeQueueWorkers::MAX_INSTANCES; $i++)<option value="{{ $i }}">{{ $i }}</option>@endfor
+                                </select></dd>
+                                <dt><label for="workers-processes" class="text-brand-moss">{{ __('Processes') }}</label></dt>
+                                <dd><select id="workers-processes" wire:model.live="workers.processes" class="{{ $wField }}">
+                                    @for ($i = 1; $i <= \App\Modules\Edge\Support\EdgeQueueWorkers::MAX_PROCESSES; $i++)<option value="{{ $i }}">{{ trans_choice(':count per instance|:count per instance', $i) }}</option>@endfor
+                                </select></dd>
+                                <dt><label for="workers-connection" class="text-brand-moss">{{ __('Connection') }}</label></dt>
+                                <dd><select id="workers-connection" wire:model.live="workers.connection" class="{{ $wField }}">
+                                    <option value="auto">{{ __('Automatic') }}{{ $w['connection'] === 'auto' && $workersConnection ? ' ('.$workersConnection.')' : '' }}</option>
+                                    <option value="redis">redis</option>
+                                    <option value="database">database</option>
+                                </select></dd>
+                                <dt><label for="workers-queues" class="text-brand-moss">{{ __('Queues') }}</label></dt>
+                                <dd><input id="workers-queues" type="text" wire:model.live.debounce.500ms="workers.queues" placeholder="high,default" class="block w-full rounded-md border border-brand-ink/15 bg-white px-2 py-1 font-mono text-xs text-brand-ink dark:bg-zinc-900" /></dd>
+                            </dl>
+                            @if ($workersConnection === null)
+                                <p class="mt-2 text-xs font-semibold text-red-700 dark:text-red-400">{{ __('This app has no :connection for workers to pull from.', ['connection' => $w['connection']]) }}</p>
+                            @elseif ($workersConnection === 'database' && ($site->edgeMeta()['database']['provider'] ?? '') === 'dply' && (int) ($site->edgeMeta()['database']['suspend'] ?? -1) !== -1)
+                                <p class="mt-2 text-xs text-brand-ink">{{ __('Workers check the database every :sleep s, so it will not sleep while they run. Use dply Valkey as the queue to let it sleep.', ['sleep' => $w['sleep']]) }}</p>
+                            @endif
+                            <details class="mt-2 text-xs">
+                                <summary class="cursor-pointer font-semibold text-brand-ink">{{ __('Worker options') }}</summary>
+                                <div class="mt-2 grid grid-cols-2 gap-2">
+                                    @foreach (['timeout' => [__('Timeout (s)'), 1, 3600], 'tries' => [__('Tries'), 1, 25], 'sleep' => [__('Sleep when empty (s)'), 1, 60], 'memory' => [__('Memory (MB)'), 64, 2048], 'max_time' => [__('Restart after (s)'), 60, 86400]] as $key => [$label, $min, $max])
+                                        <label class="text-brand-moss">{{ $label }}
+                                            <input type="number" min="{{ $min }}" max="{{ $max }}" wire:model.live.debounce.500ms="workers.{{ $key }}" class="mt-0.5 block w-full rounded-md border border-brand-ink/15 bg-white px-2 py-1 text-xs font-semibold text-brand-ink dark:bg-zinc-900" />
+                                        </label>
+                                    @endforeach
+                                </div>
+                                <p class="mt-2 font-mono text-2xs text-brand-moss">php artisan queue:work {{ $workersConnection ?? '…' }} --queue={{ $w['queues'] }} --tries={{ $w['tries'] }} --timeout={{ $w['timeout'] }} --sleep={{ $w['sleep'] }} --memory={{ $w['memory'] }} --max-time={{ $w['max_time'] }}</p>
+                            </details>
+                            <div class="mt-2 rounded-lg bg-white/70 px-2.5 py-2 text-xs dark:bg-zinc-900/70">
+                                <p class="font-semibold text-brand-ink">{{ __('About $:total/mo', ['total' => number_format($workersMonthlyCents / 100, 2)]) }}</p>
+                                <p class="mt-0.5 text-brand-moss">{{ __(':instances × :size, always on · :n workers in all', ['instances' => $w['instances'], 'size' => $settings['instance_type'] ?? 'basic', 'n' => $w['instances'] * $w['processes']]) }}</p>
+                            </div>
+                            <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                                <button type="button" wire:click="loadWorkersBacklog" wire:loading.attr="disabled" wire:target="loadWorkersBacklog" class="font-semibold text-brand-ink underline disabled:opacity-50">
+                                    <span wire:loading.remove wire:target="loadWorkersBacklog">{{ __('Check workers') }}</span>
+                                    <span wire:loading wire:target="loadWorkersBacklog">{{ __('Checking…') }}</span>
+                                </button>
+                                @if (is_array($workersBacklog))
+                                    @foreach ($workersBacklog['queues'] as $queue => $waiting)
+                                        <span class="tabular-nums text-brand-moss"><span class="font-mono text-brand-ink">{{ $queue }}</span> {{ trans_choice(':count waiting|:count waiting', $waiting) }}</span>
+                                    @endforeach
+                                    @if (($workersBacklog['failed'] ?? null) !== null)
+                                        <span @class(['tabular-nums', 'font-semibold text-red-700 dark:text-red-400' => $workersBacklog['failed'] > 0, 'text-brand-moss' => $workersBacklog['failed'] === 0])>{{ trans_choice(':count failed|:count failed', $workersBacklog['failed']) }}</span>
+                                    @endif
+                                @endif
+                                @if ($workersBacklogError)
+                                    <span class="text-red-700 dark:text-red-400">{{ $workersBacklogError }}</span>
+                                @endif
+                            </div>
+                            @if (is_array($workersStatus) || $workersStatusError)
+                                @php
+                                    $stoppedWorkers = collect($workersStatus ?? [])->whereIn('status', ['stopped', 'stopped_with_code'])->count();
+                                @endphp
+                                <ul class="mt-2 space-y-1 text-xs" wire:key="workers-status">
+                                    @foreach ($workersStatus ?? [] as $worker)
+                                        @php $up = in_array($worker['status'], ['running', 'healthy'], true); @endphp
+                                        <li class="flex items-center justify-between gap-2">
+                                            <span class="flex items-center gap-1.5 font-mono text-brand-ink">
+                                                <span @class(['h-1.5 w-1.5 rounded-full', 'bg-emerald-500' => $up, 'bg-amber-500' => $worker['status'] === 'stopping', 'bg-red-500' => ! $up && $worker['status'] !== 'stopping'])></span>
+                                                {{ $worker['name'] }}
+                                            </span>
+                                            <span class="text-brand-moss">
+                                                {{ match ($worker['status']) {
+                                                    'running', 'healthy' => __('Running'),
+                                                    'stopping' => __('Stopping'),
+                                                    'stopped_with_code' => __('Exited (code :code)', ['code' => $worker['exit_code'] ?? '?']),
+                                                    'stopped' => __('Stopped'),
+                                                    default => $worker['status'],
+                                                } }}@if ($worker['since']) · {{ \Illuminate\Support\Carbon::createFromTimestamp($worker['since'])->diffForHumans(short: true) }}@endif
+                                            </span>
+                                        </li>
+                                    @endforeach
+                                </ul>
+                                @if ($stoppedWorkers > 0)
+                                    <button type="button" wire:click="startWorkers" wire:loading.attr="disabled" wire:target="startWorkers" class="mt-1 text-xs font-semibold text-brand-ink underline">{{ __('Start stopped workers') }}</button>
+                                @endif
+                                @if ($workersStatusError)
+                                    <p class="mt-1 text-xs text-red-700 dark:text-red-400">{{ $workersStatusError }}</p>
+                                @endif
+                            @endif
+                        @endif
+                    </div>
+                @endif
                 @foreach ($connections as $connection)
                     <div class="flex justify-center py-0.5" aria-hidden="true"><span @class(['resource-flow resource-flow-y', 'resource-flow-asleep' => $connection['asleep']])></span></div>
                     <div @class([
@@ -172,7 +278,7 @@
                                 @elseif ($connection['kind'] === 'object_storage')
                                     <button type="button" wire:click="openObject('{{ $connection['host'] }}')" x-on:click="$dispatch('open-modal', 'resources-object')" class="text-xs font-semibold text-brand-ink underline">{{ __('Open') }}</button>
                                 @elseif ($connection['kind'] === 'redis' && \App\Modules\Edge\Support\EdgeValkey::isTarget($connection['target']))
-                                    <button type="button" wire:click="$set('valkeyHost', '{{ $connection['host'] }}')" x-on:click="$dispatch('open-modal', 'resources-valkey')" class="text-xs font-semibold text-brand-ink underline">{{ __('Settings') }}</button>
+                                    <button type="button" wire:click="$set('valkeyHost', '{{ $connection['host'] }}')" x-on:click="$dispatch('open-modal', 'resources-valkey')" class="text-xs font-semibold text-brand-ink underline">{{ __('Details') }}</button>
                                 @elseif ($connection['kind'] === 'images')
                                     <button type="button" wire:click="$set('imagesHost', '{{ $connection['host'] }}')" x-on:click="$dispatch('open-modal', 'resources-images')" class="text-xs font-semibold text-brand-ink underline">{{ __('Settings') }}</button>
                                 @endif
@@ -202,10 +308,32 @@
                                 $valkeyClass = \App\Modules\Edge\Support\EdgeValkey::CLASSES[$connection['plan']] ?? \App\Modules\Edge\Support\EdgeValkey::CLASSES[\App\Modules\Edge\Support\EdgeValkey::DEFAULT_CLASS];
                                 $valkeySleepNow = (int) ($site->edgeMeta()['valkey_sleep'][$connection['target']] ?? ($valkeyClass['sleeps'] ? \App\Modules\Edge\Support\EdgeValkey::DEFAULT_SLEEP : 0));
                             @endphp
-                            <p class="mt-1 text-xs text-brand-moss">
-                                {{ __($valkeyClass['label']) }} ·
-                                {{ $valkeySleepNow > 0 ? __('sleeps after :time idle', ['time' => __(\App\Modules\Edge\Support\EdgeValkey::SLEEPS[$valkeySleepNow] ?? '5 minutes')]) : __('stays on') }}
-                            </p>
+                            @php
+                                $valkeyPlan = isset(\App\Modules\Edge\Support\EdgeValkey::CLASSES[$connection['plan']]) ? $connection['plan'] : \App\Modules\Edge\Support\EdgeValkey::DEFAULT_CLASS;
+                                $valkeyField = 'block w-full rounded-md border border-brand-ink/15 bg-white py-1 ps-2 pe-6 text-xs font-semibold text-brand-ink disabled:opacity-60 dark:bg-zinc-900';
+                            @endphp
+                            <dl class="mt-2 grid grid-cols-[auto_1fr] items-center gap-x-2 gap-y-1.5 text-xs" wire:key="valkey-card-{{ md5($connection['host']) }}">
+                                <dt><label for="valkey-size-{{ $loop->index }}" class="text-brand-moss">{{ __('Size') }}</label></dt>
+                                <dd>
+                                    <select id="valkey-size-{{ $loop->index }}" wire:change="saveValkey('{{ $connection['host'] }}', $event.target.value, {{ $valkeySleepNow }})" wire:loading.attr="disabled" wire:target="saveValkey" class="{{ $valkeyField }}">
+                                        @foreach (\App\Modules\Edge\Support\EdgeValkey::offered() as $classId => $class)
+                                            <option value="{{ $classId }}" @selected($valkeyPlan === $classId)>{{ __($class['label']) }} · {{ __('up to $:price/mo', ['price' => number_format($class['cap_cents'] / 100, 0)]) }}</option>
+                                        @endforeach
+                                    </select>
+                                </dd>
+                                <dt><label for="valkey-sleep-{{ $loop->index }}" class="text-brand-moss">{{ __('Sleep') }}</label></dt>
+                                <dd>
+                                    @if ($valkeyClass['sleeps'])
+                                        <select id="valkey-sleep-{{ $loop->index }}" wire:change="saveValkey('{{ $connection['host'] }}', '{{ $valkeyPlan }}', $event.target.value)" wire:loading.attr="disabled" wire:target="saveValkey" class="{{ $valkeyField }}">
+                                            @foreach (\App\Modules\Edge\Support\EdgeValkey::SLEEPS as $seconds => $label)
+                                                <option value="{{ $seconds }}" @selected($valkeySleepNow === $seconds)>{{ $seconds > 0 ? __('After :time idle', ['time' => __($label)]) : __($label) }}</option>
+                                            @endforeach
+                                        </select>
+                                    @else
+                                        <span class="font-semibold text-brand-ink">{{ __('Stays on (Pro sizes do not sleep)') }}</span>
+                                    @endif
+                                </dd>
+                            </dl>
                         @endif
                         @if ($connection['kind'] === 'queue' && isset($queueOwners[$connection['target']]))
                             <p class="mt-1 text-xs text-brand-moss">{{ __('Sends only. :app runs these jobs.', ['app' => $queueOwners[$connection['target']]]) }}</p>
@@ -259,26 +387,69 @@
                     'border-brand-sage bg-brand-sage/5' => $databaseEngine !== 'none',
                     'border-dashed border-brand-ink/20 bg-white dark:bg-zinc-900' => $databaseEngine === 'none',
                 ])>
-                    <p class="text-xs font-semibold text-brand-ink">{{ __('Database') }}</p>
-                    @if ($databaseEngine === 'postgres')
-                        <p class="mt-2 text-xs text-brand-moss">
-                            @if ($postgresPlan === 'awake')
-                                {{ __('Postgres. 1 compute · :cpu · :memory · stays on · about $:hour/hour, $:day/day, $:month/month. Storage about $:gigabyte/GB each month.', ['cpu' => $postgresSizes[$postgresSize]['cpu'], 'memory' => $postgresSizes[$postgresSize]['memory'], 'hour' => $postgresSizes[$postgresSize]['hour'], 'day' => $postgresSizes[$postgresSize]['day'], 'month' => $postgresSizes[$postgresSize]['month'], 'gigabyte' => $postgresGigabyte]) }}
-                            @elseif ($postgresSize === '0.25')
-                                {{ __('Postgres. 1 compute · :cpu · :memory · sleeps after :sleep · about $:hour/hour, $:day/day, $:month/month at :hours hours awake. Storage about $:gigabyte/GB each month.', ['cpu' => $postgresSizes[$postgresSize]['cpu'], 'memory' => $postgresSizes[$postgresSize]['memory'], 'sleep' => __($postgresSleeps[$postgresSuspend]), 'hour' => $postgresSizes[$postgresSize]['hour'], 'day' => $postgresSizes[$postgresSize]['day'], 'month' => $postgresSizes[$postgresSize]['month'], 'hours' => $postgresAwakeHours, 'gigabyte' => $postgresGigabyte]) }}
+                    @php
+                        $dplyEngine = in_array($databaseEngine, ['postgres', 'mongodb', 'mysql'], true);
+                        $postgresLocked = ! $cardOnFile;
+                        $fieldClass = 'block w-full rounded-md border border-brand-ink/15 bg-white py-1 ps-2 pe-6 text-xs font-semibold text-brand-ink disabled:opacity-60 dark:bg-zinc-900';
+                    @endphp
+                    <label for="database-engine" class="text-xs font-semibold text-brand-ink">{{ __('Database') }}</label>
+                    <select id="database-engine" wire:change="selectDatabase($event.target.value)" class="mt-1 {{ $fieldClass }}">
+                        <option value="none" @selected($databaseEngine === 'none')>{{ __('None') }}</option>
+                        @foreach (['postgres' => __('Postgres'), 'mongodb' => __('MongoDB'), 'mysql' => __('MySQL'), 'sql' => __('SQLite')] as $engine => $label)
+                            @if ($engine !== 'sql' && ! $dplyDatabases)
+                                <option value="{{ $engine }}" disabled>{{ $label }} · {{ __('Coming soon') }}</option>
+                            @elseif ($engine !== 'sql' && ! $cardOnFile)
+                                <option value="{{ $engine }}" disabled>{{ $label }} · {{ __('Add a card') }}</option>
                             @else
-                                {{ __('Postgres. 1 compute · 1/4 vCPU to :cpu · 1 GB to :memory · sleeps after :sleep · about $:hour/hour, $:day/day, $:month/month at full size for :hours hours awake. Storage about $:gigabyte/GB each month.', ['cpu' => $postgresSizes[$postgresSize]['cpu'], 'memory' => $postgresSizes[$postgresSize]['memory'], 'sleep' => __($postgresSleeps[$postgresSuspend]), 'hour' => $postgresSizes[$postgresSize]['hour'], 'day' => $postgresSizes[$postgresSize]['day'], 'month' => $postgresSizes[$postgresSize]['month'], 'hours' => $postgresAwakeHours, 'gigabyte' => $postgresGigabyte]) }}
+                                <option value="{{ $engine }}" @selected($databaseEngine === $engine)>{{ $label }}</option>
                             @endif
-                            {{ __('dply Postgres, New York · :gb GB disk.', ['gb' => $postgresDisk]) }}
-                        </p>
-                    @elseif ($databaseEngine === 'mongodb' || $databaseEngine === 'mysql')
-                        <p class="mt-2 text-xs text-brand-moss">
-                            {{ __(':engine · :memory · :sleep · :gb GB disk · about $:hour/hour while awake. Disk $:gigabyte/GB each month.', ['engine' => $databaseEngine === 'mysql' ? 'MySQL' : 'MongoDB', 'memory' => $postgresSizes[$postgresSize]['memory'], 'sleep' => $postgresSuspend === -1 ? __('stays on') : __('sleeps after :sleep', ['sleep' => __($postgresSleeps[$postgresSuspend])]), 'gb' => $postgresDisk, 'hour' => $postgresSizes[$postgresSize]['hour'], 'gigabyte' => $postgresGigabyte]) }}
-                        </p>
+                        @endforeach
+                    </select>
+                    @if ($dplyEngine)
+                        <dl class="mt-3 grid grid-cols-[auto_1fr] items-center gap-x-2 gap-y-1.5 text-xs">
+                            <dt><label for="database-size" class="text-brand-moss">{{ __('Size') }}</label></dt>
+                            <dd>
+                                <select id="database-size" wire:change="selectPostgresSize($event.target.value)" @disabled($postgresLocked) class="{{ $fieldClass }}">
+                                    @foreach ($postgresSizes as $key => $size)
+                                        <option value="{{ $key }}" @selected($postgresSize === (string) $key)>{{ $size['cpu'] }} · {{ $size['memory'] }}</option>
+                                    @endforeach
+                                </select>
+                            </dd>
+                            <dt><label for="database-sleep" class="text-brand-moss">{{ __('Sleep') }}</label></dt>
+                            <dd>
+                                <select id="database-sleep" wire:change="selectPostgresSuspend($event.target.value)" @disabled($postgresLocked) class="{{ $fieldClass }}">
+                                    @foreach ($postgresSleeps as $seconds => $label)
+                                        <option value="{{ $seconds }}" @selected($postgresSuspend === $seconds)>{{ $seconds === -1 ? __($label) : __('After :time idle', ['time' => __($label)]) }}</option>
+                                    @endforeach
+                                </select>
+                            </dd>
+                            <dt><label for="postgres-disk" class="text-brand-moss">{{ __('Disk') }}</label></dt>
+                            <dd>
+                                <select id="postgres-disk" wire:change="selectPostgresDisk($event.target.value)" @disabled($postgresLocked) class="{{ $fieldClass }}">
+                                    @foreach ($postgresDisks as $gb => $label)
+                                        <option value="{{ $gb }}" @selected($postgresDisk === $gb)>{{ __($label) }}</option>
+                                    @endforeach
+                                </select>
+                            </dd>
+                            @if ($postgresSuspend !== -1)
+                                <dt><label for="postgres-awake" class="text-brand-moss">{{ __('Awake') }}</label></dt>
+                                <dd class="flex items-center gap-1.5">
+                                    <input id="postgres-awake" type="number" min="0" max="24" wire:model.live.debounce.400ms="awakeHours" @disabled($postgresLocked) class="w-14 rounded-md border border-brand-ink/15 bg-white px-2 py-1 text-xs font-semibold text-brand-ink disabled:opacity-60 dark:bg-zinc-900" />
+                                    <span class="text-brand-moss">{{ __('hours a day') }}</span>
+                                </dd>
+                            @endif
+                        </dl>
+                        <div class="mt-3 rounded-lg bg-white/70 px-2.5 py-2 text-xs dark:bg-zinc-900/70">
+                            <p class="font-semibold text-brand-ink">{{ __('About $:total/mo', ['total' => number_format((float) str_replace(',', '', $postgresSizes[$postgresSize]['month']) + (float) $postgresGigabyte * $postgresDisk, 2)]) }}</p>
+                            <p class="mt-0.5 text-brand-moss">{{ __('Compute $:compute · disk $:disk', ['compute' => $postgresSizes[$postgresSize]['month'], 'disk' => number_format((float) $postgresGigabyte * $postgresDisk, 2)]) }}</p>
+                            <p class="mt-0.5 text-brand-moss">{{ __('$:hour/hour awake · disk $:gigabyte/GB', ['hour' => $postgresSizes[$postgresSize]['hour'], 'gigabyte' => $postgresGigabyte]) }}</p>
+                            @if ($databaseEngine === 'postgres' && $postgresSuspend !== -1 && $postgresSize !== '0.25')
+                                <p class="mt-0.5 text-brand-moss">{{ __('Scales from 1/4 vCPU · 1 GB; priced at full size.') }}</p>
+                            @endif
+                        </div>
+                        <p class="mt-2 text-xs text-brand-moss">{{ __('dply :engine · New York', ['engine' => ['mongodb' => 'MongoDB', 'mysql' => 'MySQL'][$databaseEngine] ?? 'Postgres']) }}</p>
                     @elseif ($databaseEngine === 'sql')
-                        <p class="mt-2 text-xs text-brand-moss">{{ __('SQLite. A file inside the app. It is saved while the app runs and restored when the app wakes.') }}</p>
-                    @else
-                        <p class="mt-2 text-xs text-brand-moss">{{ __('No database.') }}</p>
+                        <p class="mt-2 text-xs text-brand-moss">{{ __('A file inside the app, saved while it runs and restored when it wakes.') }}</p>
                     @endif
                     @error('database')
                         <p class="mt-2 text-xs text-brand-ink">{{ $message }}</p>
@@ -289,33 +460,11 @@
                             <a href="{{ route('billing.show', $site->organization) }}" class="mt-1 inline-block text-xs font-semibold text-brand-ink underline">{{ __('Billing') }}</a>
                         @endif
                     @endif
-                    <div class="mt-3 grid gap-1.5" role="radiogroup" aria-label="{{ __('Database') }}">
-                        @foreach (['postgres' => __('Postgres'), 'mongodb' => __('MongoDB'), 'mysql' => __('MySQL'), 'sql' => __('SQLite')] as $engine => $label)
-                            @if ($engine !== 'sql' && ! $dplyDatabases)
-                                <button type="button" disabled aria-disabled="true" class="flex items-center justify-between gap-2 rounded-lg border border-brand-ink/10 bg-white/70 px-2.5 py-1.5 text-left text-xs font-semibold text-brand-moss dark:bg-zinc-900/70">
-                                    <span>{{ $label }}</span>
-                                    <span class="shrink-0 rounded-full bg-brand-sand/60 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-brand-moss">{{ __('Coming soon') }}</span>
-                                </button>
-                            @elseif (in_array($engine, ['postgres', 'mongodb', 'mysql'], true) && ! $cardOnFile)
-                                <button type="button" disabled aria-disabled="true" class="flex items-center justify-between gap-2 rounded-lg border border-brand-ink/10 bg-white/70 px-2.5 py-1.5 text-left text-xs font-semibold text-brand-moss dark:bg-zinc-900/70">
-                                    <span>{{ $label }}</span>
-                                    <span class="shrink-0 text-xs font-semibold">{{ __('Add a card') }}</span>
-                                </button>
-                            @else
-                                <button type="button" wire:click="selectDatabase('{{ $engine }}')" @class([
-                                    'rounded-lg border px-2.5 py-1.5 text-left text-xs font-semibold',
-                                    'border-brand-sage bg-white text-brand-ink dark:bg-zinc-900' => $databaseEngine === $engine,
-                                    'border-brand-ink/10 bg-white/70 text-brand-ink dark:bg-zinc-900/70' => $databaseEngine !== $engine,
-                                ])>{{ $label }}</button>
-                            @endif
-                        @endforeach
-                    </div>
                     <div class="mt-auto flex gap-3 pt-3">
                         <button type="button" x-on:click="$dispatch('database-tab', 'how'); $dispatch('open-modal', 'resources-app-database')" class="text-left text-xs font-semibold text-brand-ink underline">{{ __('How to use') }}</button>
                         @if ($databaseEngine !== 'none')
-                            <button type="button" x-on:click="$dispatch('database-tab', 'settings'); $dispatch('open-modal', 'resources-app-database')" class="text-left text-xs font-semibold text-brand-ink underline">{{ __('Settings') }}</button>
+                            <button type="button" x-on:click="$dispatch('database-tab', @js($dplyEngine ? 'overview' : 'settings')); $dispatch('open-modal', 'resources-app-database')" class="text-left text-xs font-semibold text-brand-ink underline">{{ $dplyEngine ? __('Stats & backups') : __('Tools') }}</button>
                         @endif
-                        <button type="button" wire:click="selectDatabase('none')" class="text-left text-xs font-semibold text-brand-ink underline">{{ __('Remove') }}</button>
                     </div>
                 </div>
                 @endif
@@ -725,7 +874,7 @@
                 <p class="mt-3 max-w-xl text-xs text-brand-moss">{{ __('Redis-compatible and private to this app. :size, :sleep.', ['size' => __($valkeySpec['label']), 'sleep' => $valkeySleepLabel ? __('sleeps after :time idle', ['time' => $valkeySleepLabel]) : __('stays on')]) }}</p>
                 <div class="mt-4" x-data="{ tab: 'overview' }">
                     <div class="flex gap-4 overflow-x-auto border-b border-brand-ink/10" role="tablist">
-                        @foreach (['overview' => __('Overview'), 'connect' => __('Connect'), 'stats' => __('Statistics'), 'test' => __('Test'), 'costs' => __('Costs'), 'settings' => __('Settings')] as $tabKey => $tabLabel)
+                        @foreach (['overview' => __('Overview'), 'connect' => __('Connect'), 'stats' => __('Statistics'), 'test' => __('Test'), 'costs' => __('Costs')] as $tabKey => $tabLabel)
                             <button type="button" role="tab" x-on:click="tab = '{{ $tabKey }}'; {{ $tabKey === 'stats' ? '$wire.loadValkeyStatus()' : '' }}" :aria-selected="tab === '{{ $tabKey }}'" :class="tab === '{{ $tabKey }}' ? 'border-brand-sage text-brand-ink' : 'border-transparent text-brand-moss'" class="-mb-px shrink-0 border-b-2 pb-2 text-xs font-semibold">{{ $tabLabel }}</button>
                         @endforeach
                     </div>
@@ -738,7 +887,7 @@
                                 [__('Size'), __($valkeySpec['label']), __(':mb MB of memory for keys', ['mb' => number_format($valkeySpec['memory_mb'])])],
                                 [__('Sleep'), $valkeySleepLabel ? __('After :time idle', ['time' => $valkeySleepLabel]) : __('Stays on'), $valkeySleepLabel ? __('Keys are saved and come back on the next connection, with their expiry.') : __('Keys are written to disk.')],
                                 [__('Awake this month'), $awakeH > 0 ? __(':h h :m min', ['h' => $awakeH, 'm' => $awakeM]) : __(':m min', ['m' => $awakeM]), __('$:spent so far · never more than $:cap/mo', ['spent' => \App\Modules\Edge\Support\EdgeValkey::money($valkeySpent), 'cap' => number_format($valkeySpec['cap_cents'] / 100, 0)])],
-                                [__('When it is full'), __('Writes are refused'), __('Nothing is evicted. Pick a larger size under Settings.')],
+                                [__('When it is full'), __('Writes are refused'), __('Nothing is evicted. Pick a larger size on the card.')],
                             ];
                         @endphp
                         <div class="mb-2 flex justify-end">
@@ -932,27 +1081,6 @@
                         </div>
                     </div>
 
-                    <div x-show="tab === 'settings'" class="mt-4">
-                        <form wire:key="valkey-settings-{{ md5($valkeyConnection['host']) }}" x-data="{ size: @js($valkeyConnection['plan'] ?: \App\Modules\Edge\Support\EdgeValkey::DEFAULT_CLASS), sleep: {{ $valkeyModalSleep }} }" x-on:submit.prevent="$wire.saveValkey(@js($valkeyConnection['host']), size, Number(sleep))" class="max-w-md space-y-3">
-                            <div>
-                                <x-input-label :value="__('Size')" />
-                                <select x-model="size" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink dark:bg-zinc-900">
-                                    @foreach (\App\Modules\Edge\Support\EdgeValkey::offered() as $classId => $class)
-                                        <option value="{{ $classId }}">{{ __($class['label']) }} · {{ __('up to $:price/mo', ['price' => number_format($class['cap_cents'] / 100, 0)]) }}</option>
-                                    @endforeach
-                                </select>
-                            </div>
-                            <div x-show="size.startsWith('flex_')">
-                                <x-input-label :value="__('Sleep after')" />
-                                <select x-model="sleep" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink dark:bg-zinc-900">
-                                    @foreach (\App\Modules\Edge\Support\EdgeValkey::SLEEPS as $seconds => $label)
-                                        <option value="{{ $seconds }}">{{ __($label) }}</option>
-                                    @endforeach
-                                </select>
-                            </div>
-                            <x-primary-button type="submit">{{ __('Save') }}</x-primary-button>
-                        </form>
-                    </div>
                 </div>
                 </div>
             @endif
@@ -1078,12 +1206,21 @@
                     <h2 class="text-sm font-semibold text-brand-ink">{{ __('Add a resource') }}</h2>
                 </div>
                 <div class="grid gap-2 sm:grid-cols-3">
+                    @if ($isContainer && ! ($workers['enabled'] ?? false))
+                    <button type="button" wire:click="addWorkers" x-on:click="$dispatch('close-modal', 'resources-connection')" class="flex items-center gap-2 rounded-xl border border-brand-ink/10 px-3 py-2 text-left text-xs font-semibold text-brand-ink hover:border-brand-sage">
+                        <x-resource-kind-icon kind="queue" />
+                        {{ __('Queue workers') }}
+                    </button>
+                    @endif
+                    @unless ($databaseVisible)
                     <button type="button" wire:click="addDatabase" x-on:click="$dispatch('close-modal', 'resources-connection')" class="flex items-center gap-2 rounded-xl border border-brand-ink/10 px-3 py-2 text-left text-xs font-semibold text-brand-ink hover:border-brand-sage">
                         <x-resource-kind-icon kind="database" />
                         {{ __('Database') }}
                     </button>
+                    @endunless
                     @foreach ($connectionKinds as $key => $kind)
                         @continue($key === 'http_delivery' || ! in_array($key, $allowedKinds, true))
+                        @continue($key === 'redis' && collect($connections)->contains('kind', 'redis'))
                         <button type="button" wire:click="chooseConnectionKind('{{ $key }}')" class="flex items-center gap-2 rounded-xl border border-brand-ink/10 px-3 py-2 text-left text-xs font-semibold text-brand-ink hover:border-brand-sage">
                             <x-resource-kind-icon :kind="$key" />
                             {{ __($kind['label']) }}
@@ -1424,201 +1561,7 @@
         </div>
     </x-modal>
 
-    <x-modal name="resources-app-database" maxWidth="3xl" focusable>
-        <div class="max-h-[80vh] overflow-y-auto bg-white p-5 dark:bg-zinc-900" x-data="{ tab: 'how' }" x-on:database-tab.window="tab = Array.isArray($event.detail) ? $event.detail[0] : $event.detail">
-            <div class="flex items-start justify-between gap-3">
-                <h2 class="text-xs font-semibold uppercase tracking-[0.16em] text-brand-sage">{{ __('Database') }}</h2>
-                <button type="button" x-on:click="$dispatch('close-modal', 'resources-app-database')" class="text-xs font-semibold text-brand-ink underline">{{ __('Close') }}</button>
-            </div>
-            <div class="mt-4 flex gap-4 overflow-x-auto border-b border-brand-ink/10" role="tablist">
-                <button type="button" role="tab" x-on:click="tab = 'how'" :aria-selected="tab === 'how'" :class="tab === 'how' ? 'border-brand-sage text-brand-ink' : 'border-transparent text-brand-moss'" class="-mb-px shrink-0 border-b-2 pb-2 text-xs font-semibold">{{ __('How it works') }}</button>
-                <button type="button" role="tab" x-on:click="tab = 'implementation'" :aria-selected="tab === 'implementation'" :class="tab === 'implementation' ? 'border-brand-sage text-brand-ink' : 'border-transparent text-brand-moss'" class="-mb-px shrink-0 border-b-2 pb-2 text-xs font-semibold">{{ __('Implementation') }}</button>
-                @if ($databaseEngine !== 'none')
-                    <button type="button" role="tab" x-on:click="tab = 'settings'" :aria-selected="tab === 'settings'" :class="tab === 'settings' ? 'border-brand-sage text-brand-ink' : 'border-transparent text-brand-moss'" class="-mb-px shrink-0 border-b-2 pb-2 text-xs font-semibold">{{ __('Settings') }}</button>
-                @endif
-            </div>
-            @if (in_array($databaseEngine, ['postgres', 'mysql', 'mongodb'], true) && ! $cardOnFile)
-                <p class="mt-4 text-xs text-brand-ink">{{ __('Add a card before starting a database. It is billed to that card.') }}</p>
-                @if ($site->organization)
-                    <a href="{{ route('billing.show', $site->organization) }}" class="mt-1 inline-block text-xs font-semibold text-brand-ink underline">{{ __('Billing') }}</a>
-                @endif
-            @endif
-            <div x-show="tab === 'how'" class="mt-4">
-                @if ($databaseEngine === 'postgres')
-                    <ol class="list-decimal space-y-1 pl-4 text-xs text-brand-ink">
-                        <li>{{ __('Save and redeploy. The next deploy sets the database address on the app.') }}</li>
-                        @if ($postgresPlan === 'awake')
-                            <li>{{ __('This plan stays on at :memory, about $:hour/hour, $:day/day, $:month/month.', ['memory' => $postgresSizes[$postgresSize]['memory'], 'hour' => $postgresSizes[$postgresSize]['hour'], 'day' => $postgresSizes[$postgresSize]['day'], 'month' => $postgresSizes[$postgresSize]['month']]) }}</li>
-                        @elseif ($postgresSize === '0.25')
-                            <li>{{ __('This plan sleeps :sleep after the last connection. 1 GB is about $:hour/hour, $:day/day, $:month/month at :hours hours awake.', ['sleep' => __($postgresSleeps[$postgresSuspend]), 'hour' => $postgresSizes[$postgresSize]['hour'], 'day' => $postgresSizes[$postgresSize]['day'], 'month' => $postgresSizes[$postgresSize]['month'], 'hours' => $postgresAwakeHours]) }}</li>
-                        @else
-                            <li>{{ __('This plan sleeps :sleep after the last connection. It starts at 1 GB and grows to :memory, about $:hour/hour, $:day/day, $:month/month at full size for :hours hours awake.', ['sleep' => __($postgresSleeps[$postgresSuspend]), 'memory' => $postgresSizes[$postgresSize]['memory'], 'hour' => $postgresSizes[$postgresSize]['hour'], 'day' => $postgresSizes[$postgresSize]['day'], 'month' => $postgresSizes[$postgresSize]['month'], 'hours' => $postgresAwakeHours]) }}</li>
-                        @endif
-                        <li>{{ __('Storage is about $:gigabyte/GB each month, including while compute sleeps. Connections require TLS.', ['gigabyte' => $postgresGigabyte]) }}</li>
-                    </ol>
-                @elseif ($databaseEngine === 'mongodb')
-                    <ol class="list-decimal space-y-1 pl-4 text-xs text-brand-ink">
-                        <li>{{ __('Save and redeploy. The next deploy sets MONGODB_URI on the app.') }}</li>
-                        <li>{{ __('It sleeps after the last connection and wakes on the next one; data stays on its disk.') }}</li>
-                        <li>{{ __('Disk is billed each month whether it is awake or asleep. Connections require TLS. Changes are backed up continuously; restore to any second in the last 7 days.') }}</li>
-                    </ol>
-                @elseif ($databaseEngine === 'mysql')
-                    <ol class="list-decimal space-y-1 pl-4 text-xs text-brand-ink">
-                        <li>{{ __('Save and redeploy. The next deploy sets DB_CONNECTION, the host, the password, and DATABASE_URL.') }}</li>
-                        <li>{{ __('It sleeps after the last connection and wakes on the next one; data stays on its disk.') }}</li>
-                        <li>{{ __('Disk is billed each month whether it is awake or asleep. Connections require TLS. The mysql command line needs --tls-sni-servername=<host>, or the database id as the user. Changes are backed up continuously; restore to any second in the last 7 days.') }}</li>
-                    </ol>
-                @elseif ($databaseEngine === 'sql')
-                    <p class="text-xs text-brand-ink">{{ __('SQLite is a file inside the app. It is saved while the app runs and restored when the app wakes. One instance serves the app so that file stays consistent.') }}</p>
-                @else
-                    <p class="text-xs text-brand-ink">{{ __('No database is attached. Pick Postgres, MySQL, or SQLite, then save and redeploy.') }}</p>
-                @endif
-            </div>
-            <div x-show="tab === 'implementation'" x-cloak class="mt-4">
-                @if ($databaseEngine === 'postgres' || $databaseEngine === 'mysql')
-                    <p class="text-xs font-semibold text-brand-ink">{{ __('Laravel') }}</p>
-                    <p class="mt-1 max-w-xl text-xs text-brand-moss">{{ __('The next deploy sets DB_CONNECTION, the host, the password, and DATABASE_URL.') }}</p>
-                    <pre class="mt-2 overflow-x-auto rounded-lg bg-brand-sand/40 p-3 text-xs text-brand-ink dark:bg-zinc-950">DB::table('users')->count();</pre>
-                    <p class="mt-4 text-xs font-semibold text-brand-ink">{{ __('Rails') }}</p>
-                    <p class="mt-1 max-w-xl text-xs text-brand-moss">{{ __('The next deploy sets DATABASE_URL. ActiveRecord uses it.') }}</p>
-                    <pre class="mt-2 overflow-x-auto rounded-lg bg-brand-sand/40 p-3 text-xs text-brand-ink dark:bg-zinc-950">User.count</pre>
-                @elseif ($databaseEngine === 'mongodb')
-                    <p class="text-xs font-semibold text-brand-ink">{{ __('Node') }}</p>
-                    <p class="mt-1 max-w-xl text-xs text-brand-moss">{{ __('The next deploy sets MONGODB_URI (also MONGO_URL) and MONGODB_DATABASE.') }}</p>
-                    <pre class="mt-2 overflow-x-auto rounded-lg bg-brand-sand/40 p-3 text-xs text-brand-ink dark:bg-zinc-950">{{ "import { MongoClient } from 'mongodb';
-const db = new MongoClient(process.env.MONGODB_URI).db();
-await db.collection('notes').countDocuments();" }}</pre>
-                @elseif ($databaseEngine === 'sql')
-                    <p class="text-xs text-brand-moss">{{ __('The next deploy sets DB_CONNECTION to sqlite and DB_DATABASE to /tmp/database.sqlite.') }}</p>
-                @else
-                    <p class="text-xs text-brand-moss">{{ __('Pick a database first.') }}</p>
-                @endif
-            </div>
-            @if ($databaseEngine !== 'none')
-                <div x-show="tab === 'settings'" x-cloak class="mt-4 space-y-3">
-                    <label class="flex items-start gap-2 text-xs text-brand-ink">
-                        <input type="checkbox" wire:model.live="migrateOnBoot" class="mt-0.5 rounded border-brand-ink/20" />
-                        <span>
-                            <span class="block font-semibold">{{ __('Run migrations when a container starts') }}</span>
-                            <span class="mt-1 block text-brand-moss">{{ __('Laravel: migrate --force --isolated. Rails: db:prepare.') }}</span>
-                        </span>
-                    </label>
-                    @if ($site->isLaravelFrameworkDetected() || $site->isRailsFrameworkDetected())
-                        <div class="border-t border-brand-ink/10 pt-3">
-                            <p class="text-xs font-semibold text-brand-ink">{{ __('Tools') }}</p>
-                            <div class="mt-2 flex flex-wrap gap-2">
-                                <button type="button" wire:click="runDatabaseCommand('migrate')" wire:loading.attr="disabled" wire:target="runDatabaseCommand,confirmDatabaseCommand" class="rounded-md border border-brand-ink/15 px-2.5 py-1.5 text-xs font-semibold text-brand-ink">{{ __('Migrate') }}</button>
-                                <button type="button" wire:click="runDatabaseCommand('status')" wire:loading.attr="disabled" wire:target="runDatabaseCommand,confirmDatabaseCommand" class="rounded-md border border-brand-ink/15 px-2.5 py-1.5 text-xs font-semibold text-brand-ink">{{ __('Status') }}</button>
-                                <button type="button" wire:click="runDatabaseCommand('seed')" wire:loading.attr="disabled" wire:target="runDatabaseCommand,confirmDatabaseCommand" class="rounded-md border border-brand-ink/15 px-2.5 py-1.5 text-xs font-semibold text-brand-ink">{{ __('Seed') }}</button>
-                                @if ($site->isRailsFrameworkDetected())
-                                    <button type="button" wire:click="runDatabaseCommand('prepare')" wire:loading.attr="disabled" wire:target="runDatabaseCommand,confirmDatabaseCommand" class="rounded-md border border-brand-ink/15 px-2.5 py-1.5 text-xs font-semibold text-brand-ink">{{ __('Prepare') }}</button>
-                                @endif
-                                <button type="button" wire:click="runDatabaseCommand('rollback')" wire:loading.attr="disabled" wire:target="runDatabaseCommand,confirmDatabaseCommand" class="rounded-md border border-brand-ink/15 px-2.5 py-1.5 text-xs font-semibold text-brand-ink">{{ __('Roll back') }}</button>
-                            </div>
-                            <p wire:loading wire:target="runDatabaseCommand,confirmDatabaseCommand" class="mt-2 text-xs text-brand-moss">{{ __('Running…') }}</p>
-                            @if ($pendingDatabaseCommand === 'rollback')
-                                <div class="mt-3 rounded-lg border border-brand-ink/10 p-3">
-                                    <p class="text-xs text-brand-ink">{{ __('Roll back the last migration on this database?') }}</p>
-                                    <div class="mt-2 flex gap-2">
-                                        <button type="button" wire:click="confirmDatabaseCommand" class="rounded-md bg-brand-ink px-2.5 py-1.5 text-xs font-semibold text-white">{{ __('Roll back') }}</button>
-                                        <button type="button" wire:click="$set('pendingDatabaseCommand', '')" class="rounded-md border border-brand-ink/15 px-2.5 py-1.5 text-xs font-semibold text-brand-ink">{{ __('Cancel') }}</button>
-                                    </div>
-                                </div>
-                            @endif
-                            @if ($databaseCommandOutput !== '')
-                                <pre class="mt-3 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-brand-sand/40 p-3 text-xs text-brand-ink dark:bg-zinc-950">{{ $databaseCommandOutput }}</pre>
-                            @endif
-                        </div>
-                    @endif
-                    @if (in_array($databaseEngine, ['postgres', 'mongodb', 'mysql'], true))
-                        @php $postgresLocked = ! $cardOnFile; @endphp
-                        <div class="grid gap-2 sm:grid-cols-2">
-                            <label for="postgres-disk" class="block text-xs font-semibold text-brand-ink">
-                                {{ __('Disk') }}
-                                <select id="postgres-disk" wire:change="selectPostgresDisk(Number($event.target.value))" @disabled($postgresLocked) class="mt-1 block w-full rounded-md border border-brand-ink/15 bg-white py-1 ps-2 pe-6 text-xs font-semibold text-brand-ink disabled:opacity-60 dark:bg-zinc-900">
-                                    @foreach ($postgresDisks as $gb => $label)
-                                        <option value="{{ $gb }}" @selected($postgresDisk === $gb)>{{ __($label) }}</option>
-                                    @endforeach
-                                </select>
-                            </label>
-                            <label for="postgres-awake" class="block text-xs font-semibold text-brand-ink">
-                                {{ __('Hours awake') }}
-                                <input id="postgres-awake" type="number" min="0" max="24" wire:model.live="awakeHours" @disabled($postgresLocked) class="mt-1 block w-full rounded-md border border-brand-ink/15 bg-white py-1 ps-2 pe-2 text-xs font-semibold text-brand-ink disabled:opacity-60 dark:bg-zinc-900" />
-                            </label>
-                        </div>
-                        <p class="text-xs text-brand-moss">
-                            {{ __('dply :engine in New York. A disk only grows; pick more later if you need it.', ['engine' => ['mongodb' => 'MongoDB', 'mysql' => 'MySQL'][$databaseEngine] ?? 'Postgres']) }}
-                            @if ($postgresSuspend === -1)
-                                {{ __('Stays on bills every hour. Hours awake is only the estimate.') }}
-                            @else
-                                {{ __('Day and month assume :hours hours awake. That number does not change the database.', ['hours' => $postgresAwakeHours]) }}
-                            @endif
-                        </p>
-                        @if (($site->edgeMeta()['database']['provider'] ?? '') === 'dply' && ($site->edgeMeta()['database']['engine'] ?? '') === $databaseEngine)
-                            <div class="rounded-lg border border-brand-ink/10 p-3">
-                                <p class="text-xs font-semibold text-brand-ink">{{ __('Restore to a point in time') }}</p>
-                                @if ($databaseEngine === 'postgres')
-                                    <p class="mt-1 text-xs text-brand-moss">{{ __('Changes are backed up continuously for 7 days. Restoring replaces the data with how it was at that moment (UTC); the data from before the restore is kept aside until the next one.') }}</p>
-                                @else
-                                    <p class="mt-1 text-xs text-brand-moss">{{ __('Changes are backed up continuously for 7 days. Restoring replaces the data with how it was at that moment (UTC); the data from before the restore is saved as a backup first.') }}</p>
-                                @endif
-                                @php
-                                    $backup = (array) ($site->edgeMeta()['database']['backup'] ?? []);
-                                    $backupOk = ($backup['last_ok_at'] ?? '') !== '' ? \Illuminate\Support\Carbon::parse($backup['last_ok_at']) : null;
-                                    $changesOk = ($backup['log_ok_at'] ?? '') !== '' ? \Illuminate\Support\Carbon::parse($backup['log_ok_at']) : null;
-                                    $backupProblem = \App\Modules\Edge\Support\EdgeDplyDatabase::backupProblem($backup);
-                                @endphp
-                                @if ($backupProblem)
-                                    <p class="mt-1 text-xs font-semibold text-red-700 dark:text-red-400">{{ $backupProblem }}@if ($backupOk) {{ __('The last good full backup was :ago.', ['ago' => $backupOk->diffForHumans()]) }}@endif</p>
-                                @elseif ($backupOk)
-                                    <p class="mt-1 text-xs text-brand-moss">{{ __('Last full backup :ago.', ['ago' => $backupOk->diffForHumans()]) }}@if ($changesOk) {{ __('Changes saved :ago.', ['ago' => $changesOk->diffForHumans()]) }}@endif</p>
-                                @else
-                                    <p class="mt-1 text-xs text-brand-moss">{{ __('No backup yet. The first one runs a minute or two after the database first starts.') }}</p>
-                                @endif
-                                @if (($backup['lost'] ?? '') !== '')
-                                    <p class="mt-1 text-xs text-brand-ink">{{ ucfirst($backup['lost']) }}. {{ __('Restoring to a time after that works as usual.') }}</p>
-                                @endif
-                                <div class="mt-2 flex flex-wrap items-end gap-2">
-                                    <label class="text-xs font-semibold text-brand-ink">
-                                        {{ __('Time (UTC)') }}
-                                        <input type="datetime-local" step="1" wire:model="postgresRestoreAt" min="{{ now()->utc()->subDays(7)->format('Y-m-d\TH:i') }}" max="{{ now()->utc()->format('Y-m-d\TH:i:s') }}" class="mt-1 block rounded-md border border-brand-ink/15 bg-white px-2 py-1 text-xs text-brand-ink dark:bg-zinc-900" />
-                                    </label>
-                                    <x-secondary-button type="button" wire:click="restorePostgres" wire:confirm="{{ __('Replace this database with how it was at that time? Changes after it are set aside.') }}" wire:loading.attr="disabled" wire:target="restorePostgres">
-                                        <span wire:loading.remove wire:target="restorePostgres">{{ __('Restore') }}</span>
-                                        <span wire:loading wire:target="restorePostgres">{{ __('Restoring… this can take a few minutes') }}</span>
-                                    </x-secondary-button>
-                                </div>
-                                @php $restoreState = $site->edgeMeta()['database']['restore'] ?? null; @endphp
-                                @if ($postgresRestoreResult)
-                                    <p class="mt-2 text-xs font-semibold text-brand-ink">{{ $postgresRestoreResult }}</p>
-                                @elseif (is_array($restoreState) && ($restoreState['status'] ?? '') === 'running')
-                                    <p wire:poll.5s class="mt-2 flex items-center gap-2 text-xs font-semibold text-brand-ink"><x-spinner size="sm" />{{ __('Restoring to :time UTC… this can take a few minutes.', ['time' => str_replace(['T', 'Z'], [' ', ''], $restoreState['target'] ?? '')]) }}</p>
-                                @elseif (is_array($restoreState) && ($restoreState['status'] ?? '') === 'done')
-                                    <p class="mt-2 text-xs font-semibold text-brand-sage">{{ __('Restored to :time UTC. The app keeps its password and address.', ['time' => str_replace(['T', 'Z'], [' ', ''], $restoreState['target'] ?? '')]) }}</p>
-                                @elseif (is_array($restoreState) && ($restoreState['status'] ?? '') === 'failed')
-                                    <p class="mt-2 text-xs font-semibold text-red-700 dark:text-red-400">{{ __('Restore failed: :error', ['error' => $restoreState['error'] ?? '']) }}</p>
-                                @endif
-                            </div>
-                        @endif
-                        <div class="grid gap-1 sm:grid-cols-2" role="radiogroup" aria-label="{{ __('Size') }}">
-                            @foreach ($postgresSizes as $key => $size)
-                                <button type="button" wire:click="selectPostgresSize('{{ $key }}')" @disabled($postgresLocked) @class([
-                                    'rounded-md border px-2 py-1 text-left text-xs font-semibold',
-                                    'border-brand-sage bg-white text-brand-ink dark:bg-zinc-900' => $postgresSize === $key,
-                                    'border-brand-ink/10 bg-white/70 text-brand-ink dark:bg-zinc-900/70' => $postgresSize !== $key,
-                                ])>{{ $size['cpu'] }} · {{ $size['memory'] }} · ${{ $size['day'] }}/{{ __('day') }} · ${{ $size['month'] }}/{{ __('mo') }}</button>
-                            @endforeach
-                        </div>
-                        <p class="text-xs text-brand-moss">
-                            {{ __('Disk $:gigabyte/GB each month, billed awake or asleep: :gb GB is $:disk/mo. Compute only while awake.', ['gigabyte' => $postgresGigabyte, 'gb' => $postgresDisk, 'disk' => number_format((float) $postgresGigabyte * $postgresDisk, 2)]) }}
-                        </p>
-                    @else
-                        <p class="text-xs text-brand-moss">{{ __('SQLite is a file at /tmp/database.sqlite. It is saved while the app runs and restored when the app wakes.') }}</p>
-                    @endif
-                </div>
-            @endif
-        </div>
-    </x-modal>
+    @include('livewire.sites.edge.workspace.partials.database-panel')
 
     <x-modal name="resources-databases" :show="$panel === 'databases'" maxWidth="6xl" focusable>
         <div class="bg-white dark:bg-zinc-950">

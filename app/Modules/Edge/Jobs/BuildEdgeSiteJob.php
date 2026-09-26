@@ -9,6 +9,7 @@ use App\Models\Organization;
 use App\Models\Site;
 use App\Modules\Billing\Services\StarterTrafficGate;
 use App\Modules\Billing\Services\StarterUsageBudget;
+use App\Modules\Edge\Actions\CancelStuckEdgeDeployment;
 use App\Modules\Edge\Services\EdgeArtifactPublisher;
 use App\Modules\Edge\Services\EdgeBuildRunner;
 use App\Modules\Edge\Services\EdgeDeliveryContextResolver;
@@ -43,6 +44,22 @@ class BuildEdgeSiteJob implements ShouldQueue
         public ?string $commitOverride = null,
     ) {
         $this->onQueue((string) config('edge.build.queue', 'dply-provision'));
+    }
+
+    /**
+     * The job gave up for good (timed out, retries exhausted): without this
+     * the deployment stays "building" forever.
+     */
+    public function failed(?Throwable $e): void
+    {
+        $deployment = EdgeDeployment::query()->find($this->deploymentId);
+        if ($deployment === null || ! in_array($deployment->status, [EdgeDeployment::STATUS_BUILDING, EdgeDeployment::STATUS_PUBLISHING], true)) {
+            return;
+        }
+        $deployment->markCancelledByOperator(__('The build did not finish: :error', ['error' => $e?->getMessage() ?: __('the worker stopped.')]));
+        if ($site = Site::find($deployment->site_id)) {
+            CancelStuckEdgeDeployment::restoreSiteStatus($site);
+        }
     }
 
     /** A build waiting on its org's concurrency slots keeps retrying this long. */

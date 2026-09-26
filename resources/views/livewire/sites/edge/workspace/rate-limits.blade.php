@@ -76,7 +76,7 @@
                 </span>
                 <x-toggle-switch
                     :enabled="(bool) $enabled"
-                    wire:model.live="enabled" @disabled(! $managedDelivery)
+                    wire:model.live="enabled" :disabled="! $managedDelivery"
                     :on-label="__('On')"
                     :off-label="__('Off')"
                 />
@@ -100,17 +100,17 @@
                     <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                         <div>
                             <x-input-label :value="__('Path pattern')" />
-                            <x-text-input wire:model="rules.{{ $i }}.path" type="text" class="mt-1 block w-full font-mono text-sm" placeholder="/api/*" @disabled(! $managedDelivery) />
+                            <x-text-input wire:model="rules.{{ $i }}.path" type="text" class="mt-1 block w-full font-mono text-sm" placeholder="/api/*" :disabled="! $managedDelivery" />
                             <p class="mt-1 text-xs text-brand-moss">{{ __('e.g. /api/* · /login · /*') }}</p>
                         </div>
                         <div>
                             <x-input-label :value="__('Max requests')" />
-                            <x-text-input wire:model="rules.{{ $i }}.limit" type="number" min="1" class="mt-1 block w-full text-sm" @disabled(! $managedDelivery) />
+                            <x-text-input wire:model="rules.{{ $i }}.limit" type="number" min="1" class="mt-1 block w-full text-sm" :disabled="! $managedDelivery" />
                             <p class="mt-1 text-xs text-brand-moss">{{ __('Per IP in the window') }}</p>
                         </div>
                         <div>
                             <x-input-label :value="__('Window (seconds)')" />
-                            <x-text-input wire:model="rules.{{ $i }}.window_seconds" type="number" min="1" class="mt-1 block w-full text-sm" @disabled(! $managedDelivery) />
+                            <x-text-input wire:model="rules.{{ $i }}.window_seconds" type="number" min="1" class="mt-1 block w-full text-sm" :disabled="! $managedDelivery" />
                             <p class="mt-1 text-xs text-brand-moss">{{ __('Counter resets after this many seconds') }}</p>
                         </div>
                         <div>
@@ -127,7 +127,7 @@
 
             <div class="flex flex-wrap items-center justify-between gap-3 border-t border-brand-ink/10 pt-4">
                 <button type="button" wire:click="addRule" class="text-sm font-semibold text-brand-sage hover:underline" @disabled(! $managedDelivery)>{{ __('Add rule') }}</button>
-                <x-primary-button type="button" wire:click="save" wire:loading.attr="disabled" @disabled(! $managedDelivery)>
+                <x-primary-button type="button" wire:click="save" wire:loading.attr="disabled" :disabled="! $managedDelivery">
                     <span wire:loading.remove wire:target="save">{{ __('Save') }}</span>
                     <span wire:loading wire:target="save">{{ __('Saving…') }}</span>
                 </x-primary-button>

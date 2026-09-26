@@ -69,9 +69,12 @@ test('dockerEnvFlags point package managers at mounted stores', function () {
         ->and($joined)->toContain('npm_config_cache=/npm-cache');
 });
 
-test('warm images config defaults include node 20 and 22', function () {
+test('warm images are the exact tags builds and generated images use', function () {
     $images = config('edge.build.warm_images');
 
-    expect($images)->toContain('node:20-bookworm')
-        ->and($images)->toContain('node:22-bookworm');
+    // The build image, the generated Node/PHP images, and composer.
+    expect($images)->toContain(config('edge.build.docker_image'))
+        ->and($images)->toContain('node:22-bookworm-slim')
+        ->and($images)->toContain('composer:2')
+        ->and($images)->toContain('php:8.4-fpm-alpine');
 });

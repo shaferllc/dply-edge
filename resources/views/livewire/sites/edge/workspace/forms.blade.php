@@ -75,19 +75,19 @@
                     <div class="grid gap-3 sm:grid-cols-2">
                         <div>
                             <x-input-label :value="__('Path')" />
-                            <x-text-input wire:model.live="endpoints.{{ $i }}.path" type="text" class="mt-1 block w-full font-mono text-sm" @disabled(! $managedDelivery) />
+                            <x-text-input wire:model.live="endpoints.{{ $i }}.path" type="text" class="mt-1 block w-full font-mono text-sm" :disabled="! $managedDelivery" />
                             <p class="mt-1 text-xs text-brand-moss">{{ __('POST path on your Edge hostname, e.g. /contact or /api/support.') }}</p>
                         </div>
                         <div>
                             <x-input-label :value="__('Email to')" />
-                            <x-text-input wire:model="endpoints.{{ $i }}.to_email" type="email" class="mt-1 block w-full text-sm" @disabled(! $managedDelivery) />
+                            <x-text-input wire:model="endpoints.{{ $i }}.to_email" type="email" class="mt-1 block w-full text-sm" :disabled="! $managedDelivery" />
                             <p class="mt-1 text-xs text-brand-moss">{{ __('Inbox that receives each submission (org mail must be configured).') }}</p>
                         </div>
                     </div>
                     <div class="grid gap-3 sm:grid-cols-2">
                         <div>
                             <x-input-label :value="__('Honeypot field')" />
-                            <x-text-input wire:model.live="endpoints.{{ $i }}.honeypot" type="text" class="mt-1 block w-full font-mono text-sm" @disabled(! $managedDelivery) />
+                            <x-text-input wire:model.live="endpoints.{{ $i }}.honeypot" type="text" class="mt-1 block w-full font-mono text-sm" :disabled="! $managedDelivery" />
                             <p class="mt-1 text-xs text-brand-moss">{{ __('Hidden input name in your HTML. If filled, the Worker drops the POST as spam.') }}</p>
                         </div>
                         <div class="pt-1">
@@ -118,7 +118,7 @@
                         {{ __('HTML example') }}
                     </button>
                 </div>
-                <x-primary-button type="button" wire:click="save" @disabled(! $managedDelivery)>{{ __('Save') }}</x-primary-button>
+                <x-primary-button type="button" wire:click="save" :disabled="! $managedDelivery">{{ __('Save') }}</x-primary-button>
             </div>
         </div>
     </section>

@@ -162,7 +162,9 @@ test('edge traffic shell defers usage analytics to the nested child', function (
 
     expect($child['edgeSiteTraffic'])->not->toBeNull()
         ->and($again['edgeSiteTraffic'])->toBe($child['edgeSiteTraffic'])
-        ->and($usageQueries)->toBe(2); // MTD aggregate + daily rows, once each
+        // Site MTD aggregate + daily rows, plus the org-wide MTD total the site
+        // fee reads for the plan's allowance (billing tiers); each once, memoized.
+        ->and($usageQueries)->toBe(3);
 });
 
 /**

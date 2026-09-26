@@ -26,6 +26,7 @@ use App\Modules\Edge\Console\CollectEdgeKvUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeValkeyUsageCommand;
 use App\Modules\Edge\Console\EvaluateEdgeGuardrailsCommand;
+use App\Modules\Edge\Console\ReapStuckEdgeBuildsCommand;
 use App\Modules\Edge\Console\RollupEdgeAnalyticsEngineCommand;
 use App\Modules\Edge\Console\WarmEdgeBuildImagesCommand;
 use App\Modules\Edge\Console\WarmEdgeContainersCommand;
@@ -102,6 +103,11 @@ final class DplySchedule
         $schedule->command(CollectEdgeDataUsageCommand::class)
             ->dailyAt('01:50')
             ->name('edge-data-usage-yesterday');
+        // Builds whose worker died sit at "building" and hold the org's slot.
+        $schedule->command(ReapStuckEdgeBuildsCommand::class)
+            ->everyMinute()
+            ->withoutOverlapping()
+            ->name('edge-reap-stuck-builds');
         // dply Valkey awake seconds; each run adds what changed since the last.
         $schedule->command(CollectEdgeValkeyUsageCommand::class)
             ->hourly()

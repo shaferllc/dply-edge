@@ -11,6 +11,7 @@ use App\Models\EdgeDataUsage;
 use App\Models\EdgeDeliveryUsage;
 use App\Models\EdgeDeployment;
 use App\Models\EdgeKvUsage;
+use App\Models\EdgePostgresUsage;
 use App\Models\EdgeRedisUsage;
 use App\Models\EdgeSiteEnvVar;
 use App\Models\EdgeUsageSnapshot;
@@ -30,7 +31,9 @@ use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeContainerPlans;
 use App\Modules\Edge\Support\EdgeContainerSettings;
 use App\Modules\Edge\Support\EdgeDplyDatabase;
+use App\Modules\Edge\Support\EdgeDplyDatabaseStats;
 use App\Modules\Edge\Support\EdgeEffectiveBindings;
+use App\Modules\Edge\Support\EdgeQueueWorkers;
 use App\Modules\Edge\Support\EdgeValkey;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use App\Modules\Providers\Valkey\ValkeyGatewayClient;
@@ -80,6 +83,23 @@ class Resources extends Component
     public bool $stickySessions = true;
 
     public bool $dedicatedJobs = false;
+
+    /**
+     * Queue workers draft (EdgeQueueWorkers): saved with Save and redeploy.
+     *
+     * @var array<string, mixed>
+     */
+    public array $workers = [];
+
+    /** @var array{queues: array<string, int>, failed: ?int}|null */
+    public ?array $workersBacklog = null;
+
+    public ?string $workersBacklogError = null;
+
+    /** @var list<array{name: string, status: string, since: ?int, exit_code: ?int}>|null */
+    public ?array $workersStatus = null;
+
+    public ?string $workersStatusError = null;
 
     public bool $migrateOnBoot = false;
 
@@ -251,6 +271,190 @@ class Resources extends Component
         }
     }
 
+    public function addWorkers(): void
+    {
+        $this->authorize('update', $this->site);
+        $this->workers = array_merge(EdgeQueueWorkers::normalize($this->workers), ['enabled' => true]);
+        $this->panel = '';
+        $this->refreshPending();
+    }
+
+    public function removeWorkers(): void
+    {
+        $this->authorize('update', $this->site);
+        // Back to the saved settings, off: undoing an unsaved add leaves nothing pending.
+        $this->workers = array_merge(EdgeQueueWorkers::for($this->site), ['enabled' => false]);
+        $this->workersBacklog = null;
+        $this->workersStatus = null;
+        $this->refreshPending();
+    }
+
+    /**
+     * Jobs waiting on the workers' queues, read from Redis or the database
+     * with the app's own login. Reading a sleeping database wakes it.
+     */
+    public function loadWorkersBacklog(): void
+    {
+        $this->authorize('view', $this->site);
+        $this->loadWorkersStatus();
+        $settings = EdgeQueueWorkers::for($this->site);
+        $queues = explode(',', $settings['queues']);
+        $this->workersBacklogError = null;
+        try {
+            if (EdgeQueueWorkers::connection($this->site) === 'redis') {
+                $connection = collect(EdgeContainerConnections::for($this->site))->first(fn (array $c): bool => $c['kind'] === 'redis' && EdgeValkey::isTarget($c['target']));
+                $password = is_array($connection) ? $this->valkeyPassword($connection['host']) : '';
+                if ($password === '') {
+                    throw new \RuntimeException(__('The backlog can be read from dply Valkey. Deploy once so REDIS_URL is set.'));
+                }
+                $this->workersBacklog = ['queues' => EdgeValkey::queueLengths($connection['target'], $password, $queues), 'failed' => null];
+            } else {
+                $record = $this->dplyDatabaseRecord();
+                if ($record === null) {
+                    throw new \RuntimeException(__('The backlog can be read from a dply database.'));
+                }
+                $this->workersBacklog = EdgeDplyDatabaseStats::queueBacklog((string) $record['engine'], (string) $record['host'], (string) $record['remote_id'], $this->databasePassword(), $queues);
+            }
+        } catch (\Throwable $e) {
+            $this->workersBacklogError = $e->getMessage();
+        }
+    }
+
+    /** Each deployed worker's state, from the live app. Unsaved worker changes are not deployed yet. */
+    private function loadWorkersStatus(): void
+    {
+        $this->workersStatus = null;
+        $this->workersStatusError = null;
+        if (EdgeQueueWorkers::runningInstances($this->site) === 0) {
+            return;
+        }
+        try {
+            $this->workersStatus = EdgeQueueWorkers::status($this->site);
+        } catch (\Throwable $e) {
+            $this->workersStatusError = __('Could not reach the app for worker status: :error', ['error' => $e->getMessage()]);
+        }
+    }
+
+    public function startWorkers(): void
+    {
+        $this->authorize('update', $this->site);
+        try {
+            EdgeQueueWorkers::start($this->site);
+            $this->toastSuccess(__('Starting the workers. Check again in a few seconds.'));
+        } catch (\Throwable $e) {
+            $this->toastError(__('Could not start the workers: :error', ['error' => $e->getMessage()]));
+        }
+    }
+
+    /** Database panel: gateway state (never wakes it) and the agent's backup report. */
+    public ?array $databaseStatus = null;
+
+    public ?array $databaseBackup = null;
+
+    /** Database panel: live numbers from the database itself (wakes it). */
+    public ?array $databaseStats = null;
+
+    public ?string $databaseStatsError = null;
+
+    /**
+     * The app's dply database record, or null when it has none (or SQLite).
+     *
+     * @return array<string, mixed>|null
+     */
+    private function dplyDatabaseRecord(): ?array
+    {
+        $record = $this->site->edgeMeta()['database'] ?? null;
+
+        return is_array($record) && ($record['provider'] ?? '') === 'dply' && ($record['remote_id'] ?? '') !== '' ? $record : null;
+    }
+
+    public function loadDatabaseStatus(): void
+    {
+        $this->authorize('view', $this->site);
+        $record = $this->dplyDatabaseRecord();
+        if ($record === null) {
+            return;
+        }
+        $client = ValkeyGatewayClient::fromConfig();
+        try {
+            $this->databaseStatus = $client->get((string) $record['remote_id']);
+        } catch (\Throwable $e) {
+            $this->databaseStatsError = $e->getMessage();
+        }
+        try {
+            $this->databaseBackup = $client->backupStatus((string) $record['remote_id']);
+        } catch (\Throwable) {
+            // An asleep database's agent is not running; the stored record still shows.
+        }
+    }
+
+    public function loadDatabaseStats(): void
+    {
+        $record = $this->dplyDatabaseRecord();
+        // MongoDB stats come from its agent, not the app's login.
+        $password = ($record['engine'] ?? '') === 'mongodb' ? '' : $this->databasePassword();
+        if ($record === null || ($password === '' && ($record['engine'] ?? '') !== 'mongodb')) {
+            $this->databaseStatsError = __('No password on this app yet. Deploy once so the database address is set.');
+
+            return;
+        }
+        try {
+            $this->databaseStats = EdgeDplyDatabaseStats::read((string) $record['engine'], (string) $record['host'], (string) $record['remote_id'], $password);
+            $this->databaseStatsError = null;
+        } catch (\Throwable $e) {
+            $this->databaseStatsError = $e->getMessage();
+        }
+        $this->loadDatabaseStatus();
+    }
+
+    /**
+     * The app's database password, read from its env only when asked for, so
+     * it is not in the page until someone who can edit the app clicks Show.
+     */
+    public function databasePassword(): string
+    {
+        $this->authorize('update', $this->site);
+        $record = $this->dplyDatabaseRecord();
+        if ($record === null) {
+            return '';
+        }
+        $env = fn (string $key): string => (string) ($this->site->edgeEnvVars()->where('scope', 'production')->where('key', $key)->first()?->value ?? '');
+        if (($record['engine'] ?? '') === 'mongodb') {
+            return rawurldecode((string) (parse_url($env('MONGODB_URI'), PHP_URL_PASS) ?? ''));
+        }
+
+        return $env('DB_PASSWORD');
+    }
+
+    /**
+     * This month's awake time and storage, and awake hours for each of the
+     * last 14 days (for the chart).
+     *
+     * @return array{awake_seconds: int, storage_gb_hours: float, days: list<array{date: string, hours: float}>}
+     */
+    private function databaseUsage(): array
+    {
+        $rows = EdgePostgresUsage::query()->where('site_id', $this->site->id)
+            ->where('date', '>=', now()->subDays(40)->toDateString())
+            ->get(['date', 'compute_unit_seconds', 'storage_byte_hours'])
+            ->keyBy(fn ($row) => $row->date->toDateString());
+        $month = $rows->filter(fn ($row) => $row->date->isSameMonth(now()));
+        // Usage is in compute units (1 CU = 4 GB awake for a second): divide by
+        // this database's size to get wall-clock awake time.
+        $cu = (float) (EdgeAppDatabase::POSTGRES_SIZES[(string) ($this->dplyDatabaseRecord()['size'] ?? '0.25')]['cu'] ?? 0.25);
+        $days = [];
+        for ($i = 13; $i >= 0; $i--) {
+            $date = now()->subDays($i)->toDateString();
+            $days[] = ['date' => $date, 'hours' => round(((int) ($rows[$date]->compute_unit_seconds ?? 0)) / $cu / 3600, 1)];
+        }
+
+        return [
+            'awake_seconds' => (int) round($month->sum('compute_unit_seconds') / $cu),
+            'storage_gb_hours' => round($month->sum('storage_byte_hours') / 1024 ** 3, 1),
+            'days' => $days,
+        ];
+    }
+
     public function loadValkeyStatus(): void
     {
         $this->authorize('view', $this->site);
@@ -378,8 +582,9 @@ class Resources extends Component
     public function mount(Server $server, Site $site): void
     {
         $this->mountEdgeWorkspaceSection($server, $site);
+        // Saves on this same instance; a refresh() here only re-ran every
+        // loaded relation (server, preview domains) for nothing.
         EdgeContainerConnections::prefixBareHosts($site);
-        $this->site->refresh();
         if (($site->edgeMeta()['runtime_mode'] ?? '') === 'container') {
             $settings = EdgeContainerSettings::for($site);
             $this->sleepAfter = $settings['sleep_after'];
@@ -388,6 +593,7 @@ class Resources extends Component
             $this->scheduler = $settings['scheduler'];
             $this->stickySessions = $settings['sticky_sessions'];
             $this->dedicatedJobs = $settings['dedicated_jobs'];
+            $this->workers = EdgeQueueWorkers::for($this->site);
             $this->migrateOnBoot = $settings['migrate_on_boot'];
             $this->rolloutMode = $settings['rollout_mode'];
             $this->rolloutSteps = implode(', ', $settings['rollout_step_percentage']);
@@ -413,7 +619,7 @@ class Resources extends Component
             $this->regions = EdgeContainerSettings::normalizeRegions($this->regions, $this->jurisdiction);
         }
 
-        if (in_array($name, ['draftInstanceType', 'sleepAfter', 'jurisdiction', 'scheduler', 'stickySessions', 'dedicatedJobs', 'migrateOnBoot', 'customVcpu', 'customMemoryGib', 'customDiskGb', 'rolloutMode', 'rolloutSteps', 'rolloutGraceSeconds'], true) || str_starts_with($name, 'regions')) {
+        if (in_array($name, ['draftInstanceType', 'sleepAfter', 'jurisdiction', 'scheduler', 'stickySessions', 'dedicatedJobs', 'migrateOnBoot', 'customVcpu', 'customMemoryGib', 'customDiskGb', 'rolloutMode', 'rolloutSteps', 'rolloutGraceSeconds'], true) || str_starts_with($name, 'regions') || str_starts_with($name, 'workers.')) {
             $this->refreshPending();
         }
     }
@@ -1488,10 +1694,6 @@ class Resources extends Component
         $this->draftDatabase = $engine;
         $this->databaseVisible = $engine !== 'none';
         $this->refreshPending();
-        if ($engine !== 'none') {
-            $this->dispatch('database-tab', 'settings');
-            $this->dispatch('open-modal', 'resources-app-database');
-        }
     }
 
     public function selectPostgresPlan(string $plan): void
@@ -1563,6 +1765,7 @@ class Resources extends Component
             $this->scheduler = $settings['scheduler'];
             $this->stickySessions = $settings['sticky_sessions'];
             $this->dedicatedJobs = $settings['dedicated_jobs'];
+            $this->workers = EdgeQueueWorkers::for($this->site);
             $this->migrateOnBoot = $settings['migrate_on_boot'];
             $this->rolloutMode = $settings['rollout_mode'];
             $this->rolloutSteps = implode(', ', $settings['rollout_step_percentage']);
@@ -1596,10 +1799,13 @@ class Resources extends Component
      * @param  list<array{kind: string, host: string, target: string, asleep: bool, plan: string, read_regions: int}>  $connections
      * @return array<string, int>
      */
+    /** Once per request: render() and the cost estimate both need it. */
+    private ?int $valkeyAwakeSecondsMemo = null;
+
     /** Awake seconds for this app's Valkey this month (collected hourly). */
     private function valkeyAwakeSeconds(): int
     {
-        return (int) EdgeRedisUsage::query()->where('site_id', $this->site->id)
+        return $this->valkeyAwakeSecondsMemo ??= (int) EdgeRedisUsage::query()->where('site_id', $this->site->id)
             ->whereBetween('date', [now()->startOfMonth()->toDateString(), now()->endOfMonth()->toDateString()])
             ->sum('awake_seconds');
     }
@@ -1838,6 +2044,11 @@ class Resources extends Component
                 'dplyDatabases' => EdgeDplyDatabase::enabled(),
                 'postgresDisks' => EdgeDplyDatabase::DISKS,
                 'postgresDisk' => EdgeDplyDatabase::disk($this->draftPostgresDisk),
+                'dplyDatabase' => $this->dplyDatabaseRecord(),
+                'workersUnavailable' => EdgeQueueWorkers::unavailableReason($this->site),
+                'workersConnection' => EdgeQueueWorkers::connection($this->site, (string) (EdgeQueueWorkers::normalize($this->workers)['connection'])),
+                'workersMonthlyCents' => EdgeQueueWorkers::monthlyCents($this->site, EdgeQueueWorkers::normalize($this->workers)['instances']),
+                'databaseUsage' => $this->dplyDatabaseRecord() !== null ? $this->databaseUsage() : null,
                 'deployments' => $this->site->edgeDeployments()->orderByDesc('created_at')->limit(5)->get(),
             ],
         ));
@@ -1892,6 +2103,7 @@ class Resources extends Component
             'scheduler' => (bool) ($settings['scheduler'] ?? false),
             'sticky_sessions' => (bool) ($settings['sticky_sessions'] ?? true),
             'dedicated_jobs' => (bool) ($settings['dedicated_jobs'] ?? false),
+            'workers' => EdgeQueueWorkers::for($this->site),
             'migrate_on_boot' => (bool) ($settings['migrate_on_boot'] ?? false),
             'custom_vcpu' => (int) ($container['custom_vcpu'] ?? 1),
             'custom_memory_gib' => (int) ($container['custom_memory_gib'] ?? 3),
@@ -1925,6 +2137,7 @@ class Resources extends Component
             'scheduler' => $this->scheduler,
             'sticky_sessions' => $this->stickySessions,
             'dedicated_jobs' => $this->dedicatedJobs,
+            'workers' => EdgeQueueWorkers::normalize($this->workers),
             'migrate_on_boot' => $this->migrateOnBoot,
             'custom_vcpu' => $custom ? $this->customVcpu : $saved['custom_vcpu'],
             'custom_memory_gib' => $custom ? $this->customMemoryGib : $saved['custom_memory_gib'],
@@ -1971,6 +2184,7 @@ class Resources extends Component
             $current['scheduler'] = $this->scheduler;
             $current['sticky_sessions'] = $this->stickySessions;
             $current['dedicated_jobs'] = $this->dedicatedJobs;
+            $current['workers'] = EdgeQueueWorkers::normalize($this->workers);
             $current['migrate_on_boot'] = $this->migrateOnBoot;
             $current['rollout_mode'] = $this->rolloutMode;
             $current['rollout_step_percentage'] = EdgeContainerSettings::parseRolloutSteps($this->rolloutSteps);

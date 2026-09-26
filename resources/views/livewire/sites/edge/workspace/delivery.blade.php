@@ -66,7 +66,7 @@
                         <span class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Failover HTML') }}</span>
                         <textarea wire:model="buildForm.edge_origin_failover_html" rows="3" spellcheck="false" placeholder="{{ __('Optional — blank uses the built-in 503 page.') }}" class="mt-1.5 w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 font-mono text-xs text-brand-ink shadow-sm focus:border-brand-sage focus:ring-1 focus:ring-brand-sage dark:border-brand-mist/20 dark:bg-zinc-900"></textarea>
                         @error('buildForm.edge_origin_failover_html') <p class="mt-1 text-xs text-rose-700">{{ $message }}</p> @enderror
-                    </div>
+                    </label>
 
                     <div class="sm:col-span-2">
                         <p class="text-xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Origin access token') }}</p>
@@ -86,7 +86,7 @@
                             </div>
                         </div>
                         <p class="mt-1.5 text-xs text-brand-moss">{{ __('Clearing the Client ID removes both halves.') }}</p>
-                    </label>
+                    </div>
 
                     <div class="flex flex-wrap items-center justify-end gap-3">
                         <span wire:loading.inline-flex wire:target="saveEdgeHybridOrigin" class="inline-flex items-center gap-1.5 text-xs text-brand-moss">

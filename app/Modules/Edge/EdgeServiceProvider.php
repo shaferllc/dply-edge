@@ -25,6 +25,7 @@ use App\Modules\Edge\Console\MigrateEdgeHostnamesCommand;
 use App\Modules\Edge\Console\MoveRedisToValkeyCommand;
 use App\Modules\Edge\Console\PruneEdgeAnalyticsCommand;
 use App\Modules\Edge\Console\PublishEdgeBaseImagesCommand;
+use App\Modules\Edge\Console\ReapStuckEdgeBuildsCommand;
 use App\Modules\Edge\Console\RollupEdgeAnalyticsEngineCommand;
 use App\Modules\Edge\Console\WarmEdgeBuildImagesCommand;
 use App\Modules\Edge\Console\WarmEdgeContainersCommand;
@@ -59,6 +60,7 @@ class EdgeServiceProvider extends ServiceProvider
                 CollectEdgeDataUsageCommand::class,
                 CollectEdgeKvUsageCommand::class,
                 CollectEdgeValkeyUsageCommand::class,
+                ReapStuckEdgeBuildsCommand::class,
                 MoveRedisToValkeyCommand::class,
                 CollectEdgeUsageCommand::class,
                 EdgeDoctorCommand::class,

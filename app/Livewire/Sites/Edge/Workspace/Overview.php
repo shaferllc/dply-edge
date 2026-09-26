@@ -24,7 +24,7 @@ class Overview extends Component
         $this->mountEdgeWorkspaceSection($server, $site);
 
         $this->site->load([
-            'edgeDeployments' => fn ($query) => $query->orderByDesc('created_at')->limit(3),
+            'edgeDeployments' => fn ($query) => $query->orderByDesc('created_at')->limit(5),
         ]);
     }
 

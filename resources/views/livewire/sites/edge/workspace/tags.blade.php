@@ -37,7 +37,7 @@
                 </span>
                 <x-toggle-switch
                     :enabled="(bool) $consent_required"
-                    wire:model.live="consent_required" @disabled(! $managedDelivery)
+                    wire:model.live="consent_required" :disabled="! $managedDelivery"
                     :on-label="__('On')"
                     :off-label="__('Off')"
                 />
@@ -70,26 +70,26 @@
                 <div class="grid gap-3 rounded-xl border border-brand-ink/10 p-3 sm:grid-cols-6" wire:key="tag-{{ $i }}">
                     <div class="sm:col-span-2">
                         <x-input-label :value="__('Name')" />
-                        <x-text-input wire:model="tools.{{ $i }}.name" type="text" class="mt-1 block w-full text-sm" @disabled(! $managedDelivery) />
+                        <x-text-input wire:model="tools.{{ $i }}.name" type="text" class="mt-1 block w-full text-sm" :disabled="! $managedDelivery" />
                         <x-input-error :messages="$errors->get('tools.'.$i.'.name')" class="mt-1" />
                     </div>
                     @if ($vendor)
                         <div class="sm:col-span-4">
                             <x-input-label :value="__(':vendor ID', ['vendor' => $vendor['label']])" />
-                            <x-text-input wire:model="tools.{{ $i }}.id" type="text" class="mt-1 block w-full font-mono text-sm" :placeholder="$vendor['placeholder']" @disabled(! $managedDelivery) />
+                            <x-text-input wire:model="tools.{{ $i }}.id" type="text" class="mt-1 block w-full font-mono text-sm" :placeholder="$vendor['placeholder']" :disabled="! $managedDelivery" />
                             <p class="mt-1 text-xs text-brand-mist">{{ $vendor['hint'] }}</p>
                             <x-input-error :messages="$errors->get('tools.'.$i.'.id')" class="mt-1" />
                         </div>
                     @else
                         <div class="sm:col-span-4">
                             <x-input-label :value="__('Script URL (https)')" />
-                            <x-text-input wire:model="tools.{{ $i }}.src" type="url" class="mt-1 block w-full font-mono text-sm" placeholder="https://…" @disabled(! $managedDelivery) />
+                            <x-text-input wire:model="tools.{{ $i }}.src" type="url" class="mt-1 block w-full font-mono text-sm" placeholder="https://…" :disabled="! $managedDelivery" />
                             <x-input-error :messages="$errors->get('tools.'.$i.'.src')" class="mt-1" />
                         </div>
                     @endif
                     <div class="sm:col-span-2">
                         <x-input-label :value="__('Fire on path')" />
-                        <x-text-input wire:model="tools.{{ $i }}.path" type="text" class="mt-1 block w-full font-mono text-sm" placeholder="/*" @disabled(! $managedDelivery) />
+                        <x-text-input wire:model="tools.{{ $i }}.path" type="text" class="mt-1 block w-full font-mono text-sm" placeholder="/*" :disabled="! $managedDelivery" />
                         <x-input-error :messages="$errors->get('tools.'.$i.'.path')" class="mt-1" />
                     </div>
                     <div class="sm:col-span-2">
@@ -113,7 +113,7 @@
             @endforeach
 
             <div class="flex justify-end">
-                <x-primary-button type="button" wire:click="save" @disabled(! $managedDelivery)>{{ __('Save') }}</x-primary-button>
+                <x-primary-button type="button" wire:click="save" :disabled="! $managedDelivery">{{ __('Save') }}</x-primary-button>
             </div>
         </div>
     </section>
