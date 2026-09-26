@@ -966,7 +966,8 @@ class EdgeCloudflareClient
 
         $json = $response->json();
         if (! is_array($json)) {
-            throw new RuntimeException('Analytics Engine SQL failed.');
+            // Errors (an unknown dataset, a token without Account Analytics) come back as plain text.
+            throw new RuntimeException('Analytics Engine SQL failed (HTTP '.$response->status().'): '.Str::limit(trim($response->body()), 300));
         }
 
         if (array_key_exists('success', $json) && $json['success'] !== true) {
@@ -1415,25 +1416,31 @@ class EdgeCloudflareClient
     }
 
     /**
-     * Recent Workers Logs events for one script (Workers Observability).
-     * The events payload isn't fully documented, so fields are read
-     * defensively.
+     * Recent Workers Logs events for one or more services (Workers
+     * Observability), newest first. A container app's own stdout/stderr is
+     * logged under its container application's id, not the script name, so
+     * pass both to see it. The events payload isn't fully documented, so
+     * fields are read defensively.
      *
+     * @param  string|list<string>  $services
      * @return list<array{at: ?string, level: string, message: string}>
      */
-    public function workerLogs(string $scriptName, int $minutes = 15, int $limit = 200): array
+    public function workerLogs(string|array $services, int $minutes = 15, int $limit = 200): array
     {
-        $payload = $this->decode(Http::withToken($this->apiToken)->post(self::BASE.'/accounts/'.$this->accountId.'/workers/observability/telemetry/query', [
-            'queryId' => 'dply-logs-'.$scriptName,
-            'view' => 'events',
-            'limit' => $limit,
-            'timeframe' => ['from' => now()->subMinutes($minutes)->getTimestampMs(), 'to' => now()->getTimestampMs()],
-            'parameters' => ['filters' => [['key' => '$metadata.service', 'operation' => 'eq', 'type' => 'string', 'value' => $scriptName]]],
-        ]));
-
-        $events = data_get($payload, 'events.events', data_get($payload, 'events', []));
+        $events = [];
+        foreach ((array) $services as $service) {
+            $payload = $this->decode(Http::withToken($this->apiToken)->post(self::BASE.'/accounts/'.$this->accountId.'/workers/observability/telemetry/query', [
+                'queryId' => 'dply-logs-'.$service,
+                'view' => 'events',
+                'limit' => $limit,
+                'timeframe' => ['from' => now()->subMinutes($minutes)->getTimestampMs(), 'to' => now()->getTimestampMs()],
+                'parameters' => ['filters' => [['key' => '$metadata.service', 'operation' => 'eq', 'type' => 'string', 'value' => $service]]],
+            ]));
+            array_push($events, ...array_values((array) data_get($payload, 'events.events', data_get($payload, 'events', []))));
+        }
+        usort($events, static fn ($a, $b): int => (int) data_get($b, 'timestamp', 0) <=> (int) data_get($a, 'timestamp', 0));
         $out = [];
-        foreach ((array) $events as $event) {
+        foreach ($events as $event) {
             $message = data_get($event, '$metadata.message', data_get($event, 'source.message', data_get($event, 'message')));
             $timestamp = data_get($event, 'timestamp', data_get($event, '$metadata.timestamp'));
             $out[] = [
