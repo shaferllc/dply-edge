@@ -279,6 +279,7 @@
                                 @endif
                                 <button type="button" wire:click="openFailedJobs" x-on:click="$dispatch('open-modal', 'resources-failed-jobs')" class="font-semibold text-brand-ink underline">{{ __('Failed jobs') }}</button>
                                 <button type="button" wire:click="openWorkerLogs" x-on:click="$dispatch('open-modal', 'resources-worker-logs')" class="font-semibold text-brand-ink underline">{{ __('Logs') }}</button>
+                                <button type="button" wire:click="sendTestJob" wire:loading.attr="disabled" wire:target="sendTestJob" class="font-semibold text-brand-ink underline">{{ __('Send test job') }}</button>
                                 @if ($workersBacklogError)
                                     <span class="text-red-700 dark:text-red-400">{{ $workersBacklogError }}</span>
                                 @endif

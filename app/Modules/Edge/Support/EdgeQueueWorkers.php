@@ -261,6 +261,19 @@ final class EdgeQueueWorkers
         ], array_filter(is_array($rows) ? $rows : [], 'is_array')));
     }
 
+    /**
+     * Queue test jobs (php artisan inspire) through the app itself, on the
+     * workers' first queue.
+     *
+     * @return array{queued: int, connection: string, queue: string}
+     */
+    public static function sendTestJobs(Site $site, int $count = 1): array
+    {
+        $body = self::command($site, 'queue-test', ['count' => $count, 'queue' => explode(',', self::for($site)['queues'])[0]]);
+
+        return ['queued' => (int) ($body['queued'] ?? 0), 'connection' => (string) ($body['connection'] ?? ''), 'queue' => (string) ($body['queue'] ?? '')];
+    }
+
     /** Jobs waiting on the workers' queues, as the app itself counts them. */
     public static function backlog(Site $site): int
     {
@@ -313,6 +326,20 @@ final class EdgeQueueWorkers
         $memoryGib = (float) (EdgeContainerSettings::INSTANCE_TYPES[$type][1] ?? ($site->edgeMeta()['container']['custom_memory_gib'] ?? 1));
 
         return max(1, min(self::MAX_PROCESSES, (int) floor($memoryGib * 3)));
+    }
+
+    /**
+     * Env that makes the app dispatch where its workers pull from. Workers
+     * read one connection; an app still on Laravel's default (database)
+     * after the workers moved to Redis would queue jobs nobody runs.
+     *
+     * @return array<string, string>
+     */
+    public static function dispatchEnv(Site $site): array
+    {
+        $connection = self::runningInstances($site) > 0 ? self::connection($site) : null;
+
+        return $connection !== null ? ['QUEUE_CONNECTION' => $connection] : [];
     }
 
     /** Estimated cents a month for $instances workers on the app's instance size, always on. */

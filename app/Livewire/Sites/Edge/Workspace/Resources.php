@@ -468,6 +468,26 @@ class Resources extends Component
         $this->loadWorkersStatus();
     }
 
+    /** Queue one test job through the app and let the workers pick it up. */
+    public function sendTestJob(): void
+    {
+        $this->authorize('update', $this->site);
+        try {
+            $sent = EdgeQueueWorkers::sendTestJobs($this->site);
+        } catch (\Throwable $e) {
+            $this->toastError(__('Could not queue a test job: :error', ['error' => $e->getMessage()]));
+
+            return;
+        }
+        $expected = EdgeQueueWorkers::connection($this->site);
+        if ($expected !== null && $sent['connection'] !== $expected) {
+            $this->toastError(__('The app queued it on :actual, but the workers read :expected. Redeploy so the app dispatches to :expected.', ['actual' => $sent['connection'], 'expected' => $expected]));
+
+            return;
+        }
+        $this->toastSuccess(__('Test job queued on :queue. It shows in Logs as it runs.', ['queue' => $sent['queue']]));
+    }
+
     public function startWorkers(): void
     {
         $this->authorize('update', $this->site);

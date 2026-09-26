@@ -414,3 +414,39 @@ test('failing jobs and crash-looping workers raise one alert each per half hour'
     expect($events)->toBe(['edge.workers.crashing', 'edge.workers.failed_jobs']);
     expect(NotificationEvent::query()->where('event_key', 'edge.workers.failed_jobs')->first()->body)->toContain('SendInvoice');
 });
+
+test('the app dispatches to the connection its workers pull from', function () {
+    $redis = laravelApp(['connections' => [['kind' => 'redis', 'name' => 'REDIS', 'host' => 'redis.internal', 'target' => 'valkey:x']], 'container' => ['workers' => ['enabled' => true, 'connection' => 'redis']]]);
+    $database = laravelApp(['container' => ['workers' => ['enabled' => true]]]);
+    $none = laravelApp();
+
+    expect(EdgeQueueWorkers::dispatchEnv($redis))->toBe(['QUEUE_CONNECTION' => 'redis'])
+        ->and(EdgeQueueWorkers::dispatchEnv($database))->toBe(['QUEUE_CONNECTION' => 'database'])
+        ->and(EdgeQueueWorkers::dispatchEnv($none))->toBe([])
+        // A push queue's connection is kept: the helper only fills a gap.
+        ->and(['QUEUE_CONNECTION' => 'dply'] + EdgeQueueWorkers::dispatchEnv($redis))->toBe(['QUEUE_CONNECTION' => 'dply']);
+});
+
+test('a test job goes through the app, and a dispatch mismatch is caught', function () {
+    $app = laravelApp([
+        'live_url' => 'https://shop.on-dply.live',
+        'connections' => [['kind' => 'redis', 'name' => 'REDIS', 'host' => 'redis.internal', 'target' => 'valkey:x']],
+        'container' => ['workers' => ['enabled' => true, 'connection' => 'redis', 'queues' => 'emails,default']],
+    ]);
+    $user = User::factory()->create();
+    $app->organization->users()->attach($user->id, ['role' => 'owner']);
+    $app->forceFill(['user_id' => $user->id, 'type' => SiteType::Static, 'status' => Site::STATUS_EDGE_ACTIVE])->save();
+    $app->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
+    $dispatchesTo = 'database';
+    Http::fake(function (Request $r) use (&$dispatchesTo) {
+        return Http::response(['queued' => 1, 'connection' => $dispatchesTo, 'queue' => $r['queue']]);
+    });
+
+    $page = Livewire::actingAs($user)->test(Resources::class, ['server' => $app->server, 'site' => $app]);
+    $page->call('sendTestJob')->assertDispatched('notify', fn ($name, $params) => str_contains($params['message'] ?? '', 'the workers read redis'));
+
+    $dispatchesTo = 'redis';
+    $page->call('sendTestJob')->assertDispatched('notify', fn ($name, $params) => str_contains($params['message'] ?? '', 'Test job queued on emails'));
+
+    Http::assertSent(fn (Request $r): bool => $r['command'] === 'queue-test' && $r['queue'] === 'emails' && $r['count'] === 1);
+});

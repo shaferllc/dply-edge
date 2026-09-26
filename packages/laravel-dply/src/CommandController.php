@@ -40,6 +40,9 @@ class CommandController
         if ($action === 'db-probe') {
             return $this->databaseProbe();
         }
+        if ($action === 'queue-test') {
+            return $this->queueTest((int) $request->input('count', 1), (string) $request->input('queue', ''));
+        }
         if ($action === 'queue-size') {
             return $this->queueSizes((string) $request->input('connection', ''), array_values(array_filter(array_map('strval', (array) $request->input('queues', ['default'])))));
         }
@@ -66,6 +69,28 @@ class CommandController
             'exit' => $exit,
             'output' => mb_substr(Artisan::output(), -4000),
         ], $exit === 0 ? 200 : 500);
+    }
+
+    /**
+     * Queue `php artisan inspire` jobs through the app's own dispatcher, on
+     * its default connection: an end-to-end check that workers pick up what
+     * the app queues (and, 1000 at a time, a small load test).
+     */
+    private function queueTest(int $count, string $queue): JsonResponse
+    {
+        $count = max(1, min(1000, $count));
+        try {
+            for ($i = 0; $i < $count; $i++) {
+                $pending = Artisan::queue('inspire');
+                if ($queue !== '') {
+                    $pending->onQueue($queue);
+                }
+            }
+        } catch (Throwable $e) {
+            return new JsonResponse(['error' => $e->getMessage()], 500);
+        }
+
+        return new JsonResponse(['queued' => $count, 'connection' => (string) config('queue.default'), 'queue' => $queue !== '' ? $queue : 'default']);
     }
 
     /**

@@ -287,6 +287,9 @@ class EdgeContainerDeployer
             }
         }
 
+        // A push queue's QUEUE_CONNECTION stays; the app's own env (below) wins over both.
+        $queueEnv += EdgeQueueWorkers::dispatchEnv($site);
+
         $env = EdgeContainerConnections::omitAsleepRedis($site, $env);
         File::put($project.'/secrets.json', json_encode(array_merge(EdgeContainerConnections::redisDriverEnv($site), EdgeContainerConnections::storageDriverEnv($site), EdgeContainerConnections::kvDriverEnv($site), $queueEnv, $env, [
             'DPLY_QUEUE_TOKEN' => self::queueToken($site),
