@@ -631,6 +631,7 @@ test('php images tune opcache and cache Laravel at boot, tolerating a failed opt
 
     expect($fpm)->toContain("RUN printf '%s\\n' opcache.enable=1 opcache.validate_timestamps=0 opcache.memory_consumption=128 opcache.interned_strings_buffer=16 opcache.max_accelerated_files=20000 opcache.jit=tracing opcache.jit_buffer_size=64M > \"\$PHP_INI_DIR/conf.d/zz-dply-opcache.ini\"")
         ->and($fpm)->not->toContain('-d opcache.')
+        ->and($fpm)->toContain('DPLY_PERSISTENT_PDO=1')->and($franken)->not->toContain('DPLY_PERSISTENT_PDO')
         // After VIEW_COMPILED_PATH, or the cached config pins the old view path.
         ->and(strpos($fpm, 'php artisan optimize >/dev/null 2>&1 || echo'))->toBeGreaterThan(strpos($fpm, 'export VIEW_COMPILED_PATH'))
         ->and(strpos($fpm, 'php artisan optimize'))->toBeLessThan(strpos($fpm, 'php-fpm -F'))

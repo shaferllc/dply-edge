@@ -141,6 +141,9 @@ class SelfDeployer
                 }
                 $image = EdgeContainerDockerfile::prepare($checkout, (bool) ($worker['inject_laravel'] ?? EdgeContainerDeployer::needsLaravelPackage($site, $checkout)));
                 File::put($image['path'], EdgeContainerDeployer::scopeCacheMounts((string) file_get_contents($image['path']), EdgeContainerDeployer::cacheScope($site)));
+                if ($dbReachable) {
+                    EdgeContainerDeployer::recordWorkerModeSupport($site, $image);
+                }
             }
 
             $this->say($dbReachable

@@ -192,6 +192,20 @@ class EdgeContainerDeployer
      * The site that is dply's own control plane (edge.self): by id when
      * DPLY_SELF_SITE_ID is set, else by its repository.
      */
+    /**
+     * Whether the image can run worker mode: what the Container section reads
+     * to offer the switch.
+     *
+     * @param  array{worker_mode?: bool}  $image
+     */
+    public static function recordWorkerModeSupport(Site $site, array $image): void
+    {
+        if (($image['worker_mode'] ?? false) !== ($site->edgeMeta()['worker_mode_supported'] ?? false)) {
+            $site->mergeEdgeMeta(['worker_mode_supported' => $image['worker_mode'] ?? false]);
+            $site->save();
+        }
+    }
+
     public static function isSelfSite(Site $site): bool
     {
         $id = trim((string) config('edge.self.site_id'));
@@ -353,11 +367,7 @@ class EdgeContainerDeployer
         $injectLaravel = self::needsLaravelPackage($site, $checkout);
         $image = EdgeContainerDockerfile::prepare($checkout, $injectLaravel);
         File::put($image['path'], self::scopeCacheMounts((string) file_get_contents($image['path']), self::cacheScope($site)));
-        if (($image['worker_mode'] ?? false) !== ($site->edgeMeta()['worker_mode_supported'] ?? false)) {
-            // What the Container section reads to offer worker mode.
-            $site->mergeEdgeMeta(['worker_mode_supported' => $image['worker_mode'] ?? false]);
-            $site->save();
-        }
+        self::recordWorkerModeSupport($site, $image);
         if ($injectLaravel) {
             $log("Added dply/laravel so this app can use the attached resources.\n");
         }

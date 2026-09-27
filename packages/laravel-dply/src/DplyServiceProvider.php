@@ -46,6 +46,10 @@ class DplyServiceProvider extends ServiceProvider
      * connection name, so two names for one database never share a session.
      * Session state an app sets itself (SET, advisory locks) carries over to
      * the next request on that worker. Only when the app did not set it.
+     *
+     * Database connections only where the image says so (DPLY_PERSISTENT_PDO,
+     * php-fpm): a FrankenPHP thread never exits, so each would hold one open
+     * for as long as the container runs, and Postgres allows 50.
      */
     private function persistentConnections(): void
     {
@@ -53,7 +57,8 @@ class DplyServiceProvider extends ServiceProvider
             return;
         }
         $config = $this->app['config'];
-        foreach ((array) $config->get('database.connections', []) as $name => $connection) {
+        $pdo = filter_var(env('DPLY_PERSISTENT_PDO', false), FILTER_VALIDATE_BOOL);
+        foreach ($pdo ? (array) $config->get('database.connections', []) : [] as $name => $connection) {
             if (! is_array($connection) || ! in_array($connection['driver'] ?? '', ['pgsql', 'mysql', 'mariadb'], true)) {
                 continue;
             }

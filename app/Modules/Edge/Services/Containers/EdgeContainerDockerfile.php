@@ -683,6 +683,10 @@ final class EdgeContainerDockerfile
         // fpm: nginx opens 8080 only once php-fpm accepts on 9000. Readiness
         // checks (the Worker's port probe, Knative's) treat an open 8080 as
         // ready, and before this every cold start's first request got a 502.
+        // DPLY_PERSISTENT_PDO (fpm only): dply/laravel keeps database
+        // connections open. ondemand children exit after 10s idle, so held
+        // connections follow recent traffic; FrankenPHP threads never exit
+        // and would hold one each (16 x instances) against Postgres' 50.
         // Laravel's config/route/view/event caches, built at boot because the
         // app's env only exists at runtime. Each instance writes its own. A
         // failure leaves the app uncached, never down. fpm runs it after
@@ -703,7 +707,7 @@ final class EdgeContainerDockerfile
             // No --rr-config: Octane then uses the repo's .rr.yaml, or touches an
             // empty one. With the flag, a repo without the file exits on boot.
             'roadrunner' => 'exec php artisan octane:start --server=roadrunner --host=0.0.0.0 --port=8080 --workers="${DPLY_PHP_FPM_MAX_CHILDREN:-2}"',
-            'fpm' => 'children="${DPLY_PHP_FPM_MAX_CHILDREN:-2}"; limit="${DPLY_PHP_MEMORY_LIMIT:-128M}"; mkdir -p /tmp/views /tmp/client_body /tmp/fastcgi; chmod 1777 /tmp/views /tmp/client_body /tmp/fastcgi; export VIEW_COMPILED_PATH=/tmp/views; '.$optimize.'printf "[global]\npid = /tmp/php-fpm.pid\nerror_log = /tmp/php-fpm.log\ndaemonize = no\n[www]\nuser = www-data\ngroup = www-data\nlisten = 127.0.0.1:9000\npm = ondemand\npm.max_children = %s\npm.process_idle_timeout = 10s\npm.max_requests = 500\nclear_env = no\n" "$children" > /tmp/php-fpm.conf; php-fpm -F -y /tmp/php-fpm.conf -d "memory_limit=$limit" & until php -r \'exit(@fsockopen("127.0.0.1", 9000) ? 0 : 1);\'; do sleep 0.1; done; exec nginx -g "daemon off;"',
+            'fpm' => 'children="${DPLY_PHP_FPM_MAX_CHILDREN:-2}"; limit="${DPLY_PHP_MEMORY_LIMIT:-128M}"; mkdir -p /tmp/views /tmp/client_body /tmp/fastcgi; chmod 1777 /tmp/views /tmp/client_body /tmp/fastcgi; export VIEW_COMPILED_PATH=/tmp/views DPLY_PERSISTENT_PDO=1; '.$optimize.'printf "[global]\npid = /tmp/php-fpm.pid\nerror_log = /tmp/php-fpm.log\ndaemonize = no\n[www]\nuser = www-data\ngroup = www-data\nlisten = 127.0.0.1:9000\npm = ondemand\npm.max_children = %s\npm.process_idle_timeout = 10s\npm.max_requests = 500\nclear_env = no\n" "$children" > /tmp/php-fpm.conf; php-fpm -F -y /tmp/php-fpm.conf -d "memory_limit=$limit" & until php -r \'exit(@fsockopen("127.0.0.1", 9000) ? 0 : 1);\'; do sleep 0.1; done; exec nginx -g "daemon off;"',
             // The image's Caddyfile reads FRANKENPHP_CONFIG inside `frankenphp {}`; an app's own value wins.
             // The Worker terminates TLS: trust its X-Forwarded-Proto so Laravel makes https links. Caddy
             // needs a block's contents on their own lines, so it's built with printf; one line

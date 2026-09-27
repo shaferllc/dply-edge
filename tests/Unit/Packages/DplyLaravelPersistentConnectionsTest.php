@@ -10,13 +10,15 @@ require_once __DIR__.'/../../../packages/laravel-dply/src/DplyServiceProvider.ph
 
 function dplyToken(?string $value): void
 {
-    foreach (['DPLY_QUEUE_TOKEN', 'REDIS_PERSISTENT'] as $key) {
+    foreach (['DPLY_QUEUE_TOKEN', 'REDIS_PERSISTENT', 'DPLY_PERSISTENT_PDO'] as $key) {
         putenv($key);
         unset($_ENV[$key], $_SERVER[$key]);
     }
     if ($value !== null) {
         putenv('DPLY_QUEUE_TOKEN='.$value);
+        putenv('DPLY_PERSISTENT_PDO=1');
         $_ENV['DPLY_QUEUE_TOKEN'] = $_SERVER['DPLY_QUEUE_TOKEN'] = $value;
+        $_ENV['DPLY_PERSISTENT_PDO'] = $_SERVER['DPLY_PERSISTENT_PDO'] = '1';
     }
 }
 
@@ -48,6 +50,16 @@ test('on dply, database and redis connections persist unless the app chose', fun
         ->and(config('database.redis.options.persistent'))->toBeTrue()
         ->and(config('database.redis.default.persistent_id'))->toBe('dply-default')
         ->and(config('database.redis.cache.persistent_id'))->toBe('dply-cache');
+});
+
+test('without the image flag (frankenphp) only redis persists', function () {
+    dplyToken('secret');
+    putenv('DPLY_PERSISTENT_PDO');
+    unset($_ENV['DPLY_PERSISTENT_PDO'], $_SERVER['DPLY_PERSISTENT_PDO']);
+    registerDply();
+
+    expect(config('database.connections.pgsql.options'))->not->toHaveKey(\PDO::ATTR_PERSISTENT)
+        ->and(config('database.redis.options.persistent'))->toBeTrue();
 });
 
 test('off dply nothing persists', function () {
