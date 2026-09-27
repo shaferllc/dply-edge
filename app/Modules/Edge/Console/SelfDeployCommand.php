@@ -14,6 +14,7 @@ use App\Modules\Edge\Services\SelfHosting\SelfDeployer;
 use App\Modules\Edge\Services\SelfHosting\SelfDeployState;
 use Dotenv\Dotenv;
 use Illuminate\Console\Command;
+use Illuminate\Support\Str;
 use Throwable;
 
 /**
@@ -206,6 +207,9 @@ class SelfDeployCommand extends Command
             'organization_id' => $site->organization_id,
             'status' => EdgeDeployment::STATUS_PUBLISHING,
             'git_commit' => $sha,
+            // The edge Worker answers "Host not configured" for an entry
+            // without one; same shape as DeployEdgeCommit (no files under it).
+            'storage_prefix' => trim((string) config('edge.r2.key_prefix', 'edge/'), '/').'/'.$site->organization_id.'/'.$site->id.'/'.Str::ulid(),
             'meta' => ['self_deploy' => true, 'host' => (string) gethostname(), 'container' => ['script_name' => EdgeContainerDeployer::scriptName($site)]],
         ]);
         try {
