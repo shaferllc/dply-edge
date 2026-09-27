@@ -22,7 +22,7 @@ umask 077
 
 # KEY='value' / KEY="value" → KEY=value: kubectl --from-env-file keeps quotes literally.
 unquote() { sed -E -e "s/^([A-Za-z0-9_]+)='(.*)'$/\\1=\\2/" -e 's/^([A-Za-z0-9_]+)="(.*)"$/\1=\2/'; }
-env_get() { grep -hE "^$1=" ../../.env.production .secrets/builder.env | tail -1 | unquote | cut -d= -f2-; }
+env_get() { { grep -hE "^$1=" ../../.env.production .secrets/builder.env || true; } | tail -1 | unquote | cut -d= -f2-; }
 
 if [ -z "$DRY" ]; then
   # CI passes DIGITALOCEAN_TOKEN and DOKS_CLUSTER_ID; a laptop reads its secrets and terraform state.
