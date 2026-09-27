@@ -31,9 +31,12 @@ class EdgeUsageCostCalculator
      */
     public function estimate(EdgeUsageTotals $usage, int $edgeSiteCount, ?array $tier = null): array
     {
-        if (! $this->isEnabled() || $edgeSiteCount <= 0) {
+        if (! $this->isEnabled()) {
             return $this->emptyEstimate();
         }
+        // Usage still bills when the last site is gone before the period is
+        // invoiced: count one site's allowances rather than none.
+        $edgeSiteCount = max(1, $edgeSiteCount);
 
         $includedRequests = $edgeSiteCount * max(0, (int) config('dply.edge.usage_billing.included_requests_per_site', 0));
         $includedEgress = $edgeSiteCount * $this->includedEgressBytesPerSite();

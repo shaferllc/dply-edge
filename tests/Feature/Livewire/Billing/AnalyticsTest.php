@@ -33,7 +33,7 @@ test('billing page includes the compact cost forecast', function () {
         ->test(BillingShow::class, ['organization' => $org])
         ->assertOk()
         ->assertSee('Cost forecast')
-        ->assertSee('Projected this month')
+        ->assertSee('Projected this period')
         ->assertSee('Invoices')
         ->assertDontSee('Historical spend')
         ->assertDontSee('Spend by category')

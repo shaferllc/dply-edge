@@ -237,9 +237,11 @@
             @endif
 
             {{-- Invoices --}}
-            <section id="invoices" class="border-b border-brand-ink/10">
+            <section id="invoices" class="border-b border-brand-ink/10" wire:init="loadInvoices">
                 <x-workspace-panel-head dense icon="heroicon-o-document" :title="__('Invoices')" :note="__('Recent invoices from Stripe.')" />
-                    @if ($this->invoices->isEmpty())
+                    @if (! $invoicesLoaded)
+                        <p class="px-3 py-8 text-center text-xs text-brand-mist sm:px-4">{{ __('Loading invoices…') }}</p>
+                    @elseif ($this->invoices === [])
                         <div class="px-3 py-8 text-center sm:px-4">
                             <span class="mx-auto inline-flex h-9 w-9 items-center justify-center rounded-xl bg-brand-sand/45 text-brand-mist ring-1 ring-brand-ink/10">
                                 <x-heroicon-o-document class="h-4 w-4" aria-hidden="true" />
@@ -255,11 +257,11 @@
                     @else
                         <ul class="divide-y divide-brand-ink/10">
                             @foreach ($this->invoices as $invoice)
-                                @php $hosted = $invoice->asStripeInvoice()->hosted_invoice_url ?? null; @endphp
+                                @php $hosted = $invoice['url']; @endphp
                                 <li class="flex items-center justify-between gap-4 px-3 py-2 transition-colors hover:bg-brand-sand/15 sm:px-4">
                                     <div class="min-w-0">
-                                        <p class="text-sm font-semibold text-brand-ink">{{ $invoice->date()->toFormattedDateString() }}</p>
-                                        <p class="mt-0.5 font-mono text-xs text-brand-moss tabular-nums">{{ $invoice->total() }}</p>
+                                        <p class="text-sm font-semibold text-brand-ink">{{ \Illuminate\Support\Carbon::createFromTimestamp($invoice['date'])->toFormattedDateString() }}</p>
+                                        <p class="mt-0.5 font-mono text-xs text-brand-moss tabular-nums">{{ $invoice['total'] }}</p>
                                     </div>
                                     @if ($hosted)
                                         <a href="{{ $hosted }}" target="_blank" rel="noopener noreferrer" class="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-brand-sage hover:text-brand-ink">

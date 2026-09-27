@@ -6,9 +6,11 @@ namespace App\Modules\Billing\Services;
 
 use App\Models\EdgeDatabase;
 use App\Models\EdgeQueue;
+use App\Models\EdgeRealtimeApp;
 use App\Models\Organization;
 use App\Models\Site;
 use App\Modules\Edge\Jobs\TeardownEdgeSiteJob;
+use App\Modules\Edge\Services\Realtime\EdgeRealtimeApps;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeDplyDatabase;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
@@ -17,7 +19,7 @@ use Throwable;
 /**
  * Deletes a paused org's data once its keep_data_days are up (ruling
  * r-f17p5zgeh120cm5t): every site with its dply database and Valkey stores,
- * and the org's D1 databases and queues. The org, its members and billing
+ * and the org's D1 databases, queues and Realtime apps. The org, its members and billing
  * record stay, so paying later starts from an empty workspace.
  *
  * TeardownEdgeSiteJob does not release dply databases, Valkey or D1, so
@@ -49,6 +51,9 @@ final class OrganizationDataPurger
         foreach (EdgeQueue::query()->where('organization_id', $organization->id)->get() as $queue) {
             $lines[] = 'queue '.$queue->name;
         }
+        foreach (EdgeRealtimeApp::query()->where('organization_id', $organization->id)->whereNull('site_id')->get() as $app) {
+            $lines[] = 'realtime '.$app->id;
+        }
 
         return $lines;
     }
@@ -72,9 +77,14 @@ final class OrganizationDataPurger
                 $attempt('database '.$database['remote_id'], fn () => EdgeDplyDatabase::destroy((string) $database['remote_id'], EdgeDplyDatabase::regionOf($database)));
             }
             foreach (EdgeContainerConnections::for($site) as $connection) {
-                $attempt($connection['kind'].' '.$connection['target'], fn () => EdgeContainerConnections::destroy((string) $connection['kind'], (string) $connection['target']));
+                $attempt($connection['kind'].' '.$connection['target'], fn () => EdgeContainerConnections::destroy((string) $connection['kind'], (string) $connection['target'], $organization));
             }
             $attempt('site '.$site->id, fn () => TeardownEdgeSiteJob::dispatchSync((string) $site->id));
+        }
+        // Realtime apps no site holds any more (the per-site pass above
+        // deleted the attached ones): their relay KV record goes first.
+        foreach (EdgeRealtimeApp::query()->where('organization_id', $organization->id)->get() as $app) {
+            $attempt('realtime '.$app->id, fn () => app(EdgeRealtimeApps::class)->destroy($app));
         }
 
         $client = null;

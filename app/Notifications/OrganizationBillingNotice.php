@@ -16,6 +16,7 @@ use Illuminate\Support\Carbon;
  * sent once each by EnforceOrganizationBillingCommand:
  *
  *   trial_started   the trial began (or an existing Free org got one)
+ *   trial_ending_soon  3 days before the trial ends
  *   trial_ending    about a day before the trial ends
  *   paused          the trial ended unpaid; sites are paused
  *   deleting        the paused org's data is deleted on $date
@@ -24,7 +25,7 @@ class OrganizationBillingNotice extends Notification implements ShouldQueue
 {
     use Queueable;
 
-    public const KINDS = ['trial_started', 'trial_ending', 'paused', 'deleting'];
+    public const KINDS = ['trial_started', 'trial_ending_soon', 'trial_ending', 'paused', 'deleting'];
 
     public function __construct(
         public Organization $organization,
@@ -54,6 +55,12 @@ class OrganizationBillingNotice extends Notification implements ShouldQueue
                 ->line($this->organization->subscription('default')?->onTrial()
                     ? __('It becomes Pro ($20/mo) when the trial ends unless you cancel before then.')
                     : __('dply no longer has a free plan. Choose a plan before the trial ends to keep your sites running.'))
+                ->action(__('Billing'), $billing),
+            'trial_ending_soon' => $mail
+                ->subject(__('3 days left on your dply trial'))
+                ->line($this->organization->subscription('default')?->onTrial()
+                    ? __('The trial for :org ends :when, and Pro starts billing then ($20/mo). Cancel before then if you don’t want to continue.', ['org' => $name, 'when' => $when])
+                    : __('The trial for :org ends :when. Choose a plan before then to keep its sites running.', ['org' => $name, 'when' => $when]))
                 ->action(__('Billing'), $billing),
             'trial_ending' => $mail
                 ->subject(__('Your dply trial ends :when', ['when' => $when]))

@@ -5,6 +5,7 @@ namespace App\Modules\Billing\Services;
 use App\Models\Organization;
 use App\Models\Site;
 use App\Modules\Edge\Support\EdgeBuildMinutes;
+use Carbon\CarbonInterface;
 
 /**
  * Builds a {@see DesiredBillingState} for an organization: its tier (from the
@@ -22,9 +23,10 @@ class OrganizationBillingStateComputer
         private EdgeContainerComputeCost $computeCost,
         private EdgeDataUsageCost $dataUsageCost,
         private EdgeRedisCost $redisCost,
-        private EdgeDeliveryCost $deliveryCost,
         private EdgeKvCost $kvCost,
         private EdgeAppDatabaseCost $databaseCost,
+        private EdgeRealtimeCost $realtimeCost,
+        private EdgePlatformUsageCost $platformUsageCost,
     ) {}
 
     /**
@@ -80,7 +82,17 @@ class OrganizationBillingStateComputer
         return $this->computeFresh($organization, $tierKey);
     }
 
-    private function computeFresh(Organization $organization, ?string $forceTier = null): DesiredBillingState
+    /**
+     * Usage for a closed billing period (days $from..$to inclusive) on a
+     * given tier — what UsageInvoicer charges. Not memoized.
+     */
+    public function computeForPeriod(Organization $organization, CarbonInterface $from, CarbonInterface $to, string $tierKey): DesiredBillingState
+    {
+        return $this->computeFresh($organization, $tierKey, [$from, $to]);
+    }
+
+    /** @param  array{0: CarbonInterface, 1: CarbonInterface}|null  $window  null = the current period */
+    private function computeFresh(Organization $organization, ?string $forceTier = null, ?array $window = null): DesiredBillingState
     {
         $minAgeDays = max(0, (int) config('subscription.standard.min_billable_age_days', 1));
         $ageCutoff = now()->subDays($minAgeDays);
@@ -116,7 +128,7 @@ class OrganizationBillingStateComputer
         // Enterprise is invoiced by hand. None owe anything through this path.
         $billable = in_array($tierKey, ['pro', 'team'], true);
 
-        [$usagePeriodStart, $usagePeriodEnd] = $this->usageReader->currentMonthWindow();
+        [$usagePeriodStart, $usagePeriodEnd] = $window ?? $this->usageReader->currentWindow($organization);
         $usageTotals = $this->usageReader->totalsForOrganization($organization, $usagePeriodStart, $usagePeriodEnd);
         $edgeUsageEstimate = $this->usageCostCalculator->estimate($usageTotals, $edgeCount, $tier);
         $edgeUsageEstimate = array_merge($edgeUsageEstimate, [
@@ -126,13 +138,14 @@ class OrganizationBillingStateComputer
             'bytes_egress' => $usageTotals->bytesEgress,
             'r2_storage_bytes' => $usageTotals->r2StorageBytes,
         ]);
-        $buildMinutes = EdgeBuildMinutes::usedThisMonth($organization);
+        $buildMinutes = EdgeBuildMinutes::usedBetween($organization, $usagePeriodStart, $usagePeriodEnd);
         $compute = $this->computeCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd);
         $data = $this->dataUsageCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd);
         $redis = $this->redisCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd);
-        $delivery = $this->deliveryCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd);
         $kv = $this->kvCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd);
         $databases = $this->databaseCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd);
+        $realtime = $this->realtimeCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd, $tierKey);
+        $platform = $this->platformUsageCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd);
 
         return DesiredBillingState::fromPlanAndUsage(
             plan: ['key' => $tierKey, 'label' => (string) $tier['label'], 'price_cents' => (int) $tier['price_cents']],
@@ -152,7 +165,7 @@ class OrganizationBillingStateComputer
             buildMinuteOverageCents: $billable ? EdgeBuildMinutes::overageCents($buildMinutes, $tier) : 0,
             containerComputeCents: $compute['cents'],
             computeCreditCents: $billable ? (int) ($tier['compute_credit_cents'] ?? 0) : null,
-            dataUsageCents: $billable ? $data['cents'] + $redis['cents'] + $delivery['cents'] + $kv['cents'] + $databases['cents'] : 0,
+            dataUsageCents: $billable ? $data['cents'] + $redis['cents'] + $kv['cents'] + $databases['cents'] + $realtime['cents'] + $platform['cents'] : 0,
         );
     }
 

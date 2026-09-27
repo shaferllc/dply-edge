@@ -6,6 +6,7 @@ namespace App\Modules\Billing\Services;
 
 use App\Models\OrganizationBillingSnapshot;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Carbon;
 
 final class BillingForecastCalculator
 {
@@ -20,12 +21,18 @@ final class BillingForecastCalculator
     ): array {
         $asOfDate = $asOf ?? now();
         $monthlyTotalCents = $state->monthlyTotalCents;
-        $edgeUsageCents = max(0, $state->edgeUsageSubtotalCents);
+        // Every usage kind (delivery, builds, compute, data), not just delivery.
+        $edgeUsageCents = $state->usageLineCents();
         $fixedCents = max(0, $monthlyTotalCents - $edgeUsageCents);
 
-        $daysInMonth = max(1, $asOfDate->daysInMonth);
-        $dayOfMonth = max(1, $asOfDate->day);
-        $projectedEdgeUsageCents = (int) round(($edgeUsageCents / $dayOfMonth) * $daysInMonth);
+        // Usage so far this billing period (the Stripe period, else the
+        // calendar month), run out to the period's end.
+        $periodStart = isset($state->edgeUsageEstimate['period_start'])
+            ? Carbon::parse((string) $state->edgeUsageEstimate['period_start'])
+            : Carbon::instance($asOfDate)->startOfMonth();
+        $periodDays = max(1, (int) $periodStart->diffInDays($periodStart->copy()->addMonthNoOverflow()));
+        $daysElapsed = (int) min($periodDays, max(1, (int) $periodStart->copy()->startOfDay()->diffInDays(Carbon::instance($asOfDate)->startOfDay()) + 1));
+        $projectedEdgeUsageCents = (int) round(($edgeUsageCents / $daysElapsed) * $periodDays);
         $projectedMonthEndCents = $fixedCents + $projectedEdgeUsageCents;
 
         $normalizedMrrCents = $this->normalizedMrr($monthlyTotalCents, $subscriptionInterval);
@@ -44,6 +51,8 @@ final class BillingForecastCalculator
             'edge_usage_mtd_cents' => $edgeUsageCents,
             'projected_edge_usage_cents' => $projectedEdgeUsageCents,
             'projected_month_end_cents' => $projectedMonthEndCents,
+            'period_start' => $periodStart->toDateString(),
+            'period_end' => $periodStart->copy()->addMonthNoOverflow()->toDateString(),
             'thirty_day_baseline_cents' => $baselineCents,
             'delta_vs_thirty_days_cents' => $deltaVsThirtyDaysCents,
         ];

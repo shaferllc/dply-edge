@@ -345,12 +345,6 @@ return [
             'd1_rows_written_millicents_per_million' => (int) env('DPLY_EDGE_D1_WRITE_MC_PER_MILLION', 100_000),
             'd1_storage_millicents_per_gb_month' => (int) env('DPLY_EDGE_D1_STORAGE_MC_PER_GB_MONTH', 75_000),
             'queue_operations_millicents_per_million' => (int) env('DPLY_EDGE_QUEUE_OPS_MC_PER_MILLION', 40_000),
-            // HTTP delivery. Customer prices, no second markup: $2 per 100k
-            // messages, $0.10 per GB after the first 1 GB. Recorded by the
-            // delivery usage hook. Read by EdgeDeliveryCost.
-            'delivery_messages_millicents_per_100k' => (int) env('DPLY_EDGE_DELIVERY_MESSAGES_MC_PER_100K', 200_000),
-            'delivery_bandwidth_millicents_per_gb' => (int) env('DPLY_EDGE_DELIVERY_BANDWIDTH_MC_PER_GB', 10_000),
-            'delivery_included_bandwidth_bytes' => (int) env('DPLY_EDGE_DELIVERY_INCLUDED_BANDWIDTH_BYTES', 1024 ** 3),
             // Key-value stores. Customer prices, no second markup: reads $1
             // per million; writes, deletes, and lists $10 per million; storage
             // $1 per GB-month after the first 1 GB. Collected by
@@ -365,6 +359,35 @@ return [
             // dply:edge:collect-postgres-usage. Read by EdgeAppDatabaseCost.
             'postgres_compute_millicents_per_cu_hour' => (int) env('DPLY_EDGE_POSTGRES_COMPUTE_MC_PER_CU_HOUR', 10_600),
             'postgres_storage_millicents_per_gb_month' => (int) env('DPLY_EDGE_POSTGRES_STORAGE_MC_PER_GB_MONTH', 35_000),
+            // Realtime (docs/edge-realtime.md). Customer prices, no second
+            // markup: $0.50 per million connection-minutes (0.05 millicents a
+            // minute; a float, it is below one millicent) and $0.50 per million
+            // messages (publishes in + frames delivered out). Priced under
+            // Pusher at every size; our Cloudflare cost is ~$4/app/month at
+            // most plus ~$0.45 per million publishes (ruling r-p3dsj9znvtnyhphr).
+            // The monthly allowance is per plan: subscription.standard.tiers.*.realtime_*.
+            // Collected by dply:edge:collect-realtime-usage. Read by EdgeRealtimeCost.
+            'realtime_connection_minute_millicents' => (float) env('DPLY_EDGE_REALTIME_CONNECTION_MINUTE_MC', 0.05),
+            'realtime_message_millicents_per_million' => (int) env('DPLY_EDGE_REALTIME_MESSAGES_MC_PER_MILLION', 50_000),
+            // Workers CPU, Durable Objects (State, and the one behind each
+            // container), customer object-storage buckets and Images. Customer prices, no second markup: Cloudflare list, no
+            // allowance (Cloudflare's included amounts are the shared account's).
+            //   CPU $0.02 per million CPU-ms · DO requests $0.15/M ·
+            //   DO duration $12.50 per million GB-s · DO rows read $0.001/M ·
+            //   rows written $1.00/M · DO storage $0.20/GB-month ·
+            //   R2 bucket storage $0.015/GB-month · Class A $4.50/M · Class B $0.36/M ·
+            //   Images $0.50 per 1,000 unique transformations.
+            // Collected by dply:edge:collect-platform-usage. Read by EdgePlatformUsageCost.
+            'workers_cpu_millicents_per_million_ms' => (int) env('DPLY_EDGE_WORKERS_CPU_MC_PER_MILLION_MS', 2_000),
+            'do_requests_millicents_per_million' => (int) env('DPLY_EDGE_DO_REQUESTS_MC_PER_MILLION', 15_000),
+            'do_duration_millicents_per_million_gb_s' => (int) env('DPLY_EDGE_DO_DURATION_MC_PER_MILLION_GB_S', 1_250_000),
+            'do_rows_read_millicents_per_million' => (int) env('DPLY_EDGE_DO_ROWS_READ_MC_PER_MILLION', 100),
+            'do_rows_written_millicents_per_million' => (int) env('DPLY_EDGE_DO_ROWS_WRITTEN_MC_PER_MILLION', 100_000),
+            'do_storage_millicents_per_gb_month' => (int) env('DPLY_EDGE_DO_STORAGE_MC_PER_GB_MONTH', 20_000),
+            'r2_bucket_storage_millicents_per_gb_month' => (int) env('DPLY_EDGE_R2_BUCKET_STORAGE_MC_PER_GB_MONTH', 1_500),
+            'r2_bucket_class_a_millicents_per_million' => (int) env('DPLY_EDGE_R2_BUCKET_CLASS_A_MC_PER_MILLION', 450_000),
+            'r2_bucket_class_b_millicents_per_million' => (int) env('DPLY_EDGE_R2_BUCKET_CLASS_B_MC_PER_MILLION', 36_000),
+            'images_transformations_millicents_per_million' => (int) env('DPLY_EDGE_IMAGES_TRANSFORMATIONS_MC_PER_MILLION', 50_000_000),
         ],
     ],
 

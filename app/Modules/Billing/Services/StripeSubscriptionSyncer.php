@@ -15,8 +15,12 @@ use Throwable;
  * - A subscription without its tier price (pre-tier per-site, monthly or
  *   yearly) is swapped wholesale onto the tier's line items.
  * - Otherwise each line converges on its quantity: extra sites (`edge`), SSR
- *   sites (`edge_ssr`), extra seats (`team_seat`), load balancer endpoints and
- *   usage cents (`edge_usage`). Changing tier is the billing page's job.
+ *   sites (`edge_ssr`), extra seats (`team_seat`) and load balancer
+ *   endpoints. Changing tier is the billing page's job.
+ *
+ * - Usage is not a subscription line: UsageInvoicer adds it to each renewal
+ *   invoice for the period that just ended. A legacy `edge_usage` line is
+ *   removed without proration, so it neither bills nor credits.
  *
  * - Items on a **retired** price (old plan tiers, serverless, Cloud, … — see
  *   `subscription.standard.stripe.retired`) are removed, so customers stop
@@ -71,10 +75,16 @@ class StripeSubscriptionSyncer
                 'edge_ssr' => $desired->edgeSsrCount,
                 'team_seat' => $desired->extraSeatCount,
                 'edge_lb_endpoint' => $desired->edgeLbEndpointCount,
-                'edge_usage' => $desired->usageLineCents(),
             ] as $product => $quantity) {
                 $this->reconcileLine($subscription, $changes, $product, $quantity);
             }
+        }
+
+        $usagePriceId = (string) (config('subscription.standard.stripe.edge_usage') ?? '');
+        if ($usagePriceId !== '' && $subscription->hasPrice($usagePriceId) && $subscription->items->count() > 1) {
+            $from = $this->currentQuantity($subscription, $usagePriceId);
+            $subscription->noProrate()->removePrice($usagePriceId);
+            $changes[] = ['tier' => 'edge_usage', 'action' => 'remove', 'from' => $from, 'to' => 0];
         }
 
         foreach ($this->retiredPricesToRemove($subscription) as $priceId) {

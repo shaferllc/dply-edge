@@ -42,7 +42,7 @@ final class EdgeSiteBillingAnalytics
             return [];
         }
 
-        [$periodStart, $periodEnd] = $this->usageReader->currentMonthWindow();
+        [$periodStart, $periodEnd] = $this->usageReader->currentWindow($organization);
         $siteIds = $sites->pluck('id')->all();
 
         $mtdBySite = $this->aggregateSnapshots($organization->id, $siteIds, $periodStart, $periodEnd);
@@ -94,7 +94,9 @@ final class EdgeSiteBillingAnalytics
             return null;
         }
 
-        [$periodStart, $periodEnd] = $this->usageReader->currentMonthWindow();
+        [$periodStart, $periodEnd] = $site->organization instanceof Organization
+            ? $this->usageReader->currentWindow($site->organization)
+            : $this->usageReader->currentMonthWindow();
         $siteId = (string) $site->id;
         $mtdBySite = $this->aggregateSnapshots((string) $site->organization_id, [$site->id], $periodStart, $periodEnd);
         $dailyBySite = $this->dailySnapshotsBySite((string) $site->organization_id, [$site->id], $dailyDays);

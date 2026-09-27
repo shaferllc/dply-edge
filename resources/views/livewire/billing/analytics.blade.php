@@ -120,14 +120,14 @@
                     class="border-b border-brand-ink/10"
                     icon="heroicon-o-arrow-trending-up"
                     :title="__('Cost forecast')"
-                    :note="__('What this organization is on track to be charged this month, and how that is trending.')"
+                    :note="__('What this organization is on track to be charged this billing period, and how that is trending.')"
                 />
 
                 <dl class="grid gap-px bg-brand-ink/5 sm:grid-cols-2">
                     <div class="{{ $cell }}">
-                        <dt class="{{ $cellLabel }}">{{ __('Projected this month') }}</dt>
+                        <dt class="{{ $cellLabel }}">{{ __('Projected this period') }}</dt>
                         <dd class="{{ $cellValue }}">${{ number_format($forecastProjectedMonthEndCents / 100, 2) }}</dd>
-                        <p class="{{ $cellNote }}">{{ __('Per-site fees, plus Edge usage so far extrapolated to month end') }}</p>
+                        <p class="{{ $cellNote }}">{{ __('Plan and site fees, plus usage so far run out to the period end') }}</p>
                     </div>
                     <div class="{{ $cell }}">
                         <dt class="{{ $cellLabel }}">{{ __('Δ vs 30 days') }}</dt>

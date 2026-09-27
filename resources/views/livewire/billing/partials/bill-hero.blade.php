@@ -66,7 +66,7 @@
                     </p>
                     @php $includedSites = config('subscription.standard.tiers.'.$state->planKey.'.sites'); @endphp
                     <p class="mt-0.5 text-xs text-brand-moss">{{ $includedSites === null
-                        ? __(':plan plan: unlimited sites. Usage past the plan’s credit pauses new builds until next month on Free.', ['plan' => $state->planLabel])
+                        ? __(':plan plan: unlimited sites. Usage beyond the plan is billed monthly.', ['plan' => $state->planLabel])
                         : __(':plan plan: :sites included, then :extra/mo per extra site. Usage beyond the plan is billed monthly.', ['plan' => $state->planLabel, 'sites' => trans_choice(':count site|:count sites', (int) $includedSites), 'extra' => '$'.number_format(((int) config('subscription.standard.edge_cents', 200)) / 100, 2)]) }}</p>
                 </div>
 

@@ -94,8 +94,9 @@ return [
                 'build_minutes' => 0, 'build_minute_overage_millicents' => null,
                 'concurrent_builds' => 0, 'build_timeout_minutes' => 0,
                 'requests' => 0, 'egress_gb' => 0,
-                'custom_domains_per_site' => 0, 'addons' => false, 'audit_log' => false, 'containers' => false, 'compute_credit_cents' => 0, 'spending_limit_cents' => 0, 'build_minute_credit_millicents' => 0, 'databases' => 0, 'queues' => 0, 'queue_concurrency' => 1, 'queue_batch_wait_seconds' => 5,
+                'custom_domains' => 0, 'custom_domains_per_site' => 0, 'addons' => false, 'audit_log' => false, 'containers' => false, 'compute_credit_cents' => 0, 'spending_limit_cents' => 0, 'build_minute_credit_millicents' => 0, 'databases' => 0, 'queues' => 0, 'queue_concurrency' => 1, 'queue_batch_wait_seconds' => 5,
                 'worker_instances' => 0, 'worker_autoscale' => false, 'worker_groups' => 0,
+                'realtime_max_connections' => 0, 'realtime_connection_minutes' => 0, 'realtime_messages' => 0,
             ],
             'pro' => [
                 'label' => 'Pro', 'price_cents' => 2000,
@@ -103,9 +104,13 @@ return [
                 'build_minutes' => 1_000, 'build_minute_overage_millicents' => 600,
                 'concurrent_builds' => 2, 'build_timeout_minutes' => 45,
                 'requests' => 10_000_000, 'egress_gb' => 500,
-                'custom_domains_per_site' => 100, 'addons' => true, 'audit_log' => false, 'containers' => true, 'compute_credit_cents' => 500, 'databases' => 10, 'queues' => 10, 'queue_concurrency' => 10, 'queue_batch_wait_seconds' => 2,
+                'custom_domains' => 20, 'custom_domains_per_site' => 100, 'addons' => true, 'audit_log' => false, 'containers' => true, 'compute_credit_cents' => 500, 'databases' => 10, 'queues' => 10, 'queue_concurrency' => 10, 'queue_batch_wait_seconds' => 2,
                 // Queue workers per app: instances across all groups (null = no cap), autoscaling, extra groups.
                 'worker_instances' => 5, 'worker_autoscale' => true, 'worker_groups' => 2,
+                // Realtime: the largest concurrent-socket size one app may have, and the
+                // org's monthly allowance before EdgeRealtimeCost bills (ruling r-p3dsj9znvtnyhphr).
+                // 5M connection-minutes is ~115 sockets open all month.
+                'realtime_max_connections' => 1_000, 'realtime_connection_minutes' => 5_000_000, 'realtime_messages' => 10_000_000,
             ],
             'team' => [
                 'label' => 'Team', 'price_cents' => 4900,
@@ -113,9 +118,11 @@ return [
                 'build_minutes' => 3_000, 'build_minute_overage_millicents' => 500,
                 'concurrent_builds' => 5, 'build_timeout_minutes' => 60,
                 'requests' => 50_000_000, 'egress_gb' => 2_000,
-                'custom_domains_per_site' => 100, 'addons' => true, 'audit_log' => true, 'containers' => true, 'compute_credit_cents' => 2000, 'databases' => 50, 'queues' => 50, 'queue_concurrency' => 50, 'queue_batch_wait_seconds' => 1,
+                'custom_domains' => 100, 'custom_domains_per_site' => 100, 'addons' => true, 'audit_log' => true, 'containers' => true, 'compute_credit_cents' => 2000, 'databases' => 50, 'queues' => 50, 'queue_concurrency' => 50, 'queue_batch_wait_seconds' => 1,
                 // Queue workers per app: instances across all groups (null = no cap), autoscaling, extra groups.
                 'worker_instances' => 10, 'worker_autoscale' => true, 'worker_groups' => 4,
+                // Realtime: per-app socket cap and monthly allowance (~570 sockets all month).
+                'realtime_max_connections' => 5_000, 'realtime_connection_minutes' => 25_000_000, 'realtime_messages' => 50_000_000,
             ],
             // Sales-led: billed by hand in Stripe (subscription.enterprise), so
             // no fee or overage here — null allowances mean unlimited.
@@ -125,9 +132,12 @@ return [
                 'build_minutes' => null, 'build_minute_overage_millicents' => null,
                 'concurrent_builds' => 10, 'build_timeout_minutes' => 120,
                 'requests' => null, 'egress_gb' => null,
-                'custom_domains_per_site' => null, 'addons' => true, 'audit_log' => true, 'containers' => true, 'compute_credit_cents' => null, 'databases' => null, 'queues' => null, 'queue_concurrency' => null, 'queue_batch_wait_seconds' => 0,
+                'custom_domains' => null, 'custom_domains_per_site' => null, 'addons' => true, 'audit_log' => true, 'containers' => true, 'compute_credit_cents' => null, 'databases' => null, 'queues' => null, 'queue_concurrency' => null, 'queue_batch_wait_seconds' => 0,
                 // Queue workers per app: instances across all groups (null = no cap), autoscaling, extra groups.
                 'worker_instances' => null, 'worker_autoscale' => true, 'worker_groups' => 4,
+                // One app is one Durable Object, which tops out in the tens of
+                // thousands of sockets — so Enterprise is capped, not unlimited.
+                'realtime_max_connections' => 20_000, 'realtime_connection_minutes' => null, 'realtime_messages' => null,
             ],
         ],
         // Extra static/hybrid site past the plan's included count.

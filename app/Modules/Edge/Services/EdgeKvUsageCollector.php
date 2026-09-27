@@ -25,7 +25,8 @@ final class EdgeKvUsageCollector
     {
         $usage = ($this->client ?? EdgeCloudflareClient::fromConfig())->kvUsageForDate($date);
         $sites = 0;
-        Site::query()->where('meta->edge->runtime_mode', 'container')->orderBy('id')->each(function (Site $site) use ($usage, $date, $dryRun, &$sites): void {
+        // Worker (ssr/hybrid) apps bind KV too, so any app with connections, not only containers.
+        Site::query()->whereNotNull('meta->edge->connections')->orderBy('id')->each(function (Site $site) use ($usage, $date, $dryRun, &$sites): void {
             $wrote = false;
             foreach (EdgeContainerConnections::for($site) as $connection) {
                 $id = (string) ($connection['target'] ?? '');

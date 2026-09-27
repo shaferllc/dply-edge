@@ -9,10 +9,15 @@ use App\Modules\Billing\Console\EnforceOrganizationBillingCommand;
 use App\Modules\Billing\Console\ProvisionStripeBillingCommand;
 use App\Modules\Billing\Console\SnapshotOrganizationBillingCommand;
 use App\Modules\Billing\Console\SyncAllOrganizationBillingCommand;
+use App\Modules\Billing\Listeners\BillUsageFromStripeWebhooks;
+use App\Modules\Billing\Listeners\CaptureTrialCardFingerprint;
 use App\Modules\Billing\Livewire\Analytics;
 use App\Modules\Billing\Livewire\Invoices;
 use App\Modules\Billing\Livewire\Show;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Cashier\Events\WebhookHandled;
+use Laravel\Cashier\Events\WebhookReceived;
 use Livewire\Livewire;
 
 /**
@@ -49,5 +54,9 @@ class BillingServiceProvider extends ServiceProvider
         Livewire::component('billing.show', Show::class);
         Livewire::component('billing.analytics', Analytics::class);
         Livewire::component('billing.invoices', Invoices::class);
+
+        Event::listen(WebhookReceived::class, [BillUsageFromStripeWebhooks::class, 'received']);
+        Event::listen(WebhookHandled::class, [BillUsageFromStripeWebhooks::class, 'handled']);
+        Event::listen(WebhookReceived::class, CaptureTrialCardFingerprint::class);
     }
 }

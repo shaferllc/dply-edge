@@ -7,13 +7,15 @@ use App\Models\Organization;
 use App\Modules\Billing\Services\BillingAnalytics;
 use App\Modules\Billing\Services\DesiredBillingState;
 use App\Modules\Billing\Services\OrganizationBillingStateComputer;
+use App\Modules\Billing\Services\PlanCheckout;
 use App\Modules\Billing\Services\StandardSubscriptionCreator;
 use App\Modules\Billing\Services\StarterTrafficGate;
 use App\Modules\Billing\Services\SubscriptionPlanResolver;
 use App\Modules\Billing\Services\VatInsightService;
 use Carbon\CarbonInterface;
 use Illuminate\Contracts\View\View;
-use Illuminate\Support\Collection;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rule;
 use Laravel\Cashier\Invoice;
 use Laravel\Cashier\Subscription;
@@ -53,6 +55,22 @@ class Show extends Component
 
     public string $billing_details = '';
 
+    /** Usage soft limit in dollars ('' = the default, twice the plan price). */
+    public string $usage_alert_dollars = '';
+
+    /** Flipped by wire:init so the Stripe invoice list never blocks first paint. */
+    public bool $invoicesLoaded = false;
+
+    /** Stripe reads are cached per customer; SyncBillingOnSubscriptionWebhook busts them. */
+    private const STRIPE_CACHE_TTL = 600;
+
+    public static function forgetStripeCache(string $stripeId): void
+    {
+        Cache::forget("billing:stripe:{$stripeId}:invoices");
+        Cache::forget("billing:stripe:{$stripeId}:next-invoice");
+        Cache::forget("billing:stripe:{$stripeId}:payment-summary");
+    }
+
     public function mount(Organization $organization): void
     {
         $this->authorize('update', $organization);
@@ -61,6 +79,18 @@ class Show extends Component
         $this->vat_number = (string) ($organization->vat_number ?? '');
         $this->billing_currency = (string) ($organization->billing_currency ?? '');
         $this->billing_details = (string) ($organization->billing_details ?? '');
+        $this->usage_alert_dollars = $organization->usage_alert_cents === null ? '' : (string) ($organization->usage_alert_cents / 100);
+    }
+
+    /** Owners are emailed at 50/80/100% of this each billing period (UsageAlerts). */
+    public function saveUsageAlert(): void
+    {
+        $this->authorize('update', $this->organization);
+        $this->validate(['usage_alert_dollars' => ['nullable', 'numeric', 'min:1', 'max:1000000']]);
+        $this->organization->forceFill([
+            'usage_alert_cents' => $this->usage_alert_dollars === '' ? null : (int) round((float) $this->usage_alert_dollars * 100),
+        ])->save();
+        $this->toastSuccess(__('Usage alert saved.'));
     }
 
     public function saveBillingDetails(VatInsightService $vatInsights): void
@@ -145,15 +175,22 @@ class Show extends Component
         if ($org->pm_last_four) {
             return '•••• '.$org->pm_last_four;
         }
-        $paymentMethod = $org->defaultPaymentMethod();
-        if ($paymentMethod && method_exists($paymentMethod, 'asStripePaymentMethod')) {
-            $pm = $paymentMethod->asStripePaymentMethod();
-            if (isset($pm->card->last4)) {
-                return '•••• '.$pm->card->last4;
-            }
+        if (! $org->hasStripeId()) {
+            return 'No payment method';
         }
 
-        return 'No payment method';
+        // defaultPaymentMethod() is a Stripe round-trip; cache it like the invoices.
+        return Cache::remember("billing:stripe:{$org->stripe_id}:payment-summary", self::STRIPE_CACHE_TTL, function () use ($org): string {
+            $paymentMethod = $org->defaultPaymentMethod();
+            if ($paymentMethod && method_exists($paymentMethod, 'asStripePaymentMethod')) {
+                $pm = $paymentMethod->asStripePaymentMethod();
+                if (isset($pm->card->last4)) {
+                    return '•••• '.$pm->card->last4;
+                }
+            }
+
+            return 'No payment method';
+        });
     }
 
     /**
@@ -168,20 +205,44 @@ class Show extends Component
         return $this->subscription !== null;
     }
 
-    /**
-     * @return Collection<int, Invoice>
-     */
-    public function getInvoicesProperty(): Collection
+    public function loadInvoices(): void
     {
-        if (! $this->organization->hasStripeId()) {
-            return collect();
+        $this->invoicesLoaded = true;
+    }
+
+    /**
+     * Plain rows (not Cashier Invoice objects) so they cache cleanly.
+     *
+     * @return list<array{date: int, total: string, url: string|null}>
+     */
+    public function getInvoicesProperty(): array
+    {
+        if (! $this->invoicesLoaded || ! $this->organization->hasStripeId()) {
+            return [];
         }
 
         try {
-            return $this->organization->invoices(false, ['limit' => 12]);
+            return Cache::remember(
+                "billing:stripe:{$this->organization->stripe_id}:invoices",
+                self::STRIPE_CACHE_TTL,
+                $this->stripeInvoiceRows(...),
+            );
         } catch (Throwable) {
-            return collect();
+            return [];
         }
+    }
+
+    /**
+     * @return list<array{date: int, total: string, url: string|null}>
+     */
+    private function stripeInvoiceRows(): array
+    {
+        return $this->organization->invoices(false, ['limit' => 12])
+            ->map(fn (Invoice $invoice): array => [
+                'date' => $invoice->date()->getTimestamp(),
+                'total' => $invoice->total(),
+                'url' => $invoice->asStripeInvoice()->hosted_invoice_url ?? null,
+            ])->values()->all();
     }
 
     /**
@@ -204,10 +265,9 @@ class Show extends Component
             return null;
         }
 
-        $items = app(StandardSubscriptionCreator::class)->buildPriceList(
-            app(OrganizationBillingStateComputer::class)->computeForTier($this->organization, $tier),
-        );
-        if ($items === []) {
+        $subscriptionUrl = route('subscription.show', $this->organization);
+        $url = app(PlanCheckout::class)->url($this->organization, $tier, $subscriptionUrl.'?checkout=success', $subscriptionUrl.'?checkout=cancelled');
+        if ($url === null) {
             $this->addError('billing', __('Plan pricing is not configured yet. Contact support.'));
 
             return null;
@@ -217,36 +277,10 @@ class Show extends Component
             'plan' => $tier,
         ]);
 
-        $subscriptionUrl = route('subscription.show', $this->organization);
-        $builder = $this->organization->newSubscription('default');
-        foreach ($items as $item) {
-            $builder->price($item['price'], $item['quantity']);
-        }
-
-        // The trial (ruling r-f17p5zgeh120cm5t): a first-time org gets
-        // trial.days with a card on file; an org still on its card-less
-        // trial keeps the days it has left. Either way Checkout takes the
-        // card, and a trial that ends without one cancels instead of going
-        // past due.
-        $sessionOptions = [
-            'success_url' => $subscriptionUrl.'?checkout=success',
-            'cancel_url' => $subscriptionUrl.'?checkout=cancelled',
-        ];
-        $trialUntil = $this->organization->onGenericTrial()
-            ? $this->organization->trial_ends_at
-            : ($this->organization->eligibleForTrial() ? now()->addDays((int) config('subscription.standard.trial.days', 5)) : null);
-        if ($trialUntil !== null) {
-            $builder->trialUntil($trialUntil);
-            $sessionOptions['payment_method_collection'] = 'always';
-            $sessionOptions['subscription_data'] = ['trial_settings' => ['end_behavior' => ['missing_payment_method' => 'cancel']]];
-        }
-
-        $checkout = $builder->checkout($sessionOptions, []);
-
         // Stripe Checkout lives on a different origin (checkout.stripe.com),
         // so Livewire's default wire:navigate redirect fails silently — pass
         // navigate: false to force a full-page window.location swap.
-        return $this->redirect((string) $checkout->asStripeCheckoutSession()->url, navigate: false);
+        return $this->redirect($url, navigate: false);
     }
 
     /**
@@ -484,9 +518,13 @@ class Show extends Component
         }
 
         try {
-            $upcoming = $this->organization->upcomingInvoice();
+            $ts = Cache::remember(
+                "billing:stripe:{$this->organization->stripe_id}:next-invoice",
+                self::STRIPE_CACHE_TTL,
+                fn (): int => $this->organization->upcomingInvoice()?->date()->getTimestamp() ?? 0,
+            );
 
-            return $upcoming?->date();
+            return $ts > 0 ? Carbon::createFromTimestamp($ts) : null;
         } catch (Throwable) {
             return null;
         }

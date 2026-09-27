@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Billing\Console;
 
 use App\Models\Organization;
+use App\Modules\Billing\Services\OrganizationBillingEnforcer;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 
@@ -33,7 +34,7 @@ class CompOrganizationCommand extends Command
         $until = $this->option('off') ? null : ($this->option('until') ? Carbon::parse((string) $this->option('until'))->endOfDay() : Carbon::parse('2099-12-31'));
         $org->forceFill(['comped_until' => $until])->save();
         $this->info($until === null ? $org->name.': comp ended.' : $org->name.': comped until '.$until->toDateString().'.');
-        app(\App\Modules\Billing\Services\OrganizationBillingEnforcer::class)->enforce($org, false, fn (string $line) => $this->line($line));
+        app(OrganizationBillingEnforcer::class)->enforce($org, false, fn (string $line) => $this->line($line));
 
         return self::SUCCESS;
     }

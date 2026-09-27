@@ -6,7 +6,9 @@ namespace App\Modules\Edge\Livewire\Concerns;
 
 use App\Enums\QuotaSurface;
 use App\Models\EdgeSiteEnvVar;
+use App\Models\Organization;
 use App\Models\Site;
+use App\Modules\Billing\Services\PlanCheckout;
 use App\Modules\Edge\Actions\CreateEdgeSite;
 use App\Modules\Edge\Actions\RedeployEdgeSite;
 use App\Modules\Edge\Support\EdgeEligibility;
@@ -58,6 +60,52 @@ trait ManagesEdgeDeploy
         $this->launchedDeploymentId = (string) $deployment->id;
     }
 
+    /**
+     * No plan yet: straight to Stripe Checkout (the trial when eligible),
+     * coming back to this form with the draft in the query (applyQueryPrefills)
+     * to press Deploy again. Only an org's billing managers can pay; anyone
+     * else, or a checkout that cannot start, gets the message instead.
+     */
+    private function checkoutForDraft(Organization $org): void
+    {
+        $days = (int) config('subscription.standard.trial.days', 5);
+        $message = $org->eligibleForTrial()
+            ? __('Start your :days-day trial on the billing page to deploy.', ['days' => $days])
+            : __('This organization has no plan. Choose one on the billing page to deploy.');
+        if (! (auth()->user()?->can('update', $org) ?? false)) {
+            $this->toastError($message);
+
+            return;
+        }
+
+        $draft = array_filter([
+            'repo' => $this->repo,
+            'branch' => $this->branch,
+            'name' => $this->form->name,
+            'runtime_mode' => $this->form->runtime_mode,
+            'build_command' => $this->form->build_command,
+            'output_dir' => $this->form->output_dir,
+        ], static fn ($value): bool => is_string($value) && $value !== '');
+        try {
+            $url = app(PlanCheckout::class)->url(
+                $org,
+                'pro',
+                route('edge.create', $draft + ['checkout' => 'success']),
+                route('edge.create', $draft + ['checkout' => 'cancelled']),
+            );
+        } catch (\Throwable $e) {
+            report($e);
+            $url = null;
+        }
+        if ($url === null) {
+            $this->toastError($message);
+
+            return;
+        }
+
+        $this->redirect($url, navigate: false);
+    }
+
     public function deploy(): void
     {
         $org = auth()->user()?->currentOrganization();
@@ -70,9 +118,7 @@ trait ManagesEdgeDeploy
         $this->validateCreateForm();
 
         if (! $org->hasPlan()) {
-            $this->toastError($org->eligibleForTrial()
-                ? __('Start your :days-day trial on the billing page to deploy.', ['days' => (int) config('subscription.standard.trial.days', 5)])
-                : __('This organization has no plan. Choose one on the billing page to deploy.'));
+            $this->checkoutForDraft($org);
 
             return;
         }
@@ -166,7 +212,7 @@ trait ManagesEdgeDeploy
         $this->redirect(route('sites.show', [
             'server' => $site->server,
             'site' => $site,
-            'section' => 'resources',
+            'section' => 'general',
         ]), navigate: true);
     }
 

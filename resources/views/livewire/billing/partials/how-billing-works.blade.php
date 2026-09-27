@@ -14,7 +14,7 @@
         <dl class="space-y-2.5 text-sm">
             <div>
                 <dt class="font-semibold text-brand-ink">{{ __('A monthly plan') }}</dt>
-                <dd class="mt-1 text-brand-moss">{{ __('Free, Pro or Team. Each plan includes sites, seats, build minutes, requests and egress for the month. Preview deployments don’t take a site slot, but their builds, traffic and compute count toward your usage.') }}</dd>
+                <dd class="mt-1 text-brand-moss">{{ __('Pro or Team, starting with a :days-day Pro trial (card required). Each plan includes sites, seats, build minutes, requests and egress for the month. Preview deployments don’t take a site slot, but their builds, traffic and compute count toward your usage.', ['days' => (int) config('subscription.standard.trial.days', 5)]) }}</dd>
             </div>
             <div>
                 <dt class="font-semibold text-brand-ink">{{ __('Extra sites and SSR') }}</dt>
@@ -22,7 +22,7 @@
             </div>
             <div>
                 <dt class="font-semibold text-brand-ink">{{ __('Usage over the allowance') }}</dt>
-                <dd class="mt-1 text-brand-moss">{{ __('Requests, egress, storage and build minutes beyond your plan are metered and added to your monthly invoice. On Free, builds pause when the month’s minutes run out.') }}</dd>
+                <dd class="mt-1 text-brand-moss">{{ __('Requests, egress, storage and build minutes beyond your plan are metered and added to your monthly invoice. During the trial nothing is charged yet, so usage is capped at $:limit: past it, sites pause until the trial ends or you end it early.', ['limit' => number_format(((int) config('subscription.standard.trial.spending_limit_cents', 500)) / 100, 0)]) }}</dd>
             </div>
             <div>
                 <dt class="font-semibold text-brand-ink">

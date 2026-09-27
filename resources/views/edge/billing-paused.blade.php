@@ -17,7 +17,7 @@
 <body>
 <main>
   <h1>This site is paused</h1>
-  <p>Its owner's plan has ended. If this is your site, sign in to dply and choose a plan to bring it back.</p>
+  <p>Its owner's plan has ended or reached its trial limit. If this is your site, sign in to dply and choose a plan to bring it back.</p>
 </main>
 </body>
 </html>

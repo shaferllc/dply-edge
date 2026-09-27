@@ -5,10 +5,17 @@ declare(strict_types=1);
 namespace App\Modules\Billing\Services;
 
 use App\Models\EdgeDeployment;
+use App\Models\EdgeSiteEnvVar;
 use App\Models\Organization;
 use App\Models\Site;
+use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Edge\Services\EdgeHostMapPublisher;
+use App\Modules\Edge\Support\EdgeContainerConnections;
+use App\Modules\Edge\Support\EdgeDplyDatabase;
 use App\Modules\Edge\Support\EdgeQueueWorkers;
+use App\Modules\Edge\Support\EdgeValkey;
+use App\Modules\Notifications\Services\NotificationPublisher;
+use App\Modules\Providers\Valkey\ValkeyGatewayClient;
 use App\Notifications\OrganizationBillingNotice;
 use Closure;
 use Illuminate\Support\Carbon;
@@ -20,9 +27,14 @@ use Throwable;
  * The trial lifecycle for one org (ruling r-f17p5zgeh120cm5t). Run hourly by
  * dply:billing:enforce and after every billing webhook (SyncOrganizationBillingJob):
  *
- *   on a trial      email "started" once, "ending" about a day before
+ *   on a trial      email "started" once, "ending_soon" 3 days before,
+ *                   "ending" about a day before
+ *   trial past cap  usage passed the trial's spending cap (StarterUsageBudget):
+ *                   pause as below until the trial converts; the
+ *                   edge.usage.over_budget notification goes out
  *   no plan         pause: queue workers stop, sites serve a paused page,
- *                   container traffic is gated; email "paused"
+ *                   container traffic is gated, dply Valkey and database
+ *                   tenants are put to sleep; email "paused"
  *   plan again      resume everything the pause stopped
  *   paused 7 days   delete the data (OrganizationDataPurger), only when
  *                   subscription.standard.trial.purge_enabled is on; the
@@ -33,6 +45,9 @@ use Throwable;
  */
 final class OrganizationBillingEnforcer
 {
+    /** Idle seconds before a paused org's Valkey or database sleeps again. */
+    private const PAUSED_SLEEP = 60;
+
     /** @var Closure(string): void */
     private Closure $say;
 
@@ -40,6 +55,7 @@ final class OrganizationBillingEnforcer
         private OrganizationDataPurger $purger,
         private StarterTrafficGate $gate,
         private EdgeHostMapPublisher $hostMap,
+        private StarterUsageBudget $budget,
     ) {
         $this->say = static function (string $line): void {};
     }
@@ -53,12 +69,16 @@ final class OrganizationBillingEnforcer
 
     private function run(Organization $org, bool $dry): void
     {
+        $capped = false;
         if ($org->onTrialPlan()) {
             $ends = $org->planTrialEndsAt();
             $this->notice($org, 'trial_started', $dry, $ends);
             if ($ends !== null && $ends->lte(now()->addDay())) {
                 $this->notice($org, 'trial_ending', $dry, $ends);
+            } elseif ($ends !== null && $ends->lte(now()->addDays(3))) {
+                $this->notice($org, 'trial_ending_soon', $dry, $ends);
             }
+            $capped = $this->budget->status($org)['exhausted'];
         }
 
         // A new org that has not started its trial yet: nothing to pause.
@@ -66,29 +86,46 @@ final class OrganizationBillingEnforcer
             return;
         }
 
-        if ($org->hasPlan()) {
+        if ($org->hasPlan() && ! $capped) {
             if ($org->billing_paused_at !== null) {
                 ($this->say)($org->name.': resume');
                 if (! $dry) {
-                    $org->forceFill(['billing_paused_at' => null, 'billing_notices' => array_diff_key((array) $org->billing_notices, array_flip(['paused', 'deleting']))])->save();
+                    $org->forceFill(['billing_paused_at' => null, 'billing_notices' => array_diff_key((array) $org->billing_notices, array_flip(['paused', 'deleting', 'capped']))])->save();
                     $this->republish($org);
                     $this->gate->syncOrganization($org);
                     $this->workers($org, false);
+                    $this->dataStores($org, false);
                 }
             }
 
             return;
         }
 
-        if ($org->billing_paused_at === null) {
+        if ($capped) {
+            if ($org->billing_paused_at === null) {
+                ($this->say)($org->name.': pause (trial spending cap)');
+                if (! $dry) {
+                    $this->pause($org);
+                    $org->forceFill(['billing_notices' => ['capped' => now()->toIso8601String()] + (array) $org->billing_notices])->save();
+                    $this->overBudget($org);
+                }
+            }
+
+            return;
+        }
+
+        // Paused over the cap, now without a plan: the "paused" email and the
+        // keep period start here.
+        $notices = (array) $org->billing_notices;
+        if ($org->billing_paused_at === null || (isset($notices['capped']) && ! isset($notices['paused']))) {
             ($this->say)($org->name.': pause');
             if (! $dry) {
-                // Workers first: their pause call goes through the site's URL,
-                // which the paused page blocks once it is published.
-                $this->workers($org, true);
-                $org->forceFill(['billing_paused_at' => now()])->save();
-                $this->republish($org);
-                $this->gate->syncOrganization($org);
+                if ($org->billing_paused_at === null) {
+                    $this->pause($org);
+                } else {
+                    $org->forceFill(['billing_paused_at' => now()])->save();
+                    $this->republish($org);
+                }
                 $this->notice($org, 'paused', false);
             }
 
@@ -143,6 +180,108 @@ final class OrganizationBillingEnforcer
             Notification::send($owners, new OrganizationBillingNotice($org, $kind, $date));
         }
         $org->forceFill(['billing_notices' => [$kind => now()->toIso8601String()] + $sent])->save();
+    }
+
+    private function pause(Organization $org): void
+    {
+        // Workers first: their pause call goes through the site's URL,
+        // which the paused page blocks once it is published.
+        $this->workers($org, true);
+        $org->forceFill(['billing_paused_at' => now()])->save();
+        $this->republish($org);
+        $this->gate->syncOrganization($org);
+        $this->dataStores($org, true);
+    }
+
+    /** The same notification a build past the cap sends (BuildEdgeSiteJob), once a month. */
+    private function overBudget(Organization $org): void
+    {
+        $site = Site::query()->where('organization_id', $org->id)->whereNotNull('edge_backend')->first();
+        if ($site === null || ! Cache::add('starter-spend:'.$org->id.':'.now()->format('Y-m').':over', true, now()->endOfMonth())) {
+            return;
+        }
+        $limit = number_format(((int) config('subscription.standard.trial.spending_limit_cents')) / 100, 0);
+        try {
+            app(NotificationPublisher::class)->publish(
+                eventKey: 'edge.usage.over_budget',
+                subject: $site,
+                title: __('Usage credit used up'),
+                body: __('The trial’s $:limit usage credit is used up, so your sites are paused until the trial ends. End it early on the billing page to continue now.', ['limit' => $limit]),
+                url: route('billing.show', ['organization' => $org->id]),
+            );
+        } catch (Throwable $e) {
+            report($e);
+        }
+    }
+
+    /**
+     * dply Valkey and database tenants keep costing while awake, and a
+     * "stays on" one never sleeps. Paused: each sleeps now and a minute after
+     * any wake. Resumed: the owner's settings, still on the site's meta
+     * (meta.edge.valkey_sleep, meta.edge.database.suspend), go back.
+     * Without the password (from the app's env) only the sleep call is made:
+     * a PUT with a wrong one would change it.
+     */
+    private function dataStores(Organization $org, bool $pause): void
+    {
+        if (! ValkeyGatewayClient::configured()) {
+            return;
+        }
+        foreach (Site::query()->where('organization_id', $org->id)->whereNotNull('edge_backend')->get() as $site) {
+            $env = fn (string $key): string => (string) ($site->edgeEnvVars()->where('scope', EdgeSiteEnvVar::SCOPE_PRODUCTION)->where('key', $key)->first()?->value ?? '');
+            $database = $site->edgeMeta()['database'] ?? null;
+            if (is_array($database) && EdgeAppDatabase::isDply($database) && (string) ($database['remote_id'] ?? '') !== '') {
+                $id = (string) $database['remote_id'];
+                $engine = (string) ($database['engine'] ?? 'postgres');
+                $region = EdgeDplyDatabase::regionOf($database);
+                $password = $engine === 'mongodb' ? rawurldecode((string) (parse_url($env('MONGODB_URI'), PHP_URL_PASS) ?? '')) : $env('DB_PASSWORD');
+                $this->attempt(function () use ($id, $engine, $region, $password, $database, $pause): void {
+                    if ($password !== '' && ($pause || isset($database['suspend']))) {
+                        EdgeDplyDatabase::update($id, $password, (string) ($database['size'] ?? ''), $pause ? self::PAUSED_SLEEP : (int) $database['suspend'], (int) ($database['disk_gb'] ?? 0), $engine, $region);
+                    }
+                    if ($pause) {
+                        ValkeyGatewayClient::fromConfig($region)->sleep($id);
+                    }
+                });
+            }
+
+            $sleeps = (array) ($site->edgeMeta()['valkey_sleep'] ?? []);
+            foreach (EdgeContainerConnections::for($site) as $connection) {
+                if ($connection['kind'] !== 'redis' || ! EdgeValkey::isTarget($connection['target'])) {
+                    continue;
+                }
+                $target = $connection['target'];
+                $id = EdgeValkey::tenantId($target);
+                $class = $connection['plan'] !== '' ? $connection['plan'] : EdgeValkey::DEFAULT_CLASS;
+                $url = $env('REDIS_URL');
+                $password = rawurldecode((string) (parse_url($url, PHP_URL_PASS) ?? ''));
+                $this->attempt(function () use ($target, $id, $class, $url, $password, $sleeps, $pause): void {
+                    $client = ValkeyGatewayClient::fromConfig(EdgeValkey::region($target));
+                    if ($password === '') {
+                        $pause && $client->sleep($id);
+
+                        return;
+                    }
+                    if (! $pause) {
+                        EdgeValkey::update($target, $url, $class, (int) ($sleeps[$target] ?? $sleeps[$id] ?? EdgeValkey::DEFAULT_SLEEP));
+
+                        return;
+                    }
+                    $spec = EdgeValkey::CLASSES[$class];
+                    $client->put($id, $password, $spec['memory_mb'], self::PAUSED_SLEEP, ! $spec['sleeps']);
+                    $client->sleep($id);
+                });
+            }
+        }
+    }
+
+    private function attempt(Closure $run): void
+    {
+        try {
+            $run();
+        } catch (Throwable $e) {
+            report($e); // unreachable gateway: the next pause/resume run does not retry, the paused page and gate still hold
+        }
     }
 
     /** Publish each live site again so the paused page goes up or comes down. */

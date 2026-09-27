@@ -6,6 +6,7 @@ namespace App\Modules\Edge\Support;
 
 use App\Models\EdgeDeployment;
 use App\Models\Organization;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -15,13 +16,27 @@ use Illuminate\Support\Facades\DB;
  */
 final class EdgeBuildMinutes
 {
-    public static function usedThisMonth(Organization|string $organization): int
+    /** $since overrides the start of the month (a trial counts from its first day). */
+    public static function usedThisMonth(Organization|string $organization, ?CarbonInterface $since = null): int
     {
         $organizationId = $organization instanceof Organization ? (string) $organization->id : $organization;
 
         return (int) EdgeDeployment::query()
             ->where('organization_id', $organizationId)
-            ->where('created_at', '>=', now()->startOfMonth())
+            ->where('created_at', '>=', $since ?? now()->startOfMonth())
+            ->whereNotNull('build_seconds')
+            ->sum(DB::raw('CEIL(build_seconds / 60.0)'));
+    }
+
+    /** Build minutes on the days $from..$to (inclusive) — a billing period. */
+    public static function usedBetween(Organization|string $organization, CarbonInterface $from, CarbonInterface $to): int
+    {
+        $organizationId = $organization instanceof Organization ? (string) $organization->id : $organization;
+
+        return (int) EdgeDeployment::query()
+            ->where('organization_id', $organizationId)
+            ->where('created_at', '>=', $from->copy()->startOfDay())
+            ->where('created_at', '<=', $to->copy()->endOfDay())
             ->whereNotNull('build_seconds')
             ->sum(DB::raw('CEIL(build_seconds / 60.0)'));
     }

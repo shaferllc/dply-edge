@@ -79,6 +79,27 @@ class EdgeOrganizationUsageReader
     }
 
     /**
+     * "This period" for billing: the subscription's current Stripe period
+     * (start day → today), so what the billing page shows is what the next
+     * invoice charges. Calendar month when there is no subscription or its
+     * period is not known yet (card-less trial, comped, no plan).
+     *
+     * @return array{0: Carbon, 1: Carbon}
+     */
+    public function currentWindow(Organization $organization): array
+    {
+        $subscription = $organization->subscription('default');
+        $start = $subscription?->valid() ? $subscription->getAttribute('current_period_start') : null;
+        $end = $subscription?->getAttribute('current_period_end');
+        // Unknown, or stale (a renewal webhook was missed): calendar month.
+        if (! $start instanceof CarbonInterface || $start->isFuture() || ! $end instanceof CarbonInterface || $end->isPast()) {
+            return $this->currentMonthWindow();
+        }
+
+        return [Carbon::instance($start)->startOfDay(), now()->endOfDay()];
+    }
+
+    /**
      * @return array{0: Carbon, 1: Carbon}
      */
     public function currentMonthWindow(): array

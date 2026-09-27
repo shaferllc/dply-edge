@@ -156,7 +156,7 @@ class EdgeValkeyUsageCollector
                 subject: $site,
                 title: $title,
                 body: $body,
-                url: route('sites.show', ['server' => $site->server_id, 'site' => $site->id, 'section' => 'resources']),
+                url: route('sites.show', ['server' => $site->server_id, 'site' => $site->id, 'section' => 'general']),
             );
 
             return true;

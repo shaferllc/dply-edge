@@ -23,6 +23,12 @@ class Subscription extends CashierSubscription
 {
     use HasUlids;
 
+    /** Stripe's current billing period, kept by UsageInvoicer::rememberPeriod. */
+    protected function casts(): array
+    {
+        return parent::casts() + ['current_period_start' => 'datetime', 'current_period_end' => 'datetime'];
+    }
+
     protected static function newFactory(): SubscriptionFactory
     {
         return SubscriptionFactory::new();

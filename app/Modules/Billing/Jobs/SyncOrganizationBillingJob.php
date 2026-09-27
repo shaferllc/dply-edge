@@ -8,6 +8,7 @@ use App\Modules\Billing\Services\BillingSubscriptionSyncEventRecorder;
 use App\Modules\Billing\Services\OrganizationBillingEnforcer;
 use App\Modules\Billing\Services\OrganizationBillingStateComputer;
 use App\Modules\Billing\Services\StripeSubscriptionSyncer;
+use App\Modules\Billing\Services\UsageAlerts;
 use App\Modules\Edge\Services\EdgeQueueConsumers;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -63,6 +64,7 @@ class SyncOrganizationBillingJob implements ShouldBeUnique, ShouldQueue
         }
 
         $desired = $computer->compute($organization);
+        app(UsageAlerts::class)->check($organization, $desired);
 
         try {
             $changes = $syncer->reconcile($organization, $desired);

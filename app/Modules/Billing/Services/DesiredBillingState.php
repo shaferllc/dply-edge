@@ -16,7 +16,7 @@ namespace App\Modules\Billing\Services;
  *   tier's compute credit.
  * - **Databases & queues** — D1 rows / storage and Queues operations.
  * - **Usage** — delivery, build minutes, container compute, D1 and Queues,
- *   billed together as cents.
+ *   billed in arrears for each closed Stripe period (UsageInvoicer).
  *
  * Always pre-tax; expressed in cents and plain counts so it survives JSON
  * round-trips through queue payloads.
@@ -133,10 +133,37 @@ class DesiredBillingState
         return max(0, $this->edgeCount - $this->edgeSsrCount);
     }
 
-    /** Stripe `edge_usage` quantity: delivery, build-minute and container compute, in cents. */
+    /** All usage over the allowances, in cents — billed in arrears by UsageInvoicer. */
     public function usageLineCents(): int
     {
-        return $this->edgeUsageSubtotalCents + $this->buildMinuteOverageCents + $this->containerComputeCents + $this->dataUsageCents;
+        return array_sum($this->usageLines());
+    }
+
+    /**
+     * The invoice's usage lines, key => cents, zero lines dropped.
+     *
+     * @return array<string, int>
+     */
+    public function usageLines(): array
+    {
+        return array_filter([
+            'delivery' => $this->edgeUsageSubtotalCents,
+            'builds' => $this->buildMinuteOverageCents,
+            'compute' => $this->containerComputeCents,
+            'data' => $this->dataUsageCents,
+        ]);
+    }
+
+    /** Invoice wording for a {@see usageLines()} key. */
+    public static function usageLineLabel(string $key): string
+    {
+        return match ($key) {
+            'delivery' => 'Edge delivery usage (requests, egress, storage)',
+            'builds' => 'Build minutes over the plan',
+            'compute' => 'Container compute',
+            'data' => 'Databases, queues, KV and realtime usage',
+            default => 'Usage',
+        };
     }
 
     /**

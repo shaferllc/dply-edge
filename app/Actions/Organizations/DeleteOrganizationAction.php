@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Actions\Organizations;
 
+use App\Models\EdgeRealtimeApp;
 use App\Models\Organization;
 use App\Models\User;
+use App\Modules\Edge\Services\Realtime\EdgeRealtimeApps;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -28,6 +30,20 @@ class DeleteOrganizationAction
     public function handle(Organization $organization, User $actor): void
     {
         $this->guard($organization, $actor);
+
+        // Realtime apps cascade with the org, but their relay KV records would
+        // stay live: remove them first, outside the transaction (remote calls).
+        foreach (EdgeRealtimeApp::query()->where('organization_id', $organization->id)->get() as $app) {
+            try {
+                app(EdgeRealtimeApps::class)->destroy($app);
+            } catch (\Throwable $e) {
+                report($e);
+
+                throw ValidationException::withMessages([
+                    'delete_confirm' => __('A Realtime app could not be removed. Try again in a moment.'),
+                ]);
+            }
+        }
 
         DB::transaction(function () use ($organization): void {
             // Detach memberships first (pivot has no org cascade).

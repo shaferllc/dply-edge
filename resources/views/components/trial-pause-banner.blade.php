@@ -34,6 +34,13 @@
                 'body' => __('Try Pro free for :days days. A card is needed; you’re billed on day :next unless you cancel.', ['days' => $days, 'next' => $days + 1]),
                 'action' => __('Start trial'),
             ];
+        } elseif ($organization->onTrialPlan() && $organization->billing_paused_at !== null) {
+            $banner = [
+                'tone' => 'danger',
+                'title' => __('Your sites are paused.'),
+                'body' => __('The trial’s $:limit usage credit is used up. End the trial early on the billing page to start your plan and bring them back.', ['limit' => number_format(((int) config('subscription.standard.trial.spending_limit_cents')) / 100, 0)]),
+                'action' => __('Billing'),
+            ];
         } elseif ($organization->onTrialPlan()) {
             $ends = $organization->planTrialEndsAt();
             $carded = $organization->subscription('default')?->onTrial() ?? false;

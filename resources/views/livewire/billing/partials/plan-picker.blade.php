@@ -49,7 +49,7 @@
                     </li>
                     <li>{{ __(':minutes build minutes · :concurrent concurrent · :timeout-min timeout', ['minutes' => $num($tier['build_minutes']), 'concurrent' => $tier['concurrent_builds'], 'timeout' => $tier['build_timeout_minutes']]) }}</li>
                     <li>{{ __(':requests requests · :egress GB egress', ['requests' => $tier['requests'] !== null && $tier['requests'] >= 1_000_000 ? ($tier['requests'] / 1_000_000).'M' : $num($tier['requests']), 'egress' => $tier['egress_gb'] === null ? __('Unlimited') : $num($tier['egress_gb'])]) }}</li>
-                    <li>{{ __(':n custom domains · :queues managed queues', ['n' => $num($tier['custom_domains_per_site']), 'queues' => $num($tier['queues'] ?? null)]) }}</li>
+                    <li>{{ __(':n custom domains · :queues managed queues', ['n' => $num($tier['custom_domains'] ?? $tier['custom_domains_per_site']), 'queues' => $num($tier['queues'] ?? null)]) }}</li>
                     @if (($tier['spending_limit_cents'] ?? null) !== null)
                         <li>{{ __('$ :amount usage credit, then apps pause', ['amount' => number_format(((int) $tier['spending_limit_cents']) / 100, 0)]) }}</li>
                     @endif

@@ -9,8 +9,9 @@ use RuntimeException;
 
 /**
  * Builds the Stripe line items for a plan tier (tier fee, extra sites, SSR
- * sites, extra seats, load balancer endpoints, usage) and provisions a fresh
- * subscription from them. Tiers are monthly only.
+ * sites, extra seats, load balancer endpoints) and provisions a fresh
+ * subscription from them. Tiers are monthly only. Usage is not a line: it is
+ * invoiced in arrears (UsageInvoicer).
  */
 class StandardSubscriptionCreator
 {
@@ -45,7 +46,6 @@ class StandardSubscriptionCreator
             'edge_ssr' => $desired->edgeSsrCount,
             'team_seat' => $desired->extraSeatCount,
             'edge_lb_endpoint' => $desired->edgeLbEndpointCount,
-            'edge_usage' => $desired->usageLineCents(),
         ] as $product => $quantity) {
             $priceId = (string) (config('subscription.standard.stripe.'.$product) ?? '');
             if ($quantity > 0 && $priceId !== '') {
