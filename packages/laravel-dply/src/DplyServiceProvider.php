@@ -6,6 +6,7 @@ namespace Dply\Laravel;
 
 use Illuminate\Cache\CacheManager;
 use Illuminate\Filesystem\FilesystemAdapter;
+use Illuminate\Http\Request;
 use Illuminate\Queue\QueueManager;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
@@ -115,6 +116,15 @@ class DplyServiceProvider extends ServiceProvider
     {
         if ($this->app->runningInConsole()) {
             $this->commands([ProbeCommand::class]);
+        }
+
+        // On dply the app's Worker is the only thing that reaches the
+        // container, over plain HTTP. Trust it (as Laravel Cloud does) so
+        // links and assets use the visitor's https host: the custom domain
+        // or the dply hostname, whichever the request came in on. An app's
+        // own TrustProxies config, when set, still wins.
+        if (getenv('DPLY_QUEUE_TOKEN') !== false) {
+            Request::setTrustedProxies(['REMOTE_ADDR'], Request::HEADER_X_FORWARDED_FOR | Request::HEADER_X_FORWARDED_HOST | Request::HEADER_X_FORWARDED_PORT | Request::HEADER_X_FORWARDED_PROTO);
         }
 
         /** @var QueueManager $manager */

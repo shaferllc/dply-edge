@@ -46,7 +46,7 @@ test('laravel gets a stable app key and production defaults, without overriding 
     expect($first['APP_KEY'])->toStartWith('base64:')
         ->and($first['APP_DEBUG'])->toBe('true')
         ->and($first['APP_URL'])->toBe('https://shop.on-dply.live')
-        ->and($first['ASSET_URL'])->toBe('https://shop.on-dply.live')
+        ->and($first)->not->toHaveKey('ASSET_URL') // assets come from the request host (trusted Worker proxy)
         ->and($first['SESSION_DRIVER'])->toBe('cookie')
         ->and($first['DB_CONNECTION'])->toBe('sqlite')
         ->and($first['DB_DATABASE'])->toBe('/tmp/database.sqlite')

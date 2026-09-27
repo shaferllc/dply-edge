@@ -29,10 +29,6 @@ final class EdgeContainerEnvDefaults
                 'APP_ENV' => 'production',
                 'APP_URL' => (string) ($site->edgeLiveUrl() ?? ''),
                 ...self::sqliteDefaults($site, $env),
-                // Vite reads asset_url. Without it, Laravel builds stylesheet
-                // links from the container's plain-HTTP request and the
-                // browser drops them as mixed content.
-                'ASSET_URL' => (string) ($site->edgeLiveUrl() ?? ''),
                 'LOG_CHANNEL' => 'stderr',
                 // No shared disk between containers: keep sessions in cookies.
                 'SESSION_DRIVER' => 'cookie',
