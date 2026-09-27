@@ -361,12 +361,105 @@ export function buildObjectKey(storagePrefix: string, path: string): string {
   return `${prefix}${path}`.replace(/\/{2,}/g, '/');
 }
 
+/**
+ * An R2 object as a Response: its http metadata, its raw etag in `ETag`, and
+ * status 304 (no body) when `knownEtag` is still the object's etag. With
+ * `coloCache`, the colo's Cache API sits in front of R2, keyed on the
+ * object key.
+ */
+async function readArtifact(
+  env: Env,
+  ctx: ExecutionContext | undefined,
+  key: string,
+  knownEtag: string | null,
+  coloCache: boolean,
+): Promise<Response | null> {
+  const cache = coloCache && typeof caches !== 'undefined' ? caches.default : null;
+  const cacheKey = `https://edge-artifact.dply.internal/${key.split('/').map(encodeURIComponent).join('/')}`;
+
+  if (cache) {
+    const hit = await cache.match(cacheKey).catch(() => undefined);
+    if (hit) {
+      const headers = new Headers(hit.headers);
+      for (const name of ['Cache-Control', 'Age', 'Expires', 'CF-Cache-Status']) headers.delete(name);
+      if (knownEtag !== null && headers.get('ETag') === knownEtag) {
+        void hit.body?.cancel();
+
+        return new Response(null, { status: 304, headers });
+      }
+
+      return new Response(hit.body, { headers });
+    }
+  }
+
+  const object = await env.ARTIFACTS.get(key, knownEtag !== null ? { onlyIf: { etagDoesNotMatch: knownEtag } } : undefined);
+  if (!object) return null;
+
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  if (object.etag) headers.set('ETag', object.etag);
+
+  // R2 answers a failed precondition with the object minus its body.
+  if (!('body' in object) || !object.body) {
+    return new Response(null, { status: 304, headers });
+  }
+  if (!cache) {
+    return new Response(object.body, { headers });
+  }
+
+  const [forClient, forCache] = object.body.tee();
+  const stored = new Headers(headers);
+  stored.set('Cache-Control', 'public, max-age=31536000');
+  const put = cache.put(cacheKey, new Response(forCache, { headers: stored })).catch(() => undefined);
+  ctx?.waitUntil(put);
+
+  return new Response(forClient, { headers });
+}
+
+/** FNV-1a of the host entry: changes whenever what we inject into HTML could. */
+function hostEntryDigest(hostEntry: HostMapEntry, hasIngest: boolean): string {
+  const text = JSON.stringify(hostEntry) + (hasIngest ? '1' : '0');
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193);
+  }
+
+  return (hash >>> 0).toString(36);
+}
+
+/** The R2 etag inside the visitor's `If-None-Match`, when it was minted for this host entry. */
+function clientObjectEtag(request: Request, tag: string): string | null {
+  const header = request.headers.get('If-None-Match');
+  if (!header) return null;
+
+  const suffix = `-${tag}"`;
+  for (const part of header.split(',')) {
+    const value = part.trim().replace(/^W\//, '');
+    if (value.startsWith('"') && value.endsWith(suffix) && value.length > suffix.length + 1) {
+      return value.slice(1, -suffix.length);
+    }
+  }
+
+  return null;
+}
+
 export function isImmutableAsset(path: string): boolean {
   if (path === 'index.html' || path.endsWith('/index.html')) {
     return false;
   }
 
-  return /\.[a-f0-9]{8,}\.[a-z0-9]+$/i.test(path);
+  if (/\.[a-f0-9]{8,}\.[a-z0-9]+$/i.test(path)) return true;
+  // Framework build dirs whose every file is content-addressed.
+  if (/(^|\/)(_next\/static|_astro|_app\/immutable)\//.test(path)) return true;
+
+  // Vite / Rollup / esbuild: `index-BXa3Kq9z.js` (8 base64url chars) or a
+  // longer hex hash. A word like `-Homepage` or `-bootstrap` must not pass:
+  // the hash needs a digit, or an uppercase letter past its first char.
+  const match = /[-.]([a-f0-9]{8,}|[A-Za-z0-9_-]{8})\.(?:m?js|css|woff2?|png|jpe?g|webp|avif|svg|gif|ico|wasm|map)$/.exec(path);
+  if (!match) return false;
+  const hash = match[1];
+
+  return /\d/.test(hash) || (/[A-Z]/.test(hash.slice(1)) && /[a-z]/.test(hash));
 }
 
 export function cacheControlForPath(path: string): string {
@@ -581,28 +674,37 @@ async function handleRequestInner(
   // Container sites (PHP / Rails) dispatch the same way: the per-site script
   // in the namespace fronts the app container.
   if (hostEntry.runtime_mode === 'ssr' || hostEntry.runtime_mode === 'container') {
-    if (hostEntry.runtime_mode === 'container') {
-      const paused = await env.HOST_MAP.get(`container-pause:${hostEntry.site_id}`);
-      if (paused === '1') {
-        const pausedResponse = new Response('This app is paused. The workspace usage credit is used up.', {
-          status: 503,
-          headers: { 'content-type': 'text/plain; charset=utf-8', 'retry-after': '3600' },
-        });
-        recordRequest(ctx, env, request, pausedResponse, hostEntry, url, requestPath, started, 'container');
+    // Both are KV reads and independent, so neither waits on the other. KV
+    // already serves hot keys from the colo for 60s (its default cacheTtl),
+    // which is also how long a pause/resume or deploy switch can lag.
+    const [paused, cached] = await Promise.all([
+      hostEntry.runtime_mode === 'container' ? env.HOST_MAP.get(`container-pause:${hostEntry.site_id}`) : null,
+      cacheMode(hostEntry) !== 'off' ? readEdgeCache(env, hostEntry, request) : null,
+    ]);
+    if (paused === '1') {
+      const pausedResponse = new Response('This app is paused. The workspace usage credit is used up.', {
+        status: 503,
+        headers: { 'content-type': 'text/plain; charset=utf-8', 'retry-after': '3600' },
+      });
+      recordRequest(ctx, env, request, pausedResponse, hostEntry, url, requestPath, started, 'container');
 
-        return pausedResponse;
-      }
+      return pausedResponse;
     }
-    if (cacheMode(hostEntry) !== 'off') {
-      const cached = await readEdgeCache(env, hostEntry, request);
-      if (cached && !cached.stale) {
-        recordRequest(ctx, env, request, cached.response, hostEntry, url, requestPath, started, 'cache-hit');
+    if (cached && !cached.stale) {
+      recordRequest(ctx, env, request, cached.response, hostEntry, url, requestPath, started, 'cache-hit');
 
-        return cached.response;
-      }
+      return cached.response;
     }
 
     const ssrResponse = await dispatchSsrRequest(request, env, hostEntry);
+    // An app serving its own WebSockets answers 101 with the socket. Every
+    // filter below would rebuild the Response, which cannot carry a 101 or
+    // the socket, so hand it back as-is.
+    if (isSocketResponse(ssrResponse)) {
+      recordRequest(ctx, env, request, ssrResponse, hostEntry, url, requestPath, started, hostEntry.runtime_mode);
+
+      return ssrResponse;
+    }
     const presented = presentAppServerError(ssrResponse, hostEntry);
     const stamped = stampVariantCookie(applyRepoHeaderRules(presented, requestPath, hostEntry));
     const withHtml = await maybeInjectEdgeHtml(stamped, hostEntry, env);
@@ -651,22 +753,33 @@ async function handleRequestInner(
     }
   }
 
+  const hasIngest = Boolean(env.EDGE_ANALYTICS && hostEntry.site_id);
+  // The client's ETag carries a digest of the host entry: injected HTML (RUM,
+  // tags, footer, …) changes with the entry while the R2 object does not.
+  const etagTag = hostEntryDigest(hostEntry, hasIngest);
+  const knownEtag = clientObjectEtag(request, etagTag);
+  // Non-HTML objects never change under a deploy's storage prefix (a new
+  // deploy gets a new prefix), so the colo cache needs no invalidation.
+  const coloCacheable = looksLikeAssetPath(requestPath);
+
   const objectKey = buildObjectKey(hostEntry.storage_prefix, requestPath);
-  let object = await env.ARTIFACTS.get(objectKey);
+  let object = await readArtifact(env, ctx, objectKey, knownEtag, coloCacheable);
 
   // Skew protection (P51). When the requested path looks like a
   // hashed asset (has an extension other than .html), fall back
   // through recent superseded deploys' R2 prefixes. Old tabs that
   // loaded HTML from a prior deploy stay functional because their
   // chunk URLs still resolve. Limited to non-HTML extensions so we
-  // never serve a stale page in place of a fresh one.
-  if (!object && hostEntry.recent_storage_prefixes?.length && looksLikeAssetPath(requestPath)) {
-    for (const prefix of hostEntry.recent_storage_prefixes) {
-      const fallback = await env.ARTIFACTS.get(buildObjectKey(prefix, requestPath));
-      if (fallback) {
-        object = fallback;
-        break;
-      }
+  // never serve a stale page in place of a fresh one. The prior deploys
+  // are read in parallel; the newest hit wins.
+  if (!object && hostEntry.recent_storage_prefixes?.length && coloCacheable) {
+    const fallbacks = await Promise.all(
+      hostEntry.recent_storage_prefixes.map((prefix) =>
+        readArtifact(env, ctx, buildObjectKey(prefix, requestPath), knownEtag, true)),
+    );
+    object = fallbacks.find((candidate) => candidate !== null) ?? null;
+    for (const unused of fallbacks) {
+      if (unused !== object) void unused?.body?.cancel();
     }
   }
 
@@ -713,7 +826,7 @@ async function handleRequestInner(
 
   if (!object && hostEntry.spa_fallback && requestPath !== 'index.html') {
     const fallbackKey = buildObjectKey(hostEntry.storage_prefix, 'index.html');
-    const fallbackObject = await env.ARTIFACTS.get(fallbackKey);
+    const fallbackObject = await readArtifact(env, ctx, fallbackKey, knownEtag, false);
     if (fallbackObject) {
       object = fallbackObject;
       requestPath = 'index.html';
@@ -727,8 +840,12 @@ async function handleRequestInner(
     return response;
   }
 
-  const headers = new Headers();
-  object.writeHttpMetadata(headers);
+  const headers = new Headers(object.headers);
+  const objectEtag = headers.get('ETag');
+  headers.delete('ETag');
+  if (objectEtag) {
+    headers.set('ETag', `W/"${objectEtag}-${etagTag}"`);
+  }
 
   if (!headers.has('Content-Type')) {
     const inferred = contentTypeForPath(requestPath);
@@ -749,7 +866,6 @@ async function handleRequestInner(
     headers.set(name, value);
   }
 
-  const hasIngest = Boolean(env.EDGE_ANALYTICS && hostEntry.site_id);
   const contentType = headers.get('Content-Type') ?? '';
   const isHtml = contentType.includes('text/html') || requestPath.endsWith('.html') || requestPath === 'index.html';
 
@@ -769,7 +885,10 @@ async function handleRequestInner(
     && hostEntry.deploy_footer === true
     && (hostEntry.deployment_id ?? '').trim() !== '';
 
-  if (isHtml && (shouldInjectRum(requestPath, hasIngest) || shouldInjectComments || hasHtmlAddons || shouldInjectDeployFooter)) {
+  if (object.status === 304) {
+    // The visitor's copy is current: no body, same headers.
+    response = new Response(null, { status: 304, headers });
+  } else if (isHtml && (shouldInjectComments || hasHtmlAddons)) {
     let html = await object.text();
     if (shouldInjectRum(requestPath, hasIngest)) {
       html = injectRumScript(html);
@@ -785,6 +904,13 @@ async function handleRequestInner(
     }
     headers.delete('Content-Length');
     response = new Response(html, { status: 200, headers });
+  } else if (isHtml && (shouldInjectRum(requestPath, hasIngest) || shouldInjectDeployFooter)) {
+    // The common case (RUM and/or footer only) streams.
+    response = await injectEdgeHtml(
+      new Response(object.body, { status: 200, headers }),
+      shouldInjectRum(requestPath, hasIngest),
+      shouldInjectDeployFooter ? hostEntry.deployment_id : '',
+    );
   } else {
     response = new Response(object.body, { status: 200, headers });
   }
@@ -886,6 +1012,8 @@ function applySplitTrafficVariant(
   const stampCookie = cookieName === '' || incomingVariant === variant
     ? noop
     : (response: Response): Response => {
+        // No cookie on a WebSocket 101: rebuilding it would drop the socket.
+        if (isSocketResponse(response)) return response;
         const headers = new Headers(response.headers);
         headers.append(
           'Set-Cookie',
@@ -1024,7 +1152,7 @@ function applyRepoHeaderRules(
   hostEntry: HostMapEntry,
 ): Response {
   const rules = hostEntry.repo_header_rules ?? [];
-  if (rules.length === 0) return response;
+  if (rules.length === 0 || isSocketResponse(response)) return response;
 
   const matched = rules.filter((rule) => matchRepoRule(requestPath, rule.for) !== null);
   if (matched.length === 0) return response;
@@ -1404,6 +1532,8 @@ async function readEdgeCache(
 ): Promise<CacheReadResult | null> {
   if (!env.EDGE_CACHE) return null;
   if (request.method.toUpperCase() !== 'GET') return null;
+  // An upgrade must reach the app: a cached 200 would answer the handshake.
+  if (isWebSocketUpgrade(request)) return null;
 
   const key = edgeCacheKey(hostEntry, request);
   const raw = await env.EDGE_CACHE.get(key, { type: 'json' });
@@ -1762,18 +1892,57 @@ async function maybeInjectEdgeHtml(response: Response, hostEntry: HostMapEntry, 
   const wantsRum = Boolean(env.EDGE_ANALYTICS && hostEntry.site_id);
   if (!wantsFooter && !wantsRum) return response;
 
-  let html = await response.text();
-  if (wantsRum) {
-    html = injectRumScript(html);
-  }
-  if (wantsFooter) {
-    html = injectDeployFooter(html, deploymentId);
-  }
+  return injectEdgeHtml(response, wantsRum, wantsFooter ? deploymentId : '');
+}
 
+/**
+ * Add the RUM script and/or deploy footer before `</body>` (appended at the
+ * end when there is none) while the HTML streams through. An SSR or
+ * container page reaches the visitor as the app flushes it.
+ */
+export async function injectEdgeHtml(response: Response, rum: boolean, footerDeploymentId: string): Promise<Response> {
   const headers = new Headers(response.headers);
   headers.delete('Content-Length');
+  const init = { status: response.status, statusText: response.statusText, headers };
 
-  return new Response(html, { status: response.status, statusText: response.statusText, headers });
+  // ponytail: buffered fallback exists only for Node unit tests; workerd always
+  // has HTMLRewriter (streaming path is covered by src/workerd.test.ts).
+  if (typeof HTMLRewriter === 'undefined') {
+    let html = await response.text();
+    if (rum) html = injectRumScript(html);
+    if (footerDeploymentId !== '') html = injectDeployFooter(html, footerDeploymentId);
+
+    return new Response(html, init);
+  }
+
+  let hasFooter = false;
+  let done = false;
+  const tags = (): string =>
+    (rum ? injectRumScript('') : '') + (footerDeploymentId !== '' && !hasFooter ? injectDeployFooter('', footerDeploymentId) : '');
+
+  return new HTMLRewriter()
+    .on('[data-dply-deploy]', {
+      element() {
+        hasFooter = true;
+      },
+    })
+    .on('body', {
+      element(body) {
+        body.onEndTag((end) => {
+          if (done) return;
+          done = true;
+          end.before(tags(), { html: true });
+        });
+      },
+    })
+    .onDocument({
+      end(end) {
+        if (done) return;
+        done = true;
+        end.append(tags(), { html: true });
+      },
+    })
+    .transform(new Response(response.body, init));
 }
 
 /**
@@ -1865,6 +2034,11 @@ form.onsubmit=function(e){
 };
 `;
 
+/** A WebSocket handshake answer: pass it through, never rebuild it. */
+function isSocketResponse(response: Response): boolean {
+  return response.status === 101 || Boolean(response.webSocket);
+}
+
 function isWebSocketUpgrade(request: Request): boolean {
   const upgrade = request.headers.get('Upgrade');
 
@@ -1914,12 +2088,10 @@ async function proxyWebSocket(
     });
   }
 
-  upstream.webSocket.accept();
-
-  return new Response(null, {
-    status: 101,
-    webSocket: upstream.webSocket,
-  });
+  // Return the upstream response itself. accept()ing the socket first and
+  // re-wrapping it gives the client a 101 on which no message ever flows
+  // (checked in workerd via Miniflare).
+  return upstream;
 }
 
 function notFound(message: string, hostEntry: HostMapEntry | undefined): Response {

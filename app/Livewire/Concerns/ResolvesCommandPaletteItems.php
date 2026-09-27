@@ -190,9 +190,12 @@ trait ResolvesCommandPaletteItems
             return $this->scopedSiteMemo[$key];
         }
 
-        $site = Site::query()
-            ->whereIn('server_id', $org->serverIds())
-            ->find($id);
+        // The page usually already bound and authorized this site; reuse it
+        // when it is the same row in the same organization.
+        $bound = request()->route('site');
+        $site = $bound instanceof Site && (string) $bound->getKey() === $id && $org->serverIds()->contains($bound->server_id)
+            ? $bound
+            : Site::query()->whereIn('server_id', $org->serverIds())->find($id);
 
         // Shared Server instance rather than a per-call eager load — see
         // ServerRegistry; the site page resolved this same row already.

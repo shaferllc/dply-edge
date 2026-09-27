@@ -5,20 +5,29 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use App\Enums\SiteType;
+use App\Livewire\Sites\Edge\ConsoleActionBanner;
 use App\Livewire\Sites\Edge\Workspace\Build;
+use App\Livewire\Sites\Edge\Workspace\Cache;
 use App\Livewire\Sites\Edge\Workspace\Delivery;
 use App\Livewire\Sites\Edge\Workspace\Deploys;
+use App\Livewire\Sites\Edge\Workspace\Overview;
 use App\Livewire\Sites\Edge\Workspace\OverviewObservability;
+use App\Livewire\Sites\Edge\Workspace\Traffic;
 use App\Livewire\Sites\EdgeSettings;
 use App\Models\AuditLog;
+use App\Models\ConsoleAction;
 use App\Models\EdgeDeployment;
 use App\Models\EdgeUsageSnapshot;
 use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
+use App\Modules\Billing\Services\EdgeSiteAccessAnalytics;
+use App\Modules\Edge\Livewire\BuildJourney;
+use App\Modules\Edge\Services\EdgeCachePurger;
 use App\Support\Sites\SiteWorkspaceBreadcrumbs;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
 
@@ -188,7 +197,12 @@ test('edge traffic section shows request and bandwidth stats', function () {
 
     Livewire::actingAs($user)
         ->test(EdgeSettings::class, ['server' => $server, 'site' => $site, 'section' => 'traffic'])
-        ->assertSee('Traffic & analytics')
+        ->assertSee('Traffic & analytics');
+
+    // The stats live in the lazily loaded Traffic child (wire:init).
+    Livewire::actingAs($user)
+        ->test(Traffic::class, ['server' => $server, 'site' => $site])
+        ->call('loadTraffic')
         ->assertSee('Requests MTD')
         ->assertSee('Requests 7d')
         ->assertSee('12,500')
@@ -416,15 +430,181 @@ function makeEdgeSiteForSettings(bool $withGithub = false, bool $hybrid = false)
 }
 
 test('the overview is the project url: links drop /general and old /general, /overview urls redirect there', function () {
-    $user = \App\Models\User::factory()->create();
-    $org = \App\Models\Organization::factory()->create();
+    $user = User::factory()->create();
+    $org = Organization::factory()->create();
     $org->users()->attach($user->id, ['role' => 'owner']);
-    $server = \App\Models\Server::factory()->create(['organization_id' => $org->id, 'user_id' => $user->id, 'meta' => ['host_kind' => \App\Models\Server::HOST_KIND_DPLY_EDGE]]);
-    $site = \App\Models\Site::factory()->create(['organization_id' => $org->id, 'server_id' => $server->id, 'user_id' => $user->id, 'edge_backend' => 'dply_edge', 'status' => \App\Models\Site::STATUS_EDGE_ACTIVE]);
+    $server = Server::factory()->create(['organization_id' => $org->id, 'user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]]);
+    $site = Site::factory()->create(['organization_id' => $org->id, 'server_id' => $server->id, 'user_id' => $user->id, 'edge_backend' => 'dply_edge', 'status' => Site::STATUS_EDGE_ACTIVE]);
 
     expect(route('sites.show', ['site' => $site, 'section' => 'general'], false))->toBe('/projects/'.$site->id)
         ->and(route('sites.show', ['site' => $site, 'section' => 'logs'], false))->toBe('/projects/'.$site->id.'/logs');
 
     $this->actingAs($user)->get('/projects/'.$site->id.'/general?tab=x')->assertRedirect('/projects/'.$site->id.'?tab=x')->assertStatus(301);
     $this->actingAs($user)->get('/projects/'.$site->id.'/overview')->assertRedirect('/projects/'.$site->id);
+});
+
+test('edge deploys keeps the 20-row limit across a poll re-render', function () {
+    // Livewire does not restore relations on hydrate; a mount()-time eager
+    // load vanished on each wire:poll and lazy-loaded every deployment.
+    [$user, $server, $site] = makeEdgeSiteForSettings();
+
+    foreach (range(1, 25) as $i) {
+        EdgeDeployment::query()->create([
+            'site_id' => $site->id,
+            'organization_id' => $site->organization_id,
+            'status' => EdgeDeployment::STATUS_SUPERSEDED,
+            'storage_prefix' => "edge/test/p{$i}",
+        ]);
+    }
+
+    $lw = Livewire::actingAs($user)
+        ->test(Deploys::class, ['server' => $server, 'site' => $site])
+        ->call('$refresh');
+
+    expect($lw->instance()->site->edgeDeployments)->toHaveCount(20);
+});
+
+test('edge cache tab lists KV once on init, not on every render', function () {
+    [$user, $server, $site] = makeEdgeSiteForSettings();
+
+    $purger = \Mockery::mock(EdgeCachePurger::class);
+    $purger->shouldReceive('listEntries')->once()
+        ->andReturn(['ok' => true, 'entries' => [['path' => '/about', 'expires_at' => null]], 'message' => '']);
+    app()->instance(EdgeCachePurger::class, $purger);
+
+    Livewire::actingAs($user)
+        ->test(Cache::class, ['server' => $server, 'site' => $site])
+        ->assertSee('Loading stored copies')
+        ->call('loadEntries')
+        ->assertSee('/about')
+        ->set('mode', 'standard')
+        ->call('saveOptions')
+        ->assertSee('/about');
+});
+
+test('edge traffic tab paints first, then loads access analytics once into the cache', function () {
+    [$user, $server, $site] = makeEdgeSiteForSettings();
+    $accessQueries = fn (): int => collect(DB::getQueryLog())
+        ->filter(fn (array $q): bool => str_contains($q['query'], 'edge_access_logs'))->count();
+
+    DB::enableQueryLog();
+    $lw = Livewire::actingAs($user)
+        ->test(Traffic::class, ['server' => $server, 'site' => $site])
+        ->assertSee('Loading traffic');
+    expect($accessQueries())->toBe(0);
+
+    $lw->call('loadTraffic')->assertDontSee('Loading traffic');
+    $afterLoad = $accessQueries();
+    expect($afterLoad)->toBeGreaterThan(0);
+
+    // A fresh request (no per-request memo) is served from the 120s cache.
+    request()->attributes->replace([]);
+    app(EdgeSiteAccessAnalytics::class)->forSite($site->fresh());
+    expect($accessQueries())->toBe($afterLoad);
+});
+
+test('console action banner polls itself and nudges the shell once the run finishes', function () {
+    [$user, $server, $site] = makeEdgeSiteForSettings();
+    $run = ConsoleAction::query()->create([
+        'subject_type' => $site->getMorphClass(),
+        'subject_id' => $site->id,
+        'kind' => 'env_sync',
+        'status' => 'running',
+        'started_at' => now(),
+        'label' => 'Syncing env …',
+    ]);
+
+    $banner = Livewire::actingAs($user)
+        ->test(ConsoleActionBanner::class, ['site' => $site, 'kinds' => ['env_sync']])
+        ->assertSee('Syncing env')
+        ->assertSeeHtml('wire:poll.4s')
+        ->assertNotDispatched('console-action-finished');
+
+    $run->forceFill(['status' => 'completed', 'finished_at' => now()])->save();
+
+    $banner->call('$refresh')
+        ->assertSee('Syncing env — done.')
+        ->assertDispatched('console-action-finished');
+});
+
+test('build journey ships only new log lines per tick, routed to their step', function () {
+    [$user, $server, $site] = makeEdgeSiteForSettings();
+    $log = tempnam(sys_get_temp_dir(), 'edge-log');
+    file_put_contents($log, "=== header ===\n[dply:step] clone\nxyzzy-clone-line\n");
+    $deployment = EdgeDeployment::query()->create([
+        'site_id' => $site->id,
+        'organization_id' => $site->organization_id,
+        'status' => EdgeDeployment::STATUS_BUILDING,
+        'storage_prefix' => 'edge/test/journey',
+        'meta' => ['local_build_log_path' => $log],
+    ]);
+
+    $lw = Livewire::actingAs($user)
+        ->test(BuildJourney::class, ['deploymentId' => $deployment->id])
+        ->assertSeeHtml('xyzzy-clone-line') // mount seeds the browser store via x-init
+        ->assertSet('logSteps', ['clone']);
+    expect($lw->instance())->not->toHaveProperty('buffer');
+
+    // A marker split across two ticks: the partial line waits for its newline.
+    file_put_contents($log, "npm i\n[dply:st", FILE_APPEND);
+    $lw->call('tail')
+        ->assertDispatched('edge-build-log', fn (string $name, array $p): bool => $p['chunks'] === ['clone' => "npm i\n"]);
+
+    file_put_contents($log, "ep] deploy\nvite built\n", FILE_APPEND);
+    $lw->call('tail')
+        ->assertDispatched('edge-build-log', fn (string $name, array $p): bool => $p['chunks'] === ['build' => "vite built\n"])
+        ->assertSet('logSteps', ['clone', 'build'])
+        ->assertDontSeeHtml('xyzzy-clone-line'); // re-renders carry no log text
+
+    @unlink($log);
+});
+
+test('overview deploy poll skips the render until the watched deploy settles', function () {
+    // The journey card polls itself; the Overview's own 2s tick re-renders
+    // (hero, service map) only once the deploy it watches stops running.
+    [$user, $server, $site] = makeEdgeSiteForSettings();
+    // Newer than the live deploy the helper seeds.
+    $deploy = fn (string $status, int $inSeconds) => EdgeDeployment::query()->forceCreate([
+        'site_id' => $site->id,
+        'organization_id' => $site->organization_id,
+        'status' => $status,
+        'storage_prefix' => 'edge/test/poll-'.$inSeconds,
+        'created_at' => now()->addSeconds($inSeconds),
+    ]);
+    $mapQueries = fn (): int => collect(DB::getQueryLog())
+        ->filter(fn (array $q): bool => str_contains($q['query'], 'edge_usage_snapshots'))->count();
+    $building = $deploy(EdgeDeployment::STATUS_BUILDING, 60);
+
+    $lw = Livewire::actingAs($user)
+        ->test(Overview::class, ['server' => $server, 'site' => $site])
+        ->assertSeeHtml('wire:poll.2s="checkDeploy(')
+        ->assertSeeLivewire(BuildJourney::class);
+
+    DB::enableQueryLog();
+    DB::flushQueryLog();
+    $lw->call('checkDeploy', $building->id);
+    expect($mapQueries())->toBe(0);
+
+    // A cancel/restart queued a newer deploy: re-render so the card swaps to it.
+    $restarted = $deploy(EdgeDeployment::STATUS_BUILDING, 120);
+    $lw->call('checkDeploy', $building->id)
+        ->assertSeeHtml("checkDeploy('{$restarted->id}')");
+    expect($mapQueries())->toBeGreaterThan(0);
+
+    // Settled: full render, the card and the poll are gone.
+    $restarted->forceFill(['status' => EdgeDeployment::STATUS_LIVE])->save();
+    $lw->call('checkDeploy', $restarted->id)
+        ->assertDontSeeHtml('wire:poll')
+        ->assertDontSeeLivewire(BuildJourney::class);
+});
+
+test('overview observability cards skip the deployments context', function () {
+    [$user, $server, $site] = makeEdgeSiteForSettings();
+
+    DB::enableQueryLog();
+    Livewire::actingAs($user)
+        ->test(OverviewObservability::class, ['server' => $server, 'site' => $site])
+        ->call('loadObservabilityCards');
+
+    expect(collect(DB::getQueryLog())->filter(fn (array $q): bool => str_contains($q['query'], '"edge_deployments"."site_id"'))->count())->toBe(0);
 });

@@ -1,4 +1,8 @@
 <div @if ($polling) wire:poll.2s="tail" @endif>
+    @if ($seed !== null)
+        {{-- Mount only: replace the browser's copy of this log (see BuildJourney::$seed). --}}
+        <div hidden x-data x-init="$store.buildLogs.append(@js($deploymentId), @js((object) $seed), true)"></div>
+    @endif
     @if ($missing || $journey === null)
         <div class="rounded-2xl border border-dashed border-brand-ink/15 bg-white/40 px-5 py-6 text-center text-xs text-brand-moss">
             {{ __('Deployment no longer available.') }}
@@ -14,28 +18,15 @@
                 : null;
         @endphp
         <div class="overflow-hidden rounded-xl border border-brand-ink/10 bg-white dark:border-brand-mist/20 dark:bg-zinc-900">
-            <div
-                x-data="{
-                    pinned: true,
-                    onScroll() {
-                        const el = $refs.logPre;
-                        this.pinned = (el.scrollHeight - el.scrollTop - el.clientHeight) < 16;
-                    },
-                    init() {
-                        this.$nextTick(() => { $refs.logPre.scrollTop = $refs.logPre.scrollHeight; });
-                        this.stopHook = Livewire.hook('morph.updated', () => {
-                            const el = this.$refs.logPre;
-                        if (this.pinned && el) { el.scrollTop = el.scrollHeight; }
-                        });
-                    },
-                    destroy() { this.stopHook?.(); },
-                }"
-            >
+            <div>
                 <pre
-                    x-ref="logPre"
-                    x-on:scroll.throttle.100ms="onScroll"
+                    wire:ignore
+                    x-data="{ pinned: true }"
+                    x-html="$store.buildLogs.get(@js($deploymentId), '_all') || @js(e(__('Creating build environment…')))"
+                    x-effect="$store.buildLogs.get(@js($deploymentId), '_all'); pinned && $nextTick(() => { $el.scrollTop = $el.scrollHeight })"
+                    x-on:scroll.throttle.100ms="pinned = ($el.scrollHeight - $el.scrollTop - $el.clientHeight) < 16"
                     class="max-h-80 min-h-40 overflow-auto bg-brand-ink px-4 py-3 font-mono text-xs leading-relaxed text-brand-cream whitespace-pre-wrap break-words"
-                >@if (trim($buffer) === ''){{ __('Creating build environment…') }}@else{!! \App\Modules\Edge\Support\AnsiHtml::toHtml($buffer) !!}@endif</pre>
+                ></pre>
             </div>
             <div class="flex flex-wrap items-center justify-between gap-3 border-t border-brand-ink/10 px-4 py-3 dark:border-brand-mist/20">
                 <div class="min-w-0">
@@ -138,10 +129,9 @@
                         $isDone = ! $journey['hasFailed'] && $loopIndex !== false && $loopIndex < $journey['currentStepIndex'];
                         $isCurrent = $key === $journey['state'];
                         $sectionKey = $sectionFor[$key] ?? null;
-                        $stepLog = ($sectionKey !== null && isset($sections[$sectionKey])) ? $sections[$sectionKey] : '';
-                        $hasLog = $stepLog !== '';
+                        $hasLog = $sectionKey !== null && in_array($sectionKey, $logSteps, true);
                     @endphp
-                    <li class="px-5 py-4 sm:px-6">
+                    <li class="px-5 py-4 sm:px-6" wire:key="journey-step-{{ $key }}">
                         <div class="flex items-start gap-3">
                             <div class="flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold {{ $isCurrent ? ($journey['hasFailed'] ? 'bg-red-600 text-white' : 'bg-brand-forest text-white ring-4 ring-brand-sage/30') : ($isDone ? 'bg-emerald-600 text-white' : 'bg-white text-brand-mist ring-1 ring-brand-ink/10') }}">
                                 @if ($isDone)
@@ -186,23 +176,11 @@
                                             x-data="{
                                                 pinned: true,
                                                 copied: false,
-                                                onScroll() {
-                                                    const el = $refs.logPre;
-                                                    this.pinned = (el.scrollHeight - el.scrollTop - el.clientHeight) < 16;
-                                                },
                                                 copy() {
                                                     navigator.clipboard.writeText($refs.logPre.innerText);
                                                     this.copied = true;
                                                     setTimeout(() => { this.copied = false; }, 1500);
                                                 },
-                                                init() {
-                                                    this.$nextTick(() => { $refs.logPre.scrollTop = $refs.logPre.scrollHeight; });
-                                                    this.stopHook = Livewire.hook('morph.updated', () => {
-                                                        const el = this.$refs.logPre;
-                                                    if (this.pinned && el) { el.scrollTop = el.scrollHeight; }
-                                                    });
-                                                },
-                                                destroy() { this.stopHook?.(); },
                                             }"
                                             class="relative mt-2"
                                         >
@@ -217,11 +195,15 @@
                                                 <span x-show="!copied">{{ __('Copy') }}</span>
                                                 <span x-show="copied" x-cloak>{{ __('Copied') }}</span>
                                             </button>
+                                            {{-- wire:ignore: the store fills this, not the morph. --}}
                                             <pre
+                                                wire:ignore
                                                 x-ref="logPre"
-                                                x-on:scroll.throttle.100ms="onScroll"
+                                                x-html="$store.buildLogs.get(@js($deploymentId), @js($sectionKey))"
+                                                x-effect="$store.buildLogs.get(@js($deploymentId), @js($sectionKey)); pinned && $nextTick(() => { $el.scrollTop = $el.scrollHeight })"
+                                                x-on:scroll.throttle.100ms="pinned = ($el.scrollHeight - $el.scrollTop - $el.clientHeight) < 16"
                                                 class="max-h-[28rem] overflow-auto rounded-xl border border-brand-ink/10 bg-brand-ink px-3 py-2 pr-20 font-mono text-xs leading-relaxed text-brand-cream whitespace-pre-wrap break-words"
-                                            >{!! \App\Modules\Edge\Support\AnsiHtml::toHtml($stepLog) !!}</pre>
+                                            ></pre>
                                         </div>
                                     </details>
                                 @endif

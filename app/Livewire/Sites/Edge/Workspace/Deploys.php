@@ -30,14 +30,17 @@ class Deploys extends Component
     public function mount(Server $server, Site $site): void
     {
         $this->mountEdgeWorkspaceSection($server, $site);
-
-        $this->site->load([
-            'edgeDeployments' => fn ($query) => $query->orderByDesc('created_at')->limit(20),
-        ]);
     }
 
     public function render(): View
     {
+        // Loaded per render, not in mount(): Livewire does not restore model
+        // relations on hydrate, so a mount()-time eager load is gone on the
+        // next wire:poll and every tick lazy-loaded ALL deployments.
+        $this->site->load([
+            'edgeDeployments' => fn ($query) => $query->limit(20),
+        ]);
+
         $latestDeployment = $this->site->edgeDeployments->first();
         $isInProgress = $latestDeployment !== null && in_array($latestDeployment->status, [
             EdgeDeployment::STATUS_BUILDING,

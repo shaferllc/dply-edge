@@ -9,6 +9,7 @@ use App\Support\NotificationTablesReady;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 #[Layout('layouts.app')]
@@ -33,19 +34,34 @@ class Index extends Component
      */
     public array $selected = [];
 
+    /** Page size for the feed; "Load more" grows it by the same step. */
+    private const PER_PAGE = 25;
+
+    /** How many feed items to render — grows via {@see loadMore()}. */
+    #[Locked]
+    public int $perPage = self::PER_PAGE;
+
+    public function loadMore(): void
+    {
+        $this->perPage += self::PER_PAGE;
+    }
+
     public function updatedFilter(): void
     {
         $this->selected = [];
+        $this->perPage = self::PER_PAGE;
     }
 
     public function updatedCategoryFilter(): void
     {
         $this->selected = [];
+        $this->perPage = self::PER_PAGE;
     }
 
     public function updatedSeverityFilter(): void
     {
         $this->selected = [];
+        $this->perPage = self::PER_PAGE;
     }
 
     /** Scope every query to the current user's inbox. */
@@ -194,6 +210,7 @@ class Index extends Component
         if (! $this->notificationTablesReady()) {
             return view('livewire.notifications.index', [
                 'items' => collect(),
+                'hasMore' => false,
                 'unreadCount' => 0,
                 'totalCount' => 0,
                 'savedCount' => 0,
@@ -227,15 +244,26 @@ class Index extends Component
             ->orderBy('notification_events.category')
             ->pluck('notification_events.category');
 
+        // One page plus a sentinel row, so "Load more" shows only when needed.
+        $items = $query->limit($this->perPage + 1)->get();
+        $hasMore = $items->count() > $this->perPage;
+
+        // All four header counts in one pass instead of four count(*) queries.
+        $counts = $this->base()
+            ->selectRaw('count(*) as total')
+            ->selectRaw('sum(case when read_at is null then 1 else 0 end) as unread')
+            ->selectRaw('sum(case when saved_at is not null then 1 else 0 end) as saved')
+            ->selectRaw("sum(case when read_at is null and exists (select 1 from notification_events e where e.id = notification_inbox_items.notification_event_id and e.severity in ('warning', 'critical', 'error', 'danger')) then 1 else 0 end) as attention")
+            ->toBase()
+            ->first();
+
         return view('livewire.notifications.index', [
-            'items' => $query->limit(50)->get(),
-            'unreadCount' => $this->base()->whereNull('read_at')->count(),
-            'totalCount' => $this->base()->count(),
-            'savedCount' => $this->base()->whereNotNull('saved_at')->count(),
-            'attentionCount' => $this->base()
-                ->whereNull('read_at')
-                ->whereHas('event', fn ($q) => $q->whereIn('severity', ['warning', 'critical', 'error', 'danger']))
-                ->count(),
+            'items' => $hasMore ? $items->take($this->perPage) : $items,
+            'hasMore' => $hasMore,
+            'unreadCount' => (int) $counts->unread,
+            'totalCount' => (int) $counts->total,
+            'savedCount' => (int) $counts->saved,
+            'attentionCount' => (int) $counts->attention,
             'categories' => $categories,
             'notificationsReady' => true,
         ]);

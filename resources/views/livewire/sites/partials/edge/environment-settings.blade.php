@@ -40,7 +40,7 @@
         <div class="border-t border-brand-ink/10 px-5 py-4 sm:px-6">
             <div class="flex flex-wrap items-baseline justify-between gap-2">
                 <p class="text-xs font-semibold uppercase tracking-[0.12em] text-brand-mist">{{ __('From resources') }}</p>
-                <a href="{{ route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'resources']) }}" wire:navigate class="text-xs font-semibold text-brand-ink underline">{{ __('Resources') }}</a>
+                <a href="{{ route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'general']) }}" wire:navigate class="text-xs font-semibold text-brand-ink underline">{{ __('Overview') }}</a>
             </div>
             <p class="mt-1 text-xs text-brand-moss">{{ __('Added on the next deploy from the app size and database. A line in the field above replaces the same key.') }}</p>
             <ul class="mt-3 divide-y divide-brand-ink/10 rounded-lg border border-brand-ink/10">

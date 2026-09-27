@@ -66,3 +66,31 @@ test('inbox openItem marks the row read and redirects without a type error', fun
 
     expect($item->fresh()?->read_at)->not->toBeNull();
 });
+
+test('inbox renders one page, loads more on demand, and counts in one pass', function () {
+    $user = User::factory()->create();
+    foreach (range(1, 27) as $i) {
+        inboxItemFor($user);
+    }
+    inboxItemFor($user)->event->forceFill(['severity' => 'warning'])->save();
+    $saved = inboxItemFor($user);
+    $saved->forceFill(['saved_at' => now(), 'read_at' => now()])->save();
+
+    $component = Livewire::actingAs($user)->test(Index::class)
+        ->set('filter', 'all')
+        ->assertViewHas('items', fn ($items) => $items->count() === 25)
+        ->assertViewHas('hasMore', true)
+        ->assertViewHas('totalCount', 29)
+        ->assertViewHas('unreadCount', 28)
+        ->assertViewHas('savedCount', 1)
+        ->assertViewHas('attentionCount', 1)
+        ->assertSee('Load more');
+
+    $component->call('loadMore')
+        ->assertViewHas('items', fn ($items) => $items->count() === 29)
+        ->assertViewHas('hasMore', false)
+        ->assertDontSee('Load more');
+
+    // Changing the tab starts from the first page again.
+    $component->set('filter', 'unread')->assertSet('perPage', 25);
+});

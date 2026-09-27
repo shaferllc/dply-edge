@@ -69,7 +69,6 @@ final class SiteSettingsViewData
         $edgeAnalytics = self::edgeAnalyticsForSection($site, $section);
         $edgeContext = EdgeSiteViewData::context($site, $section);
         $sectionConsoleActionKinds = (array) (config('console_actions.section_kinds.'.$section, []));
-        $sectionConsoleActionRun = self::consoleActionRun($site, $sectionConsoleActionKinds);
         $contextualDocSlug = null;
 
         return array_merge(
@@ -83,7 +82,6 @@ final class SiteSettingsViewData
                 'sectionHeader',
                 'settingsBreadcrumbs',
                 'sectionConsoleActionKinds',
-                'sectionConsoleActionRun',
                 'contextualDocSlug',
             ),
             $header,
@@ -351,9 +349,12 @@ final class SiteSettingsViewData
     }
 
     /**
-     * @param  array<string, mixed>  $kinds
+     * Latest undismissed run of these kinds — read by the ConsoleActionBanner
+     * component, which polls it on its own instead of re-rendering the shell.
+     *
+     * @param  array<array-key, string>  $kinds
      */
-    private static function consoleActionRun(Site $site, array $kinds): ?ConsoleAction
+    public static function consoleActionRun(Site $site, array $kinds): ?ConsoleAction
     {
         if ($kinds === []) {
             return null;

@@ -183,3 +183,15 @@ function makeEdgeSite(User $user, Organization $org, string $name): Site
         ],
     ]);
 }
+
+test('owner sees the delete action on the dashboard card', function () {
+    // Regression: eager-loading only server:id,name left the policy blind to
+    // the server's owner/org, so can('delete') was false for everyone.
+    $user = ownerWithOrg();
+    $site = makeEdgeSite($user, $user->currentOrganization(), 'Deletable');
+
+    Livewire::actingAs($user)
+        ->test(EdgeIndex::class)
+        ->assertSee('Deletable')
+        ->assertSeeHtml("openDeleteSiteModal('{$site->id}')");
+});

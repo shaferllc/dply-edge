@@ -72,7 +72,7 @@ class Index extends Component
         abort_if($org === null, 403);
 
         $allSites = $this->edgeSitesQuery($org)
-            ->with('server:id,name')
+            ->with('server:id,name,user_id,organization_id,workspace_id')
             ->orderByDesc('created_at')
             ->get();
 

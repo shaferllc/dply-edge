@@ -15,6 +15,12 @@ use App\Models\PlatformConnection;
 final class PlatformNotificationApps
 {
     /**
+     * Container key for the per-request row memo. Scoped, so Octane requests
+     * and queue jobs each start fresh; writes below forget it.
+     */
+    private const ROWS = 'dply.platform-notification-apps.rows';
+
+    /**
      * @return array{client_id: string, client_secret: string, redirect: string}
      */
     public static function slack(): array
@@ -138,6 +144,7 @@ final class PlatformNotificationApps
             'provider' => $provider,
             'config' => $config,
         ])->save();
+        self::forgetRows();
 
         return $row;
     }
@@ -148,6 +155,7 @@ final class PlatformNotificationApps
             'last_ok_at' => now(),
             'last_error' => null,
         ]);
+        self::forgetRows();
     }
 
     public static function markError(string $provider, string $error): void
@@ -155,6 +163,7 @@ final class PlatformNotificationApps
         PlatformConnection::query()->where('provider', $provider)->update([
             'last_error' => mb_substr($error, 0, 240),
         ]);
+        self::forgetRows();
     }
 
     /**
@@ -163,7 +172,7 @@ final class PlatformNotificationApps
      */
     private static function overlay(string $provider, array $defaults): array
     {
-        $row = PlatformConnection::query()->where('provider', $provider)->first();
+        $row = self::row($provider);
         $stored = is_array($row?->config) ? $row->config : [];
 
         foreach ($defaults as $key => $fallback) {
@@ -174,6 +183,28 @@ final class PlatformNotificationApps
         }
 
         return $defaults;
+    }
+
+    /**
+     * Every *Ready() / redirect / credential read lands here, and a channels
+     * page asks several times per render — one query for all providers, once
+     * per request, instead of one per call.
+     */
+    private static function row(string $provider): ?PlatformConnection
+    {
+        if (! app()->bound(self::ROWS)) {
+            app()->scoped(self::ROWS, fn () => PlatformConnection::query()
+                ->whereIn('provider', PlatformConnection::PROVIDERS)
+                ->get()
+                ->keyBy('provider'));
+        }
+
+        return app(self::ROWS)->get($provider);
+    }
+
+    private static function forgetRows(): void
+    {
+        app()->forgetInstance(self::ROWS);
     }
 
     private static function stringConfig(string $key): string

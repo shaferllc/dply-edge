@@ -33,6 +33,17 @@ class Cache extends Component
 
     public string $queryString = 'ignore';
 
+    /**
+     * Stored copies from KV, loaded once via wire:init and after a purge —
+     * not in render(), so saving options doesn't re-list KV (10s timeout).
+     * null = not loaded yet.
+     *
+     * @var list<array{path: string, expires_at: int|null}>|null
+     */
+    public ?array $entries = null;
+
+    public string $listMessage = '';
+
     public function mount(Server $server, Site $site): void
     {
         $this->mountEdgeWorkspaceSection($server, $site);
@@ -138,6 +149,7 @@ class Cache extends Component
         }
 
         if ($result['ok']) {
+            $this->loadEntries();
             $this->toastSuccess($result['message']);
 
             return;
@@ -146,15 +158,18 @@ class Cache extends Component
         $this->toastError($result['message']);
     }
 
-    public function render(): View
+    public function loadEntries(): void
     {
         $listed = app(EdgeCachePurger::class)->listEntries($this->site);
+        $this->entries = $listed['entries'];
+        $this->listMessage = $listed['ok'] ? '' : $listed['message'];
+    }
 
+    public function render(): View
+    {
         return view('livewire.sites.edge.workspace.cache', [
             'server' => $this->server,
             'site' => $this->site,
-            'entries' => $listed['entries'],
-            'listMessage' => $listed['ok'] ? '' : $listed['message'],
         ]);
     }
 }

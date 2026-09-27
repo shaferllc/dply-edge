@@ -35,6 +35,14 @@ class CloudflareEdgeDelivery
                 $localArtifactDir,
                 $deployment->storage_prefix,
                 $context->diskName,
+                // Unchanged files are copied server-side from what's live now.
+                EdgeDeployment::query()
+                    ->where('site_id', $site->id)
+                    ->where('status', EdgeDeployment::STATUS_LIVE)
+                    ->whereKeyNot($deployment->getKey())
+                    ->whereNotNull('storage_prefix')
+                    ->latest('published_at')
+                    ->value('storage_prefix'),
             );
             if ($uploaded < 1) {
                 throw new RuntimeException('Refusing to publish: no artifacts uploaded to R2.');
