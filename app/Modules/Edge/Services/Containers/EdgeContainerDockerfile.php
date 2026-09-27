@@ -195,12 +195,19 @@ final class EdgeContainerDockerfile
      * Octane is detected, never assumed: its servers keep state between
      * requests, so silently selecting one would change how an app behaves.
      * Everything else runs php-fpm behind nginx. A resident server does not
-     * fit the 1 GiB floor we give PHP apps.
+     * fit the 1 GiB floor we give PHP apps. A repo may pin frankenphp or fpm
+     * with composer.json `extra.dply.php-server` (dply itself pins frankenphp,
+     * ruling r-jkfe1ppchr2dw48j); the Octane servers still need Octane.
      *
      * @param  array<string, mixed>  $composer  decoded composer.json
      */
     public static function detectPhpServer(array $composer): string
     {
+        $pinned = $composer['extra']['dply']['php-server'] ?? null;
+        if (in_array($pinned, ['frankenphp', 'fpm'], true)) {
+            return $pinned;
+        }
+
         $require = array_change_key_case(array_merge(
             is_array($composer['require'] ?? null) ? $composer['require'] : [],
             is_array($composer['require-dev'] ?? null) ? $composer['require-dev'] : [],

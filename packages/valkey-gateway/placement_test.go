@@ -136,3 +136,20 @@ func TestSlowlogEntriesShowCommandAndKeyOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestLargeDatabasesAndValkeyProStayOn(t *testing.T) {
+	for _, c := range []struct {
+		t    tenant
+		want bool
+	}{
+		{tenant{Engine: "postgres", MemoryMB: 2048, Persistent: true}, false},
+		{tenant{Engine: "postgres", MemoryMB: 4096, Persistent: true}, true},
+		{tenant{Engine: "mysql", MemoryMB: 16384, Persistent: true}, true},
+		{tenant{MemoryMB: 1024}, false},
+		{tenant{MemoryMB: 5120, Persistent: true}, true},
+	} {
+		if got := staysOn(c.t); got != c.want {
+			t.Fatalf("%+v: staysOn %v, want %v", c.t, got, c.want)
+		}
+	}
+}

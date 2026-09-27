@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Edge\Console;
 
 use App\Modules\Edge\Support\EdgeBuildDockerBootstrap;
+use App\Support\DplyRuntime;
 use Illuminate\Console\Command;
 
 /**
@@ -28,6 +29,12 @@ class EdgeEnsureBuildDockerCommand extends Command
 
     public function handle(): int
     {
+        if (DplyRuntime::skipsHostWork('dply:edge:ensure-build-docker')) {
+            $this->warn('Skipped: DPLY_RUNTIME='.DplyRuntime::mode().' has no Docker. Run this on the builder VM.');
+
+            return self::SUCCESS;
+        }
+
         $user = $this->resolveUser();
 
         if ($this->option('check')) {

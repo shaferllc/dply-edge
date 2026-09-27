@@ -68,6 +68,30 @@ final class UsagePrice
     }
 
     /**
+     * A dply database size's customer price per CU-second, millicents: its
+     * own (database_compute_price_by_size, a fixed price) or the base one.
+     */
+    public static function databaseRate(string $size): float
+    {
+        $own = ((array) config('dply.edge.usage_billing.database_compute_price_by_size', []))[$size] ?? null;
+
+        return $own === null ? self::rate('database_compute_millicents_per_cu_second') : max(0.0, (float) $own);
+    }
+
+    /**
+     * Compute units a size bills as: its CU scaled by its own price over the
+     * base one. The usage collector records awake seconds × this, so the one
+     * base rate prices every size (1 CU at $0.18/CU-h bills as 1.5 CU).
+     */
+    public static function databaseBilledCu(string $size): float
+    {
+        $cu = (float) (EdgeAppDatabase::POSTGRES_SIZES[$size]['cu'] ?? 0.25);
+        $base = self::rate('database_compute_millicents_per_cu_second');
+
+        return $base > 0 ? $cu * self::databaseRate($size) / $base : $cu;
+    }
+
+    /**
      * Dollars for a customer amount in millicents, with enough decimals to
      * show a per-second rate: $5.40, $0.36, $0.018, $0.000024.
      */
@@ -170,7 +194,7 @@ final class UsagePrice
                 ) : null,
                 // Only sizes the database nodes can schedule are sold (EdgeDplyDatabase::offeredSizes()).
                 'database' => in_array($key, EdgeDplyDatabase::offeredSizes(), true)
-                    ? $row($database['memory'], self::rate('database_compute_millicents_per_cu_second') * $database['cu'])
+                    ? $row($database['memory'], self::rate('database_compute_millicents_per_cu_second') * self::databaseBilledCu($key))
                     : null,
                 'valkey' => is_string($valkey) ? $row(self::memoryLabel(EdgeValkey::CLASSES[$valkey]['memory_mb'] / 1024), self::valkeyPerSecond($valkey)) + [
                     'cap' => '$'.number_format(self::valkeyCapCents($valkey) / 100, 2),

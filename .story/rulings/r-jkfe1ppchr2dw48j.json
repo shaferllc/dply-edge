@@ -1,0 +1,16 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-27",
+  "id": "r-jkfe1ppchr2dw48j",
+  "recordedBy": {
+    "client": "claude",
+    "id": "7287ab43-961f-4f49-a652-045813268214"
+  },
+  "scopeTags": [
+    "self-hosting",
+    "deploy",
+    "dns"
+  ],
+  "supersedes": null,
+  "text": "\"Self-host cutover (Recommended path, staged)\" and \"Pin FrankenPHP\" — dply's first self-deploy runs as a container app on Cloudflare, verified on a preview URL before edge.dply.io's DNS is pointed at it, with the old VM kept as rollback and a production DB backup taken first. dply's own container image runs FrankenPHP (a server override for the self site only), not Swoole Octane or FPM."
+}

@@ -41,11 +41,18 @@ final class UnitCosts
         // resource on every db pool), plus a volume per GB. One row per size,
         // offered or not yet (large sizes wait for a flag), on the pool that
         // size runs on: all must clear min_markup at the one CU-hour price.
+        // A size on a pool that scales from zero (nodes = 0) always stays on
+        // and must also pay for the whole node alone (ruling r-gd2vgb7jd1b4vqtf).
         foreach (EdgeAppDatabase::POSTGRES_SIZES as $size => $spec) {
+            $size = (string) $size;
             $pool = $do['database_pools'][$size];
-            $add('Database compute '.$spec['cu'].' CU', 'per CU-hour', self::gibMonth($pool) * 4 / self::MONTH_HOURS,
-                UsagePrice::rate('database_compute_millicents_per_cu_second') * 3600 / 100_000,
+            $perCuHour = UsagePrice::databaseRate($size) * 3600 / 100_000;
+            $add('Database compute '.$size.' CU', 'per CU-hour', self::gibMonth($pool) * 4 / self::MONTH_HOURS, $perCuHour,
                 'pool '.$pool.' '.$do['pools'][$pool]['size'].', '.round($do['packing'][$pool] * 100).'% packed');
+            if ($do['pools'][$pool]['nodes'] === 0) {
+                $add('Database '.$size.' CU alone', 'per month always on', (float) $do['pools'][$pool]['monthly'], $perCuHour * $spec['cu'] * self::MONTH_HOURS,
+                    'the whole '.$do['pools'][$pool]['size'].' node it brings up');
+            }
         }
         $add('Database storage', 'per GB-month', $do['volume_per_gb_month'] + $do['backup_per_gb_month'],
             UsagePrice::rate('database_storage_millicents_per_gb_month') / 100_000, 'DO volume + backup copy');
@@ -80,8 +87,8 @@ final class UnitCosts
         $request = (UsagePrice::cost('requests_millicents_per_million') + UsagePrice::cost('do_requests_millicents_per_million')) / 100_000;
         $publish = $request + $rt['publish_wall_ms'] / 1000 * $rt['do_memory_gb'] * UsagePrice::cost('do_duration_millicents_per_million_gb_s') / 100_000;
         $messagePrice = UsagePrice::rate('realtime_message_millicents_per_million') / 100_000;
-        $add('Realtime messages', 'per million, nobody listening', $publish, $messagePrice, 'each publish: Worker + DO request + '.$rt['publish_wall_ms'].' ms');
-        $add('Realtime messages', 'per million, '.$rt['deliveries_per_publish'].' delivery per publish', $publish / (1 + $rt['deliveries_per_publish']), $messagePrice, 'deliveries are free');
+        // Only publishes bill; deliveries are free (ruling r-ez5s8c56zn0ry3sw).
+        $add('Realtime messages', 'per million publishes', $publish, $messagePrice, 'each publish: Worker + DO request + '.$rt['publish_wall_ms'].' ms; deliveries free');
         $add('Realtime connection-minutes', 'per million', $request / max(0.1, $rt['avg_connection_minutes']),
             UsagePrice::rate('realtime_connection_minute_millicents') * 1_000_000 / 100_000,
             'upgrade over a '.$rt['avg_connection_minutes'].'-minute average connection');

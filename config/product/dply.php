@@ -390,6 +390,15 @@ return [
             // GB-month (volume $0.10 + backup copy ~$0.02). Collected by
             // dply:edge:collect-valkey-usage. The env vars set prices.
             'database_compute_millicents_per_cu_second' => (float) env('DPLY_USAGE_DATABASE_MC_PER_CU_SECOND', 12_000 / 3600),
+            // Sizes with their own CU-second price (else the one above). The
+            // large sizes always stay on and a lone one pays for the whole
+            // node it brings up at >= 1.3x (ruling r-gd2vgb7jd1b4vqtf): 1 CU
+            // on a $96 db-large node needs $0.1733/CU-h, so $0.18 ($129.60
+            // a month, 1.35x). 2 CU ($172.80 on $96) and 4 CU ($345.60 on
+            // $168) clear it at $0.12. PricingModelTest checks all three.
+            'database_compute_price_by_size' => [
+                '1' => (float) env('DPLY_USAGE_DATABASE_1CU_MC_PER_CU_SECOND', 18_000 / 3600),
+            ],
             'database_storage_millicents_per_gb_month' => (float) env('DPLY_USAGE_DATABASE_STORAGE_MC_PER_GB_MONTH', 20_000),
 
             // Realtime (docs/edge-realtime.md). CUSTOMER PRICES
@@ -495,9 +504,13 @@ return [
             'backup_per_gb_month' => 0.02,
         ],
 
-        // Edge builds run in `docker run` on the control-plane worker
-        // (s-4vcpu-8gb), HORIZON_BUILD_MAX_PROCESSES = 4 at a time.
-        'build' => ['size' => 's-4vcpu-8gb', 'monthly' => 48, 'hosts' => 1, 'concurrent_builds' => 4, 'utilisation' => 0.15],
+        // Edge builds run on the DOKS `builders` pool (deploy/builders/): one
+        // builder pod per s-4vcpu-8gb node, 2 builds at a time
+        // (HORIZON_BUILD_MAX_PROCESSES in builder.yaml). `hosts` is the pool
+        // minimum, a fixed cost; KEDA adds nodes (up to builder_max_nodes)
+        // only while builds queue, and those are variable, paid by the build
+        // minutes that caused them.
+        'build' => ['size' => 's-4vcpu-8gb', 'monthly' => 48, 'hosts' => 1, 'concurrent_builds' => 2, 'utilisation' => 0.15],
 
         // The control plane apart from the build worker (DO_MIGRATION.md
         // topology, no replica): web s-2vcpu-4gb, Postgres s-4vcpu-8gb, Redis
@@ -528,7 +541,7 @@ return [
         // Worker + one DO request) spread over its average length. Delivered
         // frames and pings are free. `deliveries_per_publish` only shows the
         // typical case; prices are set against 0 (nobody listening).
-        'realtime' => ['publish_wall_ms' => 10, 'do_memory_gb' => 0.125, 'avg_connection_minutes' => 3, 'deliveries_per_publish' => 1],
+        'realtime' => ['publish_wall_ms' => 10, 'do_memory_gb' => 0.125, 'avg_connection_minutes' => 3],
 
         // Card processing 2.9% + 30c, plus Stripe Billing 0.7% of billed volume.
         'stripe' => ['percent' => 3.6, 'fixed_cents' => 30],

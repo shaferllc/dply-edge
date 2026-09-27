@@ -52,6 +52,16 @@ final class EdgeDplyDatabase
         return ValkeyGatewayClient::configured();
     }
 
+    /**
+     * Large sizes never sleep: each is priced to pay for the whole node it
+     * brings up, which a sleeping database would hold without billing
+     * (ruling r-gd2vgb7jd1b4vqtf). The gateway enforces it too.
+     */
+    public static function alwaysOn(string $size): bool
+    {
+        return in_array($size, self::LARGE_SIZES, true);
+    }
+
     /** @return list<string> Sizes a customer can pick now. */
     public static function offeredSizes(): array
     {

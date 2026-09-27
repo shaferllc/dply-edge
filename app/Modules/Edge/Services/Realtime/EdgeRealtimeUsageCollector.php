@@ -6,6 +6,7 @@ namespace App\Modules\Edge\Services\Realtime;
 
 use App\Models\EdgeRealtimeApp;
 use App\Models\EdgeRealtimeUsage;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -13,13 +14,16 @@ use Throwable;
 
 /**
  * Realtime usage for billing (docs/edge-realtime.md). The relay's
- * connection_seconds and messages_in/out only go up, so each run adds the
+ * connection_seconds and messages_in only go up, so each run adds the
  * difference from the last reading (kept on the app's meta:
- * last_connection_seconds, last_messages) to today's edge_realtime_usage row,
+ * last_connection_seconds, last_messages_in) to today's edge_realtime_usage row,
  * keeps the day's highest peak, then resets the relay's peak.
  *
  * Asleep (disabled) apps are read too: their counters stop growing, and the
  * stretch between the last run and the sleep still lands on the right day.
+ *
+ * Only publishes (messages_in) bill; deliveries (messages_out) are free, so a
+ * broadcast to 1,000 listeners is one message (ruling r-ez5s8c56zn0ry3sw).
  */
 final class EdgeRealtimeUsageCollector
 {
@@ -82,9 +86,12 @@ final class EdgeRealtimeUsageCollector
         }
 
         $meta = (array) ($app->meta ?? []);
-        $messagesTotal = $stats['messages_in'] + $stats['messages_out'];
+        $messagesTotal = $stats['messages_in'];
+        // Apps collected before deliveries went free only have last_messages
+        // (in + out), which can't be split: start their baseline now.
+        $lastMessages = $meta['last_messages_in'] ?? (isset($meta['last_messages']) ? $messagesTotal : 0);
         $seconds = self::delta($stats['connection_seconds'], (int) ($meta['last_connection_seconds'] ?? 0));
-        $messages = self::delta($messagesTotal, (int) ($meta['last_messages'] ?? 0));
+        $messages = self::delta($messagesTotal, (int) $lastMessages);
         $peak = $stats['peak_connections'];
         if ($dryRun) {
             return ['connection_seconds' => $seconds, 'messages' => $messages];
@@ -100,7 +107,7 @@ final class EdgeRealtimeUsageCollector
                 $row->messages += $messages;
                 $row->peak_connections = max($row->peak_connections, $peak);
                 $row->save();
-                $app->meta = array_merge($meta, ['last_connection_seconds' => $stats['connection_seconds'], 'last_messages' => $messagesTotal]);
+                $app->meta = array_merge(Arr::except($meta, 'last_messages'), ['last_connection_seconds' => $stats['connection_seconds'], 'last_messages_in' => $messagesTotal]);
                 $app->save();
             });
         }

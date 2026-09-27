@@ -53,7 +53,7 @@ An app has one database. Databases are available to apps with server code: conta
 | 2 vCPU | 8 GB | 2 |
 | 4 vCPU | 16 GB | 4 |
 
-The 1, 2 and 4 vCPU sizes appear in the size list once dply enables the larger database nodes. Until then only 0.25 and 0.5 vCPU can be picked. The first large database in a region can take a few minutes to start the first time, while a node is added for it.
+The 1, 2 and 4 vCPU sizes appear in the size list once dply enables the larger database nodes. Until then only 0.25 and 0.5 vCPU can be picked. These sizes always stay on: they do not sleep when idle, and picking one sets **Sleep** to **Stays on**. Moving back to 0.25 or 0.5 vCPU gives you the sleep choice again. A new large database can take a few minutes to start the first time, while a node is added for it.
 
 Disks come in `1 GB`, `5 GB`, `10 GB`, and `25 GB`. You can change the size and the disk later from the same sheet. A new size applies the next time the database wakes. A disk only grows: picking a smaller one is refused.
 
@@ -167,7 +167,7 @@ Compute is billed per second while awake. Storage is billed per GB-month on the 
 | 0.25 vCPU | 1 GB | $0.00000833 | $0.03 |
 | 0.5 vCPU | 2 GB | $0.0000167 | $0.06 |
 
-The larger sizes, once enabled, bill at the same rate per compute unit: 1 vCPU $0.12, 2 vCPU $0.24 and 4 vCPU $0.48 per hour awake.
+The larger sizes, once enabled, stay on all month: 1 vCPU is $0.18 an hour (about $129.60 a month), 2 vCPU $0.24 (about $172.80) and 4 vCPU $0.48 (about $345.60), plus the disk.
 
 Storage, and compute per compute unit (the 0.25 vCPU size is a quarter of one):
 

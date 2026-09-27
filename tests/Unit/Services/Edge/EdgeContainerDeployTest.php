@@ -589,3 +589,12 @@ test('a websocket 101 from the app passes the sticky cookie and debug filters un
     expect(trim((string) shell_exec('node '.escapeshellarg($dir.'/filters.mjs').' 2>&1')))
         ->toBe('true|dply_instance=1; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800|1');
 });
+
+test('composer extra.dply.php-server pins frankenphp or fpm; octane servers still need octane', function () {
+    $pin = fn (string $server, array $require = []): string => EdgeContainerDockerfile::detectPhpServer(['require' => $require, 'extra' => ['dply' => ['php-server' => $server]]]);
+
+    expect($pin('frankenphp', ['laravel/octane' => '^2.0']))->toBe('frankenphp')
+        ->and($pin('fpm', ['laravel/octane' => '^2.0']))->toBe('fpm')
+        ->and($pin('swoole'))->toBe('fpm')
+        ->and(EdgeContainerDockerfile::detectPhpServer(json_decode((string) file_get_contents(base_path('composer.json')), true)))->toBe('frankenphp');
+});

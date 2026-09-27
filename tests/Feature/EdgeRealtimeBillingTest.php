@@ -101,22 +101,38 @@ test('the collector adds deltas, keeps the day peak, and resets the relay peak',
 
     $row = today($app);
     expect($row->connection_seconds)->toBe(900)
-        ->and($row->messages)->toBe(150)
+        ->and($row->messages)->toBe(15) // publishes only: the 135 deliveries are free
         ->and($row->peak_connections)->toBe(7)
         ->and($row->site_id)->toBe($site->id)
-        ->and($app->fresh()->meta)->toMatchArray(['last_connection_seconds' => 900, 'last_messages' => 150]);
+        ->and($app->fresh()->meta)->toMatchArray(['last_connection_seconds' => 900, 'last_messages_in' => 15]);
     Http::assertSent(fn (Request $r) => $r->method() === 'POST' && str_ends_with($r->url(), '/apps/'.$app->id.'/stats/reset') && $r->header('X-Dply-Secret') === [$app->app_secret]);
 });
 
 test('a counter below the last reading counts as all new', function () {
     [, $site] = site();
     $app = realtimeApp($site);
-    $app->forceFill(['meta' => ['last_connection_seconds' => 5_000, 'last_messages' => 800]])->save();
+    $app->forceFill(['meta' => ['last_connection_seconds' => 5_000, 'last_messages_in' => 800]])->save();
     relayReports(['connection_seconds' => 120, 'messages_in' => 1, 'messages_out' => 9]);
 
     app(EdgeRealtimeUsageCollector::class)->collect();
 
-    expect(today($app)->connection_seconds)->toBe(120)->and(today($app)->messages)->toBe(10);
+    expect(today($app)->connection_seconds)->toBe(120)->and(today($app)->messages)->toBe(1);
+});
+
+test('an app last read when deliveries still billed starts its publish baseline now', function () {
+    [, $site] = site();
+    $app = realtimeApp($site);
+    $app->forceFill(['meta' => ['last_connection_seconds' => 0, 'last_messages' => 800]])->save();
+    relayReports(
+        ['connection_seconds' => 60, 'messages_in' => 100, 'messages_out' => 900],
+        ['connection_seconds' => 60, 'messages_in' => 104, 'messages_out' => 950],
+    );
+
+    app(EdgeRealtimeUsageCollector::class)->collect();
+    app(EdgeRealtimeUsageCollector::class)->collect();
+
+    expect(today($app)->messages)->toBe(4)
+        ->and($app->fresh()->meta)->not->toHaveKey('last_messages');
 });
 
 test('a held lock skips the app', function () {
@@ -306,6 +322,6 @@ test('deleting an app bills the stretch since the last run first', function () {
     app(EdgeRealtimeApps::class)->destroy($app);
 
     $row = EdgeRealtimeUsage::query()->where('realtime_app_id', $app->id)->sole();
-    expect($row->connection_seconds)->toBe(300)->and($row->messages)->toBe(10)
+    expect($row->connection_seconds)->toBe(300)->and($row->messages)->toBe(2)
         ->and(EdgeRealtimeApp::query()->count())->toBe(0);
 });

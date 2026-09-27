@@ -18,7 +18,9 @@ use App\Modules\Billing\Services\StripeBillingProvisioner;
 use App\Modules\Billing\Support\UnitCosts;
 use App\Modules\Billing\Support\UsagePrice;
 use App\Modules\Edge\Actions\CreateEdgeSite;
+use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Edge\Support\EdgeContainerSettings;
+use App\Modules\Edge\Support\EdgeDplyDatabase;
 use App\Modules\Edge\Support\EdgeValkey;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Stripe\Price;
@@ -240,6 +242,27 @@ test('every offered size and repriced meter is priced at least 30% over its esti
     foreach (['1', '2', '4'] as $cu) {
         expect($meters)->toContain("Database compute {$cu} CU");
     }
+});
+
+test('every large database size, alone on its node and running all month, bills at least 1.3x that node', function () {
+    $do = config('dply.unit_costs.digitalocean');
+    foreach (EdgeDplyDatabase::LARGE_SIZES as $size) {
+        $node = $do['pools'][$do['database_pools'][$size]]['monthly'];
+        $month = UsagePrice::databaseRate($size) * 3600 * 720 * (float) EdgeAppDatabase::POSTGRES_SIZES[$size]['cu'] / 100_000;
+        expect($month)->toBeGreaterThanOrEqual($node * config('dply.unit_costs.min_markup'), "{$size} CU");
+    }
+    // 1 CU carries its own price; the ladder shows it.
+    expect(UsagePrice::databaseRate('1') * 3600 / 100_000)->toEqualWithDelta(0.18, 1e-9)
+        ->and(UsagePrice::databaseBilledCu('1'))->toEqualWithDelta(1.5, 1e-9)
+        ->and(UsagePrice::databaseBilledCu('2'))->toEqualWithDelta(2.0, 1e-9);
+});
+
+test('large database sizes cannot sleep', function () {
+    foreach (EdgeDplyDatabase::LARGE_SIZES as $size) {
+        expect(EdgeDplyDatabase::alwaysOn($size))->toBeTrue($size);
+    }
+    expect(EdgeDplyDatabase::alwaysOn('0.25'))->toBeFalse()
+        ->and(EdgeDplyDatabase::alwaysOn('0.5'))->toBeFalse();
 });
 
 test('dply:billing:unit-costs prints unit costs against prices and the fixed monthly total', function () {

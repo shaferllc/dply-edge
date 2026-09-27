@@ -213,6 +213,9 @@ final class EdgeAppDatabase
         $size = EdgeDplyDatabase::size($size);
         $disk = EdgeDplyDatabase::disk($disk);
         [$size, $suspend] = EdgeTrialLimits::database($site, $size, $suspend);
+        if (EdgeDplyDatabase::alwaysOn($size)) {
+            $suspend = -1; // large sizes never sleep
+        }
         $created = EdgeDplyDatabase::provision($site, $size, $suspend, $disk, $engine);
         self::storeCredentials($site, $engine, $created);
         self::remember($site, [
@@ -244,6 +247,9 @@ final class EdgeAppDatabase
         $size = EdgeDplyDatabase::size($size, (string) ($current['size'] ?? ''));
         $disk = EdgeDplyDatabase::disk($disk);
         [$size, $suspend] = EdgeTrialLimits::database($site, $size, $suspend);
+        if (EdgeDplyDatabase::alwaysOn($size)) {
+            $suspend = -1; // large sizes never sleep
+        }
         $storedDisk = EdgeDplyDatabase::disk((int) ($current['disk_gb'] ?? 0));
         if ($disk < $storedDisk) {
             return sprintf('A database disk only grows. Pick %d GB or more.', $storedDisk);

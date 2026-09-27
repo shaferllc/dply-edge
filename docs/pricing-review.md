@@ -79,7 +79,7 @@ CF sources: Workers <https://developers.cloudflare.com/workers/platform/pricing/
 | Site storage (`r2_storage_…`) | peak published build output; per GB-month | hourly + next day | $0.015 | CF R2 | $0.018 | **$0.0195** | $0.021 |
 | Site storage writes (`r2_class_a_…`) | Class A ops (publishing); per M | hourly + next day | $4.50 | CF R2 | $5.40 | **$5.85** | $6.30 |
 | Site storage reads (`r2_class_b_…`) | Class B ops (cache misses); per M | hourly + next day | $0.36 | CF R2 | $0.432 | **$0.468** | $0.504 |
-| Build time (`build_…_per_minute`) | build container time, per second; per minute | on build finish (`EdgeDeployment.build_seconds`) | real ≈ $0.00185 (§9) | **fixed price** (§9) | $0.005 | **$0.005** | $0.005 |
+| Build time (`build_…_per_minute`) | build container time, per second; per minute | on build finish (`EdgeDeployment.build_seconds`) | real ≈ $0.0037 (§9) | **fixed price** (§9) | $0.005 | **$0.005** | $0.005 |
 | vCPU (`container_vcpu_…`) | **active** CPU seconds (`cpuTimeSec`); per vCPU-s | container analytics, hourly + next day | $0.000020 | CF Containers | $0.000024 | **$0.000026** | $0.000028 |
 | Memory (`container_memory_…`) | **provisioned** GiB × seconds awake | same | $0.0000025 | CF Containers | $0.000003 | **$0.00000325** | $0.0000035 |
 | Disk (`container_disk_…`) | provisioned GB × seconds awake | same | $0.00000007 | CF Containers | $0.000000084 | **$0.000000091** | $0.000000098 |
@@ -94,7 +94,7 @@ CF sources: Workers <https://developers.cloudflare.com/workers/platform/pricing/
 | KV writes/deletes/lists | per M | same | $5.00 | CF | $6.00 | **$6.50** | $7.00 |
 | KV storage | per GB-month | same | $0.50 | CF | $0.60 | **$0.65** | $0.70 |
 | Realtime connection-minutes | open socket-minutes; per M | hourly | real ≈ $0.15 at a 3-minute average connection (§9) | **fixed price** (§9) | $0.25 | **$0.25** | $0.25 |
-| Realtime messages | published in + delivered out; per M | hourly | real ≈ $0.466 per publish nobody receives, $0 per delivery (§9) | **fixed price** (§9) | $0.62 | **$0.62** | $0.62 |
+| Realtime messages | publishes only (deliveries free); per M | hourly | real ≈ $0.466 per publish nobody receives, $0 per delivery (§9) | **fixed price** (§9) | $0.62 | **$0.62** | $0.62 |
 | Valkey (per class, per second awake, monthly cap) | awake seconds × class rate, capped per app | hourly | §9 | **fixed price** in `EdgeValkey::CLASSES` (§9) | same | §4 | same |
 | Workers CPU | per M CPU-ms | hourly + next day | $0.02 | CF | $0.024 | **$0.026** | $0.028 |
 | DO requests | per M | same | $0.15 | CF | $0.18 | **$0.195** | $0.21 |
@@ -144,7 +144,7 @@ Database and Valkey columns are the §9 fixed prices, and their cost columns are
 
 ## 5. Worked examples at 30%
 
-These examples use the assumptions below. Reads from site storage are **cache misses** (10% of requests). Container CPU is billed on active use (25% for the web app, 50% for the worker). Realtime messages are counted as delivered frames. "Cost" is config cost. "True-bandwidth GM" re-runs gross margin with bandwidth at Cloudflare's real $0.
+These examples use the assumptions below. Reads from site storage are **cache misses** (10% of requests). Container CPU is billed on active use (25% for the web app, 50% for the worker). Realtime messages are publishes only; deliveries are free. "Cost" is config cost. "True-bandwidth GM" re-runs gross margin with bandwidth at Cloudflare's real $0.
 
 ### Summary
 
@@ -248,19 +248,19 @@ Pro's cap of 20 custom domains forces this customer onto Team. 1.2M requests, 40
 
 ### 6. Realtime-heavy app (Pro, at Pro's 1,000-connection cap)
 
-1,000 sockets open 24/7, with a broadcast to all of them every 30 s (86.4M delivered messages). 3M HTTP requests, 30 GB.
+1,000 sockets open 24/7, with a broadcast to all of them every 30 s (86.4k publishes, 86.4M deliveries). 3M HTTP requests, 30 GB.
 
 | Line | Qty | Cost | Price |
 |---|---|---|---|
 | Requests | 3M | $0.90 | $1.17 |
 | Bandwidth | 30 GB | $1.38 | $1.80 |
 | Connection-minutes | 43.2M | ~$0.01 (≈30k reconnects × $0.45/M) | $10.80 |
-| Messages | 86.4M (86.4k published, 86.4M delivered) | ~$0.04 (publishes × $0.466/M; deliveries free) | $53.57 |
+| Messages | 86.4k publishes (86.4M deliveries, free) | ~$0.04 (publishes × $0.466/M) | $0.05 |
 | Workers CPU | 15M ms | $0.30 | $0.39 |
-| **Usage** | | **$2.64** | **$67.73** |
-| $20 − $20 + $67.73 | | | **Bill $67.73** (GM $65.09) |
+| **Usage** | | **$2.64** | **$14.21** |
+| $20 − $14.21 + $14.21 | | | **Bill $20.00** (GM $17.36) |
 
-Updated after §9 (was $77.30 with $56.88 of made-up realtime "cost"). A broadcast app pays mostly for deliveries, which cost dply nothing; the $0.62/M message price is set against the worst case (a publish nobody receives, $0.466/M real). Metering published and delivered messages separately would let deliveries be much cheaper (§9, follow-ups). Growth past 1,000 sockets per app forces Team.
+Updated 2026-09-27: only publishes bill and deliveries are free (ruling r-ez5s8c56zn0ry3sw); this bill was $67.73, almost all of it deliveries that cost dply nothing. The $0.62/M price is set against a publish nobody receives ($0.466/M real), so every publish clears 1.3× its cost (sending to sockets adds only milliseconds of Durable Object time). Connection-minutes now carry most of a broadcast app's bill. Growth past 1,000 sockets per app forces Team.
 
 ---
 
@@ -398,7 +398,7 @@ All competitor figures below are **estimates** for the same workload.
 - Cap container months, or reprice memory (item 2)?
 - ~~Is bandwidth a fixed $0.06 regardless of margin (item 3)?~~ Answered by r-jnv0r3qf1xk49kmc and now enforced in code.
 - How should AI and Browser be metered or capped (item 4)?
-- ~~Reprice realtime toward real cost (item 5)?~~ Done (§9). Open: meter published and delivered messages separately so fan-out is cheap.
+- ~~Reprice realtime toward real cost (item 5)?~~ Done (§9). Done 2026-09-27: only publishes bill, deliveries are free (ruling r-ez5s8c56zn0ry3sw).
 - Do we grandfather old Stripe prices (item 11)? The code now supports both (list the old id to grandfather), but decide before any price change.
 
 ---
@@ -415,8 +415,8 @@ A test (`PricingModelTest`: *every offered size and repriced meter is priced at 
 
 ### What the infrastructure is (from the repo)
 
-- **Databases and Valkey:** one DOKS cluster `dply-pods` in nyc3 (`deploy/valkey/terraform`): HA control plane; pool `flex` (cache) 2–3 × s-2vcpu-4gb; pool `db` 2–4 × s-2vcpu-4gb, tainted for databases; pool `pro-16` 0–1 × m-2vcpu-16gb for Pro Valkey; `pro-64` (m-8vcpu-64gb) not created. Gateway behind one DO load balancer; basic registry. An awake database pod **requests its full memory** and 250m CPU per GB (`database.go`); a Valkey pod requests its `maxmemory` (`kube.go`). Asleep, a database drops to 16 MiB and a flex Valkey pod is deleted, so awake-seconds are what uses capacity.
-- **Builds:** `docker run` on the control-plane worker, `HORIZON_BUILD_MAX_PROCESSES` = 4 at a time (`docs/dply-production-runtime.md`, `config/horizon.php`). Worker size from `deploy/DO_MIGRATION.md` (s-4vcpu-8gb).
+- **Databases and Valkey:** one DOKS cluster `dply-pods` in nyc3 (`deploy/valkey/terraform`): HA control plane; pool `flex` (cache) 2–3 × s-2vcpu-4gb; pool `db` 2–4 × s-2vcpu-4gb, tainted for databases; pool `pro-16` 0–1 × m-2vcpu-16gb for Pro Valkey; `pro-64` (m-8vcpu-64gb) not created; pools `db-large` 0–2 × s-8vcpu-16gb (1 and 2 CU databases) and `db-xl` 0–2 × m-4vcpu-32gb (4 CU), added for ruling r-s56bk4pq4cnv8dt4, not applied yet. Gateway behind one DO load balancer; basic registry. An awake database pod **requests its full memory** and 250m CPU per GB (`database.go`); a Valkey pod requests its `maxmemory` (`kube.go`). Asleep, a database drops to 16 MiB and a flex Valkey pod is deleted, so awake-seconds are what uses capacity.
+- **Builds:** the DOKS `builders` pool (`deploy/builders/`, pool in `deploy/valkey/terraform`): one builder pod per s-4vcpu-8gb node, 2 builds at a time (`HORIZON_BUILD_MAX_PROCESSES` in `deploy/builders/k8s/builder.yaml`), KEDA scaling pods on the build queue from 1 to 4 and the cluster autoscaler adding nodes to match. Updated 2026-09-27: it was `docker run` on the control-plane worker, 4 at a time.
 - **Realtime:** `packages/realtime-worker`, one hibernating Durable Object per app. Pings are auto-answered at the edge; usage flushes on a storage alarm (every 5 s at most), so an idle hub does not bill duration.
 
 ### Prices used (fetched 2026-09-27)
@@ -424,9 +424,10 @@ A test (`PricingModelTest`: *every offered size and repriced meter is priced at 
 | Input | Value | Source |
 |---|---|---|
 | s-2vcpu-4gb / s-4vcpu-8gb droplet or DOKS node | $24 / $48 per month | digitalocean.com/pricing/droplets |
-| m-2vcpu-16gb / m-8vcpu-64gb node | $84 / $336 | digitalocean.com/pricing/kubernetes; terraform comment |
+| m-2vcpu-16gb / m-4vcpu-32gb / m-8vcpu-64gb node | $84 / $168 / $336 | digitalocean.com/pricing/droplets (memory-optimized; DOKS nodes bill at droplet price) |
+| s-8vcpu-16gb node | $96 | digitalocean.com/pricing/droplets |
 | DOKS HA control plane / load balancer / registry | $40 / $12 / $5 | digitalocean.com/pricing/kubernetes; registry basic tier (unverified, $5) |
-| Allocatable memory, 4 / 16 / 64 GB node | 2.5 / 13 / 58 GiB | docs.digitalocean.com/products/kubernetes/details/limits |
+| Allocatable memory, 4 / 8 / 16 / 32 / 64 GB node | 2.5 / 6 / 13 / 28 / 58 GiB | docs.digitalocean.com/products/kubernetes/details/limits |
 | Block storage / volume snapshots | $0.10 / $0.06 per GB-month | digitalocean.com/pricing/volumes |
 | Workers for Platforms | $25/mo: 20M requests, 60M CPU-ms, 1,000 scripts; $0.02 per extra script | developers.cloudflare.com/cloudflare-for-platforms/workers-for-platforms/platform/pricing |
 | Durable Objects | $0.15/M requests (incoming WS messages 20:1, alarms count); $12.50/M GB-s; outgoing messages free; no duration while hibernation-eligible | developers.cloudflare.com/durable-objects/platform/pricing |
@@ -434,11 +435,14 @@ A test (`PricingModelTest`: *every offered size and repriced meter is priced at 
 
 ### Real cost vs price
 
-Assumptions (all in `unit_costs`, change them there): 70% of the cache and db pools' allocatable memory is filled by paying tenants; Pro Valkey pays for the whole node it forces up (the pool scales from 0, max 1 node); builds keep 15% of the 4 slots busy; a publish runs 10 ms at 128 MB in the DO; an average realtime connection lasts 3 minutes.
+Assumptions (all in `unit_costs`, change them there): 70% of the cache and db pools' allocatable memory is filled by paying tenants; Pro Valkey pays for the whole node it forces up (the pool scales from 0, max 1 node); builds keep 15% of the minimum node's 2 slots busy; a publish runs 10 ms at 128 MB in the DO; an average realtime connection lasts 3 minutes.
 
 | Meter | Unit | Real cost (est.) | Old price @30% | **New price** | Markup | Competitors |
 |---|---|---|---|---|---|---|
-| Database compute | per CU-hour | $0.076 ($24 ÷ 2.5 GiB ÷ 70% × 4 GiB ÷ 720 h) | $0.138 | **$0.12** | 58% | Laravel Cloud Postgres $0.135/CU-h (as reported) |
+| Database compute 0.25, 0.5 CU (`db`) | per CU-hour | $0.076 ($24 ÷ 2.5 GiB ÷ 70% × 4 GiB ÷ 720 h) | $0.138 | **$0.12** | 58% | Laravel Cloud Postgres $0.135/CU-h (as reported) |
+| Database compute 1 CU (`db-large`, always on) | per CU-hour | $0.059 ($96 ÷ 13 GiB ÷ 70% × 4 GiB ÷ 720 h); alone: $96/mo | — | **$0.18** | 207% shared, 35% alone | same |
+| Database compute 2 CU (`db-large`, always on) | per CU-hour | $0.059; alone: $96/mo | — | **$0.12** | 105% shared, 80% alone | same |
+| Database compute 4 CU (`db-xl`, always on) | per CU-hour | $0.058 ($168 per awake 4 CU: one fits a node, ÷ 4 ÷ 720 h) | — | **$0.12** | 106% | same |
 | Database storage | per GB-month | $0.12 (volume $0.10 + dump copy in Spaces ~$0.02) | $0.455 | **$0.20** | 67% | Laravel Cloud $0.15 + $0.15 PITR (as reported); Neon $0.35 |
 | Valkey flex | per GiB-month | $13.71 ($24 ÷ 2.5 GiB ÷ 70%) | $26.00 (1 GB) | **$18.00** | 31% | Upstash fixed 1 GB $20 |
 | Valkey 250 MB | cap / month | $3.35 | $6.50 | **$4.50** | 34% | Laravel Cloud Flex $1.75 (as reported); Upstash fixed $10 |
@@ -447,7 +451,7 @@ Assumptions (all in `unit_costs`, change them there): 70% of the cache and db po
 | Valkey Pro 5 GB | cap | $85.00 (whole m-2vcpu-16gb + AOF volume) | $83.42 | **$115.00** | 35% | Laravel Cloud Pro $105; Upstash $100 |
 | Valkey Pro 12 GB | cap | $86.40 (same node) | $195.00 | **$150.00** | 74% | Laravel Cloud Pro $252 |
 | Valkey 25 / 50 GB (not offered) | cap | $341 / $346 (whole m-8vcpu-64gb) | $270.83 / $541.67 | **$450 / $600** | 32% / 73% | Laravel Cloud $525 / $1,050 |
-| Build time | per minute | $0.00185 ($48 ÷ (4 slots × 43,200 min × 15%)) | $0.0065 | **$0.005** | 170% | Render $0.005 (unverified); Laravel Cloud, Netlify include builds in plan/credits |
+| Build time | per minute | $0.0037 ($48 ÷ (2 slots × 43,200 min × 15%)) | $0.0065 | **$0.005** | 35% | Render $0.005 (unverified); Laravel Cloud, Netlify include builds in plan/credits |
 | Realtime messages | per million | $0.466 per publish nobody receives (Worker $0.30 + DO $0.15 + 10 ms duration); deliveries $0 | $0.585 | **$0.62** | 33% worst case, 166% at 1 delivery per publish | Ably $2.50/M (4.0× ours); Pusher Pro $99 for 2,000 connections + 4M/day |
 | Realtime connection-minutes | per million | $0.15 (upgrade: Worker + DO request $0.45/M, over 3 min) | $0.542 | **$0.25** | 67% | Ably $1.00/M (4× ours) |
 
@@ -455,14 +459,36 @@ Why these numbers:
 
 - **Databases.** Memory is the binding resource (a CU is 4 GiB against 1 vCPU, and a 4 GB node has 2.5 GiB for pods), so the cost is per GiB of allocatable memory. $0.12/CU-h keeps 58% over that cost and stays under Laravel Cloud's $0.135. A 0.25 CU database on all month is $21.60 (was $24.80). Storage drops to $0.20: the old $0.455 was 4× the DO volume price.
 - **Valkey.** One price per GiB-month of memory for the sleeping (flex) sizes, $18, which is the cache pool's cost at 70% packing plus 31%; caps rounded to $4.50 / $18 / $45. The Pro sizes are priced on the node the first tenant brings up, not on a share, because `pro-16` scales from zero and holds at most one node: a $60 Pro 5 GB would lose $25 a month until a second tenant arrived. That is why Pro 5 GB went **up** ($83.42 → $115) while Pro 12 GB went down ($195 → $150). **dply cannot match Laravel Cloud's flex Valkey** ($1.75 for 250 MB, a resold Upstash product) at 1.3× on 4 GB DOKS nodes that give pods 62% of their memory. The levers are bigger cache nodes (more allocatable per dollar; the 8 GB figure was not fetched) or requesting less than `maxmemory` per pod (overcommit).
-- **Build time.** Real cost depends on how busy the build worker is; at 15% it is under 0.2¢ a minute. $0.005 is Render's published rate (unverified) and 23% under the old price. The build host is also a fixed cost (§10), whatever the utilisation.
-- **Realtime messages.** The review said real cost was "near $0". That holds for **deliveries** (outgoing frames are free) but not for **publishes**: each one is a Worker request and a DO request, about $0.466/M. The meter counts published and delivered together, so the price has to cover a publish that nobody receives (a broadcast to an empty private channel): $0.62 is 1.33× that and still 4× under Ably's $2.50. A fan-out app (shape 6) pays almost entirely for free deliveries, so its markup is huge. **Follow-up:** meter publishes and deliveries separately (for example $0.62/M published, $0.05/M delivered).
+- **Build time.** Real cost depends on how busy the minimum builder node is; at 15% of its 2 slots it is about 0.37¢ a minute (35% under the price, just above the 1.3 floor). $0.005 is Render's published rate (unverified) and 23% under the old price. The minimum node is also a fixed cost (§10), whatever the utilisation. Extra nodes only run while builds queue, so they are variable: a busy node (2 slots, 100%) costs $48 ÷ 86,400 min ≈ $0.00056 a build-minute, well under the price. (Before the builder pool: 4 slots on the control-plane worker, $0.00185.)
+- **Realtime messages.** The review said real cost was "near $0". That holds for **deliveries** (outgoing frames are free) but not for **publishes**: each one is a Worker request and a DO request, about $0.466/M. The price has to cover a publish that nobody receives (a broadcast to an empty private channel): $0.62 is 1.33× that and still 4× under Ably's $2.50. **Fixed 2026-09-27:** the meter now counts publishes only and deliveries are free (ruling r-ez5s8c56zn0ry3sw), so a fan-out app (shape 6) no longer pays for free deliveries.
 - **Realtime connection-minutes.** An idle hibernated socket costs nothing; a connection costs its upgrade. $0.25/M covers it at 1.3× for connections that average 2.3 minutes or more. Multi-page apps that reconnect on every page load for a few seconds are the losing case. Its absolute size is small ($0.45 per million page loads).
 - **Not in the unit price:** the alarm that flushes realtime usage (one DO request + two row writes at most every 5 s per busy app, at most ~$1.11 per app per month, mostly inside Cloudflare's included 1M requests / 50M rows); Cloudflare's included allowances (10M Worker requests, 1M DO requests), which make the real marginal cost lower still at dply's size.
 
-### Infrastructure problem found
+### Larger databases (1, 2, 4 CU)
 
-**Databases of 1, 2 or 4 CU cannot be scheduled.** An awake database requests its full memory (4, 8 or 16 GiB), and the `db` pool's s-2vcpu-4gb nodes have 2.5 GiB allocatable. Only 0.25 CU (1 GiB) and 0.5 CU (2 GiB, one per node) fit. The larger sizes are on sale (`EdgeAppDatabase::POSTGRES_SIZES`) but would sit unschedulable. Fix in infrastructure (a larger db node pool, or hide the sizes until it exists, like Valkey's `NOT_OFFERED`); their cost per CU on bigger nodes needs that node's allocatable figure, which was not fetched. Not changed in code here.
+**Was:** databases of 1, 2 or 4 CU could not be scheduled. An awake database requests its full memory (4, 8 or 16 GiB), and the `db` pool's s-2vcpu-4gb nodes have 2.5 GiB allocatable, so only 0.25 and 0.5 CU fit; the bigger sizes were hidden (`EdgeDplyDatabase::OFFERED_SIZES`).
+
+**Now (ruling r-s56bk4pq4cnv8dt4):** two pools in `deploy/valkey/terraform`, both scaling from zero and tainted `dply.dev/db` like the `db` pool. The gateway (`placement.go` `databasePool`) sends a database over 2 GiB to `db-large` and one over 8 GiB to `db-xl`; a database resized across a pool boundary is recreated on the right pool at its next wake. The sizes are sold once `DPLY_DATABASE_LARGE_SIZES=true` (`dply.databases.large_sizes_enabled`, `EdgeDplyDatabase::LARGE_SIZES`); the owner applies the terraform first (`docs/launch-checklist.md`).
+
+| Pool | Node | $/month | Allocatable | Holds awake | Sizes |
+|---|---|---|---|---|---|
+| `db-large` | s-8vcpu-16gb | $96 | 13 GiB, 8 vCPU | three 1 CU, or one 2 CU + one 1 CU | 1, 2 CU |
+| `db-xl` | m-4vcpu-32gb | $168 | 28 GiB, 4 vCPU | one 4 CU | 4 CU |
+
+Why these nodes: an awake database also requests up to one core (250m per GB, capped at 1000m). A memory-optimized m-2vcpu-16gb ($84) has about one spare core (estimate: DOKS does not publish allocatable CPU; ~1.9 cores less DaemonSet requests; confirm with `kubectl describe node` after apply), so it would hold **one** awake 1 CU database and cost $84 per 1 CU ($0.117/CU-h, under 1.3× at $0.12). The 8-vCPU basic node costs $12 more and lets memory bind again. 4 CU (16 GiB) fits neither 16 GB node (13 GiB allocatable), so it gets the 32 GB one; only one awake 4 CU fits (16 of 28 GiB), so its cost is priced as a whole node per awake 4 CU (`packing` 16/28). 2 and 4 CU get one guaranteed core and burst above it (no CPU limit).
+
+**Price and the guarantee (ruling r-gd2vgb7jd1b4vqtf): large databases never lose money.** Two rules together:
+
+1. **1, 2 and 4 CU always stay on.** The sleep choice is not offered (the sheet disables it; `EdgeAppDatabase` forces `suspend = -1` for them whatever is asked; the gateway's `staysOn` never idle-sleeps a database over 2 GiB). A sleeping large database would hold a whole node while billing almost nothing; an awake one bills every hour.
+2. **Each size, alone on the node it brings up, pays ≥1.3× that node.** 1 CU at the flat $0.12 would bill $86.40 on a $96 node, so it has its own price: $96 × 1.3 ÷ 720 h = $0.1733, rounded to **$0.18/CU-h** (`database_compute_price_by_size`). 2 and 4 CU clear it at $0.12. The collector records a priced size's compute units scaled by its price (1 CU bills as 1.5 CU-seconds per second), so every bill, estimate and the size picker go through `UsagePrice::databaseBilledCu()`.
+
+| Size | Pool / node | Node $/month | Always-on bill | Alone on the node | Shared (per CU-h cost → markup) |
+|---|---|---|---|---|---|
+| 1 CU | `db-large` s-8vcpu-16gb | $96 | **$129.60** ($0.18/CU-h) | 1.35× | $0.059 → +207% |
+| 2 CU | `db-large` s-8vcpu-16gb | $96 | **$172.80** ($0.12/CU-h) | 1.80× | $0.059 → +105% |
+| 4 CU | `db-xl` m-4vcpu-32gb | $168 | **$345.60** ($0.12/CU-h) | 2.06× | $0.058 → +106% |
+
+`PricingModelTest` checks both: every large size alone on its node running all month bills ≥1.3× the node, and large sizes cannot sleep. `dply:billing:unit-costs` prints a "Database N CU alone" row per large size. A second tenant on the same node only adds margin. The first large database in a region takes a few minutes to start while its node boots.
 
 ## 10. Break-even
 
@@ -475,12 +501,14 @@ Why these numbers:
 | DOKS HA control plane | 40.00 |
 | DOKS load balancer (gateway) | 12.00 |
 | Container registry | 5.00 |
-| Build host (control-plane worker, s-4vcpu-8gb) | 48.00 |
+| Builder pool minimum (1 × s-4vcpu-8gb; extra nodes are variable, see §9 Build time) | 48.00 |
 | Control plane: web s-2vcpu-4gb / Postgres s-4vcpu-8gb / Redis s-2vcpu-4gb | 96.00 |
 | Control plane: weekly backups (+20%) / Spaces | 24.20 |
 | Cloudflare Workers Paid / Workers for Platforms | 30.00 |
 | Email, domains (no error tracker installed; Sentry Team would add $26) | 10.00 |
 | **Total** | **$361.20** |
+
+**When the large database pools have a node:** `db-large` adds $96 and `db-xl` $168 a month (`dply:billing:unit-costs` lists them only when `nodes` > 0; they scale from zero, so they are not in the total above). With both up the total is **$625.20**; see the break-even row below.
 
 Excluded: the owner's time and support. The minimum node pools are counted here as fixed; the §9 unit costs for databases and Valkey count that same capacity again, so the contributions below are conservative (the break-even is an upper bound).
 
@@ -496,7 +524,7 @@ Contribution = bill − real variable cost − Stripe (3.6% + $0.30). Real varia
 | 4a Laravel always-on | Pro | $91.10 | $65.73 | $3.58 | **$21.79** |
 | 4b Laravel sleeping | Pro | $27.71 | $19.07 | $1.30 | **$7.34** |
 | 5 Agency, 40 sites | Team | $49.00 | $1.86 (+ up to $4 of custom hostnames past Cloudflare's free 100) | $2.06 | **$45.08** |
-| 6 Realtime 1,000 sockets | Pro | $67.73 | $1.26 | $2.74 | **$63.73** |
+| 6 Realtime 1,000 sockets | Pro | $20.00 | $1.26 | $1.02 | **$17.72** |
 | Uses the whole credit on pass-through meters | Starter / Pro / Team | $5 / $20 / $49 | $3.85 / $15.38 / $37.69 | $0.48 / $1.02 / $2.06 | **$0.67 / $3.60 / $9.25** |
 | Trial that never converts | — | $0 | up to $3.85 (the $5 cap at cost); typically well under $1 | — | **−$0.50 typical, −$3.85 worst** |
 
@@ -511,6 +539,8 @@ Contribution = bill − real variable cost − Stripe (3.6% + $0.30). Real varia
 | **50% Starter (shapes 1–2), 35% light Pro (3, 4b), 10% Pro always-on container (4a), 5% Team (5)** | **$9.80** | **37** |
 | Same mix, 3 unconverted trials per customer at $0.50 each | $8.30 | 44 |
 | All Starter using the whole credit | $0.67 | 539 |
+| Mix above, `db-large` node up ($457.20) | $9.80 | 47 before the large database's own contribution (which covers the node) |
+| Mix above, both large pools up ($625.20) | $9.80 | 64 before the large databases' own contribution; each always-on large database already covers its node (1 CU +$33.60, 2 CU +$76.80, 4 CU +$177.60 a month over the node) |
 
 ### What loses money, and what was done
 
@@ -520,7 +550,8 @@ Contribution = bill − real variable cost − Stripe (3.6% + $0.30). Real varia
 | First Pro Valkey 5 GB tenant on an empty `pro-16` node, priced as a share | ~$25/month | **Fixed**: priced on the whole node ($115) |
 | Valkey 25/50 GB priced below the $336 node they force | $70/month on 25 GB | **Fixed** ($450/$600) and still not offered |
 | Realtime publishes nobody receives, at the old $0.585 | no loss, but only 1.26× cost | **Fixed**: $0.62 (1.33×) |
-| Databases of 1 CU and up can't be scheduled (4 GB db nodes) | not billable, not usable | **Flagged**: infrastructure (§9) |
+| Databases of 1 CU and up can't be scheduled (4 GB db nodes) | not billable, not usable | **Fixed** (terraform `db-large` / `db-xl`, gateway placement); sold after the owner applies it and sets `DPLY_DATABASE_LARGE_SIZES` |
+| First large database on an empty pool | would have been up to $96 / $168 a month asleep; 1 CU always on −$9.60 | **Fixed** (§9): large sizes always on; 1 CU $0.18/CU-h; every size ≥1.3× its node alone |
 | Cloudflare for SaaS custom hostnames: $0.10/month each past 100 per account, unmetered | Team allows 100 per org: up to $10/month on a $49 plan | **Flagged**: fine at today's scale; meter or lower Team's cap once the account passes 100 hostnames |
 | Workers for Platforms scripts: $0.02/month each past 1,000, unmetered | 1,000-app Team fair-use cap: up to $20/month | **Flagged**: same |
 | Connections shorter than ~2.3 minutes on average | cents per million page loads | **Accepted** |

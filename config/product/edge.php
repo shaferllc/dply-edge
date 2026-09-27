@@ -469,4 +469,24 @@ return [
         'block_open_comments' => filter_var(env('DPLY_EDGE_PREVIEW_REVIEW_BLOCK_OPEN_COMMENTS', true), FILTER_VALIDATE_BOOLEAN),
     ],
 
+    /*
+    | dply hosts itself: the control plane is a container app on its own
+    | platform (docs/self-hosting-runbook.md). dply:self:register makes it a
+    | normal Site; dply:self:deploy is the break-glass deploy that works while
+    | the control plane is down. The site id is also kept in the R2 state
+    | object, so setting it here only overrides that.
+    */
+    'self' => [
+        'site_id' => env('DPLY_SELF_SITE_ID'),
+        'organization_id' => env('DPLY_SELF_ORGANIZATION_ID'),
+        'owner_email' => env('DPLY_SELF_OWNER_EMAIL'),
+        'name' => env('DPLY_SELF_NAME', 'dply'),
+        'repo' => env('DPLY_SELF_REPO', 'shaferllc/dply-edge'),
+        'branch' => env('DPLY_SELF_BRANCH', 'main'),
+        'hostname' => env('DPLY_SELF_HOSTNAME', 'edge.dply.io'),
+        'health_path' => env('DPLY_SELF_HEALTH_PATH', '/up'),
+        // Deploy history + the last Worker project, in the edge R2 bucket.
+        'state_key' => env('DPLY_SELF_STATE_KEY', '_dply-self/state.json'),
+    ],
+
 ];

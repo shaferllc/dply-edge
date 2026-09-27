@@ -17,6 +17,7 @@ use App\Modules\Edge\Support\EdgeRepoRoot;
 use App\Modules\Edge\Support\FakeEdgeProvision;
 use App\Modules\SourceControl\Services\GitCloneAuth;
 use App\Services\DeployContract\DeployContractPolicyLoader;
+use App\Support\DplyRuntime;
 use Illuminate\Contracts\Process\ProcessResult;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
@@ -116,7 +117,9 @@ class EdgeBuildRunner
 
         $existingMeta = is_array($deployment->meta) ? $deployment->meta : [];
         $deployment->update([
-            'meta' => array_merge($existingMeta, ['local_build_log_path' => $buildLog]),
+            // build_queue: this builder's own lane, so a cancel's `docker kill`
+            // reaches the host running the build (DplyRuntime::hostQueue).
+            'meta' => array_merge($existingMeta, array_filter(['local_build_log_path' => $buildLog, 'build_queue' => DplyRuntime::hostQueue()])),
         ]);
 
         try {

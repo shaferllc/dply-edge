@@ -152,7 +152,7 @@ class Settings extends Component
         $ext = $this->extensionFor($this->org_icon_upload->getMimeType());
         $path = 'org-logos/'.$this->organization->id.'-'.Str::lower(Str::random(8)).'.'.$ext;
 
-        Storage::disk('site_assets')->put($path, file_get_contents($this->org_icon_upload->getRealPath()));
+        Storage::disk('site_assets')->put($path, $this->org_icon_upload->get()); // get(): the upload may be staged on R2
         $this->organization->forceFill(['icon_path' => $path])->save();
 
         if (is_string($old) && $old !== '' && $old !== $path) {

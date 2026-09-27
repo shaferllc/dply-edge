@@ -7,6 +7,7 @@ namespace App\Modules\Edge\Services;
 use App\Models\EdgePostgresUsage;
 use App\Models\EdgeRedisUsage;
 use App\Models\Site;
+use App\Modules\Billing\Support\UsagePrice;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeDplyDatabase;
 use App\Modules\Edge\Support\EdgeValkey;
@@ -179,7 +180,9 @@ class EdgeValkeyUsageCollector
         $last = (int) ($database['usage_counter'] ?? 0);
         $awake = $total === null ? 0 : ($total >= $last ? $total - $last : $total);
         // The stored size, offered today or not: it is what the pod runs at.
-        $cu = (EdgeAppDatabase::POSTGRES_SIZES[(string) ($database['size'] ?? '')] ?? EdgeAppDatabase::POSTGRES_SIZES[EdgeDplyDatabase::OFFERED_SIZES[0]])['cu'];
+        // Billed compute units: a size with its own price scales them.
+        $size = (string) ($database['size'] ?? '');
+        $cu = UsagePrice::databaseBilledCu(array_key_exists($size, EdgeAppDatabase::POSTGRES_SIZES) ? $size : EdgeDplyDatabase::OFFERED_SIZES[0]);
         $since = (int) ($database['storage_at'] ?? $now);
         $bytes = EdgeDplyDatabase::disk((int) ($database['disk_gb'] ?? 0)) * 1024 ** 3;
         $storageByteHours = (int) round($bytes * max(0, $now - $since) / 3600);

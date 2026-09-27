@@ -9,6 +9,7 @@ use App\Modules\Edge\Services\RuntimeDetection\RepositoryRuntimePlan;
 use App\Modules\Edge\Services\RuntimeDetection\RepositoryRuntimePreview;
 use App\Modules\Edge\Support\EdgeSitePackageHeuristics;
 use App\Modules\SourceControl\Services\GitCloneAuth;
+use App\Support\DplyRuntime;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -43,7 +44,10 @@ class DetectRepositoryRuntimeJob implements ShouldQueue
         public string $branch,
         public ?string $userId = null,
         public string $accountId = '',
-    ) {}
+    ) {
+        // git clone: needs the builder host, never a container worker.
+        $this->onQueue(DplyRuntime::BUILDER_QUEUE);
+    }
 
     public function handle(RepositoryRuntimePreview $preview): void
     {

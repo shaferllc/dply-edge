@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\EdgeSiteDashboardTest;
 
 use App\Enums\SiteType;
+use App\Livewire\Sites\Edge\Workspace\Danger;
 use App\Livewire\Sites\Edge\Workspace\Previews;
 use App\Livewire\Sites\EdgeSettings;
 use App\Models\EdgeDeployment;
@@ -15,6 +16,7 @@ use App\Models\User;
 use App\Modules\Edge\Jobs\BuildEdgeSiteJob;
 use App\Modules\Edge\Jobs\TeardownEdgeSiteJob;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Queue;
 use Livewire\Livewire;
 
@@ -134,6 +136,37 @@ test('preview teardown dispatches job', function () {
         ->call('tearDownEdgePreview', $preview->id);
 
     Queue::assertPushed(TeardownEdgeSiteJob::class, fn (TeardownEdgeSiteJob $job): bool => $job->siteId === $preview->id);
+});
+
+test('danger page deletes only when the typed name matches', function () {
+    Queue::fake();
+    [$user, $server, $site] = makeEdgeSite();
+
+    $page = Livewire::actingAs($user)->test(Danger::class, ['server' => $server, 'site' => $site]);
+
+    $page->call('tearDownEdge', 'edge app');
+    Queue::assertNothingPushed();
+    expect($site->fresh()->status)->toBe(Site::STATUS_EDGE_ACTIVE);
+
+    $page->call('tearDownEdge', 'Edge App');
+    Queue::assertPushed(TeardownEdgeSiteJob::class, fn (TeardownEdgeSiteJob $job): bool => $job->siteId === $site->id);
+    expect($site->fresh()->status)->toBe(Site::STATUS_EDGE_DELETING);
+});
+
+test('danger page pause serves the paused page until resumed', function () {
+    config(['edge.fake.enabled' => true]);
+    [$user, $server, $site] = makeEdgeSite();
+    $host = fn () => Cache::get('edge:fake:host-map', [])[strtolower($site->edgeHostname())] ?? [];
+
+    $page = Livewire::actingAs($user)->test(Danger::class, ['server' => $server, 'site' => $site]);
+
+    $page->call('pauseEdgeSite')->assertSee('Site is paused');
+    expect($site->fresh()->edgeMeta()['paused_at'])->not->toBeNull()
+        ->and($host()['maintenance_mode'] ?? false)->toBeTrue();
+
+    $page->call('resumeEdgeSite')->assertSee('Pause site');
+    expect($site->fresh()->edgeMeta()['paused_at'])->toBeNull()
+        ->and($host()['maintenance_mode'] ?? false)->toBeFalse();
 });
 
 /**

@@ -1,5 +1,6 @@
 <?php
 
+use Monolog\Formatter\JsonFormatter;
 use Monolog\Formatter\LineFormatter;
 use Monolog\Handler\NullHandler;
 use Monolog\Handler\SocketHandler;
@@ -20,7 +21,9 @@ return [
     |
     */
 
-    'default' => env('LOG_CHANNEL', 'stack'),
+    // A container has no durable storage/logs: stderr is what the platform
+    // collects (JSON lines, see the stderr channel).
+    'default' => env('LOG_CHANNEL', strtolower((string) env('DPLY_RUNTIME')) === 'container' ? 'stderr' : 'stack'),
 
     /*
     |--------------------------------------------------------------------------
@@ -131,7 +134,8 @@ return [
             'handler_with' => [
                 'stream' => 'php://stderr',
             ],
-            'formatter' => env('LOG_STDERR_FORMATTER'),
+            // Structured (one JSON object per line) in a container.
+            'formatter' => env('LOG_STDERR_FORMATTER', strtolower((string) env('DPLY_RUNTIME')) === 'container' ? JsonFormatter::class : null),
             'processors' => [PsrLogMessageProcessor::class],
         ],
 

@@ -298,7 +298,7 @@ final class SiteSettingsHeader
             ],
             'danger' => [
                 'title' => __('Danger zone'),
-                'description' => __('Permanently delete this Edge site and remove all deployments from the CDN.'),
+                'description' => __('Pause, disconnect or permanently delete this site.'),
                 'icon' => 'heroicon-o-exclamation-triangle',
             ],
             default => [

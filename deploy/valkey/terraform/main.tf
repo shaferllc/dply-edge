@@ -181,8 +181,8 @@ resource "digitalocean_kubernetes_node_pool" "pro" {
 # pools, and carry the db taint so the gateway's existing toleration applies.
 #   db-large  s-8vcpu-16gb  $96/mo, 13 GiB allocatable: 1 and 2 CU (4 / 8 GiB)
 #   db-xl     m-4vcpu-32gb  $168/mo, 28 GiB allocatable: 4 CU (16 GiB)
-# A parked database stays pinned to its pool, so the autoscaler keeps a node
-# for as long as any large database exists (docs/pricing-review.md §9).
+# Large databases always stay on and each is priced to pay for a whole node
+# alone (ruling r-gd2vgb7jd1b4vqtf, docs/pricing-review.md §9).
 # Sizes are sold once DPLY_DATABASE_LARGE_SIZES=true (docs/launch-checklist.md).
 locals {
   db_large_pools = {
@@ -204,6 +204,50 @@ resource "digitalocean_kubernetes_node_pool" "db_large" {
   taint {
     key    = "dply.dev/db"
     value  = "true"
+    effect = "NoSchedule"
+  }
+}
+
+# Build servers (deploy/builders/): customer Edge builds and container image
+# builds, DPLY_RUNTIME=builder pods with a docker:dind sidecar. The taint
+# keeps everything else off; only the builder Deployment tolerates it.
+# The cluster autoscaler adds nodes as KEDA adds builder pods (one pod per
+# node: requests fill it), and removes them when the queue drains. The
+# minimum node is a fixed cost (dply.unit_costs.build); the rest are variable.
+# (The coordinator asked for `dply.io/role`; the other pools use `dply.dev/*`.)
+variable "builder_node_size" {
+  description = "One builder pod per node. s-4vcpu-8gb runs 2 concurrent builds (HORIZON_BUILD_MAX_PROCESSES)."
+  type        = string
+  default     = "s-4vcpu-8gb"
+}
+
+variable "builder_min_nodes" {
+  type    = number
+  default = 1
+}
+
+variable "builder_max_nodes" {
+  description = "Upper bound for the autoscaler; keep >= the KEDA ScaledObject maxReplicaCount."
+  type        = number
+  default     = 4
+}
+
+resource "digitalocean_kubernetes_node_pool" "builders" {
+  cluster_id = digitalocean_kubernetes_cluster.valkey.id
+  name       = "builders"
+  size       = var.builder_node_size
+  auto_scale = true
+  min_nodes  = var.builder_min_nodes
+  max_nodes  = var.builder_max_nodes
+  node_count = var.builder_min_nodes
+
+  labels = {
+    "dply.io/role" = "builder"
+  }
+
+  taint {
+    key    = "dply.io/role"
+    value  = "builder"
     effect = "NoSchedule"
   }
 }

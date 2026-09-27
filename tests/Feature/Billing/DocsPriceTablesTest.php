@@ -39,3 +39,14 @@ test('--write-docs rewrites a stale table in place and a second run changes noth
     unlink($dir.'/kv.md');
     rmdir($dir);
 });
+
+test('with the large database sizes on, the size table lists them at their own prices', function () {
+    config(['dply.databases.large_sizes_enabled' => true]);
+
+    Artisan::call('dply:billing:price-table', ['section' => 'sizes', '--product' => 'database']);
+
+    expect(Artisan::output())
+        ->toContain('| 1 vCPU | 4 GB | $0.00005 | $0.18 |')
+        ->toContain('| 2 vCPU | 8 GB | $0.0000667 | $0.24 |')
+        ->toContain('| 4 vCPU | 16 GB | $0.000133 | $0.48 |');
+});

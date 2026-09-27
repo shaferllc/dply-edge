@@ -130,7 +130,7 @@ These apply at the relay right away, without a redeploy.
 
 ## Usage and billing
 
-Realtime is metered by connection-minutes (each open socket, each minute) and messages (publishes in plus frames delivered out). They bill at these rates, less your plan's included usage credit:
+Realtime is metered by connection-minutes (each open socket, each minute) and messages (each publish; deliveries to sockets are free). They bill at these rates, less your plan's included usage credit:
 
 <!-- generated: php artisan dply:billing:price-table rates --group="Realtime" -->
 | Meter | Price | Unit |

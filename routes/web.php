@@ -69,6 +69,7 @@ use App\Support\Docs\DocsSite;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Storage;
 
 Broadcast::routes(['middleware' => ['web', 'auth']]);
 
@@ -87,6 +88,20 @@ Route::get('/_redis-unreachable', function () {
         'timeout' => (string) config('database.redis.default.timeout', '2.0'),
     ], 503);
 })->withoutMiddleware(['web']);
+
+// Logos and org icons. On R2 (a container has no durable disk) the
+// framework's `serve` route does not exist — it is local-only — so stream
+// the same /site-assets URLs from the bucket. Public files; no session.
+if (config('filesystems.disks.site_assets.driver') !== 'local') {
+    Route::get('/site-assets/{path}', function (string $path) {
+        // The s3 adapter's url() includes the disk root; the disk adds it again.
+        $root = trim((string) config('filesystems.disks.site_assets.root'), '/');
+        $path = $root !== '' && str_starts_with($path, $root.'/') ? substr($path, strlen($root) + 1) : $path;
+        abort_if(str_contains($path, '..') || ! Storage::disk('site_assets')->exists($path), 404);
+
+        return Storage::disk('site_assets')->response($path, null, ['Cache-Control' => 'public, max-age=86400']);
+    })->where('path', '[A-Za-z0-9._/-]+')->withoutMiddleware(['web'])->name('site-assets.stream');
+}
 
 Route::match(['post', 'options'], '/hooks/edge/{site}/github', GithubEdgeWebhookController::class)
     ->middleware(['throttle:site-webhook'])

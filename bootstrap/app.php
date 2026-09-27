@@ -6,6 +6,7 @@ use App\Http\Middleware\EnsureApiTokenAbility;
 use App\Http\Middleware\RedirectGuestsToComingSoon;
 use App\Http\Middleware\SetCurrentOrganization;
 use App\Http\Middleware\StampDebugReference;
+use App\Http\Middleware\UseCloudflareClientIp;
 use App\Models\Site;
 use App\Modules\Edge\Http\Middleware\ResolveEdgeCustomDomain;
 use App\Support\Debug\DebugExceptionDetail;
@@ -36,7 +37,13 @@ return Application::configure(basePath: dirname(__DIR__))
         DplySchedule::register($schedule);
     })
     ->withMiddleware(function (Middleware $middleware): void {
-        $trustedProxies = trim((string) env('TRUSTED_PROXIES', ''));
+        // A container is only reachable through its Worker: trust it by default
+        // and take the visitor's address from CF-Connecting-IP.
+        $container = strtolower((string) env('DPLY_RUNTIME')) === DplyRuntime::MODE_CONTAINER;
+        $trustedProxies = trim((string) env('TRUSTED_PROXIES', $container ? '*' : ''));
+        if ($container) {
+            $middleware->prepend(UseCloudflareClientIp::class);
+        }
         if ($trustedProxies !== '') {
             $at = $trustedProxies === '*'
                 ? '*'

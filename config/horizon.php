@@ -1,5 +1,6 @@
 <?php
 
+use App\Support\DplyRuntime;
 use Illuminate\Support\Str;
 
 /*
@@ -30,20 +31,28 @@ use Illuminate\Support\Str;
 |
 */
 
-$buildQueues = [
-    'dply-provision', // Edge build/publish, server provision
-];
+// Which queues this host drains depends on DPLY_RUNTIME (App\Support\DplyRuntime):
+// the builder takes only the build lanes, a container never does, an
+// all-in-one box takes everything. A supervisor left with no queues is dropped.
+$consumes = DplyRuntime::queuesFor(DplyRuntime::normalizeMode(env('DPLY_RUNTIME', 'all')));
 
-$deployQueues = [
-    'dply',           // BYO deploys, general control-plane work
-];
+$buildQueues = array_values(array_intersect([
+    DplyRuntime::BUILD_QUEUE, // Edge build/publish — docker, git, npm, wrangler
+], $consumes));
 
-$fastQueues = [
-    'default',         // notifications, most ShouldQueue jobs
-    'dply-control',    // worker-pool orchestration
-    'dply-manage',     // server manage / remote tasks
-    'probes:worker-1', // uptime probes (mirror site_uptime.probe_workers)
-];
+$deployQueues = array_values(array_intersect([
+    'dply',           // redis default queue: general control-plane work
+], $consumes));
+
+// default (notifications), dply-builder (short builder-host jobs),
+// dply-background, dply-control, dply-manage, probes:worker-1 (uptime probes,
+// mirror site_uptime.probe_workers) — whichever this host drains.
+$fastQueues = array_values(array_diff($consumes, $buildQueues, $deployQueues));
+
+$withQueues = static fn (array $supervisors): array => array_filter(
+    $supervisors,
+    static fn (array $supervisor): bool => $supervisor['queue'] !== [],
+);
 
 return [
 
@@ -146,7 +155,7 @@ return [
 
     'environments' => [
 
-        'production' => [
+        'production' => $withQueues([
             // Builds saturate cores — keep maxProcesses at or below the worker
             // box's vCPU count or concurrent `docker run` builds thrash.
             'supervisor-build' => [
@@ -168,9 +177,9 @@ return [
                 'maxProcesses' => (int) env('HORIZON_FAST_MAX_PROCESSES', 10),
                 'timeout' => 900,
             ],
-        ],
+        ]),
 
-        'local' => [
+        'local' => $withQueues([
             'supervisor-build' => [
                 'queue' => $buildQueues,
                 'balance' => 'simple',
@@ -192,7 +201,7 @@ return [
                 'maxProcesses' => 8,
                 'timeout' => 900,
             ],
-        ],
+        ]),
 
     ],
 

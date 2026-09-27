@@ -184,6 +184,22 @@ class EdgeContainerDeployer
         return false;
     }
 
+    /**
+     * The site that is dply's own control plane (edge.self): by id when
+     * DPLY_SELF_SITE_ID is set, else by its repository.
+     */
+    public static function isSelfSite(Site $site): bool
+    {
+        $id = trim((string) config('edge.self.site_id'));
+        if ($id !== '') {
+            return (string) $site->id === $id;
+        }
+        $repo = strtolower(trim((string) config('edge.self.repo'), '/'));
+        $url = strtolower(preg_replace('/\.git$/', '', rtrim((string) $site->git_repository_url, '/')) ?? '');
+
+        return $repo !== '' && $url !== '' && (str_ends_with($url, '/'.$repo) || str_ends_with($url, ':'.$repo) || $url === $repo);
+    }
+
     /** Deterministic so CancelStuckEdgeDeployment can `docker kill` it. */
     public static function buildContainerName(EdgeDeployment $deployment): string
     {
@@ -372,34 +388,16 @@ class EdgeContainerDeployer
         }
 
         $project = $workRoot.'/container-worker';
-        $queues = $this->queueBindings($site, $deployment);
-        $this->scaffold($project, $site, $image['path'], $image['port'], $queues, self::cronHandlers($site, $deployment), $this->billingKvNamespaceId($site), $sqliteSync, (string) ($image['server'] ?? '') ?: 'fpm');
-        if ($this->attachStaticAssets($project, $checkout, $site)) {
+        ['queues' => $queues, 'assets' => $assets] = $this->writeProject($project, $site, $deployment, $checkout, $image, $sqliteSync);
+        if ($assets) {
             $log("CSS, JavaScript, and images from public/ are served automatically.\n");
         }
-
-        $queueEnv = EdgeContainerConnections::queueDriverEnv($site);
-        if (! isset($queueEnv['DPLY_QUEUE']) && $queues !== []) {
-            $queueEnv['DPLY_QUEUE'] = (string) array_key_first($queues);
-            if ($site->isLaravelFrameworkDetected()) {
-                $queueEnv['QUEUE_CONNECTION'] = 'dply';
-            }
-        }
-
-        // A push queue's QUEUE_CONNECTION stays; the app's own env (below) wins over both.
-        $queueEnv += EdgeQueueWorkers::dispatchEnv($site);
 
         $env = EdgeContainerConnections::omitAsleepRedis($site, $env);
         if (self::writeViteBuildEnv($checkout, array_merge(EdgeContainerConnections::realtimeBuildEnv($site), $env))) {
             $log("VITE_* variables are passed to the asset build.\n");
         }
-        File::put($project.'/secrets.json', json_encode(array_merge(EdgeContainerConnections::redisDriverEnv($site), EdgeContainerConnections::storageDriverEnv($site), EdgeContainerConnections::kvDriverEnv($site), EdgeContainerConnections::realtimeDriverEnv($site), $queueEnv, $env, [
-            'DPLY_QUEUE_TOKEN' => self::queueToken($site),
-            'DPLY_APP_URL' => (string) ($site->edgeLiveUrl() ?? ''),
-            // Never on a preview: its migrations would run against whatever database it reaches.
-            'DPLY_MIGRATE_ON_BOOT' => $migrateOnBoot && ! $site->isEdgePreview() ? '1' : '0',
-            'DPLY_SQLITE_SYNC' => $sqliteSync ? '1' : '0',
-        ], EdgeMeter::workerNames($site) !== [] ? EdgeMeter::env($site) : []), JSON_THROW_ON_ERROR));
+        File::put($project.'/secrets.json', json_encode($this->secrets($site, $env, $queues, $migrateOnBoot && ! $site->isEdgePreview(), $sqliteSync), JSON_THROW_ON_ERROR));
 
         $gitCommit = $this->checkoutCommit($checkout);
         $fingerprint = self::deployFingerprint(
@@ -486,6 +484,54 @@ class EdgeContainerDeployer
             'rollout' => $rollout,
             'fingerprint' => $fingerprint,
         ];
+    }
+
+    /**
+     * The Worker project deploy() hands wrangler: scaffold plus public/
+     * assets. Public so dply:self:deploy writes exactly what a dashboard
+     * deploy would.
+     *
+     * @param  array{path: string, port: int, server?: string}  $image
+     * @return array{queues: array<string, string>, assets: bool}
+     */
+    public function writeProject(string $project, Site $site, ?EdgeDeployment $deployment, string $checkout, array $image, bool $sqliteSync = false): array
+    {
+        $queues = $this->queueBindings($site, $deployment);
+        $this->scaffold($project, $site, $image['path'], $image['port'], $queues, self::cronHandlers($site, $deployment), $this->billingKvNamespaceId($site), $sqliteSync, (string) ($image['server'] ?? '') ?: 'fpm');
+
+        return ['queues' => $queues, 'assets' => $this->attachStaticAssets($project, $checkout, $site)];
+    }
+
+    /**
+     * secrets.json for wrangler: resource driver env, then the app's own env
+     * (which wins), then dply's control keys.
+     *
+     * @param  array<string, string>  $env
+     * @param  array<string, string>  $queues
+     * @return array<string, string>
+     */
+    public function secrets(Site $site, array $env, array $queues, bool $migrateOnBoot, bool $sqliteSync = false): array
+    {
+        $queueEnv = EdgeContainerConnections::queueDriverEnv($site);
+        if (! isset($queueEnv['DPLY_QUEUE']) && $queues !== []) {
+            $queueEnv['DPLY_QUEUE'] = (string) array_key_first($queues);
+            if ($site->isLaravelFrameworkDetected()) {
+                $queueEnv['QUEUE_CONNECTION'] = 'dply';
+            }
+        }
+
+        // A push queue's QUEUE_CONNECTION stays; the app's own env (below) wins over both.
+        $queueEnv += EdgeQueueWorkers::dispatchEnv($site);
+
+        return array_merge(EdgeContainerConnections::redisDriverEnv($site), EdgeContainerConnections::storageDriverEnv($site), EdgeContainerConnections::kvDriverEnv($site), EdgeContainerConnections::realtimeDriverEnv($site), $queueEnv, $env, [
+            'DPLY_QUEUE_TOKEN' => self::queueToken($site),
+            'DPLY_APP_URL' => (string) ($site->edgeLiveUrl() ?? ''),
+            // Never on a preview: its migrations would run against whatever database it reaches.
+            // Never on dply itself: N instances booting a release would race the
+            // migration. Its deploy runs `php artisan migrate --force` once instead.
+            'DPLY_MIGRATE_ON_BOOT' => $migrateOnBoot && ! self::isSelfSite($site) ? '1' : '0',
+            'DPLY_SQLITE_SYNC' => $sqliteSync ? '1' : '0',
+        ], EdgeMeter::workerNames($site) !== [] ? EdgeMeter::env($site) : []);
     }
 
     /**
@@ -1518,7 +1564,7 @@ JS, $replace);
      *
      * @return array<string, string>
      */
-    private function queueBindings(Site $site, EdgeDeployment $deployment): array
+    private function queueBindings(Site $site, ?EdgeDeployment $deployment): array
     {
         $out = [];
         foreach (EdgeEffectiveBindings::for($site, $deployment) as $binding) {
@@ -1691,7 +1737,7 @@ JS, $replace);
     }
 
     /** @param callable(string): void $log */
-    private function ensureDeployerImage(callable $log): void
+    public function ensureDeployerImage(callable $log): void
     {
         $image = (string) config('edge.build.containers.deployer_image');
         if (Process::run(['docker', 'image', 'inspect', $image])->successful()) {

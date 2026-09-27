@@ -17,7 +17,11 @@
 <body>
 <main>
   <h1>This site is paused</h1>
+  @if ($byOwner ?? false)
+  <p>Its owner has paused it for now. Please check back later.</p>
+  @else
   <p>Its owner's plan has ended or reached its trial limit. If this is your site, sign in to dply and choose a plan to bring it back.</p>
+  @endif
 </main>
 </body>
 </html>

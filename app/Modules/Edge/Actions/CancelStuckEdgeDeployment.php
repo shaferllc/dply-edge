@@ -8,6 +8,7 @@ use App\Models\EdgeDeployment;
 use App\Models\Site;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Support\EdgeBuildSlots;
+use App\Support\DplyRuntime;
 use Illuminate\Support\Facades\Process;
 
 /**
@@ -147,6 +148,18 @@ class CancelStuckEdgeDeployment
      */
     private function killBuildContainer(EdgeDeployment $deployment): void
     {
-        Process::timeout(30)->run(['docker', 'kill', EdgeContainerDeployer::buildContainerName($deployment)]);
+        $name = EdgeContainerDeployer::buildContainerName($deployment);
+        // With a builder pool, only the host running the build can kill it:
+        // its own lane, recorded by EdgeBuildRunner.
+        $lane = (string) data_get($deployment->meta, 'build_queue', '');
+        if (DplyRuntime::runsBuilds() && ($lane === '' || $lane === DplyRuntime::hostQueue())) {
+            Process::timeout(30)->run(['docker', 'kill', $name]);
+
+            return;
+        }
+
+        // A web/container process has no Docker: the build runs on a
+        // builder, so the kill has to run there too.
+        dispatch(static fn () => Process::timeout(30)->run(['docker', 'kill', $name]))->onQueue($lane !== '' ? $lane : DplyRuntime::BUILDER_QUEUE);
     }
 }

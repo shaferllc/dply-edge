@@ -30,7 +30,7 @@ Sites that run on your own Cloudflare account aren't metered by dply. Cloudflare
 | Key-value | Reads; writes, deletes and lists; stored bytes per store | Hourly, then again the next day | SQL, queues and key-value |
 | Edge SQL (D1) | Rows read, rows written, stored bytes | Hourly, then again the next day | SQL, queues and key-value |
 | Queues | Queue operations | Hourly, then again the next day | SQL, queues and key-value |
-| Realtime | Connection-minutes and messages (published in plus delivered out) | Hourly | Realtime |
+| Realtime | Connection-minutes and messages (publishes; deliveries are free) | Hourly | Realtime |
 | Workers CPU | CPU time used by your SSR, middleware and container front Workers | Hourly, then again the next day | Workers CPU, Durable Objects, object storage and images |
 | Durable Objects | Requests, duration, rows read and written, stored bytes, for [State](/docs/resources/state) and container apps | Hourly, then again the next day | Workers CPU, Durable Objects, object storage and images |
 | Object storage buckets | Stored bytes, writes and reads on buckets you add as a resource | Hourly, then again the next day | Workers CPU, Durable Objects, object storage and images |

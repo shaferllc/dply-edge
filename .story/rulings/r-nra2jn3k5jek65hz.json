@@ -1,0 +1,16 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-27",
+  "id": "r-nra2jn3k5jek65hz",
+  "recordedBy": {
+    "client": "claude",
+    "id": "7287ab43-961f-4f49-a652-045813268214"
+  },
+  "scopeTags": [
+    "self-hosting",
+    "deploy",
+    "database"
+  ],
+  "supersedes": null,
+  "text": "\"i dont need old production dastabase we are starting new\" — the self-hosted cutover starts with a fresh, empty database; no backup, export or data migration from the old production database is needed."
+}

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Edge;
 
 use App\Models\Site;
+use App\Modules\Edge\Console\CheckEdgeBuildersCommand;
 use App\Modules\Edge\Console\CheckEdgeQueueWorkersCommand;
 use App\Modules\Edge\Console\CheckEdgeRealtimeCommand;
 use App\Modules\Edge\Console\CheckEdgeRumAlertsCommand;
@@ -15,6 +16,7 @@ use App\Modules\Edge\Console\CollectEdgePlatformUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeRealtimeUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeValkeyUsageCommand;
+use App\Modules\Edge\Console\DrainEdgeBuilderCommand;
 use App\Modules\Edge\Console\EdgeDoctorCommand;
 use App\Modules\Edge\Console\EdgeEnsureBuildDockerCommand;
 use App\Modules\Edge\Console\EdgeEnsureDeliveryFeaturesCommand;
@@ -35,6 +37,9 @@ use App\Modules\Edge\Console\RollupEdgeAnalyticsEngineCommand;
 use App\Modules\Edge\Console\SampleContainerMemoryCommand;
 use App\Modules\Edge\Console\SampleEdgeDatabasesCommand;
 use App\Modules\Edge\Console\ScaleEdgeQueueWorkersCommand;
+use App\Modules\Edge\Console\SelfBootstrapCommand;
+use App\Modules\Edge\Console\SelfDeployCommand;
+use App\Modules\Edge\Console\SelfRegisterCommand;
 use App\Modules\Edge\Console\WarmEdgeBuildImagesCommand;
 use App\Modules\Edge\Console\WarmEdgeContainersCommand;
 use App\Modules\Edge\Livewire\BuildJourney;
@@ -98,6 +103,11 @@ class EdgeServiceProvider extends ServiceProvider
                 CheckEdgeQueueWorkersCommand::class,
                 CheckEdgeRealtimeCommand::class,
                 SampleEdgeDatabasesCommand::class,
+                CheckEdgeBuildersCommand::class,
+                DrainEdgeBuilderCommand::class,
+                SelfBootstrapCommand::class,
+                SelfDeployCommand::class,
+                SelfRegisterCommand::class,
             ]);
         }
     }

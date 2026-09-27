@@ -20,6 +20,7 @@ use App\Modules\Edge\Services\OriginHealthcheckRunner;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\FakeEdgeProvision;
 use App\Modules\Notifications\Services\NotificationPublisher;
+use App\Support\DplyRuntime;
 use App\Support\ProductLine\ProductLineKillSwitches;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -353,12 +354,16 @@ class PublishEdgeDeploymentJob implements ShouldQueue
                 if (is_file($workRoot.'/build.log')) {
                     @unlink($workRoot.'/build.log');
                 }
-                SnapshotEdgeBuildCacheJob::dispatch(
+                // Reads the checkout on this host's disk (see DplyRuntime::hostQueue).
+                $snapshot = SnapshotEdgeBuildCacheJob::dispatch(
                     $siteId,
                     $checkout,
                     $cacheKey,
                     is_string($checkoutRoot) ? $checkoutRoot : $checkout,
                 );
+                if (DplyRuntime::hostQueue() !== null) {
+                    $snapshot->onQueue(DplyRuntime::hostQueue());
+                }
             } else {
                 File::deleteDirectory($workRoot);
             }

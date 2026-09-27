@@ -19,6 +19,7 @@ use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeLiveBuildLog;
 use App\Modules\Edge\Support\EdgeRepoRoot;
 use App\Modules\Notifications\Services\NotificationPublisher;
+use App\Support\DplyRuntime;
 use App\Support\ProductLine\ProductLineKillSwitches;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -312,13 +313,18 @@ class BuildEdgeSiteJob implements ShouldQueue
                 return;
             }
 
-            PublishEdgeDeploymentJob::dispatch(
+            // It reads $artifactDir from this host's disk: with a builder
+            // pool it must run here (DplyRuntime::hostQueue).
+            $publish = PublishEdgeDeploymentJob::dispatch(
                 $deployment->id,
                 $artifactDir,
                 $ssrSidecarPath,
                 $middlewareSidecarPath,
                 $cacheAsync,
             );
+            if (DplyRuntime::hostQueue() !== null) {
+                $publish->onQueue(DplyRuntime::hostQueue());
+            }
         } catch (Throwable $e) {
             // build() throws before returning — $buildResult stays null for the
             // common failure path (clone/lint/docker/install). Still persist

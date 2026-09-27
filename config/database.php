@@ -226,10 +226,14 @@ return [
         | TLS: DigitalOcean managed Redis/Valkey on :25061 / *.db.ondigitalocean.com
         | is TLS-only. RedisConnectionTls infers scheme=tls (and redis:// → rediss://)
         | so a stale .env missing REDIS_SCHEME still handshakes. Local 127.0.0.1 stays tcp.
+        | A rediss:// REDIS_URL (dply Valkey: rediss://default:<pw>@<id>.cache.dply.io:6380)
+        | is TLS too; `context` sends the host as SNI (the gateway routes on it)
+        | and verifies the certificate. AUTH comes from the URL's user:password.
         */
         'default' => [
             'url' => RedisConnectionTls::url(env('REDIS_URL'), env('REDIS_HOST'), env('REDIS_PORT')),
             'scheme' => RedisConnectionTls::scheme(env('REDIS_SCHEME'), env('REDIS_HOST'), env('REDIS_PORT'), env('REDIS_URL')),
+            'context' => RedisConnectionTls::context(env('REDIS_SCHEME'), env('REDIS_HOST'), env('REDIS_PORT'), env('REDIS_URL')),
             'host' => env('REDIS_HOST', '127.0.0.1'),
             'username' => env('REDIS_USERNAME'),
             'password' => env('REDIS_PASSWORD'),
@@ -246,6 +250,7 @@ return [
         'cache' => [
             'url' => RedisConnectionTls::url(env('REDIS_URL'), env('REDIS_HOST'), env('REDIS_PORT')),
             'scheme' => RedisConnectionTls::scheme(env('REDIS_SCHEME'), env('REDIS_HOST'), env('REDIS_PORT'), env('REDIS_URL')),
+            'context' => RedisConnectionTls::context(env('REDIS_SCHEME'), env('REDIS_HOST'), env('REDIS_PORT'), env('REDIS_URL')),
             'host' => env('REDIS_HOST', '127.0.0.1'),
             'username' => env('REDIS_USERNAME'),
             'password' => env('REDIS_PASSWORD'),
@@ -279,6 +284,7 @@ return [
         'queue' => [
             'url' => RedisConnectionTls::url(env('REDIS_URL'), env('REDIS_HOST'), env('REDIS_PORT')),
             'scheme' => RedisConnectionTls::scheme(env('REDIS_SCHEME'), env('REDIS_HOST'), env('REDIS_PORT'), env('REDIS_URL')),
+            'context' => RedisConnectionTls::context(env('REDIS_SCHEME'), env('REDIS_HOST'), env('REDIS_PORT'), env('REDIS_URL')),
             'host' => env('REDIS_HOST', '127.0.0.1'),
             'username' => env('REDIS_USERNAME'),
             'password' => env('REDIS_PASSWORD'),

@@ -17,7 +17,7 @@ use Illuminate\Support\Carbon;
  * @property string $site_id
  * @property string $project_id
  * @property Carbon $date
- * @property int $compute_unit_seconds
+ * @property int $compute_unit_seconds Billed CU-seconds: awake seconds × UsagePrice::databaseBilledCu(size)
  * @property int $storage_byte_hours
  * @property int $history_byte_hours
  * @property int $snapshot_byte_hours

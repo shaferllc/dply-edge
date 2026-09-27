@@ -33,10 +33,20 @@ type tenant struct {
 
 func objectName(id string) string { return "vk-" + id }
 
+// staysOn: Valkey pro, and databases over 0.5 CU (they bring up and are
+// priced on a whole db-large / db-xl node, ruling r-gd2vgb7jd1b4vqtf), never
+// idle-sleep. Smaller databases sleep with their data on the volume.
+func staysOn(t tenant) bool {
+	if isDatabase(t.Engine) {
+		return t.MemoryMB > dbPoolMaxMB
+	}
+	return t.Persistent
+}
+
 func (g *gateway) saveTenant(ctx context.Context, t tenant) error {
 	defer g.records.drop(t.ID)
-	if t.Persistent && !isDatabase(t.Engine) {
-		t.SleepAfter = 0 // Valkey pro stays on; databases sleep with their data on the volume
+	if staysOn(t) {
+		t.SleepAfter = 0
 	}
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{

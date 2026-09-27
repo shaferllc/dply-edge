@@ -32,6 +32,7 @@ beforeEach(function () {
         'edge.valkey.token' => 'tok',
         'edge.valkey.db_domain' => 'db.dply.test',
         'subscription.standard.stripe.tier_pro' => 'price_tier_pro',
+        'dply.databases.large_sizes_enabled' => false,
     ]);
     $org = Organization::factory()->create();
     Subscription::factory()->withPrice('price_tier_pro')->active()->create(['organization_id' => $org->id]);
@@ -84,8 +85,10 @@ test('1, 2 and 4 CU are sold only with the large pools enabled, and a database k
 
     config(['dply.databases.large_sizes_enabled' => true]);
     expect(array_map('strval', array_keys(EdgeDplyDatabase::sizes())))->toBe(['0.25', '0.5', '1', '2', '4']);
-    EdgeAppDatabase::sync($this->site, 'sql', 'postgres', 'sleep', '4');
-    Http::assertSent(fn ($request): bool => $request->method() === 'PUT' && $request['memory_mb'] === 16384);
+    // Asked to sleep, a large size stays on anyway.
+    EdgeAppDatabase::sync($this->site, 'sql', 'postgres', 'sleep', '4', 300);
+    Http::assertSent(fn ($request): bool => $request->method() === 'PUT' && $request['memory_mb'] === 16384 && $request['sleep_after'] === 0);
+    expect($this->site->edgeMeta()['database'])->toMatchArray(['size' => '4', 'suspend' => -1, 'plan' => 'awake']);
 
     config(['dply.databases.large_sizes_enabled' => false]);
     expect(EdgeAppDatabase::sync($this->site, 'postgres', 'postgres', 'sleep', '4', 300, 5))->toBeNull()
@@ -93,6 +96,28 @@ test('1, 2 and 4 CU are sold only with the large pools enabled, and a database k
     Http::assertSent(fn ($request): bool => $request->method() === 'PUT' && $request['memory_mb'] === 16384 && $request['disk_gb'] === 5);
     // A new pick of a large size is still refused.
     expect(EdgeDplyDatabase::size('2', '4'))->toBe('0.25');
+});
+
+test('the size picker makes 1 vCPU and up stay on, and a smaller size gets the sleep choice back', function () {
+    config(['dply.databases.large_sizes_enabled' => true]);
+    $user = User::factory()->create();
+    $this->site->organization->users()->attach($user->id, ['role' => 'owner']);
+    $this->site->forceFill(['user_id' => $user->id, 'type' => SiteType::Static, 'status' => Site::STATUS_EDGE_ACTIVE])->save();
+    $this->site->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
+
+    Livewire::actingAs($user)
+        ->test(Resources::class, ['server' => $this->site->server, 'site' => $this->site])
+        ->call('selectDatabase', 'postgres')
+        ->call('selectPostgresSize', '1')
+        ->assertSet('draftPostgresSize', '1')
+        ->assertSet('draftPostgresSuspend', -1)
+        ->assertSee('Sizes of 1 vCPU and up stay on.')
+        ->assertSee('$129.60/mo')
+        ->call('selectPostgresSuspend', 300)
+        ->assertSet('draftPostgresSuspend', -1)
+        ->call('selectPostgresSize', '0.5')
+        ->call('selectPostgresSuspend', 300)
+        ->assertSet('draftPostgresSuspend', 300);
 });
 
 test('changing a dply database grows the disk, refuses to shrink it, and reuses the password', function () {

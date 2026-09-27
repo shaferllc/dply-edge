@@ -1,5 +1,28 @@
 <?php
 
+/*
+| `platform`: dply's own shared, durable files (org icons, logos, Livewire
+| upload staging). N stateless container instances share no disk, so this is
+| R2 when PLATFORM_DISK_BUCKET is set, or in a container (DPLY_RUNTIME=container)
+| the edge R2 bucket under a `_platform/` prefix. Otherwise (local dev, tests,
+| a single VM) a local directory. docs/self-hosting.md lists what lives where.
+*/
+$platformBucket = (string) (env('PLATFORM_DISK_BUCKET')
+    ?: (strtolower((string) env('DPLY_RUNTIME')) === 'container' ? env('DPLY_EDGE_R2_BUCKET', '') : ''));
+$platformS3 = $platformBucket === '' ? null : [
+    'driver' => 's3',
+    'key' => env('PLATFORM_DISK_KEY', env('DPLY_EDGE_R2_ACCESS_KEY')),
+    'secret' => env('PLATFORM_DISK_SECRET', env('DPLY_EDGE_R2_SECRET')),
+    'region' => env('PLATFORM_DISK_REGION', env('DPLY_EDGE_R2_REGION', 'auto')),
+    'bucket' => $platformBucket,
+    'endpoint' => env('PLATFORM_DISK_ENDPOINT') ?: (env('DPLY_EDGE_R2_ENDPOINT')
+        ?: (env('DPLY_EDGE_CF_ACCOUNT_ID') ? 'https://'.env('DPLY_EDGE_CF_ACCOUNT_ID').'.r2.cloudflarestorage.com' : null)),
+    'use_path_style_endpoint' => true,
+    'root' => env('PLATFORM_DISK_BUCKET') ? env('PLATFORM_DISK_ROOT', '') : env('PLATFORM_DISK_ROOT', '_platform'),
+    'throw' => false,
+    'report' => false,
+];
+
 return [
 
     /*
@@ -13,7 +36,9 @@ return [
     |
     */
 
-    'default' => env('FILESYSTEM_DISK', 'local'),
+    // `platform` when it is on R2, so Livewire upload staging is shared by
+    // every instance (the upload and the save can hit different ones).
+    'default' => env('FILESYSTEM_DISK', $platformS3 !== null ? 'platform' : 'local'),
 
     /*
     |--------------------------------------------------------------------------
@@ -69,7 +94,20 @@ return [
          | Unique url path so it doesn't collide with the local/public disks at
          | /storage.
          */
-        'site_assets' => [
+        'platform' => $platformS3 ?? [
+            'driver' => 'local',
+            'root' => storage_path('app/platform'),
+            'throw' => false,
+            'report' => false,
+        ],
+
+        // On R2 (a container has no durable disk) the same /site-assets URLs
+        // are streamed by the `site-assets.stream` route in routes/web.php.
+        'site_assets' => $platformS3 !== null ? [
+            ...$platformS3,
+            'root' => trim(($platformS3['root'] ?? '').'/site-assets', '/'),
+            'url' => rtrim(env('APP_URL', 'http://localhost'), '/').'/site-assets',
+        ] : [
             'driver' => 'local',
             'root' => env('SITE_ASSETS_PATH') ?: (static function (): string {
                 // current/.env -> <ROOT>/shared/.env on atomic-release hosts;

@@ -203,7 +203,7 @@ Apps with more than 10,000 connections are spread across several servers automat
 
 ## Pricing
 
-Realtime is billed on connection-minutes (one socket open for one minute) and messages (each publish received plus each copy delivered to a socket), every unit from the first, less your plan's included usage credit:
+Realtime is billed on connection-minutes (one socket open for one minute) and messages (each publish; delivering it to sockets is free, so a broadcast to 1,000 listeners is one message), every unit from the first, less your plan's included usage credit:
 
 <!-- generated: php artisan dply:billing:price-table rates --group="Realtime" -->
 | Meter | Price | Unit |

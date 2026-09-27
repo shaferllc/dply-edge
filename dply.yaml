@@ -1,43 +1,29 @@
-# Control-plane dogfood manifest (dply deploys dply).
-# Customer BYO sites use the same processes: schema; supervisor: is Phase-1
-# bridge until dply-sv-* programs from WorkerDaemonBackend own the box.
-runtime: php
+# dply deploys dply (dogfood). This repo is a normal container app in dply:
+# `php artisan dply:self:register` created the Site (runtime container,
+# repo shaferllc/dply-edge @ main, push-to-deploy), so a push to main builds
+# and rolls out from dply's own dashboard like any customer's Laravel app.
+# `php artisan dply:self:deploy` is the break-glass path when dply is down,
+# and `php artisan dply:self:bootstrap` the first start on a fresh database.
+# Runbook: docs/self-hosting-runbook.md. Architecture: docs/self-hosting.md.
+#
+# What runs where (none of it is declared here any more):
+#   web         the container app (DPLY_RUNTIME=container, min 1 instance)
+#   queue:work  the site's queue workers, control queues only
+#               (App\Support\DplyRuntime::CONTROL_QUEUES)
+#   scheduler   in worker-0 (Resources -> Queue workers -> scheduler)
+#   migrations  never on boot. dply:self:deploy runs them once, in the new
+#               image, before rollout; a dashboard deploy does not migrate
+#               (additive ones: Resources -> Database -> Migrate afterwards)
+#   builds      the builder pool on DOKS (deploy/builders/), DPLY_RUNTIME=builder,
+#               which drains only dply-provision / dply-builder
+#
+# The old `supervisor:` and `processes:` blocks (Horizon, schedule:work,
+# warm-images, runtime-check under supervisord on VMs) were removed with the
+# VM control plane. The builder pods run Horizon themselves
+# (deploy/builders/k8s/builder.yaml) and `dply:runtime:check` is their probe.
 
-# Phase 1 — role → static template merge into /etc/supervisor/conf.d/dply-platform.conf
-# Applied by `dply:self:sync-supervisor` (also from dply:self-horizon-restart).
-# Set use_templates: false once processes: → dply-sv-* owns Horizon/scheduler on the box.
-supervisor:
-  use_templates: true
-  conf_d: /etc/supervisor/conf.d
-  install_as: dply-platform.conf
-  roles:
-    worker.primary: deploy/supervisor/dply-worker-primary.conf
-    worker.replica: deploy/supervisor/dply-worker.conf
-    web: deploy/supervisor/dply-web.conf
-
-# Phase 2 — BYO-style processes (SiteProcess → WorkerDaemonBackend → dply-sv-*).
-# While supervisor.use_templates is true, keep Site.meta.process_daemons=false on
-# the control-plane worker site so reconcile does not install duplicate systemd units.
-processes:
-  horizon:
-    command: php artisan horizon
-    scale: 1
-    roles: [worker]
-    type: worker
-    stopwaitsecs: 3660
-
-  scheduler:
-    command: php artisan schedule:work
-    roles: [worker:primary]
-    type: scheduler
-    stopwaitsecs: 60
-
-  warm-images:
-    command: php artisan dply:edge:warm-build-images
-    roles: [worker]
-    oneshot: true
-
-  runtime-check:
-    command: php artisan dply:runtime:check --quiet
-    roles: [worker]
-    loop_seconds: 300
+headers:
+  # Vite's hashed assets never change under the same name.
+  - for: /build/*
+    values:
+      Cache-Control: "public, max-age=31536000, immutable"

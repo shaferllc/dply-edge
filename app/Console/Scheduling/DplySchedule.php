@@ -19,6 +19,7 @@ use App\Console\Commands\SyncErrorEventsCommand;
 use App\Modules\Billing\Console\EnforceOrganizationBillingCommand;
 use App\Modules\Billing\Console\SnapshotOrganizationBillingCommand;
 use App\Modules\Billing\Console\SyncAllOrganizationBillingCommand;
+use App\Modules\Edge\Console\CheckEdgeBuildersCommand;
 use App\Modules\Edge\Console\CheckEdgeQueueWorkersCommand;
 use App\Modules\Edge\Console\CheckEdgeRealtimeCommand;
 use App\Modules\Edge\Console\CheckEdgeRumAlertsCommand;
@@ -42,7 +43,9 @@ use App\Modules\Edge\Services\Realtime\EdgeRealtimeMonitor;
 use App\Modules\Secrets\Console\SecretsEscrowCommand;
 use App\Modules\Secrets\Console\SecretsRestoreDrillCommand;
 use App\Support\DplyRuntime;
+use Illuminate\Console\Scheduling\Event;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Foundation\Console\QueuedCommand;
 
 final class DplySchedule
 {
@@ -177,20 +180,31 @@ final class DplySchedule
             ->hourly()
             ->withoutOverlapping()
             ->name('edge-realtime-usage');
-        // Synthetic round trip through the customer realtime relay; alerts platform admins.
-        if (EdgeRealtimeMonitor::enabled()) {
-            $schedule->command(CheckEdgeRealtimeCommand::class)
+        // Builds run on the builder pool: alert when none has checked in for
+        // 5 minutes. A host that builds itself has nothing to watch.
+        if (! DplyRuntime::runsBuilds()) {
+            $schedule->command(CheckEdgeBuildersCommand::class)
                 ->everyMinute()
                 ->withoutOverlapping()
-                ->runInBackground()
-                ->name('edge-check-realtime');
+                ->name('edge-check-builders');
+        }
+        // Synthetic round trip through the customer realtime relay; alerts platform admins.
+        if (EdgeRealtimeMonitor::enabled()) {
+            // node: the builder has it, a container does not.
+            $realtime = self::onBuildHost($schedule, CheckEdgeRealtimeCommand::class)
+                ->name('edge-check-realtime')
+                ->everyMinute()
+                ->withoutOverlapping();
+            if (DplyRuntime::runsBuilds()) {
+                $realtime->runInBackground();
+            }
         }
 
         // Keep Node build images warm on workers so Edge deploys skip cold pulls.
         if ((bool) config('edge.build.warm_images_on_schedule', true)) {
-            $schedule->command(WarmEdgeBuildImagesCommand::class)
-                ->everySixHours()
+            self::onBuildHost($schedule, WarmEdgeBuildImagesCommand::class)
                 ->name('edge-warm-build-images')
+                ->everySixHours()
                 ->withoutOverlapping()
                 ->onOneServer();
         }
@@ -218,18 +232,19 @@ final class DplySchedule
         // Secret-vault (app-native, W1 off-box break-glass): daily age-encrypted
         // escrow of the platform .env (→ APP_KEY), an independent DB dump, and the
         // fast-recovery critical-keys bundle.
-        $schedule->command(SecretsEscrowCommand::class, ['--source' => 'platform-env'])
+        // age + pg_dump live on the builder, not in the container image.
+        self::onBuildHost($schedule, SecretsEscrowCommand::class, ['--source' => 'platform-env'])
+            ->name('secrets-escrow-env')
             ->dailyAt('04:20')
-            ->withoutOverlapping()
-            ->name('secrets-escrow-env');
-        $schedule->command(SecretsEscrowCommand::class, ['--source' => 'db-dump'])
+            ->withoutOverlapping();
+        self::onBuildHost($schedule, SecretsEscrowCommand::class, ['--source' => 'db-dump'])
+            ->name('secrets-escrow-db-dump')
             ->dailyAt('04:30')
-            ->withoutOverlapping()
-            ->name('secrets-escrow-db-dump');
-        $schedule->command(SecretsEscrowCommand::class, ['--source' => 'critical-keys'])
+            ->withoutOverlapping();
+        self::onBuildHost($schedule, SecretsEscrowCommand::class, ['--source' => 'critical-keys'])
+            ->name('secrets-escrow-critical-keys')
             ->dailyAt('04:35')
             ->withoutOverlapping()
-            ->name('secrets-escrow-critical-keys')
             ->when(fn (): bool => filled(config('secret_vault.critical_keys.pg_password')) || filled(config('secret_vault.critical_keys.ssh_recovery_key_path')));
 
         // Restore drill runs ONLY on the isolated drill host (it alone holds the
@@ -245,5 +260,21 @@ final class DplySchedule
                 $event->onOneServer();
             }
         }
+    }
+
+    /**
+     * A scheduled command that shells out (docker, node, age, pg_dump). Runs
+     * here when this host builds; a container queues it for the builder.
+     *
+     * @param  class-string  $command
+     * @param  array<string, mixed>  $parameters
+     */
+    private static function onBuildHost(Schedule $schedule, string $command, array $parameters = []): Event
+    {
+        if (DplyRuntime::runsBuilds()) {
+            return $schedule->command($command, $parameters);
+        }
+
+        return $schedule->job(new QueuedCommand([app($command)->getName(), $parameters]), DplyRuntime::BUILDER_QUEUE);
     }
 }

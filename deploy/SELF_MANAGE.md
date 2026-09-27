@@ -1,5 +1,13 @@
 # dply self-manages dply — operational runbook
 
+> **Superseded for deploys (2026-09-27).** dply now runs as a container app on
+> its own platform. Deploy, rollback, database restore, secret rotation and
+> gateway recovery live in [`docs/self-hosting-runbook.md`](../docs/self-hosting-runbook.md)
+> (`dply:self:register`, `dply:self:deploy`). W2–W4 below describe the VM
+> control plane and name commands deleted in the Edge-only cut
+> (`dply:self:adopt`, `dply:self:sync-supervisor`, `dply:db:restore`). W1
+> (escrow) and W5 (APP_KEY rotation) still apply.
+
 dply manages its own prod control-plane: off-box secret escrow, DB backups, and
 (eventually) self-deploy run through dply's own features. See the plan:
 `~/.claude/plans/we-need-a-env-iridescent-marble.md`.
@@ -45,8 +53,8 @@ dply manages its own prod control-plane: off-box secret escrow, DB backups, and
 ### Restore (break-glass)
 ```
 # On a machine WITH the offline age identity (SECRET_VAULT_IDENTITY_PATH):
-php artisan secrets:restore --source=platform-env --version=latest --to=/path/.env --identity=…
-php artisan secrets:restore --source=critical-keys --version=latest --to=/tmp/keys.json --identity=…
+php artisan secrets:restore --source=platform-env --revision=latest --to=/path/.env
+php artisan secrets:restore --source=critical-keys --revision=latest --to=/tmp/keys.json
 # DB: restore the latest escrowed dump (see W3 dply:db:restore, or psql the decrypted dump).
 ```
 

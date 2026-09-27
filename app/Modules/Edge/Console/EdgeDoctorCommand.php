@@ -10,6 +10,7 @@ use App\Modules\Edge\Support\EdgePlatformCredentials;
 use App\Modules\Edge\Support\EdgeTestingDomains;
 use App\Modules\Edge\Support\FakeEdgeProvision;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
+use App\Support\DplyRuntime;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -167,6 +168,14 @@ class EdgeDoctorCommand extends Command
                 'name' => 'edge_build_docker',
                 'ok' => true,
                 'detail' => 'Skipped under PHPUnit — probe on the real Horizon / build host.',
+            ];
+        }
+
+        if (DplyRuntime::skipsHostWork('Docker probe (dply:edge:doctor)')) {
+            return [
+                'name' => 'edge_build_docker',
+                'ok' => true,
+                'detail' => 'Skipped: DPLY_RUNTIME='.DplyRuntime::mode().' does not build. Run dply:edge:doctor on the builder.',
             ];
         }
 

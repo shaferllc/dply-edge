@@ -33,6 +33,9 @@ class TeardownEdgeSiteJob implements ShouldQueue
     use Queueable;
     use SerializesModels;
 
+    /** Teardown phases in the order handle() runs them; the danger page shows them as steps. */
+    public const STEPS = ['webhook', 'previews', 'domains', 'scripts', 'storage', 'deployments'];
+
     public function __construct(public string $siteId) {}
 
     public function handle(): void
@@ -51,8 +54,10 @@ class TeardownEdgeSiteJob implements ShouldQueue
         // Stop push deploys first, then take the previews with the parent —
         // the delete confirm promises both.
         if (! $site->isEdgePreview()) {
+            $this->step($site, 'webhook');
             $this->bestEffort($site, 'GitHub webhook', fn () => app(EdgeGithubWebhookProvisioner::class)->disable($site));
 
+            $this->step($site, 'previews');
             Site::query()
                 ->where('organization_id', $site->organization_id)
                 ->whereJsonContains('meta->edge->preview_parent_site_id', $site->id)
@@ -61,6 +66,7 @@ class TeardownEdgeSiteJob implements ShouldQueue
         }
 
         // Custom domains: Cloudflare custom hostname + host-map entry each.
+        $this->step($site, 'domains');
         $domains = $site->edgeMeta()['routing']['custom_domains'] ?? [];
         foreach (is_array($domains) ? array_keys($domains) : [] as $hostname) {
             $this->bestEffort($site, 'custom domain '.$hostname, fn () => app(EdgeCustomDomainProvisioner::class)->remove($site, (string) $hostname));
@@ -70,6 +76,7 @@ class TeardownEdgeSiteJob implements ShouldQueue
         // namespace BEFORE wiping the deployment rows — once the rows
         // are gone we lose the script names and the scripts would
         // sit in the namespace forever, consuming quota.
+        $this->step($site, 'scripts');
         $this->bestEffort($site, 'SSR scripts', fn () => app(EdgeSsrBundleUploader::class)->deleteAllForSite($site));
         $this->bestEffort($site, 'middleware scripts', fn () => app(EdgeMiddlewareBundleUploader::class)->deleteAllForSite($site));
 
@@ -96,6 +103,7 @@ class TeardownEdgeSiteJob implements ShouldQueue
         }
 
         // After every script that binds it.
+        $this->step($site, 'storage');
         $this->bestEffort($site, 'default KV namespace', fn () => app(EnsureDefaultEdgeBindings::class)->delete($site));
 
         // Realtime apps: close sockets and drop the relay's KV record before
@@ -108,12 +116,21 @@ class TeardownEdgeSiteJob implements ShouldQueue
             }
         });
 
+        $this->step($site, 'deployments');
         $backend?->unpublish($site);
 
         $site->edgeDeployments()->delete();
         $site->delete();
 
         $this->deleteOrphanedEdgeServer($serverId, $server);
+    }
+
+    /** Where the danger page's progress list reads from (meta.edge.teardown). */
+    private function step(Site $site, string $step): void
+    {
+        $teardown = is_array($site->edgeMeta()['teardown'] ?? null) ? $site->edgeMeta()['teardown'] : [];
+        $site->mergeEdgeMeta(['teardown' => ['step' => $step, 'at' => now()->toIso8601String()] + $teardown]);
+        $site->saveQuietly();
     }
 
     /** Teardown never stops for one failed cleanup; an orphan is logged instead. */

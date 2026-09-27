@@ -52,10 +52,11 @@
                     </x-sheet.options>
                 </x-sheet.field>
 
-                <x-sheet.field :label="__('Sleep')" :help="$postgresSuspend === -1 ? null : __('After :time idle', ['time' => __($postgresSleeps[$postgresSuspend] ?? '')])">
+                @php $alwaysOn = \App\Modules\Edge\Support\EdgeDplyDatabase::alwaysOn((string) $postgresSize); @endphp
+                <x-sheet.field :label="__('Sleep')" :help="$alwaysOn ? __('Sizes of 1 vCPU and up stay on.') : ($postgresSuspend === -1 ? null : __('After :time idle', ['time' => __($postgresSleeps[$postgresSuspend] ?? '')]))">
                     <x-sheet.segmented id="database-sleep">
                         @foreach ($postgresSleeps as $seconds => $label)
-                            <x-sheet.segment wire:click="selectPostgresSuspend({{ $seconds }})" :active="$postgresSuspend === $seconds" :disabled="$postgresLocked || ($trialCap && $seconds === -1)" :title="$trialCap && $seconds === -1 ? __('Available after your trial') : null">{{ __($label) }}</x-sheet.segment>
+                            <x-sheet.segment wire:click="selectPostgresSuspend({{ $seconds }})" :active="$postgresSuspend === $seconds" :disabled="$postgresLocked || ($trialCap && $seconds === -1) || ($alwaysOn && $seconds !== -1)" :title="$trialCap && $seconds === -1 ? __('Available after your trial') : ($alwaysOn && $seconds !== -1 ? __('Sizes of 1 vCPU and up stay on') : null)">{{ __($label) }}</x-sheet.segment>
                         @endforeach
                     </x-sheet.segmented>
                 </x-sheet.field>

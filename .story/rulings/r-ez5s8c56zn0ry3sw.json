@@ -1,0 +1,16 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-27",
+  "id": "r-ez5s8c56zn0ry3sw",
+  "recordedBy": {
+    "client": "claude",
+    "id": "7287ab43-961f-4f49-a652-045813268214"
+  },
+  "scopeTags": [
+    "realtime",
+    "billing",
+    "pricing"
+  ],
+  "supersedes": null,
+  "text": "\"fix this\" (on the pricing review's \"Realtime fan-out\" item: publishes and deliveries share one meter, so a broadcast to 1,000 listeners pays for 1,000 deliveries that cost us nothing) — Realtime messages bill publishes only (messages_in); deliveries to sockets (messages_out) are free. Price stays $0.62 per million messages, connection-minutes unchanged. Replaces the \"publishes in + frames delivered out\" counting in r-p3dsj9znvtnyhphr."
+}

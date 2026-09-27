@@ -1,0 +1,230 @@
+# dply build servers on DOKS (cluster dply-pods, pool `builders`).
+# Applied by deploy/builders/apply.sh, which fills __IMAGE__, __QUEUE_LIST__,
+# __MAX_REPLICAS__ and creates the Secrets (never in the repo):
+#   dply-builder-env   the builder's env (.secrets/builder.env)
+#   dply-builder-keda  host/port/username/password of the queue Valkey, for KEDA
+# Runbook: docs/self-hosting-runbook.md "Builders".
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dply-builders
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dply-builder-config
+  namespace: dply-builders
+data:
+  APP_ENV: production
+  DPLY_RUNTIME: builder
+  LOG_CHANNEL: stderr
+  QUEUE_CONNECTION: redis
+  CACHE_STORE: redis
+  SESSION_DRIVER: array
+  # Concurrent builds per pod (= per node). s-4vcpu-8gb fits 2 at these limits.
+  HORIZON_BUILD_MIN_PROCESSES: "2"
+  HORIZON_BUILD_MAX_PROCESSES: "2"
+  DPLY_EDGE_BUILD_MEMORY: 2560m
+  DPLY_EDGE_BUILD_CPUS: "1.5"
+  DPLY_EDGE_CONTAINER_BUILDER_MEMORY: 3g
+  DPLY_EDGE_CONTAINER_BUILDER_CPUS: "2"
+  # Same absolute path in both containers: bind mounts resolve on dind's side.
+  DPLY_EDGE_BUILD_WORK_ROOT: /var/lib/dply-builds
+  DPLY_EDGE_BUILD_PACKAGE_STORE_DIR: /var/lib/dply-builds/pkg-store
+  DOCKER_HOST: tcp://127.0.0.1:2376
+  DOCKER_TLS_VERIFY: "1"
+  DOCKER_CERT_PATH: /certs/client
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dply-builder
+  namespace: dply-builders
+  labels: { app: dply-builder }
+spec:
+  # KEDA owns the replica count (ScaledObject below); this is the first apply.
+  replicas: 1
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  selector:
+    matchLabels: { app: dply-builder }
+  template:
+    metadata:
+      labels: { app: dply-builder }
+    spec:
+      # A build can run HORIZON_BUILD_TIMEOUT (7320 s). Termination waits for
+      # it: preStop drains Horizon, and dind waits for Horizon to exit.
+      terminationGracePeriodSeconds: 7500
+      shareProcessNamespace: true
+      automountServiceAccountToken: false
+      nodeSelector: { dply.io/role: builder }
+      tolerations:
+        - { key: dply.io/role, operator: Equal, value: builder, effect: NoSchedule }
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector: { matchLabels: { app: dply-builder } }
+              topologyKey: kubernetes.io/hostname
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: builder
+          image: __IMAGE__
+          command: ["php", "artisan", "horizon"]
+          envFrom:
+            - configMapRef: { name: dply-builder-config }
+            - secretRef: { name: dply-builder-env }
+          env:
+            # Horizon names its master after the pod hostname, so
+            # `horizon:terminate` only stops this pod. HORIZON_NAME labels it.
+            - name: HORIZON_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            # This pod's own lane: publish and cache-snapshot jobs read the
+            # build's files from this pod's disk, and a cancel's `docker kill`
+            # must reach this pod's dind (DplyRuntime::hostQueue).
+            - name: DPLY_EDGE_BUILD_HOST_QUEUE
+              value: dply-provision-$(HORIZON_NAME)
+          lifecycle:
+            preStop:
+              # Stop taking builds, wait until this pod's builds AND the
+              # publishes they queue on its own lane are done, then stop
+              # Horizon once its workers finish.
+              exec: { command: ["sh", "-c", "php artisan dply:builder:drain; php artisan horizon:terminate --wait"] }
+          livenessProbe:
+            # Docker, git, work root, config; stamps the builder heartbeat.
+            exec: { command: ["php", "artisan", "dply:runtime:check", "--quiet"] }
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            timeoutSeconds: 30
+            failureThreshold: 5
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { memory: 1Gi }
+          volumeMounts:
+            - { name: work, mountPath: /var/lib/dply-builds }
+            - { name: docker-certs, mountPath: /certs, readOnly: true }
+        - name: dind
+          image: docker:27-dind
+          securityContext:
+            # Required by dockerd. Confined to the tainted builder pool, no
+            # service account token, ingress denied (NetworkPolicy below).
+            privileged: true
+          env:
+            - { name: DOCKER_TLS_CERTDIR, value: /certs }
+          lifecycle:
+            postStart:
+              # docs/edge-build-isolation.md firewall, inside dind's network
+              # namespace: builds cannot reach this pod's own ports (2376).
+              exec:
+                command:
+                  - sh
+                  - -c
+                  - |
+                    for i in $(seq 1 60); do docker -H unix:///var/run/docker.sock info >/dev/null 2>&1 && break; sleep 1; done
+                    docker -H unix:///var/run/docker.sock network inspect dply-builds >/dev/null 2>&1 || docker -H unix:///var/run/docker.sock network create --driver bridge -o com.docker.network.bridge.enable_icc=false -o com.docker.network.bridge.name=dply-builds0 --subnet 172.30.0.0/16 dply-builds
+                    iptables -C INPUT -i dply-builds0 -j DROP 2>/dev/null || iptables -I INPUT -i dply-builds0 -j DROP
+            preStop:
+              # Keep dockerd up until Horizon (other container) has exited.
+              exec: { command: ["sh", "-c", "while pgrep -f '[a]rtisan horizon' >/dev/null; do sleep 5; done"] }
+          resources:
+            requests: { cpu: "3", memory: 5Gi, ephemeral-storage: 20Gi }
+            limits: { memory: 6Gi, ephemeral-storage: 60Gi }
+          volumeMounts:
+            - { name: work, mountPath: /var/lib/dply-builds }
+            - { name: docker-certs, mountPath: /certs }
+            - { name: docker-data, mountPath: /var/lib/docker }
+      volumes:
+        - { name: work, emptyDir: {} }
+        - { name: docker-certs, emptyDir: {} }
+        - { name: docker-data, emptyDir: {} }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: dply-builder
+  namespace: dply-builders
+spec:
+  # One builder at a time for node drains/upgrades; each drains gracefully.
+  maxUnavailable: 1
+  selector:
+    matchLabels: { app: dply-builder }
+---
+# Builds are hostile code. Nothing may connect in; out, only DNS, the public
+# internet (registries, git hosts, Cloudflare, R2), and the Valkey/database
+# gateway (which kube-proxy resolves in-cluster, so it needs its own rule).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dply-builder
+  namespace: dply-builders
+spec:
+  podSelector:
+    matchLabels: { app: dply-builder }
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+          podSelector: { matchLabels: { k8s-app: kube-dns } }
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: dply-valkey } }
+          podSelector: { matchLabels: { app: valkey-gateway } }
+      ports:
+        - { protocol: TCP, port: 6380 }
+        - { protocol: TCP, port: 5432 }
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 100.64.0.0/10
+              - 169.254.0.0/16
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: dply-builder-valkey
+  namespace: dply-builders
+spec:
+  secretTargetRef:
+    - { parameter: host, name: dply-builder-keda, key: host }
+    - { parameter: port, name: dply-builder-keda, key: port }
+    - { parameter: username, name: dply-builder-keda, key: username }
+    - { parameter: password, name: dply-builder-keda, key: password }
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: dply-builder
+  namespace: dply-builders
+spec:
+  scaleTargetRef: { name: dply-builder }
+  minReplicaCount: 1
+  maxReplicaCount: __MAX_REPLICAS__
+  pollingInterval: 15
+  # Jobs in flight sit in the :reserved set, not the list: scale down slowly.
+  # A removed pod still finishes its builds (terminationGracePeriodSeconds).
+  cooldownPeriod: 900
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 900
+          policies: [{ type: Pods, value: 1, periodSeconds: 300 }]
+  triggers:
+    - type: redis
+      authenticationRef: { name: dply-builder-valkey }
+      metadata:
+        # Laravel's list key: REDIS_PREFIX + "queues:" + queue name.
+        listName: __QUEUE_LIST__
+        # Waiting builds per pod before another pod is added (= concurrency).
+        listLength: "2"
+        activationListLength: "0"
+        enableTLS: "true"

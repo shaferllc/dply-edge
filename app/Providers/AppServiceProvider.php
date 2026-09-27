@@ -46,16 +46,19 @@ use App\Services\Sites\EnsuresDefaultUptimeMonitors;
 use App\Services\Sites\RepositoryWebhookProvisioner;
 use App\Services\Sites\TestingHostnameProvisioner;
 use App\Support\Config\ConfigDirectoryAliases;
+use App\Support\DplyRuntime;
 use App\Support\Sites\SiteRegistry;
 use App\Support\Workspaces\WorkspaceRegistry;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Foundation\DevCommands;
 use Illuminate\Http\Request;
+use Illuminate\Queue\Events\Looping;
 use Illuminate\Support\Facades\Event;
-use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
 use Laravel\Cashier\Cashier;
@@ -155,6 +158,8 @@ class AppServiceProvider extends ServiceProvider
         DevCommands::artisan('schedule:work');
 
         $this->registerEdgeR2FilesystemDisk();
+
+        $this->keepContainerWorkersOffBuildQueues();
 
         $this->discardCorruptedViteHotFile();
 
@@ -336,6 +341,33 @@ class AppServiceProvider extends ServiceProvider
         if ($line === '' || ! preg_match('/\Ahttps?:\/\//i', $line)) {
             @unlink($path);
         }
+    }
+
+    /**
+     * Fail safe for a mis-set worker group: a container has no Docker, so a
+     * queue:work that lists a build queue would take a build and fail it.
+     * It idles instead (Looping returning false) and says why, once.
+     */
+    private function keepContainerWorkersOffBuildQueues(): void
+    {
+        if (! DplyRuntime::isContainer()) {
+            return;
+        }
+
+        $warned = false;
+        Event::listen(Looping::class, static function (Looping $event) use (&$warned): ?bool {
+            $builder = array_intersect(array_map('trim', explode(',', $event->queue)), DplyRuntime::BUILDER_QUEUES);
+            if ($builder === []) {
+                return null;
+            }
+            if (! $warned) {
+                $warned = true;
+                Log::error('[dply-runtime] queue:work refused: DPLY_RUNTIME=container must not drain '.implode(', ', $builder)
+                    .'. Set the worker queues to '.DplyRuntime::workerQueueList(DplyRuntime::MODE_CONTAINER).'.');
+            }
+
+            return false;
+        });
     }
 
     private function registerEdgeR2FilesystemDisk(): void

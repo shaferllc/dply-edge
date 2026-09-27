@@ -71,7 +71,7 @@ final class TrialRunningCost
 
             $database = $site->edgeMeta()['database'] ?? null;
             if (is_array($database) && EdgeAppDatabase::isDply($database)) {
-                $cu = (float) (EdgeAppDatabase::POSTGRES_SIZES[(string) ($database['size'] ?? '')]['cu'] ?? 0.25);
+                $cu = UsagePrice::databaseBilledCu((string) ($database['size'] ?? ''));
                 $millicents += $cu * UsagePrice::rate('database_compute_millicents_per_cu_second') * $this->seconds(EdgePostgresUsage::class, $site);
             }
 

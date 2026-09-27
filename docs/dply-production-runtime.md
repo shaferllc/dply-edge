@@ -1,5 +1,10 @@
 # dply production runtime (web + worker split)
 
+> **Legacy VM topology.** dply now hosts itself: `DPLY_RUNTIME=container` on
+> Cloudflare Containers plus `DPLY_RUNTIME=builder` pods on DOKS
+> (`docs/self-hosting.md`, `docs/self-hosting-runbook.md`). The `dply.yaml`
+> supervisor phases and `dply:self:sync-supervisor` below no longer exist.
+
 Split the control plane across dedicated VMs when a single box cannot keep up with queue + HTTP load.
 
 ## Topology

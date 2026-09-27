@@ -73,8 +73,35 @@ final class RedisConnectionTls
         return $url;
     }
 
+    /**
+     * phpredis stream context for a TLS connection: verify the certificate
+     * against the host and send it as SNI. dply Valkey's gateway routes on
+     * the SNI name ({id}.cache.dply.io:6380), so it must be the real
+     * hostname. Null (no context) for plaintext.
+     *
+     * @return array{stream: array{peer_name: string, SNI_enabled: bool, verify_peer: bool, verify_peer_name: bool}}|null
+     */
+    public static function context(?string $scheme, ?string $host, int|string|null $port, ?string $url = null): ?array
+    {
+        if (self::scheme($scheme, $host, $port, $url) !== 'tls') {
+            return null;
+        }
+        $peer = self::stringOrNull($host) ?? self::parseUrl($url)['host'];
+        if ($peer === null) {
+            return null;
+        }
+
+        return ['stream' => ['peer_name' => $peer, 'SNI_enabled' => true, 'verify_peer' => true, 'verify_peer_name' => true]];
+    }
+
     public static function requiresTls(?string $host, int|string|null $port, ?string $url = null): bool
     {
+        // rediss:// (dply Valkey, most managed Redis) says so itself. Laravel
+        // does not map that scheme to tls on its own.
+        if (preg_match('#^(rediss|tls)://#i', (string) self::stringOrNull($url)) === 1) {
+            return true;
+        }
+
         $fromUrl = self::parseUrl($url);
         $host = self::stringOrNull($host) ?? $fromUrl['host'];
         $port = $port !== null && trim((string) $port) !== '' ? $port : $fromUrl['port'];

@@ -162,6 +162,9 @@
         ]
     },
     "extra": {
+        "dply": {
+            "php-server": "frankenphp"
+        },
         "laravel": {
             "dont-discover": []
         }

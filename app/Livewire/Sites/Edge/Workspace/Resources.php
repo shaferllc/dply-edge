@@ -943,7 +943,7 @@ class Resources extends Component
         $month = $rows->filter(fn ($row) => $row->date->isSameMonth(now()));
         // Usage is in compute units (1 CU = 4 GB awake for a second): divide by
         // this database's size to get wall-clock awake time.
-        $cu = (float) (EdgeAppDatabase::POSTGRES_SIZES[(string) ($this->dplyDatabaseRecord()['size'] ?? '0.25')]['cu'] ?? 0.25);
+        $cu = UsagePrice::databaseBilledCu((string) ($this->dplyDatabaseRecord()['size'] ?? '0.25'));
         $days = [];
         for ($i = 13; $i >= 0; $i--) {
             $date = now()->subDays($i)->toDateString();
@@ -2407,6 +2407,10 @@ class Resources extends Component
         }
 
         $this->draftPostgresSize = $size;
+        if (EdgeDplyDatabase::alwaysOn($size)) {
+            $this->draftPostgresSuspend = -1;
+            $this->draftPostgresPlan = 'awake';
+        }
         $this->refreshPending();
     }
 
@@ -2428,6 +2432,9 @@ class Resources extends Component
         }
         if (! array_key_exists($seconds, EdgeAppDatabase::POSTGRES_SLEEPS)) {
             return;
+        }
+        if ($seconds !== -1 && EdgeDplyDatabase::alwaysOn($this->draftPostgresSize)) {
+            return; // 1 vCPU and up stay on
         }
 
         $this->draftPostgresSuspend = $seconds;
@@ -2669,10 +2676,11 @@ class Resources extends Component
         $postgres = $databaseCost->presentation();
         $postgresSizes = [];
         foreach (EdgeDplyDatabase::sizes() as $key => $size) {
-            $size['second'] = $databaseCost->perSecond($size['cu']);
-            $size['hour'] = $databaseCost->hourly($size['cu']);
-            $size['day'] = $databaseCost->daily($size['cu']);
-            $size['month'] = $databaseCost->monthly($size['cu']);
+            $billed = UsagePrice::databaseBilledCu((string) $key);
+            $size['second'] = $databaseCost->perSecond($billed);
+            $size['hour'] = $databaseCost->hourly($billed);
+            $size['day'] = $databaseCost->daily($billed);
+            $size['month'] = $databaseCost->monthly($billed);
             $postgresSizes[$key] = $size;
         }
         $postgresSuspend = EdgeAppDatabase::postgresSuspend($this->draftPostgresSuspend, $this->draftPostgresPlan);
@@ -2680,9 +2688,10 @@ class Resources extends Component
         $postgresSize = EdgeDplyDatabase::size($this->draftPostgresSize, (string) ($storedDatabase['size'] ?? ''));
         $awakeHours = max(0, min(24, $this->awakeHours));
         foreach ($postgresSizes as $key => $size) {
-            $hours = $postgresSuspend === -1 ? 24 : $awakeHours;
+            $on = $postgresSuspend === -1 || EdgeDplyDatabase::alwaysOn((string) $key);
+            $hours = $on ? 24 : $awakeHours;
             $postgresSizes[$key]['day'] = number_format((float) $size['hour'] * $hours, 2);
-            $postgresSizes[$key]['month'] = number_format((float) $size['hour'] * ($postgresSuspend === -1 ? 720 : $awakeHours * 30), 2);
+            $postgresSizes[$key]['month'] = number_format((float) $size['hour'] * ($on ? 720 : $awakeHours * 30), 2);
         }
 
         return array_merge(
