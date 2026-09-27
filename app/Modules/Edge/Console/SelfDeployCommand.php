@@ -268,7 +268,13 @@ class SelfDeployCommand extends Command
             ];
             if ($status === 'live') {
                 // As PublishEdgeDeploymentJob does: the dashboard shows it live, not provisioning.
-                $site->update(['status' => Site::STATUS_EDGE_ACTIVE, 'edge_backend_id' => $site->edge_backend_id ?: ($this->pending?->id ?? null)]);
+                // active_deployment_id: custom domains and republishes read it.
+                $edge = array_merge($site->edgeMeta(), $this->pending !== null ? ['active_deployment_id' => (string) $this->pending->id] : []);
+                $site->update([
+                    'status' => Site::STATUS_EDGE_ACTIVE,
+                    'edge_backend_id' => $site->edge_backend_id ?: ($this->pending?->id ?? null),
+                    'meta' => array_merge(is_array($site->meta) ? $site->meta : [], ['edge' => $edge]),
+                ]);
             }
             if ($this->pending !== null && $this->pending->git_commit === $sha) {
                 $this->pending->update($row);
