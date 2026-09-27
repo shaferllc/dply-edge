@@ -623,3 +623,50 @@ test('static assets from the container Worker allow any origin, so a custom doma
 
     expect(File::get($dir.'/src/index.js'))->toContain("headers.set('access-control-allow-origin', '*')");
 });
+
+test('php images tune opcache and cache Laravel at boot, tolerating a failed optimize', function () {
+    $fpm = File::get(EdgeContainerDockerfile::prepare(checkout(['composer.json' => '{"require":{"php":"^8.3"}}', 'artisan' => '']))['path']);
+    $franken = File::get(EdgeContainerDockerfile::prepare(checkout(['composer.json' => '{"require":{"php":"^8.3"},"extra":{"dply":{"php-server":"frankenphp"}}}', 'artisan' => '']))['path']);
+    $plain = File::get(EdgeContainerDockerfile::prepare(checkout(['composer.json' => '{"require":{"php":"^8.3"}}', 'index.php' => '']))['path']);
+
+    expect($fpm)->toContain("RUN printf '%s\\n' opcache.enable=1 opcache.validate_timestamps=0 opcache.memory_consumption=128 opcache.interned_strings_buffer=16 opcache.max_accelerated_files=20000 opcache.jit=tracing opcache.jit_buffer_size=64M > \"\$PHP_INI_DIR/conf.d/zz-dply-opcache.ini\"")
+        ->and($fpm)->not->toContain('-d opcache.')
+        // After VIEW_COMPILED_PATH, or the cached config pins the old view path.
+        ->and(strpos($fpm, 'php artisan optimize >/dev/null 2>&1 || echo'))->toBeGreaterThan(strpos($fpm, 'export VIEW_COMPILED_PATH'))
+        ->and(strpos($fpm, 'php artisan optimize'))->toBeLessThan(strpos($fpm, 'php-fpm -F'))
+        ->and($franken)->toContain('opcache.validate_timestamps=0')->not->toContain('opcache.jit')
+        ->and(strpos($franken, 'php artisan optimize'))->toBeLessThan(strpos($franken, 'exec frankenphp run'))
+        ->and($franken)->not->toContain('octane:frankenphp')
+        ->and($plain)->toContain('zz-dply-opcache.ini')->not->toContain('artisan optimize');
+});
+
+test('worker mode starts octane:frankenphp only for a frankenphp app with octane', function () {
+    $image = EdgeContainerDockerfile::prepare(checkout([
+        'composer.json' => '{"require":{"php":"^8.3","laravel/octane":"^2.0"},"extra":{"dply":{"php-server":"frankenphp"}}}',
+        'artisan' => '',
+    ]));
+    $dockerfile = File::get($image['path']);
+
+    expect($image['worker_mode'])->toBeTrue()
+        ->and($dockerfile)->toContain('if [ \"$DPLY_WORKER_MODE\" = \"1\" ]; then exec php artisan octane:frankenphp -n --host=0.0.0.0 --port=8080')
+        ->and(strpos($dockerfile, 'octane:frankenphp'))->toBeLessThan(strpos($dockerfile, 'exec frankenphp run'))
+        ->and(EdgeContainerDockerfile::prepare(checkout([
+            'composer.json' => '{"require":{"php":"^8.3","laravel/octane":"^2.0"}}',
+            'artisan' => '',
+        ]))['worker_mode'])->toBeFalse();
+});
+
+test('the worker hints its durable objects to the region of the app database', function () {
+    config(['edge.valkey.regions' => [['key' => 'nyc3', 'cloudflare' => 'ENAM']]]);
+    $site = new Site;
+    $site->id = '01SITEHINT';
+    $site->meta = ['edge' => ['database' => ['provider' => 'dply', 'engine' => 'postgres', 'region' => 'nyc3']]];
+    $dir = sys_get_temp_dir().'/dply-container-test-'.bin2hex(random_bytes(4));
+
+    (new EdgeContainerDeployer)->scaffold($dir, $site, '/build/src/Dockerfile.dply', 8080, []);
+    $worker = File::get($dir.'/src/index.js');
+
+    expect($worker)->toContain('const LOCATION_HINT = "enam";')
+        ->and($worker)->toContain('binding.get(binding.idFromName(name), LOCATION_HINT ? { locationHint: LOCATION_HINT } : undefined)')
+        ->and($worker)->toContain("import { Container } from '@cloudflare/containers';");
+});

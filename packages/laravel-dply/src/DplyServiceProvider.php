@@ -32,6 +32,48 @@ class DplyServiceProvider extends ServiceProvider
         $this->blockOnRedisQueue();
         $this->oneRoundTripPostgres();
         $this->oneRoundTripMysql();
+        $this->persistentConnections();
+    }
+
+    /**
+     * On dply, database and Redis connections stay open between requests.
+     * The data sits behind a TLS gateway ~40 ms away, and a new connection
+     * costs ~5 round trips (TCP, TLS, startup and auth) before the first
+     * query: ~200 ms a request. The gateway pipes whole sessions (no
+     * transaction pooling), so a kept connection is safe. PDO rolls back a
+     * transaction a request left open, and pdo_pgsql reconnects a connection
+     * the gateway closed while the database slept. The persistent id is the
+     * connection name, so two names for one database never share a session.
+     * Session state an app sets itself (SET, advisory locks) carries over to
+     * the next request on that worker. Only when the app did not set it.
+     */
+    private function persistentConnections(): void
+    {
+        if ((string) env('DPLY_QUEUE_TOKEN', '') === '') {
+            return;
+        }
+        $config = $this->app['config'];
+        foreach ((array) $config->get('database.connections', []) as $name => $connection) {
+            if (! is_array($connection) || ! in_array($connection['driver'] ?? '', ['pgsql', 'mysql', 'mariadb'], true)) {
+                continue;
+            }
+            $options = (array) ($connection['options'] ?? []);
+            if (! array_key_exists(\PDO::ATTR_PERSISTENT, $options)) {
+                $options[\PDO::ATTR_PERSISTENT] = 'dply-'.$name;
+                $config->set("database.connections.{$name}.options", $options);
+            }
+        }
+        // Laravel's config ships options.persistent = env('REDIS_PERSISTENT', false),
+        // so the env var unset is what "the app did not choose" looks like.
+        if ($config->get('database.redis.client', 'phpredis') !== 'phpredis' || env('REDIS_PERSISTENT') !== null) {
+            return;
+        }
+        $config->set('database.redis.options.persistent', true);
+        foreach ((array) $config->get('database.redis', []) as $name => $connection) {
+            if (is_array($connection) && ! in_array($name, ['options', 'clusters'], true) && ! isset($connection['persistent_id'])) {
+                $config->set("database.redis.{$name}.persistent_id", 'dply-'.$name);
+            }
+        }
     }
 
     /**

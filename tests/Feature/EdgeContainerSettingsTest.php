@@ -816,3 +816,18 @@ test('an app that keeps its data with dply runs next to it unless it picks a reg
     config(['edge.valkey.data_region' => '']);
     expect(EdgeContainerSettings::constraints($postgres))->toBeNull();
 });
+
+test('worker mode is refused until a deploy finds octane on frankenphp, then reaches the container env', function () {
+    [$user, $server, $site] = containerSite(paid: true);
+
+    Livewire::actingAs($user)->test(Container::class, ['server' => $server, 'site' => $site])
+        ->set('worker_mode', true)->call('save')->assertHasErrors('worker_mode');
+    expect(EdgeContainerSettings::for($site->fresh())['worker_mode'])->toBeFalse();
+
+    $site->mergeEdgeMeta(['worker_mode_supported' => true]);
+    $site->save();
+    Livewire::actingAs($user)->test(Container::class, ['server' => $server, 'site' => $site])
+        ->set('worker_mode', true)->call('save')->assertHasNoErrors();
+
+    expect((new EdgeContainerDeployer)->secrets($site->fresh(), [], [], false)['DPLY_WORKER_MODE'])->toBe('1');
+});

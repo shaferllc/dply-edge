@@ -232,6 +232,19 @@
                 </span>
             </label>
 
+            @php($workerModeSupported = (bool) ($site->edgeMeta()['worker_mode_supported'] ?? false))
+            <label class="flex items-start gap-3">
+                <input type="checkbox" wire:model="worker_mode" @disabled(! $workerModeSupported && ! $worker_mode) class="mt-0.5 rounded border-brand-ink/20 text-brand-sage disabled:opacity-50" />
+                <span class="text-sm">
+                    <span class="font-medium text-brand-ink">{{ __('Worker mode (Octane on FrankenPHP)') }}</span>
+                    <span class="block text-xs text-brand-moss">{{ __('Keeps the app booted between requests, so each request skips the framework boot. State leaks between requests: singletons, static properties and anything cached in memory carry over from one request to the next, so the app must be Octane-safe. Each worker restarts after 500 requests.') }}</span>
+                    @unless ($workerModeSupported)
+                        <span class="block text-xs text-brand-moss">{{ __('Needs laravel/octane in composer.json require, and FrankenPHP pinned with extra.dply.php-server set to frankenphp. Checked on each deploy.') }}</span>
+                    @endunless
+                    <x-input-error :messages="$errors->get('worker_mode')" class="mt-1" />
+                </span>
+            </label>
+
             <label class="flex items-start gap-3">
                 <input type="checkbox" wire:model="scheduler" class="mt-0.5 rounded border-brand-ink/20 text-brand-sage" />
                 <span class="text-sm">

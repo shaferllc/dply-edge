@@ -359,6 +359,42 @@ final class EdgeContainerDockerfile
         }
     }
 
+    /**
+     * Worker mode needs a Laravel app on FrankenPHP with laravel/octane in
+     * `require` (the image installs --no-dev).
+     */
+    public static function supportsWorkerMode(string $checkout, string $server): bool
+    {
+        return $server === 'frankenphp' && is_file($checkout.'/artisan') && self::composerRequires($checkout, 'laravel/octane');
+    }
+
+    /**
+     * OPcache for every generated PHP image. The code never changes inside a
+     * container, so timestamps are not checked. JIT is left off FrankenPHP:
+     * its PHP is thread-safe (ZTS), where JIT has the least mileage, and a
+     * Laravel request waits on I/O far more than it computes. The Octane
+     * servers run PHP's CLI, which needs enable_cli.
+     */
+    private static function opcacheIni(string $server): string
+    {
+        $ini = [
+            'opcache.enable=1',
+            'opcache.validate_timestamps=0',
+            'opcache.memory_consumption=128',
+            'opcache.interned_strings_buffer=16',
+            'opcache.max_accelerated_files=20000',
+        ];
+        if (in_array($server, ['swoole', 'roadrunner'], true)) {
+            $ini[] = 'opcache.enable_cli=1';
+        }
+        if ($server !== 'frankenphp') {
+            $ini[] = 'opcache.jit=tracing';
+            $ini[] = 'opcache.jit_buffer_size=64M';
+        }
+
+        return 'RUN printf \'%s\\n\' '.implode(' ', $ini).' > "$PHP_INI_DIR/conf.d/zz-dply-opcache.ini"';
+    }
+
     private static function installPhpExtensions(string $extensions): string
     {
         return 'RUN install-php-extensions '.$extensions
@@ -366,7 +402,7 @@ final class EdgeContainerDockerfile
     }
 
     /**
-     * @return array{path: string, port: int, stack: string, generated: bool, server: string}
+     * @return array{path: string, port: int, stack: string, generated: bool, server: string, worker_mode?: bool}
      */
     public static function prepare(string $checkout, bool $injectLaravel = false): array
     {
@@ -397,7 +433,7 @@ final class EdgeContainerDockerfile
             $server = self::detectPhpServer(is_array($composer) ? $composer : []);
         }
 
-        return ['path' => $checkout.'/Dockerfile.dply', 'port' => 8080, 'stack' => $stack, 'generated' => true, 'server' => $server];
+        return ['path' => $checkout.'/Dockerfile.dply', 'port' => 8080, 'stack' => $stack, 'generated' => true, 'server' => $server, 'worker_mode' => self::supportsWorkerMode($checkout, $server)];
     }
 
     /**
@@ -563,6 +599,7 @@ final class EdgeContainerDockerfile
         foreach (self::phpBaseLines($version, $server) as $line) {
             $lines[] = $line;
         }
+        $lines[] = self::opcacheIni($server);
         $lines[] = 'COPY --from=composer:2 /usr/bin/composer /usr/bin/composer';
         $lines[] = 'WORKDIR /app';
         $lock = is_file($checkout.'/composer.lock')
@@ -646,6 +683,19 @@ final class EdgeContainerDockerfile
         // fpm: nginx opens 8080 only once php-fpm accepts on 9000. Readiness
         // checks (the Worker's port probe, Knative's) treat an open 8080 as
         // ready, and before this every cold start's first request got a 502.
+        // Laravel's config/route/view/event caches, built at boot because the
+        // app's env only exists at runtime. Each instance writes its own. A
+        // failure leaves the app uncached, never down. fpm runs it after
+        // VIEW_COMPILED_PATH is set, or the cached config would pin the old path.
+        $optimize = $laravel
+            ? 'php artisan optimize >/dev/null 2>&1 || echo "dply: php artisan optimize failed, starting without Laravel caches"; '
+            : '';
+        // Worker mode (EdgeContainerSettings `worker_mode`, injected as
+        // DPLY_WORKER_MODE): Octane on FrankenPHP keeps the app booted between
+        // requests. -n: Octane's binary check must never wait on a prompt.
+        $workerMode = self::supportsWorkerMode($checkout, $server)
+            ? 'if [ "$DPLY_WORKER_MODE" = "1" ]; then exec php artisan octane:frankenphp -n --host=0.0.0.0 --port=8080 --workers="${DPLY_PHP_FPM_MAX_CHILDREN:-2}" --max-requests=500; fi; '
+            : '';
         $start = match ($server) {
             // Worker counts come from the instance's memory (EdgeContainerSettings::phpFpmPool,
             // injected as DPLY_PHP_FPM_MAX_CHILDREN). Octane's own default reads the host's CPUs.
@@ -653,12 +703,12 @@ final class EdgeContainerDockerfile
             // No --rr-config: Octane then uses the repo's .rr.yaml, or touches an
             // empty one. With the flag, a repo without the file exits on boot.
             'roadrunner' => 'exec php artisan octane:start --server=roadrunner --host=0.0.0.0 --port=8080 --workers="${DPLY_PHP_FPM_MAX_CHILDREN:-2}"',
-            'fpm' => 'children="${DPLY_PHP_FPM_MAX_CHILDREN:-2}"; limit="${DPLY_PHP_MEMORY_LIMIT:-128M}"; mkdir -p /tmp/views /tmp/client_body /tmp/fastcgi; chmod 1777 /tmp/views /tmp/client_body /tmp/fastcgi; export VIEW_COMPILED_PATH=/tmp/views; printf "[global]\npid = /tmp/php-fpm.pid\nerror_log = /tmp/php-fpm.log\ndaemonize = no\n[www]\nuser = www-data\ngroup = www-data\nlisten = 127.0.0.1:9000\npm = ondemand\npm.max_children = %s\npm.process_idle_timeout = 10s\npm.max_requests = 500\nclear_env = no\n" "$children" > /tmp/php-fpm.conf; php-fpm -F -y /tmp/php-fpm.conf -d "memory_limit=$limit" -d opcache.enable=1 -d opcache.memory_consumption=64 -d opcache.max_accelerated_files=10000 & until php -r \'exit(@fsockopen("127.0.0.1", 9000) ? 0 : 1);\'; do sleep 0.1; done; exec nginx -g "daemon off;"',
+            'fpm' => 'children="${DPLY_PHP_FPM_MAX_CHILDREN:-2}"; limit="${DPLY_PHP_MEMORY_LIMIT:-128M}"; mkdir -p /tmp/views /tmp/client_body /tmp/fastcgi; chmod 1777 /tmp/views /tmp/client_body /tmp/fastcgi; export VIEW_COMPILED_PATH=/tmp/views; '.$optimize.'printf "[global]\npid = /tmp/php-fpm.pid\nerror_log = /tmp/php-fpm.log\ndaemonize = no\n[www]\nuser = www-data\ngroup = www-data\nlisten = 127.0.0.1:9000\npm = ondemand\npm.max_children = %s\npm.process_idle_timeout = 10s\npm.max_requests = 500\nclear_env = no\n" "$children" > /tmp/php-fpm.conf; php-fpm -F -y /tmp/php-fpm.conf -d "memory_limit=$limit" & until php -r \'exit(@fsockopen("127.0.0.1", 9000) ? 0 : 1);\'; do sleep 0.1; done; exec nginx -g "daemon off;"',
             // The image's Caddyfile reads FRANKENPHP_CONFIG inside `frankenphp {}`; an app's own value wins.
             // The Worker terminates TLS: trust its X-Forwarded-Proto so Laravel makes https links. Caddy
             // needs a block's contents on their own lines, so it's built with printf; one line
             // ("servers { … }") fails to parse and FrankenPHP never starts.
-            default => 'export CADDY_GLOBAL_OPTIONS="${CADDY_GLOBAL_OPTIONS:-$(printf \'servers {\\n\\ttrusted_proxies static 0.0.0.0/0 ::/0\\n}\')}"; export FRANKENPHP_CONFIG="${FRANKENPHP_CONFIG:-num_threads ${DPLY_PHP_FPM_MAX_CHILDREN:-2}}"; exec frankenphp run --config /etc/frankenphp/Caddyfile',
+            default => $optimize.$workerMode.'export CADDY_GLOBAL_OPTIONS="${CADDY_GLOBAL_OPTIONS:-$(printf \'servers {\\n\\ttrusted_proxies static 0.0.0.0/0 ::/0\\n}\')}"; export FRANKENPHP_CONFIG="${FRANKENPHP_CONFIG:-num_threads ${DPLY_PHP_FPM_MAX_CHILDREN:-2}}"; exec frankenphp run --config /etc/frankenphp/Caddyfile',
         };
         if ($ssr !== null) {
             // Inertia's default SSR URL is http://127.0.0.1:13714, which this serves.

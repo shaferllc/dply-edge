@@ -39,6 +39,8 @@ class Container extends Component
 
     public bool $migrate_on_boot = true;
 
+    public bool $worker_mode = false;
+
     public string $jurisdiction = '';
 
     /** @var list<string> */
@@ -98,6 +100,11 @@ class Container extends Component
         ], [
             'schedules.*.end.after' => __('A window ends later the same day. For overnight, add two windows.'),
         ]);
+        if ($this->worker_mode && ! ($this->site->edgeMeta()['worker_mode_supported'] ?? false)) {
+            $this->addError('worker_mode', __('Worker mode needs laravel/octane and FrankenPHP. Add them and deploy first.'));
+
+            return;
+        }
         $stepsError = EdgeContainerSettings::rolloutStepsError($this->rollout_steps);
         if ($stepsError !== null) {
             $this->addError('rollout_steps', $stepsError);
@@ -114,6 +121,7 @@ class Container extends Component
         $current['schedules'] = EdgeContainerSettings::normalizeSchedules($this->schedules);
         $current['sleep_after'] = $this->sleep_after;
         $current['migrate_on_boot'] = $this->migrate_on_boot;
+        $current['worker_mode'] = $this->worker_mode;
         $current['jurisdiction'] = $this->jurisdiction;
         $current['regions'] = EdgeContainerSettings::normalizeRegions($this->regions, $this->jurisdiction);
         $current['scheduler'] = $this->scheduler;

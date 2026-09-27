@@ -83,7 +83,7 @@ final class EdgeContainerSettings
      * The stored instance size is kept. `$phpServer` is the detected PHP
      * server from deploy; it does not change the size the operator picked.
      *
-     * @return array{instance_type: string, max_instances: int, min_instances: int, sleep_after: string, migrate_on_boot: bool, jurisdiction: string, regions: list<string>, scheduler: bool, rollout_mode: string, rollout_step_percentage: list<int>, rollout_active_grace_period: int}
+     * @return array{instance_type: string, max_instances: int, min_instances: int, sleep_after: string, migrate_on_boot: bool, worker_mode: bool, jurisdiction: string, regions: list<string>, scheduler: bool, rollout_mode: string, rollout_step_percentage: list<int>, rollout_active_grace_period: int}
      */
     public static function for(Site $site, string $phpServer = 'fpm'): array
     {
@@ -107,6 +107,9 @@ final class EdgeContainerSettings
             // moment a cold-starting container has the least memory, and it
             // re-runs on every wake from sleep. Opt in per site.
             'migrate_on_boot' => (bool) ($raw['migrate_on_boot'] ?? false),
+            // Octane on FrankenPHP (EdgeContainerDockerfile::supportsWorkerMode).
+            // Off by default: the app stays booted, so state leaks between requests.
+            'worker_mode' => (bool) ($raw['worker_mode'] ?? false),
             'jurisdiction' => in_array($jurisdiction, self::JURISDICTIONS, true) ? $jurisdiction : '',
             'regions' => self::normalizeRegions(is_array($raw['regions'] ?? null) ? $raw['regions'] : [], in_array($jurisdiction, self::JURISDICTIONS, true) ? $jurisdiction : ''),
             // Laravel: run `schedule:run` every minute via a Cron Trigger.

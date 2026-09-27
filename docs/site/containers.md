@@ -137,6 +137,22 @@ Turn on **Run migrations when a container starts** in **Sleep, region, scheduler
 
 It is off by default. Migrations run on every start, including every wake from sleep, so they add a second framework boot to each cold start. It applies to generated Dockerfiles only. The equivalent environment variable is `DPLY_MIGRATE_ON_BOOT=1`.
 
+## PHP performance defaults
+
+Generated PHP images come tuned:
+
+- **OPcache** is on with 128 MB, 20,000 files and no timestamp checks (the code never changes inside a container). JIT (`tracing`, 64 MB) is on for php-fpm, Swoole and RoadRunner, and off for FrankenPHP.
+- **Laravel caches.** Each container runs `php artisan optimize` (config, routes, views, events) as it starts, since your environment variables only exist at runtime. If it fails the app starts without the caches and the log says so. It adds a little to each cold start.
+- **Kept connections.** With dply/laravel, Postgres, MySQL and Redis (phpredis) connections stay open between requests, so a request skips the connect and TLS handshake to your database. A connection you configure yourself (`PDO::ATTR_PERSISTENT` in a connection's `options`, or `REDIS_PERSISTENT`) is left as you set it. Session settings your code changes (`SET …`, advisory locks) carry over to the next request on the same worker.
+
+## Worker mode
+
+**Worker mode** in **Sleep, region, scheduler** runs a Laravel app with `php artisan octane:frankenphp`: the app boots once per worker and serves every request from memory, instead of booting the framework for each request. It is off by default.
+
+It needs `laravel/octane` in `require` and the FrankenPHP server (`"extra": {"dply": {"php-server": "frankenphp"}}` in `composer.json`). Until a deploy finds both, the switch stays off. Apps with Octane and no pin already run under Swoole or RoadRunner.
+
+> State leaks between requests in worker mode. Singletons, static properties and anything your code keeps in memory survive from one request to the next, including the previous user's data if you store it there. Only turn it on for an app that is written for Octane. Each worker restarts after 500 requests.
+
 ## Cold starts
 
 When a request reaches a sleeping app, dply starts an instance and waits up to 45 seconds for its port to open. If the container is not running or crashes before answering, the request is retried up to two more times. Requests with a body over 1 MB are streamed and not retried. Expect a cold start to take a few seconds; keep instances awake with **Min instances** if that matters (see [Scaling & sleep](/docs/scaling-and-sleep)).
