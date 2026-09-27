@@ -128,9 +128,9 @@ Edge SQL bills every unit from the first, less your plan's included usage credit
 <!-- generated: php artisan dply:billing:price-table rates --group="SQL (D1)" -->
 | Meter | Price | Unit |
 | --- | --- | --- |
-| Rows read | $0.0012 | per million |
-| Rows written | $1.20 | per million |
-| Storage | $0.90 | per GB-month |
+| Rows read | $0.0013 | per million |
+| Rows written | $1.30 | per million |
+| Storage | $0.975 | per GB-month |
 
 Storage is billed as the database's largest size during the month, for the full month. Usage is collected daily, so the sheet's figure runs through yesterday. This bills at the invoice line **SQL, queues and key-value**.
 

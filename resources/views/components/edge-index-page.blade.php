@@ -20,6 +20,8 @@
 @php
     $isProductionSurface = $emptyState === 'production';
     $allTotal = (int) ($totals['all'] ?? 0);
+    // Deployers and viewers can't create apps; don't offer the button.
+    $showCreateAction = $showCreateAction && (auth()->user()?->can('create', \App\Models\Site::class) ?? false);
     $showShellCreate = $edgeEnabled && $showCreateAction && $hasSitesInScope && $allTotal > 0;
     $showShellSecondary = $edgeEnabled && $showSecondaryActions && $hasSitesInScope && $allTotal > 0;
     $createUrl ??= route('edge.create');

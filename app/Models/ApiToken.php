@@ -236,6 +236,11 @@ class ApiToken extends Model
             return in_array($ability, self::deployerApiAllowlist(), true);
         }
 
+        // Org Viewer: read-only, whatever the token lists.
+        if ($this->user && $this->organization?->userIsViewer($this->user)) {
+            return in_array($ability, (array) config('api_token_permissions.viewer_api_allowlist', []), true);
+        }
+
         return true;
     }
 

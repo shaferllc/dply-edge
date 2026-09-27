@@ -14,7 +14,7 @@
         <dl class="space-y-2.5 text-sm">
             <div>
                 <dt class="font-semibold text-brand-ink">{{ __('A monthly plan') }}</dt>
-                <dd class="mt-1 text-brand-moss">{{ __('Starter, Pro or Team, starting with a :days-day Pro trial (card required). Every plan includes unlimited sites; plans differ in seats, limits and included usage.', ['days' => (int) config('subscription.standard.trial.days', 5)]) }}</dd>
+                <dd class="mt-1 text-brand-moss">{{ __('Starter, Pro or Team, starting with a :days-day trial of the plan you choose (card required). Every plan includes unlimited sites; plans differ in seats, limits and included usage.', ['days' => (int) config('subscription.standard.trial.days', 5)]) }}</dd>
             </div>
             <div>
                 <dt class="font-semibold text-brand-ink">{{ __('Included usage credit') }}</dt>

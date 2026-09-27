@@ -630,10 +630,10 @@ Match remaining questions to the layer that still exists:
   ability set.
 - **Programmatic access must mirror site membership, not just the org.** MCP
   site list/deploy/logs still enforce it through **`SiteApiAccess`** — org
-  admins bypass, everyone else must match their UI workspace role. Known drift:
-  the Edge REST base controller currently scopes by **organization only**, so
-  `/api/v1/edge/*` is more permissive than the UI it mirrors. Do not widen it
-  further, and prefer `SiteApiAccess` when touching that path.
+  admins bypass, everyone else must match their UI workspace role. The Edge
+  REST controllers check the token's user against `SitePolicy` on every
+  request (`view` for reads, `deploy` for deployments/previews/cache purge,
+  `update` for other writes), so `/api/v1/edge/*` matches the UI.
 - Control-plane **outbound GETs** (hybrid origin healthchecks and the like) go
   through **`PublicOutboundUrl`**, which blocks private/loopback/link-local/metadata
   targets and does not follow redirects onto internal ones.

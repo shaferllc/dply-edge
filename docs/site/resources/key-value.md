@@ -115,9 +115,9 @@ Key-value stores are billed per operation and for storage, every unit from the f
 <!-- generated: php artisan dply:billing:price-table rates --group="Key-value" -->
 | Meter | Price | Unit |
 | --- | --- | --- |
-| Reads | $0.60 | per million |
-| Writes, deletes and lists | $6.00 | per million |
-| Storage | $0.60 | per GB-month |
+| Reads | $0.65 | per million |
+| Writes, deletes and lists | $6.50 | per million |
+| Storage | $0.65 | per GB-month |
 
 Storage is the store's largest size during the month. Usage is collected hourly from Cloudflare, and each day is collected again in full the next morning. A sleeping store is billed for what it uses: its storage, and any operations before the next deploy takes it off the app. This bills at the invoice line **SQL, queues and key-value**.
 

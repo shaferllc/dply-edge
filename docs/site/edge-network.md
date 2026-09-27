@@ -26,7 +26,7 @@ Every dply app is served from Cloudflare's global network. A visitor's request i
 | Routing and security settings | Cloudflare's global key-value store | Changes reach every location within about a minute. |
 | SSR code | Cloudflare Workers | Runs in the location that received the request. |
 | Container apps | Cloudflare Containers | Placed by region. See [Data regions](/docs/data-regions). |
-| Databases and Valkey from dply | dply's database cluster | See [Data regions](/docs/data-regions). |
+| Databases and Valkey from dply | dply's database cluster on DigitalOcean, New York | See [Data regions](/docs/data-regions). |
 
 ## HTTPS
 

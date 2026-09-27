@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Models\Organization;
 use App\Models\User;
 use App\Modules\Billing\Models\Subscription;
+use App\Modules\Billing\Services\OrganizationBillingEnforcer;
 use App\Modules\Billing\Services\StarterUsageBudget;
 use App\Notifications\OrganizationBillingNotice;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -12,8 +13,8 @@ use Illuminate\Support\Facades\Notification;
 
 uses(RefreshDatabase::class);
 
-// No Free plan: a 5-day Pro trial, then pause, then (when switched on)
-// deletion after 7 days. Ruling r-f17p5zgeh120cm5t.
+// No Free plan: a 5-day trial of the chosen plan, then pause, then deletion
+// after 30 days with warnings. Rulings r-f17p5zgeh120cm5t, r-jnv0r3qf1xk49kmc.
 
 function trialOrg(array $attributes = []): Organization
 {
@@ -47,6 +48,24 @@ test('a card trial reads as its tier and is still capped', function () {
         ->and($org->onTrialPlan())->toBeTrue()
         ->and(app(StarterUsageBudget::class)->status($org)['limit_cents'])->toBe(500);
 });
+
+test('a Starter or Team checkout trials that plan, capped, and the emails name it', function (string $tier, string $label, string $price) {
+    Notification::fake();
+    config(['subscription.standard.stripe.tier_'.$tier => 'price_tier_'.$tier]);
+    $org = trialOrg();
+    Subscription::factory()->withPrice('price_tier_'.$tier)->create(['organization_id' => $org->id, 'stripe_status' => 'trialing', 'trial_ends_at' => now()->addDays(5)]);
+    $org = $org->fresh();
+
+    expect($org->billingTier())->toBe($tier)
+        ->and($org->onTrialPlan())->toBeTrue()
+        ->and(app(StarterUsageBudget::class)->status($org)['limit_cents'])->toBe(500);
+
+    $mail = (new OrganizationBillingNotice($org, 'trial_started', now()->addDays(5)))->toMail($org->users()->first());
+    expect(implode(' ', $mail->introLines))->toContain('trial of '.$label)->toContain($label.' ('.$price.')')->not->toContain('Pro');
+})->with([
+    'starter' => ['starter', 'Starter', '$5/mo'],
+    'team' => ['team', 'Team', '$49/mo'],
+]);
 
 test('an owner gets one trial: a second org of theirs does not', function () {
     $owner = User::factory()->create();
@@ -88,21 +107,66 @@ test('an org that never started its trial is left alone', function () {
     Notification::assertNothingSent();
 });
 
-test('deletion is off by default; switched on it warns, then purges once after the keep period', function () {
+test('switched off, deletion only reports what it would delete', function () {
     Notification::fake();
-    $org = trialOrg(['trial_ends_at' => now()->subDays(20), 'billing_paused_at' => now()->subDays(8)]);
+    config(['subscription.standard.trial.purge_enabled' => false]);
+    $org = trialOrg(['trial_ends_at' => now()->subDays(40), 'billing_paused_at' => now()->subDays(31)]);
 
     $this->artisan('dply:billing:enforce --dry-run')->expectsOutputToContain('would purge (purge is off)')->assertSuccessful();
     $this->artisan('dply:billing:enforce')->assertSuccessful();
     expect($org->fresh()->billing_notices)->toBeNull();
     Notification::assertNothingSent();
+});
 
-    config(['subscription.standard.trial.purge_enabled' => true]);
+test('on by default, deletion comes 30 days after the pause, warned 7 days and 1 day before', function () {
+    Notification::fake();
+    expect(config('subscription.standard.trial.purge_enabled'))->toBeTrue()
+        ->and(config('subscription.standard.trial.keep_data_days'))->toBe(30);
+    $org = trialOrg(['trial_ends_at' => now()->subDays(25), 'billing_paused_at' => now()->subDays(20)]);
+
+    $this->artisan('dply:billing:enforce')->assertSuccessful();
+    Notification::assertNothingSent();
+
+    $this->travel(3)->days(); // 7 days left
+    $this->artisan('dply:billing:enforce')->assertSuccessful();
+    Notification::assertSentTimes(OrganizationBillingNotice::class, 1);
+    expect($org->fresh()->billing_notices)->toHaveKey('deleting_soon')->not->toHaveKey('deleting');
+
+    $this->travel(6)->days(); // 1 day left
+    $this->artisan('dply:billing:enforce')->doesntExpectOutputToContain(': purge')->assertSuccessful();
+    Notification::assertSentTimes(OrganizationBillingNotice::class, 2);
+
+    $this->travel(25)->hours();
     $this->artisan('dply:billing:enforce')->expectsOutputToContain(': purge')->assertSuccessful();
     $this->artisan('dply:billing:enforce')->doesntExpectOutputToContain(': purge')->assertSuccessful();
-
-    Notification::assertSentTimes(OrganizationBillingNotice::class, 1); // deleting
     expect($org->fresh()->billing_notices)->toHaveKey('purged');
+});
+
+test('an org already past its keep period is warned first, not deleted in the same run', function () {
+    Notification::fake();
+    $org = trialOrg(['trial_ends_at' => now()->subDays(60), 'billing_paused_at' => now()->subDays(45)]);
+
+    $this->artisan('dply:billing:enforce')->doesntExpectOutputToContain(': purge')->assertSuccessful();
+    Notification::assertSentTimes(OrganizationBillingNotice::class, 1);
+    expect(OrganizationBillingEnforcer::deleteAt($org->fresh())->isSameDay(now()->addDays(7)))->toBeTrue();
+
+    $this->travel(145)->hours();
+    $this->artisan('dply:billing:enforce')->doesntExpectOutputToContain(': purge')->assertSuccessful();
+    Notification::assertSentTimes(OrganizationBillingNotice::class, 2); // deleting, a day out
+
+    $this->travel(25)->hours();
+    $this->artisan('dply:billing:enforce')->expectsOutputToContain(': purge')->assertSuccessful();
+});
+
+test('resuming clears the deletion warnings, so a later pause warns again', function () {
+    Notification::fake();
+    $org = trialOrg(['trial_ends_at' => now()->subDays(60), 'billing_paused_at' => now()->subDays(45)]);
+    $this->artisan('dply:billing:enforce')->assertSuccessful();
+    expect($org->fresh()->billing_notices)->toHaveKey('deleting_soon');
+
+    $org->forceFill(['comped_until' => now()->addDay()])->save();
+    $this->artisan('dply:billing:enforce')->assertSuccessful();
+    expect($org->fresh()->billing_notices ?? [])->not->toHaveKey('deleting_soon')->not->toHaveKey('deleting');
 });
 
 test('comp command comps and un-comps an org', function () {

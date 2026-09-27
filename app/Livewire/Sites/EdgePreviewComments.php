@@ -78,7 +78,7 @@ class EdgePreviewComments extends Component
 
     public function addComment(): void
     {
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
 
         $this->validate([
             'newCommentBody' => ['required', 'string', 'max:8000'],
@@ -113,7 +113,7 @@ class EdgePreviewComments extends Component
 
     public function submitReply(): void
     {
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
 
         if ($this->replyToCommentId === null) {
             return;
@@ -147,7 +147,7 @@ class EdgePreviewComments extends Component
 
     public function toggleResolved(string $commentId): void
     {
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
 
         $comment = EdgePreviewComment::query()
             ->where('site_id', $this->site->id)
@@ -162,7 +162,7 @@ class EdgePreviewComments extends Component
 
     public function confirmDeleteComment(string $commentId): void
     {
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
 
         $this->openConfirmActionModal(
             'deleteComment',
@@ -176,7 +176,7 @@ class EdgePreviewComments extends Component
 
     public function deleteComment(string $commentId): void
     {
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
 
         EdgePreviewComment::query()
             ->where('site_id', $this->site->id)
@@ -188,7 +188,7 @@ class EdgePreviewComments extends Component
 
     public function approveReview(): void
     {
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
 
         $this->validate([
             'approvalNote' => ['nullable', 'string', 'max:500'],
@@ -216,7 +216,7 @@ class EdgePreviewComments extends Component
 
     public function revokeApproval(): void
     {
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
 
         $userId = auth()->id();
         if ($userId === null) {
@@ -233,7 +233,7 @@ class EdgePreviewComments extends Component
 
     public function confirmPromoteToProduction(EdgePreviewReviewState $reviewState): void
     {
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
 
         $parent = $this->parentSite();
         if ($parent === null) {
@@ -242,7 +242,7 @@ class EdgePreviewComments extends Component
             return;
         }
 
-        $this->authorize('update', $parent);
+        $this->authorize('deploy', $parent);
 
         $review = $reviewState->forPreview($this->site);
         if ($blocked = $reviewState->promoteBlockedMessage($review)) {
@@ -297,7 +297,7 @@ class EdgePreviewComments extends Component
             return;
         }
 
-        $this->authorize('update', $parent);
+        $this->authorize('deploy', $parent);
 
         try {
             app(PromoteEdgePreview::class)->handle($parent, (string) $this->site->id);

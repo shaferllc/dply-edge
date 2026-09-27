@@ -7,7 +7,7 @@ dply is in private beta, and support is handled directly by the dply team by ema
 
 ## Contact support
 
-Email the dply team with the **Email us** link at the bottom of the public pricing page. Write from the email address on your dply account, so we can find your organization.
+Email [hello@dply.io](mailto:hello@dply.io). The address is also linked from **Email support** in the account menu and from the footer of the public site. Write from the email address on your dply account, so we can find your organization.
 
 > [!NOTE]
 > There is no in-app chat, ticket form or phone support yet, and no guaranteed response time. We answer beta customers as quickly as we can on business days.
@@ -39,12 +39,12 @@ Many problems can be diagnosed without waiting for a reply:
 
 ## Billing questions
 
-Plan changes, cancellation and card updates are self-serve on your organization's **Billing** page. Email us for anything else about a charge, including a charge you believe is wrong. Include the invoice date and amount.
+Plan changes, cancellation and card updates are self-serve on your organization's **Billing** page. Email [hello@dply.io](mailto:hello@dply.io) for anything else about a charge, including a charge you believe is wrong. Include the invoice date and amount.
 
 ## Report abuse or a security issue
 
 - To report a site hosted on dply that is abusive, see [Report abuse](/docs/abuse).
-- To report a vulnerability in dply itself, email the dply team with "Security" in the subject line and don't disclose it publicly until we've responded. See [Compliance & security](/docs/compliance).
+- To report a vulnerability in dply itself, email [hello@dply.io](mailto:hello@dply.io) with "Security" in the subject line and don't disclose it publicly until we've responded. See [Compliance & security](/docs/compliance).
 
 ## Related
 

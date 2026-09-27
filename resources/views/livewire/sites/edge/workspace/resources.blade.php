@@ -44,7 +44,7 @@
     @if ($needsRedeploy)
         <div class="flex flex-wrap items-center justify-between gap-3 border-b border-amber-500/30 bg-amber-500/10 px-5 py-2.5 text-sm sm:px-6">
             <p class="text-brand-ink">{{ __('Saved. Redeploy to apply these settings to the running app.') }}</p>
-            @can('update', $site)
+            @can('deploy', $site)
                 <button type="button" wire:click="redeployEdge" wire:loading.attr="disabled" wire:target="redeployEdge" class="rounded-lg bg-brand-ink px-3 py-1.5 text-xs font-semibold text-brand-cream hover:bg-brand-forest disabled:opacity-60">
                     <span wire:loading.remove wire:target="redeployEdge">{{ __('Redeploy') }}</span>
                     <span wire:loading wire:target="redeployEdge">{{ __('Queuing…') }}</span>

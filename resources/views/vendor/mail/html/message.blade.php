@@ -21,6 +21,8 @@
 {{-- Footer --}}
 <x-slot:footer>
 <x-mail::footer>
+{{ __('Questions? Email') }} [{{ config('dply.support_email') }}](mailto:{{ config('dply.support_email') }})
+
 © {{ date('Y') }} {{ config('app.name') }}. {{ __('All rights reserved.') }}
 </x-mail::footer>
 </x-slot:footer>

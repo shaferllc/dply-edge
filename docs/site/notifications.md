@@ -81,7 +81,7 @@ An HTTP webhook channel receives a JSON `POST` for each event it is subscribed t
   "dedup_key": "dply:App\\Models\\Site:01J9Z3K8QX4T6M2N5P7R8S9V0W:site.deployments",
   "subject": "Edge deploy failed: marketing-site",
   "text": "The build exited with code 1.",
-  "action_url": "https://dply.io/...",
+  "action_url": "https://edge.dply.io/...",
   "sent_at": "2026-09-26T14:03:11+00:00"
 }
 ```

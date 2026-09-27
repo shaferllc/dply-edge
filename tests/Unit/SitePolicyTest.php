@@ -74,7 +74,7 @@ test('edge site admin can manage members; deployer cannot', function () {
 
     expect($this->policy->manageMembers($member, $site->fresh()))->toBeFalse();
 
-    $site->edgeSiteMembers()->where('user_id', $member->id)->update([
+    $site->edgeSiteMembers()->where('user_id', $member->id)->firstOrFail()->update([
         'role' => EdgeSiteMember::ROLE_ADMIN,
     ]);
 

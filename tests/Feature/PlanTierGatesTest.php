@@ -6,11 +6,14 @@ namespace Tests\Feature\PlanTierGatesTest;
 
 use App\Enums\SiteType;
 use App\Livewire\Organizations\Activity;
+use App\Livewire\Organizations\Members;
 use App\Models\Organization;
+use App\Models\OrganizationInvitation;
 use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
 use App\Modules\Billing\Models\Subscription;
+use App\Modules\Billing\Services\OrganizationBillingStateComputer;
 use App\Modules\Edge\Services\EdgeCustomDomainProvisioner;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
@@ -56,6 +59,30 @@ test('seats hard-cap on pro and bill past the allowance on team; free is unlimit
     expect($this->org->effectiveMemberSeatCap())->toBeNull()
         ->and(onTier(Organization::factory()->create(), 'pro')->effectiveMemberSeatCap())->toBe(3)
         ->and(onTier(Organization::factory()->create(), 'team')->effectiveMemberSeatCap())->toBeNull();
+});
+
+test('view-only members and their invitations are free: not billed, not against the seat cap', function () {
+    $org = onTier(Organization::factory()->create(), 'pro'); // 3 seats, hard cap
+    $owner = User::factory()->create();
+    $org->users()->attach($owner->id, ['role' => 'owner']);
+    $org->users()->attach(User::factory()->create()->id, ['role' => Organization::VIEW_ONLY_ROLE]);
+    $org->users()->attach(User::factory()->create()->id, ['role' => Organization::VIEW_ONLY_ROLE]);
+    OrganizationInvitation::createFor($org, 'viewer@example.com', Organization::VIEW_ONLY_ROLE, $owner);
+    OrganizationInvitation::createFor($org, 'member@example.com', 'member', $owner);
+    $org = $org->fresh();
+
+    expect($org->seatCount())->toBe(1)
+        ->and($org->seatsWithPendingInvites())->toBe(2)
+        ->and(app(OrganizationBillingStateComputer::class)->computeForTier($org, 'pro')->seatCount)->toBe(1);
+
+    // Two seats used of three: one more member fits, the next does not.
+    $this->actingAs($owner);
+    Livewire::test(Members::class, ['organization' => $org])
+        ->set('invite_email', 'second@example.com')->set('invite_role', 'member')->call('inviteMember')
+        ->assertHasNoErrors();
+    Livewire::test(Members::class, ['organization' => $org->fresh()])
+        ->set('invite_email', 'third@example.com')->set('invite_role', 'member')->call('inviteMember')
+        ->assertHasErrors('invite_email');
 });
 
 test('custom domains follow the plan, and an org without one gets none', function () {

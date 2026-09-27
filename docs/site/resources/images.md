@@ -93,7 +93,7 @@ Bills every transformation from the first, less your plan's included usage credi
 <!-- generated: php artisan dply:billing:price-table rates --group="Images" -->
 | Meter | Price | Unit |
 | --- | --- | --- |
-| Transformations | $0.60 | per 1,000 |
+| Transformations | $0.65 | per 1,000 |
 
 Usage is collected daily and billed to your organization. This bills at the invoice line **Workers CPU, Durable Objects, object storage and images**.
 

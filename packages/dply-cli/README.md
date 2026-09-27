@@ -70,7 +70,7 @@ mode. `dply update --force` overrides that if you actually want the packed build
 In `.env` on the dply app:
 
 ```env
-APP_URL=https://dplyi.test
+APP_URL=https://edge.dply.io
 # Default — download from this app:
 DPLY_CLI_INSTALL_METHOD=tarball
 DPLY_CLI_NPM_PUBLISHED=false
@@ -111,8 +111,8 @@ keeps several signed-in instances and switches between them:
 ```sh
 dply use                      # pick from the ones you are signed in to
 dply use list                 # show them, active one marked
-dply use dply.io             # switch to a saved instance
-dply use https://dply.io     # add one — signs you in, keeps the others
+dply use edge.dply.io        # switch to a saved instance
+dply use https://edge.dply.io # add one — signs you in, keeps the others
 dply use live                 # shorthand for the hosted instance
 dply use forget dply.test     # drop a saved session
 ```

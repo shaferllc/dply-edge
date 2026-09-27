@@ -10,7 +10,7 @@ The **Deploy to dply** badge is a button for template authors and demo repositor
 Paste this into your `README.md` and replace `OWNER/REPO` with your repository:
 
 ```markdown
-[![Deploy to dply](https://dply.io/images/deploy-to-dply.svg)](https://dply.io/deploy?repo=OWNER/REPO)
+[![Deploy to dply](https://edge.dply.io/images/deploy-to-dply.svg)](https://edge.dply.io/deploy?repo=OWNER/REPO)
 ```
 
 `repo` accepts either `owner/name` or a full clone URL, such as `https://github.com/owner/repo`.
@@ -18,8 +18,8 @@ Paste this into your `README.md` and replace `OWNER/REPO` with your repository:
 For an HTML page:
 
 ```html
-<a href="https://dply.io/deploy?repo=OWNER/REPO">
-  <img src="https://dply.io/images/deploy-to-dply.svg" alt="Deploy to dply">
+<a href="https://edge.dply.io/deploy?repo=OWNER/REPO">
+  <img src="https://edge.dply.io/images/deploy-to-dply.svg" alt="Deploy to dply">
 </a>
 ```
 
@@ -39,7 +39,7 @@ The `/deploy` link passes these query parameters to the new-app form. Anything e
 For example:
 
 ```text
-https://dply.io/deploy?repo=acme/astro-starter&branch=main&runtime_mode=static&build_command=npm%20run%20build&output_dir=dist
+https://edge.dply.io/deploy?repo=acme/astro-starter&branch=main&runtime_mode=static&build_command=npm%20run%20build&output_dir=dist
 ```
 
 URL-encode values that contain spaces or other special characters. When you leave out `runtime_mode`, dply inspects the repository and recommends one, as it does for any new app.
@@ -54,7 +54,7 @@ The visitor reviews every field before anything is created. The badge never depl
 
 ## The badge image
 
-The badge is a static SVG at `https://dply.io/images/deploy-to-dply.svg`. You can link it directly or copy it into your own repository or CDN. The same image works for every link, so you don't need a new badge when you add parameters.
+The badge is a static SVG at `https://edge.dply.io/images/deploy-to-dply.svg`. You can link it directly or copy it into your own repository or CDN. The same image works for every link, so you don't need a new badge when you add parameters.
 
 ## Related
 

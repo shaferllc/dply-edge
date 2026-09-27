@@ -38,6 +38,9 @@ trait ManagesEdgeDeploy
         if ($site === null) {
             return;
         }
+        // launchedSiteId is a public property: the browser can send any id.
+        // Changing the branch is a build setting, so this needs update.
+        $this->authorize('update', $site);
 
         $this->validate([
             'branch' => ['required', 'string', 'max:120'],
@@ -111,6 +114,12 @@ trait ManagesEdgeDeploy
         $org = auth()->user()?->currentOrganization();
         if ($org === null) {
             $this->toastError(__('Select or create an organization first.'));
+
+            return;
+        }
+        // Deployers and viewers don't create apps (ruling r-jnv0r3qf1xk49kmc).
+        if (! in_array($org->memberRole(auth()->user()), ['owner', 'admin', 'member'], true)) {
+            $this->toastError(__('Your role cannot create apps. Ask an organization admin or member.'));
 
             return;
         }

@@ -108,7 +108,8 @@ final class SiteSettingsViewData
         $headerOrg = $headerUser?->currentOrganization();
         $headerCanUpdateSite = (bool) $headerUser?->can('update', $site);
         $headerCanDeleteSite = (bool) $headerUser?->can('delete', $site);
-        $headerIsDeployer = (bool) $headerOrg?->userIsDeployer($headerUser);
+        // Deploy but not configure: an org Deployer, or an app Deployer role.
+        $headerIsDeployer = ! $headerCanUpdateSite && (bool) $headerUser?->can('deploy', $site);
         $headerIsAdmin = (bool) $headerOrg?->hasAdminAccess($headerUser);
         $headerRoleLabel = match (true) {
             $headerIsAdmin => null,

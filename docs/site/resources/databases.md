@@ -161,11 +161,11 @@ Compute is billed per second while awake. Storage is billed per GB-month on the 
 <!-- generated: php artisan dply:billing:price-table sizes --product=database -->
 | Size | Memory | Per second awake | Per hour awake |
 | --- | --- | --- | --- |
-| 0.25 vCPU | 1 GB | $0.00000883 | $0.0318 |
-| 0.5 vCPU | 2 GB | $0.0000177 | $0.0636 |
-| 1 vCPU | 4 GB | $0.0000353 | $0.127 |
-| 2 vCPU | 8 GB | $0.0000707 | $0.254 |
-| 4 vCPU | 16 GB | $0.000141 | $0.509 |
+| 0.25 vCPU | 1 GB | $0.00000957 | $0.0345 |
+| 0.5 vCPU | 2 GB | $0.0000191 | $0.0689 |
+| 1 vCPU | 4 GB | $0.0000383 | $0.138 |
+| 2 vCPU | 8 GB | $0.0000766 | $0.276 |
+| 4 vCPU | 16 GB | $0.000153 | $0.551 |
 
 Storage is $0.42 per GB-month (`php artisan dply:billing:price-table rates --group=Databases`).
 

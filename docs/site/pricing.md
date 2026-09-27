@@ -3,7 +3,7 @@ title: "Plans & pricing"
 description: "What each plan includes, the included usage credit, and the rate for every usage meter."
 ---
 
-dply bills each organization a monthly plan fee plus usage past what the plan's included credit covers. Every new organization starts with a 5-day Pro trial; there is no free plan. Sites and apps are unlimited on every plan, subject to fair use. This page lists what each plan includes and the rate for every meter, so you can predict a bill before it arrives.
+dply bills each organization a monthly plan fee plus usage past what the plan's included credit covers. Every new organization starts with a 5-day trial of the plan it chooses; there is no free plan. Sites and apps are unlimited on every plan, subject to fair use. This page lists what each plan includes and the rate for every meter, so you can predict a bill before it arrives.
 
 All prices are in US dollars. Plans are billed monthly; there is no annual option.
 
@@ -40,7 +40,7 @@ Every plan, including the trial, deploys as many sites and apps as you want — 
 
 ### Seats
 
-Every member of the organization is a seat, and pending invitations count too. On Starter and Pro the seat count is a hard limit: you can't invite past it, and you can't move down to a plan with fewer seats than you have members. On Team, the first 10 seats are included and each additional member costs $5 a month.
+Every member of the organization is a seat, and pending invitations count too, except view-only members: someone who can only view the organization's apps, and an invitation for that role, doesn't take a seat and is free. On Starter and Pro the seat count is a hard limit: you can't invite past it, and you can't move down to a plan with fewer seats than you have members. On Team, the first 10 seats are included and each additional member costs $5 a month.
 
 ### Other limits
 
@@ -66,42 +66,42 @@ Enterprise's limits are set in your contract; none of the above is a hard ceilin
 
 Usage is billed in arrears, on the invoice after the billing period ends, at the rates below, less your plan's included usage credit. See [Usage & metering](/docs/usage) for how each meter is measured and [Invoices & taxes](/docs/invoices) for how it appears on your bill.
 
-Rates are shown to more precision than a cent where the unit is small. Each invoice line is rounded up to the next whole cent.
+Rates are shown to more precision than a cent where the unit is small. Bandwidth is a flat price dply sets, not a pass-through of a provider charge. Each invoice line is rounded up to the next whole cent.
 
 <!-- generated: php artisan dply:billing:price-table rates -->
 | Group | Meter | Price | Unit |
 | --- | --- | --- | --- |
-| Delivery | Requests | $0.36 | per million |
+| Delivery | Requests | $0.39 | per million |
 | Delivery | Bandwidth | $0.06 | per GB |
-| Delivery | Site storage | $0.018 | per GB-month |
-| Delivery | Site storage writes | $5.40 | per million |
-| Delivery | Site storage reads | $0.432 | per million |
-| Builds | Build time | $0.006 | per minute, billed per second |
-| Apps and workers | vCPU | $0.000024 | per vCPU-second |
-| Apps and workers | Memory | $0.000003 | per GiB-second |
-| Apps and workers | Disk | $0.000000084 | per GB-second |
-| Apps and workers | Container bandwidth | $0.03 | per GB |
-| Databases | Compute | $0.0000353 | per compute-unit-second (1 vCPU, 4 GB) |
-| Databases | Storage | $0.42 | per GB-month |
-| SQL (D1) | Rows read | $0.0012 | per million |
-| SQL (D1) | Rows written | $1.20 | per million |
-| SQL (D1) | Storage | $0.90 | per GB-month |
-| Queues | Operations | $0.48 | per million |
-| Key-value | Reads | $0.60 | per million |
-| Key-value | Writes, deletes and lists | $6.00 | per million |
-| Key-value | Storage | $0.60 | per GB-month |
-| Realtime | Connection-minutes | $0.50 | per million |
-| Realtime | Messages | $0.54 | per million |
-| Workers | CPU time | $0.024 | per million CPU-ms |
-| Durable Objects | Requests | $0.18 | per million |
-| Durable Objects | Duration | $15.00 | per million GB-seconds |
-| Durable Objects | Rows read | $0.0012 | per million |
-| Durable Objects | Rows written | $1.20 | per million |
-| Durable Objects | Storage | $0.24 | per GB-month |
-| Object storage | Storage | $0.018 | per GB-month |
-| Object storage | Writes (Class A) | $5.40 | per million |
-| Object storage | Reads (Class B) | $0.432 | per million |
-| Images | Transformations | $0.60 | per 1,000 |
+| Delivery | Site storage | $0.0195 | per GB-month |
+| Delivery | Site storage writes | $5.85 | per million |
+| Delivery | Site storage reads | $0.468 | per million |
+| Builds | Build time | $0.0065 | per minute, billed per second |
+| Apps and workers | vCPU | $0.000026 | per vCPU-second |
+| Apps and workers | Memory | $0.00000325 | per GiB-second |
+| Apps and workers | Disk | $0.000000091 | per GB-second |
+| Apps and workers | Container bandwidth | $0.0325 | per GB |
+| Databases | Compute | $0.0000383 | per compute-unit-second (1 vCPU, 4 GB) |
+| Databases | Storage | $0.455 | per GB-month |
+| SQL (D1) | Rows read | $0.0013 | per million |
+| SQL (D1) | Rows written | $1.30 | per million |
+| SQL (D1) | Storage | $0.975 | per GB-month |
+| Queues | Operations | $0.52 | per million |
+| Key-value | Reads | $0.65 | per million |
+| Key-value | Writes, deletes and lists | $6.50 | per million |
+| Key-value | Storage | $0.65 | per GB-month |
+| Realtime | Connection-minutes | $0.542 | per million |
+| Realtime | Messages | $0.585 | per million |
+| Workers | CPU time | $0.026 | per million CPU-ms |
+| Durable Objects | Requests | $0.195 | per million |
+| Durable Objects | Duration | $16.25 | per million GB-seconds |
+| Durable Objects | Rows read | $0.0013 | per million |
+| Durable Objects | Rows written | $1.30 | per million |
+| Durable Objects | Storage | $0.26 | per GB-month |
+| Object storage | Storage | $0.0195 | per GB-month |
+| Object storage | Writes (Class A) | $5.85 | per million |
+| Object storage | Reads (Class B) | $0.468 | per million |
+| Images | Transformations | $0.65 | per 1,000 |
 
 Container apps, queue workers, dply databases (Postgres, MySQL, MongoDB) and Valkey are billed per second while they're awake; asleep is $0 (database storage still bills per GB-month, awake or asleep). See [Scaling & sleep](/docs/scaling-and-sleep).
 
@@ -112,11 +112,11 @@ Container apps, dply databases and Valkey share one size ladder. Memory differs 
 <!-- generated: php artisan dply:billing:price-table sizes -->
 | Size | Container app | Database | Valkey |
 | --- | --- | --- | --- |
-| 0.25 vCPU | $0.00000934/s (1 GB) | $0.00000883/s (1 GB) | $0.00000248/s (250 MB) |
-| 0.5 vCPU | $0.0000247/s (4 GB) | $0.0000177/s (2 GB) | $0.00000992/s (1 GB) |
-| 1 vCPU | $0.000043/s (6 GB) | $0.0000353/s (4 GB) | $0.0000198/s (2.5 GB) |
-| 2 vCPU | $0.0000733/s (8 GB) | $0.0000707/s (8 GB) | $0.0000318/s (5 GB) |
-| 4 vCPU | $0.000134/s (12 GB) | $0.000141/s (16 GB) | $0.0000744/s (12 GB) |
+| 0.25 vCPU | $0.0000101/s (1 GB) | $0.00000957/s (1 GB) | $0.00000269/s (250 MB) |
+| 0.5 vCPU | $0.0000267/s (4 GB) | $0.0000191/s (2 GB) | $0.0000107/s (1 GB) |
+| 1 vCPU | $0.0000466/s (6 GB) | $0.0000383/s (4 GB) | $0.0000215/s (2.5 GB) |
+| 2 vCPU | $0.0000795/s (8 GB) | $0.0000766/s (8 GB) | $0.0000345/s (5 GB) |
+| 4 vCPU | $0.000145/s (12 GB) | $0.000153/s (16 GB) | $0.0000806/s (12 GB) |
 
 Container apps also offer **1/16 vCPU** below this ladder, for non-PHP apps only. Valkey's 0.25, 0.5 and 1 vCPU sizes sleep when idle; 2 and 4 vCPU stay on. Each Valkey size also has a monthly maximum — see [Valkey (Redis)](/docs/resources/valkey).
 

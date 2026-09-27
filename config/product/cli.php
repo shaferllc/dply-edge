@@ -31,7 +31,7 @@ return [
     | DPLY_CLI_DEFAULT_BASE_URL; otherwise APP_URL.
     |
     */
-    'default_base_url' => rtrim((string) env('DPLY_CLI_DEFAULT_BASE_URL', env('APP_URL', 'https://dply.io')), '/'),
+    'default_base_url' => rtrim((string) env('DPLY_CLI_DEFAULT_BASE_URL', env('APP_URL', 'https://edge.dply.io')), '/'),
 
     /*
     |--------------------------------------------------------------------------
@@ -68,10 +68,20 @@ return [
             'servers.read',
             'sites.read',
         ],
+        // Org Viewer: read-only. Must stay a subset of api_token_permissions.viewer_api_allowlist.
+        'viewer' => [
+            'account.read',
+            'account.write',
+            'edge.read',
+            'edge.env.read',
+            'servers.read',
+            'sites.read',
+        ],
         'member' => [
             'account.read',
             'account.write',
             'billing.read',
+            'edge.deploy',
             'edge.read',
             'edge.env.read',
             'servers.read',

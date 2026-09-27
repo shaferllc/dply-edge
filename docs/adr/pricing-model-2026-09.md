@@ -15,7 +15,7 @@ its $5 cap (r-f17p5zgeh120cm5t) stay. Realtime's separate allowances
 | enterprise | Enterprise | contract | — | — | — (sales-led, as today) |
 | none | (no plan) | — | — | $0 | — |
 
-- The trial is Pro with the trial cap. `billingTier()` semantics unchanged.
+- The trial is the plan chosen at checkout, with the $5 trial cap (ruling r-jnv0r3qf1xk49kmc). `billingTier()` semantics unchanged.
 - Credits are **per-plan config values** (`usage_credit_cents`) so the owner
   can lower them without code changes.
 - Non-price limits stay per plan (build concurrency, build timeout, custom
@@ -31,7 +31,7 @@ its $5 cap (r-f17p5zgeh120cm5t) stay. Realtime's separate allowances
 
 ## One margin (config: `dply.edge.usage_billing.margin_percent`)
 
-- `margin_percent` default **20**, env `DPLY_USAGE_MARGIN_PERCENT`. The
+- `margin_percent` default **30** (owner, ruling r-jnv0r3qf1xk49kmc; was 20), env `DPLY_USAGE_MARGIN_PERCENT`. The
   single knob. Replaces `markup_percent` (25) and every hard-coded markup.
 - Every meter's config value is the **provider cost** (Cloudflare list /
   our infra cost for databases & Valkey). Customer price =

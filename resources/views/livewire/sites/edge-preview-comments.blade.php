@@ -54,7 +54,7 @@
                     <div><span class="font-semibold text-brand-ink">{{ __('Approvals') }}:</span> {{ (int) ($review['approval_count'] ?? 0) }}/{{ (int) ($review['min_approvals'] ?? 1) }}</div>
                 </dl>
             </div>
-            @can('update', $site)
+            @can('deploy', $site)
                 @if ($ready && $parentSite)
                     <button
                         type="button"
@@ -84,7 +84,7 @@
         </section>
     @endif
 
-    @can('update', $site)
+    @can('deploy', $site)
         <section class="dply-card mt-6 overflow-hidden">
             <div class="flex items-start gap-3 border-b border-brand-ink/10 bg-brand-sand/20 px-6 py-5 sm:px-7">
                 <x-icon-badge>

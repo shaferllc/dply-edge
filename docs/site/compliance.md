@@ -24,8 +24,9 @@ Payments are handled by Stripe. dply never receives or stores your card number.
 
 | Subprocessor | Purpose |
 |---|---|
-| Cloudflare | Hosting, delivery, storage and compute for your apps |
-| DigitalOcean | dply's database and Valkey clusters |
+| Cloudflare | Hosting, delivery, storage and compute for your apps, and account email |
+| DigitalOcean | dply's database and Valkey clusters (New York) |
+| Hetzner | Uptime checks for status pages and monitors (Falkenstein, Germany) |
 | Stripe | Payments and invoices |
 | GitHub, GitLab, Bitbucket | Source code access, only for the providers you connect |
 
@@ -65,12 +66,12 @@ Every site is served over HTTPS. Certificates for custom domains are issued by C
 
 ## Data retention
 
-- **Your data** stays until you delete it, or until an unpaid organization's data is removed after it has been paused. See [Paused accounts](/docs/paused-accounts).
+- **Your data** stays until you delete it. If your organization is paused for non-payment, its apps, resources and data are deleted 30 days after the pause, and we email you before that happens. See [Paused accounts](/docs/paused-accounts).
 - **Request logs** are kept for 7 days. See [Logs](/docs/logs).
 
 ## Report a vulnerability
 
-Email the dply team (see [Support](/docs/support)) with "Security" in the subject. Include steps to reproduce and the affected URL or feature. Please give us a reasonable time to fix the issue before disclosing it publicly. Don't access, change or delete data that isn't yours while testing.
+Email [hello@dply.io](mailto:hello@dply.io) with "Security" in the subject. Include steps to reproduce and the affected URL or feature. Please give us a reasonable time to fix the issue before disclosing it publicly. Don't access, change or delete data that isn't yours while testing.
 
 ## What isn't available yet
 

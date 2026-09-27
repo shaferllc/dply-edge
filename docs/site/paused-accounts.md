@@ -34,7 +34,7 @@ You and your team can still sign in, open every page, and change settings.
 
 Owners of the organization receive an email when the organization is paused after its trial or subscription ends. The email says how long your data is kept. A trial paused at its spending cap sends its own email when the pause starts.
 
-If data deletion is scheduled, owners get a second email two days before it happens.
+Owners also get two warnings before the organization's data is deleted: one 7 days before and one a day before. Each email gives the deletion date.
 
 ## Resume
 
@@ -51,12 +51,12 @@ Once the subscription is active, dply republishes your sites without the paused 
 
 ## How long your data is kept
 
-A paused organization's data is kept for 7 days from the day it was paused.
+A paused organization's data is kept for 30 days from the day it was paused. The paused banner in the dashboard shows the deletion date.
 
 > [!WARNING]
-> After the 7 days, dply may delete the organization's data: every site with its dply database and Valkey stores, its Edge SQL databases, its queues and its realtime apps. The organization, its members and its billing history remain, so choosing a plan later starts from an empty workspace. Owners are emailed two days before deletion.
+> After the 30 days, dply deletes the organization's data: every site with its dply database and Valkey stores, its Edge SQL databases, its queues and its realtime apps. The organization, its members and its billing history remain, so choosing a plan later starts from an empty workspace.
 
-Automatic deletion is turned off today, so paused data isn't being deleted at the end of the 7 days yet. It can be turned on at any time without further notice beyond the two-day email, so export anything you need, or choose a plan, within 7 days.
+Owners are emailed 7 days before deletion and again a day before. Deletion never happens without both warnings: if a warning goes out late, the deletion date moves back so each warning still gets its full notice. Export anything you need, or choose a plan, before the deletion date. Resuming cancels the deletion; if the organization is paused again later, the 30 days and the warnings start over.
 
 ## Related
 

@@ -44,6 +44,16 @@ return [
         'servers.read',
     ],
 
+    // Org Viewer runtime cap: read-only whatever the token lists (ApiToken::allows()).
+    'viewer_api_allowlist' => [
+        'account.read',
+        'account.write',
+        'edge.env.read',
+        'edge.read',
+        'servers.read',
+        'sites.read',
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | HTTP API v1 — ability checked per route (keys are read by routes/api.php)
@@ -83,7 +93,7 @@ return [
         'edge.aliases.index' => 'edge.read',
         'edge.access.show' => 'edge.read',
         'edge.access.update' => 'edge.write',
-        'edge.cache.purge' => 'edge.write',
+        'edge.cache.purge' => 'edge.deploy',
         'edge.usage.show' => 'edge.read',
         'edge.logs.index' => 'edge.read',
         'edge.lint.store' => 'edge.read',

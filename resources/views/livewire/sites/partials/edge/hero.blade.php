@@ -15,7 +15,7 @@
                     {{ __('Open') }}
                 </a>
             @endif
-            @can('update', $site)
+            @can('deploy', $site)
                 <button
                     type="button"
                     wire:click="redeployEdge"

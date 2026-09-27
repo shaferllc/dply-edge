@@ -3,7 +3,7 @@ title: "App members"
 description: "Give an organization member a Viewer, Deployer, or Admin role on a single app."
 ---
 
-App members are per-app role grants. You pick someone who is already in the organization and give them a role on one app. App roles add access on top of the person's organization role. They never restrict it, so an organization owner or admin always has full control of every app.
+App members are per-app roles. You pick someone who is already in the organization and give them a role on one app. For a member or deployer, the app role **replaces** their organization role on that app: it can narrow their access (a member who should only look) or widen it (a deployer who should configure one app). Organization owners and admins are not affected; they always have full control of every app.
 
 ## Add an app member
 
@@ -16,20 +16,26 @@ Only organization owners and admins, and people who hold the **Admin** role on t
 
 ## App roles
 
-| App role | Grants on this app |
+| App role | On this app |
 |---|---|
-| **Viewer** | See the app and its workspace |
-| **Deployer** | Everything a viewer can do, plus deploy and change settings and environment variables |
-| **Admin** | Everything a deployer can do, plus manage this app's members |
+| **Viewer** | See the app, its deploys, previews, logs, and settings. Cannot deploy or change anything. |
+| **Deployer** | Everything a viewer can do, plus deploy, redeploy, roll back, promote and tear down previews, cancel or restart builds, and purge the cache. Cannot change environment variables, domains, resources, security settings, build settings, alerts, or members. |
+| **Admin** | Everything a deployer can do, plus change every setting and manage this app's members. |
 
-App roles do not let anyone delete the app. Deleting an app always needs an organization owner or admin.
+| Organization role | No app role | App Viewer | App Deployer | App Admin |
+|---|---|---|---|---|
+| Owner or Admin | Full | Full | Full | Full |
+| Member | Configure and deploy | View only | Deploy and view | Configure, deploy, manage app members |
+| Deployer | Deploy and view | View only | Deploy and view | Configure, deploy, manage app members |
+| Viewer | View only | Not available | Not available | Not available |
 
-> [!NOTE]
-> Every organization member, including deployers, can already see, configure, and deploy every app in the organization. Today, **Viewer** and **Deployer** app roles therefore add nothing beyond what an organization member already has. The **Admin** app role is the one that changes something: it lets a member or deployer manage this app's members.
+Organization viewers can't be given an app role: they stay view-only everywhere, which is why they don't take a seat. An organization deployer with the app **Admin** role configures that app in the dashboard, but their API tokens stay capped to deploy and read abilities.
+
+App roles do not let anyone delete the app. Deleting an app always needs an organization owner or admin. API tokens follow the same rules; see [Roles & permissions](/docs/roles-and-permissions#tokens-cli-and-api).
 
 ## Change or remove a role
 
-In the member list, pick a new role to change it. Choose **Remove** to take away the app role. The person keeps their organization role and whatever access it grants.
+In the member list, pick a new role to change it. Choose **Remove** to take away the app role. The person goes back to what their organization role allows on this app.
 
 Every addition, role change, and removal is recorded in the app's audit log and the organization [activity log](/docs/activity-log).
 

@@ -23,7 +23,7 @@
                 </p>
             @endif
         </div>
-        @can('update', $site)
+        @can('deploy', $site)
             <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
                 @if (($depth ?? 0) === 0)
                     <button type="button" wire:click="startReply('{{ $comment->id }}')" class="inline-flex items-center rounded-lg border border-brand-ink/15 bg-white px-2.5 py-1 text-xs font-medium text-brand-moss hover:bg-brand-sand/40">

@@ -2,7 +2,7 @@
     <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
         @include('livewire.sites.edge.workspace.partials.feature-guide', [
             'docSlug' => 'app-members',
-            'what' => __('Grant site-scoped access on this Edge site without making someone an org admin. Org owners and admins already have full access.'),
+            'what' => __('Set someone\'s role on this app. For members and deployers the app role replaces their organization role here: Viewer sees, Deployer ships, Admin configures. Org owners and admins always have full access.'),
             'steps' => [
                 __('Pick an org user who is not already a site member.'),
                 __('Choose a role, then Add.'),
@@ -10,7 +10,7 @@
             ],
             'tips' => [
                 __('Prefer site members for contractors who only touch one Edge app.'),
-                __('Deploy-oriented roles cannot change notification subscriptions or destructive settings.'),
+                __('Give a member Viewer to make this app read-only for them, or a deployer Admin to let them configure it.'),
             ],
         ])
     </section>

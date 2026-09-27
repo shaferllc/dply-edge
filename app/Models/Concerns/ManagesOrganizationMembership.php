@@ -55,7 +55,7 @@ trait ManagesOrganizationMembership
         $team->users()->attach($user->id, ['role' => $teamRole]);
     }
 
-    private function memberRole(User $user): ?string
+    public function memberRole(User $user): ?string
     {
         $userId = (string) $user->id;
         if (array_key_exists($userId, $this->memberRoleMemo)) {
@@ -106,5 +106,17 @@ trait ManagesOrganizationMembership
     public function userIsDeployer(User $user): bool
     {
         return $this->memberRole($user) === 'deployer';
+    }
+
+    /** Org Viewer: sees everything in the org, changes nothing, and does not use a seat. */
+    public function userIsViewer(User $user): bool
+    {
+        return $this->memberRole($user) === self::VIEW_ONLY_ROLE;
+    }
+
+    /** Deployer or Viewer: may not create or configure organization resources. */
+    public function userHasRestrictedRole(User $user): bool
+    {
+        return in_array($this->memberRole($user), ['deployer', self::VIEW_ONLY_ROLE], true);
     }
 }

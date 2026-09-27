@@ -13,7 +13,7 @@ A site that only uses Cloudflare for DNS or proxying, and not dply, should be re
 
 ## Send a report
 
-Email the dply team with the **Email us** link at the bottom of the public pricing page, with "Abuse" in the subject line. Include:
+Email [hello@dply.io](mailto:hello@dply.io) with "Abuse" in the subject line. Include:
 
 - **The full URL** of the abusive content, not only the domain.
 - **The kind of abuse**: phishing, malware, spam, copyright or trademark infringement, harassment, or something else.

@@ -9,13 +9,13 @@ You need a repository on GitHub, GitLab or Bitbucket, public or private, and a p
 
 ## 1. Create your account
 
-Go to the dply sign-up page. Register with **Name**, **Email** and **Password**, or choose one of the providers under **Or continue with** to sign up with that account.
+Go to [edge.dply.io/register](https://edge.dply.io/register). Sign-up is open; you don't need an invitation. Register with **Name**, **Email** and **Password**, or choose one of the providers under **Or continue with** to sign up with that account.
 
 If you registered with email, open the verification link dply sends you. dply creates an organization for you when you sign up.
 
 ## 2. Start your trial
 
-dply has no free plan. A new organization starts with a 5-day trial of Pro, and Checkout asks for a card before the trial begins.
+dply has no free plan. A new organization starts with a 5-day trial of the plan you choose, and Checkout asks for a card before the trial begins.
 
 | Trial | |
 |---|---|
@@ -25,7 +25,7 @@ dply has no free plan. A new organization starts with a 5-day trial of Pro, and 
 | Spending cap | $5 of usage. Past that, builds and container traffic pause until you pay. |
 | After the trial | Billed for Pro ($20/mo) on day 6 unless you cancel first |
 
-After you verify your email, open your organization's **Billing** page. dply takes you there after sign-up when it can. Under **Plan**, choose **Start 5-day Pro trial** and complete Stripe Checkout.
+After you verify your email, open your organization's **Billing** page. dply takes you there after sign-up when it can. Under **Plan**, choose a plan's **Start 5-day trial** button (for example **Start 5-day Pro trial**) and complete Stripe Checkout.
 
 > [!TIP]
 > You can also skip this step. The first time you choose **Deploy** without a plan, dply sends you to Checkout and brings you back to your draft afterwards.

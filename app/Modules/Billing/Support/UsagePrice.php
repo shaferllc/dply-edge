@@ -24,7 +24,7 @@ final class UsagePrice
     /** The margin, in percent. */
     public static function marginPercent(): float
     {
-        return max(0.0, (float) config('dply.edge.usage_billing.margin_percent', 20));
+        return max(0.0, (float) config('dply.edge.usage_billing.margin_percent', 30));
     }
 
     /** Customer price for a cost, in the same unit. */

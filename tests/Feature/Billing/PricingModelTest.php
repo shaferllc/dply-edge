@@ -175,3 +175,11 @@ test('starter runs one app instance, scaling windows included', function () {
         ->and($settings['min_instances'])->toBe(1)
         ->and(EdgeContainerSettings::peakInstances($settings))->toBe(1);
 });
+
+test('the default margin is 30% and bandwidth stays a flat $0.06/GB at it', function () {
+    expect(UsagePrice::marginPercent())->toBe(30.0)
+        // 1M requests cost $0.30 → $0.39 at 30%.
+        ->and(UsagePrice::dollars(UsagePrice::rate('requests_millicents_per_million')))->toBe('$0.39')
+        ->and(UsagePrice::dollars(UsagePrice::rate('egress_millicents_per_gb')))->toBe('$0.06')
+        ->and(UsagePrice::cents(UsagePrice::cost('egress_millicents_per_gb') * 100))->toBe(600);
+});

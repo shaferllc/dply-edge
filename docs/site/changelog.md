@@ -5,6 +5,20 @@ description: "Notable changes to dply, newest first."
 
 What changed in dply, newest first. Each entry links to the page that covers the feature in full.
 
+## 2026-09-27
+
+### Three plans, unlimited sites, pay for what runs
+
+dply now has three plans: Starter ($5/month), Pro ($20/month) and Team ($49/month), each with usage included up to its price. Every plan has unlimited sites, and there are no per-site fees. Apps, workers, databases and Valkey are billed by the second while they're awake; requests, bandwidth and storage by the unit. Invoices show your usage, then the included usage as a credit. Each new organization starts with a 5-day trial of the plan it chooses. View-only members don't use a seat. See [Plans & pricing](/docs/pricing) and [Usage & metering](/docs/usage).
+
+### Private repositories, previews and deploys
+
+Private repositories now build using your connected account. Preview deployments inherit your app's environment variables and secrets, but never its database or Redis connection settings. Deploy on push works as a real switch, and deleting an app cleans up its previews, domains and webhook. See [Source control](/docs/source-control) and [Preview deployments](/docs/preview-deployments).
+
+### Security
+
+Hardened tenant isolation and build sandboxing. Two-factor authentication now applies to every sign-in method.
+
 ## 2026-09-26
 
 ### One page for your app and its resources
@@ -13,11 +27,11 @@ A project's **Overview** now shows the app and every resource it can use in one 
 
 ### Realtime: WebSockets for Laravel Echo and Pusher clients
 
-Add **Realtime** to an app for a Pusher-protocol WebSocket service that works with Laravel Echo, Reverb clients and Pusher SDKs. Each app gets its own host, and the connection settings are added to your app's environment for you. Pro includes 5 million connection-minutes and 10 million messages a month; Team includes 25 million and 50 million. See [Realtime (WebSockets)](/docs/resources/realtime) and [Laravel broadcasting with Realtime](/docs/guides/laravel-broadcasting).
+Add **Realtime** to an app for a Pusher-protocol WebSocket service that works with Laravel Echo, Reverb clients and Pusher SDKs. Each app gets its own host, and the connection settings are added to your app's environment for you. See [Realtime (WebSockets)](/docs/resources/realtime) and [Laravel broadcasting with Realtime](/docs/guides/laravel-broadcasting).
 
-### No free plan: a 5-day Pro trial
+### No free plan: a 5-day trial
 
-New organizations start with a 5-day trial of Pro, with a card added at checkout. The trial has a $5 spending cap. An organization whose trial ends without payment is paused, and its data is kept for 7 days. Organizations that were on the free plan received a fresh 5-day trial. See [Free trial](/docs/free-trial) and [Paused accounts](/docs/paused-accounts).
+New organizations start with a 5-day trial, with a card added at checkout. The trial has a $5 spending cap. An organization whose trial ends without payment is paused, and its data is kept for 30 days. Organizations that were on the free plan received a fresh 5-day trial. See [Free trial](/docs/free-trial) and [Paused accounts](/docs/paused-accounts).
 
 ### Usage billed in arrears, once per period
 
@@ -42,9 +56,7 @@ See [Deployments](/docs/deployments) and [Caching](/docs/caching).
 
 ### Security
 
-- Resources can be bound only by apps in the organization that owns them, including bindings declared in a repository's `wrangler.toml`.
-- A hostname can be attached to only one site, and the organization-wide custom domain limit per plan is enforced.
-- Builds run in a sandbox: non-root, with no Linux capabilities, resource limits, a private network and per-organization package caches.
+Hardened tenant isolation and build sandboxing.
 
 See [Platform security & isolation](/docs/platform-security).
 

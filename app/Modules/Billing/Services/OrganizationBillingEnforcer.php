@@ -19,6 +19,7 @@ use App\Modules\Providers\Valkey\ValkeyGatewayClient;
 use App\Notifications\OrganizationBillingNotice;
 use Carbon\CarbonInterface;
 use Closure;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Notification;
 use Throwable;
@@ -36,9 +37,11 @@ use Throwable;
  *                   container traffic is gated, dply Valkey and database
  *                   tenants are put to sleep; email "paused"
  *   plan again      resume everything the pause stopped
- *   paused 7 days   delete the data (OrganizationDataPurger), only when
- *                   subscription.standard.trial.purge_enabled is on; the
- *                   "deleting" email goes two days before
+ *   paused 30 days  delete the data (OrganizationDataPurger) when
+ *                   subscription.standard.trial.purge_enabled is on (the
+ *                   default); "deleting_soon" is emailed 7 days before and
+ *                   "deleting" a day before, and deletion waits for each
+ *                   warning's full lead time ({@see deleteAt()})
  *
  * One run per org at a time (a lock), so the hourly run and a webhook never
  * both send the same email.
@@ -47,6 +50,31 @@ final class OrganizationBillingEnforcer
 {
     /** Idle seconds before a paused org's Valkey or database sleeps again. */
     private const PAUSED_SLEEP = 60;
+
+    /** Deletion warnings: notice kind => days before deletion it goes out. */
+    public const DELETE_WARNINGS = ['deleting_soon' => 7, 'deleting' => 1];
+
+    /**
+     * When a paused org's data is deleted: keep_data_days after the pause,
+     * pushed back so each warning already sent keeps its full lead time. An
+     * org already past its keep period when purging is switched on is warned
+     * first and deleted 7 days later, never in the same run. Null when not paused.
+     */
+    public static function deleteAt(Organization $org): ?CarbonInterface
+    {
+        if ($org->billing_paused_at === null) {
+            return null;
+        }
+        $notices = (array) $org->billing_notices;
+        $at = $org->billing_paused_at->copy()->addDays((int) config('subscription.standard.trial.keep_data_days', 30));
+        foreach (self::DELETE_WARNINGS as $kind => $days) {
+            if (isset($notices[$kind])) {
+                $at = $at->max(Carbon::parse($notices[$kind])->addDays($days));
+            }
+        }
+
+        return $at;
+    }
 
     /** @var Closure(string): void */
     private Closure $say;
@@ -90,7 +118,8 @@ final class OrganizationBillingEnforcer
             if ($org->billing_paused_at !== null) {
                 ($this->say)($org->name.': resume');
                 if (! $dry) {
-                    $org->forceFill(['billing_paused_at' => null, 'billing_notices' => array_diff_key((array) $org->billing_notices, array_flip(['paused', 'deleting', 'capped']))])->save();
+                    // Every pause-scoped notice goes, so a later pause warns (and purges) afresh.
+                    $org->forceFill(['billing_paused_at' => null, 'billing_notices' => array_diff_key((array) $org->billing_notices, array_flip(['paused', 'capped', 'purged', ...array_keys(self::DELETE_WARNINGS)]))])->save();
                     $this->republish($org);
                     $this->gate->syncOrganization($org);
                     $this->workers($org, false);
@@ -132,8 +161,7 @@ final class OrganizationBillingEnforcer
             return;
         }
 
-        $keep = (int) config('subscription.standard.trial.keep_data_days', 7);
-        $deleteAt = $org->billing_paused_at->copy()->addDays($keep);
+        $deleteAt = self::deleteAt($org);
         if (! config('subscription.standard.trial.purge_enabled')) {
             if ($dry && $deleteAt->isPast()) {
                 ($this->say)($org->name.': would purge (purge is off):');
@@ -144,10 +172,23 @@ final class OrganizationBillingEnforcer
 
             return;
         }
-        if ($deleteAt->copy()->subDays(2)->isPast()) {
-            $this->notice($org, 'deleting', $dry, $deleteAt);
+        // Each warning goes out with its full lead time: one sent late (the
+        // run missed, or purge was just switched on) pushes deletion back.
+        $warned = true;
+        foreach (self::DELETE_WARNINGS as $kind => $days) {
+            if (isset(((array) $org->billing_notices)[$kind])) {
+                continue;
+            }
+            if (now()->lt($deleteAt->copy()->subDays($days))) {
+                $warned = false;
+
+                continue;
+            }
+            $deleteAt = $deleteAt->max(now()->addDays($days));
+            $this->notice($org, $kind, $dry, $deleteAt);
+            $warned = $warned && ! $dry;
         }
-        if ($deleteAt->isPast() && ! isset($org->billing_notices['purged'])) {
+        if ($warned && $deleteAt->isPast() && ! isset($org->billing_notices['purged'])) {
             $plan = $this->purger->plan($org);
             ($this->say)($org->name.': purge');
             foreach ($plan as $line) {

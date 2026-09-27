@@ -32,9 +32,8 @@
         $taglines = ['starter' => __('For side projects'), 'pro' => __('For real projects'), 'team' => __('For your whole company')];
 
         $trialDays = (int) config('subscription.standard.trial.days', 5);
-        $trialPlan = $tiers[config('subscription.standard.trial.tier', 'pro')]['label'] ?? 'Pro';
         $trialCap = number_format(((int) config('subscription.standard.trial.spending_limit_cents', 500)) / 100, 0);
-        $keepDays = (int) config('subscription.standard.trial.keep_data_days', 7);
+        $keepDays = (int) config('subscription.standard.trial.keep_data_days', 30);
 
         $num = static fn (?int $n): string => $n === null ? __('Unlimited') : number_format($n);
         $money = static fn (?int $cents): string => '$'.number_format(((int) $cents) / 100, 0);
@@ -65,7 +64,7 @@
         $faqs = [
             [
                 'q' => __('How does the trial work?'),
-                'a' => __(':days days of :plan with a card on file. You are billed on day :next unless you cancel first. Trial usage is capped at $:cap, so a busy trial cannot run up a bill. If a trial ends without payment, sites stop serving and apps sleep; your data is kept :keep days, then deleted.', ['days' => $trialDays, 'plan' => $trialPlan, 'next' => $trialDays + 1, 'cap' => $trialCap, 'keep' => $keepDays]),
+                'a' => __(':days days of the plan you choose, with a card on file. You are billed on day :next unless you cancel first. Trial usage is capped at $:cap, so a busy trial cannot run up a bill. If a trial ends without payment, sites stop serving and apps sleep; your data is kept :keep days, then deleted.', ['days' => $trialDays, 'next' => $trialDays + 1, 'cap' => $trialCap, 'keep' => $keepDays]),
             ],
             [
                 'q' => __('What exactly am I paying for?'),
@@ -151,13 +150,13 @@
                     <ul class="mt-4 space-y-1.5 text-sm text-edge-mute">
                         <li>{{ __('Volume usage pricing') }}</li>
                         <li>{{ __('SSO, custom MSA, dedicated support') }}</li>
-                        <li><a href="mailto:{{ config('mail.from.address') }}" class="border-b border-edge-lime/50 pb-0.5 text-edge-text transition-colors hover:border-edge-lime hover:text-edge-lime">{{ __('Contact us') }}</a></li>
+                        <li><a href="mailto:{{ config('dply.support_email') }}" class="border-b border-edge-lime/50 pb-0.5 text-edge-text transition-colors hover:border-edge-lime hover:text-edge-lime">{{ __('Contact us') }}</a></li>
                     </ul>
                 </div>
             </div>
             <div class="border-t border-edge-line">
                 <p class="mx-auto max-w-6xl px-6 py-4 text-sm text-edge-mute lg:px-10">
-                    {{ __('Try :plan free for :d days — card required, billed on day :next unless you cancel. Billed monthly after that.', ['plan' => $trialPlan, 'd' => $trialDays, 'next' => $trialDays + 1]) }}
+                    {{ __('Try any plan free for :d days — card required, billed on day :next unless you cancel. Billed monthly after that.', ['d' => $trialDays, 'next' => $trialDays + 1]) }}
                 </p>
             </div>
         </section>
@@ -301,7 +300,7 @@
 
                 <p class="mt-8 text-sm text-edge-mute">
                     {{ __('Still curious?') }}
-                    <a href="mailto:{{ config('mail.from.address') }}" class="border-b border-edge-lime/50 pb-0.5 text-edge-text transition-colors hover:border-edge-lime hover:text-edge-lime">{{ __('Email us') }}</a>.
+                    <a href="mailto:{{ config('dply.support_email') }}" class="border-b border-edge-lime/50 pb-0.5 text-edge-text transition-colors hover:border-edge-lime hover:text-edge-lime">{{ __('Email us') }}</a>.
                 </p>
             </div>
         </section>
@@ -311,7 +310,7 @@
             <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-6 px-6 py-14 lg:px-10">
                 <div>
                     <h2 class="text-2xl font-bold tracking-[-0.02em]">{{ __('Push a repo, get the whole app running.') }}</h2>
-                    <p class="mt-2 text-sm text-edge-mute">{{ __(':d days of :plan to try it. Cancel before day :next and you pay nothing.', ['d' => $trialDays, 'plan' => $trialPlan, 'next' => $trialDays + 1]) }}</p>
+                    <p class="mt-2 text-sm text-edge-mute">{{ __(':d days of any plan to try it. Cancel before day :next and you pay nothing.', ['d' => $trialDays, 'next' => $trialDays + 1]) }}</p>
                 </div>
                 <a href="{{ route('register') }}" class="font-terminal inline-flex items-center gap-2 bg-edge-lime px-5 py-3 text-sm font-bold text-edge-void transition-colors hover:bg-edge-lime-bright">
                     {{ __('Start a :d-day trial', ['d' => $trialDays]) }} <span aria-hidden="true">→</span>

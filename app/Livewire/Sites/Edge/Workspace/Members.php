@@ -8,6 +8,7 @@ use App\Livewire\Concerns\ConfirmsActionWithModal;
 use App\Livewire\Concerns\DispatchesToastNotifications;
 use App\Livewire\Concerns\Edge\MountsEdgeWorkspaceSection;
 use App\Models\EdgeSiteMember;
+use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
@@ -49,7 +50,8 @@ class Members extends Component
             throw ValidationException::withMessages(['member_user_id' => __('Organization is required.')]);
         }
 
-        $user = $org->users()->where('users.id', $this->member_user_id)->first();
+        // Org Viewers stay view-only (no seat), so they cannot be given an app role.
+        $user = $org->users()->wherePivot('role', '!=', Organization::VIEW_ONLY_ROLE)->where('users.id', $this->member_user_id)->first();
         if ($user === null) {
             throw ValidationException::withMessages(['member_user_id' => __('Pick a member of this organization.')]);
         }
@@ -128,6 +130,7 @@ class Members extends Component
             ->get();
 
         $eligibleUsers = $org->users()
+            ->wherePivot('role', '!=', Organization::VIEW_ONLY_ROLE)
             ->orderBy('users.name')
             ->get()
             ->filter(fn (User $user): bool => ! $members->contains('user_id', $user->id))

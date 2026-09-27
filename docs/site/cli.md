@@ -9,10 +9,10 @@ The CLI calls the same endpoints as the [HTTP API](/docs/api), so every command 
 
 ## Install
 
-The CLI is served by dply itself, not by the npm registry. You need **Node.js 18 or later** and **npm**. The installer downloads the package from `https://dply.io/cli/dply-cli.tgz` and installs it globally with `npm install -g`.
+The CLI is served by dply itself, not by the npm registry. You need **Node.js 18 or later** and **npm**. The installer downloads the package from `https://edge.dply.io/cli/dply-cli.tgz` and installs it globally with `npm install -g`.
 
 ```bash
-curl -fsSL https://dply.io/cli/install.sh | bash -s -- --login
+curl -fsSL https://edge.dply.io/cli/install.sh | bash -s -- --login
 ```
 
 `--login` runs `dply login` when the install finishes. The installer accepts these options:
@@ -31,7 +31,7 @@ curl -fsSL https://dply.io/cli/install.sh | bash -s -- --login
 Check which version dply is serving, and which version you have:
 
 ```bash
-curl -fsSL https://dply.io/cli/version.json
+curl -fsSL https://edge.dply.io/cli/version.json
 dply --version
 ```
 
@@ -65,7 +65,7 @@ The code expires after 15 minutes. If you deny the request, or the code expires,
 
 | Flag | Description |
 | --- | --- |
-| `--base-url <url>`, `-b` | The dply host to sign in to. Defaults to `https://dply.io`. |
+| `--base-url <url>`, `-b` | The dply host to sign in to. Defaults to `https://edge.dply.io`. |
 | `--token <token>`, `-t` | Skip the browser and save an existing API token (for CI). The CLI verifies it before saving. |
 | `--no-open` | Print the approval URL without opening a browser. |
 | `--no-shell` | Don't open the interactive shell after signing in. Use this in scripts. |
@@ -102,7 +102,7 @@ dply auth refresh
 In CI, create an API token under **Profile → API keys** (see [HTTP API](/docs/api)) and pass it with `--token`:
 
 ```bash
-dply login --token "$DPLY_TOKEN" --base-url https://dply.io --no-shell
+dply login --token "$DPLY_TOKEN" --base-url https://edge.dply.io --no-shell
 dply deploy --site "$DPLY_EDGE_SITE" --wait
 ```
 
@@ -121,8 +121,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: curl -fsSL https://dply.io/cli/install.sh | bash
-      - run: dply login --token "${{ secrets.DPLY_TOKEN }}" --base-url https://dply.io --no-shell
+      - run: curl -fsSL https://edge.dply.io/cli/install.sh | bash
+      - run: dply login --token "${{ secrets.DPLY_TOKEN }}" --base-url https://edge.dply.io --no-shell
       - run: dply deploy --wait --commit "${{ github.sha }}"
         env:
           DPLY_EDGE_SITE: ${{ vars.DPLY_EDGE_SITE }}
@@ -199,9 +199,9 @@ A token works only on the dply host that issued it. The CLI stores a separate si
 | --- | --- |
 | `dply use` | Pick a saved host from a list. |
 | `dply use list` | List saved hosts. The active one is marked. |
-| `dply use <host>` | Switch to a saved host, for example `dply use dply.io`. |
+| `dply use <host>` | Switch to a saved host, for example `dply use edge.dply.io`. |
 | `dply use <url>` | Sign in to a new host and keep the others saved. Outside a terminal, pass `--login` or run `dply login --base-url <url>` instead. |
-| `dply use live` | Switch to `https://dply.io`. `cloud`, `prod`, `production`, and `hosted` do the same. |
+| `dply use live` | Switch to `https://edge.dply.io`. `cloud`, `prod`, `production`, and `hosted` do the same. |
 | `dply use forget <host>` | Delete a saved host. `dply use rm <host>` does the same. |
 
 Hosts are keyed by hostname. `dply login --base-url <url>` adds a host without removing the others.

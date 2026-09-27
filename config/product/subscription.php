@@ -37,16 +37,11 @@ return [
         'plans' => [
             'free' => ['label' => 'Free', 'price_cents' => 0, 'max_servers' => null, 'max_sites' => null, 'max_cloud_apps' => null, 'max_edge_apps' => null, 'max_functions' => null],
         ],
-        // Closed-beta envelope. An org with organizations.beta_joined_at set is a
-        // beta participant: the platform fee is waived and these caps replace
-        // the free allowance until the global cutover. `cutover_at` is the
-        // global beta end date (Y-m-d or full datetime, null = no end set yet);
-        // at cutover beta orgs fall to the free allowance.
+        // Private beta. organizations.beta_joined_at is a label only: beta orgs
+        // get the same trial, plans and limits as everyone (ruling
+        // r-jnv0r3qf1xk49kmc: no beta perks). `cutover_at` is the global beta
+        // end date (Y-m-d or full datetime, null = no end set yet).
         'beta' => [
-            'sites' => (int) env('SUBSCRIPTION_BETA_SITES', 25),
-            'cloud_apps' => (int) env('SUBSCRIPTION_BETA_CLOUD_APPS', 10),
-            'edge_apps' => (int) env('SUBSCRIPTION_BETA_EDGE_APPS', 25),
-            'functions' => (int) env('SUBSCRIPTION_BETA_FUNCTIONS', 25),
             'cutover_at' => env('SUBSCRIPTION_BETA_CUTOVER_AT'),
             'invite_expiry_days' => (int) env('SUBSCRIPTION_BETA_INVITE_EXPIRY_DAYS', 30),
         ],
@@ -54,17 +49,20 @@ return [
         | No Free plan (ruling r-f17p5zgeh120cm5t, 2026-09-26). A new org gets
         | a trial of `tier` for `days`, card required (Stripe trial; it bills
         | on the next day unless canceled). While on trial, usage past
-        | spending_limit_cents pauses builds and container traffic. An org
-        | with no plan (trial over, unpaid, canceled) is paused; its data is
-        | deleted keep_data_days later, only once purge_enabled is on.
+        | spending_limit_cents pauses builds and container traffic. The trial
+        | is of the plan chosen at checkout; `tier` is only for a card-less
+        | trial. An org with no plan (trial over, unpaid, canceled) is paused;
+        | its data is deleted keep_data_days later while purge_enabled is on
+        | (ruling r-jnv0r3qf1xk49kmc), after warning emails 7 days and 1 day
+        | before (OrganizationBillingEnforcer::deleteAt()).
         */
         'trial' => [
             'days' => 5,
             'tier' => 'pro',
             'spending_limit_cents' => 500,
             'card_required' => true,
-            'keep_data_days' => 7,
-            'purge_enabled' => (bool) env('DPLY_BILLING_PURGE_ENABLED', false),
+            'keep_data_days' => 30,
+            'purge_enabled' => filter_var(env('DPLY_BILLING_PURGE_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
         ],
         /*
         | Plans (ruling r-2zxevg4sj675qn1m). Prices, seats and the included

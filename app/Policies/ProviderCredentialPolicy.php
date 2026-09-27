@@ -10,7 +10,7 @@ class ProviderCredentialPolicy
     public function viewAny(User $user): bool
     {
         $org = $user->currentOrganization();
-        if ($org && $org->userIsDeployer($user)) {
+        if ($org && $org->userHasRestrictedRole($user)) {
             return false;
         }
 
@@ -23,7 +23,7 @@ class ProviderCredentialPolicy
             return true;
         }
         if ($providerCredential->organization_id && $providerCredential->organization->hasMember($user)) {
-            return ! $providerCredential->organization->userIsDeployer($user);
+            return ! $providerCredential->organization->userHasRestrictedRole($user);
         }
 
         return false;
@@ -35,7 +35,7 @@ class ProviderCredentialPolicy
         if (! $org) {
             return false;
         }
-        if ($org->userIsDeployer($user)) {
+        if ($org->userHasRestrictedRole($user)) {
             return false;
         }
 

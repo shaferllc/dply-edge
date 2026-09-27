@@ -17,9 +17,9 @@ use Throwable;
  *   no plan         pause: queue workers stop, sites serve a paused page,
  *                   container traffic is gated; email "paused"
  *   plan again      resume everything the pause stopped
- *   paused 7 days   delete the data (OrganizationDataPurger), only when
- *                   subscription.standard.trial.purge_enabled is on; the
- *                   "deleting" email goes two days before
+ *   paused 30 days  delete the data (OrganizationDataPurger) while
+ *                   subscription.standard.trial.purge_enabled is on (the
+ *                   default); warning emails go 7 days and 1 day before
  *
  *   php artisan dply:billing:enforce [--org=] [--dry-run]
  *

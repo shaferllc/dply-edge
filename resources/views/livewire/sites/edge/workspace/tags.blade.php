@@ -1,4 +1,6 @@
 <div>
+    {{-- Read-only for anyone who cannot configure this app (org Deployer, app Viewer/Deployer). --}}
+    <fieldset @disabled(! auth()->user()?->can('update', $site)) class="min-w-0">
     <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
         @include('livewire.sites.edge.workspace.partials.feature-guide', [
             'what' => __('Tags load analytics, pixels and chat widgets from the Edge — pick a tool, paste its ID, and Edge adds the loader and setup code. No git deploy.'),
@@ -158,4 +160,5 @@ tags:
     - name: Chat widget
       src: "https://widget.example.com/chat.js"
     </x-edge-yaml-advanced>
+    </fieldset>
 </div>

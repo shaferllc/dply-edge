@@ -22,7 +22,7 @@ class StatusPagePolicy
     public function create(User $user): bool
     {
         $org = $user->currentOrganization();
-        if (! $org || $org->userIsDeployer($user)) {
+        if (! $org || $org->userHasRestrictedRole($user)) {
             return false;
         }
 
@@ -31,7 +31,7 @@ class StatusPagePolicy
 
     public function update(User $user, StatusPage $statusPage): bool
     {
-        return $this->view($user, $statusPage);
+        return $this->view($user, $statusPage) && ! $statusPage->organization->userIsViewer($user);
     }
 
     public function delete(User $user, StatusPage $statusPage): bool

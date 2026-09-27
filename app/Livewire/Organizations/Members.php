@@ -53,7 +53,7 @@ class Members extends Component
 
         $this->validate([
             'invite_email' => 'required|email',
-            'invite_role' => 'nullable|string|in:admin,member,deployer',
+            'invite_role' => 'nullable|string|in:admin,member,deployer,'.Organization::VIEW_ONLY_ROLE,
         ]);
 
         $email = strtolower($this->invite_email);
@@ -65,12 +65,11 @@ class Members extends Component
         }
 
         $maxMembers = $this->organization->effectiveMemberSeatCap();
-        if ($maxMembers !== null) {
-            $current = $this->organization->users()->count();
-            $pending = $this->organization->invitations()->where('expires_at', '>', now())->count();
-            if ($current + $pending >= $maxMembers) {
+        // View-only members are free: inviting one never hits the seat cap.
+        if ($maxMembers !== null && $this->invite_role !== Organization::VIEW_ONLY_ROLE) {
+            if ($this->organization->seatsWithPendingInvites() >= $maxMembers) {
                 throw ValidationException::withMessages([
-                    'invite_email' => __('Your :plan plan includes :max seats (members plus pending invites). Upgrade on the billing page to add more.', ['plan' => $this->organization->planTierLabel(), 'max' => $maxMembers]),
+                    'invite_email' => __('Your :plan plan includes :max seats (members plus pending invites; view-only members are free). Upgrade on the billing page to add more.', ['plan' => $this->organization->planTierLabel(), 'max' => $maxMembers]),
                 ]);
             }
         }
@@ -138,6 +137,7 @@ class Members extends Component
             'member' => __('Member'),
             'admin' => __('Admin'),
             'deployer' => __('Deployer'),
+            Organization::VIEW_ONLY_ROLE => __('Viewer (free)'),
         ];
     }
 

@@ -12,7 +12,7 @@ Every endpoint is listed with parameters and example responses in the [API refer
 All endpoints live under a versioned prefix:
 
 ```text
-https://dply.io/api/v1
+https://edge.dply.io/api/v1
 ```
 
 ## Authentication
@@ -20,7 +20,7 @@ https://dply.io/api/v1
 Send an API token as a bearer token on every request, and ask for JSON:
 
 ```bash
-curl https://dply.io/api/v1/account \
+curl https://edge.dply.io/api/v1/account \
   -H "Authorization: Bearer dply_your_token_here" \
   -H "Accept: application/json"
 ```

@@ -213,6 +213,13 @@ class Resources extends Component
     public function valkeyPassword(string $host): string
     {
         $this->authorize('update', $this->site);
+
+        return $this->readValkeyPassword($host);
+    }
+
+    /** Server-side use only (stats, backlog): never returned to the browser without update. */
+    private function readValkeyPassword(string $host): string
+    {
         $connection = collect(EdgeContainerConnections::for($this->site))->firstWhere('host', $host);
         if (! is_array($connection) || ! EdgeValkey::isTarget($connection['target'])) {
             return '';
@@ -428,7 +435,7 @@ class Resources extends Component
         try {
             if (EdgeQueueWorkers::connection($this->site) === 'redis') {
                 $connection = collect(EdgeContainerConnections::for($this->site))->first(fn (array $c): bool => $c['kind'] === 'redis' && EdgeValkey::isTarget($c['target']));
-                $password = is_array($connection) ? $this->valkeyPassword($connection['host']) : '';
+                $password = is_array($connection) ? $this->readValkeyPassword($connection['host']) : '';
                 if ($password === '') {
                     throw new \RuntimeException(__('The backlog can be read from dply Valkey. Deploy once so REDIS_URL is set.'));
                 }
@@ -438,7 +445,7 @@ class Resources extends Component
                 if ($record === null) {
                     throw new \RuntimeException(__('The backlog can be read from a dply database.'));
                 }
-                $this->workersBacklog = EdgeDplyDatabaseStats::queueBacklog((string) $record['engine'], (string) $record['host'], (string) $record['remote_id'], $this->databasePassword(), $queues);
+                $this->workersBacklog = EdgeDplyDatabaseStats::queueBacklog((string) $record['engine'], (string) $record['host'], (string) $record['remote_id'], $this->readDatabasePassword(), $queues);
             }
         } catch (\Throwable $e) {
             $this->workersBacklogError = $e->getMessage();
@@ -666,9 +673,10 @@ class Resources extends Component
 
     public function loadDatabaseStats(): void
     {
+        $this->authorize('view', $this->site);
         $record = $this->dplyDatabaseRecord();
         // MongoDB stats come from its agent, not the app's login.
-        $password = ($record['engine'] ?? '') === 'mongodb' ? '' : $this->databasePassword();
+        $password = ($record['engine'] ?? '') === 'mongodb' ? '' : $this->readDatabasePassword();
         if ($record === null || ($password === '' && ($record['engine'] ?? '') !== 'mongodb')) {
             $this->databaseStatsError = __('No password on this app yet. Deploy once so the database address is set.');
 
@@ -789,7 +797,7 @@ class Resources extends Component
 
     public function loadDatabaseExports(): void
     {
-        $this->authorize('update', $this->site);
+        $this->authorize('view', $this->site);
         $record = $this->dplyDatabaseRecord();
         if ($record === null) {
             return;
@@ -899,6 +907,13 @@ class Resources extends Component
     public function databasePassword(): string
     {
         $this->authorize('update', $this->site);
+
+        return $this->readDatabasePassword();
+    }
+
+    /** Server-side use only (stats, backlog): never returned to the browser without update. */
+    private function readDatabasePassword(): string
+    {
         $record = $this->dplyDatabaseRecord();
         if ($record === null) {
             return '';
@@ -957,7 +972,8 @@ class Resources extends Component
 
     public function loadValkeyStats(): void
     {
-        $password = $this->valkeyPassword($this->valkeyHost);
+        $this->authorize('view', $this->site);
+        $password = $this->readValkeyPassword($this->valkeyHost);
         $connection = collect(EdgeContainerConnections::for($this->site))->firstWhere('host', $this->valkeyHost);
         if (! is_array($connection) || $password === '') {
             $this->valkeyStatsError = __('No password on this app yet. Deploy once so REDIS_URL is set.');
@@ -1016,7 +1032,8 @@ class Resources extends Component
     /** Test tab: connect like the app does and time a few commands. */
     public function testValkey(): void
     {
-        $password = $this->valkeyPassword($this->valkeyHost);
+        $this->authorize('view', $this->site);
+        $password = $this->readValkeyPassword($this->valkeyHost);
         $connection = collect(EdgeContainerConnections::for($this->site))->firstWhere('host', $this->valkeyHost);
         if (! is_array($connection) || $password === '') {
             $this->valkeyTest = ['ok' => false, 'error' => __('No password on this app yet. Deploy once so REDIS_URL is set.'), 'steps' => [], 'ping_median_ms' => null, 'ping_max_ms' => null];

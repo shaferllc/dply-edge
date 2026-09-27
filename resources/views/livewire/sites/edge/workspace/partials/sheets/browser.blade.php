@@ -6,10 +6,12 @@
                 <div class="mt-0.5 flex items-center gap-2">
                     @if ($browserOn)
                         <span class="rounded-full bg-emerald-500/10 px-2 py-0.5 text-2xs font-semibold text-emerald-800 dark:text-emerald-300">{{ __('On') }}</span>
-                        @unless ($browserDeployed)
+                        @if (! $browserDeployed && auth()->user()?->can('deploy', $site))
                             <x-sheet.button variant="primary" wire:click="redeployEdge">{{ __('Deploy') }}</x-sheet.button>
-                        @endunless
-                        <x-sheet.button variant="danger" wire:click="askRemoveBrowser" x-on:click="$dispatch('open-modal', 'resources-remove-browser')">{{ __('Remove') }}</x-sheet.button>
+                        @endif
+                        @can('update', $site)
+                            <x-sheet.button variant="danger" wire:click="askRemoveBrowser" x-on:click="$dispatch('open-modal', 'resources-remove-browser')">{{ __('Remove') }}</x-sheet.button>
+                        @endcan
                     @elseif (! $paidFeatures)
                         <span class="text-2xs text-brand-mist">{{ \App\Modules\Edge\Support\EdgeContainerConnections::paidOnlyReason() }}</span>
                     @else

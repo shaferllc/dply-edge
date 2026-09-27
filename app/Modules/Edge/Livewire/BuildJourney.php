@@ -99,7 +99,7 @@ class BuildJourney extends Component
             return;
         }
 
-        Gate::authorize('update', $deployment->site);
+        Gate::authorize('deploy', $deployment->site);
 
         if (! in_array($deployment->status, [
             EdgeDeployment::STATUS_BUILDING,
@@ -131,7 +131,7 @@ class BuildJourney extends Component
             return;
         }
 
-        Gate::authorize('update', $deployment->site);
+        Gate::authorize('deploy', $deployment->site);
 
         try {
             app(CancelStuckEdgeDeployment::class)->abandon($deployment->site, $deployment);
@@ -160,7 +160,7 @@ class BuildJourney extends Component
             return;
         }
 
-        Gate::authorize('update', $deployment->site);
+        Gate::authorize('deploy', $deployment->site);
 
         if (! in_array($deployment->status, [
             EdgeDeployment::STATUS_BUILDING,
@@ -216,7 +216,7 @@ class BuildJourney extends Component
             return;
         }
 
-        Gate::authorize('update', $deployment->site);
+        Gate::authorize('deploy', $deployment->site);
 
         try {
             app(CancelStuckEdgeDeployment::class)->handle($deployment->site, $deployment);

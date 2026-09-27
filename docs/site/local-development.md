@@ -21,7 +21,7 @@ ls dist
 The CLI needs Node.js 18 or later and npm. Install it and sign in with one command:
 
 ```bash
-curl -fsSL https://dply.io/cli/install.sh | bash -s -- --login
+curl -fsSL https://edge.dply.io/cli/install.sh | bash -s -- --login
 ```
 
 `--login` opens your browser when the install finishes. Confirm the code shown in your terminal, choose your organization and the permissions to grant, and choose **Approve**.

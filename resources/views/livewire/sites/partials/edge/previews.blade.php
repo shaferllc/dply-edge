@@ -4,7 +4,7 @@
 
 <section class="border-b border-brand-ink/10">
     @unless ($edgeIsPreviewChild)
-        @can('update', $site)
+        @can('deploy', $site)
             @php
                 $adhocPending = $this->adhocPreviewIsPending();
             @endphp
@@ -291,7 +291,7 @@
                             </a>
                         @endif
                     </div>
-                    @can('update', $site)
+                    @can('deploy', $site)
                         @php
                             $parentSplit = is_array($site->edgeMeta()['split'] ?? null) ? $site->edgeMeta()['split'] : null;
                             $splitTargetsThisPreview = is_array($parentSplit)

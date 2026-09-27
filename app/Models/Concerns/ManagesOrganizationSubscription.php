@@ -239,9 +239,29 @@ trait ManagesOrganizationSubscription
     }
 
     /**
+     * The organization role that can only view (ruling r-jnv0r3qf1xk49kmc:
+     * view-only members are free). Such members and their invitations never
+     * take a seat: not in the bill, not against a plan's hard seat cap.
+     */
+    public const VIEW_ONLY_ROLE = 'viewer';
+
+    /** Members that are seats: everyone but view-only members. */
+    public function seatCount(): int
+    {
+        return $this->users()->wherePivot('role', '!=', self::VIEW_ONLY_ROLE)->count();
+    }
+
+    /** Seats plus unexpired invitations that would become seats: what the hard cap checks. */
+    public function seatsWithPendingInvites(): int
+    {
+        return $this->seatCount()
+            + $this->invitations()->where('expires_at', '>', now())->where('role', '!=', self::VIEW_ONLY_ROLE)->count();
+    }
+
+    /**
      * Tier seat cap: hard on tiers without a per-seat price (Starter, Pro), none
-     * where extra seats are billed (Team) or unlimited (Enterprise). Beta orgs
-     * without a subscription aren't seat-capped.
+     * where extra seats are billed (Team) or unlimited (Enterprise). Beta
+     * status changes nothing (ruling r-jnv0r3qf1xk49kmc: no beta perks).
      */
     public function seatCapFromSubscription(): ?int
     {
@@ -249,15 +269,13 @@ trait ManagesOrganizationSubscription
         if (($tier['extra_seat_cents'] ?? null) !== null || ($tier['seats'] ?? null) === null) {
             return null;
         }
-        if ($this->isBeta() && ! $this->onAnyPaidPlan()) {
-            return null;
-        }
 
         return (int) $tier['seats'];
     }
 
     /**
-     * Maximum members + pending invites; null means unlimited.
+     * Maximum seats (members + pending invites, view-only ones excluded);
+     * null means unlimited.
      */
     public function effectiveMemberSeatCap(): ?int
     {

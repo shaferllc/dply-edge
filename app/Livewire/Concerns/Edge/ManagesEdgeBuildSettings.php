@@ -535,7 +535,7 @@ trait ManagesEdgeBuildSettings
         if (! $this->site->usesEdgeRuntime()) {
             return;
         }
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
 
         $tag = trim($this->buildForm->edge_cache_purge_tag);
         if ($tag === '') {

@@ -80,11 +80,11 @@ State bills every unit from the first, less your plan's included usage credit:
 <!-- generated: php artisan dply:billing:price-table rates --group="Durable Objects" -->
 | Meter | Price | Unit |
 | --- | --- | --- |
-| Requests | $0.18 | per million |
-| Duration | $15.00 | per million GB-seconds |
-| Rows read | $0.0012 | per million |
-| Rows written | $1.20 | per million |
-| Storage | $0.24 | per GB-month |
+| Requests | $0.195 | per million |
+| Duration | $16.25 | per million GB-seconds |
+| Rows read | $0.0013 | per million |
+| Rows written | $1.30 | per million |
+| Storage | $0.26 | per GB-month |
 
 Duration is the time the object is active, at 128 MB. Storage is the largest size during the month. Usage is collected daily and billed to your organization. This bills at the invoice line **Workers CPU, Durable Objects, object storage and images**.
 

@@ -25,21 +25,13 @@ trait ManagesOrganizationQuotas
      * The org's ceiling for one product surface, or null when unlimited.
      *
      * Paid plans are uncapped here: sites are unlimited, subject only to the
-     * hidden fair-use cap (CreateEdgeSite). Unsubscribed beta orgs get the
-     * beta envelope; everyone else unsubscribed gets the Free allowance.
+     * hidden fair-use cap (CreateEdgeSite). Everyone else gets the Free
+     * allowance; beta status grants nothing (ruling r-jnv0r3qf1xk49kmc).
      */
     public function quotaLimit(QuotaSurface $surface): ?int
     {
-        // A plan subscription overrides the beta envelope.
         if ($this->onAnyPaidPlan()) {
             return null;
-        }
-
-        if ($this->isBeta()) {
-            return max(1, (int) config(
-                'subscription.standard.beta.'.$surface->betaConfigKey(),
-                $surface->betaDefault(),
-            ));
         }
 
         return $this->currentSubscriptionPlan()[$surface->planConfigKey()];
@@ -113,9 +105,7 @@ trait ManagesOrganizationQuotas
     /**
      * Friendly upgrade prompt shown when a surface's ceiling is blocking.
      *
-     * Reads the effective ceiling rather than the raw plan value, so a beta org
-     * is told its actual beta envelope instead of the plan number it is not
-     * currently subject to.
+     * Reads the effective ceiling rather than the raw plan value.
      */
     public function quotaLimitMessage(QuotaSurface $surface): string
     {
@@ -123,14 +113,6 @@ trait ManagesOrganizationQuotas
 
         if ($limit === null) {
             return '';
-        }
-
-        if ($this->isBeta()) {
-            return sprintf(
-                'The closed beta allows %d %s per organization. Contact us to raise your limit.',
-                $limit,
-                trans_choice($surface->nounKey(), $limit),
-            );
         }
 
         // Only unsubscribed orgs reach here — quotaLimit() is null once paying.

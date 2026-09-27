@@ -18,6 +18,7 @@
                         <li><a href="{{ route('pricing') }}" class="text-sm text-edge-mute transition-colors hover:text-edge-text">{{ __('Pricing') }}</a></li>
                         <li><a href="{{ route('features') }}" class="text-sm text-edge-mute transition-colors hover:text-edge-text">{{ __('Features') }}</a></li>
                         <li><a href="{{ route('docs.index') }}" class="text-sm text-edge-mute transition-colors hover:text-edge-text">{{ __('Docs') }}</a></li>
+                        <li><a href="mailto:{{ config('dply.support_email') }}" class="text-sm text-edge-mute transition-colors hover:text-edge-text">{{ __('Contact') }}</a></li>
                     </ul>
                 </div>
                 <div>

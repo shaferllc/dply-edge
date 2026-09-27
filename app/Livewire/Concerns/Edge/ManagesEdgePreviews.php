@@ -35,7 +35,7 @@ trait ManagesEdgePreviews
         if (! $this->site->usesEdgeRuntime() || $this->site->isEdgePreview()) {
             return;
         }
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
 
         $sha = strtolower(trim($this->edge_deploy_commit_sha));
         if (preg_match('/^[a-f0-9]{7,40}$/', $sha) !== 1) {
@@ -133,7 +133,7 @@ trait ManagesEdgePreviews
         if (! $this->site->usesEdgeRuntime()) {
             return;
         }
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
 
         $preview = Site::query()->find($previewSiteId);
         if ($preview === null

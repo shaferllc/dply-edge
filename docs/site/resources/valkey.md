@@ -26,11 +26,11 @@ Valkey is available to container apps and to SSR or hybrid apps.
 <!-- generated: php artisan dply:billing:price-table sizes --product=valkey -->
 | Size | Memory | Per second awake | Per hour awake | Most per month | Sleeps |
 | --- | --- | --- | --- | --- | --- |
-| 0.25 vCPU | 250 MB | $0.00000248 | $0.00893 | $6.00 | Yes |
-| 0.5 vCPU | 1 GB | $0.00000992 | $0.0357 | $24.00 | Yes |
-| 1 vCPU | 2.5 GB | $0.0000198 | $0.0713 | $48.00 | Yes |
-| 2 vCPU | 5 GB | $0.0000318 | $0.114 | $77.00 | No (stays on) |
-| 4 vCPU | 12 GB | $0.0000744 | $0.268 | $180.00 | No (stays on) |
+| 0.25 vCPU | 250 MB | $0.00000269 | $0.00967 | $6.50 | Yes |
+| 0.5 vCPU | 1 GB | $0.0000107 | $0.0387 | $26.00 | Yes |
+| 1 vCPU | 2.5 GB | $0.0000215 | $0.0772 | $52.00 | Yes |
+| 2 vCPU | 5 GB | $0.0000345 | $0.124 | $83.42 | No (stays on) |
+| 4 vCPU | 12 GB | $0.0000806 | $0.29 | $195.00 | No (stays on) |
 
 To change the size or sleep time later, choose **Details** on the Valkey card. The store restarts with its data on its next connection.
 

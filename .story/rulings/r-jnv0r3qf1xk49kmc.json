@@ -1,0 +1,19 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-27",
+  "id": "r-jnv0r3qf1xk49kmc",
+  "recordedBy": {
+    "client": "claude",
+    "id": "7287ab43-961f-4f49-a652-045813268214"
+  },
+  "scopeTags": [
+    "billing",
+    "pricing",
+    "beta",
+    "roles",
+    "support",
+    "launch"
+  ],
+  "supersedes": null,
+  "text": "Owner answers, 2026-09-27: bandwidth stays $0.06/GB; margin raised to 30% (single setting); Starter limits as proposed; a Starter checkout trials Starter (the chosen plan); Deployer role = deploy + view only (no env, domains, resources, security, members or billing changes); view-only members are free (not seats); private beta is open sign-up; no extra beta perks; support by email at hello@dply.io; changelog security entry uses generic wording (\"hardened tenant isolation and build sandboxing\"); paused accounts' data is deleted after 30 days (purge on, with warning emails); public origin is https://edge.dply.io (app, docs, API, CLI default); docs name infrastructure vendors (Cloudflare, DigitalOcean)."
+}

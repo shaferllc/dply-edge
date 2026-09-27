@@ -191,7 +191,7 @@ Queues bill every operation from the first, less your plan's included usage cred
 <!-- generated: php artisan dply:billing:price-table rates --group="Queues" -->
 | Meter | Price | Unit |
 | --- | --- | --- |
-| Operations | $0.48 | per million |
+| Operations | $0.52 | per million |
 
 Every write, read, and delete of a message is an operation, so a delivered message costs about three. Usage is collected daily. This bills at the invoice line **SQL, queues and key-value**.
 

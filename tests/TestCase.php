@@ -5,6 +5,7 @@ namespace Tests;
 use App\Modules\Billing\Services\EdgeOrganizationUsageReader;
 use App\Modules\Billing\Services\OrganizationBillingStateComputer;
 use App\Modules\Notifications\Services\AssignableNotificationChannels;
+use App\Policies\SitePolicy;
 use App\Support\Sites\LinkedOrganizationSecrets;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
@@ -102,6 +103,7 @@ abstract class TestCase extends BaseTestCase
         OrganizationBillingStateComputer::flushMemo();
         EdgeOrganizationUsageReader::flushMemo();
         AssignableNotificationChannels::flushMemo();
+        SitePolicy::flushAppRoleCache();
 
         parent::tearDown();
     }

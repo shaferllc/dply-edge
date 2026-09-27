@@ -23,6 +23,9 @@ use Illuminate\Support\Facades\Gate;
  */
 abstract class EdgeApiController extends Controller
 {
+    /** The site ability a write through this controller needs: 'update' (configure) or 'deploy'. */
+    protected const WRITE_ABILITY = 'update';
+
     protected function organization(Request $request): Organization
     {
         $organization = $request->attributes->get('api_organization');
@@ -50,7 +53,7 @@ abstract class EdgeApiController extends Controller
             return null;
         }
 
-        self::authorizeTokenUser($request, $site);
+        self::authorizeTokenUser($request, $site, static::WRITE_ABILITY);
 
         return $site;
     }
@@ -58,13 +61,14 @@ abstract class EdgeApiController extends Controller
     /**
      * Token abilities say what the token may do; the site policy says what its
      * user may do. Both must allow it, so a token never outranks its user —
-     * reads need 'view', anything else 'update'. Policies resolve against the
-     * user's current organization, so it is pinned to the token's.
+     * reads need 'view', writes $writeAbility ('update', or 'deploy' for the
+     * deployment/preview/cache endpoints). Policies resolve against the user's
+     * current organization, so it is pinned to the token's.
      */
-    public static function authorizeTokenUser(Request $request, Site $site): void
+    public static function authorizeTokenUser(Request $request, Site $site, string $writeAbility = 'update'): void
     {
         $gate = self::tokenUserGate($request);
-        $ability = $request->isMethodSafe() ? 'view' : 'update';
+        $ability = $request->isMethodSafe() ? 'view' : $writeAbility;
 
         if ($gate === null || $gate->denies($ability, $site)) {
             abort(403, 'Your role does not allow this on this site.');
@@ -83,6 +87,15 @@ abstract class EdgeApiController extends Controller
         $user->rememberCurrentOrganization($organization);
 
         return Gate::forUser($user);
+    }
+
+    /** Org-level writes (D1 queries, queue messages) need org admin, as in the dashboard. */
+    protected function authorizeOrganizationWrite(Request $request): void
+    {
+        $gate = self::tokenUserGate($request);
+        if ($gate === null || $gate->denies('update', $this->organization($request))) {
+            abort(403, 'Your role does not allow this in this organization.');
+        }
     }
 
     protected function notFound(string $message = 'Edge site not found.'): JsonResponse

@@ -49,7 +49,7 @@
             </div>
         </div>
 
-        <div class="mt-4 space-y-4">
+        <fieldset @disabled(! auth()->user()?->can('update', $site)) class="mt-4 min-w-0 space-y-4">
             <div>
                 <x-input-label :value="__('Instance size')" />
                 <div class="mt-2 grid gap-2 sm:grid-cols-3" role="radiogroup">
@@ -262,7 +262,7 @@
                     <span wire:loading wire:target="save">{{ __('Deploying…') }}</span>
                 </x-primary-button>
             </div>
-        </div>
+        </fieldset>
     </section>
 
     <section class="px-5 py-4 sm:px-6">

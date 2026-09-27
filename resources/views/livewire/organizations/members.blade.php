@@ -123,12 +123,13 @@
                 </button>
 
                 <div x-show="! collapsed" x-collapse>
-                    <dl class="grid gap-px bg-brand-ink/5 sm:grid-cols-4">
+                    <dl class="grid gap-px bg-brand-ink/5 sm:grid-cols-2 lg:grid-cols-5">
                         @foreach ([
                             ['role' => 'owner', 'blurb' => __('Owns billing and the organization itself. Can\'t be assigned by invite.')],
-                            ['role' => 'admin', 'blurb' => __('Full control of servers, sites, and members — everything but ownership.')],
-                            ['role' => 'member', 'blurb' => __('Day-to-day access to the infrastructure they\'re given.')],
-                            ['role' => 'deployer', 'blurb' => __('Reduced scope: deploy and read, no destructive changes.')],
+                            ['role' => 'admin', 'blurb' => __('Full control of apps, billing, and members — everything but ownership.')],
+                            ['role' => 'member', 'blurb' => __('Creates, configures, and deploys apps.')],
+                            ['role' => 'deployer', 'blurb' => __('Views apps and ships code: deploy, roll back, promote previews. Changes no settings.')],
+                            ['role' => 'viewer', 'blurb' => __('Sees everything, changes nothing. Free: doesn\'t use a seat.')],
                         ] as $row)
                             <div class="bg-brand-cream/40 px-5 py-3 sm:px-4">
                                 <dt class="flex items-center gap-1.5">
@@ -304,7 +305,12 @@
                                 <option value="{{ $value }}">{{ $label }}</option>
                             @endforeach
                         </x-select>
-                        <p class="mt-2 text-xs leading-relaxed text-brand-moss">{{ __('Owner can\'t be assigned here — only Admin, Member, and Deployer.') }}</p>
+                        <p class="mt-2 text-xs leading-relaxed text-brand-moss">{{ __('Owner can\'t be assigned here — only Admin, Member, Deployer, and Viewer.') }}</p>
+                        <p class="mt-1 text-xs leading-relaxed text-brand-moss">
+                            {{ array_key_exists(\App\Models\Organization::VIEW_ONLY_ROLE, $this->inviteableRoles())
+                                ? __('Each member and pending invitation takes a seat on your plan. View-only members are free and don\'t take a seat.')
+                                : __('Each member and pending invitation takes a seat on your plan.') }}
+                        </p>
                     </div>
                 </div>
 

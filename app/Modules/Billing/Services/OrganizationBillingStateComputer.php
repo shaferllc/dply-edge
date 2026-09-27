@@ -100,7 +100,7 @@ class OrganizationBillingStateComputer
             ->reject(fn (Site $site): bool => $site->isEdgePreview())
             ->count();
 
-        $seatCount = $organization->users()->count();
+        $seatCount = $organization->seatCount(); // view-only members are free
         $tierKey = $forceTier
             ?? $organization->subscribedTier()
             ?? ($organization->onStandardSubscription() ? self::cheapestPaidTier($seatCount) : ($organization->hasPlan() ? $organization->billingTier() : 'none'));

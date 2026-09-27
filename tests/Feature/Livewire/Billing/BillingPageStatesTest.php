@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Livewire\Billing\BillingPageStatesTest;
 
+use App\Enums\QuotaSurface;
 use App\Models\Organization;
 use App\Models\User;
 use App\Modules\Billing\Livewire\Show as BillingShow;
@@ -98,6 +99,18 @@ test('a beta org is shown its real plan state, not $0 nothing due', function () 
         ->assertSee('No plan')
         ->assertDontSee('nothing due')
         ->assertDontSee('in the dply beta');
+});
+
+test('beta status grants nothing billing-wise: no seat exemption, no caps envelope', function () {
+    Config::set('subscription.standard.beta.cutover_at', null);
+    Config::set('dply.max_organization_members', null);
+    $plain = billingOrg($this->admin, ['trial_ends_at' => now()->addDays(3)]);
+    $beta = billingOrg($this->admin, ['trial_ends_at' => now()->addDays(3), 'beta_joined_at' => now()->subWeek()]);
+
+    expect($beta->fresh()->isBeta())->toBeTrue()
+        ->and($beta->fresh()->effectiveMemberSeatCap())->toBe($plain->fresh()->effectiveMemberSeatCap())->toBe(3)
+        ->and($beta->fresh()->quotaLimit(QuotaSurface::Edge))->toBe($plain->fresh()->quotaLimit(QuotaSurface::Edge))
+        ->and(config('subscription.standard.beta'))->not->toHaveKeys(['sites', 'edge_apps']);
 });
 
 test('a card-less trial can add a card for its current plan (the path to End trial now)', function () {

@@ -35,7 +35,7 @@ The organization sidebar holds these sections. Which ones you see depends on you
 | **Billing** | Plan, payment method, usage, invoices. See [Plans & pricing](/docs/pricing) | Owners and admins |
 | **Credentials** | Encrypted tokens dply holds for third-party providers | Everyone except deployers |
 | **General** | Name, icon, contact details, email defaults, data region, API tokens, and deletion | Owners and admins |
-| **Members** | People, roles, and pending invitations | All members |
+| **Members** | People, roles, and pending invitations. Each member and pending invitation takes a seat on your plan, except view-only members, who are free. See [Seats](/docs/roles-and-permissions#seats) | All members |
 | **Notification channels** | Organization-owned alert destinations. See [Notification channels](/docs/notifications) | Owners and admins |
 | **Secrets** | The shared secret vault you link onto apps. See [Secrets](/docs/secrets) | All members |
 | **Teams** | Named groups of members. See [Teams](/docs/teams) | All members |

@@ -17,6 +17,8 @@ use Illuminate\Validation\ValidationException;
 
 class EdgePreviewApiController extends EdgeApiController
 {
+    protected const WRITE_ABILITY = 'deploy';
+
     public function index(Request $request, string $site): AnonymousResourceCollection|JsonResponse
     {
         $found = $this->findEdgeSite($request, $site);

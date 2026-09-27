@@ -1,4 +1,4 @@
-# Security contact for dply (https://dply.io)
+# Security contact for dply (https://edge.dply.io)
 # Conforms to RFC 9116 — https://www.rfc-editor.org/info/rfc9116
 #
 # The canonical location is /.well-known/security.txt; this copy exists so the
@@ -8,4 +8,4 @@
 Contact: mailto:security@dply.io
 Expires: 2027-06-25T00:00:00.000Z
 Preferred-Languages: en
-Canonical: https://dply.io/.well-known/security.txt
+Canonical: https://edge.dply.io/.well-known/security.txt

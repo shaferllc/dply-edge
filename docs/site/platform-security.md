@@ -67,7 +67,7 @@ When dply's control plane makes HTTP requests to URLs you provide (webhook notif
 ## Where your data lives
 
 - Static files and edge-cached responses are stored on Cloudflare's network and served from the location nearest each visitor.
-- Databases and Valkey stores created by dply are hosted in the United States (East Coast).
+- Databases and Valkey stores created by dply are hosted on DigitalOcean in New York.
 - Container apps are placed by Cloudflare region. Apps that use dply data default to eastern North America.
 
 See [Data regions](/docs/data-regions) for details and options.

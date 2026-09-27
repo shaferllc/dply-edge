@@ -1,4 +1,6 @@
 <div>
+    {{-- Read-only for anyone who cannot configure this app (org Deployer, app Viewer/Deployer). --}}
+    <fieldset @disabled(! auth()->user()?->can('update', $site)) class="min-w-0">
     @php
         $tabs = [
             ['id' => 'domains', 'label' => __('Domains'), 'icon' => 'heroicon-o-globe-alt'],
@@ -36,4 +38,5 @@
     </div>
 
     @include('livewire.partials.confirm-action-modal')
+    </fieldset>
 </div>

@@ -62,11 +62,11 @@ Open your app's **Overview**, select the **App** card, then choose a **Size**. T
 <!-- generated: php artisan dply:billing:price-table sizes --product=app -->
 | Size | Memory | Per second awake | Per hour awake |
 | --- | --- | --- | --- |
-| 0.25 vCPU | 1 GB | $0.00000934 | $0.0336 |
-| 0.5 vCPU | 4 GB | $0.0000247 | $0.0888 |
-| 1 vCPU | 6 GB | $0.000043 | $0.155 |
-| 2 vCPU | 8 GB | $0.0000733 | $0.264 |
-| 4 vCPU | 12 GB | $0.000134 | $0.481 |
+| 0.25 vCPU | 1 GB | $0.0000101 | $0.0364 |
+| 0.5 vCPU | 4 GB | $0.0000267 | $0.0962 |
+| 1 vCPU | 6 GB | $0.0000466 | $0.168 |
+| 2 vCPU | 8 GB | $0.0000795 | $0.286 |
+| 4 vCPU | 12 GB | $0.000145 | $0.521 |
 
 Below the ladder, **1/16 vCPU** (256 MB, non-PHP apps only) is $0.00000242 per second awake ($0.0087 an hour).
 

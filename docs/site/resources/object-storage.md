@@ -125,9 +125,9 @@ Buckets bill every unit from the first, less your plan's included usage credit:
 <!-- generated: php artisan dply:billing:price-table rates --group="Object storage" -->
 | Meter | Price | Unit |
 | --- | --- | --- |
-| Storage | $0.018 | per GB-month |
-| Writes (Class A) | $5.40 | per million |
-| Reads (Class B) | $0.432 | per million |
+| Storage | $0.0195 | per GB-month |
+| Writes (Class A) | $5.85 | per million |
+| Reads (Class B) | $0.468 | per million |
 
 Storage is the bucket's largest size during the month. Usage is collected daily from Cloudflare and billed to your organization, including usage from an app you have since deleted. This bills at the invoice line **Workers CPU, Durable Objects, object storage and images**.
 

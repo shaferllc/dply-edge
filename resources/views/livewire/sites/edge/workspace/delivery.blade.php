@@ -225,7 +225,7 @@ origin:
         </section>
     @endif
 
-    @can('update', $site)
+    <fieldset @disabled(! auth()->user()?->can('update', $site)) class="min-w-0">
         <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
             <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Image optimization') }}</p>
             <p class="mt-1 text-sm text-brand-moss">{{ __('Resize and reformat images at the edge via /_dply/image.') }}</p>
@@ -269,7 +269,7 @@ origin:
                 <x-heroicon-m-chevron-down class="h-4 w-4 text-brand-mist transition group-open:rotate-180" />
             </summary>
             <div class="space-y-5 border-t border-brand-ink/10 px-5 py-4 sm:px-6">
-                @if ($imageSecret !== '')
+                @if ($imageSecret !== '' && auth()->user()?->can('update', $site))
                     <div x-data="{ copiedSig: false }">
                         <p class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Signing secret') }}</p>
                         <p class="mt-1 text-xs text-brand-moss">{{ __('HMAC-signs /_dply/image URLs.') }}</p>
@@ -325,7 +325,7 @@ images:
                 </div>
             </div>
         </details>
-    @endcan
+    </fieldset>
 
     @include('livewire.partials.confirm-action-modal')
 </div>

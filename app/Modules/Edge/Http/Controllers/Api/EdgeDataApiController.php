@@ -28,6 +28,7 @@ class EdgeDataApiController extends EdgeApiController
 
     public function query(Request $request, string $database): JsonResponse
     {
+        $this->authorizeOrganizationWrite($request);
         $db = EdgeDatabase::query()
             ->where('organization_id', $this->organization($request)->id)
             ->where(fn ($q) => $q->where('id', $database)->orWhere('name', $database))
@@ -56,6 +57,7 @@ class EdgeDataApiController extends EdgeApiController
 
     public function send(Request $request, string $queue): JsonResponse
     {
+        $this->authorizeOrganizationWrite($request);
         $model = EdgeQueue::query()
             ->where('organization_id', $this->organization($request)->id)
             ->where(fn ($q) => $q->where('id', $queue)->orWhere('name', $queue))

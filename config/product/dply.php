@@ -34,6 +34,12 @@ return [
     'coming_soon' => filter_var(env('COMING_SOON', false), FILTER_VALIDATE_BOOLEAN),
 
     /*
+    | Where customers reach us: the pricing page, help menus, email footers
+    | and the docs all point here (ruling r-jnv0r3qf1xk49kmc).
+    */
+    'support_email' => env('DPLY_SUPPORT_EMAIL', 'hello@dply.io'),
+
+    /*
     | IP allow-list for the coming-soon gate. These addresses (and any logged-in
     | user) see the FULL site; everyone else only sees the coming-soon page.
     | Supports IPv4, IPv6, and CIDR ranges. Sources are merged: the base list
@@ -300,14 +306,16 @@ return [
             'enabled' => filter_var(env('DPLY_EDGE_USAGE_BILLING_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
             // The single knob. Changing it reprices every meter, the pricing
             // page, the docs tables (dply:billing:price-table) and invoices.
-            'margin_percent' => (float) env('DPLY_USAGE_MARGIN_PERCENT', 20),
+            'margin_percent' => (float) env('DPLY_USAGE_MARGIN_PERCENT', 30),
 
             // Delivery. Workers Standard: $0.30 per million requests.
             'requests_millicents_per_million' => (float) env('DPLY_USAGE_REQUESTS_MC_PER_MILLION', 30_000),
-            // Bandwidth. NOT a Cloudflare list price: Workers/R2 egress is
-            // unmetered at Cloudflare. $0.05/GB is a dply-set cost floor kept
-            // from the old model (owner to confirm or zero it).
-            'egress_millicents_per_gb' => (float) env('DPLY_USAGE_EGRESS_MC_PER_GB', 5_000),
+            // Bandwidth. NOT a Cloudflare cost: Workers/R2 egress is
+            // unmetered at Cloudflare. $0.06/GB is a dply-set customer price
+            // (ruling r-jnv0r3qf1xk49kmc: "Keep $0.06/GB"); the cost here is
+            // backed out of it at the default 30% margin (0.06 / 1.3), so the
+            // price stays $0.06/GB at 30%.
+            'egress_millicents_per_gb' => (float) env('DPLY_USAGE_EGRESS_MC_PER_GB', 6_000 / 1.3),
             // Site/build artifact storage (R2): $0.015/GB-month, Class A
             // (writes) $4.50/M, Class B (reads) $0.36/M.
             'r2_storage_millicents_per_gb_month' => (float) env('DPLY_USAGE_R2_STORAGE_MC_PER_GB_MONTH', 1_500),
@@ -354,8 +362,8 @@ return [
             // Realtime (docs/edge-realtime.md). Messages: ~$0.45 per million
             // publishes is our Cloudflare cost (ruling r-p3dsj9znvtnyhphr).
             // Connection-minutes have no per-unit provider price; the cost is
-            // backed out of the old $0.50/M customer price at the default 20%
-            // margin (0.05 / 1.2), so that price is unchanged at 20%.
+            // backed out of the old $0.50/M customer price at the then-default
+            // 20% margin (0.05 / 1.2); at 30% it is about $0.54/M.
             // Collected by dply:edge:collect-realtime-usage.
             'realtime_connection_minute_millicents' => (float) env('DPLY_USAGE_REALTIME_CONNECTION_MINUTE_MC', 0.05 / 1.2),
             'realtime_message_millicents_per_million' => (float) env('DPLY_USAGE_REALTIME_MESSAGES_MC_PER_MILLION', 45_000),

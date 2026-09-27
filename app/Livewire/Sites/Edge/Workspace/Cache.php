@@ -86,7 +86,7 @@ class Cache extends Component
 
     public function purgeByPath(EdgeCachePurger $purger): void
     {
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
 
         $path = trim($this->purgePath);
         if ($path === '') {
@@ -104,21 +104,21 @@ class Cache extends Component
 
     public function purgeStored(string $path, EdgeCachePurger $purger): void
     {
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
         $result = $purger->purgeByPaths($this->site->fresh(), [$path]);
         $this->finishPurge($result, 'site.edge.cache.purged_by_path', ['path' => $path]);
     }
 
     public function clearAll(EdgeCachePurger $purger): void
     {
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
         $result = $purger->purgeAll($this->site->fresh());
         $this->finishPurge($result, 'site.edge.cache.purged_all', []);
     }
 
     public function purgeByTag(EdgeCachePurger $purger): void
     {
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
 
         $tag = trim($this->purgeTag);
         if ($tag === '') {

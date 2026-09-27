@@ -214,7 +214,7 @@
             </ol>
 
             <div class="flex flex-wrap items-center justify-between gap-3 border-t border-brand-ink/10 bg-brand-sand/15 px-5 py-3 sm:px-6">
-                @if ($polling && ! $journey['hasFailed'] && ! $journey['isDone'])
+                @if ($polling && ! $journey['hasFailed'] && ! $journey['isDone'] && auth()->user()?->can('deploy', $site))
                     <button
                         type="button"
                         wire:click="confirmRestartFrozenBuild"

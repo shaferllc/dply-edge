@@ -5,7 +5,7 @@ description: "Every dply HTTP API v1 endpoint, with the ability it needs, its pa
 
 This page lists every endpoint in the dply HTTP API v1. For authentication, rate limits, errors and how tokens are scoped to your role, read [HTTP API](/docs/api) first.
 
-All paths are relative to `https://dply.io/api/v1`. Every request needs `Authorization: Bearer dply_…` and `Accept: application/json`. Requests with a body send `Content-Type: application/json`.
+All paths are relative to `https://edge.dply.io/api/v1`. Every request needs `Authorization: Bearer dply_…` and `Accept: application/json`. Requests with a body send `Content-Type: application/json`.
 
 In the examples, `$DPLY_TOKEN` holds your token and `$SITE` holds an app ID from [List apps](#list-apps).
 
@@ -72,7 +72,7 @@ For endpoints under `/edge/sites/{site}` and `/sites/{site}`, your role must als
 Returns the token's user, its organization (with your role there) and the token itself.
 
 ```bash
-curl https://dply.io/api/v1/account \
+curl https://edge.dply.io/api/v1/account \
   -H "Authorization: Bearer $DPLY_TOKEN" -H "Accept: application/json"
 ```
 
@@ -138,7 +138,7 @@ Lists tokens created by `dply login` in this organization, newest use first. Own
 Owners and admins can revoke any member's session. Other roles can revoke only their own.
 
 ```bash
-curl -X DELETE https://dply.io/api/v1/account/sessions/01ja… \
+curl -X DELETE https://edge.dply.io/api/v1/account/sessions/01ja… \
   -H "Authorization: Bearer $DPLY_TOKEN" -H "Accept: application/json"
 ```
 
@@ -157,13 +157,13 @@ Describes what this dply instance offers. The CLI reads it before `dply init`.
 ```json
 {
   "data": {
-    "instance": { "url": "https://dply.io", "name": "dply" },
+    "instance": { "url": "https://edge.dply.io", "name": "dply" },
     "kinds": {
       "edge": {
         "enabled": true,
         "cli_create_supported": false,
         "cli_create": false,
-        "create_url": "https://dply.io/…",
+        "create_url": "https://edge.dply.io/…",
         "requires_git": true
       }
     }
@@ -261,7 +261,7 @@ The last 24 invoices, newest first.
 Every Edge app in the token's organization that the token's user can view, sorted by name. Preview apps are included, marked with `is_preview`.
 
 ```bash
-curl https://dply.io/api/v1/edge/sites \
+curl https://edge.dply.io/api/v1/edge/sites \
   -H "Authorization: Bearer $DPLY_TOKEN" -H "Accept: application/json"
 ```
 
@@ -279,7 +279,7 @@ curl https://dply.io/api/v1/edge/sites \
       "runtime_mode": "static",
       "hostname": "marketing.dply.app",
       "live_url": "https://marketing.dply.app",
-      "dashboard_url": "https://dply.io/projects/01j9…/sites/01j9z3k6…",
+      "dashboard_url": "https://edge.dply.io/projects/01j9…/sites/01j9z3k6…",
       "repository": "acme/marketing",
       "branch": "main",
       "repo_root": null,
@@ -351,7 +351,7 @@ A deployment object:
 | `limit` | query | Number of deployments, newest first. Default `20`, between `1` and `100`. |
 
 ```bash
-curl "https://dply.io/api/v1/edge/sites/$SITE/deployments?limit=5" \
+curl "https://edge.dply.io/api/v1/edge/sites/$SITE/deployments?limit=5" \
   -H "Authorization: Bearer $DPLY_TOKEN" -H "Accept: application/json"
 ```
 
@@ -370,7 +370,7 @@ With an empty body, dply rebuilds from the tip of the app's branch. With `commit
 | `branch_tip` | body | Optional boolean. Same as an empty body. |
 
 ```bash
-curl -X POST https://dply.io/api/v1/edge/sites/$SITE/deployments \
+curl -X POST https://edge.dply.io/api/v1/edge/sites/$SITE/deployments \
   -H "Authorization: Bearer $DPLY_TOKEN" -H "Accept: application/json" \
   -H "Content-Type: application/json" \
   -d '{"commit": "9f2c1ab"}'
@@ -391,7 +391,7 @@ Returns one deployment in `data`, or `404` with `Deployment not found.`
 Points production at an earlier deployment. The deployment must not be pruned. Returns the deployment in `data`, or `422` with the reason.
 
 ```bash
-curl -X POST https://dply.io/api/v1/edge/sites/$SITE/deployments/01ja…/rollback \
+curl -X POST https://edge.dply.io/api/v1/edge/sites/$SITE/deployments/01ja…/rollback \
   -H "Authorization: Bearer $DPLY_TOKEN" -H "Accept: application/json"
 ```
 
@@ -416,7 +416,7 @@ Returns the parent's live previews, newest first, as app objects (see [List apps
 | `ref_kind` | body | Optional. `branch`, `tag` or `commit`. |
 
 ```bash
-curl -X POST https://dply.io/api/v1/edge/sites/$SITE/previews \
+curl -X POST https://edge.dply.io/api/v1/edge/sites/$SITE/previews \
   -H "Authorization: Bearer $DPLY_TOKEN" -H "Accept: application/json" \
   -H "Content-Type: application/json" \
   -d '{"commit": "4be1d02", "branch": "feature/pricing"}'
@@ -481,7 +481,7 @@ When a domain needs a DNS record to prove ownership, `ownership_verification` or
 | `hostname` | body | Required. A valid hostname with at least one dot, up to 253 characters. |
 
 ```bash
-curl -X POST https://dply.io/api/v1/edge/sites/$SITE/domains \
+curl -X POST https://edge.dply.io/api/v1/edge/sites/$SITE/domains \
   -H "Authorization: Bearer $DPLY_TOKEN" -H "Accept: application/json" \
   -H "Content-Type: application/json" \
   -d '{"hostname": "www.example.com"}'
@@ -551,7 +551,7 @@ These endpoints manage the app's password or dply-account protection. See [Acces
     "enabled": true,
     "password_set": false,
     "allowed_emails": ["ada@example.com"],
-    "account_login_url": "https://dply.io/projects/sites/01j9…/preview-access"
+    "account_login_url": "https://edge.dply.io/projects/sites/01j9…/preview-access"
   }
 }
 ```
@@ -569,7 +569,7 @@ These endpoints manage the app's password or dply-account protection. See [Acces
 | `allowed_emails` | body | Optional array of up to 100 email addresses. Used with `dply_account` mode. |
 
 ```bash
-curl -X PATCH https://dply.io/api/v1/edge/sites/$SITE/access \
+curl -X PATCH https://edge.dply.io/api/v1/edge/sites/$SITE/access \
   -H "Authorization: Bearer $DPLY_TOKEN" -H "Accept: application/json" \
   -H "Content-Type: application/json" \
   -d '{"mode": "password", "password": "correct horse battery staple"}'
@@ -591,7 +591,7 @@ Send either `tag` or `paths`. If both are sent, `tag` wins.
 | `paths` | body | Array of up to 100 paths, each up to 2048 characters. |
 
 ```bash
-curl -X POST https://dply.io/api/v1/edge/sites/$SITE/cache/purge \
+curl -X POST https://edge.dply.io/api/v1/edge/sites/$SITE/cache/purge \
   -H "Authorization: Bearer $DPLY_TOKEN" -H "Accept: application/json" \
   -H "Content-Type: application/json" \
   -d '{"paths": ["/", "/pricing"]}'
@@ -651,7 +651,7 @@ Returns requests served by the app, oldest first. `dply edge logs --tail` polls 
 | `limit` | query | Maximum rows. Default `100`, between `1` and `500`. |
 
 ```bash
-curl "https://dply.io/api/v1/edge/sites/$SITE/logs?since=2026-09-26T14:00:00Z" \
+curl "https://edge.dply.io/api/v1/edge/sites/$SITE/logs?since=2026-09-26T14:00:00Z" \
   -H "Authorization: Bearer $DPLY_TOKEN" -H "Accept: application/json"
 ```
 
@@ -706,7 +706,7 @@ Keys must be uppercase, start with a letter, and contain only `A`–`Z`, `0`–`
 The body is a JSON object of key-value pairs. It replaces the whole set: keys you leave out are deleted.
 
 ```bash
-curl -X PUT https://dply.io/api/v1/edge/sites/$SITE/env \
+curl -X PUT https://edge.dply.io/api/v1/edge/sites/$SITE/env \
   -H "Authorization: Bearer $DPLY_TOKEN" -H "Accept: application/json" \
   -H "Content-Type: application/json" \
   -d '{"API_BASE_URL": "https://api.example.com", "FEATURE_FLAGS": "beta"}'
@@ -731,7 +731,7 @@ Returns the resulting key list, as in [List variable keys](#list-variable-keys).
 | `value` | body | A string or other scalar. |
 
 ```bash
-curl -X PATCH https://dply.io/api/v1/edge/sites/$SITE/env/API_BASE_URL \
+curl -X PATCH https://edge.dply.io/api/v1/edge/sites/$SITE/env/API_BASE_URL \
   -H "Authorization: Bearer $DPLY_TOKEN" -H "Accept: application/json" \
   -H "Content-Type: application/json" \
   -d '{"value": "https://api.example.com"}'
@@ -765,7 +765,7 @@ Validates the contents of a `dply.yaml` or `dply.json` without deploying. See [C
 | `content` | body | Required. The file contents, up to 65,536 characters. |
 
 ```bash
-curl -X POST https://dply.io/api/v1/edge/lint \
+curl -X POST https://edge.dply.io/api/v1/edge/lint \
   -H "Authorization: Bearer $DPLY_TOKEN" -H "Accept: application/json" \
   -H "Content-Type: application/json" \
   -d "$(jq -n --rawfile c dply.yaml '{path: "dply.yaml", content: $c}')"
@@ -816,7 +816,7 @@ Edge SQL databases belong to the organization. Create and delete them in the das
 | `params` | body | Optional array of bound parameters for `?` placeholders. |
 
 ```bash
-curl -X POST https://dply.io/api/v1/edge/databases/app-db/query \
+curl -X POST https://edge.dply.io/api/v1/edge/databases/app-db/query \
   -H "Authorization: Bearer $DPLY_TOKEN" -H "Accept: application/json" \
   -H "Content-Type: application/json" \
   -d '{"sql": "SELECT id, email FROM users WHERE id = ?", "params": [42]}'
@@ -849,7 +849,7 @@ Queues belong to the organization. See [Queues](/docs/resources/queues).
 | `body` | body | Required. Any JSON value. |
 
 ```bash
-curl -X POST https://dply.io/api/v1/edge/queues/emails/messages \
+curl -X POST https://edge.dply.io/api/v1/edge/queues/emails/messages \
   -H "Authorization: Bearer $DPLY_TOKEN" -H "Accept: application/json" \
   -H "Content-Type: application/json" \
   -d '{"body": {"type": "welcome", "user_id": 42}}'
@@ -952,7 +952,7 @@ Adds and removes events for one channel. Events you do not mention are left as t
 | `unsubscribe` | body | Array of event keys to remove. |
 
 ```bash
-curl -X POST https://dply.io/api/v1/sites/$SITE/notifications \
+curl -X POST https://edge.dply.io/api/v1/sites/$SITE/notifications \
   -H "Authorization: Bearer $DPLY_TOKEN" -H "Accept: application/json" \
   -H "Content-Type: application/json" \
   -d '{"channel": "01jd…", "subscribe": ["edge.deploy.failed", "site.uptime.down"]}'
@@ -983,8 +983,8 @@ The CLI uses these two unauthenticated endpoints for `dply login`. You do not ne
 {
   "device_code": "…",
   "user_code": "ABCD-EFGH",
-  "verification_uri": "https://dply.io/auth/device",
-  "verification_uri_complete": "https://dply.io/auth/device?user_code=ABCD-EFGH",
+  "verification_uri": "https://edge.dply.io/auth/device",
+  "verification_uri_complete": "https://edge.dply.io/auth/device?user_code=ABCD-EFGH",
   "expires_in": 900,
   "interval": 2
 }

@@ -11,7 +11,7 @@ The server is read-only. It can't deploy, change settings, or read environment v
 
 | | |
 | --- | --- |
-| URL | `https://dply.io/mcp` |
+| URL | `https://edge.dply.io/mcp` |
 | Transport | Streamable HTTP |
 | Authentication | `Authorization: Bearer dply_…` |
 | Rate limit | 60 requests per minute per token, shared with the HTTP API |
@@ -41,7 +41,7 @@ In each example, replace `dply_YOUR_TOKEN` with your token.
 ### Claude Code
 
 ```bash
-claude mcp add --transport http dply https://dply.io/mcp \
+claude mcp add --transport http dply https://edge.dply.io/mcp \
   --header "Authorization: Bearer dply_YOUR_TOKEN"
 ```
 
@@ -55,7 +55,7 @@ Add the server to `~/.cursor/mcp.json`, or to `.cursor/mcp.json` in a project:
 {
   "mcpServers": {
     "dply": {
-      "url": "https://dply.io/mcp",
+      "url": "https://edge.dply.io/mcp",
       "headers": {
         "Authorization": "Bearer dply_YOUR_TOKEN"
       }
@@ -76,7 +76,7 @@ Claude Desktop's config file doesn't set request headers on remote servers, so u
       "args": [
         "-y",
         "mcp-remote",
-        "https://dply.io/mcp",
+        "https://edge.dply.io/mcp",
         "--header",
         "Authorization:${DPLY_AUTH}"
       ],
@@ -92,7 +92,7 @@ Restart Claude Desktop after you save the file.
 
 ### Other clients
 
-Any client that supports streamable HTTP and custom headers can connect. Point it at `https://dply.io/mcp` and send the `Authorization` header.
+Any client that supports streamable HTTP and custom headers can connect. Point it at `https://edge.dply.io/mcp` and send the `Authorization` header.
 
 ## Tools
 

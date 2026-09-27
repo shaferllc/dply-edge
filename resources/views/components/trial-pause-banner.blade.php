@@ -11,7 +11,7 @@
         $billing = route('billing.show', $organization);
         $days = (int) config('subscription.standard.trial.days', 5);
         if (! $organization->hasPlan() && $organization->billing_paused_at !== null) {
-            $keepUntil = $organization->billing_paused_at->copy()->addDays((int) config('subscription.standard.trial.keep_data_days', 7));
+            $keepUntil = \App\Modules\Billing\Services\OrganizationBillingEnforcer::deleteAt($organization);
             $banner = [
                 'tone' => 'danger',
                 'title' => __('Your sites are paused.'),
@@ -31,7 +31,7 @@
             $banner = [
                 'tone' => 'info',
                 'title' => __('Start your :days-day trial.', ['days' => $days]),
-                'body' => __('Try Pro free for :days days. A card is needed; you’re billed on day :next unless you cancel.', ['days' => $days, 'next' => $days + 1]),
+                'body' => __('Try any plan free for :days days. A card is needed; you’re billed on day :next unless you cancel.', ['days' => $days, 'next' => $days + 1]),
                 'action' => __('Start trial'),
             ];
         } elseif ($organization->onTrialPlan() && $organization->billing_paused_at !== null) {

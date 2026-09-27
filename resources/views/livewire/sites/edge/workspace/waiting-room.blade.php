@@ -1,4 +1,6 @@
 <div>
+    {{-- Read-only for anyone who cannot configure this app (org Deployer, app Viewer/Deployer). --}}
+    <fieldset @disabled(! auth()->user()?->can('update', $site)) class="min-w-0">
     <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
         @include('livewire.sites.edge.workspace.partials.feature-guide', [
             'docSlug' => 'waiting-room',
@@ -101,4 +103,5 @@
             </div>
         </div>
     </section>
+    </fieldset>
 </div>

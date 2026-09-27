@@ -14,10 +14,9 @@ import { isInteractive, pickRow } from './pick.mjs';
 /**
  * The hosted instance, when someone types `dply use live`.
  *
- * dply.io is the product domain the rest of the app already uses — the install
- * script, DNS zones, and service addresses all point there.
+ * edge.dply.io is the public origin: app, docs, API and the install script.
  */
-const HOSTED_URL = 'https://dply.io';
+const HOSTED_URL = 'https://edge.dply.io';
 
 const WELL_KNOWN = {
   live: HOSTED_URL,
@@ -62,7 +61,7 @@ export async function useCommand(args = [], flags = {}) {
     throw fail(
       `No saved instance called "${target}".`
       + (known.length ? `\nSaved: ${known.join(', ')}` : '')
-      + '\nPass a URL to sign in to a new one, e.g. `dply use https://dply.io`.',
+      + '\nPass a URL to sign in to a new one, e.g. `dply use https://edge.dply.io`.',
       2,
     );
   }

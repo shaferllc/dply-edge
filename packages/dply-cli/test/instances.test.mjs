@@ -124,9 +124,9 @@ test('the stored file keeps the multi-instance shape', async () => {
 
 test('a linked folder deploys with the credential for ITS instance, not the active one', async () => {
   const { mod, home } = await withHome({ token: 'tok-local', baseUrl: 'https://dply.test' });
-  await mod.writeGlobalConfig({ token: 'tok-live', baseUrl: 'https://dply.io' });
+  await mod.writeGlobalConfig({ token: 'tok-live', baseUrl: 'https://edge.dply.io' });
 
-  // Active is dply.io; the folder is linked to a site on dply.test.
+  // Active is edge.dply.io; the folder is linked to a site on dply.test.
   const repo = join(home, 'repo', '.dply');
   mkdirSync(repo, { recursive: true });
   writeFileSync(join(repo, 'site.json'), JSON.stringify({ siteId: 's1', baseUrl: 'https://dply.test' }));
@@ -145,7 +145,7 @@ test('a linked folder deploys with the credential for ITS instance, not the acti
 });
 
 test('a link to an instance you are not signed in to says so, by name', async () => {
-  const { mod, home } = await withHome({ token: 'tok-live', baseUrl: 'https://dply.io' });
+  const { mod, home } = await withHome({ token: 'tok-live', baseUrl: 'https://edge.dply.io' });
 
   const repo = join(home, 'repo', '.dply');
   mkdirSync(repo, { recursive: true });
@@ -157,7 +157,7 @@ test('a link to an instance you are not signed in to says so, by name', async ()
     await assert.rejects(
       () => mod.resolveContext(),
       (err) => /linked to a site on dply\.test/.test(err.message)
-        && /currently on dply\.io/.test(err.message)
+        && /currently on edge\.dply\.io/.test(err.message)
         && /dply use https:\/\/dply\.test/.test(err.message),
     );
   } finally {

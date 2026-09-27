@@ -1,16 +1,16 @@
 ---
 title: "Free trial"
-description: "How the 5-day Pro trial works: starting it, what it includes, its $5 spending cap, and what happens when it ends."
+description: "How the 5-day trial works: starting it on the plan you choose, what it includes, its $5 spending cap, and what happens when it ends."
 ---
 
-Every new organization can try dply on the Pro plan for 5 days. You add a card when the trial starts, and dply bills the Pro plan on day 6 unless you cancel first. There is no free plan, so the trial is how you evaluate dply before paying.
+Every new organization can try dply for 5 days on the plan it chooses: Starter, Pro or Team. You add a card when the trial starts, and dply bills that plan on day 6 unless you cancel first. There is no free plan, so the trial is how you evaluate dply before paying.
 
 ## Start a trial
 
 You start the trial the first time you choose a plan. There are two ways in:
 
-- **From the Billing page.** Open your organization's **Billing** page. Under **Plan**, choose **Start 5-day Pro trial** (or **Start 5-day Team trial**).
-- **From your first deploy.** If your organization has no plan when you choose **Deploy**, dply sends you to checkout for Pro and brings you back to your draft afterwards.
+- **From the Billing page.** Open your organization's **Billing** page. Under **Plan**, choose **Start 5-day Starter trial**, **Start 5-day Pro trial** or **Start 5-day Team trial**. The trial is of the plan you pick.
+- **From your first deploy.** If your organization has no plan when you choose **Deploy**, dply sends you to checkout for a Pro trial and brings you back to your draft afterwards.
 
 Either way, you enter a card on Stripe's checkout page. You aren't charged when the trial starts.
 
@@ -25,13 +25,13 @@ An organization gets a trial only if all of these are true:
 - None of its owners has had a trial or subscription on another organization.
 - The card hasn't been used for a trial on another organization.
 
-If the card has already had a trial, the new subscription starts paid right away. If the organization isn't eligible at all, the button reads **Choose Pro** instead of **Start 5-day Pro trial**, and checkout starts a paid subscription.
+If the card has already had a trial, the new subscription starts paid right away. If the organization isn't eligible at all, the button reads **Choose Pro** (or Starter, or Team) instead of **Start 5-day Pro trial**, and checkout starts a paid subscription.
 
 ## What the trial includes
 
-The trial is the Pro plan: 3 seats, unlimited sites and apps (subject to fair use), container apps, databases, queues and realtime. See [Plans & pricing](/docs/pricing) for the full list.
+The trial is the plan you chose, with that plan's seats and limits: a Starter trial has Starter's 1 seat and limits, a Pro trial Pro's 3 seats, a Team trial Team's 10. Every plan has unlimited sites and apps (subject to fair use), container apps, databases, queues and realtime. See [Plans & pricing](/docs/pricing) for the full list.
 
-If you start a Team trial instead, you get Team's limits for the same 5 days.
+Whichever plan you trial, the $5 spending cap below is the same.
 
 ## The $5 spending cap
 
@@ -82,7 +82,7 @@ If the first payment fails, the organization is paused. It isn't given the retry
 
 On the **Billing** page, under **Cancel or resume**, choose **Cancel subscription**. The trial continues to its end date and you're never charged. Nothing from the trial period is invoiced.
 
-When the trial ends without a plan, the organization is paused and its data is kept for 7 days. You can choose a plan at any time in those 7 days to resume. See [Paused accounts](/docs/paused-accounts).
+When the trial ends without a plan, the organization is paused and its data is kept for 30 days, then deleted. Owners are emailed 7 days and 1 day before deletion. You can choose a plan at any time before then to resume. See [Paused accounts](/docs/paused-accounts).
 
 ## Related
 

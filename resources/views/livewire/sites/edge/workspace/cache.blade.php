@@ -57,7 +57,7 @@
         <section class="grid gap-2" wire:init="loadEntries">
             <div class="flex items-center justify-between gap-3">
                 <h3 class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Stored copies') }}</h3>
-            @can('update', $site)
+            @can('deploy', $site)
                     <x-sheet.button
                         variant="danger"
                         wire:click="openConfirmActionModal('clearAll', [], {{ \Illuminate\Support\Js::from(__('Clear all cache')) }}, {{ \Illuminate\Support\Js::from(__('Drop every stored copy for this app. The next visit fetches a fresh response.')) }}, {{ \Illuminate\Support\Js::from(__('Clear all')) }}, true)"
@@ -84,7 +84,7 @@
                                     @endif
                                 </p>
                             </div>
-                            @can('update', $site)
+                            @can('deploy', $site)
                                 <x-sheet.button wire:click="purgeStored({{ \Illuminate\Support\Js::from($entry['path']) }})" class="shrink-0">{{ __('Purge') }}</x-sheet.button>
                             @endcan
                         </li>
@@ -99,7 +99,7 @@
                     <x-sheet.field :label="$title" :help="$help" for="cache-{{ $model }}">
                         <div class="flex gap-2">
                             <input id="cache-{{ $model }}" type="text" wire:model="{{ $model }}" autocomplete="off" spellcheck="false" placeholder="{{ $placeholder }}" class="dply-input mt-0 min-w-0 flex-1 font-mono text-xs" />
-                            @can('update', $site)
+                            @can('deploy', $site)
                                 <x-sheet.button type="submit" wire:loading.attr="disabled" wire:target="{{ $action }}" class="shrink-0">
                                     <span wire:loading.remove wire:target="{{ $action }}">{{ __('Purge') }}</span>
                                     <span wire:loading wire:target="{{ $action }}">{{ __('Purging…') }}</span>

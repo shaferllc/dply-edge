@@ -5,7 +5,7 @@
     $monthlyCents = (int) ($this->billingState->monthlyTotalCents ?? 0);
     $intervalLabel = __(':plan · billed monthly', ['plan' => $this->organization->planTierLabel()]);
     $subscriptionValid = (bool) $this->subscription?->valid();
-    $keepDays = (int) config('subscription.standard.trial.keep_data_days', 7);
+    $keepDays = (int) config('subscription.standard.trial.keep_data_days', 30);
 
     $org = $this->organization;
     if ($org->isComped()) {

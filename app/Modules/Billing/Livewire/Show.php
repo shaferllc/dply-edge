@@ -272,7 +272,7 @@ class Show extends Component
         $subscriptionUrl = route('subscription.show', $this->organization);
         $url = app(PlanCheckout::class)->url($this->organization, $tier, $subscriptionUrl.'?checkout=success', $subscriptionUrl.'?checkout=cancelled');
         if ($url === null) {
-            $this->addError('billing', __('Plan pricing is not configured yet. Contact support.'));
+            $this->addError('billing', __('Plan pricing is not configured yet. Contact :email.', ['email' => config('dply.support_email')]));
 
             return null;
         }
@@ -310,7 +310,7 @@ class Show extends Component
             app(OrganizationBillingStateComputer::class)->computeForTier($this->organization, $tier),
         );
         if ($items === []) {
-            return $this->billingRedirect('billing_error', __('Plan pricing is not configured yet. Contact support.'));
+            return $this->billingRedirect('billing_error', __('Plan pricing is not configured yet. Contact :email.', ['email' => config('dply.support_email')]));
         }
 
         audit_log($this->organization, auth()->user(), 'billing.plan_changed', null, null, [
@@ -328,7 +328,7 @@ class Show extends Component
         } catch (Throwable $e) {
             report($e);
 
-            return $this->billingRedirect('billing_error', __('Could not change plan. Please try again or contact support.'));
+            return $this->billingRedirect('billing_error', __('Could not change plan. Please try again or contact :email.', ['email' => config('dply.support_email')]));
         }
 
         OrganizationBillingStateComputer::flushMemo((string) $this->organization->id);
@@ -353,7 +353,7 @@ class Show extends Component
         } catch (Throwable $e) {
             report($e);
 
-            return $this->billingRedirect('billing_error', __('Could not end the trial. Please try again or contact support.'));
+            return $this->billingRedirect('billing_error', __('Could not end the trial. Please try again or contact :email.', ['email' => config('dply.support_email')]));
         }
         audit_log($this->organization, auth()->user(), 'billing.trial_ended_early');
         app(StarterTrafficGate::class)->syncOrganization($this->organization->fresh());
@@ -383,7 +383,7 @@ class Show extends Component
         try {
             $subscription->cancel();
         } catch (Throwable $e) {
-            return $this->billingRedirect('billing_error', __('Could not cancel the subscription. Please try again or contact support.'));
+            return $this->billingRedirect('billing_error', __('Could not cancel the subscription. Please try again or contact :email.', ['email' => config('dply.support_email')]));
         }
 
         // getAttribute(): ends_at is a Cashier column (cast to datetime in
@@ -413,7 +413,7 @@ class Show extends Component
         try {
             $subscription->resume();
         } catch (Throwable $e) {
-            return $this->billingRedirect('billing_error', __('Could not resume the subscription. Please try again or contact support.'));
+            return $this->billingRedirect('billing_error', __('Could not resume the subscription. Please try again or contact :email.', ['email' => config('dply.support_email')]));
         }
 
         return $this->billingRedirect('billing_status', __('Your subscription has been resumed.'));
@@ -466,7 +466,7 @@ class Show extends Component
         }
         $seats = (int) $plan['seats'];
 
-        return $this->organization->users()->count() > $seats
+        return $this->organization->seatCount() > $seats
             ? trans_choice(':plan includes :count seat. Remove members before moving to :plan.|:plan includes :count seats. Remove members before moving to :plan.', $seats, ['plan' => $plan['label'], 'count' => $seats])
             : null;
     }

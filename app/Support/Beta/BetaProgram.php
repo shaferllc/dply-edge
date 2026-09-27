@@ -14,8 +14,8 @@ use Throwable;
  * box.
  *
  * Beta is a single global program (not per-org windows): one `cutover_at` date
- * ends it for everyone. Before the cutover, beta orgs pay $0, trial/pause is
- * suppressed, the beta caps envelope applies, and the bundle flags are on.
+ * ends it for everyone. Beta grants nothing billing-wise: beta orgs get the
+ * same trial, plans and limits as everyone (ruling r-jnv0r3qf1xk49kmc).
  */
 final class BetaProgram
 {

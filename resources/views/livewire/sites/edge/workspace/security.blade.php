@@ -81,12 +81,18 @@
                 <div class="flex flex-wrap items-center justify-between gap-3 border-b border-brand-ink/10 px-4 py-3">
                     <p class="text-xs font-semibold uppercase tracking-[0.16em] text-brand-sage">{{ __('Calls to other servers') }}</p>
                     @if ($outboundCertificate === '')
-                        <button type="button" wire:click="enableOutboundCertificate" class="rounded-md bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white">{{ __('Turn on') }}</button>
+                        @can('update', $site)
+                            <button type="button" wire:click="enableOutboundCertificate" class="rounded-md bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white">{{ __('Turn on') }}</button>
+                        @endcan
                     @else
                         <div class="flex items-center gap-3">
                             <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800 dark:text-emerald-300">{{ __('On') }}</span>
-                            <button type="button" wire:click="redeployEdge" class="rounded-md bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white">{{ __('Deploy') }}</button>
-                            <button type="button" wire:click="askRemoveOutboundCertificate" x-on:click="$dispatch('open-modal', 'security-remove-certificate')" class="text-xs font-semibold text-brand-ink underline">{{ __('Remove') }}</button>
+                            @can('deploy', $site)
+                                <button type="button" wire:click="redeployEdge" class="rounded-md bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white">{{ __('Deploy') }}</button>
+                            @endcan
+                            @can('update', $site)
+                                <button type="button" wire:click="askRemoveOutboundCertificate" x-on:click="$dispatch('open-modal', 'security-remove-certificate')" class="text-xs font-semibold text-brand-ink underline">{{ __('Remove') }}</button>
+                            @endcan
                         </div>
                     @endif
                 </div>

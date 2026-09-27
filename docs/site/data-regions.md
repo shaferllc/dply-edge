@@ -3,24 +3,24 @@ title: "Data regions"
 description: "Where dply stores your files, databases and caches, where container apps run, and which settings pin them."
 ---
 
-Most of what dply serves is global: your built files and routing are replicated across the edge network and answered from the location nearest each visitor. A few things live in one place, and for those, the distance between your app and its data sets how fast each query is. This page lists what is where and which settings control it.
+Most of what dply serves is global: your built files and routing are replicated across Cloudflare's network and answered from the location nearest each visitor. A few things live in one place, and for those, the distance between your app and its data sets how fast each query is. This page lists what is where and which settings control it.
 
 ## At a glance
 
 | What | Where it lives | Can you choose? |
 |---|---|---|
-| Built files for static, hybrid and Worker SSR apps | Global object storage, cached at the edge | No |
+| Built files for static, hybrid and Worker SSR apps | Cloudflare R2, cached at the edge | No |
 | Routing, redirects and app configuration | Global, replicated to every edge location | No |
 | Worker SSR and middleware code | Runs at the edge location nearest the visitor | No |
 | Container app instances | A placement region | Yes: **Run only in** and **Regions** |
-| dply databases (Postgres, MySQL, MongoDB) | New York | Not yet |
-| dply Valkey | New York | Not yet |
+| dply databases (Postgres, MySQL, MongoDB) | DigitalOcean, New York | Not yet |
+| dply Valkey | DigitalOcean, New York | Not yet |
 | Object storage buckets | A location you pick when creating it, or your organization's default | Yes, when created |
-| Edge SQL, key-value stores and queues | Placed by the edge network | Location hint only, for auto-created resources |
+| Edge SQL, key-value stores and queues | Placed by Cloudflare | Location hint only, for auto-created resources |
 
 ## Container app placement
 
-Container apps run in one of the edge network's placement regions. Set placement in **Overview** → **App** card → **Sleep, region, scheduler**:
+Container apps run on Cloudflare Containers, in one of Cloudflare's placement regions. Set placement in **Overview** → **App** card → **Sleep, region, scheduler**:
 
 | **Run only in** | Regions allowed |
 |---|---|

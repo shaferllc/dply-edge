@@ -7,16 +7,15 @@ dply is in private beta. You can deploy real apps and attach real resources, but
 
 ## Joining the beta
 
-Beta access is by invitation. An invitation is emailed to one address and is tied to it: the sign-up form locks the email field to the invited address. Invitations expire after 30 days.
+Sign-up is open. You don't need an invitation: [create an account](/docs/quickstart), then choose a plan to start your trial. Beta participants get the same plans, trial and limits as everyone else, with no extra perks.
 
-> [!NOTE]
-> Owner to confirm: whether sign-up is invitation-only for everyone during the beta, or whether public sign-up is also open, and how people request an invitation.
+If you received an invitation email, its link opens the sign-up form with your address filled in. Invitations expire after 30 days, but you can always sign up without one.
 
 ## What it costs
 
 Beta organizations use the same plans and trial as everyone else. There is no free beta tier.
 
-- A new organization starts with a 5-day trial of Pro. Checkout asks for a card before the trial begins.
+- A new organization starts with a 5-day trial of the plan it chooses. Checkout asks for a card before the trial begins.
 - During the trial, usage is capped at $5. Past that, builds and container traffic pause until you pay.
 - After the trial, the plan bills monthly unless you cancel first.
 
@@ -49,26 +48,21 @@ These are current gaps you may run into.
 
 - **Features and interface.** Pages, labels and defaults may change between releases. These docs are updated as they do.
 - **Limits and prices.** Plan allowances and prices may change before general availability.
-- **The end of the beta.** When the beta ends, beta organizations continue on their current plan.
+- **The end of the beta.** No end date is set. When the beta ends, beta organizations continue on their current plan.
 
-> [!NOTE]
-> Owner to confirm: the planned end date of the beta, how and how far ahead changes to pricing are announced, and whether any beta-only terms (such as a service level) apply.
+There are no beta-only terms and no service level agreement during the beta.
 
 ## Feedback and support
 
 We read every report. The most useful ones include the app name, the deployment ID from **Deploys**, what you expected, and what happened instead. For a failed build, include the relevant lines from **Build & deploy logs**.
 
-> [!NOTE]
-> Owner to confirm: the support channel for beta participants (email address, chat, or community forum), expected response times, and where to report security issues.
+Email [hello@dply.io](mailto:hello@dply.io) from the address on your dply account. We answer as quickly as we can on business days; there is no guaranteed response time. To report a vulnerability, use the same address with "Security" in the subject line.
 
 See [Support](/docs/support) and [Report abuse](/docs/abuse).
 
 ## Your data during the beta
 
-If your trial ends or a payment fails, your organization is paused: apps stop serving, containers and databases sleep, and builds stop. Your data is kept for 7 days, and the organization resumes when you choose a plan. See [Paused accounts](/docs/paused-accounts).
-
-> [!NOTE]
-> Owner to confirm: what happens to a paused organization's data after 7 days. Automatic deletion exists but is currently switched off.
+If your trial ends or a payment fails, your organization is paused: apps stop serving, containers and databases sleep, and builds stop. The organization resumes when you choose a plan. Your data is kept for 30 days after the pause; we email you before it's deleted, and after 30 days the organization's apps, resources and data are deleted permanently. See [Paused accounts](/docs/paused-accounts).
 
 > [!WARNING]
 > Keep your own backups of anything you can't recreate. Beta software can have bugs that affect data.
