@@ -5,10 +5,11 @@
         </x-sheet.header>
 
         <x-sheet.body>
-            <x-sheet.field :label="__('Sleep after idle')">
+            @php $trialCap = \App\Modules\Edge\Support\EdgeTrialLimits::applies($site->organization); @endphp
+            <x-sheet.field :label="__('Sleep after idle')" :help="$trialCap ? __('During the trial an app sleeps after 5 minutes idle.') : null">
                 <x-sheet.segmented>
                     @foreach (\App\Modules\Edge\Support\EdgeContainerSettings::SLEEP_AFTER as $option)
-                        <x-sheet.segment wire:click="$set('sleepAfter', '{{ $option }}')" :active="$sleepAfter === $option">{{ $option }}</x-sheet.segment>
+                        <x-sheet.segment wire:click="$set('sleepAfter', '{{ $option }}')" :active="$sleepAfter === $option" :disabled="$trialCap && $option !== \App\Modules\Edge\Support\EdgeTrialLimits::SLEEP_AFTER" :title="$trialCap && $option !== \App\Modules\Edge\Support\EdgeTrialLimits::SLEEP_AFTER ? __('Available after your trial') : null">{{ $option }}</x-sheet.segment>
                     @endforeach
                 </x-sheet.segmented>
                 <x-input-error :messages="$errors->get('sleepAfter')" />

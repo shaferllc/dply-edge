@@ -38,7 +38,7 @@ final class EdgeContainerPlans
         'medium' => [
             'label' => 'Medium',
             'detail' => 'Two containers, scheduler, and migrations on boot.',
-            'instance_type' => 'standard-2',
+            'instance_type' => 'custom-1',
             'max_instances' => 2,
             'sleep_after' => '1h',
             'scheduler' => true,

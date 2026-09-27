@@ -21,13 +21,26 @@ final class EdgeSizeLadder
         '4' => '4 vCPU',
     ];
 
-    /** Container instance type => rung. `lite` sits below the ladder. */
+    /**
+     * Container instance type => rung. `lite` sits below the ladder. The 1
+     * and 2 vCPU rungs are Cloudflare custom shapes (1/3 GiB, 2/6 GiB):
+     * memory is most of the cost, and the named types carry 6 and 8 GiB.
+     */
     public const CONTAINER_TYPES = [
         'basic' => '0.25',
         'standard-1' => '0.5',
+        'custom-1' => '1',
+        'custom-2' => '2',
+        'standard-4' => '4',
+    ];
+
+    /**
+     * Retired rung types => the rung they sat on. Apps already on them keep
+     * them (and are billed their real shape) until the owner picks a size.
+     */
+    public const LEGACY_CONTAINER_TYPES = [
         'standard-2' => '1',
         'standard-3' => '2',
-        'standard-4' => '4',
     ];
 
     /** Valkey class => rung. pro_25g / pro_50g are not offered. */
@@ -44,6 +57,11 @@ final class EdgeSizeLadder
     {
         if (isset(self::CONTAINER_TYPES[$instanceType])) {
             return self::RUNGS[self::CONTAINER_TYPES[$instanceType]];
+        }
+        if (isset(self::LEGACY_CONTAINER_TYPES[$instanceType])) {
+            $memory = EdgeContainerSettings::INSTANCE_TYPES[$instanceType][1];
+
+            return self::RUNGS[self::LEGACY_CONTAINER_TYPES[$instanceType]].' · '.$memory.' GB (retired)';
         }
 
         return $instanceType === 'lite' ? '1/16 vCPU' : $instanceType;

@@ -26,6 +26,7 @@ The usage lines are labeled by category, each with the dates they cover:
 | SQL, queues and key-value | Edge SQL (D1), queues, and key-value |
 | Realtime | Connection-minutes and messages |
 | Workers CPU, Durable Objects, object storage and images | Workers CPU time, Durable Objects, object storage buckets, and image transformations |
+| AI, browser rendering and vector search | Workers AI neurons, browser time, and vector search dimensions. Capped per organization each month (set on the Billing page) |
 | Included usage credit | A negative line: the smaller of your plan's included credit or the usage total above |
 
 A usage line appears only when it's more than zero. The included usage credit line appears only when you had usage to apply it to. If you used nothing, the invoice has no usage lines. Each line is rounded to the nearest cent.

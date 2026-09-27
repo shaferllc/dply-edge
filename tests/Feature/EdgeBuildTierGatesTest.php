@@ -9,6 +9,7 @@ use App\Models\EdgeDeployment;
 use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
+use App\Modules\Billing\Support\UsagePrice;
 use App\Modules\Edge\Jobs\BuildEdgeSiteJob;
 use App\Modules\Edge\Services\EdgeBuildRunner;
 use App\Modules\Edge\Support\EdgeBuildMinutes;
@@ -47,7 +48,9 @@ test('build time bills per second, with no allowance and no rounding up per buil
     $seconds = EdgeBuildMinutes::secondsBetween($org, now()->startOfMonth(), now());
 
     expect($seconds)->toBe(181)
-        ->and(EdgeBuildMinutes::costMillicents($seconds))->toEqualWithDelta(181 / 60 * 500, 1e-9);
+        ->and(EdgeBuildMinutes::costMillicents($seconds))->toEqualWithDelta(181 / 60 * UsagePrice::cost('build_millicents_per_minute'), 1e-9)
+        // Build time is a fixed price: the bill is exactly $0.005/min.
+        ->and(UsagePrice::customer(EdgeBuildMinutes::costMillicents($seconds)))->toEqualWithDelta(181 / 60 * 500, 1e-6);
 });
 
 test('a trial at its usage credit fails the deploy but keeps the live site', function () {

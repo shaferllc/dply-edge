@@ -5,6 +5,7 @@
 @endphp
 @php
     $vkPlan = isset(\App\Modules\Edge\Support\EdgeValkey::CLASSES[$connection['plan']]) ? $connection['plan'] : \App\Modules\Edge\Support\EdgeValkey::DEFAULT_CLASS;
+    $vkTrial = \App\Modules\Edge\Support\EdgeTrialLimits::applies($site->organization);
 @endphp
 <div class="grid gap-5" wire:key="valkey-card-{{ md5($connection['host']) }}">
     <x-sheet.field :label="__('Size')">
@@ -15,7 +16,9 @@
                     wire:loading.attr="disabled"
                     wire:target="saveValkey"
                     :selected="$vkPlan === $classId"
+                    :disabled="$vkTrial && $classId !== \App\Modules\Edge\Support\EdgeTrialLimits::valkeyClass()"
                     :title="__($class['label'])"
+                    :description="$vkTrial && $classId !== \App\Modules\Edge\Support\EdgeTrialLimits::valkeyClass() ? __('Available after your trial') : null"
                     :meta="__(':memory · :second/s awake · up to $:price/mo', ['memory' => $class['memory_mb'] >= 1024 ? rtrim(rtrim(number_format($class['memory_mb'] / 1024, 1), '0'), '.').' GB' : $class['memory_mb'].' MB', 'second' => \App\Modules\Billing\Support\UsagePrice::dollars($class['per_second'] * 100_000), 'price' => number_format($class['cap_cents'] / 100, 0)])"
                 />
             @endforeach
@@ -30,6 +33,8 @@
                         wire:loading.attr="disabled"
                         wire:target="saveValkey"
                         :active="$vkSleep === $seconds"
+                        :disabled="$vkTrial && $seconds === 0"
+                        :title="$vkTrial && $seconds === 0 ? __('Available after your trial') : null"
                     >{{ $seconds > 0 ? __('After :time idle', ['time' => __($label)]) : __($label) }}</x-sheet.segment>
                 @endforeach
             </x-sheet.segmented>

@@ -78,9 +78,32 @@ Open the index card and go to **Query**. Paste a **Vector (JSON)** with the inde
 
 ## Pricing
 
-dply does not meter or bill vector search per organization today. It is included with paid plans.
+Vector search is billed in dimensions, at the invoice line **AI, browser rendering and vector search**, less your plan's included usage credit.
+
+<!-- generated: php artisan dply:billing:price-table rates --group="Vector search" -->
+| Meter | Price | Unit |
+| --- | --- | --- |
+| Queried dimensions | $0.013 | per million |
+| Stored dimensions | $0.065 | per 100 million, per month |
+
+- **Queried dimensions:** each query counts the query vector's dimensions (768 for a 768-dimension index). Each month, every index's stored vectors also count once as queried, as Cloudflare bills them.
+- **Stored dimensions:** vectors × dimensions, at each index's largest day in the period.
+
+An index of 100,000 vectors at 768 dimensions stores 76.8 million dimensions. With 1 million queries a month it is about 845 million queried dimensions.
+
+### Monthly limit
+
+AI, browser rendering and vector search share one monthly limit per organization, **$25** unless an owner changes it on the **Billing** page. It counts every app in the organization, and the **Try it** and **Query** tabs in the dashboard. Owners are emailed at 80% and 100%. At the limit, calls are refused until the next billing period or until an owner raises it:
+
+- A Worker app's call rejects with an error whose message says the limit is reached (`error.status` is `429`).
+- A container app gets HTTP `429` with `{"error": "..."}`.
+
+Setting the limit to `0` removes it, up to a platform maximum. dply can also turn one of these services off for everyone for a while; calls then fail with status `503` and say so. The AI, browser and vector search cards show this period's usage and the limit.
 
 On a trial, or if the organization leaves its paid plan, the index is left out of the app's next deploy. The index and its vectors are kept.
+
+> [!NOTE]
+> In a Worker app, only your fetch, scheduled and queue handlers (and a `WorkerEntrypoint` class entry) see `env.NAME`. Your own Durable Object classes do not: call it from a handler instead.
 
 ## Delete an index
 

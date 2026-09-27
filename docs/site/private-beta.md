@@ -24,7 +24,7 @@ Beta organizations use the same plans and trial as everyone else. There is no fr
 | --- | --- | --- | --- | --- |
 | Starter | $5/mo | 1 | — | $5/mo |
 | Pro | $20/mo | 3 | — | $20/mo |
-| Team | $49/mo | 10 | $5/mo each | $50/mo |
+| Team | $49/mo | 10 | $5/mo each | $49/mo |
 | Enterprise | Contact us | Custom | Custom | Custom |
 
 There's no per-app or per-site fee on any plan. Usage past the included credit bills at the rates on [Plans & pricing](/docs/pricing). See [Free trial](/docs/free-trial) and [Usage & metering](/docs/usage) for the full limits and rates.

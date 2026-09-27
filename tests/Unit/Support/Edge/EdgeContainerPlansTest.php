@@ -7,7 +7,7 @@ use App\Modules\Edge\Support\EdgeContainerPlans;
 test('container plans map onto deploy settings', function () {
     expect(EdgeContainerPlans::settings('medium'))->toMatchArray([
         'plan' => 'medium',
-        'instance_type' => 'standard-2',
+        'instance_type' => 'custom-1',
         'max_instances' => 2,
         'sleep_after' => '1h',
         'scheduler' => true,

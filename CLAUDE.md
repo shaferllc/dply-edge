@@ -121,8 +121,11 @@ unrelated WIP commit three days earlier, so the boundary was silently unchecked.
 >   `DPLY_USAGE_MARGIN_PERCENT`, default 30, ruling r-jnv0r3qf1xk49kmc), applied only in
 >   `App\Modules\Billing\Support\UsagePrice` — cost classes, invoices, the
 >   pricing page and docs all go through it. Exception: keys in
->   `fixed_price_meters` (bandwidth, $0.06/GB) are configured as the customer
->   price and ignore the margin. After a price change run
+>   `fixed_price_meters` (bandwidth $0.06/GB, build time, database compute and
+>   storage, realtime) and Valkey's `EdgeValkey::CLASSES` are configured as the
+>   customer price and ignore the margin; they were set from the real-cost
+>   estimates in `dply.unit_costs` (`php artisan dply:billing:unit-costs`,
+>   docs/pricing-review.md §9–10). A plan's credit never exceeds its fee. After a price change run
 >   `php artisan dply:billing:price-table --write-docs` to rewrite every
 >   generated docs table (`DocsPriceTablesTest` fails until you do). Apps, workers, databases and Valkey bill per second
 >   awake. `UsageInvoicer` bills each closed period's usage per category plus

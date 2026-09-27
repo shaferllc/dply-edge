@@ -255,11 +255,19 @@ class PrintPriceTableCommand extends Command
                     $row[] = $cell['cap'];
                     $row[] = $cell['sleeps'] ? 'Yes' : 'No (stays on)';
                 }
+                if ($product === 'app') {
+                    $row[] = $cell['typical'];
+                    $row[] = $cell['cap'];
+                }
                 $rows[] = $row;
             }
             $head = ['Size', 'Memory', 'Per second awake', 'Per hour awake'];
 
-            return $this->markdown($product === 'valkey' ? [...$head, 'Most per month', 'Sleeps'] : $head, $rows);
+            return $this->markdown(match ($product) {
+                'valkey' => [...$head, 'Most per month', 'Sleeps'],
+                'app' => [...$head, 'Always on, 25% CPU', 'Most per month'],
+                default => $head,
+            }, $rows);
         }
 
         $rows = [];

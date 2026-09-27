@@ -52,6 +52,7 @@ use App\Modules\Edge\Http\Controllers\EdgeDeployHookController;
 use App\Modules\Edge\Http\Controllers\EdgeFormIngestController;
 use App\Modules\Edge\Http\Controllers\EdgeLiveAccessLogPollController;
 use App\Modules\Edge\Http\Controllers\EdgeLogCsvDownloadController;
+use App\Modules\Edge\Http\Controllers\EdgeMeterIngestController;
 use App\Modules\Edge\Http\Controllers\EdgePreviewAccessController;
 use App\Modules\Edge\Http\Controllers\EdgePreviewCommentsController;
 use App\Modules\Edge\Http\Controllers\EdgeRepoConfigYamlDownloadController;
@@ -103,6 +104,12 @@ Route::post('/hooks/telegram', TelegramWebhookController::class)
 Route::post('/hooks/edge/{site}/forms', EdgeFormIngestController::class)
     ->middleware(['throttle:function-log-ingest'])
     ->name('hooks.edge.forms');
+
+// AI / browser / vector search proxy (EdgeMeter): usage reports and the
+// cap / kill-switch verdict, HMAC-signed with a per-app key.
+Route::post('/hooks/edge/{site}/meter', EdgeMeterIngestController::class)
+    ->middleware(['throttle:edge-meter'])
+    ->name('hooks.edge.meter');
 
 // Per-site deploy hooks (P10b). Match POST + GET so CMSes that only
 // emit GET pings (Sanity, some Webflow integrations) still work.

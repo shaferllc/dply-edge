@@ -131,6 +131,7 @@ class OrganizationBillingStateComputer
             'data' => $data['cents'] + $kv['cents'],
             'realtime' => $this->realtimeCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd)['cents'],
             'platform' => $this->platformUsageCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd)['cents'],
+            'ai' => app(EdgeMeteredUsageCost::class)->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd)['cents'],
         ] : [];
 
         return DesiredBillingState::fromPlanAndUsage(

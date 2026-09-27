@@ -37,15 +37,16 @@
             </x-sheet.field>
 
             @if ($dplyEngine)
-                <x-sheet.field :label="__('Size')">
+                @php $trialCap = \App\Modules\Edge\Support\EdgeTrialLimits::applies($site->organization); @endphp
+                <x-sheet.field :label="__('Size')" :help="$trialCap ? __('During the trial a database runs the smallest size and sleeps when idle.') : null">
                     <x-sheet.options id="database-size">
                         @foreach ($postgresSizes as $key => $size)
                             <x-sheet.option
                                 wire:click="selectPostgresSize('{{ $key }}')"
                                 :selected="$postgresSize === (string) $key"
-                                :disabled="$postgresLocked"
+                                :disabled="$postgresLocked || ($trialCap && (string) $key !== \App\Modules\Edge\Support\EdgeTrialLimits::databaseSize())"
                                 :title="$size['cpu'].' · '.$size['memory']"
-                                :meta="'$'.$size['month'].'/mo'"
+                                :meta="$trialCap && (string) $key !== \App\Modules\Edge\Support\EdgeTrialLimits::databaseSize() ? __('Available after your trial') : '$'.$size['month'].'/mo'"
                             />
                         @endforeach
                     </x-sheet.options>
@@ -54,7 +55,7 @@
                 <x-sheet.field :label="__('Sleep')" :help="$postgresSuspend === -1 ? null : __('After :time idle', ['time' => __($postgresSleeps[$postgresSuspend] ?? '')])">
                     <x-sheet.segmented id="database-sleep">
                         @foreach ($postgresSleeps as $seconds => $label)
-                            <x-sheet.segment wire:click="selectPostgresSuspend({{ $seconds }})" :active="$postgresSuspend === $seconds" :disabled="$postgresLocked">{{ __($label) }}</x-sheet.segment>
+                            <x-sheet.segment wire:click="selectPostgresSuspend({{ $seconds }})" :active="$postgresSuspend === $seconds" :disabled="$postgresLocked || ($trialCap && $seconds === -1)" :title="$trialCap && $seconds === -1 ? __('Available after your trial') : null">{{ __($label) }}</x-sheet.segment>
                         @endforeach
                     </x-sheet.segmented>
                 </x-sheet.field>

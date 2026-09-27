@@ -323,9 +323,22 @@ return [
             // changing margin_percent leaves it at $0.06. The env var sets the
             // price, not a cost.
             'egress_millicents_per_gb' => (float) env('DPLY_USAGE_EGRESS_MC_PER_GB', 6_000),
-            // Meters whose value above is the customer price, not a cost
+            // Meters whose value is the customer price, not a cost
             // (UsagePrice::cost() backs the cost out at the current margin).
-            'fixed_price_meters' => ['egress_millicents_per_gb'],
+            // Bandwidth, plus every meter that runs on dply's own hosts or has
+            // no per-unit provider price (build time, databases, realtime):
+            // their prices are set from the estimates in dply.unit_costs
+            // (php artisan dply:billing:unit-costs, docs/pricing-review.md §9)
+            // until real costs are measured. Valkey is priced the same way,
+            // in EdgeValkey::CLASSES.
+            'fixed_price_meters' => [
+                'egress_millicents_per_gb',
+                'build_millicents_per_minute',
+                'database_compute_millicents_per_cu_second',
+                'database_storage_millicents_per_gb_month',
+                'realtime_connection_minute_millicents',
+                'realtime_message_millicents_per_million',
+            ],
             // Site/build artifact storage (R2): $0.015/GB-month, Class A
             // (writes) $4.50/M, Class B (reads) $0.36/M.
             'r2_storage_millicents_per_gb_month' => (float) env('DPLY_USAGE_R2_STORAGE_MC_PER_GB_MONTH', 1_500),
@@ -333,8 +346,10 @@ return [
             'r2_class_b_millicents_per_million' => (float) env('DPLY_USAGE_R2_CLASS_B_MC_PER_MILLION', 36_000),
 
             // Build time, billed per second (EdgeDeployment.build_seconds).
-            // NOT a provider list price: builds run on dply's own build hosts.
-            // $0.005/minute is dply's cost figure (the old Team overage rate).
+            // A CUSTOMER PRICE (fixed_price_meters): builds run on dply's own
+            // build host, estimated at ~$0.002/min at 15% utilisation
+            // (dply.unit_costs.build). $0.005/min matches Render's build-minute
+            // price. The env var sets the price.
             'build_millicents_per_minute' => (float) env('DPLY_USAGE_BUILD_MC_PER_MINUTE', 500),
 
             // Container apps and queue workers (Cloudflare Containers), per
@@ -346,6 +361,11 @@ return [
             'container_vcpu_millicents_per_second' => (float) env('DPLY_USAGE_CONTAINER_VCPU_MC_PER_SECOND', 2.0),
             'container_memory_millicents_per_gib_second' => (float) env('DPLY_USAGE_CONTAINER_MEMORY_MC_PER_GIB_SECOND', 0.25),
             'container_disk_millicents_per_gb_second' => (float) env('DPLY_USAGE_CONTAINER_DISK_MC_PER_GB_SECOND', 0.007),
+            // Monthly cap per app instance: this many hours of the size's
+            // 100%-CPU price (UsagePrice::containerCapHours). Break-even is
+            // 720 / (1 + margin) h (554 h at 30%), so the code never lets it
+            // fall below 5% over cost, whatever this says.
+            'container_monthly_cap_hours' => (float) env('DPLY_USAGE_CONTAINER_CAP_HOURS', 600),
 
             // D1: rows read $0.001/M, rows written $1.00/M, storage
             // $0.75/GB-month. Queues: $0.40 per million operations.
@@ -364,23 +384,26 @@ return [
             // dply databases (Postgres/MySQL/MongoDB pods on dply's cluster),
             // per compute-unit second awake (1 CU = 1 vCPU + 4 GB) plus
             // storage per GB-month, prorated by the second the volume is held.
-            // NOT a provider list price: dply's infra cost figure, $0.106 per
-            // CU-hour and $0.35/GB-month (the Launch rates the old model used
-            // as its cost floor). Collected by dply:edge:collect-valkey-usage.
-            'database_compute_millicents_per_cu_second' => (float) env('DPLY_USAGE_DATABASE_MC_PER_CU_SECOND', 10_600 / 3600),
-            'database_storage_millicents_per_gb_month' => (float) env('DPLY_USAGE_DATABASE_STORAGE_MC_PER_GB_MONTH', 35_000),
+            // CUSTOMER PRICES (fixed_price_meters), set from the DigitalOcean
+            // node estimate in dply.unit_costs: $0.12 per CU-hour (cost ~$0.077
+            // at 70% packing; Laravel Cloud Postgres $0.135) and $0.20 per
+            // GB-month (volume $0.10 + backup copy ~$0.02). Collected by
+            // dply:edge:collect-valkey-usage. The env vars set prices.
+            'database_compute_millicents_per_cu_second' => (float) env('DPLY_USAGE_DATABASE_MC_PER_CU_SECOND', 12_000 / 3600),
+            'database_storage_millicents_per_gb_month' => (float) env('DPLY_USAGE_DATABASE_STORAGE_MC_PER_GB_MONTH', 20_000),
 
-            // Realtime (docs/edge-realtime.md). Messages: $0.45 per million is
-            // a dply-set figure (ruling r-p3dsj9znvtnyhphr), NOT a Cloudflare
-            // list price: Durable Objects bill incoming WebSocket messages at
-            // 20:1 as requests, outgoing ones are free, and hibernation
-            // removes duration (docs/pricing-review.md §3).
-            // Connection-minutes have no per-unit provider price; the cost is
-            // backed out of the old $0.50/M customer price at the then-default
-            // 20% margin (0.05 / 1.2); at 30% it is about $0.54/M.
-            // Collected by dply:edge:collect-realtime-usage.
-            'realtime_connection_minute_millicents' => (float) env('DPLY_USAGE_REALTIME_CONNECTION_MINUTE_MC', 0.05 / 1.2),
-            'realtime_message_millicents_per_million' => (float) env('DPLY_USAGE_REALTIME_MESSAGES_MC_PER_MILLION', 45_000),
+            // Realtime (docs/edge-realtime.md). CUSTOMER PRICES
+            // (fixed_price_meters); the relay has no per-unit provider price.
+            // Real cost (dply:billing:unit-costs): a publish is a Worker
+            // request + a DO request (~$0.46/M); delivered frames are free
+            // (outgoing WebSocket messages, hibernation). Messages $0.62/M
+            // covers a publish nobody receives at 1.3x and is 4x under Ably
+            // ($2.50/M). A connection costs its upgrade (~$0.45/M), spread
+            // over its minutes: $0.25/M connection-minutes covers sessions of
+            // 2.3+ minutes at 1.3x (Ably $1.00/M). Collected by
+            // dply:edge:collect-realtime-usage. The env vars set prices.
+            'realtime_connection_minute_millicents' => (float) env('DPLY_USAGE_REALTIME_CONNECTION_MINUTE_MC', 0.025),
+            'realtime_message_millicents_per_million' => (float) env('DPLY_USAGE_REALTIME_MESSAGES_MC_PER_MILLION', 62_000),
 
             // Workers CPU $0.02 per million CPU-ms. Durable Objects: requests
             // $0.15/M, duration $12.50 per million GB-s, rows read $0.001/M,
@@ -398,7 +421,102 @@ return [
             'r2_bucket_class_a_millicents_per_million' => (float) env('DPLY_EDGE_R2_BUCKET_CLASS_A_MC_PER_MILLION', 450_000),
             'r2_bucket_class_b_millicents_per_million' => (float) env('DPLY_EDGE_R2_BUCKET_CLASS_B_MC_PER_MILLION', 36_000),
             'images_transformations_millicents_per_million' => (float) env('DPLY_EDGE_IMAGES_TRANSFORMATIONS_MC_PER_MILLION', 50_000_000),
+
+            // Metered through dply's proxy (EdgeMeter), Cloudflare list
+            // prices verified 2026-09-27: Workers AI $0.011 per 1,000
+            // neurons; Browser Rendering $0.09 per browser-hour; Vectorize
+            // $0.01 per million queried dimensions and $0.05 per 100 million
+            // stored dimensions. Account-level free allocations and Browser's
+            // $2 concurrency charge are not passed on.
+            'ai_neurons_millicents_per_thousand' => (float) env('DPLY_EDGE_AI_NEURONS_MC_PER_THOUSAND', 1_100),
+            'browser_millicents_per_hour' => (float) env('DPLY_EDGE_BROWSER_MC_PER_HOUR', 9_000),
+            'vector_queried_millicents_per_million_dims' => (float) env('DPLY_EDGE_VECTOR_QUERIED_MC_PER_MILLION_DIMS', 1_000),
+            'vector_stored_millicents_per_hundred_million_dims' => (float) env('DPLY_EDGE_VECTOR_STORED_MC_PER_100M_DIMS', 5_000),
         ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Unit costs: what dply's own infrastructure really costs (ESTIMATES)
+    |--------------------------------------------------------------------------
+    |
+    | Inputs for `php artisan dply:billing:unit-costs`, which turns them into a
+    | real cost per database CU-hour and GB-month, Valkey GB-hour, build minute
+    | and realtime message / connection-minute, and compares each with the
+    | price (docs/pricing-review.md §9, §10). Nothing bills from these.
+    |
+    | Every figure is an ESTIMATE made 2026-09-27 from deploy/valkey/terraform
+    | (the DOKS cluster), deploy/DO_MIGRATION.md (control plane), config/horizon
+    | (4 concurrent builds) and public list prices fetched that day:
+    | digitalocean.com/pricing/{droplets,kubernetes,volumes}, DOKS allocatable
+    | memory (docs.digitalocean.com/products/kubernetes/details/limits),
+    | Cloudflare Workers / Workers for Platforms / Durable Objects pricing,
+    | stripe.com/billing/pricing. Replace with invoices once they exist.
+    | Money in dollars per month unless the key says otherwise.
+    */
+    'unit_costs' => [
+        'digitalocean' => [
+            // Node pools of the dply-pods cluster (nyc3). `nodes` is the
+            // minimum the pool keeps (fixed cost); allocatable is what pods can
+            // request after DOKS's system reserve.
+            'pools' => [
+                'cache' => ['size' => 's-2vcpu-4gb', 'monthly' => 24, 'vcpu' => 2, 'ram_gb' => 4, 'allocatable_gib' => 2.5, 'nodes' => 2],
+                'db' => ['size' => 's-2vcpu-4gb', 'monthly' => 24, 'vcpu' => 2, 'ram_gb' => 4, 'allocatable_gib' => 2.5, 'nodes' => 2],
+                'pro-16' => ['size' => 'm-2vcpu-16gb', 'monthly' => 84, 'vcpu' => 2, 'ram_gb' => 16, 'allocatable_gib' => 13, 'nodes' => 0],
+                'pro-64' => ['size' => 'm-8vcpu-64gb', 'monthly' => 336, 'vcpu' => 8, 'ram_gb' => 64, 'allocatable_gib' => 58, 'nodes' => 0],
+            ],
+            // Share of a pool's allocatable memory that paying tenants fill on
+            // average (warm pool pods, fragmentation, headroom).
+            'packing' => ['cache' => 0.7, 'db' => 0.7, 'pro-16' => 0.9, 'pro-64' => 0.9],
+            'ha_control_plane' => 40,
+            'load_balancer' => 12,
+            'registry' => 5,
+            'volume_per_gb_month' => 0.10,
+            // Database dumps kept in Spaces ($5 per 250 GB, then $0.02/GB).
+            'backup_per_gb_month' => 0.02,
+        ],
+
+        // Edge builds run in `docker run` on the control-plane worker
+        // (s-4vcpu-8gb), HORIZON_BUILD_MAX_PROCESSES = 4 at a time.
+        'build' => ['size' => 's-4vcpu-8gb', 'monthly' => 48, 'hosts' => 1, 'concurrent_builds' => 4, 'utilisation' => 0.15],
+
+        // The control plane apart from the build worker (DO_MIGRATION.md
+        // topology, no replica): web s-2vcpu-4gb, Postgres s-4vcpu-8gb, Redis
+        // s-2vcpu-4gb, weekly backups (+20%), Spaces for escrow and dumps.
+        'control_plane' => ['web' => 24, 'postgres' => 48, 'redis' => 24, 'backups' => 19.20, 'spaces' => 5],
+
+        'cloudflare' => [
+            // Workers Paid: includes Containers, KV, D1, Queues, DO base.
+            'workers_paid' => 5,
+            // Workers for Platforms (SSR dispatch namespace): 20M requests,
+            // 60M CPU-ms and 1,000 scripts included; $0.02/script after.
+            'workers_for_platforms' => 25,
+            'wfp_scripts_included' => 1_000,
+            'wfp_script_monthly' => 0.02,
+            // Cloudflare for SaaS custom hostnames: 100 free, then $0.10/mo.
+            'custom_hostnames_included' => 100,
+            'custom_hostname_monthly' => 0.10,
+        ],
+
+        // Everything else paid monthly. No error tracker is installed today
+        // (Sentry Team would be $26). Email goes out through Cloudflare Email
+        // Sending; the domains are dply.io, dply.cloud (~$60/yr together).
+        'services' => ['email' => 5, 'error_tracking' => 0, 'domains' => 5, 'github' => 0],
+
+        // Realtime relay (packages/realtime-worker, hibernating Durable
+        // Object). A publish = one Worker request + one DO request + this much
+        // DO wall time at this much memory; a connection = its upgrade (one
+        // Worker + one DO request) spread over its average length. Delivered
+        // frames and pings are free. `deliveries_per_publish` only shows the
+        // typical case; prices are set against 0 (nobody listening).
+        'realtime' => ['publish_wall_ms' => 10, 'do_memory_gb' => 0.125, 'avg_connection_minutes' => 3, 'deliveries_per_publish' => 1],
+
+        // Card processing 2.9% + 30c, plus Stripe Billing 0.7% of billed volume.
+        'stripe' => ['percent' => 3.6, 'fixed_cents' => 30],
+
+        // Markup the price must keep over the estimated cost (1.3 = +30%, the
+        // usage margin). dply:billing:unit-costs flags anything under it.
+        'min_markup' => 1.3,
     ],
 
     /*

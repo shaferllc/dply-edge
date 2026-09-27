@@ -79,6 +79,27 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Metered services: Workers AI, Browser Rendering, Vectorize (EdgeMeter)
+    |--------------------------------------------------------------------------
+    | Every call goes through dply's proxy, which reports it to
+    | /hooks/edge/{site}/meter and asks whether it may run. `enabled` is the
+    | platform kill switch per service. The org cap (organizations.
+    | metered_cap_cents, set on the billing page) defaults to default_cap_cents;
+    | 0 turns it off, but ceiling_cents always applies, so no org can run
+    | unbounded usage on the shared account.
+    */
+    'metered_services' => [
+        'enabled' => [
+            'ai' => filter_var(env('DPLY_EDGE_AI_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
+            'browser' => filter_var(env('DPLY_EDGE_BROWSER_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
+            'vectors' => filter_var(env('DPLY_EDGE_VECTORS_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
+        ],
+        'default_cap_cents' => (int) env('DPLY_EDGE_METERED_DEFAULT_CAP_CENTS', 2500),
+        'ceiling_cents' => (int) env('DPLY_EDGE_METERED_CEILING_CENTS', 100000),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Form submission signature. Request logs and Core Web Vitals go to
     | Analytics Engine, not this webhook.
     |--------------------------------------------------------------------------

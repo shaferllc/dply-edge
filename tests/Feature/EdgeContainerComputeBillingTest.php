@@ -10,7 +10,9 @@ use App\Models\Server;
 use App\Models\Site;
 use App\Modules\Billing\Services\DesiredBillingState;
 use App\Modules\Billing\Services\EdgeContainerComputeCost;
+use App\Modules\Billing\Support\UsagePrice;
 use App\Modules\Edge\Services\Containers\EdgeContainerUsageCollector;
+use App\Modules\Edge\Support\EdgeContainerSettings;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -73,4 +75,86 @@ test('the collector matches container applications to sites by script name', fun
         ->and($row->memory_gib_seconds)->toBe(3600.0)
         ->and($row->tx_bytes)->toBe(5)
         ->and(app(EdgeContainerComputeCost::class)->forOrganization($org, now()->startOfMonth(), now())['cents'])->toBe(1); // 0.24¢ cpu + 0.9¢ mem = 1.14¢, rounded once
+});
+
+test('the monthly cap never sells an always-on 100%-CPU instance below cost, at any margin', function () {
+    foreach ([20, 30, 40] as $margin) {
+        config(['dply.edge.usage_billing.margin_percent' => $margin, 'dply.edge.usage_billing.container_monthly_cap_hours' => 540]);
+        // 540 h is under break-even (720 / 1.3 = 553.8 h at 30%): the floor keeps it 5% over cost.
+        expect(UsagePrice::containerCapHours())->toEqualWithDelta(max(540, 720 * 1.05 / (1 + $margin / 100)), 1e-9);
+
+        foreach (EdgeContainerSettings::INSTANCE_TYPES as [$vcpu, $memory, $disk]) {
+            $cost = app(EdgeContainerComputeCost::class)->costMillicents($vcpu * 2_592_000, $memory * 2_592_000, $disk * 2_592_000);
+            expect(UsagePrice::containerCapMillicents($vcpu, $memory, $disk))->toBeGreaterThan($cost * 1.04);
+        }
+    }
+
+    config(['dply.edge.usage_billing.margin_percent' => 30, 'dply.edge.usage_billing.container_monthly_cap_hours' => 600]);
+    $basic = UsagePrice::containerMonthly(0.25, 1, 4);
+    // 600 h × $0.0000101/s = $21.85 cap; 25% CPU always on = $13.58.
+    expect(round($basic['cap'] / 100_000, 2))->toBe(21.85)
+        ->and(round($basic['typical'] / 100_000, 2))->toBe(13.58)
+        ->and(UsagePrice::sizes()[0]['app'])->toMatchArray(['typical' => '$13.58', 'cap' => '$21.85']);
+});
+
+test('each app is billed at most its cap per instance-month, never below cost', function () {
+    config(['dply.edge.usage_billing.margin_percent' => 30, 'dply.edge.usage_billing.container_monthly_cap_hours' => 600]);
+    $org = Organization::factory()->create();
+    $server = Server::factory()->create(['organization_id' => $org->id]);
+    $busy = Site::factory()->create(['organization_id' => $org->id, 'server_id' => $server->id, 'meta' => ['edge' => ['container' => ['instance_type' => 'basic']]]]);
+    $pair = Site::factory()->create(['organization_id' => $org->id, 'server_id' => $server->id, 'meta' => ['edge' => ['container' => ['instance_type' => 'basic']]]]);
+    $month = 2_592_000;
+    // One basic instance always on at 100% CPU; two more, the same, on another app.
+    EdgeContainerUsage::query()->create(['organization_id' => $org->id, 'site_id' => $busy->id, 'date' => now()->toDateString(), 'cpu_seconds' => 0.25 * $month, 'memory_gib_seconds' => $month, 'disk_gb_seconds' => 4 * $month, 'tx_bytes' => 0]);
+    EdgeContainerUsage::query()->create(['organization_id' => $org->id, 'site_id' => $pair->id, 'date' => now()->toDateString(), 'cpu_seconds' => 0.5 * $month, 'memory_gib_seconds' => 2 * $month, 'disk_gb_seconds' => 8 * $month, 'tx_bytes' => 0]);
+
+    $cost = app(EdgeContainerComputeCost::class);
+    $cap = UsagePrice::containerCapMillicents(0.25, 1, 4);
+
+    expect($cost->siteMillicents($busy, 0.25 * $month, $month, 4 * $month))->toEqualWithDelta($cap, 1e-6)
+        ->and($cost->siteMillicents($busy, 0.25 * $month * 0.25, $month, 4 * $month))->toBeLessThan($cap) // typical CPU: under the cap, metered
+        ->and($cost->forOrganization($org, now()->startOfMonth(), now()->endOfMonth())['cents'])->toBe((int) round(3 * $cap / 1000))
+        ->and($cost->siteMillicents(null, 0.25 * $month, $month, 4 * $month))->toBeGreaterThan($cap); // deleted app: no cap
+
+    // A cap config below cost is floored: billed at least cost.
+    config(['dply.edge.usage_billing.margin_percent' => 0]);
+    expect($cost->siteMillicents($busy, 0.25 * $month, $month, 4 * $month))->toEqualWithDelta($cost->costMillicents(0.25 * $month, $month, 4 * $month), 1e-6);
+});
+
+test('after a downsize the cap undercounts, and the bill stops at cost', function () {
+    config(['dply.edge.usage_billing.margin_percent' => 30, 'dply.edge.usage_billing.container_monthly_cap_hours' => 600]);
+    $site = new Site(['meta' => ['edge' => ['container' => ['instance_type' => 'basic']]]]);
+    $month = 2_592_000;
+    // A month on 1 vCPU / 3 GiB at 100% CPU, billed after the owner stored basic.
+    $cost = app(EdgeContainerComputeCost::class);
+    $atCost = $cost->costMillicents($month, 3 * $month, 6 * $month);
+
+    expect($cost->capMillicents($site, 3 * $month))->toBeLessThan($atCost)
+        ->and($cost->siteMillicents($site, $month, 3 * $month, 6 * $month))->toEqualWithDelta($atCost, 1e-6);
+});
+
+test('a site with several container applications is billed for all of them', function () {
+    $org = Organization::factory()->create();
+    $server = Server::factory()->create(['organization_id' => $org->id]);
+    $site = Site::factory()->create(['organization_id' => $org->id, 'server_id' => $server->id]);
+    $prefix = 'dply-ctr-'.strtolower((string) $site->id);
+
+    Http::fake([
+        'api.cloudflare.com/client/v4/graphql' => Http::response(['data' => ['viewer' => ['accounts' => [['containersUsageAdaptiveGroups' => [
+            ['dimensions' => ['applicationId' => 'web'], 'sum' => ['cpuTimeSec' => 100, 'allocatedMemory' => 3600 * 1024 ** 3, 'allocatedDisk' => 0, 'txBytes' => 1]],
+            ['dimensions' => ['applicationId' => 'worker'], 'sum' => ['cpuTimeSec' => 50, 'allocatedMemory' => 1800 * 1024 ** 3, 'allocatedDisk' => 0, 'txBytes' => 2]],
+        ]]]]]]),
+        'api.cloudflare.com/client/v4/accounts/acct/containers/applications' => Http::response(['success' => true, 'result' => [
+            ['id' => 'web', 'name' => $prefix.'-app'],
+            ['id' => 'worker', 'name' => $prefix.'-worker-default'],
+        ]]),
+    ]);
+
+    $result = (new EdgeContainerUsageCollector(new EdgeCloudflareClient('acct', 'token')))->collectForDate(now()->startOfDay());
+    $row = EdgeContainerUsage::query()->where('site_id', $site->id)->sole();
+
+    expect($result)->toBe(['sites' => 1, 'applications' => 2])
+        ->and($row->cpu_seconds)->toBe(150.0)
+        ->and($row->memory_gib_seconds)->toBe(5400.0)
+        ->and($row->tx_bytes)->toBe(3);
 });

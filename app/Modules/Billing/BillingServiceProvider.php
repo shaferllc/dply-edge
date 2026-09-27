@@ -7,6 +7,7 @@ namespace App\Modules\Billing;
 use App\Modules\Billing\Console\CompOrganizationCommand;
 use App\Modules\Billing\Console\EnforceOrganizationBillingCommand;
 use App\Modules\Billing\Console\PrintPriceTableCommand;
+use App\Modules\Billing\Console\PrintUnitCostsCommand;
 use App\Modules\Billing\Console\ProvisionStripeBillingCommand;
 use App\Modules\Billing\Console\SnapshotOrganizationBillingCommand;
 use App\Modules\Billing\Console\SyncAllOrganizationBillingCommand;
@@ -44,6 +45,7 @@ class BillingServiceProvider extends ServiceProvider
                 CompOrganizationCommand::class,
                 EnforceOrganizationBillingCommand::class,
                 PrintPriceTableCommand::class,
+                PrintUnitCostsCommand::class,
                 ProvisionStripeBillingCommand::class,
                 SnapshotOrganizationBillingCommand::class,
                 SyncAllOrganizationBillingCommand::class,

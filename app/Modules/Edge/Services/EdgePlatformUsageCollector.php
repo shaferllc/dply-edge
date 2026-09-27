@@ -26,8 +26,9 @@ use Throwable;
  * dply-edge-{org}) is ours and skipped. Images transformations come per script
  * (imagesTransformationsAdaptiveGroups.billableEventCount). Workers AI and
  * Browser Rendering are not here: aiInferenceAdaptiveGroups and the
- * browserRendering* datasets have no script dimension, so neither can be put
- * on an org.
+ * browserRendering* datasets have no script dimension, so they are metered
+ * per call by dply's proxy instead (EdgeMeter). Vectorize queries are too;
+ * what an org's indexes store is read here (vectorize:{index} rows).
  *
  * Each dataset is its own query. A failed one is logged and reported, and
  * leaves its columns as they were; it never zeroes what an earlier run found.
@@ -66,6 +67,7 @@ final class EdgePlatformUsageCollector
             'durable_objects' => fn () => $this->durableObjects($client, $vars),
             'r2' => fn () => $this->r2($client, $vars),
             'images' => fn () => $this->images($client, $vars),
+            'vectorize' => fn () => $this->vectorize($client, $day),
         ];
         foreach ($datasets as $dataset => $read) {
             try {
@@ -227,6 +229,31 @@ final class EdgePlatformUsageCollector
     }
 
     /**
+     * Stored dimensions (vectors × dimensions) of each org's Vectorize index.
+     *
+     * @return array<string, array{vector_stored_dims: int}>
+     */
+    private function vectorize(EdgeCloudflareClient $client, CarbonInterface $day): array
+    {
+        // ponytail: stored size is a snapshot of now, so only today's run
+        // records it; the month bills each index's biggest day.
+        if (! $day->isSameDay(now()->utc())) {
+            return [];
+        }
+        $out = [];
+        foreach ($client->listVectorizeIndexes() as $index) {
+            $name = (string) ($index['name'] ?? '');
+            if (preg_match('/^dply-[0-9a-z]{26}-/', $name) !== 1) {
+                continue;
+            }
+            $info = (array) ($client->getVectorizeIndex($name)['info'] ?? []);
+            $out['vectorize:'.$name] = ['vector_stored_dims' => (int) ($info['vectorCount'] ?? 0) * (int) ($info['dimensions'] ?? data_get($index, 'config.dimensions', 0))];
+        }
+
+        return $out;
+    }
+
+    /**
      * Cloudflare bills unique transformations per month; billableEventCount is
      * its sampled estimate of those, per calling script.
      *
@@ -320,7 +347,7 @@ final class EdgePlatformUsageCollector
             $matches = $owners['tails'][$m[1]] ?? [];
             // Two sites sharing a six-character tail: we cannot tell whose it is.
             $site = count($matches) === 1 ? $matches[0] : null;
-        } elseif (preg_match('/^dply-([0-9a-z]{26})-/', $resource, $m) === 1 && isset($owners['orgs'][$m[1]])) {
+        } elseif (preg_match('/^(?:vectorize:)?dply-([0-9a-z]{26})-/', $resource, $m) === 1 && isset($owners['orgs'][$m[1]])) {
             return ['organization_id' => $owners['orgs'][$m[1]], 'site_id' => null];
         } else {
             return null;

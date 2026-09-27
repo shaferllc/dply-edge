@@ -68,7 +68,9 @@ return [
         | usage credit are per-plan values the owner can change here:
         |   seats / extra_seat_cents   extra seats bill on Team; null = hard cap
         |   usage_credit_cents         usage at customer price up to this is
-        |                              covered each period (min(credit, usage))
+        |                              covered each period (min(credit, usage));
+        |                              never more than price_cents (Team was
+        |                              $50 on a $49 fee: the plan lost $1)
         |   fair_use_apps              hidden anti-abuse cap on non-preview apps
         |                              (ruling r-bc0k0cta8e50x8vr); null = none
         | The rest are non-price limits, enforced where each thing happens.
@@ -110,7 +112,7 @@ return [
             ],
             'team' => [
                 'label' => 'Team', 'price_cents' => 4900, 'seats' => 10, 'extra_seat_cents' => 500,
-                'usage_credit_cents' => 5000, 'fair_use_apps' => 1_000,
+                'usage_credit_cents' => 4900, 'fair_use_apps' => 1_000,
                 'ssr' => true, 'containers' => true, 'addons' => true, 'audit_log' => true,
                 'concurrent_builds' => 5, 'build_timeout_minutes' => 60, 'custom_domains' => 100,
                 'databases' => 50, 'queues' => 50, 'queue_concurrency' => 50, 'queue_batch_wait_seconds' => 1,

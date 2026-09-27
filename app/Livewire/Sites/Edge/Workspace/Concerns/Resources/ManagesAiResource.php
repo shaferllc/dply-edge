@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Livewire\Sites\Edge\Workspace\Concerns\Resources;
 
 use App\Livewire\Sites\Edge\Workspace\Resources;
+use App\Modules\Edge\Support\EdgeMeter;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Support\Facades\RateLimiter;
 
@@ -62,6 +63,13 @@ trait ManagesAiResource
             return;
         }
 
+        // Counts toward the org's cap like the app's own calls.
+        if (($refused = EdgeMeter::refusal($this->site->organization, 'ai')) !== null) {
+            $this->addError('aiDemo', $refused['message']);
+
+            return;
+        }
+
         $input = $model['kind'] === 'embedding' ? ['text' => [$prompt]] : ['prompt' => $prompt, 'max_tokens' => 256];
         $this->aiDemoLog = [
             __('This demo runs the model from here. It does not call this app.'),
@@ -76,6 +84,12 @@ trait ManagesAiResource
 
             return;
         }
+        $usage = is_array($result['usage'] ?? null) ? $result['usage'] : [];
+        EdgeMeter::record($this->site, ['ai_neurons' => EdgeMeter::neurons(
+            $this->aiModel,
+            (int) ($usage['prompt_tokens'] ?? ceil(mb_strlen($prompt) / 4)),
+            (int) ($usage['completion_tokens'] ?? ceil(mb_strlen(is_string($result['response'] ?? null) ? $result['response'] : '') / 4)),
+        )]);
 
         if ($model['kind'] === 'embedding') {
             $vector = is_array($result['data'][0] ?? null) ? $result['data'][0] : [];

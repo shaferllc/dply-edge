@@ -18,7 +18,7 @@ During create you pick a starting plan for the container. Each plan fills in the
 |---|---|---|---|---|---|
 | Flex (default) | 0.25 vCPU, 1 GiB | 1 | 5 minutes | Off | Off |
 | Small | 0.5 vCPU, 4 GiB | 1 | 30 minutes | On | Off |
-| Medium | 1 vCPU, 6 GiB | 2 | 1 hour | On | On |
+| Medium | 1 vCPU, 3 GiB | 2 | 1 hour | On | On |
 
 ## How a deploy builds your image
 
@@ -60,17 +60,19 @@ Use a database or Valkey store for cache and sessions, and object storage for up
 Open your app's **Overview**, select the **App** card, then choose a **Size**. The change applies on the next deploy.
 
 <!-- generated: php artisan dply:billing:price-table sizes --product=app -->
-| Size | Memory | Per second awake | Per hour awake |
-| --- | --- | --- | --- |
-| 0.25 vCPU | 1 GB | $0.0000101 | $0.0364 |
-| 0.5 vCPU | 4 GB | $0.0000267 | $0.0962 |
-| 1 vCPU | 6 GB | $0.0000466 | $0.168 |
-| 2 vCPU | 8 GB | $0.0000795 | $0.286 |
-| 4 vCPU | 12 GB | $0.000145 | $0.521 |
+| Size | Memory | Per second awake | Per hour awake | Always on, 25% CPU | Most per month |
+| --- | --- | --- | --- | --- | --- |
+| 0.25 vCPU | 1 GB | $0.0000101 | $0.0364 | $13.58 | $21.85 |
+| 0.5 vCPU | 4 GB | $0.0000267 | $0.0962 | $44.01 | $57.73 |
+| 1 vCPU | 3 GB | $0.0000363 | $0.131 | $43.54 | $78.40 |
+| 2 vCPU | 6 GB | $0.0000726 | $0.261 | $87.07 | $156.80 |
+| 4 vCPU | 12 GB | $0.000145 | $0.521 | $173.20 | $312.81 |
 
 Below the ladder, **1/16 vCPU** (256 MB, non-PHP apps only) is $0.00000262 per second awake ($0.0094 an hour).
 
-Prices are per instance with every vCPU busy the whole time. You pay less in practice: CPU is billed only while it works, and a sleeping instance costs nothing. The **Container** section lists the same sizes by their key (`basic` is 0.25 vCPU, `standard-1` 0.5, `standard-2` 1, `standard-3` 2, `standard-4` 4). **1/16 vCPU** is available only to non-PHP apps.
+The per-second and per-hour prices are per instance with every vCPU busy. CPU is billed only while it works, and a sleeping instance costs nothing. **Always on, 25% CPU** is one instance awake all month (720 hours) at a typical web app's load. **Most per month** is the cap: however busy the CPU, one instance never bills more than that in a month (two always-on instances, twice that). The **Container** section lists the same sizes by their key (`basic` is 0.25 vCPU, `standard-1` 0.5, `custom-1` 1, `custom-2` 2, `standard-4` 4). **1/16 vCPU** is available only to non-PHP apps.
+
+An app created before 2026-09-27 on 1 vCPU / 6 GB (`standard-2`) or 2 vCPU / 8 GB (`standard-3`) keeps that size, shown as *retired*, and is billed for the memory it runs, until you pick a size. The 1 and 2 vCPU sizes now carry 3 and 6 GB, which costs less; the **App** card suggests the move when a week of memory peaks says the app fits.
 
 > [!IMPORTANT]
 > PHP apps need at least **0.25 vCPU** (1 GiB). On **1/16 vCPU** a PHP process runs out of memory and every request fails. Octane apps (Swoole, RoadRunner) need at least **0.5 vCPU**. dply does not stop you from picking a smaller size.
@@ -158,7 +160,9 @@ The **Container** section's **Logs** panel shows the last 15 minutes of stdout a
 
 Container compute is metered per second: vCPU while it works, memory and disk while an instance runs. Traffic your app sends to visitors bills once, as bandwidth, like any site. Usage is collected hourly and appears as **Apps and workers (compute)** on the billing page, for web instances, queue workers and preview containers alike. It bills at the rates above, less your plan's included usage credit. See [Plans & pricing](/docs/pricing).
 
-The **App** card's **Cost estimate** shows the running rate per second, minute, hour and day for your size and instance count, and what a given number of **Hours awake each day** costs. It is an estimate that assumes every vCPU is busy.
+The **App** card's **Cost estimate** shows the running rate per second, minute, hour and day (every vCPU busy) for your size and instance count, the always-on month at typical CPU, the monthly cap, and what a given number of **Hours awake each day** costs.
+
+Each app's compute for a billing period is capped at the size's **Most per month** for each instance-month it ran: its memory-seconds divided by one instance's memory for 720 hours, at least one. The cap never takes a bill below what dply pays Cloudflare.
 
 **Previews** of a container app run their own container and are billed the same way. They never run the app's crons or consume its queues.
 

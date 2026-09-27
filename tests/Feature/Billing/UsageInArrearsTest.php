@@ -396,7 +396,7 @@ test('after a plan-price change the renewal still bills the old price’s plan: 
     stripeEvent('invoice.created', renewalInvoice());
     expect($this->stripe->items()[1]['amount'])->toBe(-500);
 
-    // Not listed, but the archived price keeps the provisioner's metadata: Team's $50 credit.
+    // Not listed, but the archived price keeps the provisioner's metadata: Team's $49 credit.
     DB::table('billing_usage_charges')->delete();
     $this->stripe->calls = [];
     $this->stripe->subscription['items']['data'][0]['price'] = ['id' => 'price_team_old', 'metadata' => ['dply_role' => 'tier_team']];

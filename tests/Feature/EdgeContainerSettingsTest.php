@@ -28,10 +28,11 @@ use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
 
-function containerSite(string $runtime = 'container'): array
+function containerSite(string $runtime = 'container', bool $paid = false): array
 {
     $user = User::factory()->create();
-    $org = Organization::factory()->create();
+    // $paid (comped): a trial holds apps to the smallest size (EdgeTrialLimits).
+    $org = Organization::factory()->create($paid ? ['comped_until' => now()->addYear()] : []);
     $org->users()->attach($user->id, ['role' => 'owner']);
     $server = Server::factory()->create(['organization_id' => $org->id, 'user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]]);
     $site = Site::factory()->create([
@@ -54,7 +55,7 @@ test('the container tab only appears for container sites', function () {
 });
 
 test('saved settings reach the generated wrangler config and worker', function () {
-    [$user, $server, $site] = containerSite();
+    [$user, $server, $site] = containerSite(paid: true);
 
     Livewire::actingAs($user)
         ->test(Container::class, ['server' => $server, 'site' => $site])
@@ -81,7 +82,7 @@ test('saved settings reach the generated wrangler config and worker', function (
 });
 
 test('a custom size is written as vcpu memory and disk', function () {
-    [$user, $server, $site] = containerSite();
+    [$user, $server, $site] = containerSite(paid: true);
     $site->mergeEdgeMeta(['container' => [
         'instance_type' => 'custom',
         'custom_vcpu' => 2,
@@ -258,7 +259,7 @@ test('a sheet body renders when the sheet first opens, not with the page', funct
 });
 
 test('an action in a sheet re-renders only its island and the map', function () {
-    [$user, $server, $site] = containerSite();
+    [$user, $server, $site] = containerSite(paid: true);
     // What the browser sends for a click inside the app sheet.
     $inAppSheet = fn (string $method, array $params = []) => [['method' => $method, 'params' => $params, 'path' => '', 'metadata' => ['island' => ['name' => 'resources-app', 'mode' => 'morph']]]];
 
@@ -641,7 +642,7 @@ test('starting redis starts a dply Valkey and stores its address', function () {
 test('valkey settings change the size and sleep time', function () {
     config(['edge.valkey.api_url' => 'http://gateway.test', 'edge.valkey.token' => 'tok']);
     Http::fake(['gateway.test/*' => Http::response([])]);
-    [$user, $server, $site] = containerSite();
+    [$user, $server, $site] = containerSite(paid: true);
     $host = EdgeContainerConnections::resourceHost($site, 'cache');
     $site->mergeEdgeMeta(['connections' => [['kind' => 'redis', 'name' => 'CACHE', 'host' => $host, 'target' => 'valkey:app-cache', 'plan' => 'flex_250m']]]);
     $site->save();
@@ -739,7 +740,7 @@ test('an attached bucket sets the storage env and an existing disk wins', functi
 });
 
 test('scaling windows and an always-on jobs instance are saved and reach the worker', function () {
-    [$user, $server, $site] = containerSite();
+    [$user, $server, $site] = containerSite(paid: true);
 
     Livewire::actingAs($user)
         ->test(Container::class, ['server' => $server, 'site' => $site])
@@ -782,7 +783,7 @@ test('a window that ends before it starts is rejected', function () {
 
 test('warm-containers knocks only on live sites that keep instances awake', function () {
     Http::fake();
-    [, , $awake] = containerSite();
+    [, , $awake] = containerSite(paid: true);
     $awake->mergeEdgeMeta(['live_url' => 'https://awake.example.test', 'container' => ['min_instances' => 1]]);
     $awake->save();
     [, , $asleep] = containerSite();

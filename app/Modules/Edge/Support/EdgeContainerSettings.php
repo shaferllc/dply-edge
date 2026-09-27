@@ -15,14 +15,22 @@ use App\Modules\Billing\Services\EdgeContainerComputeCost;
  */
 final class EdgeContainerSettings
 {
-    /** Cloudflare Containers instance types: [vCPU, memory GiB, disk GB]. */
+    /**
+     * Instance sizes: [vCPU, memory GiB, disk GB]. Named Cloudflare types,
+     * plus `custom-*`: Cloudflare custom shapes (at least 1 vCPU and 3 GiB
+     * per vCPU) deployed as {vcpu, memory_mib, disk_mb}. The legacy types
+     * (EdgeSizeLadder::LEGACY_CONTAINER_TYPES) stay valid for apps on them
+     * but are not offered.
+     */
     public const INSTANCE_TYPES = [
         'lite' => [1 / 16, 0.25, 2],
         'basic' => [0.25, 1, 4],
         'standard-1' => [0.5, 4, 8],
+        'custom-1' => [1, 3, 6],
+        'custom-2' => [2, 6, 12],
+        'standard-4' => [4, 12, 20],
         'standard-2' => [1, 6, 12],
         'standard-3' => [2, 8, 16],
-        'standard-4' => [4, 12, 20],
     ];
 
     public const SLEEP_AFTER = ['5m', '10m', '30m', '1h', '6h', '24h'];
@@ -88,7 +96,8 @@ final class EdgeContainerSettings
         $planCap = $site->organization?->tierAllowances()['app_instances'] ?? null;
         $max = max(1, min(self::MAX_INSTANCES, $planCap === null ? self::MAX_INSTANCES : (int) $planCap, (int) ($raw['max_instances'] ?? config('edge.build.containers.max_instances', 5))));
 
-        return [
+        // A trial runs the smallest rung, one instance, asleep when idle (EdgeTrialLimits).
+        return EdgeTrialLimits::container($site, [
             'instance_type' => $type === 'custom' || array_key_exists($type, self::INSTANCE_TYPES) ? $type : 'basic',
             'max_instances' => $max,
             // Instances kept awake. 0 = scale to zero. Never above max.
@@ -116,7 +125,7 @@ final class EdgeContainerSettings
             'rollout_mode' => in_array($mode, self::ROLLOUT_MODES, true) ? $mode : 'gradual',
             'rollout_step_percentage' => self::validRolloutSteps($raw['rollout_step_percentage'] ?? []),
             'rollout_active_grace_period' => max(0, min(self::ROLLOUT_GRACE_MAX, (int) ($raw['rollout_active_grace_period'] ?? 0))),
-        ];
+        ], $phpServer);
     }
 
     /**
@@ -285,11 +294,11 @@ final class EdgeContainerSettings
         $peak = max($peaks);
         $cost = app(EdgeContainerComputeCost::class);
         $perHour = static fn (string $type): float => $cost->perMinuteMillicents(...self::INSTANCE_TYPES[$type]) * 60 / 100_000;
-        foreach (array_keys(self::INSTANCE_TYPES) as $type) {
-            if ($type === $current) {
+        foreach (self::bySize() as $type) {
+            if ($type === $current || self::INSTANCE_TYPES[$type][1] >= self::INSTANCE_TYPES[$current][1]) {
                 return null; // nothing smaller fits
             }
-            if (self::INSTANCE_TYPES[$type][1] * 1024 * 0.7 >= $peak) {
+            if (self::INSTANCE_TYPES[$type][1] * 1024 * 0.7 >= $peak && $perHour($type) < $perHour($current)) {
                 return ['type' => $type, 'peak_mb' => $peak, 'samples' => count($peaks), 'save_per_hour' => round($perHour($current) - $perHour($type), 4)];
             }
         }
@@ -411,8 +420,9 @@ final class EdgeContainerSettings
     public static function wranglerInstanceType(Site $site): string|array
     {
         $shape = self::shape($site);
-        if (! $shape['custom']) {
-            return self::for($site)['instance_type'];
+        $type = self::for($site)['instance_type'];
+        if (! $shape['custom'] && ! str_starts_with($type, 'custom-')) {
+            return $type;
         }
 
         return [
@@ -425,13 +435,12 @@ final class EdgeContainerSettings
     /**
      * Requests one instance takes before the Worker starts the next one.
      * PHP: one request per worker, and the worker count comes from memory
-     * (same basis as Laravel Cloud's floor(memory / 30 MB), but with our
-     * 128 MB memory_limit per child).
+     * (phpFpmPool).
      */
-    public static function requestsPerInstance(Site $site): int
+    public static function requestsPerInstance(Site $site, string $phpServer = 'fpm'): int
     {
         if (self::minimumInstanceType($site) !== 'lite') { // PHP; only non-PHP apps may run on lite
-            return self::phpFpmPool(self::for($site)['instance_type'], $site)['max_children'];
+            return self::phpFpmPool(self::for($site)['instance_type'], $site, $phpServer)['max_children'];
         }
 
         // ponytail: flat guess for Node/Ruby event-loop servers; make it a
@@ -439,8 +448,30 @@ final class EdgeContainerSettings
         return 50;
     }
 
-    /** @return array{max_children: int, memory_limit: string} */
-    public static function phpFpmPool(string $instanceType, ?Site $site = null): array
+    /** Average resident memory of a php-fpm child or FrankenPHP thread serving Laravel; opcache is shared. */
+    public const PHP_WORKER_MB = 56;
+
+    /** An Octane worker (Swoole, RoadRunner) keeps the booted app resident. */
+    public const OCTANE_WORKER_MB = 96;
+
+    /** nginx, the php-fpm master, 64 MB opcache and the OS. */
+    public const PHP_RESERVED_MB = 192;
+
+    /**
+     * PHP workers per instance: php-fpm `pm.max_children`, FrankenPHP
+     * `num_threads`, Octane `--workers` (all read DPLY_PHP_FPM_MAX_CHILDREN).
+     * Memory sets it: (memory - reserved) / per-worker average, so 1 GiB runs
+     * 14 fpm children where it used to run 2. CPU caps it at 32 per vCPU
+     * (at least 12) so a CPU-bound app spills to another instance instead of
+     * queueing on one core.
+     *
+     * ponytail: sized on the average, not memory_limit: children × 128M can
+     * exceed the instance if every request peaks at once. raiseForMemoryCrash
+     * steps the size up when that happens; lower PHP_WORKER_MB if it does often.
+     *
+     * @return array{max_children: int, memory_limit: string}
+     */
+    public static function phpFpmPool(string $instanceType, ?Site $site = null, string $phpServer = 'fpm'): array
     {
         if ($instanceType === 'custom' && $site !== null) {
             $shape = self::shape($site);
@@ -452,36 +483,59 @@ final class EdgeContainerSettings
             $memoryGib = self::INSTANCE_TYPES[$type][1];
         }
         $mib = (int) round($memoryGib * 1024);
-        // nginx + php-fpm master + 64 MB opcache. Each child is capped at
-        // memory_limit so a request dies instead of the whole container.
-        $memoryLimit = 128;
-        $byMemory = max(1, intdiv(max(0, $mib - 128), $memoryLimit));
-        $byCpu = max(1, (int) floor($vcpu * 8));
+        $perWorker = in_array($phpServer, ['swoole', 'roadrunner'], true) ? self::OCTANE_WORKER_MB : self::PHP_WORKER_MB;
+        $byMemory = intdiv(max(0, $mib - self::PHP_RESERVED_MB), $perWorker);
+        $byCpu = max(12, (int) floor($vcpu * 32));
 
         return [
-            'max_children' => min(12, $byMemory, $byCpu),
-            'memory_limit' => $memoryLimit.'M',
+            'max_children' => max(1, min(128, $byMemory, $byCpu)),
+            // Per child, so one runaway request dies instead of the container.
+            'memory_limit' => '128M',
         ];
     }
 
-    public static function atLeast(string $current, string $floor): string
+    /**
+     * Offered sizes, smallest memory first (then fewest vCPU). Legacy types
+     * are left out: nothing steps onto them.
+     *
+     * @return list<string>
+     */
+    public static function bySize(): array
     {
-        $order = array_keys(self::INSTANCE_TYPES);
-        $current = array_key_exists($current, self::INSTANCE_TYPES) ? $current : 'basic';
-        $floor = array_key_exists($floor, self::INSTANCE_TYPES) ? $floor : 'basic';
+        $types = array_values(array_diff(array_keys(self::INSTANCE_TYPES), array_keys(EdgeSizeLadder::LEGACY_CONTAINER_TYPES)));
+        usort($types, static fn (string $a, string $b): int => [self::INSTANCE_TYPES[$a][1], self::INSTANCE_TYPES[$a][0]] <=> [self::INSTANCE_TYPES[$b][1], self::INSTANCE_TYPES[$b][0]]);
 
-        return $order[max((int) array_search($current, $order, true), (int) array_search($floor, $order, true))];
+        return $types;
     }
 
+    /**
+     * Sizes a picker lists: every offered type, plus `$current` when the app
+     * is still on a legacy one.
+     *
+     * @return array<string, array{0: float, 1: float, 2: float}>
+     */
+    public static function offeredTypes(?string $current = null): array
+    {
+        return array_filter(
+            self::INSTANCE_TYPES,
+            static fn (string $type): bool => $type === $current || ! isset(EdgeSizeLadder::LEGACY_CONTAINER_TYPES[$type]),
+            ARRAY_FILTER_USE_KEY,
+        );
+    }
+
+    /** The smallest offered size with more memory, or `$type` at the top. */
     public static function nextLarger(string $type): string
     {
-        $order = array_keys(self::INSTANCE_TYPES);
-        $index = array_search($type, $order, true);
-        if ($index === false || $index >= count($order) - 1) {
-            return array_key_exists($type, self::INSTANCE_TYPES) ? $type : 'basic';
+        if (! array_key_exists($type, self::INSTANCE_TYPES)) {
+            return 'basic';
+        }
+        foreach (self::bySize() as $candidate) {
+            if (self::INSTANCE_TYPES[$candidate][1] > self::INSTANCE_TYPES[$type][1]) {
+                return $candidate;
+            }
         }
 
-        return $order[$index + 1];
+        return $type;
     }
 
     /**

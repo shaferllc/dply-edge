@@ -33,7 +33,8 @@
                         <li>{{ __('Any Workers AI model id works. The ones under Try it are examples.') }}</li>
                         <li>{{ __('This starts working after the next deploy.') }}</li>
                     </ol>
-                    <x-sheet.note tone="warn">{{ __('AI usage is billed by Cloudflare in neurons, per model. It is not shown on this page yet.') }}</x-sheet.note>
+                    @include('livewire.sites.edge.workspace.partials.sheets.metered-usage', ['service' => 'ai'])
+                    <p class="text-xs text-brand-moss">{{ __('Billed per neuron, at each model\'s published rate, from the tokens each call reports.') }}</p>
                 </div>
 
                 <div x-show="tab === 'connect'" x-cloak class="grid gap-5">

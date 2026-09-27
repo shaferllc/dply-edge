@@ -75,12 +75,13 @@ test('a dry run writes nothing', function () {
 test('awake seconds are priced per second and capped at the monthly price', function () {
     $cost = app(EdgeRedisCost::class);
 
-    // One hour of Flex 250 MB: 3600 x $0.00000248 = 0.89 cents, to the nearest cent.
+    // One hour of Flex 250 MB: 3600 x $4.50 / 672 h = 0.67 cents, to the nearest cent.
+    // Valkey prices are fixed: the margin (20% here) is not added.
     expect($cost->valkeyCents($this->org, [$this->site->id => 3600]))->toBe(1)
-        // Minutes of use are not rounded up to a cent: 691 s = 0.17 cents.
+        // Minutes of use are not rounded up to a cent: 691 s = 0.13 cents.
         ->and($cost->valkeyCents($this->org, [$this->site->id => 691]))->toBe(0)
-        // A full month would be $6.43; the cap is $6.
-        ->and($cost->valkeyCents($this->org, [$this->site->id => 30 * 86400]))->toBe(600);
+        // A full month would be $4.82; the cap is $4.50.
+        ->and($cost->valkeyCents($this->org, [$this->site->id => 30 * 86400]))->toBe(450);
 });
 
 test('valkey time reaches the organization redis total', function () {
@@ -88,5 +89,5 @@ test('valkey time reaches the organization redis total', function () {
 
     $total = app(EdgeRedisCost::class)->forOrganization($this->org, now()->startOfMonth(), now()->endOfMonth());
 
-    expect($total['cents'])->toBe(600);
+    expect($total['cents'])->toBe(450);
 });

@@ -57,6 +57,8 @@ use Laravel\Cashier\Billable;
  * @property ?array<string, string> $billing_notices
  * @property ?int $usage_alert_cents
  * @property ?array{period?: string, pct?: int} $usage_alerts
+ * @property ?int $metered_cap_cents
+ * @property ?array{period?: string, pct?: int} $metered_cap_alerts
  * @property ?Carbon $created_at
  * @property ?Carbon $updated_at
  * @property-read Collection<int, User> $users
@@ -129,6 +131,7 @@ class Organization extends Model
             'billing_paused_at' => 'datetime',
             'billing_notices' => 'array',
             'usage_alerts' => 'array',
+            'metered_cap_alerts' => 'array',
             'deploy_email_notifications_enabled' => 'boolean',
             'email_server_credentials_enabled' => 'boolean',
             'email_database_credentials_enabled' => 'boolean',

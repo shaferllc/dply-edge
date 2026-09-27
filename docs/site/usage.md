@@ -35,12 +35,15 @@ Sites that run on your own Cloudflare account aren't metered by dply. Cloudflare
 | Durable Objects | Requests, duration, rows read and written, stored bytes, for [State](/docs/resources/state) and container apps | Hourly, then again the next day | Workers CPU, Durable Objects, object storage and images |
 | Object storage buckets | Stored bytes, writes and reads on buckets you add as a resource | Hourly, then again the next day | Workers CPU, Durable Objects, object storage and images |
 | Image transformations | Unique transformations | Hourly, then again the next day | Workers CPU, Durable Objects, object storage and images |
+| [AI](/docs/resources/ai) | Neurons, from each call's model and tokens | As each call finishes | AI, browser rendering and vector search |
+| [Browser rendering](/docs/resources/browser-rendering) | Browser time, per second | As each session closes | AI, browser rendering and vector search |
+| [Vector search](/docs/resources/vector-search) | Queried dimensions per query; stored dimensions per index | Queries as they run; storage hourly | AI, browser rendering and vector search |
 
 Collection times are in UTC. The next-day run picks up samples Cloudflare reports late, so today's figures can rise slightly after the day ends. When your plan renews, the period's last day is collected again before its usage is invoiced.
 
 ### Included usage credit
 
-Every meter above is billed from the first unit — there's no per-meter allowance. Instead, each plan has one included usage credit that comes off the total usage charge each period: Starter $5, Pro $20, Team $50. See [Plans & pricing](/docs/pricing#plans) for the full table. The credit applies to usage total, not to any one meter, never goes below $0, and doesn't carry over to the next period.
+Every meter above is billed from the first unit — there's no per-meter allowance. Instead, each plan has one included usage credit that comes off the total usage charge each period: Starter $5, Pro $20, Team $49. See [Plans & pricing](/docs/pricing#plans) for the full table. The credit applies to usage total, not to any one meter, never goes below $0, and doesn't carry over to the next period.
 
 ## Where to see usage
 

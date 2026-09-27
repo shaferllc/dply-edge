@@ -17,6 +17,11 @@ use App\Models\Site;
  *     env.NAME.namespace.
  *   - Another app (service): env.NAME.fetch('/path') goes to that app's live
  *     URL with the same method, headers, and body.
+ *   - AI, vector search and Browser: env.NAME is EdgeMeter's proxy over the
+ *     raw binding (uploaded as DPLY_RAW_NAME), so every call is checked
+ *     against the org's cap and reported. withEnv puts the same env behind
+ *     `import { env } from 'cloudflare:workers'`. The app's own Durable
+ *     Object classes still get the raw env (DPLY_RAW_NAME, no env.NAME).
  */
 final class EdgeWorkerEntryWrapper
 {
@@ -46,7 +51,7 @@ final class EdgeWorkerEntryWrapper
             }
         }
 
-        $modules[self::ENTRY] = self::source($entry, $state, $peers);
+        $modules[self::ENTRY] = self::source($entry, $state, $peers, EdgeMeter::workerNames($site));
 
         return [self::ENTRY, $modules];
     }
@@ -73,9 +78,13 @@ final class EdgeWorkerEntryWrapper
     /**
      * @param  list<string>  $state
      * @param  array<string, string>  $peers
+     * @param  array<string, string>  $metered  env name => ai|vectors|browser
      */
-    public static function source(string $entry, array $state, array $peers): string
+    public static function source(string $entry, array $state, array $peers, array $metered = []): string
     {
+        $meteredJson = json_encode((object) $metered, JSON_UNESCAPED_SLASHES);
+        $meter = $metered === [] ? '' : "import * as dplyWorkers from 'cloudflare:workers';\n".EdgeMeter::JS;
+        $raw = json_encode(EdgeMeter::RAW_PREFIX);
         $import = json_encode('./'.preg_replace('#^\./#', '', $entry), JSON_UNESCAPED_SLASHES);
         $stateJson = json_encode($state, JSON_UNESCAPED_SLASHES);
         $peersJson = json_encode((object) $peers, JSON_UNESCAPED_SLASHES);
@@ -87,6 +96,8 @@ export * from {$import};
 
 const STATE = {$stateJson};
 const PEERS = {$peersJson};
+const METERED = {$meteredJson};
+{$meter}
 
 function peer(origin) {
   return {
@@ -111,12 +122,22 @@ function state(namespace) {
   };
 }
 
-function withDply(env) {
-  if (STATE.length === 0 && Object.keys(PEERS).length === 0) return env;
+function withDply(env, ctx) {
+  if (STATE.length === 0 && Object.keys(PEERS).length === 0 && Object.keys(METERED).length === 0) return env;
   const out = Object.assign({}, env);
   for (const name of STATE) if (env[name]) out[name] = state(env[name]);
   for (const [name, origin] of Object.entries(PEERS)) out[name] = peer(origin);
+  for (const [name, kind] of Object.entries(METERED)) {
+    delete out[{$raw} + name];
+    if (env[{$raw} + name]) out[name] = dplyMetered(kind, env[{$raw} + name], env, ctx, name);
+  }
+  if (Object.keys(METERED).length) delete out.DPLY_METER_KEY;
   return out;
+}
+
+// The wrapped env also answers `import { env } from 'cloudflare:workers'`.
+function inEnv(env, run) {
+  return Object.keys(METERED).length && typeof dplyWorkers.withEnv === 'function' ? dplyWorkers.withEnv(env, run) : run();
 }
 
 // Queue batches from the platform Worker (EdgeQueueConsumers). The reply
@@ -140,7 +161,8 @@ async function runQueue(request, env, ctx) {
     retryAll(options) { retryAll = options?.delaySeconds ?? 0; },
   };
   try {
-    await app.queue(batch, withDply(env), ctx);
+    const wrapped = withDply(env, ctx);
+    await inEnv(wrapped, () => app.queue(batch, wrapped, ctx));
   } catch (error) {
     return Response.json({ retryAll: true, error: String(error) });
   }
@@ -158,7 +180,10 @@ function isQueueDelivery(request, env) {
 const handler = {};
 for (const key of ['fetch', 'scheduled', 'queue', 'email', 'tail', 'trace']) {
   if (app && typeof app[key] === 'function') {
-    handler[key] = (event, env, ctx) => app[key](event, withDply(env), ctx);
+    handler[key] = (event, env, ctx) => {
+      const wrapped = withDply(env, ctx);
+      return inEnv(wrapped, () => app[key](event, wrapped, ctx));
+    };
   }
 }
 if (app && typeof app === 'object') {
@@ -169,8 +194,11 @@ if (app && typeof app === 'object') {
   };
 }
 
-// A class entry (WorkerEntrypoint) is passed through as is.
-export default typeof app === 'function' ? app : handler;
+// A class entry (WorkerEntrypoint) is passed through as is, unless it has
+// metered bindings: then its env is the wrapped one.
+export default typeof app === 'function'
+  ? (Object.keys(METERED).length ? class extends app { constructor(ctx, env) { super(ctx, withDply(env, ctx)); } } : app)
+  : handler;
 
 JS;
     }

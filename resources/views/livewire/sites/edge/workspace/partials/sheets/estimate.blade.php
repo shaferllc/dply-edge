@@ -1,7 +1,7 @@
 @if (is_array($quote) && is_array($settings))
     <x-sheet name="resources-estimate" :show="$panel === 'estimate'" maxWidth="lg" focusable>
         <x-sheet.header :eyebrow="__('App')" :title="__('Cost estimate')" close-wire="openPanel('')">
-            {{ __('While it is running, for :count. This is an estimate, not your bill. It assumes every vCPU stays busy. Sleeping time is not billed, and changing the hours does not change the app.', ['count' => trans_choice(':count instance|:count instances', $settings['max_instances'])]) }}
+            {{ __('While it is running, for :count. This is an estimate, not your bill. Monthly figures assume a typical 25% of each vCPU busy; the running rate assumes all of it. Sleeping time is not billed, and changing the hours does not change the app.', ['count' => trans_choice(':count instance|:count instances', $settings['max_instances'])]) }}
         </x-sheet.header>
 
         <x-sheet.body>
@@ -20,12 +20,13 @@
                     <x-sheet.stat :label="__('Per minute')">{{ $quote['minute'] }}</x-sheet.stat>
                     <x-sheet.stat :label="__('Per hour')">{{ $quote['hour'] }}</x-sheet.stat>
                     <x-sheet.stat :label="__('Per day')">{{ $quote['day'] }}</x-sheet.stat>
-                    <x-sheet.stat :label="__('Always on')">{{ __(':price/mo', ['price' => $quote['month']]) }}</x-sheet.stat>
+                    <x-sheet.stat :label="__('Always on, typical')">{{ __(':price/mo', ['price' => $quote['month']]) }}</x-sheet.stat>
+                    <x-sheet.stat :label="__('Monthly cap')">{{ __(':price/mo', ['price' => $quote['cap']]) }}</x-sheet.stat>
                     <x-sheet.stat :label="__('Instances')">{{ $settings['max_instances'] }}</x-sheet.stat>
                 </div>
             </x-sheet.section>
 
-            <x-sheet.note>{{ __('Always on is 730 hours a month. This schedule is that price times the hours awake out of 24. Saved by sleeping is the difference.') }}</x-sheet.note>
+            <x-sheet.note>{{ __('Always on is 720 hours a month at typical CPU. This schedule is that price times the hours awake out of 24. Saved by sleeping is the difference. However busy the CPU, an instance never bills more than the monthly cap.') }}</x-sheet.note>
         </x-sheet.body>
     </x-sheet>
 @endif

@@ -16,8 +16,10 @@ use Carbon\CarbonInterface;
  * included credit (delivery, build time, container compute, Valkey, KV,
  * databases, D1/Queues, Realtime, platform), counts from the day the trial
  * started. Past the cap new builds stop
- * (BuildEdgeSiteJob) and the hourly dply:billing:enforce pauses the org
- * (OrganizationBillingEnforcer) until the trial converts.
+ * (BuildEdgeSiteJob) and dply:billing:enforce (every 5 minutes for a
+ * running trial, which also counts what it spent since the last hourly
+ * collection: TrialRunningCost) pauses the org (OrganizationBillingEnforcer)
+ * until the trial converts.
  */
 final class StarterUsageBudget
 {
@@ -47,12 +49,18 @@ final class StarterUsageBudget
             return ['used_cents' => 0, 'limit_cents' => null, 'exhausted' => false];
         }
 
-        $used = $this->usedCents($organization);
+        $paused = $organization->billing_paused_at !== null;
+        // A running trial adds what it has spent since the hourly collection
+        // (TrialRunningCost); a paused one has nothing running.
+        $used = $this->usedCents($organization) + ($trial && ! $paused ? app(TrialRunningCost::class)->cents($organization) : 0);
 
         return [
             'used_cents' => $used,
             'limit_cents' => (int) $limit,
-            'exhausted' => $used >= (int) $limit,
+            // A paused trial was paused at its cap (an unpaid org is not on a
+            // trial) and stays capped until it converts: the estimate goes when
+            // it pauses, which must not lift the gate or resume it.
+            'exhausted' => $used >= (int) $limit || ($trial && $paused),
         ];
     }
 
@@ -84,11 +92,13 @@ final class StarterUsageBudget
         $realtime = $this->realtime->forOrganization($organization, $start, $end)['cents'];
         $data = $this->data->forOrganization($organization, $start, $end)['cents'];
         $platform = $this->platform->forOrganization($organization, $start, $end)['cents'];
+        // AI, Browser and vector search are paid-only, so this is 0 on a trial; kept so the cap covers every meter.
+        $metered = app(EdgeMeteredUsageCost::class)->forOrganization($organization, $start, $end)['cents'];
         $totals = $this->usage->totalsForOrganization($organization, $start, $end);
         $delivery = $this->calculator->estimate($totals)['subtotal_cents'];
         $builds = UsagePrice::cents(EdgeBuildMinutes::costMillicents(EdgeBuildMinutes::secondsBetween($organization, $start, $end)));
 
-        return $compute + $delivery + $builds + $redis + $kv + $databases + $realtime + $data + $platform;
+        return $compute + $delivery + $builds + $redis + $kv + $databases + $realtime + $data + $platform + $metered;
     }
 
     /**

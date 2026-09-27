@@ -6,6 +6,7 @@ namespace App\Livewire\Sites\Edge\Workspace\Concerns\Resources;
 
 use App\Livewire\Sites\Edge\Workspace\Resources;
 use App\Modules\Edge\Support\EdgeContainerConnections;
+use App\Modules\Edge\Support\EdgeMeter;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 
 /**
@@ -84,6 +85,12 @@ trait ManagesVectorsResource
 
             return;
         }
+        // Runs on the platform account, so it counts toward the org's cap like the app's queries.
+        if (($refused = EdgeMeter::refusal($this->site->organization, 'vectors')) !== null) {
+            $this->addError('vectorsQuery', $refused['message']);
+
+            return;
+        }
         // Vectorize returns at most 50 matches with metadata.
         $this->vectorsTopK = max(1, min(50, $this->vectorsTopK));
         try {
@@ -93,6 +100,7 @@ trait ManagesVectorsResource
 
             return;
         }
+        EdgeMeter::record($this->site, ['vector_query_dims' => count($vector)]);
         $this->vectorsMatches = array_map(static fn (array $match): array => [
             'id' => (string) ($match['id'] ?? ''),
             'score' => (float) ($match['score'] ?? 0),

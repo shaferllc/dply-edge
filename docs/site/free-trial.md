@@ -25,13 +25,30 @@ An organization gets a trial only if all of these are true:
 - None of its owners has had a trial or subscription on another organization.
 - The card hasn't been used for a trial on another organization.
 
-If the card has already had a trial, the new subscription starts paid right away. If the organization isn't eligible at all, the button reads **Choose Pro** (or Starter, or Team) instead of **Start 5-day Pro trial**, and checkout starts a paid subscription.
+If the card has already had a trial, or dply can't read the card, the new subscription starts paid right away. If the organization isn't eligible at all, the button reads **Choose Pro** (or Starter, or Team) instead of **Start 5-day Pro trial**, and checkout starts a paid subscription.
 
 ## What the trial includes
 
 The trial is the plan you chose, with that plan's seats and limits: a Starter trial has Starter's 1 seat and limits, a Pro trial Pro's 3 seats, a Team trial Team's 10. Every plan has unlimited sites and apps (subject to fair use), container apps, databases, queues and realtime. See [Plans & pricing](/docs/pricing) for the full list.
 
 Whichever plan you trial, the $5 spending cap below is the same.
+
+### Sizes during the trial
+
+So that the cap covers several days of real use, everything that bills while it runs is held to its smallest setting until the trial converts:
+
+| | During the trial |
+|---|---|
+| Container apps | Smallest size (0.25 vCPU), 1 instance, none kept awake, sleeps after 5 minutes idle, no dedicated jobs instance |
+| Queue workers | 1 worker, no autoscaling, no extra worker groups |
+| Builds | One at a time |
+| Postgres, MySQL, MongoDB | Smallest size, sleeps when idle (no **Stays on**) |
+| Valkey | Smallest size, sleeps when idle (no **Stays on**) |
+
+Larger choices show **Available after your trial** on the **Resources** page. Settings you saved before the trial are kept and apply again once the trial converts; redeploy an app to pick up its size.
+
+> [!NOTE]
+> PHP apps that run FrankenPHP, Swoole or RoadRunner need 0.5 vCPU, so they may not stay up on the trial size. End the trial early (below) to run them at full size.
 
 ## The $5 spending cap
 
@@ -47,7 +64,7 @@ The trial isn't charged, so dply caps what it can spend. Everything the trial us
 When a build starts after usage has reached 80% of the cap, dply sends a **Usage credit almost used up** notification to your [notification channels](/docs/notifications). When the trial reaches the cap:
 
 1. New builds stop. The deploy fails with a message that the trial's usage credit is used up.
-2. Within the hour, the whole organization is paused: sites serve a paused page, container apps stop accepting traffic, queue workers stop, and databases and Valkey go to sleep.
+2. The whole organization is paused: builds in progress stop, sites serve a paused page, container apps stop accepting traffic, queue workers stop, and databases and Valkey go to sleep. While a container app or a build is running, dply checks every 5 minutes and counts what is running now as well as the usage it has already collected, so this happens within 5 minutes. An organization with only static sites is checked hourly.
 3. Owners get a **trial usage cap reached** email, and your notification channels get a **Usage credit used up** notification.
 
 The organization stays paused until the trial converts to a paid plan. It converts at its end date, or right away if you end the trial early (below). Once the first payment succeeds, everything resumes, at the latest on the next hourly check. See [Paused accounts](/docs/paused-accounts).

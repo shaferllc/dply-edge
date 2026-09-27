@@ -134,7 +134,7 @@ Build time is billed per second, less your plan's included usage credit. See [Pl
 <!-- generated: php artisan dply:billing:price-table rates --group="Builds" -->
 | Meter | Price | Unit |
 | --- | --- | --- |
-| Build time | $0.0065 | per minute, billed per second |
+| Build time | $0.005 | per minute, billed per second |
 
 The free trial runs on the limits of the plan you chose (Pro when it started from a first deploy), within the trial's $5 usage cap. See [Free trial](/docs/free-trial).
 

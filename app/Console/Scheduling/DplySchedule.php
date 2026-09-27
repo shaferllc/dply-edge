@@ -83,6 +83,9 @@ final class DplySchedule
         $schedule->command(SyncAllOrganizationBillingCommand::class)->dailyAt('02:30');
         // Trials: emails, pause when unpaid, resume when paid (ruling r-f17p5zgeh120cm5t).
         $schedule->command(EnforceOrganizationBillingCommand::class)->hourly()->withoutOverlapping()->onOneServer();
+        // Running trials against their cap every 5 minutes, with a fresh estimate
+        // of what they spent since the hourly usage collection (TrialRunningCost).
+        $schedule->command(EnforceOrganizationBillingCommand::class, ['--trialing'])->everyFiveMinutes()->withoutOverlapping()->onOneServer()->name('billing-enforce-trialing');
         $schedule->command(SnapshotOrganizationBillingCommand::class)->dailyAt('02:10');
 
         // Value-less flags must be scheduled as `--today` (not `--today => true`,

@@ -19,7 +19,7 @@
             @php $allow = \App\Modules\Edge\Support\EdgeQueueWorkers::allowance($site); @endphp
             <x-sheet.section>
                 <div>
-                    <x-sheet.toggle id="workers-autoscale" wire:model.live="workers.autoscale" :disabled="! $allow['autoscale']" :label="__('Autoscale')" :help="! $allow['autoscale'] ? __('On Pro and Team') : ($w['autoscale'] ? __('On, follows the backlog') : __('Off'))" />
+                    <x-sheet.toggle id="workers-autoscale" wire:model.live="workers.autoscale" :disabled="! $allow['autoscale']" :label="__('Autoscale')" :help="! $allow['autoscale'] ? (\App\Modules\Edge\Support\EdgeTrialLimits::applies($site->organization) ? __('Available after your trial') : __('On Pro and Team')) : ($w['autoscale'] ? __('On, follows the backlog') : __('Off'))" />
                 </div>
                 <div class="grid gap-3 sm:grid-cols-2">
                     <x-sheet.field :label="$w['autoscale'] ? __('Always on') : __('Instances')" :help="$w['instances'] === 0 ? __('0, start when jobs arrive, stop 5 min after') : null" class="sm:col-span-2">
@@ -165,10 +165,10 @@
                 @php $span = \App\Modules\Edge\Support\EdgeQueueWorkers::draftInstances($workers); @endphp
                 @if ($span['max'] > $span['min'])
                     <p class="font-mono text-lg font-bold tabular-nums text-brand-ink">{{ __('About $:min–$:max/mo', ['min' => number_format($workersMonthlyCents / 100, 2), 'max' => number_format($workersMaxMonthlyCents / 100, 2)]) }}</p>
-                    <p class="mt-0.5 text-2xs text-brand-mist">{{ __(':min–:max × :size · the extra ones billed only while running', ['min' => $span['min'], 'max' => $span['max'], 'size' => $settings['instance_type'] ?? 'basic']) }}</p>
+                    <p class="mt-0.5 text-2xs text-brand-mist">{{ __(':min–:max × :size · the extra ones billed only while running', ['min' => $span['min'], 'max' => $span['max'], 'size' => \App\Modules\Edge\Support\EdgeSizeLadder::containerLabel($settings['instance_type'] ?? 'basic')]) }}</p>
                 @else
                     <p class="font-mono text-lg font-bold tabular-nums text-brand-ink">{{ __('About $:total/mo', ['total' => number_format($workersMonthlyCents / 100, 2)]) }}</p>
-                    <p class="mt-0.5 text-2xs text-brand-mist">{{ __(':instances × :size, always on', ['instances' => $span['min'], 'size' => $settings['instance_type'] ?? 'basic']) }}</p>
+                    <p class="mt-0.5 text-2xs text-brand-mist">{{ __(':instances × :size, always on', ['instances' => $span['min'], 'size' => \App\Modules\Edge\Support\EdgeSizeLadder::containerLabel($settings['instance_type'] ?? 'basic')]) }}</p>
                 @endif
                 @foreach ($workerScaling as $scaling)
                     @include('livewire.sites.edge.workspace.partials.worker-autoscale', $scaling + ['labelled' => count($workerScaling) > 1])

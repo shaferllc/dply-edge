@@ -73,9 +73,28 @@ Any Workers AI model id works. The **Try it** tab lists a few examples and runs 
 
 ## Pricing
 
-dply does not meter or bill Workers AI usage per organization today. It is included with paid plans. The AI card does not show usage.
+Workers AI is billed in neurons, Cloudflare's unit for GPU work, at the invoice line **AI, browser rendering and vector search**, less your plan's included usage credit.
+
+<!-- generated: php artisan dply:billing:price-table rates --group="AI" -->
+| Meter | Price | Unit |
+| --- | --- | --- |
+| Neurons | $0.0143 | per 1,000 |
+
+Each model has its own rate in neurons per million input and output tokens (the [Workers AI pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/) table). dply counts the tokens the model reports for each call and applies that model's rate. When a model reports no token counts, dply estimates them from the length of the input and the answer (about four characters per token). A model that is not in the table is billed at a high text-model rate with a minimum of 100 neurons per call.
+
+### Monthly limit
+
+AI, browser rendering and vector search share one monthly limit per organization, **$25** unless an owner changes it on the **Billing** page. It counts every app in the organization, and the **Try it** and **Query** tabs in the dashboard. Owners are emailed at 80% and 100%. At the limit, calls are refused until the next billing period or until an owner raises it:
+
+- A Worker app's call rejects with an error whose message says the limit is reached (`error.status` is `429`).
+- A container app gets HTTP `429` with `{"error": "..."}`.
+
+Setting the limit to `0` removes it, up to a platform maximum. dply can also turn one of these services off for everyone for a while; calls then fail with status `503` and say so. The AI, browser and vector search cards show this period's usage and the limit.
 
 On a trial, or if the organization leaves its paid plan, AI is left out of the app's next deploy and calls to it fail.
+
+> [!NOTE]
+> In a Worker app, only your fetch, scheduled and queue handlers (and a `WorkerEntrypoint` class entry) see `env.AI`. Your own Durable Object classes do not: call it from a handler instead.
 
 ## Turn off AI
 

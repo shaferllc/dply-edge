@@ -160,7 +160,7 @@ test('queue workers are added, configured and saved with the redeploy', function
         ->assertSee('Queue workers')
         ->call('addWorkers')
         ->assertSet('workers.enabled', true)
-        ->assertSet('workers.processes', 3) // basic, 1 GiB: three per GiB
+        ->assertSet('workers.processes', 8) // basic, 1 GiB: (1024 - 192) / 96, at most 8
         ->assertSet('pending', false) // saved as it changes; the redeploy applies it
         ->set('workers.instances', 2)
         ->set('workers.queues', 'emails,default')
@@ -678,7 +678,7 @@ test('groups are added, edited and saved from the card', function () {
         ->set('workers.groups.0.autoscale', true)
         ->set('workers.groups.0.max_instances', 4)
         ->assertSee('worker-high-N')
-        ->assertSee('3–5 × basic') // main 1 + high 2 always on, up to 1 + 4
+        ->assertSee('3–5 × 0.25 vCPU') // main 1 + high 2 always on, up to 1 + 4
         ->call('redeploySettings')
         ->assertHasNoErrors();
 
@@ -1047,4 +1047,21 @@ test('the resource map puts workers under the store their queue uses', function 
     $html = $render('database');
     expect(substr_count($html, 'wire:key="queue-workers-card"'))->toBe(1)
         ->and($databaseBox($html))->toBeLessThan($workersBox($html));
+});
+
+test('an app on a retired size is offered the new rung when its peaks fit, and pickers show typical and cap', function () {
+    $t = now()->getTimestamp();
+    $legacy = laravelApp(['container' => ['instance_type' => 'standard-2', 'max_instances' => 1], 'memory' => ['type' => 'standard-2', 'samples' => array_map(fn ($i) => [$t - $i * 3600, 1500], range(0, 5))]]);
+
+    expect(EdgeContainerSettings::sizeSuggestion($legacy))->toMatchArray(['type' => 'custom-1', 'peak_mb' => 1500.0]);
+
+    $user = User::factory()->create();
+    $legacy->organization->users()->attach($user->id, ['role' => 'owner']);
+    $legacy->forceFill(['user_id' => $user->id, 'type' => SiteType::Static, 'status' => Site::STATUS_EDGE_ACTIVE])->save();
+    $legacy->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
+
+    Livewire::actingAs($user)->test(Resources::class, ['server' => $legacy->server, 'site' => $legacy])
+        ->openSheet('resources-app')
+        ->assertSee('~$14/mo typical · $22/mo cap') // basic: $13.58 and $21.85, rounded over $10
+        ->assertSee('1 vCPU · 6 GB (retired)');
 });

@@ -19,8 +19,10 @@
         'requestsPerMillion' => \App\Modules\Billing\Support\UsagePrice::rate('requests_millicents_per_million') / 100_000,
         'egressPerGb' => \App\Modules\Billing\Support\UsagePrice::rate('egress_millicents_per_gb') / 100_000,
         'buildPerMinute' => \App\Modules\Billing\Support\UsagePrice::rate('build_millicents_per_minute') / 100_000,
-        // A 0.25 vCPU app (1 GiB, 4 GB disk) awake for an hour with the CPU busy.
-        'appHour' => \App\Modules\Billing\Support\UsagePrice::containerPerSecond(0.25, 1, 4) * 3600 / 100_000,
+        // A 0.25 vCPU app (1 GiB, 4 GB disk) awake for an hour at typical CPU
+        // (UsagePrice::containerMonthly), and the most one instance bills a month.
+        'appHour' => \App\Modules\Billing\Support\UsagePrice::containerMonthly(0.25, 1, 4)['typical'] / \App\Modules\Billing\Support\UsagePrice::MONTH_HOURS / 100_000,
+        'appCap' => \App\Modules\Billing\Support\UsagePrice::containerMonthly(0.25, 1, 4)['cap'] / 100_000,
         'plans' => array_map($plan, $tiers),
     ];
 
@@ -46,7 +48,7 @@
             return this.n(this.minutes) * this.c.buildPerMinute
                 + this.n(this.requestsM) * this.c.requestsPerMillion
                 + this.n(this.egressGb) * this.c.egressPerGb
-                + this.n(this.appHours) * this.c.appHour;
+                + Math.min(this.n(this.appHours) * this.c.appHour, Math.max(1, this.n(this.appHours) / 720) * this.c.appCap);
         },
         cost(p) {
             if (p.seatPrice === null && this.n(this.seats) > p.seats) return null;
@@ -89,7 +91,7 @@
                 ['model' => 'minutes', 'label' => __('Build time'), 'hint' => __('All builds, previews included; billed per second'), 'step' => 100, 'suffix' => __('min / mo')],
                 ['model' => 'requestsM', 'label' => __('Requests'), 'hint' => __('All sites together'), 'step' => 1, 'suffix' => __('million / mo')],
                 ['model' => 'egressGb', 'label' => __('Bandwidth'), 'hint' => __('All sites together'), 'step' => 10, 'suffix' => __('GB / mo')],
-                ['model' => 'appHours', 'label' => __('App hours'), 'hint' => __('PHP / Rails / Node apps at 0.25 vCPU, busy — idle apps sleep'), 'step' => 50, 'suffix' => __('hours / mo')],
+                ['model' => 'appHours', 'label' => __('App hours'), 'hint' => __('PHP / Rails / Node apps at 0.25 vCPU / 1 GB, typical CPU, :cap a month at most each — idle apps sleep', ['cap' => '$'.number_format($calc['appCap'], 2)]), 'step' => 50, 'suffix' => __('hours / mo')],
             ] as $field)
                 <div class="flex flex-wrap items-center justify-between gap-4 bg-edge-panel px-5 py-3.5">
                     <div class="min-w-0">

@@ -52,8 +52,8 @@ test('database usage is compute hours plus storage, rounded once', function () {
     $cost = app(EdgeAppDatabaseCost::class)->forOrganization($site->organization, now()->startOfMonth(), now()->endOfMonth());
 
     expect($cost['databases'])->toBe(1)
-        // One CU-hour ($0.106) plus a GB-month ($0.35) at cost: 45.6¢ → 46¢.
+        // One CU-hour ($0.12) plus a GB-month ($0.20), fixed prices: 32¢.
         ->and($cost['cents'])->toBe((int) round((3600 * config('dply.edge.usage_billing.database_compute_millicents_per_cu_second') + config('dply.edge.usage_billing.database_storage_millicents_per_gb_month')) / 1000))
-        ->and($cost['cents'])->toBe(46)
+        ->and($cost['cents'])->toBe(32)
         ->and(app(EdgeAppDatabaseCost::class)->presentation()['gigabyte'])->toBe(number_format(config('dply.edge.usage_billing.database_storage_millicents_per_gb_month') / 100_000, 2));
 });

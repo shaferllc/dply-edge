@@ -23,7 +23,7 @@ namespace App\Modules\Billing\Services;
 class DesiredBillingState
 {
     /** Invoice/billing-page order of the usage categories. */
-    public const USAGE_KEYS = ['delivery', 'builds', 'compute', 'databases', 'valkey', 'data', 'realtime', 'platform'];
+    public const USAGE_KEYS = ['delivery', 'builds', 'compute', 'databases', 'valkey', 'data', 'realtime', 'platform', 'ai'];
 
     /**
      * @param  array<string, int>  $usage  category => customer cents, zero lines dropped
@@ -134,6 +134,7 @@ class DesiredBillingState
             'data' => 'SQL, queues and key-value',
             'realtime' => 'Realtime',
             'platform' => 'Workers CPU, Durable Objects, object storage and images',
+            'ai' => 'AI, browser rendering and vector search',
             'credit' => 'Included usage credit',
             default => 'Usage',
         };

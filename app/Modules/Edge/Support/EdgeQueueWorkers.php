@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Edge\Support;
 
 use App\Models\Site;
-use App\Modules\Billing\Services\EdgeContainerComputeCost;
+use App\Modules\Billing\Support\UsagePrice;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
@@ -175,6 +175,10 @@ final class EdgeQueueWorkers
     public static function allowance(Site $site): array
     {
         $tier = $site->organization?->tierAllowances() ?? (array) config('subscription.standard.tiers.none');
+        if (EdgeTrialLimits::applies($site->organization)) {
+            // A trial runs one always-on worker at most (EdgeTrialLimits).
+            $tier = ['worker_instances' => 1, 'worker_autoscale' => false, 'worker_groups' => 0, 'label' => 'The trial'] + $tier;
+        }
 
         return [
             'instances' => array_key_exists('worker_instances', $tier) && $tier['worker_instances'] !== null ? max(1, (int) $tier['worker_instances']) : null,
@@ -575,15 +579,15 @@ final class EdgeQueueWorkers
 
     /**
      * Processes per instance to start with. Queue jobs mostly wait on the
-     * database, Redis or an API, so one instance runs several at once: about
-     * three per GiB, 1 to MAX_PROCESSES.
+     * database, Redis or an API, so one instance runs several at once: one
+     * per OCTANE_WORKER_MB (a booted app, like an Octane worker) after the
+     * PHP reserve, 1 to MAX_PROCESSES. 1 GiB runs 8.
      */
     public static function recommendedProcesses(Site $site): int
     {
-        $type = EdgeContainerSettings::for($site)['instance_type'];
-        $memoryGib = (float) (EdgeContainerSettings::INSTANCE_TYPES[$type][1] ?? ($site->edgeMeta()['container']['custom_memory_gib'] ?? 1));
+        $mib = (int) round(EdgeContainerSettings::shape($site)['memory_gib'] * 1024);
 
-        return max(1, min(self::MAX_PROCESSES, (int) floor($memoryGib * 3)));
+        return max(1, min(self::MAX_PROCESSES, intdiv(max(0, $mib - EdgeContainerSettings::PHP_RESERVED_MB), EdgeContainerSettings::OCTANE_WORKER_MB)));
     }
 
     /**
@@ -600,16 +604,12 @@ final class EdgeQueueWorkers
         return $connection !== null ? ['QUEUE_CONNECTION' => $connection] : [];
     }
 
-    /** Estimated cents a month for $instances workers on the app's instance size, always on. */
+    /** Estimated cents a month for $instances workers on the app's instance size, always on at typical CPU (UsagePrice::containerMonthly). */
     public static function monthlyCents(Site $site, int $instances): int
     {
-        $type = EdgeContainerSettings::for($site)['instance_type'];
-        $container = is_array($site->edgeMeta()['container'] ?? null) ? $site->edgeMeta()['container'] : [];
-        [$vcpu, $memory, $disk] = EdgeContainerSettings::INSTANCE_TYPES[$type]
-            ?? [(float) ($container['custom_vcpu'] ?? 1), (float) ($container['custom_memory_gib'] ?? 3), (float) ($container['custom_disk_gb'] ?? 6)];
-        $perMinute = app(EdgeContainerComputeCost::class)->perMinuteMillicents((float) $vcpu, (float) $memory, (float) $disk);
+        $shape = EdgeContainerSettings::shape($site);
 
-        return (int) round($perMinute * 60 * 730 / 1000 * $instances);
+        return (int) round(UsagePrice::containerMonthly($shape['vcpu'], $shape['memory_gib'], $shape['disk_gb'])['typical'] / 1000 * $instances);
     }
 
     private static function hasRedis(Site $site): bool

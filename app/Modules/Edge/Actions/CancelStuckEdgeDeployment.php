@@ -42,9 +42,9 @@ class CancelStuckEdgeDeployment
     /**
      * Stop an in-flight build without queueing another one.
      */
-    public function abandon(Site $site, EdgeDeployment $deployment): void
+    public function abandon(Site $site, EdgeDeployment $deployment, string $reason = 'Cancelled by operator.'): void
     {
-        $this->failInFlight($site, $deployment, 'Cancelled by operator.');
+        $this->failInFlight($site, $deployment, $reason);
         self::restoreSiteStatus($site);
     }
 

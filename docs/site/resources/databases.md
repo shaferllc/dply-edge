@@ -161,21 +161,18 @@ Compute is billed per second while awake. Storage is billed per GB-month on the 
 <!-- generated: php artisan dply:billing:price-table sizes --product=database -->
 | Size | Memory | Per second awake | Per hour awake |
 | --- | --- | --- | --- |
-| 0.25 vCPU | 1 GB | $0.00000957 | $0.0345 |
-| 0.5 vCPU | 2 GB | $0.0000191 | $0.0689 |
-| 1 vCPU | 4 GB | $0.0000383 | $0.138 |
-| 2 vCPU | 8 GB | $0.0000766 | $0.276 |
-| 4 vCPU | 16 GB | $0.000153 | $0.551 |
+| 0.25 vCPU | 1 GB | $0.00000833 | $0.03 |
+| 0.5 vCPU | 2 GB | $0.0000167 | $0.06 |
 
 Storage, and compute per compute unit (the 0.25 vCPU size is a quarter of one):
 
 <!-- generated: php artisan dply:billing:price-table rates --group="Databases" -->
 | Meter | Price | Unit |
 | --- | --- | --- |
-| Compute | $0.0000383 | per compute-unit-second (1 vCPU, 4 GB) |
-| Storage | $0.455 | per GB-month |
+| Compute | $0.0000333 | per compute-unit-second (1 vCPU, 4 GB) |
+| Storage | $0.20 | per GB-month |
 
-A 0.25 vCPU database that stays on all month (720 hours) with a 1 GB disk is about $25.26. The same database awake 8 hours a day is about $8.72. This bills at the invoice line **Databases**, less your plan's included usage credit. Usage shows on the app's bill and in [Usage & metering](/docs/usage).
+A 0.25 vCPU database that stays on all month (720 hours) with a 1 GB disk is about $21.80. The same database awake 8 hours a day is about $7.40. This bills at the invoice line **Databases**, less your plan's included usage credit. Usage shows on the app's bill and in [Usage & metering](/docs/usage).
 
 ## Remove or switch a database
 

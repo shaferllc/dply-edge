@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Enums\SiteType;
 use App\Livewire\Sites\Edge\Workspace\Resources;
+use App\Models\EdgePlatformUsage;
 use App\Models\EdgeSiteEnvVar;
 use App\Models\Organization;
 use App\Models\Server;
@@ -64,11 +65,13 @@ test('state on a worker app shows env usage', function () {
 test('the ai demo runs an example model through the account api', function () {
     Http::fake(['api.cloudflare.com/*' => Http::response(['success' => true, 'result' => ['response' => 'Hello there, friend, hi!']])]);
     [$user, $server, $site] = simpleResourceApp([['kind' => 'ai', 'name' => 'AI', 'target' => '']]);
+    // AI is paid-only, the dashboard demo included; a comped org is on a paid plan.
+    $site->organization->forceFill(['comped_until' => now()->addYear()])->save();
 
     Livewire::actingAs($user)
         ->test(Resources::class, ['server' => $server, 'site' => $site])
         ->call('openResource', EdgeContainerConnections::resourceHost($site, 'ai'))
-        ->assertSee('billed by Cloudflare in neurons')
+        ->assertSee('Billed per neuron')
         ->set('aiModel', '@cf/meta/llama-3.2-3b-instruct')
         ->set('aiPrompt', 'Say hi')
         ->call('runAiDemo')
@@ -77,6 +80,8 @@ test('the ai demo runs an example model through the account api', function () {
 
     Http::assertSent(fn ($request): bool => str_ends_with($request->url(), '/accounts/acct/ai/run/@cf/meta/llama-3.2-3b-instruct')
         && $request['prompt'] === 'Say hi');
+    // The demo runs on the platform account, so it is metered like the app's calls.
+    expect(EdgePlatformUsage::query()->where('resource', 'meter:'.$site->id)->value('ai_neurons'))->toBeGreaterThan(0);
 });
 
 test('the ai demo refuses a model that is not on the example list', function () {
