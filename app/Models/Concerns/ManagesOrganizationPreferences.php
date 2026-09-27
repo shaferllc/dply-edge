@@ -31,7 +31,7 @@ trait ManagesOrganizationPreferences
     public function iconUrl(): ?string
     {
         $path = $this->icon_path;
-        if ($path === '') {
+        if (blank($path)) {
             return null;
         }
 
@@ -40,7 +40,7 @@ trait ManagesOrganizationPreferences
 
     public function hasIcon(): bool
     {
-        return $this->icon_path !== '';
+        return filled($this->icon_path);
     }
 
     /**
