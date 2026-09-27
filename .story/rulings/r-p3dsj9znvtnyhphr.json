@@ -1,0 +1,16 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-26",
+  "id": "r-p3dsj9znvtnyhphr",
+  "recordedBy": {
+    "client": "claude",
+    "id": "7287ab43-961f-4f49-a652-045813268214"
+  },
+  "scopeTags": [
+    "realtime",
+    "billing",
+    "pricing"
+  ],
+  "supersedes": null,
+  "text": "\"Do that and continue to what's left\" — approving: Realtime is priced at $0.50 per million connection-minutes and $0.50 per million messages (publishes in + frames delivered out). Monthly allowances are per plan: Pro 5M connection-minutes + 10M messages; Team 25M + 50M; Enterprise unlimited. Per-app connection caps: Pro 1,000, Team 5,000, Enterprise 20,000 (one Durable Object per app). Goal: cheaper than Pusher and Ably at every size."
+}

@@ -34,6 +34,8 @@ dply (Laravel) ──writes creds──▶ APPS KV namespace          • presen
 | ------ | ----------------------- | ----------- | ---------------------------------------- |
 | `GET`  | `/app/{appKey}`         | browsers    | WebSocket connect (Upgrade required)     |
 | `POST` | `/apps/{appId}/events`  | app servers | Publish an event to channel(s)           |
+| `GET`/`POST` | `/apps/{appId}/stats` | dply   | Usage counters (header auth, below)      |
+| `POST` | `/apps/{appId}/stats/reset` | dply    | Reset `peak_connections` only            |
 | `GET`  | `/health`               | monitoring  | Liveness                                 |
 
 Channel auth (private/presence) is handled by the **customer's own** app server
@@ -55,9 +57,24 @@ publish can resolve it:
   "key": "rtk_AbC123…",
   "secret": "rts_…",
   "enabled": true,
-  "maxConnections": 1000
+  "maxConnections": 1000,
+  "allowedOrigins": ["https://app.example.com"],
+  "clientEvents": false,
+  "maxMessageBytes": 10240
 }
 ```
+
+The last three are optional — records written before they existed behave as
+their defaults:
+
+| Field | Default | Effect |
+| --- | --- | --- |
+| `allowedOrigins` | `[]` (any) | WebSocket connect needs an exact `Origin` match, else `403` (code 4009) before upgrade |
+| `clientEvents` | `false` | `client-*` events on subscribed private-/presence- channels fan out to the channel's other subscribers (never the sender); when off the sender gets `pusher:error` 4301 |
+| `maxMessageBytes` | `10240` | UTF-8 size cap on publish `data` (`413`) and client event `data` (`pusher:error` 4301) |
+
+Limits are read at connect time (stored on the socket), so a changed
+`clientEvents` / `maxMessageBytes` reaches existing sockets on reconnect.
 
 To deprovision, delete both keys (or set `enabled: false` to hard-stop new
 connections + publishes immediately).
@@ -77,6 +94,31 @@ Body shape (Pusher-compatible):
 { "name": "OrderShipped", "channels": ["private-orders"], "data": { "id": 42 }, "socket_id": "123.456" }
 ```
 
+## Usage stats
+
+`GET` (or `POST`) `/apps/{appId}/stats` with `X-Dply-Key` + `X-Dply-Secret`:
+
+```json
+{
+  "connections": 12,
+  "peak_connections": 40,
+  "connection_seconds": 123456,
+  "messages_in": 900,
+  "messages_out": 15000,
+  "updated_at": 1790460000,
+  "peakConnections": 40
+}
+```
+
+- `connection_seconds`, `messages_in` (accepted server publishes + client
+  events), `messages_out` (frames fanned out to sockets) are monotonic — never
+  reset; dply bills the difference between readings. Open sockets count up to
+  the read; each socket's connect time lives in its hibernation attachment.
+- Counters accumulate in memory and flush to DO storage on a 5s alarm (and on
+  every stats read), so an eviction loses at most ~5s of counts.
+- `peak_connections` resets only via `POST …/stats/reset`.
+- `peakConnections` is the legacy camelCase key, kept for older dply readers.
+
 ## Connecting from a customer app (Laravel Echo)
 
 ```js
@@ -85,9 +127,9 @@ import Pusher from 'pusher-js';
 window.Pusher = Pusher;
 
 window.Echo = new Echo({
-  broadcaster: 'pusher',
+  broadcaster: 'reverb', // or 'pusher' — same protocol
   key: import.meta.env.VITE_DPLY_REALTIME_KEY, // the app key
-  wsHost: 'realtime.on-dply.site',
+  wsHost: 'realtime-apps.on-dply.site', // customer relay (--env apps)
   wsPort: 443,
   wssPort: 443,
   forceTLS: true,
@@ -103,14 +145,27 @@ key/secret) and it publishes over the Pusher REST signature path above.
 
 ```bash
 npm install
-npm test          # vitest: md5 + auth (known HMAC/MD5 vectors)
+npm test          # vitest: md5 + auth vectors, hub (fake DO state), limits
 npx tsc --noEmit  # typecheck
 npm run dev       # wrangler dev (local DO + KV)
 ```
 
-## Deploy (operator, once)
+## Deploy (operator)
 
-1. Create a KV namespace, put its id in `wrangler.toml` (`APPS` binding).
-2. `npm run deploy`.
-3. Add a route for `realtime.on-dply.site/*` (or your chosen host).
-4. Point dply at it via `config/realtime.php` (see the dply app).
+One codebase, two Workers (see `docs/edge-realtime.md`):
+
+| Command | Worker | Host | Serves |
+| --- | --- | --- | --- |
+| `npx wrangler deploy` | `dply-realtime` | `realtime.on-dply.site` | dply's own control plane |
+| `npx wrangler deploy --env apps` | `dply-realtime-apps` | `realtime-apps.on-dply.site` | customer Edge apps |
+
+Each has its own KV namespace and Durable Objects, so customer load never
+touches the control plane relay. First deploy of the `apps` env:
+
+1. `npx wrangler kv namespace create APPS --env apps`, paste the id over
+   `REPLACE_WITH_APPS_KV_ID` in `wrangler.toml`.
+2. `npx wrangler deploy --env apps` (runs its own `v1` DO migration).
+3. Set `EDGE_REALTIME_KV_NAMESPACE_ID` / `EDGE_REALTIME_HOST` in dply.
+
+The route is a specific zone route (not a `custom_domain`): the Edge worker's
+`*.on-dply.site/*` wildcard would shadow a custom domain.

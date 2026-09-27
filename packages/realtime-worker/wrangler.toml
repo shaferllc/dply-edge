@@ -46,8 +46,57 @@ new_sqlite_classes = ["AppHub"]
 # (Workers & Pages → dply-realtime → Logs) and power `wrangler tail`. The
 # worker logs connect/subscribe/publish events as structured objects.
 # head_sampling_rate = 1 keeps 100% of invocations (fine at this volume).
-# NOTE: keep this table LAST — a [table] header before the top-level `routes`
-# key would capture it as observability.routes and drop the custom domain.
+# NOTE: keep this and every other [table] AFTER the top-level keys — a [table]
+# header before the top-level `routes` key would capture it as
+# observability.routes and drop the custom domain.
 [observability]
+enabled = true
+head_sampling_rate = 1
+
+# ---------------------------------------------------------------------------
+# Customer relay: `wrangler deploy --env apps` -> worker `dply-realtime-apps`.
+# Same code, separate Worker / KV / Durable Objects, so customer Edge apps can
+# never load the control plane's relay above. See docs/edge-realtime.md.
+#
+# TOML ordering matters here too: every plain key for this env (name,
+# workers_dev, routes) must sit directly under [env.apps], BEFORE any
+# [env.apps.*] sub-table, or the sub-table captures it (e.g. routes would
+# become env.apps.vars.routes — an env var — and the route silently vanishes).
+# Non-inheritable settings (vars, kv, durable_objects, migrations) must be
+# repeated per env; main + compatibility_date are inherited from the top.
+[env.apps]
+name = "dply-realtime-apps"
+workers_dev = true
+# Specific zone route, not a custom_domain — same reason as the default env:
+# the Edge worker's `*.on-dply.site/*` wildcard shadows a custom_domain, while
+# a more-specific route wins over it.
+# Per-app hosts {label}.realtime.dply.io are NOT routes here: dply attaches
+# each one to this Worker as a Workers Custom Domain at provision (Cloudflare
+# issues the cert per hostname; no wildcard cert) and detaches it on delete.
+# The relay serves an app on its own host only (record.hostname, see
+# APP_HOST_SUFFIX below); the shared host keeps serving every app.
+routes = [
+  { pattern = "realtime-apps.on-dply.site/*", zone_name = "on-dply.site" },
+]
+
+[env.apps.vars]
+ENVIRONMENT = "apps"
+APP_HOST_SUFFIX = "realtime.dply.io"
+
+# Its own namespace — create it and paste the id (see README "Deploy").
+[[env.apps.kv_namespaces]]
+binding = "APPS"
+id = "18081e09bdd049bdb9a3726a6004f1e0"
+
+[[env.apps.durable_objects.bindings]]
+name = "APP_HUB"
+class_name = "AppHub"
+
+# A new Worker, so its migration history starts at v1 independently.
+[[env.apps.migrations]]
+tag = "v1"
+new_sqlite_classes = ["AppHub"]
+
+[env.apps.observability]
 enabled = true
 head_sampling_rate = 1
