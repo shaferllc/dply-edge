@@ -407,5 +407,6 @@ test('a deploy publishes the host map to the new container script before the hea
 
     expect($published->meta['container']['script_name'])->toBe(EdgeContainerDeployer::scriptName($site))
         ->and($published->storage_prefix)->not->toBeEmpty() // the Worker 404s an entry without one
-        ->and(EdgeDeployment::query()->where('git_commit', NEW_SHA)->sole()->status)->toBe(EdgeDeployment::STATUS_LIVE);
+        ->and(EdgeDeployment::query()->where('git_commit', NEW_SHA)->sole()->status)->toBe(EdgeDeployment::STATUS_LIVE)
+        ->and($site->fresh()->status)->toBe(Site::STATUS_EDGE_ACTIVE);
 });
