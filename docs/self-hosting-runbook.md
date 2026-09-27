@@ -96,6 +96,28 @@ php artisan dply:self:register --env-file=$ENVF --attach-domain
 # 4. Log in: "Forgot password" for the owner email. Put $ENVF in 1Password.
 ```
 
+**Without Docker on your machine (the normal path).** Only step 1 runs
+locally, and it needs `psql`, not Docker. Everything that builds an image runs
+on GitHub's runners through `.github/workflows/self-deploy.yml`:
+
+```bash
+deploy/self/make-env.sh                                   # .env → ~/.dply/dply-container.env
+php artisan dply:self:bootstrap --env-file=$HOME/.dply/dply-container.env --owner=<you@…>
+deploy/self/make-env.sh --builder                         # → ~/.dply/dply-builder.env
+gh secret set DPLY_CONTAINER_ENV --env production < ~/.dply/dply-container.env
+gh secret set DPLY_BUILDER_ENV   --env production < ~/.dply/dply-builder.env
+gh secret set DIGITALOCEAN_TOKEN --env production          # paste the DO token
+gh variable set DOKS_CLUSTER_ID  --env production --body "$(cd deploy/valkey/terraform && terraform output -raw cluster_id)"
+
+gh workflow run self-deploy.yml -f action=deploy   -f dry_run=true    # then dry_run=false
+gh workflow run self-deploy.yml -f action=builders -f dry_run=true    # then dry_run=false
+gh workflow run self-deploy.yml -f action=rollback -f dry_run=false   # break-glass
+```
+
+Re-run `gh secret set DPLY_CONTAINER_ENV …` after any change to the env file.
+The builder node pool itself is still `terraform apply` (section 7), which
+needs no Docker.
+
 Escrow gap: the scheduled `secrets:escrow --source=platform-env` now runs on a
 builder and escrows *that host's* `.env`, not this container env file
 (docs/self-hosting.md, Known limits). Until that is fixed, $ENVF in 1Password

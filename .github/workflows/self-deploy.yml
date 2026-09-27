@@ -1,0 +1,118 @@
+# dply deploys itself from GitHub's runners, so nobody needs Docker locally
+# (docs/self-hosting-runbook.md). Run from the Actions tab or:
+#   gh workflow run self-deploy.yml -f action=deploy -f dry_run=true
+#
+# Secrets (environment "production"):
+#   DPLY_CONTAINER_ENV  the container env file (deploy/self/make-env.sh + dply:self:bootstrap)
+#   DPLY_BUILDER_ENV    the builder env file (deploy/self/make-env.sh --builder)
+#   DIGITALOCEAN_TOKEN  registry push + DOKS kubeconfig (builders only)
+# Variable: DOKS_CLUSTER_ID (builders only; `terraform output -raw cluster_id`).
+name: Self deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: deploy, rollback, or builders (build + roll out the build servers)
+        type: choice
+        options: [deploy, rollback, builders]
+        default: deploy
+      ref:
+        description: Commit, tag or branch to deploy (deploy only; default origin/main)
+        required: false
+      dry_run:
+        description: Print every step, change nothing
+        type: boolean
+        default: true
+
+concurrency:
+  group: self-deploy
+  cancel-in-progress: false
+
+jobs:
+  app:
+    if: inputs.action != 'builders'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, pdo_pgsql, pgsql, redis, bcmath, intl, zip, pcntl
+          coverage: none
+
+      - run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Write the env file
+        env:
+          DPLY_CONTAINER_ENV: ${{ secrets.DPLY_CONTAINER_ENV }}
+        run: |
+          [ -n "$DPLY_CONTAINER_ENV" ] || { echo "secret DPLY_CONTAINER_ENV is not set"; exit 1; }
+          umask 077
+          printf '%s\n' "$DPLY_CONTAINER_ENV" > "$RUNNER_TEMP/dply.env"
+          touch .env
+
+      - name: dply:self:deploy
+        run: |
+          args=(--env-file="$RUNNER_TEMP/dply.env")
+          [ "${{ inputs.action }}" = rollback ] && args+=(--rollback)
+          [ -n "${{ inputs.ref }}" ] && [ "${{ inputs.action }}" = deploy ] && args+=(--ref="${{ inputs.ref }}")
+          [ "${{ inputs.dry_run }}" = true ] && args+=(--dry-run)
+          php artisan dply:self:deploy "${args[@]}"
+
+      - if: always()
+        run: rm -f "$RUNNER_TEMP/dply.env"
+
+  builders:
+    if: inputs.action == 'builders'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 45
+    env:
+      DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
+      DOKS_CLUSTER_ID: ${{ vars.DOKS_CLUSTER_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Write the builder env file
+        env:
+          DPLY_BUILDER_ENV: ${{ secrets.DPLY_BUILDER_ENV }}
+        run: |
+          [ -n "$DPLY_BUILDER_ENV" ] || { echo "secret DPLY_BUILDER_ENV is not set"; exit 1; }
+          umask 077
+          mkdir -p deploy/builders/.secrets
+          printf '%s\n' "$DPLY_BUILDER_ENV" > deploy/builders/.secrets/builder.env
+
+      - name: Build and push the builder image
+        id: image
+        run: |
+          image=registry.digitalocean.com/dply-cloud/dply-builder:$(git rev-parse --short HEAD)
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          if [ "${{ inputs.dry_run }}" = true ]; then
+            docker buildx build --platform linux/amd64 -f deploy/builders/Dockerfile -t "$image" .
+          else
+            doctl registry login --expiry-seconds 1800
+            docker buildx build --platform linux/amd64 -f deploy/builders/Dockerfile -t "$image" --push .
+          fi
+
+      - name: Roll out
+        run: |
+          if [ "${{ inputs.dry_run }}" = true ]; then
+            deploy/builders/apply.sh --dry-run "${{ steps.image.outputs.image }}"
+          else
+            deploy/builders/apply.sh "${{ steps.image.outputs.image }}" 4
+          fi
+
+      - if: always()
+        run: rm -f deploy/builders/.secrets/builder.env deploy/builders/kubeconfig

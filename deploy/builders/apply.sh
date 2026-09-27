@@ -23,9 +23,10 @@ umask 077
 env_get() { grep -E "^$1=" .secrets/builder.env | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//'; }
 
 if [ -z "$DRY" ]; then
+  # CI passes DIGITALOCEAN_TOKEN and DOKS_CLUSTER_ID; a laptop reads its secrets and terraform state.
   # shellcheck source=/dev/null
-  source ../valkey/.secrets/do.env
-  cluster_id=$(cd ../valkey/terraform && terraform output -raw cluster_id)
+  [ -n "${DIGITALOCEAN_TOKEN:-}" ] || source ../valkey/.secrets/do.env
+  cluster_id=${DOKS_CLUSTER_ID:-$(cd ../valkey/terraform && terraform output -raw cluster_id)}
   node -e "fetch('https://api.digitalocean.com/v2/kubernetes/clusters/$cluster_id/kubeconfig',{headers:{Authorization:'Bearer '+process.env.DIGITALOCEAN_TOKEN}}).then(r=>{if(!r.ok)throw new Error('kubeconfig '+r.status);return r.text()}).then(t=>require('fs').writeFileSync('kubeconfig',t))"
   export KUBECONFIG=$PWD/kubeconfig
   kubectl apply --server-side -f "https://github.com/kedacore/keda/releases/download/$KEDA/keda-$KEDA.yaml" >/dev/null

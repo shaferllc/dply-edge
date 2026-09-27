@@ -6,9 +6,23 @@
 # creates dply's own database and Valkey and writes those in.
 #
 #   deploy/self/make-env.sh [source .env] [output]   (default: .env → ~/.dply/dply-container.env)
+#   deploy/self/make-env.sh --builder                  after bootstrap: container env → ~/.dply/dply-builder.env
 #
 # Prints key names and warnings only, never values.
 set -euo pipefail
+
+if [ "${1:-}" = "--builder" ]; then
+  # ponytail: the whole container env with the builder role on top, not the
+  # runbook's least-privilege subset; trim it when builders stop needing DB access.
+  src="$HOME/.dply/dply-container.env"; out="$HOME/.dply/dply-builder.env"
+  grep -q '^DB_HOST=' "$src" || { echo "run dply:self:bootstrap first (no DB_HOST in $src)" >&2; exit 1; }
+  umask 077
+  { grep -Ev '^(DPLY_RUNTIME|REDIS_PERSISTENT|SESSION_DRIVER|TRUSTED_PROXIES|DPLY_WORKER_TIMEOUT)=' "$src"
+    printf '\n# Builder role\nDPLY_RUNTIME=builder\nREDIS_PERSISTENT=false\nLOG_CHANNEL=stderr\n'; } > "$out"
+  chmod 600 "$out"
+  echo "wrote $out ($(grep -cE '^[A-Z0-9_]+=' "$out") keys, mode 600)"
+  exit 0
+fi
 
 src="${1:-.env}"
 out="${2:-$HOME/.dply/dply-container.env}"
