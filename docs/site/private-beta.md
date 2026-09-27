@@ -16,7 +16,7 @@ If you received an invitation email, its link opens the sign-up form with your a
 Beta organizations use the same plans and trial as everyone else. There is no free beta tier.
 
 - A new organization starts with a 5-day trial of the plan it chooses. Checkout asks for a card before the trial begins.
-- During the trial, usage is capped at $5. Past that, builds and container traffic pause until you pay.
+- During the trial, usage is capped at $2. Past that, builds and container traffic pause until you pay.
 - After the trial, the plan bills monthly unless you cancel first.
 
 <!-- generated: php artisan dply:billing:price-table plans -->

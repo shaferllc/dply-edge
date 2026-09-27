@@ -435,6 +435,13 @@ return [
         ],
     ],
 
+    // dply databases of 1, 2 and 4 CU (EdgeDplyDatabase::LARGE_SIZES) need the
+    // db-large / db-xl node pools (deploy/valkey/terraform). Off until the
+    // owner has applied that terraform (docs/launch-checklist.md).
+    'databases' => [
+        'large_sizes_enabled' => filter_var(env('DPLY_DATABASE_LARGE_SIZES', false), FILTER_VALIDATE_BOOL),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Unit costs: what dply's own infrastructure really costs (ESTIMATES)
@@ -464,10 +471,22 @@ return [
                 'db' => ['size' => 's-2vcpu-4gb', 'monthly' => 24, 'vcpu' => 2, 'ram_gb' => 4, 'allocatable_gib' => 2.5, 'nodes' => 2],
                 'pro-16' => ['size' => 'm-2vcpu-16gb', 'monthly' => 84, 'vcpu' => 2, 'ram_gb' => 16, 'allocatable_gib' => 13, 'nodes' => 0],
                 'pro-64' => ['size' => 'm-8vcpu-64gb', 'monthly' => 336, 'vcpu' => 8, 'ram_gb' => 64, 'allocatable_gib' => 58, 'nodes' => 0],
+                // Databases over 0.5 CU (scale from zero). Memory binds, not
+                // CPU: an awake database asks one core at most, and 13 GiB
+                // holds three awake 1 CU (8 vCPU); 28 GiB holds one awake 4 CU.
+                'db-large' => ['size' => 's-8vcpu-16gb', 'monthly' => 96, 'vcpu' => 8, 'ram_gb' => 16, 'allocatable_gib' => 13, 'nodes' => 0],
+                'db-xl' => ['size' => 'm-4vcpu-32gb', 'monthly' => 168, 'vcpu' => 4, 'ram_gb' => 32, 'allocatable_gib' => 28, 'nodes' => 0],
             ],
+            // Which pool each database size (EdgeAppDatabase::POSTGRES_SIZES)
+            // runs on: packages/valkey-gateway/placement.go databasePool.
+            'database_pools' => ['0.25' => 'db', '0.5' => 'db', '1' => 'db-large', '2' => 'db-large', '4' => 'db-xl'],
             // Share of a pool's allocatable memory that paying tenants fill on
             // average (warm pool pods, fragmentation, headroom).
-            'packing' => ['cache' => 0.7, 'db' => 0.7, 'pro-16' => 0.9, 'pro-64' => 0.9],
+            // db-large assumes the db pool's 70% once several databases share
+            // it. db-xl fits one awake 4 CU (16 of 28 GiB): 0.57 is a whole
+            // node per awake 4 CU. The first large database alone keeps a
+            // whole node up, awake or parked (docs/pricing-review.md §9).
+            'packing' => ['cache' => 0.7, 'db' => 0.7, 'pro-16' => 0.9, 'pro-64' => 0.9, 'db-large' => 0.7, 'db-xl' => 16 / 28],
             'ha_control_plane' => 40,
             'load_balancer' => 12,
             'registry' => 5,

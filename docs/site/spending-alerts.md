@@ -1,18 +1,18 @@
 ---
 title: "Spending caps & alerts"
-description: "The trial's $5 spending cap, usage alert emails on paid plans, and what happens when you reach each kind of limit."
+description: "The trial's $2 spending cap, usage alert emails on paid plans, and what happens when you reach each kind of limit."
 ---
 
-dply has two kinds of spending control. During the trial, a hard **spending cap** stops usage at $5, because nothing has been charged yet. On a paid plan, a **usage alert** emails your organization's owners as usage past the included credit grows, but never stops anything. This page covers both, and the hard limits that stop work regardless of spend.
+dply has two kinds of spending control. During the trial, a hard **spending cap** stops usage at $2, because nothing has been charged yet. On a paid plan, a **usage alert** emails your organization's owners as usage past the included credit grows, but never stops anything. This page covers both, and the hard limits that stop work regardless of spend.
 
 ## Trial spending cap
 
-Every trial is capped at $5 of usage, at the usual customer rates with no included credit applied. Everything with a price counts, from the day the trial started: delivery, build time, container compute, databases, Valkey, key-value, Edge SQL, queues, realtime and Workers usage.
+Every trial is capped at $2 of usage, at the usual customer rates with no included credit applied. Everything with a price counts, from the day the trial started: delivery, build time, container compute, databases, Valkey, key-value, Edge SQL, queues, realtime and Workers usage.
 
 | Usage reaches | What happens |
 |---|---|
-| 80% ($4) | The next build that starts sends a **Usage credit almost used up** notification to your notification channels. |
-| 100% ($5) | New builds fail with a message that the usage credit is used up. Within the hour the organization is paused: sites serve a paused page, container apps stop taking traffic, queue workers stop, and databases and Valkey sleep. |
+| 80% ($1.60) | The next build that starts sends a **Usage credit almost used up** notification to your notification channels. |
+| 100% ($2) | New builds fail with a message that the usage credit is used up. The organization is paused within 5 minutes while an app or build is running (within the hour otherwise): sites serve a paused page, container apps stop taking traffic, queue workers stop, and databases and Valkey sleep. |
 
 Owners are emailed when the organization is paused at the cap. The pause lifts once the trial converts to a paid plan and the first payment succeeds. To convert now, choose **End trial now** on the **Billing** page. See [Free trial](/docs/free-trial) and [Paused accounts](/docs/paused-accounts).
 

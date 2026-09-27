@@ -134,7 +134,7 @@ Going past your included usage credit doesn't stop anything that's metered: site
 - Realtime connections per app.
 - The fair-use limit on apps.
 
-The trial is different: it has a $5 spending cap. See [Free trial](/docs/free-trial).
+The trial is different: it has a $2 spending cap. See [Free trial](/docs/free-trial).
 
 ## Estimate a bill
 

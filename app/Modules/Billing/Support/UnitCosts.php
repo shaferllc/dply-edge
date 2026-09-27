@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Billing\Support;
 
+use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Edge\Support\EdgeValkey;
 
 /**
@@ -37,10 +38,15 @@ final class UnitCosts
         };
 
         // Databases: an awake 1 CU reserves 4 GiB (memory is the binding
-        // resource on the db pool's 4 GB nodes), plus a volume per GB.
-        $add('Database compute', 'per CU-hour', self::gibMonth('db') * 4 / self::MONTH_HOURS,
-            UsagePrice::rate('database_compute_millicents_per_cu_second') * 3600 / 100_000,
-            'db pool '.$do['pools']['db']['size'].', '.round($do['packing']['db'] * 100).'% packed');
+        // resource on every db pool), plus a volume per GB. One row per size,
+        // offered or not yet (large sizes wait for a flag), on the pool that
+        // size runs on: all must clear min_markup at the one CU-hour price.
+        foreach (EdgeAppDatabase::POSTGRES_SIZES as $size => $spec) {
+            $pool = $do['database_pools'][$size];
+            $add('Database compute '.$spec['cu'].' CU', 'per CU-hour', self::gibMonth($pool) * 4 / self::MONTH_HOURS,
+                UsagePrice::rate('database_compute_millicents_per_cu_second') * 3600 / 100_000,
+                'pool '.$pool.' '.$do['pools'][$pool]['size'].', '.round($do['packing'][$pool] * 100).'% packed');
+        }
         $add('Database storage', 'per GB-month', $do['volume_per_gb_month'] + $do['backup_per_gb_month'],
             UsagePrice::rate('database_storage_millicents_per_gb_month') / 100_000, 'DO volume + backup copy');
 

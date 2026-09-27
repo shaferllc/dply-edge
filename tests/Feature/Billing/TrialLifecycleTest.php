@@ -46,7 +46,7 @@ test('a card trial reads as its tier and is still capped', function () {
 
     expect($org->billingTier())->toBe('pro')
         ->and($org->onTrialPlan())->toBeTrue()
-        ->and(app(StarterUsageBudget::class)->status($org)['limit_cents'])->toBe(500);
+        ->and(app(StarterUsageBudget::class)->status($org)['limit_cents'])->toBe(200);
 });
 
 test('a Starter or Team checkout trials that plan, capped, and the emails name it', function (string $tier, string $label, string $price) {
@@ -58,7 +58,7 @@ test('a Starter or Team checkout trials that plan, capped, and the emails name i
 
     expect($org->billingTier())->toBe($tier)
         ->and($org->onTrialPlan())->toBeTrue()
-        ->and(app(StarterUsageBudget::class)->status($org)['limit_cents'])->toBe(500);
+        ->and(app(StarterUsageBudget::class)->status($org)['limit_cents'])->toBe(200);
 
     $mail = (new OrganizationBillingNotice($org, 'trial_started', now()->addDays(5)))->toMail($org->users()->first());
     expect(implode(' ', $mail->introLines))->toContain('trial of '.$label)->toContain($label.' ('.$price.')')->not->toContain('Pro');

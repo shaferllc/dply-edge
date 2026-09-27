@@ -53,7 +53,8 @@ final class EdgeAppDatabase
      * Compute sizes and their compute units (1 CU = 1 vCPU, 4 GB), which the
      * usage rates are priced in. The keys are the shared size ladder's rungs
      * (EdgeSizeLadder::RUNGS); `cpu` is the rung's display name.
-     * EdgeDplyDatabase::OFFERED_SIZES is what fits today.
+     * EdgeDplyDatabase::offeredSizes() is what is sold (1, 2 and 4 CU only
+     * with the db-large / db-xl pools: dply.databases.large_sizes_enabled).
      *
      * @var array<string, array{cpu: string, memory: string, cu: float}>
      */
@@ -240,7 +241,7 @@ final class EdgeAppDatabase
     private static function applyDply(Site $site, array $current, string $plan, string $size, int $suspend, int $disk): ?string
     {
         $suspend = self::postgresSuspend($suspend, $plan);
-        $size = EdgeDplyDatabase::size($size);
+        $size = EdgeDplyDatabase::size($size, (string) ($current['size'] ?? ''));
         $disk = EdgeDplyDatabase::disk($disk);
         [$size, $suspend] = EdgeTrialLimits::database($site, $size, $suspend);
         $storedDisk = EdgeDplyDatabase::disk((int) ($current['disk_gb'] ?? 0));

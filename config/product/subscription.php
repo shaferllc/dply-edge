@@ -58,7 +58,8 @@ return [
         'trial' => [
             'days' => 5,
             'tier' => 'pro',
-            'spending_limit_cents' => 500,
+            // $2 cap (owner ruling r-s56bk4pq4cnv8dt4; was $5).
+            'spending_limit_cents' => 200,
             'card_required' => true,
             'keep_data_days' => 30,
             'purge_enabled' => filter_var(env('DPLY_BILLING_PURGE_ENABLED', true), FILTER_VALIDATE_BOOLEAN),

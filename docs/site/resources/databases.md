@@ -49,8 +49,11 @@ An app has one database. Databases are available to apps with server code: conta
 |---|---|---|
 | 0.25 vCPU | 1 GB | 0.25 |
 | 0.5 vCPU | 2 GB | 0.5 |
+| 1 vCPU | 4 GB | 1 |
+| 2 vCPU | 8 GB | 2 |
+| 4 vCPU | 16 GB | 4 |
 
-The larger rungs of the size ladder (1, 2 and 4 vCPU) are not offered for databases yet.
+The 1, 2 and 4 vCPU sizes appear in the size list once the larger database nodes are enabled in your region. Until then only 0.25 and 0.5 vCPU can be picked. The first large database in a region can take a few minutes to start the first time, while a node is added for it.
 
 Disks come in `1 GB`, `5 GB`, `10 GB`, and `25 GB`. You can change the size and the disk later from the same sheet. A new size applies the next time the database wakes. A disk only grows: picking a smaller one is refused.
 
@@ -163,6 +166,8 @@ Compute is billed per second while awake. Storage is billed per GB-month on the 
 | --- | --- | --- | --- |
 | 0.25 vCPU | 1 GB | $0.00000833 | $0.03 |
 | 0.5 vCPU | 2 GB | $0.0000167 | $0.06 |
+
+The larger sizes, once enabled, bill at the same rate per compute unit: 1 vCPU $0.12, 2 vCPU $0.24 and 4 vCPU $0.48 per hour awake.
 
 Storage, and compute per compute unit (the 0.25 vCPU size is a quarter of one):
 

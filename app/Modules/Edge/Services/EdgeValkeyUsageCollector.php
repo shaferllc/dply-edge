@@ -178,7 +178,8 @@ class EdgeValkeyUsageCollector
         $total = $totals[$id] ?? null;
         $last = (int) ($database['usage_counter'] ?? 0);
         $awake = $total === null ? 0 : ($total >= $last ? $total - $last : $total);
-        $cu = EdgeAppDatabase::POSTGRES_SIZES[EdgeDplyDatabase::size((string) ($database['size'] ?? ''))]['cu'];
+        // The stored size, offered today or not: it is what the pod runs at.
+        $cu = (EdgeAppDatabase::POSTGRES_SIZES[(string) ($database['size'] ?? '')] ?? EdgeAppDatabase::POSTGRES_SIZES[EdgeDplyDatabase::OFFERED_SIZES[0]])['cu'];
         $since = (int) ($database['storage_at'] ?? $now);
         $bytes = EdgeDplyDatabase::disk((int) ($database['disk_gb'] ?? 0)) * 1024 ** 3;
         $storageByteHours = (int) round($bytes * max(0, $now - $since) / 3600);

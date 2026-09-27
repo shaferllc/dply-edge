@@ -22,7 +22,7 @@ dply has no free plan. A new organization starts with a 5-day trial of the plan 
 | Length | 5 days |
 | Plan | Pro |
 | Card | Required at Checkout |
-| Spending cap | $5 of usage. Past that, builds and container traffic pause until you pay. |
+| Spending cap | $2 of usage. Past that, builds and container traffic pause until you pay. |
 | After the trial | Billed for Pro ($20/mo) on day 6 unless you cancel first |
 
 After you verify your email, open your organization's **Billing** page. dply takes you there after sign-up when it can. Under **Plan**, choose a plan's **Start 5-day trial** button (for example **Start 5-day Pro trial**) and complete Stripe Checkout.

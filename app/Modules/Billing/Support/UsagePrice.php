@@ -168,8 +168,8 @@ final class UsagePrice
                     static fn (float $millicents): string => '$'.number_format($millicents / 100_000, 2),
                     self::containerMonthly(...EdgeContainerSettings::INSTANCE_TYPES[$type]),
                 ) : null,
-                // Only sizes the database nodes can schedule are sold (EdgeDplyDatabase::OFFERED_SIZES).
-                'database' => in_array($key, EdgeDplyDatabase::OFFERED_SIZES, true)
+                // Only sizes the database nodes can schedule are sold (EdgeDplyDatabase::offeredSizes()).
+                'database' => in_array($key, EdgeDplyDatabase::offeredSizes(), true)
                     ? $row($database['memory'], self::rate('database_compute_millicents_per_cu_second') * $database['cu'])
                     : null,
                 'valkey' => is_string($valkey) ? $row(self::memoryLabel(EdgeValkey::CLASSES[$valkey]['memory_mb'] / 1024), self::valkeyPerSecond($valkey)) + [

@@ -170,14 +170,9 @@ func (g *gateway) rollDatabaseImage(t tenant) {
 		return // woke up again in the meantime; the next sleep rolls it
 	}
 	log.Printf("tenant %s: moving to %s", t.ID, dbImages[t.Engine])
-	if err := g.kube.CoreV1().Pods(g.cfg.dbNamespace).Delete(ctx, pod.Name, metav1.DeleteOptions{}); err != nil {
+	if err := g.deleteDatabasePodAndWait(ctx, pod.Name); err != nil {
 		log.Printf("tenant %s: image roll: %v", t.ID, err)
 		return
-	}
-	for deadline := time.Now().Add(2 * time.Minute); time.Now().Before(deadline); time.Sleep(time.Second) {
-		if _, err := g.kube.CoreV1().Pods(g.cfg.dbNamespace).Get(ctx, pod.Name, metav1.GetOptions{}); err != nil {
-			break
-		}
 	}
 	fresh, err := g.ensureDatabasePod(ctx, t)
 	if err != nil {

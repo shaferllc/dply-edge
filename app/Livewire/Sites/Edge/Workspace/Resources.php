@@ -2402,7 +2402,7 @@ class Resources extends Component
         if (! array_key_exists($size, EdgeAppDatabase::POSTGRES_SIZES)) {
             return;
         }
-        if (! in_array($size, EdgeDplyDatabase::OFFERED_SIZES, true)) {
+        if (! in_array($size, EdgeDplyDatabase::offeredSizes(), true)) {
             return;
         }
 
@@ -2677,7 +2677,7 @@ class Resources extends Component
         }
         $postgresSuspend = EdgeAppDatabase::postgresSuspend($this->draftPostgresSuspend, $this->draftPostgresPlan);
         $postgresPlan = $postgresSuspend === -1 ? 'awake' : 'sleep';
-        $postgresSize = EdgeDplyDatabase::size($this->draftPostgresSize);
+        $postgresSize = EdgeDplyDatabase::size($this->draftPostgresSize, (string) ($storedDatabase['size'] ?? ''));
         $awakeHours = max(0, min(24, $this->awakeHours));
         foreach ($postgresSizes as $key => $size) {
             $hours = $postgresSuspend === -1 ? 24 : $awakeHours;

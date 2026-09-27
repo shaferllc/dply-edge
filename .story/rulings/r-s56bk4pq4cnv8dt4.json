@@ -1,0 +1,17 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-27",
+  "id": "r-s56bk4pq4cnv8dt4",
+  "recordedBy": {
+    "client": "claude",
+    "id": "7287ab43-961f-4f49-a652-045813268214"
+  },
+  "scopeTags": [
+    "billing",
+    "pricing",
+    "trial",
+    "databases"
+  ],
+  "supersedes": null,
+  "text": "\"apprice 1, lower trial ca, add bigger database\" — approving: Valkey Pro 5 GB priced at $115/month (priced on the whole node it brings up); the trial usage cap lowered from $5 to $2 (proposed value); add a larger database node pool so 1, 2 and 4 CU dply databases can be sold."
+}

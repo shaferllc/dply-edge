@@ -20,7 +20,7 @@ test('a trial under its credit can still build', function () {
     $status = app(StarterUsageBudget::class)->status($org);
 
     expect($status['exhausted'])->toBeFalse()
-        ->and($status['limit_cents'])->toBe(500)
+        ->and($status['limit_cents'])->toBe(200)
         ->and($status['used_cents'])->toBe(0)
         ->and(app(StarterUsageBudget::class)->alertKind($status))->toBeNull();
 });
