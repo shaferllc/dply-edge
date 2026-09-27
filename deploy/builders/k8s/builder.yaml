@@ -72,7 +72,9 @@ spec:
       containers:
         - name: builder
           image: __IMAGE__
-          command: ["php", "artisan", "horizon"]
+          # dind writes its TLS certs a few seconds after start; a Horizon that
+          # starts first takes a build and fails "open /certs/client/ca.pem".
+          command: ["sh", "-c", "until docker version >/dev/null 2>&1; do sleep 1; done; exec php artisan horizon"]
           envFrom:
             - configMapRef: { name: dply-builder-config }
             - secretRef: { name: dply-builder-env }
