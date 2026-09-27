@@ -110,14 +110,14 @@
                         <h2 class="mt-1 truncate text-base font-semibold text-brand-ink">
                             {{ $quickLookSite?->name ?? __('App') }}
                         </h2>
-                        @if ($quickLookSite && $quickLookSite->edgeLiveUrl())
+                        @if ($quickLookSite && $quickLookSite->edgePublicUrl())
                             <a
-                                href="{{ $quickLookSite->edgeLiveUrl() }}"
+                                href="{{ $quickLookSite->edgePublicUrl() }}"
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 class="mt-0.5 inline-flex items-center gap-1 font-mono text-xs text-brand-moss hover:text-brand-ink"
                             >
-                                {{ preg_replace('#^https?://#', '', $quickLookSite->edgeLiveUrl()) }}
+                                {{ preg_replace('#^https?://#', '', $quickLookSite->edgePublicUrl()) }}
                                 <x-heroicon-o-arrow-top-right-on-square class="h-3 w-3 opacity-70" />
                             </a>
                         @endif

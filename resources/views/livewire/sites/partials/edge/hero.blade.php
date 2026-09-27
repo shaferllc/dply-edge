@@ -1,4 +1,5 @@
 {{-- Lean Overview identity — status, live URL, primary actions only. --}}
+@php($edgePublicUrl = $site->edgePublicUrl())
 <section class="border-b border-brand-ink/10">
     <x-workspace-panel-head
         icon="heroicon-o-globe-alt"
@@ -10,7 +11,7 @@
                 {{ $edgeStatusLabel }}
             </span>
             @if ($edgeLiveUrl && ! empty($edgeActiveDeploymentId))
-                <a href="{{ $edgeLiveUrl }}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 rounded-lg border border-brand-ink/15 bg-white/80 px-2.5 py-1.5 text-xs font-semibold text-brand-ink hover:bg-white dark:border-brand-mist/25 dark:bg-zinc-800">
+                <a href="{{ $edgePublicUrl }}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 rounded-lg border border-brand-ink/15 bg-white/80 px-2.5 py-1.5 text-xs font-semibold text-brand-ink hover:bg-white dark:border-brand-mist/25 dark:bg-zinc-800">
                     <x-heroicon-o-arrow-top-right-on-square class="h-4 w-4" />
                     {{ __('Open') }}
                 </a>
@@ -40,14 +41,14 @@
                 x-data="{ copied: false }"
                 class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand-ink/10 bg-white px-4 py-3 dark:bg-zinc-900/40"
             >
-                <a href="{{ $edgeLiveUrl }}" target="_blank" rel="noopener noreferrer" class="inline-flex min-w-0 max-w-full items-center gap-1.5 font-mono text-xs text-brand-ink hover:underline">
+                <a href="{{ $edgePublicUrl }}" target="_blank" rel="noopener noreferrer" class="inline-flex min-w-0 max-w-full items-center gap-1.5 font-mono text-xs text-brand-ink hover:underline">
                     <x-heroicon-m-globe-alt class="h-4 w-4 shrink-0 text-brand-forest" />
-                    <span class="truncate">{{ $edgeLiveUrl }}</span>
+                    <span class="truncate">{{ $edgePublicUrl }}</span>
                 </a>
                 <button
                     type="button"
                     class="inline-flex shrink-0 items-center gap-1 rounded-lg border border-brand-ink/10 bg-brand-sand/20 px-2.5 py-1 text-xs font-medium text-brand-moss hover:bg-brand-sand/40 dark:border-brand-mist/20 dark:bg-zinc-900 dark:text-brand-sage"
-                    @click="navigator.clipboard.writeText(@js($edgeLiveUrl)); copied = true; setTimeout(() => copied = false, 2000)"
+                    @click="navigator.clipboard.writeText(@js($edgePublicUrl)); copied = true; setTimeout(() => copied = false, 2000)"
                 >
                     <x-heroicon-o-clipboard class="h-4 w-4" />
                     <span x-show="!copied">{{ __('Copy') }}</span>

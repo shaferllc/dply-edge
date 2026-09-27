@@ -6,6 +6,7 @@ namespace Tests\Feature\EdgeCustomDomainTest;
 
 use App\Enums\SiteType;
 use App\Livewire\Sites\Edge\Workspace\Domains;
+use App\Livewire\Sites\Edge\Workspace\Routing;
 use App\Models\EdgeDeployment;
 use App\Models\Organization;
 use App\Models\ProviderCredential;
@@ -508,4 +509,105 @@ test('a repeat verification failure does not notify again', function () {
     $provisioner->provision($site->fresh(), 'quiet.example.com');
     $provisioner->verify($site->fresh(), 'quiet.example.com');
     $provisioner->verify($site->fresh(), 'quiet.example.com');
+});
+
+/** Attach and verify $hosts on $site via a CNAME to its own edge hostname. */
+function readyDomains(Site $site, string ...$hosts): Site
+{
+    $dns = [];
+    foreach ($hosts as $host) {
+        $dns[$host] = [DNS_CNAME | DNS_A | DNS_AAAA => [['type' => 'CNAME', 'target' => 'edge-app.dply.host']]];
+    }
+    foreach ($hosts as $host) {
+        provisionerWithDns($dns)->provision($site->fresh(), $host);
+        expect(provisionerWithDns($dns)->verify($site->fresh(), $host)['dns_status'])->toBe('ready');
+    }
+
+    return $site->fresh();
+}
+
+test('the public url falls back to the dply hostname until the primary domain serves', function () {
+    config(['edge.fake.enabled' => true, 'edge.custom_hostnames.enabled' => false]);
+    $site = makeLiveEdgeSite();
+    expect($site->edgePublicUrl())->toBe('https://edge-app.dply.host');
+
+    $withDomain = function (array $entry, string $primary = 'www.example.com') use ($site): Site {
+        $meta = $site->edgeMeta();
+        $meta['routing']['primary_domain'] = $primary;
+        $meta['routing']['custom_domains'] = ['www.example.com' => $entry];
+        $site->meta = array_merge($site->meta, ['edge' => $meta]);
+
+        return $site;
+    };
+
+    expect($withDomain(['dns_status' => 'pending'])->edgePublicUrl())->toBe('https://edge-app.dply.host')
+        ->and($withDomain(['dns_status' => 'ready', 'ssl_status' => 'pending'])->edgePublicUrl())->toBe('https://edge-app.dply.host')
+        ->and($withDomain(['dns_status' => 'ready', 'ssl_status' => 'active'])->edgePublicUrl())->toBe('https://www.example.com')
+        ->and($withDomain(['dns_status' => 'ready'])->edgePublicUrl())->toBe('https://www.example.com')
+        ->and($withDomain(['dns_status' => 'ready'], 'gone.example.com')->edgePublicUrl())->toBe('https://edge-app.dply.host');
+});
+
+test('the first ready domain becomes primary and later ones do not take over', function () {
+    config(['edge.fake.enabled' => true, 'edge.custom_hostnames.enabled' => false]);
+    $site = makeLiveEdgeSite();
+
+    provisionerWithDns([])->provision($site->fresh(), 'pending.example.com');
+    expect($site->fresh()->edgePrimaryDomain())->toBeNull();
+
+    $site = readyDomains($site, 'www.example.com', 'shop.example.com');
+
+    expect($site->edgePrimaryDomain())->toBe('www.example.com')
+        ->and($site->edgePublicUrl())->toBe('https://www.example.com');
+});
+
+test('choosing the dply hostname sticks when a ready domain is re-verified', function () {
+    config(['edge.fake.enabled' => true, 'edge.custom_hostnames.enabled' => false]);
+    $site = readyDomains(makeLiveEdgeSite(), 'www.example.com');
+    $user = $site->organization->users()->first();
+
+    Livewire::actingAs($user)
+        ->test(Routing::class, ['server' => $site->server, 'site' => $site])
+        ->call('makeEdgeDomainPrimary', null);
+
+    readyDomains($site, 'www.example.com');
+    expect($site->fresh()->edgePublicUrl())->toBe('https://edge-app.dply.host');
+});
+
+test('make primary needs update rights and a ready domain', function () {
+    config(['edge.fake.enabled' => true, 'edge.custom_hostnames.enabled' => false]);
+    $site = readyDomains(makeLiveEdgeSite(), 'www.example.com', 'shop.example.com');
+    provisionerWithDns([])->provision($site->fresh(), 'pending.example.com');
+    $owner = $site->organization->users()->first();
+    $viewer = User::factory()->create();
+    $site->organization->users()->attach($viewer->id, ['role' => Organization::VIEW_ONLY_ROLE]);
+
+    Livewire::actingAs($viewer)
+        ->test(Routing::class, ['server' => $site->server, 'site' => $site->fresh()])
+        ->assertOk()
+        ->call('makeEdgeDomainPrimary', 'shop.example.com')
+        ->assertForbidden();
+    expect($site->fresh()->edgePrimaryDomain())->toBe('www.example.com');
+
+    $component = Livewire::actingAs($owner)
+        ->test(Routing::class, ['server' => $site->server, 'site' => $site->fresh()])
+        ->call('makeEdgeDomainPrimary', 'pending.example.com');
+    expect($site->fresh()->edgePrimaryDomain())->toBe('www.example.com');
+
+    $component->call('makeEdgeDomainPrimary', 'shop.example.com')->assertSee('Primary');
+    expect($site->fresh()->edgePublicUrl())->toBe('https://shop.example.com');
+});
+
+test('removing the primary domain hands it to the next ready domain, then back to dply', function () {
+    config(['edge.fake.enabled' => true, 'edge.custom_hostnames.enabled' => false]);
+    $site = readyDomains(makeLiveEdgeSite(), 'www.example.com', 'shop.example.com');
+    $provisioner = app(EdgeCustomDomainProvisioner::class);
+
+    $provisioner->remove($site->fresh(), 'www.example.com');
+    expect($site->fresh()->edgePrimaryDomain())->toBe('shop.example.com');
+
+    $provisioner->remove($site->fresh(), 'shop.example.com');
+    $site->refresh();
+    expect($site->edgePrimaryDomain())->toBeNull()
+        ->and($site->edgeMeta()['routing'])->not->toHaveKey('primary_domain')
+        ->and($site->edgePublicUrl())->toBe('https://edge-app.dply.host');
 });

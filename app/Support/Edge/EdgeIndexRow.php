@@ -76,7 +76,7 @@ final readonly class EdgeIndexRow
         $buildSpec = is_array($edgeMeta['build'] ?? null) ? $edgeMeta['build'] : null;
         $framework = trim((string) ($buildSpec['framework'] ?? ''));
         $runtimeMode = (string) ($edgeMeta['runtime_mode'] ?? 'static');
-        $liveUrl = $site->edgeLiveUrl();
+        $liveUrl = $site->edgePublicUrl();
         $hostname = is_string($liveUrl) && $liveUrl !== ''
             ? (parse_url($liveUrl, PHP_URL_HOST) ?: null)
             : null;

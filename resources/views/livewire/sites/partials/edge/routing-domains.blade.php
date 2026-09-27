@@ -1,11 +1,39 @@
-{{-- Domains tab — default hostname + custom domains (hairline strips). --}}
+{{-- Domains tab — dply hostname + custom domains (hairline strips). One of them is the primary URL. --}}
+@php
+    $primaryDomain = $site->edgePrimaryDomain();
+    $publicUrl = $site->edgePublicUrl();
+@endphp
 <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
-    <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Default hostname') }}</p>
-    @if ($edgeLiveUrl)
-        <p class="mt-1 font-mono text-sm text-brand-ink break-all">{{ $edgeLiveUrl }}</p>
-    @else
-        <p class="mt-1 text-sm text-brand-moss">{{ __('Pending first deploy') }}</p>
-    @endif
+    <div class="flex flex-wrap items-start justify-between gap-3">
+        <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-2">
+                <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('dply hostname') }}</p>
+                @if ($primaryDomain === null)
+                    <span class="rounded-full bg-brand-ink px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide text-white">{{ __('Primary') }}</span>
+                @endif
+            </div>
+            @if ($edgeLiveUrl)
+                <p class="mt-1 font-mono text-sm text-brand-ink break-all">{{ $edgeLiveUrl }}</p>
+            @else
+                <p class="mt-1 text-sm text-brand-moss">{{ __('Pending first deploy') }}</p>
+            @endif
+            <p class="mt-1 text-xs text-brand-moss">{{ __('Always available, whichever URL is primary.') }}</p>
+            @if ($publicUrl)
+                <p class="mt-2 text-xs text-brand-moss">{{ __('Primary URL') }}: <span class="font-mono text-brand-ink break-all">{{ $publicUrl }}</span></p>
+            @endif
+        </div>
+        @can('update', $site)
+            @if ($primaryDomain !== null)
+                <button
+                    type="button"
+                    wire:click="makeEdgeDomainPrimary(null)"
+                    class="inline-flex items-center gap-1.5 rounded-lg border border-brand-ink/15 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink shadow-sm hover:bg-brand-sand/40"
+                >
+                    {{ __('Make primary') }}
+                </button>
+            @endif
+        @endcan
+    </div>
 </section>
 
 @if ($repoDomains !== [])
@@ -63,6 +91,9 @@
                         <div class="min-w-0">
                             <div class="flex flex-wrap items-center gap-2">
                                 <p class="font-mono text-sm text-brand-ink">{{ $hostname }}</p>
+                                @if ($primaryDomain === $hostname)
+                                    <span class="rounded-full bg-brand-ink px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide text-white">{{ __('Primary') }}</span>
+                                @endif
                                 <span class="rounded-full px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide {{ $statusBadge }}">{{ $statusLabel }}</span>
                                 @if ($sslLabel && $sslBadge)
                                     <span class="rounded-full px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide {{ $sslBadge }}">{{ $sslLabel }}</span>
@@ -141,6 +172,14 @@
                                         <x-heroicon-o-check-badge class="h-4 w-4" />
                                         <span wire:loading.remove wire:target="verifyEdgeDomain('{{ $hostname }}')">{{ __('Verify DNS') }}</span>
                                         <span wire:loading wire:target="verifyEdgeDomain('{{ $hostname }}')">{{ __('Checking…') }}</span>
+                                    </button>
+                                @elseif ($primaryDomain !== $hostname)
+                                    <button
+                                        type="button"
+                                        wire:click="makeEdgeDomainPrimary('{{ $hostname }}')"
+                                        class="inline-flex items-center gap-1.5 rounded-lg border border-brand-ink/15 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink shadow-sm hover:bg-brand-sand/40"
+                                    >
+                                        {{ __('Make primary') }}
                                     </button>
                                 @endif
                                 <button

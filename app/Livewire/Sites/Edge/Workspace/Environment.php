@@ -204,7 +204,7 @@ class Environment extends Component
 
         $url = (string) ($this->site->edgeLiveUrl() ?? '');
         if ($url !== '') {
-            $rows[] = ['key' => 'APP_URL', 'value' => $url, 'from' => __('App')];
+            $rows[] = ['key' => 'APP_URL', 'value' => (string) $this->site->edgePublicUrl(), 'from' => __('App')];
             $rows[] = ['key' => 'DPLY_APP_URL', 'value' => $url, 'from' => __('App')];
         }
 

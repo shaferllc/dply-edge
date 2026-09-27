@@ -100,7 +100,32 @@ trait ManagesEdgeDomains
 
             return;
         }
+        $this->site->refresh();
 
         $this->toastSuccess(__('Custom domain removed.'));
+    }
+
+    /** Null makes the dply hostname the site's main URL again. */
+    public function makeEdgeDomainPrimary(?string $hostname = null): void
+    {
+        if (! $this->site->usesEdgeRuntime()) {
+            return;
+        }
+        $this->authorize('update', $this->site);
+
+        $site = $this->site->fresh();
+        $routing = is_array($site->edgeMeta()['routing'] ?? null) ? $site->edgeMeta()['routing'] : [];
+        if ($hostname !== null && ($routing['custom_domains'][$hostname]['dns_status'] ?? null) !== 'ready') {
+            $this->toastError(__('Only a domain with verified DNS can be primary.'));
+
+            return;
+        }
+
+        $routing['primary_domain'] = $hostname;
+        $site->mergeEdgeMeta(['routing' => $routing]);
+        $site->save();
+        $this->site->refresh();
+
+        $this->toastSuccess(__(':hostname is now the primary URL.', ['hostname' => $hostname ?? $site->edgeHostname()]));
     }
 }

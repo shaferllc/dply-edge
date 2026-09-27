@@ -63,6 +63,38 @@ trait ManagesEdgeHosting
     }
 
     /**
+     * The custom domain chosen as the site's main URL (meta
+     * edge.routing.primary_domain). Null means the dply hostname, either
+     * because nobody picked a domain yet or because someone picked dply.
+     */
+    public function edgePrimaryDomain(): ?string
+    {
+        $host = $this->edgeMeta()['routing']['primary_domain'] ?? null;
+
+        return is_string($host) && $host !== '' ? $host : null;
+    }
+
+    /**
+     * The URL to show people: the primary custom domain once it serves
+     * (DNS ready, TLS active when tracked), else the dply hostname. Internal
+     * calls (health, workers, DPLY_APP_URL) keep using edgeLiveUrl().
+     */
+    public function edgePublicUrl(): ?string
+    {
+        $host = $this->edgePrimaryDomain();
+        // A preview carries a copy of its parent's domains but never serves them.
+        $entry = $host !== null && ! $this->isEdgePreview()
+            ? ($this->edgeMeta()['routing']['custom_domains'][$host] ?? null)
+            : null;
+
+        return is_array($entry)
+            && ($entry['dns_status'] ?? null) === 'ready'
+            && in_array($entry['ssl_status'] ?? null, [null, '', 'active'], true)
+            ? 'https://'.$host
+            : $this->edgeLiveUrl();
+    }
+
+    /**
      * @return array<string, mixed>|null
      */
     public function edgeGuardrail(): ?array

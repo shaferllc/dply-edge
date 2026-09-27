@@ -27,7 +27,7 @@ final class EdgeContainerEnvDefaults
             is_file($checkout.'/artisan') => [
                 'APP_KEY' => 'base64:'.base64_encode(random_bytes(32)),
                 'APP_ENV' => 'production',
-                'APP_URL' => (string) ($site->edgeLiveUrl() ?? ''),
+                'APP_URL' => (string) ($site->edgePublicUrl() ?? ''),
                 ...self::sqliteDefaults($site, $env),
                 'LOG_CHANNEL' => 'stderr',
                 // No shared disk between containers: keep sessions in cookies.

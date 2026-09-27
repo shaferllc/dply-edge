@@ -381,6 +381,17 @@ final class EdgeCustomDomainProvisioner
         $removed = $domains[$hostname] ?? null;
         unset($domains[$hostname]);
 
+        // Losing the primary hands it to the next ready domain; with none
+        // left the key goes, so the next domain to go ready is picked again.
+        if (($routing['primary_domain'] ?? null) === $hostname) {
+            $next = array_key_first(array_filter($domains, static fn ($d): bool => is_array($d) && ($d['dns_status'] ?? null) === 'ready'));
+            if ($next === null) {
+                unset($routing['primary_domain']);
+            } else {
+                $routing['primary_domain'] = (string) $next;
+            }
+        }
+
         $routing['custom_domains'] = $domains;
         $meta['routing'] = $routing;
         $site->update(['meta' => array_merge(is_array($site->meta) ? $site->meta : [], ['edge' => $meta])]);
@@ -424,6 +435,13 @@ final class EdgeCustomDomainProvisioner
 
         $existing = is_array($domains[$hostname] ?? null) ? $domains[$hostname] : [];
         $domains[$hostname] = array_merge($existing, ['hostname' => $hostname], $patch);
+
+        // Every path to 'ready' comes through here. The first ready domain
+        // becomes the site's main URL unless one was chosen already; a null
+        // primary_domain means the owner chose the dply hostname.
+        if (($domains[$hostname]['dns_status'] ?? null) === 'ready' && ! array_key_exists('primary_domain', $routing)) {
+            $routing['primary_domain'] = $hostname;
+        }
 
         $routing['custom_domains'] = $domains;
         $meta['routing'] = $routing;

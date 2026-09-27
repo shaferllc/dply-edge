@@ -6,7 +6,7 @@
     $sidebarPrimaryHostname = optional($site->primaryDomain())->hostname
         ?? ($runtimePublication['hostname'] ?? null)
         ?? $site->name;
-    $sidebarVisitUrl = $sidebarEdgeLiveUrl ?: $site->visitUrl();
+    $sidebarVisitUrl = ($site->usesEdgeRuntime() ? $site->edgePublicUrl() : null) ?: $site->visitUrl();
     $sidebarUrlSeed = (string) ($sidebarPrimaryHostname ?: $site->name ?: $site->id);
     $sidebarCanRedeployEdge = is_string($sidebarEdgeLiveUrl)
         && $sidebarEdgeLiveUrl !== ''

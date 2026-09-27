@@ -2669,7 +2669,7 @@ class Resources extends Component
         }
         $cache = is_array($meta['cache'] ?? null) ? $meta['cache'] : [];
         $cacheMode = $this->draftCacheMode;
-        $hostname = (string) (parse_url((string) ($this->site->edgeLiveUrl() ?? ''), PHP_URL_HOST) ?: ($meta['routing']['hostname'] ?? ''));
+        $hostname = (string) (parse_url((string) ($this->site->edgePublicUrl() ?? ''), PHP_URL_HOST) ?: ($meta['routing']['hostname'] ?? ''));
         $storedDatabase = is_array($meta['database'] ?? null) ? $meta['database'] : [];
         $databaseEngine = $this->draftDatabase;
         $databaseCost = app(EdgeAppDatabaseCost::class);
