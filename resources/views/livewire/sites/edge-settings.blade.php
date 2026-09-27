@@ -32,10 +32,8 @@
 
                 @if ($sectionConsoleActionKinds !== [])
                     <div class="border-b border-brand-ink/10">
-                        @include('livewire.partials.console-action-banner-static', [
-                            'run' => $sectionConsoleActionRun,
-                            'kindLabels' => (array) config('console_actions.kinds', []),
-                        ])
+                        {{-- Own component: its poll re-renders the banner, not this shell. --}}
+                        @livewire('sites.edge.console-action-banner', ['site' => $site, 'kinds' => $sectionConsoleActionKinds], key('console-action-banner-'.$site->id.'-'.$section))
                     </div>
                 @endif
 
@@ -47,8 +45,6 @@
                 >
                     @if ($section === 'general')
                         @livewire('sites.edge.workspace.overview', ['server' => $server, 'site' => $site], key('edge-section-overview-'.$site->id))
-                    @elseif ($section === 'resources')
-                        @livewire('sites.edge.workspace.resources', ['server' => $server, 'site' => $site], key('edge-section-resources-'.$site->id))
                     @elseif ($section === 'deploys')
                         @livewire('sites.edge.workspace.deploys', ['server' => $server, 'site' => $site], key('edge-section-deploys-'.$site->id))
                     @elseif ($section === 'build')

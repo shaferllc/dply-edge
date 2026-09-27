@@ -1,0 +1,3 @@
+{{-- Tab strip for a sheet with several views. Children are buttons with
+     role="tab"; style the active one with aria-selected (Alpine x-bind). --}}
+<div role="tablist" {{ $attributes->merge(['class' => 'sticky top-[4.25rem] z-[5] -mx-5 flex gap-4 overflow-x-auto border-b border-brand-ink/10 bg-white/95 px-5 backdrop-blur dark:border-brand-mist/15 dark:bg-zinc-900/95 [&>[role=tab]]:-mb-px [&>[role=tab]]:shrink-0 [&>[role=tab]]:border-b-2 [&>[role=tab]]:border-transparent [&>[role=tab]]:py-2 [&>[role=tab]]:text-xs [&>[role=tab]]:font-semibold [&>[role=tab]]:text-brand-moss [&>[role=tab][aria-selected=true]]:border-brand-forest [&>[role=tab][aria-selected=true]]:text-brand-ink']) }}>{{ $slot }}</div>

@@ -149,6 +149,15 @@ class Databases extends Component
             return;
         }
 
+        // Projects still bound to it would deploy a binding to a missing database.
+        foreach ($database->organization->sites()->whereNotNull('edge_backend')->get() as $site) {
+            foreach (EdgeContainerConnections::for($site) as $connection) {
+                if ($connection['kind'] === 'sql' && $connection['target'] === $database->cloudflare_id) {
+                    EdgeContainerConnections::detach($site, $connection['name']);
+                }
+            }
+        }
+
         audit_log($database->organization, auth()->user(), 'database.deleted', $database, null, ['name' => $database->name]);
         $database->delete();
         $this->selected = '';

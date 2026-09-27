@@ -413,8 +413,7 @@ Match remaining questions to the layer that still exists:
   one rule for whether an app gets `REDIS_*`, and queue workers use it too.
   Valkey evicts `volatile-lru` when full (cache entries with a TTL go, queue
   lists stay); Redis queue workers block for jobs (`block_for` 5, set by
-  dply/laravel). The gateway hop costs ~1.2 ms; distance is the rest. **Managed HTTP queues** use QStash the
-  same way. **Postgres, MySQL and MongoDB** are dply databases (one pod each on
+  dply/laravel). The gateway hop costs ~1.2 ms; distance is the rest. **Postgres, MySQL and MongoDB** are dply databases (one pod each on
   the dply-pods cluster, `EdgeDplyDatabase`; Neon and PlanetScale were removed
   2026-09-25), shown as **Coming soon** when the gateway is not configured. One **Database**
   tile is enough — do not offer separate SQL-database / connection-pool
@@ -578,7 +577,7 @@ Match remaining questions to the layer that still exists:
   stay free.**   Customer-facing compute pricing **never shows platform margin**;
   cost figures are **estimates**, and sleep/savings context belongs beside them
   where helpful. Larger compute tiers should carry a **lower** relative take so
-  bigger apps stay competitive.   **Managed Redis, KV, QStash queues, and app databases (Postgres/MySQL)** are
+  bigger apps stay competitive.   **Managed Redis, KV, and app databases (Postgres/MySQL)** are
   billed the same way — meter usage, apply markup, never show the platform take
   or the underlying vendor name to customers.
 - **Lifecycle:** `StandardSubscriptionCreator` **will not create** a

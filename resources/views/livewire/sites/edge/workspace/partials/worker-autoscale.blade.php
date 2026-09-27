@@ -15,7 +15,7 @@
             $steps[] = $x($p).','.$y; $prev = $y;
         }
     @endphp
-    <figure class="mt-2">
+    <figure class="mt-3">
         <svg viewBox="0 0 {{ $chartW }} {{ $chartH }}" class="h-11 w-full" preserveAspectRatio="none" role="img" aria-label="{{ __('Workers and waiting jobs over the last :h hours', ['h' => max(1, (int) round($span / 3600))]) }}">
             <polygon points="0,{{ $chartH }} {{ $backlogPts }} {{ $chartW }},{{ $chartH }}" class="fill-amber-400/25" />
             <polyline points="{{ $backlogPts }}" fill="none" class="stroke-amber-500" stroke-width="1" vector-effect="non-scaling-stroke" />
@@ -28,7 +28,7 @@
     </figure>
 @endif
 @if (is_array($scaler))
-    <p @class(['mt-1', 'text-red-700 dark:text-red-400' => $scaler['error'] ?? null, 'text-brand-moss' => ! ($scaler['error'] ?? null)])>
+    <p @class(['mt-1.5 text-2xs', 'text-rose-700 dark:text-rose-300' => $scaler['error'] ?? null, 'text-brand-moss' => ! ($scaler['error'] ?? null)])>
         {{ $labelled ? '['.$label.'] ' : '' }}{{ ($scaler['error'] ?? null)
             ? __('Autoscaler: :error', ['error' => $scaler['error']])
             : __('Autoscaler: :count running for :backlog waiting:oldest · :ago', ['count' => $scaler['count'] ?? '?', 'backlog' => $scaler['backlog'] ?? '?', 'oldest' => isset($scaler['oldest_age']) ? __(', oldest :s s', ['s' => $scaler['oldest_age']]) : '', 'ago' => \Illuminate\Support\Carbon::createFromTimestamp($scaler['at'] ?? time())->diffForHumans()]) }}

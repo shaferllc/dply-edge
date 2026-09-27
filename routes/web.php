@@ -47,7 +47,6 @@ use App\Livewire\Teams\NotificationChannels as TeamsNotificationChannels;
 use App\Livewire\TwoFactor\Page as TwoFactorPage;
 use App\Modules\Billing\Livewire\Show as BillingShow;
 use App\Modules\Edge\Http\Controllers\EdgeAuditLogExportController;
-use App\Modules\Edge\Http\Controllers\EdgeDeliveryUsageHookController;
 use App\Modules\Edge\Http\Controllers\EdgeDeployHookController;
 use App\Modules\Edge\Http\Controllers\EdgeLiveAccessLogPollController;
 use App\Modules\Edge\Http\Controllers\EdgeLogCsvDownloadController;
@@ -84,10 +83,6 @@ Route::get('/_redis-unreachable', function () {
         'timeout' => (string) config('database.redis.default.timeout', '2.0'),
     ], 503);
 })->withoutMiddleware(['web']);
-
-Route::post('/hooks/edge/{site}/delivery', EdgeDeliveryUsageHookController::class)
-    ->middleware(['throttle:site-webhook'])
-    ->name('hooks.edge.delivery');
 
 Route::match(['post', 'options'], '/hooks/edge/{site}/github', GithubEdgeWebhookController::class)
     ->middleware(['throttle:site-webhook'])

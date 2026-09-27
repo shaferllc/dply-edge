@@ -77,10 +77,12 @@ test('status pill renders for active site with live url', function () {
         ->get(route('dashboard'))
         ->assertSee('Active')
         ->assertSee('live-app.dply.host')
-        ->assertSee('acme/web@main')
+        // The card names the repo; the branch sits on its production lane.
+        ->assertSee('acme/web')
+        ->assertSee('main')
         ->assertSee('Requests')
         ->assertSee('Bandwidth')
-        ->assertSee('Last deploy')
+        ->assertSee('1 deployment')
         ->assertDontSee('All sites');
 });
 

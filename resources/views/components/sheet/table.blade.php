@@ -1,0 +1,3 @@
+{{-- Wraps a plain <table>: bordered, scrolls sideways when wide, header row
+     tinted and sticky, rows divided. Write normal <thead>/<tbody>/<th>/<td>. --}}
+<div {{ $attributes->merge(['class' => 'overflow-x-auto rounded-xl border border-brand-ink/10 dark:border-brand-mist/15 [&_table]:w-full [&_table]:text-left [&_table]:text-xs [&_thead]:sticky [&_thead]:top-0 [&_thead]:bg-brand-sand/40 dark:[&_thead]:bg-zinc-800 [&_th]:whitespace-nowrap [&_th]:px-3 [&_th]:py-2 [&_th]:text-2xs [&_th]:font-semibold [&_th]:uppercase [&_th]:tracking-[0.12em] [&_th]:text-brand-mist [&_td]:px-3 [&_td]:py-2 [&_td]:align-top [&_td]:text-brand-ink [&_tbody_tr]:border-t [&_tbody_tr]:border-brand-ink/10 dark:[&_tbody_tr]:border-brand-mist/15']) }}>{{ $slot }}</div>

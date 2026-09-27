@@ -1,16 +1,14 @@
-{{-- Overview service map: the app drawn the way a request travels, each box
-     carrying its own live detail (a small chart, sleep window, backup age).
+{{-- Overview, under the resource map (Resources component): requests per day,
+     the live request tail, and what is serving.
      Data: App\Support\Sites\EdgeServiceMap — stored config and samples only. --}}
 @php
     use App\Support\Sites\EdgeServiceMap;
 
     $map = EdgeServiceMap::for($site);
     $link = fn (string $section) => route('sites.show', ['server' => $server, 'site' => $site, 'section' => $section]);
-    $hasData = $map['database'] !== null || $map['stores'] !== [];
     $source = is_array($site->edgeMeta()['source'] ?? null) ? $site->edgeMeta()['source'] : [];
     $pollUrl = route('sites.edge.logs.live', ['server' => $server, 'site' => $site]);
 
-    $node = 'group block rounded-2xl border border-brand-ink/15 bg-white p-3.5 transition hover:-translate-y-px hover:border-brand-ink/40 dark:border-brand-mist/20 dark:bg-zinc-900 dark:hover:border-brand-mist/50';
     $label = 'text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist';
     $pill = fn (string $text, string $tone) => '<span class="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-2xs font-semibold '.match ($tone) {
         'ok' => 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
@@ -18,136 +16,13 @@
         'warn' => 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
         default => 'bg-brand-sand/40 text-brand-moss',
     }.'"><span class="h-1.5 w-1.5 rounded-full bg-current'.($tone === 'ok' ? ' animate-pulse' : '').'"></span>'.e($text).'</span>';
-    $mini = function (array $values, ?float $ceiling = null) {
-        $line = EdgeServiceMap::path($values, 120, 28, ceiling: $ceiling);
-        if ($line === null) {
-            return '';
-        }
-
-        return '<svg viewBox="0 0 120 28" preserveAspectRatio="none" class="mt-2.5 block h-7 w-full" aria-hidden="true"><path d="'.EdgeServiceMap::path($values, 120, 28, true, $ceiling).'" class="fill-brand-forest/10"></path><path d="'.$line.'" fill="none" class="stroke-brand-forest" stroke-width="1.5" vector-effect="non-scaling-stroke"></path></svg>';
-    };
-    $hFlow = '<svg viewBox="0 0 40 100" preserveAspectRatio="none" class="hidden h-full min-h-10 w-full lg:block" aria-hidden="true"><path d="M0 50 H40" class="dply-flow stroke-brand-forest"></path></svg>';
-    $vFlow = '<svg viewBox="0 0 20 28" class="mx-auto block h-7 w-5 lg:hidden" aria-hidden="true"><path d="M10 0 V28" class="dply-flow stroke-brand-forest"></path></svg>';
     $chart = EdgeServiceMap::path($map['requests'], 300, 110);
     $chartArea = EdgeServiceMap::path($map['requests'], 300, 110, true);
     $serving = $map['serving'];
 @endphp
 
-<section class="border-b border-brand-ink/10" aria-label="{{ __('Service map') }}">
-    <div @class([
-        'grid grid-cols-1 items-center bg-[radial-gradient(circle_at_1px_1px,rgb(23_26_14/0.12)_1px,transparent_0)] bg-[length:18px_18px] px-5 py-6 sm:px-6 lg:py-8 dark:bg-[radial-gradient(circle_at_1px_1px,rgb(232_236_227/0.10)_1px,transparent_0)]',
-        'lg:grid-cols-[minmax(0,0.7fr)_40px_minmax(0,1.1fr)_40px_minmax(0,1.3fr)_48px_minmax(0,1.2fr)]' => $hasData,
-        'lg:grid-cols-[minmax(0,0.7fr)_40px_minmax(0,1.2fr)_40px_minmax(0,1.3fr)]' => ! $hasData,
-    ])>
-        {{-- Visitors --}}
-        <div class="text-center text-xs text-brand-moss">
-            <div class="mx-auto mb-2 grid h-14 w-14 place-items-center rounded-full border border-brand-ink/15 bg-[repeating-radial-gradient(circle,transparent_0_8px,rgb(23_26_14/0.06)_8px_9px)] font-mono text-2xs text-brand-mist dark:border-brand-mist/20">
-                {{ $map['placement']['region'] ?? '' }}
-            </div>
-            <span class="block font-mono text-lg font-bold tabular-nums text-brand-ink">{{ \Illuminate\Support\Number::abbreviate($map['requests30d'], maxPrecision: 1) }}</span>
-            {{ __('requests, 30 days') }}
-        </div>
-
-        {!! $hFlow !!}{!! $vFlow !!}
-
-        {{-- Edge --}}
-        <a href="{{ $link('traffic') }}" wire:navigate class="{{ $node }}">
-            <div class="flex items-center justify-between gap-2"><span class="{{ $label }}">{{ __('Edge') }}</span>{!! $edgeLiveUrl ? $pill(__('Routing'), 'ok') : $pill(__('Pending'), 'off') !!}</div>
-            <p class="mt-1.5 break-all font-mono text-xs font-semibold text-brand-ink">{{ $edgeLiveUrl ? preg_replace('#^https?://#', '', $edgeLiveUrl) : __('No URL yet') }}</p>
-            <div class="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-2xs text-brand-mist">
-                @if ($map['placement'])
-                    @if ($map['placement']['rtt'] !== null)<span><b class="text-brand-ink">{{ $map['placement']['rtt'] }}</b> ms RTT</span>@endif
-                    <span><b class="text-brand-ink">{{ $map['placement']['location'] }}</b></span>
-                @endif
-                <span><b class="text-brand-ink">{{ number_format($map['requestsToday']) }}</b> {{ __('req today') }}</span>
-            </div>
-            {!! $mini($map['requests']) !!}
-        </a>
-
-        {!! $hFlow !!}{!! $vFlow !!}
-
-        {{-- Runtime --}}
-        <div class="grid gap-3">
-            @if ($map['container'])
-                @php $c = $map['container']; @endphp
-                <a href="{{ $link('container') }}" wire:navigate class="{{ $node }} border-brand-forest ring-4 ring-brand-forest/10 dark:border-brand-forest">
-                    <div class="flex items-center justify-between gap-2"><span class="{{ $label }}">{{ __('Container') }}</span>{!! $edgeActiveDeploymentId ? $pill(__('Running'), 'ok') : $pill(__('Not deployed'), 'off') !!}</div>
-                    <p class="mt-1.5 text-sm font-bold text-brand-ink">{{ $map['framework'] ?? __('App') }} · {{ $c['type'] }}</p>
-                    <div class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-2xs text-brand-mist">
-                        @if ($c['memMb'] !== null)<span><b class="text-brand-ink">{{ $c['memMb'] }}</b> MB {{ __('of') }} {{ rtrim(rtrim(number_format($c['memGib'], 2), '0'), '.') }} GiB</span>@endif
-                        <span>{{ trans_choice('up to :count instance|up to :count instances', $c['maxInstances'], ['count' => $c['maxInstances']]) }}</span>
-                    </div>
-                    {!! $mini($c['memSeries'], $c['memGib'] * 1024) !!}
-                    @if ($c['sleepAfter'] !== '')
-                        <p class="mt-2 flex items-center gap-1.5 text-2xs text-brand-moss"><x-heroicon-o-moon class="h-3.5 w-3.5 text-violet-500" aria-hidden="true" />{{ __('Sleeps after :time idle', ['time' => EdgeServiceMap::duration($c['sleepAfter'])]) }}</p>
-                    @endif
-                </a>
-                @if ($map['workers'])
-                    @php $w = $map['workers']; @endphp
-                    <a href="{{ $link('resources') }}" wire:navigate class="{{ $node }}">
-                        <div class="flex items-center justify-between gap-2"><span class="{{ $label }}">{{ __('Queue workers') }}</span>{!! $w['paused'] ? $pill(__('Paused'), 'warn') : $pill(__('Running'), 'ok') !!}</div>
-                        <p class="mt-1.5 text-sm font-bold text-brand-ink">{{ trans_choice(':count process|:count processes', $w['processes'], ['count' => $w['processes']]) }} · <span class="font-mono font-normal text-brand-moss">{{ $w['queues'] }}</span></p>
-                        <p class="mt-1 text-xs text-brand-moss">
-                            {{ $w['autoscale'] ? __('Autoscales to :count instances', ['count' => $w['maxInstances']]) : __('Fixed size') }}
-                            @unless ($w['scheduler']) · <span class="text-amber-700 dark:text-amber-300">{{ __('scheduler off') }}</span>@endunless
-                        </p>
-                    </a>
-                @endif
-            @else
-                <a href="{{ $link('build') }}" wire:navigate class="{{ $node }} border-brand-forest ring-4 ring-brand-forest/10 dark:border-brand-forest">
-                    <div class="flex items-center justify-between gap-2">
-                        <span class="{{ $label }}">{{ $map['runtime'] === 'static' ? __('Static assets') : __('Worker') }}</span>
-                        {!! $edgeActiveDeploymentId ? $pill(__('Serving'), 'ok') : $pill(__('Not deployed'), 'off') !!}
-                    </div>
-                    <p class="mt-1.5 text-sm font-bold text-brand-ink">{{ $map['framework'] ?? __('Auto-detected') }}</p>
-                    <p class="mt-1 text-xs text-brand-moss">{{ ['hybrid' => __('Static assets plus server routes on Workers'), 'ssr' => __('Server-rendered on Workers')][$map['runtime']] ?? __('Files served from the edge cache') }}</p>
-                </a>
-            @endif
-        </div>
-
-        @if ($hasData)
-            <svg viewBox="0 0 48 200" preserveAspectRatio="none" class="hidden h-full min-h-24 w-full lg:block" aria-hidden="true">
-                <path d="M0 100 C24 100 24 50 48 50" class="dply-flow stroke-brand-forest"></path>
-                @if ($map['database'] && $map['stores'] !== [])
-                    <path d="M0 100 C24 100 24 150 48 150" class="dply-flow stroke-brand-mist"></path>
-                @endif
-            </svg>
-            {!! $vFlow !!}
-
-            {{-- Data --}}
-            <div class="grid gap-3">
-                @if ($map['database'])
-                    @php $d = $map['database']; @endphp
-                    <a href="{{ $link('resources') }}" wire:navigate class="{{ $node }}">
-                        <div class="flex items-center justify-between gap-2"><span class="{{ $label }}">{{ $d['engine'] }}</span>{!! $pill($d['status'] === 'ready' ? __('Ready') : (string) str($d['status'] ?: __('Unknown'))->headline(), $d['status'] === 'ready' ? 'ok' : 'warn') !!}</div>
-                        <p class="mt-1.5 text-sm font-bold text-brand-ink">{{ $d['name'] ?: __('Database') }}</p>
-                        <p class="mt-0.5 text-xs text-brand-moss">
-                            {{ collect([$d['plan'] !== '' ? __(':plan plan', ['plan' => ucfirst($d['plan'])]) : null, $d['diskGb'] ? $d['diskGb'].' GB '.__('disk') : null])->filter()->implode(' · ') }}
-                        </p>
-                        <div class="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-2xs text-brand-mist">
-                            <span>{{ __('backup') }} <b class="text-brand-ink">{{ $d['backupAt']?->diffForHumans(short: true) ?? __('none') }}</b></span>
-                            @if ($d['logAt'])<span>PITR <b class="text-brand-ink">{{ $d['logAt']->diffForHumans(short: true) }}</b></span>@endif
-                        </div>
-                        @if ($d['suspend'])
-                            <p class="mt-2 flex items-center gap-1.5 text-2xs text-brand-moss"><x-heroicon-o-moon class="h-3.5 w-3.5 text-violet-500" aria-hidden="true" />{{ __('Suspends after :time idle', ['time' => EdgeServiceMap::duration(intdiv($d['suspend'], 60).'m')]) }}</p>
-                        @endif
-                    </a>
-                @endif
-                @foreach ($map['stores'] as $store)
-                    <a href="{{ $link('resources') }}" wire:navigate class="{{ $node }}">
-                        <div class="flex items-center justify-between gap-2"><span class="{{ $label }}">{{ __('Valkey') }}</span>{!! $store['asleep'] ? $pill(__('Asleep'), 'sleep') : $pill(__('Awake'), 'ok') !!}</div>
-                        <p class="mt-1.5 font-mono text-sm font-bold text-brand-ink">{{ $store['name'] }}</p>
-                        <p class="mt-0.5 text-xs text-brand-moss">{{ $store['plan'] }}</p>
-                        @if ($store['sleepAfter'])
-                            <p class="mt-2 flex items-center gap-1.5 text-2xs text-brand-moss"><x-heroicon-o-moon class="h-3.5 w-3.5 text-violet-500" aria-hidden="true" />{{ $store['asleep'] ? __('Wakes on the first command') : __('Sleeps after :time idle', ['time' => EdgeServiceMap::duration(intdiv($store['sleepAfter'], 60).'m')]) }}</p>
-                        @endif
-                    </a>
-                @endforeach
-            </div>
-        @endif
-    </div>
-
-    <div class="grid border-t border-brand-ink/10 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] dark:border-brand-mist/15">
+<section class="border-b border-brand-ink/10" aria-label="{{ __('Traffic and deploys') }}">
+    <div class="grid lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
         <div class="px-5 py-5 sm:px-6">
             <p class="{{ $label }}">{{ __('Requests per day') }}</p>
             <p class="mt-1 font-mono text-2xl font-bold tabular-nums text-brand-ink">

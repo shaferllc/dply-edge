@@ -15,7 +15,6 @@ use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
 use App\Modules\Billing\Models\Subscription;
-use App\Modules\Billing\Services\EdgeDeliveryCost;
 use App\Modules\Billing\Services\EdgeKvCost;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Services\EdgeKvUsageCollector;
@@ -245,11 +244,50 @@ test('logs load from workers observability for the container script', function (
     Http::assertSent(fn ($request) => str_ends_with($request->url(), '/telemetry/query') && $request['parameters']['filters'][0]['value'] === 'dply-ctr-'.strtolower((string) $site->id));
 });
 
+test('a sheet body renders when the sheet first opens, not with the page', function () {
+    [$user, $server, $site] = containerSite();
+
+    $page = Livewire::actingAs($user)->test(Resources::class, ['server' => $server, 'site' => $site]);
+    // The app sheet's shell is there to slide in; its body (and the sleep sheet in its island) is not.
+    $pending = '<div data-sheet-pending';
+    expect(substr_count($page->html(), $pending))->toBeGreaterThan(10);
+    $page->assertSeeHtml('resources-app')->assertDontSeeHtml('id="res-rollout-steps"');
+
+    $page->openSheet('resources-app')->assertSeeHtml('id="res-rollout-steps"');
+    expect($page->effects['islandFragments'][0])->toContain('name=resources-app|')->not->toContain($pending);
+});
+
+test('an action in a sheet re-renders only its island and the map', function () {
+    [$user, $server, $site] = containerSite();
+    // What the browser sends for a click inside the app sheet.
+    $inAppSheet = fn (string $method, array $params = []) => [['method' => $method, 'params' => $params, 'path' => '', 'metadata' => ['island' => ['name' => 'resources-app', 'mode' => 'morph']]]];
+
+    $component = Livewire::actingAs($user)
+        ->test(Resources::class, ['server' => $server, 'site' => $site])
+        ->update(calls: $inAppSheet('selectInstances', [3]));
+
+    [$sheet, $map] = $component->effects['islandFragments'];
+    expect($component->effects)->not->toHaveKey('html')
+        ->and($component->effects['islandFragments'])->toHaveCount(2)
+        ->and($sheet)->toContain('name=resources-app|')
+        ->and($map)->toContain('name=map|')->toContain('3 instances');
+
+    // Two calls in one request: the islands show the second.
+    $component->update(calls: [...$inAppSheet('selectInstances', [3]), ...$inAppSheet('selectInstances', [5])]);
+    expect($component->effects['islandFragments'])->toHaveCount(2)
+        ->and($component->effects['islandFragments'][1])->toContain('5 instances');
+
+    // A validation error lands in the sheet's island.
+    $component->update(calls: $inAppSheet('saveRuntime'), updates: ['sleepAfter' => 'forever']);
+    expect($component->effects['islandFragments'][0])->toContain('The selected sleep after is invalid.');
+});
+
 test('state is one durable object the app calls by host', function () {
     [$user, $server, $site] = containerSite();
 
     Livewire::actingAs($user)
         ->test(Resources::class, ['server' => $server, 'site' => $site])
+        ->openSheet('resources-connection')
         ->assertSee('State')
         ->assertSee('Redis')
         ->set('connectionKind', 'durable_object')
@@ -533,56 +571,6 @@ test('an asleep key value store drops its env and is not billed', function () {
         ->assertSee('Cost estimate · $0.00');
 
     Http::assertNotSent(fn ($request): bool => $request->method() === 'PUT');
-});
-
-test('http delivery requires a card and bills messages', function () {
-    config([
-        'edge.upstash.email' => 'ops@example.com',
-        'edge.upstash.api_key' => 'secret-key',
-        'edge.upstash.qstash_token' => 'qstash-token',
-        'dply.edge.usage_billing.delivery_messages_millicents_per_100k' => 200_000,
-        'dply.edge.usage_billing.delivery_bandwidth_millicents_per_gb' => 10_000,
-    ]);
-    Http::fake(function ($request) {
-        if (str_contains($request->url(), '/qstash/users')) {
-            return Http::response([['id' => 'qstash-user', 'type' => 'free', 'reserved_type' => '']]);
-        }
-
-        return Http::response('OK');
-    });
-    [$user, $server, $site] = containerSite();
-
-    Livewire::actingAs($user)
-        ->test(Resources::class, ['server' => $server, 'site' => $site])
-        ->set('connectionKind', 'http_delivery')
-        ->set('connectionMode', 'create')
-        ->set('connectionLabel', 'Hooks')
-        ->call('saveConnection')
-        ->assertHasErrors('connection')
-        ->assertSee('Add a card before starting HTTP delivery');
-
-    Http::assertNothingSent();
-
-    config(['subscription.standard.stripe.tier_pro' => 'price_tier_pro']);
-    Subscription::factory()->withPrice('price_tier_pro')->active()->create(['organization_id' => $site->organization_id]);
-
-    Livewire::actingAs($user)
-        ->test(Resources::class, ['server' => $server, 'site' => $site->fresh()])
-        ->set('connectionKind', 'http_delivery')
-        ->set('connectionMode', 'create')
-        ->set('connectionLabel', 'Hooks')
-        ->call('saveConnection')
-        ->assertHasNoErrors();
-
-    expect(EdgeContainerConnections::for($site->fresh())[0]['kind'])->toBe('http_delivery')
-        ->and(app(EdgeDeliveryCost::class)->cents(100_000, 0))->toBe(200)
-        ->and(app(EdgeDeliveryCost::class)->cents(0, 2 * 1024 ** 3))->toBe(10);
-
-    $this->post(route('hooks.edge.delivery', $site), ['messages' => 1, 'bytes' => 40], [
-        'x-dply-queue-token' => EdgeContainerDeployer::queueToken($site),
-    ])->assertNoContent();
-
-    expect(app(EdgeDeliveryCost::class)->forOrganization($site->organization, now()->startOfMonth(), now()->endOfMonth())['cents'])->toBe(1);
 });
 
 test('starting redis starts a dply Valkey and stores its address', function () {

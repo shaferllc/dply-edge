@@ -1,5 +1,7 @@
 <?php
 
+use Livewire\Features\SupportTesting\ComponentState;
+use Livewire\Features\SupportTesting\Testable;
 use Tests\Concerns\FakesBackgroundWork;
 use Tests\TestCase;
 
@@ -60,6 +62,26 @@ pest()->group('arch')->in('Arch');
 | Storage directory (~/.pest/tia/<key>):     ./vendor/bin/pest --baseline
 */
 pest()->tia()->locally();
+
+/*
+| Open a sheet on the edge Resources page as the browser does: the first
+| render only carries each sheet's empty shell (a skipped Livewire island),
+| and opening it renders that island. Morph the fragments into html() the
+| way the browser does, so assertSee() sees the sheet.
+*/
+Testable::macro('openSheet', function (string $island): Testable {
+    $html = $this->html();
+    $this->update(calls: [['method' => '$refresh', 'params' => [], 'path' => '', 'metadata' => ['island' => ['name' => $island, 'mode' => 'morph']]]]);
+    foreach ($this->effects['islandFragments'] ?? [] as $fragment) {
+        preg_match('/token=([^|\]]+)/', $fragment, $token);
+        $marker = '<!--\[if (?:END)?FRAGMENT:[^\]]*token='.preg_quote($token[1], '/').'\|[^\]]*\]><!\[endif\]-->';
+        $html = preg_replace_callback("/{$marker}.*?{$marker}/s", fn () => $fragment, $html, 1);
+    }
+    $state = $this->lastState;
+    $this->lastState = new ComponentState($state->getComponent(), $state->getResponse(), $state->getView(), $html, $state->getSnapshot(), $state->getEffects());
+
+    return $this;
+});
 
 /*
 |--------------------------------------------------------------------------

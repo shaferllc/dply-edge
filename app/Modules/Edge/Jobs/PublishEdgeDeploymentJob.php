@@ -17,6 +17,7 @@ use App\Modules\Edge\Services\EdgeSsrBundleUploader;
 use App\Modules\Edge\Services\EdgeTestingHostnameProvisioner;
 use App\Modules\Edge\Services\EnsureEdgeRepoDomains;
 use App\Modules\Edge\Services\OriginHealthcheckRunner;
+use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\FakeEdgeProvision;
 use App\Modules\Notifications\Services\NotificationPublisher;
 use App\Support\ProductLine\ProductLineKillSwitches;
@@ -205,6 +206,13 @@ class PublishEdgeDeploymentJob implements ShouldQueue
 
             if (($site->edgeMeta()['runtime_mode'] ?? '') === 'container' && ! FakeEdgeProvision::enabled()) {
                 CheckEdgeContainerHealthJob::dispatch((string) $deployment->id)->delay(now()->addSeconds(20));
+            }
+
+            try {
+                // Resources detached before this deploy are no longer bound: delete them now.
+                EdgeContainerConnections::deletePending($site->fresh());
+            } catch (Throwable $e) {
+                report($e);
             }
 
             try {

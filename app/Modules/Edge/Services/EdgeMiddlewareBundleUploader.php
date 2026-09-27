@@ -279,6 +279,8 @@ class EdgeMiddlewareBundleUploader
                     'text' => $value,
                 ];
             }
+            // Realtime env after the site's own, skipping names it already set.
+            $bindings = [...$bindings, ...EdgeContainerConnections::realtimeWorkerBindings($site, array_column($bindings, 'name'))];
         }
 
         return $bindings;

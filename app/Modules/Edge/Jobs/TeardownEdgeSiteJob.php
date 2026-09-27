@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Jobs;
 
+use App\Models\EdgeRealtimeApp;
 use App\Models\Server;
 use App\Models\Site;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
@@ -12,6 +13,7 @@ use App\Modules\Edge\Services\EdgeMiddlewareBundleUploader;
 use App\Modules\Edge\Services\EdgeRouter;
 use App\Modules\Edge\Services\EdgeSsrBundleUploader;
 use App\Modules\Edge\Services\EdgeStateScript;
+use App\Modules\Edge\Services\Realtime\EdgeRealtimeApps;
 use App\Modules\Edge\Support\FakeEdgeProvision;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Bus\Queueable;
@@ -84,6 +86,16 @@ class TeardownEdgeSiteJob implements ShouldQueue
                 // Best-effort, like the SSR scripts above.
             }
         }
+
+        // Realtime apps: close sockets and drop the relay's KV record before
+        // the row loses its site_id (nullOnDelete), or the app stays live.
+        EdgeRealtimeApp::query()->where('site_id', $site->id)->each(function (EdgeRealtimeApp $app): void {
+            try {
+                app(EdgeRealtimeApps::class)->destroy($app);
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        });
 
         $backend?->unpublish($site);
 

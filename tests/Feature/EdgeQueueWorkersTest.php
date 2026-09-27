@@ -156,11 +156,12 @@ test('queue workers are added, configured and saved with the redeploy', function
     $app->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
 
     Livewire::actingAs($user)->test(Resources::class, ['server' => $app->server, 'site' => $app])
+        ->openSheet('resources-connection')
         ->assertSee('Queue workers')
         ->call('addWorkers')
         ->assertSet('workers.enabled', true)
         ->assertSet('workers.processes', 3) // basic, 1 GiB: three per GiB
-        ->assertSet('pending', true)
+        ->assertSet('pending', false) // saved as it changes; the redeploy applies it
         ->set('workers.instances', 2)
         ->set('workers.queues', 'emails,default')
         ->assertSee('Check workers')
@@ -171,14 +172,15 @@ test('queue workers are added, configured and saved with the redeploy', function
     expect($app->fresh()->edgeMeta()['container']['workers'])->toMatchArray(['enabled' => true, 'instances' => 2, 'queues' => 'emails,default'])
         ->and(EdgeContainerSettings::for($app->fresh())['worker_instances'])->toBe(2);
 
-    // Removing saved workers is a change to save.
+    // Removing workers saves at once too.
     Livewire::actingAs($user)->test(Resources::class, ['server' => $app->server, 'site' => $app->fresh()])
         ->assertSet('workers.enabled', true)
         ->call('removeWorkers')
         ->assertSet('workers.enabled', false)
-        ->assertSet('pending', true);
+        ->assertSet('pending', false);
+    expect(EdgeQueueWorkers::for($app->fresh())['enabled'])->toBeFalse();
 
-    // Undoing an unsaved add leaves nothing pending.
+    // Adding then removing leaves nothing pending.
     $other = laravelApp([], $app->organization);
     $other->forceFill(['user_id' => $user->id, 'type' => SiteType::Static, 'status' => Site::STATUS_EDGE_ACTIVE])->save();
     $other->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
@@ -322,6 +324,7 @@ test('the scaler scales up at once and down only after the queue stays quiet', f
     $app->forceFill(['user_id' => $user->id, 'type' => SiteType::Static, 'status' => Site::STATUS_EDGE_ACTIVE])->save();
     $app->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
     Livewire::actingAs($user)->test(Resources::class, ['server' => $app->server, 'site' => $app->fresh()])
+        ->openSheet('resources-workers')
         ->assertSee('workers, up to 3')
         ->assertSee('waiting, peak 45');
 });
@@ -366,6 +369,7 @@ test('workers on a sleeping database can switch to dply Valkey', function () {
     $app->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
 
     Livewire::actingAs($user)->test(Resources::class, ['server' => $app->server, 'site' => $app])
+        ->openSheet('resources-workers')
         ->assertSee('Queue on dply Valkey instead')
         ->call('useValkeyForWorkers')
         ->assertSet('workers.connection', 'redis')
@@ -527,12 +531,14 @@ test('the app card shows where the app runs and flags a placement far from its d
     $app->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
 
     Livewire::actingAs($user)->test(Resources::class, ['server' => $app->server, 'site' => $app])
+        ->openSheet('resources-app')
         ->assertSee('Running in yyz04 (ENAM), 52.4 ms to the database.')
         ->assertSee('That is far: redeploy to be placed again.');
 
     $app->mergeEdgeMeta(['placement' => ['location' => 'ewr05', 'region' => 'ENAM', 'rtt_ms' => 13.0, 'at' => now()->getTimestamp()]]);
     $app->save();
     Livewire::actingAs($user)->test(Resources::class, ['server' => $app->server, 'site' => $app->fresh()])
+        ->openSheet('resources-app')
         ->assertSee('Running in ewr05 (ENAM), 13 ms to the database.')
         ->assertDontSee('That is far');
 });
@@ -663,10 +669,11 @@ test('groups are added, edited and saved from the card', function () {
     $app->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
 
     Livewire::actingAs($user)->test(Resources::class, ['server' => $app->server, 'site' => $app])
+        ->openSheet('resources-workers')
         ->assertSee('Add a group')
         ->call('addWorkerGroup')
         ->assertSet('workers.groups.0.queues', 'high')
-        ->assertSet('pending', true)
+        ->assertSet('pending', false)
         ->set('workers.groups.0.instances', 2)
         ->set('workers.groups.0.autoscale', true)
         ->set('workers.groups.0.max_instances', 4)
@@ -682,7 +689,8 @@ test('groups are added, edited and saved from the card', function () {
     Livewire::actingAs($user)->test(Resources::class, ['server' => $app->server, 'site' => $app->fresh()])
         ->call('removeWorkerGroup', 0)
         ->assertSet('workers.groups', [])
-        ->assertSet('pending', true);
+        ->assertSet('pending', false);
+    expect(array_column(EdgeQueueWorkers::groups($app->fresh()), 'key'))->toBe(['']);
 });
 
 test('each autoscaling group gets its own chart and status', function () {
@@ -701,6 +709,7 @@ test('each autoscaling group gets its own chart and status', function () {
     Cache::put($S::stateKey($app, 'high'), ['count' => 2, 'backlog' => 250, 'oldest_age' => 12, 'at' => $t, 'error' => null], 3600);
 
     Livewire::actingAs($user)->test(Resources::class, ['server' => $app->server, 'site' => $app])
+        ->openSheet('resources-workers')
         ->assertSee('waiting, peak 80')
         ->assertSee('waiting, peak 250')
         ->assertSee('[high] Autoscaler: 2 running for 250 waiting, oldest 12 s', false);
@@ -743,7 +752,7 @@ test('the scheduler runs in worker-0 when the app has workers, otherwise on a Cr
 });
 
 test('the scheduler is a resource: added from the picker, run on demand, removed', function () {
-    $app = laravelApp(['live_url' => 'https://shop.on-dply.live', 'container' => ['workers' => ['enabled' => true]]]);
+    $app = laravelApp(['live_url' => 'https://shop.on-dply.live', 'database' => ['engine' => 'sql', 'provider' => null], 'connections' => [['kind' => 'redis', 'name' => 'REDIS', 'host' => 'redis.internal', 'target' => 'dply-valkey:x']], 'container' => ['workers' => ['enabled' => true]]]);
     $user = User::factory()->create();
     $app->organization->users()->attach($user->id, ['role' => 'owner']);
     $app->forceFill(['user_id' => $user->id, 'type' => SiteType::Static, 'status' => Site::STATUS_EDGE_ACTIVE])->save();
@@ -753,7 +762,7 @@ test('the scheduler is a resource: added from the picker, run on demand, removed
     Livewire::actingAs($user)->test(Resources::class, ['server' => $app->server, 'site' => $app])
         ->call('addScheduler')
         ->assertSet('scheduler', true)
-        ->assertSet('pending', true)
+        ->assertSet('pending', false)
         ->assertSee('Runs in worker-0 beside the queue workers')
         ->call('runSchedulerNow')
         ->assertSee('Running [reports:send] .... DONE')
@@ -816,6 +825,7 @@ test('the card says what the plan allows and does not offer more', function () {
     $app->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
 
     Livewire::actingAs($user)->test(Resources::class, ['server' => $app->server, 'site' => $app])
+        ->openSheet('resources-workers')
         ->assertSee('Workers don’t run without a plan.')
         ->assertSee('Groups are on Pro and Team.')
         ->assertDontSee('Add a group');
@@ -991,6 +1001,7 @@ test('the app card offers the smaller size', function () {
     $app->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
 
     Livewire::actingAs($user)->test(Resources::class, ['server' => $app->server, 'site' => $app])
+        ->openSheet('resources-app')
         ->assertSee('Peak memory this week: 140 MB. Lite fits with room to spare')
         ->call('selectSize', 'lite')
         ->assertSet('draftInstanceType', 'lite')
@@ -1008,7 +1019,7 @@ test('valkey slow commands come from the gateway, command and key only', functio
         ->and($slow['entries'][0])->toBe(['at' => 1790400000, 'micros' => 15230, 'command' => 'SET', 'key' => 'cache:user:42']);
 });
 
-test('the resources chain puts workers under the store their queue uses', function () {
+test('the resource map puts workers under the store their queue uses', function () {
     $render = function (string $connection): string {
         $app = laravelApp([
             'database' => ['engine' => 'postgres', 'provider' => 'dply', 'remote_id' => 'pg-x', 'host' => 'pg-x.db.dply.test'],
@@ -1020,17 +1031,20 @@ test('the resources chain puts workers under the store their queue uses', functi
         $app->forceFill(['user_id' => $user->id, 'type' => SiteType::Static, 'status' => Site::STATUS_EDGE_ACTIVE])->save();
         $app->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
 
-        return Livewire::actingAs($user)->test(Resources::class, ['server' => $app->server, 'site' => $app])->html();
+        return Livewire::actingAs($user)->test(Resources::class, ['server' => $app->server, 'site' => $app])->openSheet('resources-workers')->html();
     };
 
-    // Redis: App → the Redis card → Queue workers.
-    $html = $render('redis');
-    expect(strpos($html, 'redis.internal'))->toBeLessThan(strpos($html, 'wire:key="queue-workers-card"'));
+    // The map boxes come first; their sheets (with the full workers card) follow.
+    $workersBox = fn (string $html) => strpos($html, "'resources-workers'");
+    $databaseBox = fn (string $html) => strpos($html, "'resources-database'");
 
-    // Database: the workers sit in the database's column, row 2.
+    // Redis: the Redis card, then the workers box, then the database.
+    $html = $render('redis');
+    expect(strpos($html, 'redis.internal'))->toBeLessThan($workersBox($html))
+        ->and($workersBox($html))->toBeLessThan($databaseBox($html));
+
+    // Database: the workers box sits right under the database box.
     $html = $render('database');
-    preg_match('/grid-column: [57]; grid-row: 2/', $html, $slot, PREG_OFFSET_CAPTURE);
     expect(substr_count($html, 'wire:key="queue-workers-card"'))->toBe(1)
-        ->and($slot)->not->toBeEmpty()
-        ->and(strpos($html, 'wire:key="queue-workers-card"'))->toBeGreaterThan($slot[0][1] ?? PHP_INT_MAX);
+        ->and($databaseBox($html))->toBeLessThan($workersBox($html));
 });

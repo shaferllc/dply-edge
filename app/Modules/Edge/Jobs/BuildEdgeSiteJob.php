@@ -16,6 +16,7 @@ use App\Modules\Edge\Services\EdgeDeliveryContextResolver;
 use App\Modules\Edge\Services\EdgeProductionEnv;
 use App\Modules\Edge\Support\EdgeBuildMinutes;
 use App\Modules\Edge\Support\EdgeBuildSlots;
+use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeLiveBuildLog;
 use App\Modules\Edge\Support\EdgeRepoRoot;
 use App\Modules\Notifications\Services\NotificationPublisher;
@@ -199,7 +200,8 @@ class BuildEdgeSiteJob implements ShouldQueue
             // through the encrypted accessor and filtered against the
             // model's RESERVED_NAMES so customer code can't shadow
             // platform bindings like HOST_MAP / ASSETS / DEPLOYMENT_ID.
-            $buildEnv = app(EdgeProductionEnv::class)->forSite($site);
+            // A Realtime resource's VITE_* go under it, so a saved value wins.
+            $buildEnv = array_merge(EdgeContainerConnections::realtimeBuildEnv($site), app(EdgeProductionEnv::class)->forSite($site));
 
             // Build minutes bill from here (queue wait and publish excluded).
             $buildStartedAt = now();

@@ -16,25 +16,29 @@ use App\Console\Commands\PruneOrphanedSiteDataCommand;
 use App\Console\Commands\PruneSiteUptimeCheckResultsCommand;
 use App\Console\Commands\ReapStuckConsoleActionsCommand;
 use App\Console\Commands\SyncErrorEventsCommand;
-use App\Modules\Billing\Console\SnapshotOrganizationBillingCommand;
 use App\Modules\Billing\Console\EnforceOrganizationBillingCommand;
+use App\Modules\Billing\Console\SnapshotOrganizationBillingCommand;
 use App\Modules\Billing\Console\SyncAllOrganizationBillingCommand;
 use App\Modules\Edge\Console\CheckEdgeQueueWorkersCommand;
-use App\Modules\Edge\Console\SampleEdgeDatabasesCommand;
+use App\Modules\Edge\Console\CheckEdgeRealtimeCommand;
 use App\Modules\Edge\Console\CheckEdgeRumAlertsCommand;
 use App\Modules\Edge\Console\CollectEdgeContainerUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeDataUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeKvUsageCommand;
+use App\Modules\Edge\Console\CollectEdgePlatformUsageCommand;
+use App\Modules\Edge\Console\CollectEdgeRealtimeUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeValkeyUsageCommand;
 use App\Modules\Edge\Console\EvaluateEdgeGuardrailsCommand;
 use App\Modules\Edge\Console\ReapStuckEdgeBuildsCommand;
 use App\Modules\Edge\Console\RollupEdgeAnalyticsEngineCommand;
 use App\Modules\Edge\Console\SampleContainerMemoryCommand;
+use App\Modules\Edge\Console\SampleEdgeDatabasesCommand;
 use App\Modules\Edge\Console\ScaleEdgeQueueWorkersCommand;
 use App\Modules\Edge\Console\WarmEdgeBuildImagesCommand;
 use App\Modules\Edge\Console\WarmEdgeContainersCommand;
 use App\Modules\Edge\Jobs\VerifyEdgeCustomDomainsJob;
+use App\Modules\Edge\Services\Realtime\EdgeRealtimeMonitor;
 use App\Modules\Secrets\Console\SecretsEscrowCommand;
 use App\Modules\Secrets\Console\SecretsRestoreDrillCommand;
 use App\Support\DplyRuntime;
@@ -153,6 +157,27 @@ final class DplySchedule
         $schedule->command(CollectEdgeKvUsageCommand::class)
             ->dailyAt('02:00')
             ->name('edge-kv-usage-yesterday');
+        // Workers CPU, Durable Objects, customer R2 buckets (full-day totals, re-runs overwrite).
+        $schedule->command(CollectEdgePlatformUsageCommand::class, ['--today'])
+            ->hourly()
+            ->withoutOverlapping()
+            ->name('edge-platform-usage-today');
+        $schedule->command(CollectEdgePlatformUsageCommand::class)
+            ->dailyAt('02:10')
+            ->name('edge-platform-usage-yesterday');
+        // Realtime connection time + messages; each run adds what changed since the last.
+        $schedule->command(CollectEdgeRealtimeUsageCommand::class)
+            ->hourly()
+            ->withoutOverlapping()
+            ->name('edge-realtime-usage');
+        // Synthetic round trip through the customer realtime relay; alerts platform admins.
+        if (EdgeRealtimeMonitor::enabled()) {
+            $schedule->command(CheckEdgeRealtimeCommand::class)
+                ->everyMinute()
+                ->withoutOverlapping()
+                ->runInBackground()
+                ->name('edge-check-realtime');
+        }
 
         // Keep Node build images warm on workers so Edge deploys skip cold pulls.
         if ((bool) config('edge.build.warm_images_on_schedule', true)) {

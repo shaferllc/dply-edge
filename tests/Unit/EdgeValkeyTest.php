@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Organization;
 use App\Models\Site;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeValkey;
@@ -58,7 +59,7 @@ test('a resize keeps the password from REDIS_URL', function () {
 test('deleting a Valkey connection deletes the tenant', function () {
     Http::fake(['gateway.test/*' => Http::response(null, 204)]);
 
-    EdgeContainerConnections::destroy('redis', 'valkey:abc-cache');
+    expect(EdgeContainerConnections::destroy('redis', 'valkey:abc-cache', new Organization))->toBeTrue();
 
     Http::assertSent(fn ($request): bool => $request->method() === 'DELETE' && $request->url() === 'http://gateway.test/tenants/abc-cache');
 });
