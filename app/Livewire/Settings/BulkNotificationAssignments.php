@@ -15,6 +15,7 @@ use App\Modules\Notifications\Channels\Intercom\IntercomMessage;
 use App\Modules\Notifications\Channels\PagerDuty\PagerDutyMessage;
 use App\Modules\Notifications\Services\AssignableNotificationChannels;
 use App\Modules\Notifications\Services\MicrosoftTeamsClient;
+use App\Rules\PubliclyRoutableUrl;
 use App\Support\NotificationSubscriptionRules;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Collection;
@@ -451,11 +452,11 @@ class BulkNotificationAssignments extends Component
 
         return match ($type) {
             NotificationChannel::TYPE_SLACK => $base + [
-                'quick_new_slack_webhook_url' => ['required', 'url', 'max:2000'],
+                'quick_new_slack_webhook_url' => ['required', 'url:http,https', 'max:2000', new PubliclyRoutableUrl],
                 'quick_new_slack_channel' => ['nullable', 'string', 'max:255'],
             ],
             NotificationChannel::TYPE_DISCORD => $base + [
-                'quick_new_discord_webhook_url' => ['required', 'url', 'max:2000'],
+                'quick_new_discord_webhook_url' => ['required', 'url:http,https', 'max:2000', new PubliclyRoutableUrl],
             ],
             NotificationChannel::TYPE_EMAIL => $base + [
                 'quick_new_email_address' => ['required', 'email:rfc', 'max:255'],
@@ -469,13 +470,13 @@ class BulkNotificationAssignments extends Component
                 'quick_new_pushover_user_key' => ['required', 'string', 'max:255'],
             ],
             NotificationChannel::TYPE_MICROSOFT_TEAMS => $base + [
-                'quick_new_teams_webhook_url' => ['required', 'url', 'max:2000', MicrosoftTeamsClient::urlRule()],
+                'quick_new_teams_webhook_url' => ['required', 'url:http,https', 'max:2000', new PubliclyRoutableUrl, MicrosoftTeamsClient::urlRule()],
             ],
             NotificationChannel::TYPE_ROCKETCHAT => $base + [
-                'quick_new_rocketchat_webhook_url' => ['required', 'url', 'max:2000'],
+                'quick_new_rocketchat_webhook_url' => ['required', 'url:http,https', 'max:2000', new PubliclyRoutableUrl],
             ],
             NotificationChannel::TYPE_GOOGLE_CHAT => $base + [
-                'quick_new_google_chat_webhook_url' => ['required', 'url', 'max:2000'],
+                'quick_new_google_chat_webhook_url' => ['required', 'url:http,https', 'max:2000', new PubliclyRoutableUrl],
             ],
             NotificationChannel::TYPE_MOBILE_APP => $base + [
                 'quick_new_mobile_device_token' => ['required', 'string', 'max:4000'],
@@ -484,7 +485,7 @@ class BulkNotificationAssignments extends Component
             NotificationChannel::TYPE_INTERCOM => $base + $this->intercomValidationRules('quick_new_'),
             NotificationChannel::TYPE_PAGERDUTY => $base + $this->pagerDutyValidationRules('quick_new_'),
             default => $base + [
-                'quick_new_webhook_url' => ['required', 'url', 'max:2000'],
+                'quick_new_webhook_url' => ['required', 'url:http,https', 'max:2000', new PubliclyRoutableUrl],
             ],
         };
     }

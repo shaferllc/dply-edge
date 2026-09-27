@@ -4,9 +4,15 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Support;
 
+use App\Models\EdgeDatabase;
+use App\Models\EdgeDeployment;
+use App\Models\EdgeQueue;
+use App\Models\EdgeRealtimeApp;
+use App\Models\Organization;
 use App\Models\Site;
+use App\Modules\Edge\Services\Realtime\EdgeRealtimeApps;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
-use App\Modules\Providers\Upstash\UpstashQstashClient;
+use Illuminate\Http\Client\ConnectionException;
 
 /**
  * Container connections. Called from EdgeContainerDeployer::scaffold and
@@ -31,20 +37,39 @@ final class EdgeContainerConnections
         'object_storage' => ['label' => 'Object storage', 'needs_target' => true, 'hint' => 'GET http://host/ lists objects. GET, PUT, or DELETE http://host/path'],
         'sql' => ['label' => 'SQL database', 'needs_target' => true, 'hint' => 'POST http://host/query with {"sql","params"}'],
         'queue' => ['label' => 'Queue', 'needs_target' => true, 'hint' => 'Jobs run in this app. POST http://host/send with the message body. The next deploy sets DPLY_QUEUE to this name.'],
-        'http_delivery' => ['label' => 'HTTP delivery', 'needs_target' => false, 'hint' => 'POST http://host/publish with {"url","body","delay"}. The address must be https. Messages are $2 per 100,000. Bandwidth is $0.10 per GB after the first 1 GB.'],
         'ai' => ['label' => 'AI', 'needs_target' => false, 'hint' => 'POST http://host/run with {"model","input"}'],
         'vectors' => ['label' => 'Vector search', 'needs_target' => true, 'hint' => 'POST http://host/query with {"vector","topK"}'],
         'images' => ['label' => 'Images', 'needs_target' => false, 'hint' => 'POST the image to http://host/info for its size. POST http://host/?width=800&format=webp for a resized copy.'],
         'workflow' => ['label' => 'Workflow', 'needs_target' => true, 'hint' => 'POST http://host/start with {"id","params"}'],
         'database_pool' => ['label' => 'Database pool', 'needs_target' => true, 'hint' => 'GET http://host/ for the connection string'],
         'service' => ['label' => 'Another app', 'needs_target' => true, 'hint' => 'Any method on http://host/path is sent to that app'],
+        'realtime' => ['label' => 'Realtime', 'needs_target' => false, 'hint' => 'WebSockets for Laravel Reverb, Echo, and Pusher clients. The next deploy sets the REVERB_* and PUSHER_* keys, and VITE_* for the asset build.'],
     ];
 
     /** Kinds this account can provision. The rest are attached by id, or just turned on. */
-    public const CREATABLE = ['key_value', 'object_storage', 'sql', 'queue'];
+    public const CREATABLE = ['key_value', 'object_storage', 'sql', 'queue', 'vectors', 'database_pool'];
+
+    /**
+     * Kinds the Add a resource list leaves out. Existing rows still show.
+     * A workflow binding needs a WorkflowEntrypoint class the container
+     * Worker does not export, so its deploy fails (see the workflow sheet).
+     */
+    public const HIDDEN_FROM_BUILDER = ['workflow'];
+
+    /** Vector index sizes offered when creating one (Vectorize allows up to 1536). */
+    public const VECTOR_DIMENSIONS = [384, 768, 1024, 1536];
+
+    public const VECTOR_METRICS = ['cosine', 'euclidean', 'dot-product'];
 
     /** Account capabilities. There is nothing to name or attach. */
     public const ENABLE = ['ai', 'images'];
+
+    /**
+     * Unmetered on our shared account (AI, Browser Rendering, Images,
+     * Vectorize), so only a paid plan past its trial gets them: attach,
+     * provision, and every deploy check {@see paidFeatures}.
+     */
+    public const PAID_ONLY = ['ai', 'browser', 'images', 'vectors'];
 
     /** The container Worker and the platform Worker already use these. */
     public const RESERVED_NAMES = ['APP', 'BILLING', ...EdgeEffectiveBindings::RESERVED_NAMES];
@@ -56,7 +81,7 @@ final class EdgeContainerConnections
      *
      * @var list<string>
      */
-    public const WORKER_KINDS = ['key_value', 'durable_object', 'redis', 'object_storage', 'sql', 'queue', 'ai', 'vectors', 'images', 'database_pool', 'service'];
+    public const WORKER_KINDS = ['key_value', 'durable_object', 'redis', 'object_storage', 'sql', 'queue', 'ai', 'vectors', 'images', 'database_pool', 'service', 'realtime'];
 
     /**
      * How Worker code reaches a kind, where env.NAME alone does not say enough.
@@ -67,6 +92,7 @@ final class EdgeContainerConnections
         'durable_object' => "await env.NAME.fetch('https://state/key', { method: 'PUT', body: 'value' }). GET reads it back. POST https://state/incr/key adds one.",
         'service' => "await env.NAME.fetch('/path') calls that app's live address with the same method, headers, and body.",
         'redis' => 'REDIS_URL is set. Workers need a client that opens TCP sockets (cloudflare:sockets), such as node-redis with nodejs_compat.',
+        'realtime' => 'env.REVERB_APP_KEY, env.REVERB_HOST and the PUSHER_* equivalents are set. Publish with any Pusher server SDK; browsers connect with Echo.',
     ];
 
     /**
@@ -78,8 +104,9 @@ final class EdgeContainerConnections
     public static function workerBindings(Site $site): array
     {
         $out = [];
+        $paid = self::paidFeatures($site->organization);
         foreach (self::for($site) as $connection) {
-            if ($connection['asleep'] || $connection['kind'] === 'queue') {
+            if ($connection['asleep'] || $connection['kind'] === 'queue' || (! $paid && in_array($connection['kind'], self::PAID_ONLY, true))) {
                 continue;
             }
             $name = $connection['name'];
@@ -110,6 +137,10 @@ final class EdgeContainerConnections
      */
     public static function attach(Site $site, string $kind, string $name, string $target): ?string
     {
+        $refused = self::attachError($site, $kind, $target);
+        if ($refused !== null) {
+            return $refused;
+        }
         $resource = strtolower(trim((string) preg_replace('/[^a-z0-9]+/i', '-', $name), '-'));
         $row = self::normalize([
             'kind' => $kind,
@@ -126,6 +157,58 @@ final class EdgeContainerConnections
         $site->save();
 
         return null;
+    }
+
+    /**
+     * Why this site may not bind the target, or null. Every org shares one
+     * Cloudflare account, so a creatable kind must be this org's own
+     * resource, and a paid-only kind needs a paid plan.
+     */
+    public static function attachError(Site $site, string $kind, string $target): ?string
+    {
+        $organization = $site->organization;
+        if (in_array($kind, self::PAID_ONLY, true) && ! self::paidFeatures($organization)) {
+            return self::paidOnlyReason();
+        }
+        if (! in_array($kind, self::CREATABLE, true)) {
+            return null;
+        }
+        try {
+            $owned = $organization !== null && self::owns($kind, $target, $organization);
+        } catch (\Throwable) {
+            $owned = false;
+        }
+
+        return $owned ? null : __('That :resource does not belong to this organization.', ['resource' => strtolower(self::targetLabel($kind))]);
+    }
+
+    /** AI, Browser, Images and vector search: a paid plan, not a trial. Comped orgs count. */
+    public static function paidFeatures(?Organization $organization): bool
+    {
+        if (app()->isLocal() && config('edge.skip_card_check')) {
+            return true;
+        }
+
+        return $organization !== null && $organization->onAnyPaidPlan() && ! $organization->onTrialPlan();
+    }
+
+    public static function paidOnlyReason(): string
+    {
+        return __('Needs a paid plan. Not included in the trial.');
+    }
+
+    /**
+     * Paid plan on the workspace (a card is on file). DPLY_EDGE_SKIP_CARD_CHECK
+     * lets a local install start paid resources without a card, for testing;
+     * it does nothing outside APP_ENV=local.
+     */
+    public static function cardOnFile(?Organization $organization): bool
+    {
+        if (app()->isLocal() && config('edge.skip_card_check')) {
+            return true;
+        }
+
+        return (bool) $organization?->onAnyPaidPlan();
     }
 
     /**
@@ -380,6 +463,104 @@ final class EdgeContainerConnections
     }
 
     /**
+     * Reverb / Pusher env for an attached Realtime app (docs/edge-realtime.md).
+     * The operator's env is merged on top, so a saved BROADCAST_CONNECTION wins.
+     * VITE_* also reach the asset build ({@see realtimeBuildEnv}).
+     *
+     * @return array<string, string>
+     */
+    public static function realtimeDriverEnv(Site $site): array
+    {
+        $app = self::realtimeApp($site);
+        if ($app === null) {
+            return [];
+        }
+
+        $host = EdgeRealtimeApps::hostFor($app);
+        $env = [];
+        if ($site->isLaravelFrameworkDetected()) {
+            $env['BROADCAST_CONNECTION'] = 'reverb';
+        }
+        foreach (['REVERB', 'PUSHER'] as $driver) {
+            $env += [
+                $driver.'_APP_ID' => $app->id,
+                $driver.'_APP_KEY' => $app->app_key,
+                $driver.'_APP_SECRET' => $app->app_secret,
+                $driver.'_HOST' => $host,
+                $driver.'_PORT' => '443',
+                $driver.'_SCHEME' => 'https',
+            ];
+        }
+        $env['PUSHER_APP_CLUSTER'] = 'mt1';
+        foreach (['REVERB', 'PUSHER'] as $driver) {
+            $env += [
+                'VITE_'.$driver.'_APP_KEY' => $app->app_key,
+                'VITE_'.$driver.'_HOST' => $host,
+                'VITE_'.$driver.'_PORT' => '443',
+                'VITE_'.$driver.'_SCHEME' => 'https',
+            ];
+        }
+        $env['VITE_PUSHER_APP_CLUSTER'] = 'mt1';
+
+        return $env;
+    }
+
+    /**
+     * The VITE_* half of realtimeDriverEnv: Vite bakes these into the JS, so
+     * the build needs them, not just the running app.
+     *
+     * @return array<string, string>
+     */
+    public static function realtimeBuildEnv(Site $site): array
+    {
+        return array_filter(self::realtimeDriverEnv($site), static fn (string $key): bool => str_starts_with($key, 'VITE_'), ARRAY_FILTER_USE_KEY);
+    }
+
+    /**
+     * realtimeDriverEnv as Worker bindings (ssr / hybrid). Names in $taken
+     * (the site's own env) are left out so the upload has no duplicates.
+     * Secrets go as secret_text, the rest as plain_text.
+     *
+     * @param  list<string>  $taken
+     * @return list<array{name: string, type: string, text: string}>
+     */
+    public static function realtimeWorkerBindings(Site $site, array $taken = []): array
+    {
+        $out = [];
+        foreach (self::realtimeDriverEnv($site) as $key => $value) {
+            if (in_array($key, $taken, true)) {
+                continue;
+            }
+            $out[] = ['name' => $key, 'type' => str_ends_with($key, '_SECRET') ? 'secret_text' : 'plain_text', 'text' => $value];
+        }
+
+        return $out;
+    }
+
+    /**
+     * The Realtime app attached to this site, when this organization owns it,
+     * asleep or not. Unlike the other kinds, a sleeping Realtime app keeps its
+     * env: sleep is enforced by the relay (KV enabled false, sockets closed;
+     * EdgeRealtimeApps::setAsleep), so waking it needs no redeploy — and the
+     * VITE_* keys baked into the JS stay valid.
+     */
+    public static function realtimeApp(Site $site): ?EdgeRealtimeApp
+    {
+        foreach (self::for($site) as $connection) {
+            if ($connection['kind'] !== 'realtime' || $connection['target'] === '') {
+                continue;
+            }
+
+            return EdgeRealtimeApp::query()
+                ->whereKey($connection['target'])
+                ->where('organization_id', $site->organization_id)
+                ->first();
+        }
+
+        return null;
+    }
+
+    /**
      * dply.{app}.{resource}.internal so two apps can both have a store named testing.
      */
     public static function resourceHost(Site $site, string $resource): string
@@ -499,8 +680,9 @@ final class EdgeContainerConnections
      */
     public static function mergeWrangler(array $config, Site $site): array
     {
+        $paid = self::paidFeatures($site->organization);
         foreach (self::for($site) as $connection) {
-            if ($connection['asleep']) {
+            if ($connection['asleep'] || (! $paid && in_array($connection['kind'], self::PAID_ONLY, true))) {
                 continue;
             }
             if ($connection['kind'] === 'durable_object') {
@@ -601,7 +783,7 @@ final class EdgeContainerConnections
 
     public static function browserEnabled(Site $site): bool
     {
-        if (($site->edgeMeta()['browser'] ?? null) === false) {
+        if (($site->edgeMeta()['browser'] ?? null) === false || ! self::paidFeatures($site->organization)) {
             return false;
         }
         if (($site->edgeMeta()['browser'] ?? null) === true) {
@@ -671,7 +853,7 @@ final class EdgeContainerConnections
             'queue' => 'Queue',
             'vectors' => 'Index',
             'workflow' => 'Workflow',
-            'database_pool' => 'Pool id',
+            'database_pool' => 'Pool',
             'service' => 'App name',
             default => 'Resource',
         };
@@ -680,41 +862,63 @@ final class EdgeContainerConnections
     /**
      * @return list<array{id: string, label: string}>
      */
-    public static function catalog(string $kind): array
+    /**
+     * dply's Cloudflare account is shared by every organization, so each name
+     * created from here carries the organization's prefix, and only names with
+     * it are offered to attach or ever deleted. Same prefix as the org
+     * Databases and Queues pages (EdgeDatabase / EdgeQueue::cloudflareName).
+     */
+    public static function ownedPrefix(Organization $organization): string
     {
+        return 'dply-'.strtolower((string) $organization->id).'-';
+    }
+
+    /**
+     * This organization's existing resources of a kind, to attach.
+     *
+     * @return list<array{id: string, label: string}>
+     */
+    public static function catalog(string $kind, Organization $organization): array
+    {
+        if ($kind === 'realtime') {
+            return EdgeRealtimeApp::query()->where('organization_id', $organization->id)->orderBy('name')->get()
+                ->map(static fn (EdgeRealtimeApp $app): array => ['id' => $app->id, 'label' => $app->name])->all();
+        }
         if (! in_array($kind, self::CREATABLE, true)) {
             return [];
         }
 
         try {
             $client = EdgeCloudflareClient::fromConfig();
+            $rows = match ($kind) {
+                'key_value' => $client->listKvNamespaces(),
+                'object_storage' => $client->listR2Buckets(),
+                'sql' => $client->listD1Databases(),
+                'queue' => $client->listQueues(),
+                'vectors' => $client->listVectorizeIndexes(),
+                'database_pool' => $client->listHyperdriveConfigs(),
+                default => [],
+            };
         } catch (\Throwable) {
             return [];
         }
 
-        $rows = match ($kind) {
-            'key_value' => $client->listKvNamespaces(),
-            'object_storage' => $client->listR2Buckets(),
-            'sql' => $client->listD1Databases(),
-            'queue' => $client->listQueues(),
-            default => [],
-        };
-
+        $prefix = self::ownedPrefix($organization);
         $options = [];
         foreach ($rows as $row) {
             if (! is_array($row)) {
                 continue;
             }
-            $id = (string) ($row['id'] ?? $row['uuid'] ?? $row['name'] ?? $row['queue_name'] ?? $row['title'] ?? '');
-            $label = (string) ($row['title'] ?? $row['name'] ?? $row['queue_name'] ?? $id);
-            if ($kind === 'queue') {
-                $id = (string) ($row['queue_name'] ?? $row['name'] ?? $id);
+            $name = (string) ($row['title'] ?? $row['queue_name'] ?? $row['name'] ?? '');
+            if (! str_starts_with($name, $prefix)) {
+                continue;
             }
-            if ($kind === 'object_storage') {
-                $id = (string) ($row['name'] ?? $id);
-            }
+            $id = match ($kind) {
+                'object_storage', 'queue', 'vectors' => $name,
+                default => (string) ($row['id'] ?? $row['uuid'] ?? ''),
+            };
             if ($id !== '') {
-                $options[] = ['id' => $id, 'label' => $label !== '' ? $label : $id];
+                $options[] = ['id' => $id, 'label' => substr($name, strlen($prefix))];
             }
         }
 
@@ -722,25 +926,203 @@ final class EdgeContainerConnections
     }
 
     /**
-     * Create the remote resource and return the id the binding stores.
+     * Create the remote resource, named under the organization's prefix, and
+     * return the id the binding stores. D1 databases and queues are recorded
+     * like the org pages record them, so they are metered and listed there.
+     * $options['location_hint'] places a new R2 bucket (EdgeCloudflareClient::createR2Bucket).
+     * A vector index takes dimensions (768) and metric (cosine); a database
+     * pool needs origin {host, port, database, user, password, scheme}.
+     *
+     * @param  array{location_hint?: ?string, jurisdiction?: ?string, dimensions?: int, metric?: string, origin?: array<string, mixed>}  $options
      */
-    public static function provision(string $kind, string $resource): string
+    public static function provision(string $kind, string $resource, Organization $organization, array $options = []): string
     {
+        $refused = self::creationError($kind, $organization);
+        if ($refused !== null) {
+            throw new \RuntimeException($refused);
+        }
         $client = EdgeCloudflareClient::fromConfig();
+        $name = self::ownedPrefix($organization).($kind === 'key_value' ? $resource : strtolower($resource));
         $created = match ($kind) {
-            'key_value' => $client->createKvNamespace($resource),
-            'object_storage' => $client->createR2Bucket($resource),
-            'sql' => $client->createD1Database($resource),
-            'queue' => $client->createQueue($resource),
+            'key_value' => $client->createKvNamespace($name),
+            'object_storage' => $client->createR2Bucket($name, $options['location_hint'] ?? null, $options['jurisdiction'] ?? null),
+            'sql' => $client->createD1Database($name, (string) ($options['location_hint'] ?? '') ?: 'wnam'),
+            'queue' => $client->createQueue($name),
+            'vectors' => $client->createVectorizeIndex(...self::vectorIndexArgs($name, $options)),
+            'database_pool' => self::createPool($client, $name, $options['origin'] ?? null),
             default => throw new \InvalidArgumentException('This resource cannot be created here.'),
         };
 
-        return match ($kind) {
+        $target = match ($kind) {
             'key_value', 'sql' => (string) ($created['id'] ?? $created['uuid'] ?? ''),
-            'object_storage' => $resource,
-            'queue' => (string) ($created['queue_name'] ?? $resource),
+            'object_storage', 'vectors' => $name,
+            'queue' => (string) ($created['queue_name'] ?? $name),
+            'database_pool' => (string) ($created['id'] ?? ''),
             default => '',
         };
+
+        if ($kind === 'sql' && $target !== '') {
+            EdgeDatabase::query()->firstOrCreate(['cloudflare_id' => $target], [
+                'organization_id' => $organization->id,
+                // Lowercase like the Cloudflare name, so ensure() finds it again.
+                'name' => strtolower($resource),
+                'created_by' => auth()->id(),
+            ]);
+        }
+        if ($kind === 'queue') {
+            EdgeQueue::query()->firstOrCreate(['cloudflare_name' => $target], [
+                'organization_id' => $organization->id,
+                'name' => $resource,
+                'cloudflare_id' => (string) ($created['queue_id'] ?? $created['id'] ?? ''),
+                'created_by' => auth()->id(),
+            ]);
+        }
+
+        return $target;
+    }
+
+    /**
+     * Why this organization may not create one more of this kind, or null.
+     * Every creation path (Resources, Jobs bindings, repo auto-create) comes
+     * through provision(), so the plan's counts and the card rule live here.
+     */
+    public static function creationError(string $kind, Organization $organization): ?string
+    {
+        if ($kind === 'key_value' && ! self::cardOnFile($organization)) {
+            return __('Add a card before starting a key-value store. Reads, writes, and storage are billed to that card.');
+        }
+        if (in_array($kind, self::PAID_ONLY, true) && ! self::paidFeatures($organization)) {
+            return self::paidOnlyReason();
+        }
+        [$allowance, $model, $noun] = match ($kind) {
+            'sql' => ['databases', EdgeDatabase::class, 'databases'],
+            'queue' => ['queues', EdgeQueue::class, 'queues'],
+            default => [null, null, null],
+        };
+        $limit = $allowance !== null ? ($organization->tierAllowances()[$allowance] ?? null) : null;
+        if ($limit !== null && $model::query()->where('organization_id', $organization->id)->count() >= $limit) {
+            return __('Your :plan plan includes :count :noun. Upgrade on the billing page for more.', ['plan' => $organization->planTierLabel(), 'count' => $limit, 'noun' => $noun]);
+        }
+
+        return null;
+    }
+
+    /**
+     * The org's resource named $resource under its prefix, created when there
+     * is none. Used where a name is typed or declared (Jobs bindings, a repo's
+     * wrangler.toml): "cache" means {prefix}cache, never someone else's cache.
+     *
+     * @param  array{location_hint?: ?string, jurisdiction?: ?string}  $options
+     */
+    public static function ensure(string $kind, string $resource, Organization $organization, array $options = []): string
+    {
+        if (preg_match('/^[A-Za-z0-9][A-Za-z0-9-]{0,39}$/', $resource) !== 1) {
+            throw new \InvalidArgumentException(__('Use a name of letters, numbers, and dashes.'));
+        }
+        $client = EdgeCloudflareClient::fromConfig();
+        $name = self::ownedPrefix($organization).($kind === 'key_value' ? $resource : strtolower($resource));
+        $existing = match ($kind) {
+            'key_value' => (string) $client->kvNamespaceIdByTitle($name),
+            'object_storage' => $client->r2BucketExists($name) ? $name : '',
+            // The org pages' rows first: exact, and no API list that pages.
+            'sql' => (string) (EdgeDatabase::query()->where('organization_id', $organization->id)->where('name', strtolower($resource))->value('cloudflare_id')
+                ?? collect($client->listD1Databases())->firstWhere('name', $name)['uuid'] ?? ''),
+            'queue' => EdgeQueue::query()->where('organization_id', $organization->id)->where('cloudflare_name', $name)->exists()
+                || collect($client->listQueues())->contains('queue_name', $name) ? $name : '',
+            default => throw new \InvalidArgumentException('This resource cannot be created here.'),
+        };
+
+        if ($existing !== '') {
+            return $existing;
+        }
+        // Repos deployed before resources were prefixed bound the bare name.
+        // Creating a fresh, empty `{prefix}name` would quietly run the app on
+        // empty data, so stop and say so instead.
+        if (($options['refuse_legacy'] ?? false) && self::legacyExists($client, $kind, $kind === 'key_value' ? $resource : strtolower($resource))) {
+            throw new \RuntimeException(__('":name" is a resource created before dply kept each organization\'s resources separate. Ask support to move it into your organization; dply will not create an empty one in its place.', ['name' => $resource]));
+        }
+        try {
+            return self::provision($kind, $resource, $organization, $options);
+        } catch (\RuntimeException $e) {
+            // The bucket list pages; a bucket under our prefix is ours to reuse.
+            if ($kind === 'object_storage' && stripos($e->getMessage(), 'already exists') !== false) {
+                return $name;
+            }
+            throw $e;
+        }
+    }
+
+    /** An unprefixed resource of this exact name exists in the account. */
+    private static function legacyExists(EdgeCloudflareClient $client, string $kind, string $name): bool
+    {
+        return match ($kind) {
+            'key_value' => $client->kvNamespaceIdByTitle($name) !== null,
+            'object_storage' => $client->r2BucketExists($name),
+            'sql' => collect($client->listD1Databases())->contains('name', $name),
+            'queue' => collect($client->listQueues())->contains('queue_name', $name),
+            default => false,
+        };
+    }
+
+    /** Whether this organization created the resource (so it may delete it). */
+    public static function owns(string $kind, string $target, Organization $organization): bool
+    {
+        if ($kind === 'realtime') {
+            return $target !== '' && EdgeRealtimeApp::query()->whereKey($target)->where('organization_id', $organization->id)->exists();
+        }
+        if ($target === '' || ! in_array($kind, self::CREATABLE, true)) {
+            return false;
+        }
+        $prefix = self::ownedPrefix($organization);
+
+        return match ($kind) {
+            'object_storage' => str_starts_with($target, $prefix),
+            'queue' => str_starts_with($target, $prefix)
+                || EdgeQueue::query()->where('organization_id', $organization->id)->where('cloudflare_name', $target)->exists(),
+            'sql' => EdgeDatabase::query()->where('organization_id', $organization->id)->where('cloudflare_id', $target)->exists()
+                || (preg_match('/^[a-f0-9-]{36}$/i', $target) === 1
+                    && str_starts_with((string) (EdgeCloudflareClient::fromConfig()->getD1Database($target)['name'] ?? ''), $prefix)),
+            // By id: the namespace list pages, and the account holds every org's.
+            'key_value' => preg_match('/^[a-f0-9]{32}$/', $target) === 1
+                && str_starts_with((string) (EdgeCloudflareClient::fromConfig()->getKvNamespace($target)['title'] ?? ''), $prefix),
+            // Older rows hold a typed name or id, so check its shape before it reaches an API path.
+            'vectors' => preg_match('/^[a-z0-9-]{1,64}$/', $target) === 1 && str_starts_with($target, $prefix),
+            'database_pool' => preg_match('/^[a-f0-9]{32}$/', $target) === 1
+                && str_starts_with((string) (EdgeCloudflareClient::fromConfig()->getHyperdriveConfig($target)['name'] ?? ''), $prefix),
+            default => false,
+        };
+    }
+
+    /**
+     * @param  array<string, mixed>  $options
+     * @return array{0: string, 1: int, 2: string}
+     */
+    private static function vectorIndexArgs(string $name, array $options): array
+    {
+        $dimensions = (int) ($options['dimensions'] ?? 768);
+        $metric = (string) ($options['metric'] ?? 'cosine');
+        if (strlen($name) > 64 || preg_match('/^[a-z0-9-]+$/', $name) !== 1) {
+            // The organization prefix takes 32 of Vectorize's 64 bytes.
+            throw new \InvalidArgumentException(__('Use a shorter name: at most 32 letters, numbers, and dashes.'));
+        }
+        if (! in_array($dimensions, self::VECTOR_DIMENSIONS, true) || ! in_array($metric, self::VECTOR_METRICS, true)) {
+            throw new \InvalidArgumentException(__('Pick one of the offered dimensions and metrics.'));
+        }
+
+        return [$name, $dimensions, $metric];
+    }
+
+    /** @return array<string, mixed> */
+    private static function createPool(EdgeCloudflareClient $client, string $name, mixed $origin): array
+    {
+        if (! is_array($origin) || ($origin['host'] ?? '') === '' || ($origin['password'] ?? '') === '' || ! in_array($origin['scheme'] ?? '', ['postgres', 'mysql'], true)) {
+            throw new \InvalidArgumentException(__('The pool needs a Postgres or MySQL database to point at.'));
+        }
+        try {
+            return $client->createHyperdriveConfig($name, $origin);
+        } catch (ConnectionException) {
+            throw new \RuntimeException(__('Could not reach the database in time. It may be waking up. Try again in a minute.'));
+        }
     }
 
     /**
@@ -778,36 +1160,122 @@ final class EdgeContainerConnections
     }
 
     /**
-     * Turn on HTTP delivery for this app. The shared account id is stored
-     * on the connection. The publish token stays on the worker.
+     * Delete the remote resource. Returns false when there was nothing of ours
+     * to delete: kinds that are only switched on or pointed at (AI, a typed
+     * index name, another app), or a resource another organization created.
      */
-    public static function provisionHttpDelivery(): string
-    {
-        return UpstashQstashClient::fromConfig()->ensurePaid();
-    }
-
-    /**
-     * Delete the remote resource. Kinds we did not create are only unlinked.
-     */
-    public static function destroy(string $kind, string $target): void
+    public static function destroy(string $kind, string $target, Organization $organization): bool
     {
         if ($kind === 'redis') {
-            if (EdgeValkey::isTarget($target)) {
-                EdgeValkey::destroy($target);
+            if (! EdgeValkey::isTarget($target)) {
+                return false;
             }
+            EdgeValkey::destroy($target);
 
-            return;
+            return true;
         }
-        if ($target === '' || ! in_array($kind, self::CREATABLE, true)) {
-            return;
+        if (! self::owns($kind, $target, $organization)) {
+            return false;
+        }
+        if ($kind === 'realtime') {
+            app(EdgeRealtimeApps::class)->destroy(EdgeRealtimeApp::query()->findOrFail($target));
+
+            return true;
         }
         $client = EdgeCloudflareClient::fromConfig();
         match ($kind) {
             'key_value' => $client->deleteKvNamespace($target),
             'object_storage' => $client->deleteR2Bucket($target),
             'sql' => $client->deleteD1Database($target),
-            'queue' => $client->deleteQueue($target),
+            // The API deletes by queue id; the binding stores the name.
+            'queue' => ($queueId = self::queueId($target, $organization)) !== '' ? $client->deleteQueue($queueId) : null,
+            'vectors' => $client->deleteVectorizeIndex($target),
+            // Only the pool goes; the database it points at is left alone.
+            'database_pool' => $client->deleteHyperdriveConfig($target),
             default => null,
         };
+        if ($kind === 'sql') {
+            EdgeDatabase::query()->where('organization_id', $organization->id)->where('cloudflare_id', $target)->delete();
+        }
+        if ($kind === 'queue') {
+            EdgeQueue::query()->where('organization_id', $organization->id)->where('cloudflare_name', $target)->delete();
+        }
+
+        return true;
+    }
+
+    /**
+     * Kinds the live Worker binds by id. Deleting one while a live deploy still
+     * binds it breaks the live app (and Cloudflare refuses outright for a
+     * queue), so a delete waits for the next deploy to drop the binding.
+     */
+    public const DEFER_DELETE_WHILE_LIVE = ['key_value', 'object_storage', 'sql', 'queue', 'vectors', 'database_pool'];
+
+    /** True when deleting this kind now would pull it out from under the site's live deploy. */
+    public static function deleteWaitsForDeploy(Site $site, string $kind): bool
+    {
+        return in_array($kind, self::DEFER_DELETE_WHILE_LIVE, true)
+            && EdgeDeployment::query()->where('site_id', $site->id)->where('status', EdgeDeployment::STATUS_LIVE)->exists();
+    }
+
+    /** Queue a detached resource for deletion after this site's next deploy. */
+    public static function deleteAfterDeploy(Site $site, string $kind, string $target): void
+    {
+        $pending = (array) ($site->edgeMeta()['pending_deletes'] ?? []);
+        $pending[] = ['kind' => $kind, 'target' => $target];
+        $site->mergeEdgeMeta(['pending_deletes' => array_values(array_unique($pending, SORT_REGULAR))]);
+    }
+
+    /**
+     * After a deploy goes live: delete what deleteAfterDeploy queued. One
+     * another app of the organization still binds is kept (it is in use).
+     * A failure stays queued for the next deploy.
+     */
+    public static function deletePending(Site $site): void
+    {
+        $meta = $site->edgeMeta();
+        $pending = (array) ($meta['pending_deletes'] ?? []);
+        // Before pending_deletes, only queues were deferred.
+        foreach ((array) ($meta['pending_queue_deletes'] ?? []) as $name) {
+            $pending[] = ['kind' => 'queue', 'target' => (string) $name];
+        }
+        if ($pending === [] || $site->organization === null) {
+            return;
+        }
+        $others = Site::query()->where('organization_id', $site->organization_id)->whereKeyNot($site->id)->get();
+        $left = [];
+        foreach ($pending as $item) {
+            $kind = (string) ($item['kind'] ?? '');
+            $target = (string) ($item['target'] ?? '');
+            $boundElsewhere = $others->contains(fn (Site $other): bool => collect(self::for($other))->contains(fn (array $c): bool => $c['kind'] === $kind && $c['target'] === $target));
+            if ($boundElsewhere || collect(self::for($site))->contains(fn (array $c): bool => $c['kind'] === $kind && $c['target'] === $target)) {
+                continue;
+            }
+            try {
+                self::destroy($kind, $target, $site->organization);
+            } catch (\Throwable $e) {
+                // Still bound somewhere (e.g. a preview): try again after the next deploy.
+                $left[] = ['kind' => $kind, 'target' => $target];
+                report($e);
+            }
+        }
+        $site->mergeEdgeMeta(['pending_deletes' => $left, 'pending_queue_deletes' => null]);
+        $site->save();
+    }
+
+    /** Cloudflare's id for a queue this app binds by name. */
+    public static function queueId(string $name, Organization $organization): string
+    {
+        $recorded = (string) EdgeQueue::query()->where('organization_id', $organization->id)->where('cloudflare_name', $name)->value('cloudflare_id');
+        if ($recorded !== '') {
+            return $recorded;
+        }
+        foreach (EdgeCloudflareClient::fromConfig()->listQueues() as $row) {
+            if (is_array($row) && (string) ($row['queue_name'] ?? '') === $name) {
+                return (string) ($row['queue_id'] ?? $row['id'] ?? '');
+            }
+        }
+
+        return '';
     }
 }

@@ -5,15 +5,21 @@ declare(strict_types=1);
 namespace Tests\Feature\EdgeCustomDomainTest;
 
 use App\Enums\SiteType;
+use App\Livewire\Sites\Edge\Workspace\Domains;
 use App\Models\EdgeDeployment;
 use App\Models\Organization;
+use App\Models\ProviderCredential;
 use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
 use App\Modules\Edge\Services\EdgeCustomDomainProvisioner;
+use App\Modules\Edge\Services\EdgeDeliveryContextResolver;
+use App\Modules\Edge\Services\EdgeHostMapPublisher;
 use App\Modules\Edge\Services\EdgeRouter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
 
@@ -236,3 +242,161 @@ function makeLiveEdgeSite(array $overrides = []): Site
 
     return $site->fresh();
 }
+
+/** A provisioner whose DNS lookups return the given records per [host][type]. */
+function provisionerWithDns(array $records): EdgeCustomDomainProvisioner
+{
+    return new EdgeCustomDomainProvisioner(
+        app(EdgeHostMapPublisher::class),
+        app(EdgeDeliveryContextResolver::class),
+        fn (string $host, int $type): array => $records[$host][$type] ?? [],
+    );
+}
+
+test('a hostname attached to one site cannot be attached to a site in another org', function () {
+    config(['edge.fake.enabled' => true, 'edge.custom_hostnames.enabled' => true]);
+    $owner = makeLiveEdgeSite();
+    $attacker = makeLiveEdgeSite(['slug' => 'edge-app-2']);
+    $provisioner = app(EdgeCustomDomainProvisioner::class);
+
+    $provisioner->provision($owner->fresh(), 'shop.example.com');
+
+    expect(fn () => $provisioner->provision($attacker->fresh(), 'SHOP.example.com.'))
+        ->toThrow(\RuntimeException::class, 'already attached to another site');
+    expect($attacker->fresh()->edgeMeta()['routing']['custom_domains'] ?? [])->toBe([]);
+});
+
+test('the host map never publishes a hostname another site holds ready', function () {
+    config(['edge.fake.enabled' => true]);
+    $owner = makeLiveEdgeSite();
+    $dupe = makeLiveEdgeSite(['slug' => 'edge-app-2']);
+    foreach ([$owner, $dupe] as $site) {
+        $meta = $site->edgeMeta();
+        $meta['routing']['custom_domains']['shop.example.com'] = ['hostname' => 'shop.example.com', 'dns_status' => 'ready'];
+        $site->update(['meta' => array_merge($site->meta, ['edge' => $meta])]);
+    }
+    Cache::forget('edge:fake:host-map');
+
+    $dupe = $dupe->fresh();
+    app(EdgeHostMapPublisher::class)->publish($dupe, EdgeDeployment::query()->findOrFail($dupe->edgeMeta()['active_deployment_id']));
+
+    expect(Cache::get('edge:fake:host-map', []))->not->toHaveKey('shop.example.com')
+        ->toHaveKey('edge-app.dply.host');
+});
+
+test('a pending zone in the org cloudflare account does not auto-verify a hostname', function () {
+    config(['edge.fake.enabled' => false, 'edge.custom_hostnames.enabled' => false]);
+    $site = makeLiveEdgeSite();
+    ProviderCredential::factory()->create([
+        'organization_id' => $site->organization_id,
+        'provider' => 'cloudflare',
+        'credentials' => ['api_token' => 'cf-token'],
+    ]);
+    Http::fake([
+        'https://api.cloudflare.com/client/v4/zones?*' => fn ($request) => Http::response([
+            'success' => true,
+            'result' => ($request['status'] ?? null) === 'active' ? [] : [['id' => 'zone_victim', 'name' => 'victim.com', 'status' => 'pending']],
+        ]),
+        '*' => Http::response(['success' => true, 'result' => []]),
+    ]);
+
+    $entry = app(EdgeCustomDomainProvisioner::class)->provision($site->fresh(), 'www.victim.com');
+
+    expect($entry['mode'])->toBe('manual')->and($entry['dns_status'])->toBe('pending');
+    Http::assertNotSent(fn ($request) => str_contains($request->url(), '/dns_records'));
+});
+
+test('a cname to the shared fallback origin needs the site txt token to verify', function () {
+    config([
+        'edge.fake.enabled' => true,
+        'edge.custom_hostnames.enabled' => true,
+        'edge.custom_hostnames.fallback_origin' => 'fallback.on-dply.site',
+    ]);
+    $site = makeLiveEdgeSite();
+    $cname = [DNS_CNAME | DNS_A => [['type' => 'CNAME', 'target' => 'fallback.on-dply.site']]];
+
+    $entry = provisionerWithDns(['www.victim.com' => $cname])->provision($site->fresh(), 'www.victim.com');
+    $proof = $entry['dply_verification'];
+    expect($proof['name'])->toBe('_dply-verify.www.victim.com');
+
+    $entry = provisionerWithDns(['www.victim.com' => $cname])->verify($site->fresh(), 'www.victim.com');
+    expect($entry['dns_status'])->toBe('failed')->and($entry['error'])->toContain($proof['value']);
+
+    $entry = provisionerWithDns([
+        'www.victim.com' => $cname,
+        '_dply-verify.www.victim.com' => [DNS_TXT => [['type' => 'TXT', 'txt' => $proof['value']]]],
+    ])->verify($site->fresh(), 'www.victim.com');
+    expect($entry['dns_status'])->toBe('ready')->and($entry['ownership_verified_at'])->not->toBeNull();
+
+    // Grandfathered: a domain that was already ready keeps verifying without the TXT record.
+    $meta = $site->fresh()->edgeMeta();
+    $meta['routing']['custom_domains']['old.example.com'] = ['hostname' => 'old.example.com', 'dns_status' => 'ready'];
+    $site->update(['meta' => array_merge($site->fresh()->meta, ['edge' => $meta])]);
+    $entry = provisionerWithDns(['old.example.com' => $cname])->verify($site->fresh(), 'old.example.com');
+    expect($entry['dns_status'])->toBe('ready');
+});
+
+test('verify ignores a hostname the site never attached', function () {
+    config(['edge.fake.enabled' => true]);
+    $site = makeLiveEdgeSite();
+
+    expect(app(EdgeCustomDomainProvisioner::class)->verify($site->fresh(), 'never.example.com'))->toBeNull();
+    expect($site->fresh()->edgeMeta()['routing']['custom_domains'] ?? [])->toBe([]);
+});
+
+test('custom domains are capped across the organization', function () {
+    config(['edge.fake.enabled' => true]);
+    $site = makeLiveEdgeSite();
+    $second = makeLiveEdgeSite(['slug' => 'edge-app-2', 'organization_id' => $site->organization_id, 'server_id' => $site->server_id]);
+    config(['subscription.standard.tiers.'.$site->organization->billingTier().'.custom_domains' => 1]);
+    $provisioner = app(EdgeCustomDomainProvisioner::class);
+
+    $provisioner->provision($site->fresh(), 'one.example.com');
+    $provisioner->provision($site->fresh(), 'one.example.com'); // re-provisioning is not a new domain
+
+    expect(fn () => $provisioner->provision($second->fresh(), 'two.example.com'))
+        ->toThrow(\RuntimeException::class, 'across the organization');
+});
+
+test('a preview never publishes, unpublishes or verifies its parent custom domains', function () {
+    config(['edge.fake.enabled' => true]);
+    $parent = makeLiveEdgeSite();
+    $meta = $parent->edgeMeta();
+    $meta['routing']['custom_domains']['www.example.com'] = ['hostname' => 'www.example.com', 'dns_status' => 'ready'];
+    $parent->update(['meta' => array_merge($parent->meta, ['edge' => $meta])]);
+    Cache::put('edge:fake:host-map', ['www.example.com' => ['site_id' => (string) $parent->id]]);
+
+    // Previews copy the parent's routing, custom domains included.
+    $preview = makeLiveEdgeSite(['slug' => 'edge-app-pr-1', 'organization_id' => $parent->organization_id, 'server_id' => $parent->server_id]);
+    $previewMeta = $preview->edgeMeta();
+    $previewMeta['routing']['custom_domains'] = $meta['routing']['custom_domains'];
+    $previewMeta['preview_parent_site_id'] = $parent->id;
+    $preview->update(['meta' => array_merge($preview->meta, ['edge' => $previewMeta])]);
+    $preview = $preview->fresh();
+
+    $publisher = app(EdgeHostMapPublisher::class);
+    $publisher->publish($preview, EdgeDeployment::query()->findOrFail($preview->edgeMeta()['active_deployment_id']));
+    expect(Cache::get('edge:fake:host-map')['www.example.com'])->toBe(['site_id' => (string) $parent->id]);
+
+    $publisher->unpublish($preview);
+    expect(Cache::get('edge:fake:host-map'))->toHaveKey('www.example.com');
+
+    expect(app(EdgeCustomDomainProvisioner::class)->verify($preview, 'www.example.com'))->toBeNull();
+});
+
+test('the domains pages show the verification txt record until the domain is ready', function () {
+    config(['edge.fake.enabled' => true]);
+    $site = makeLiveEdgeSite();
+    $proof = app(EdgeCustomDomainProvisioner::class)->provision($site->fresh(), 'www.example.com')['dply_verification'];
+    $user = $site->organization->users()->first();
+
+    $this->actingAs($user)
+        ->get(route('sites.show', ['server' => $site->server_id, 'site' => $site->id, 'section' => 'routing', 'tab' => 'domains']))
+        ->assertOk()
+        ->assertSee($proof['name'])
+        ->assertSee($proof['value']);
+
+    Livewire::actingAs($user)
+        ->test(Domains::class, ['server' => $site->server, 'site' => $site->fresh()])
+        ->assertSee($proof['value']);
+});

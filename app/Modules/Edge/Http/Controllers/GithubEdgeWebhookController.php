@@ -158,7 +158,7 @@ class GithubEdgeWebhookController extends Controller
 
     private function verifySignature(Request $request, Site $site, string $signatureHeader): bool
     {
-        if ($signatureHeader === '' || $site->webhook_secret === '') {
+        if ($signatureHeader === '' || blank($site->webhook_secret)) {
             return false;
         }
         $expectedPrefix = 'sha256=';

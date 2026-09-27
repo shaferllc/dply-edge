@@ -13,6 +13,8 @@ use App\Modules\Notifications\Services\MicrosoftTeamsClient;
 use App\Modules\Notifications\Services\PagerDutyClient;
 use App\Modules\Notifications\Services\SlackWorkspaceClient;
 use App\Modules\Notifications\Services\TelegramBotClient;
+use App\Support\Http\PublicOutboundUrl;
+use App\Support\Http\UnsafeOutboundUrlException;
 use Database\Factories\NotificationChannelFactory;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
@@ -20,6 +22,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -366,9 +369,9 @@ class NotificationChannel extends Model
         }
 
         try {
-            $response = Http::timeout(10)->post($url, $payload);
+            $response = self::postToWebhookUrl($url, $payload);
         } catch (\Throwable $e) {
-            return ['ok' => false, 'message' => $e->getMessage()];
+            return self::webhookFailure($e);
         }
 
         if (! $response->successful()) {
@@ -448,9 +451,9 @@ class NotificationChannel extends Model
         $body = ['content' => $text];
 
         try {
-            $response = Http::timeout(10)->asJson()->post($url, $body);
+            $response = self::postToWebhookUrl($url, $body);
         } catch (\Throwable $e) {
-            return ['ok' => false, 'message' => $e->getMessage()];
+            return self::webhookFailure($e);
         }
 
         if (! $response->successful()) {
@@ -744,9 +747,9 @@ class NotificationChannel extends Model
         }
 
         try {
-            $response = Http::timeout(10)->asJson()->post($url, ['text' => $text]);
+            $response = self::postToWebhookUrl($url, ['text' => $text]);
         } catch (\Throwable $e) {
-            return ['ok' => false, 'message' => $e->getMessage()];
+            return self::webhookFailure($e);
         }
 
         if (! $response->successful()) {
@@ -974,12 +977,9 @@ class NotificationChannel extends Model
         ];
 
         try {
-            $response = Http::timeout(10)
-                ->withHeaders(is_array($this->config['headers'] ?? null) ? $this->config['headers'] : [])
-                ->asJson()
-                ->post($url, $payload);
+            $response = self::postToWebhookUrl($url, $payload, $this->webhookHeaders());
         } catch (\Throwable $e) {
-            return ['ok' => false, 'message' => $e->getMessage()];
+            return self::webhookFailure($e);
         }
 
         if (! $response->successful()) {
@@ -1056,7 +1056,7 @@ class NotificationChannel extends Model
             $payload['channel'] = $channel;
         }
 
-        Http::timeout(10)->post($url, $payload);
+        self::postToWebhookUrl($url, $payload);
     }
 
     protected function deliverDiscordPlain(string $text): void
@@ -1078,7 +1078,7 @@ class NotificationChannel extends Model
             return;
         }
 
-        Http::timeout(10)->asJson()->post($url, ['content' => mb_substr($text, 0, 1900)]);
+        self::postToWebhookUrl($url, ['content' => mb_substr($text, 0, 1900)]);
     }
 
     protected function deliverEmail(string $subject, string $body, ?string $actionUrl = null, ?string $actionLabel = null): void
@@ -1180,7 +1180,7 @@ class NotificationChannel extends Model
             return;
         }
 
-        Http::timeout(10)->asJson()->post($url, ['text' => $text]);
+        self::postToWebhookUrl($url, ['text' => $text]);
     }
 
     protected function deliverGoogleChatPlain(string $text): void
@@ -1190,7 +1190,7 @@ class NotificationChannel extends Model
             return;
         }
 
-        Http::timeout(10)->asJson()->post($url, ['text' => $text]);
+        self::postToWebhookUrl($url, ['text' => $text]);
     }
 
     protected function deliverIntercomPlain(string $subject, string $text): void
@@ -1290,15 +1290,58 @@ class NotificationChannel extends Model
             return;
         }
 
-        Http::timeout(10)
-            ->withHeaders(is_array($this->config['headers'] ?? null) ? $this->config['headers'] : [])
+        self::postToWebhookUrl($url, [
+            'event' => 'server.insights_alerts',
+            'subject' => $subject,
+            'text' => $text,
+            'action_url' => $actionUrl,
+            'sent_at' => now()->toIso8601String(),
+        ], $this->webhookHeaders());
+    }
+
+    /**
+     * POST JSON to an operator-supplied URL: resolved and pinned to a public
+     * address with redirects off, so a channel cannot aim the control plane at
+     * internal services (SSRF).
+     *
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, string>  $headers
+     *
+     * @throws UnsafeOutboundUrlException
+     */
+    public static function postToWebhookUrl(string $url, array $payload, array $headers = []): Response
+    {
+        $safe = PublicOutboundUrl::parse($url);
+
+        return Http::timeout(10)
+            ->withOptions($safe->httpClientOptions())
+            ->withHeaders($headers)
             ->asJson()
-            ->post($url, [
-                'event' => 'server.insights_alerts',
-                'subject' => $subject,
-                'text' => $text,
-                'action_url' => $actionUrl,
-                'sent_at' => now()->toIso8601String(),
-            ]);
+            ->post($safe->url, $payload);
+    }
+
+    /**
+     * The test button's answer for a failed post. Our own URL refusal is shown;
+     * transport errors are logged, not echoed, so the button is no probe.
+     *
+     * @return array{ok: false, message: string}
+     */
+    protected static function webhookFailure(\Throwable $e): array
+    {
+        if ($e instanceof UnsafeOutboundUrlException) {
+            return ['ok' => false, 'message' => __('That URL is not allowed: :reason', ['reason' => $e->getMessage()])];
+        }
+
+        Log::warning('notification_channel.webhook_test_failed', ['error' => $e->getMessage()]);
+
+        return ['ok' => false, 'message' => __('Could not reach the endpoint.')];
+    }
+
+    /** @return array<string, string> */
+    protected function webhookHeaders(): array
+    {
+        $headers = $this->config['headers'] ?? null;
+
+        return is_array($headers) ? array_map('strval', array_filter($headers, 'is_scalar')) : [];
     }
 }

@@ -9,6 +9,8 @@ use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
+use App\Models\Workspace;
+use App\Models\WorkspaceMember;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
@@ -193,4 +195,27 @@ it('keeps another organization out', function () {
     $this->withToken($token)
         ->getJson("/api/v1/sites/{$foreignSite->slug}/notifications")
         ->assertForbidden();
+});
+
+it('holds a token to its user: removed members are refused, site viewers cannot reroute', function () {
+    [$owner, $site, , $ownerToken] = notificationFixture();
+    $organization = $site->organization;
+
+    $viewer = User::factory()->create();
+    $organization->users()->attach($viewer->id, ['role' => 'member']);
+    $workspace = Workspace::factory()->create(['organization_id' => $organization->id, 'user_id' => $owner->id]);
+    $workspace->members()->create(['user_id' => $viewer->id, 'role' => WorkspaceMember::ROLE_VIEWER]);
+    $site->update(['workspace_id' => $workspace->id]);
+    $channel = NotificationChannel::factory()->forUser($viewer)->create();
+    ['plaintext' => $viewerToken] = ApiToken::createToken($viewer, $organization, 'viewer', null, ['notifications.read', 'notifications.write']);
+
+    $this->withToken($viewerToken)->getJson("/api/v1/sites/{$site->slug}/notifications")->assertOk();
+    $this->withToken($viewerToken)->postJson("/api/v1/sites/{$site->slug}/notifications", [
+        'channel' => (string) $channel->id,
+        'subscribe' => ['site.uptime.down'],
+    ])->assertForbidden();
+
+    $organization->users()->detach($owner->id);
+    Organization::flushMemberRoleCache(); // a new request in production
+    $this->withToken($ownerToken)->getJson('/api/v1/notifications/channels')->assertForbidden();
 });

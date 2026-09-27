@@ -12,6 +12,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/subtle"
 	"crypto/tls"
@@ -207,6 +208,13 @@ func (g *gateway) handle(client *tls.Conn) {
 	if !ok {
 		return
 	}
+	// Authenticate before waking: see preauth.go.
+	reader := bufio.NewReaderSize(client, 16*1024)
+	first, refusal := authorizeFirstCommand(reader, id, g.getTenantRecord)
+	if refusal != "" {
+		_, _ = client.Write([]byte(refusal))
+		return
+	}
 	var upstream net.Conn
 	for attempt := 0; attempt < 2 && upstream == nil; attempt++ {
 		started := time.Now()
@@ -230,6 +238,9 @@ func (g *gateway) handle(client *tls.Conn) {
 	}
 	defer upstream.Close()
 	_ = client.SetDeadline(time.Time{})
+	if _, err := upstream.Write(first); err != nil {
+		return
+	}
 
 	s := g.state(id)
 	s.mu.Lock()
@@ -243,13 +254,13 @@ func (g *gateway) handle(client *tls.Conn) {
 	}()
 
 	done := make(chan struct{}, 2)
-	go func() { copyTouching(upstream, client, func() { g.touch(id) }); done <- struct{}{} }()
+	go func() { copyTouching(upstream, reader, func() { g.touch(id) }); done <- struct{}{} }()
 	go func() { copyTouching(client, upstream, nil); done <- struct{}{} }()
 	<-done
 }
 
 // copyTouching copies src to dst and calls touch on each read, at most once a second.
-func copyTouching(dst net.Conn, src net.Conn, touch func()) {
+func copyTouching(dst net.Conn, src io.Reader, touch func()) {
 	buf := make([]byte, 32*1024)
 	var last time.Time
 	for {

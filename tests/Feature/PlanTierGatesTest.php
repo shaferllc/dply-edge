@@ -71,14 +71,14 @@ test('custom domains follow the plan, and an org without one gets none', functio
 
     config(['subscription.standard.tiers.pro.custom_domains_per_site' => 1]);
     $capped = liveSite(Organization::factory()->create(['trial_ends_at' => now()->addDays(3)]));
-    $provisioner->provision($capped, 'one.example.com');
-    expect(fn () => $provisioner->provision($capped->fresh(), 'two.example.com'))
+    $provisioner->provision($capped, 'one.capped.example.com');
+    expect(fn () => $provisioner->provision($capped->fresh(), 'two.capped.example.com'))
         ->toThrow(\RuntimeException::class, 'Upgrade to Pro');
 
     config(['subscription.standard.tiers.pro.custom_domains_per_site' => 100]);
     $pro = liveSite(onTier(Organization::factory()->create(), 'pro'));
-    $provisioner->provision($pro, 'one.example.com');
-    $provisioner->provision($pro->fresh(), 'two.example.com');
+    $provisioner->provision($pro, 'one.pro.example.com');
+    $provisioner->provision($pro->fresh(), 'two.pro.example.com');
 
     expect($pro->fresh()->edgeMeta()['routing']['custom_domains'])->toHaveCount(2);
 });

@@ -7,8 +7,11 @@ namespace App\Modules\Edge\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Organization;
 use App\Models\Site;
+use App\Models\User;
+use Illuminate\Contracts\Auth\Access\Gate as GateContract;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 
 /**
  * Shared lookup helpers for the public /api/v1/edge/* surface. Every
@@ -47,7 +50,39 @@ abstract class EdgeApiController extends Controller
             return null;
         }
 
+        self::authorizeTokenUser($request, $site);
+
         return $site;
+    }
+
+    /**
+     * Token abilities say what the token may do; the site policy says what its
+     * user may do. Both must allow it, so a token never outranks its user —
+     * reads need 'view', anything else 'update'. Policies resolve against the
+     * user's current organization, so it is pinned to the token's.
+     */
+    public static function authorizeTokenUser(Request $request, Site $site): void
+    {
+        $gate = self::tokenUserGate($request);
+        $ability = $request->isMethodSafe() ? 'view' : 'update';
+
+        if ($gate === null || $gate->denies($ability, $site)) {
+            abort(403, 'Your role does not allow this on this site.');
+        }
+    }
+
+    /** The gate for the token's user (AuthenticateApiToken already checked org membership). */
+    protected static function tokenUserGate(Request $request): ?GateContract
+    {
+        $user = $request->user();
+        $organization = $request->attributes->get('api_organization');
+        if (! $user instanceof User || ! $organization instanceof Organization) {
+            return null;
+        }
+
+        $user->rememberCurrentOrganization($organization);
+
+        return Gate::forUser($user);
     }
 
     protected function notFound(string $message = 'Edge site not found.'): JsonResponse

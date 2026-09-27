@@ -46,6 +46,11 @@ class AuthenticateApiToken
             return response()->json(['message' => 'Unauthorized'], 401);
         }
 
+        // A token never outlives its user's membership of the token's org.
+        if (! $token->organization?->hasMember($user)) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
         auth()->setUser($user);
         $request->setUserResolver(fn () => $user);
         $request->attributes->set('api_token', $token);

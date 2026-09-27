@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Modules\Notifications\Services;
 
-use Illuminate\Support\Facades\Http;
+use App\Models\NotificationChannel;
+use App\Support\Http\UnsafeOutboundUrlException;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Posts Adaptive Cards to a Microsoft Teams **Power Automate Workflows**
@@ -111,9 +113,14 @@ class MicrosoftTeamsClient
         }
 
         try {
-            $response = Http::timeout(10)->asJson()->post($webhookUrl, $payload);
+            $response = NotificationChannel::postToWebhookUrl($webhookUrl, $payload);
+        } catch (UnsafeOutboundUrlException $e) {
+            return ['ok' => false, 'error' => 'unsafe_url', 'status' => 0];
         } catch (\Throwable $e) {
-            return ['ok' => false, 'error' => $e->getMessage(), 'status' => 0];
+            // Transport text is logged, not shown: the test button is no probe.
+            Log::warning('microsoft_teams.post_failed', ['error' => $e->getMessage()]);
+
+            return ['ok' => false, 'error' => 'unreachable', 'status' => 0];
         }
 
         if (! $response->successful()) {
@@ -134,6 +141,8 @@ class MicrosoftTeamsClient
         return match (true) {
             $error === '' => __('Microsoft Teams rejected the request.'),
             $error === 'not_configured' => __('No Teams workflow URL is set for this channel.'),
+            $error === 'unsafe_url' => __('That URL is not allowed: it must point at a public address.'),
+            $error === 'unreachable' => __('Could not reach the Teams workflow URL.'),
             $error === 'retired_connector' => __('That is an Office 365 connector URL, which Microsoft retired in May 2026. Create a Workflows webhook in Teams instead — see the setup steps on this form.'),
             $error === 'http_404' => __('That workflow no longer exists. It may have been deleted in Power Automate.'),
             $error === 'http_403' => __('Power Automate refused the request. Check the flow is turned on and its trigger is still "When a Teams webhook request is received".'),

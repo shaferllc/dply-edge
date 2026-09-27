@@ -15,6 +15,7 @@ class EdgeSiteApiController extends EdgeApiController
     public function index(Request $request): AnonymousResourceCollection
     {
         $organization = $this->organization($request);
+        $gate = self::tokenUserGate($request);
 
         $sites = Site::query()
             ->where('organization_id', $organization->id)
@@ -23,6 +24,7 @@ class EdgeSiteApiController extends EdgeApiController
             ->orderBy('name')
             ->get()
             ->filter(fn (Site $s): bool => $s->usesEdgeRuntime())
+            ->filter(fn (Site $s): bool => $gate?->allows('view', $s) ?? false)
             ->values();
 
         return EdgeSiteResource::collection($sites);

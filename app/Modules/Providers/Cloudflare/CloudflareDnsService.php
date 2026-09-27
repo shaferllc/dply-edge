@@ -43,9 +43,17 @@ class CloudflareDnsService
         $this->assertApiSuccess($response, 'verify Cloudflare token');
     }
 
+    /**
+     * Whether this account holds the zone as ACTIVE. A pending zone proves
+     * nothing — anyone can add any domain to their own account — so ownership
+     * checks must not count it. findZoneId() still falls back to pending zones
+     * for record writes.
+     */
     public function zoneExists(string $zoneName): bool
     {
-        return $this->findZoneId($zoneName) !== null;
+        $zoneName = strtolower(trim($zoneName));
+
+        return $zoneName !== '' && $this->zonesNamed($zoneName, activeOnly: true) !== [];
     }
 
     public function findZoneId(string $zoneName): ?string

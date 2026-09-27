@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\EdgeQueueConsumersTest;
 
+use App\Models\EdgeQueue;
 use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
@@ -27,6 +28,8 @@ function siteOnQueue(Organization $org, User $user, string $runtime, string $cre
     $site = Site::factory()->create(['organization_id' => $org->id, 'server_id' => $server->id, 'user_id' => $user->id, 'edge_backend' => 'dply_edge', 'created_at' => $createdAt]);
     $site->mergeEdgeMeta(['runtime_mode' => $runtime]);
     $site->save();
+    // attach() only binds the org's own queues.
+    EdgeQueue::query()->firstOrCreate(['cloudflare_name' => 'shared-jobs'], ['organization_id' => $org->id, 'name' => 'shared-jobs', 'cloudflare_id' => 'q-shared']);
     EdgeContainerConnections::attach($site, 'queue', 'JOBS', 'shared-jobs');
 
     return $site->fresh();

@@ -67,10 +67,12 @@ class EdgeMiddlewareBundler
         );
         $process = Process::timeout(180)->run([
             'docker', 'run', '--rm',
+            // npx resolves the repo's own node_modules/.bin — customer code.
+            ...EdgeBuildRunner::sandboxFlags(),
             '-v', $checkoutDir.':/src',
             '-w', '/src',
             $dockerImage,
-            'bash', '-lc', $bundleScript,
+            'bash', '-lc', EdgeBuildRunner::sandboxScript($bundleScript),
         ]);
         $log($process->output().$process->errorOutput());
 

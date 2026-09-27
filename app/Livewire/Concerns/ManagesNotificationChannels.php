@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Modules\Notifications\Channels\Intercom\IntercomMessage;
 use App\Modules\Notifications\Channels\PagerDuty\PagerDutyMessage;
 use App\Modules\Notifications\Services\MicrosoftTeamsClient;
+use App\Rules\PubliclyRoutableUrl;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
@@ -565,7 +566,7 @@ trait ManagesNotificationChannels
                     $prefix.'slack_channel_id' => ['required', 'string', 'max:64'],
                 ]
                 : [
-                    $prefix.'slack_webhook_url' => ['required', 'string', 'url', 'max:2048'],
+                    $prefix.'slack_webhook_url' => ['required', 'string', 'url:http,https', 'max:2048', new PubliclyRoutableUrl],
                     $prefix.'slack_channel' => ['nullable', 'string', 'max:120'],
                 ]),
             NotificationChannel::TYPE_DISCORD => $base + ($this->discordMode($prefix) === 'oauth'
@@ -574,7 +575,7 @@ trait ManagesNotificationChannels
                     $prefix.'discord_channel_id' => ['required', 'string', 'max:64'],
                 ]
                 : [
-                    $prefix.'discord_webhook_url' => ['required', 'string', 'url', 'max:2048'],
+                    $prefix.'discord_webhook_url' => ['required', 'string', 'url:http,https', 'max:2048', new PubliclyRoutableUrl],
                 ]),
             NotificationChannel::TYPE_EMAIL => $base + [
                 $prefix.'email_address' => ['required', 'string', 'email', 'max:254'],
@@ -592,13 +593,13 @@ trait ManagesNotificationChannels
                 $prefix.'pushover_user_key' => ['required', 'string', 'max:64'],
             ],
             NotificationChannel::TYPE_MICROSOFT_TEAMS => $base + [
-                $prefix.'teams_webhook_url' => ['required', 'string', 'url', 'max:2048', MicrosoftTeamsClient::urlRule()],
+                $prefix.'teams_webhook_url' => ['required', 'string', 'url:http,https', 'max:2048', new PubliclyRoutableUrl, MicrosoftTeamsClient::urlRule()],
             ],
             NotificationChannel::TYPE_ROCKETCHAT => $base + [
-                $prefix.'rocketchat_webhook_url' => ['required', 'string', 'url', 'max:2048'],
+                $prefix.'rocketchat_webhook_url' => ['required', 'string', 'url:http,https', 'max:2048', new PubliclyRoutableUrl],
             ],
             NotificationChannel::TYPE_GOOGLE_CHAT => $base + [
-                $prefix.'google_chat_webhook_url' => ['required', 'string', 'url', 'max:2048'],
+                $prefix.'google_chat_webhook_url' => ['required', 'string', 'url:http,https', 'max:2048', new PubliclyRoutableUrl],
             ],
             NotificationChannel::TYPE_MOBILE_APP => $base + [
                 $prefix.'mobile_device_token' => ['required', 'string', 'max:4096'],
@@ -607,7 +608,7 @@ trait ManagesNotificationChannels
             NotificationChannel::TYPE_INTERCOM => $base + $this->intercomValidationRules($prefix),
             NotificationChannel::TYPE_PAGERDUTY => $base + $this->pagerDutyValidationRules($prefix),
             NotificationChannel::TYPE_WEBHOOK => $base + [
-                $prefix.'webhook_url' => ['required', 'string', 'url', 'max:2048'],
+                $prefix.'webhook_url' => ['required', 'string', 'url:http,https', 'max:2048', new PubliclyRoutableUrl],
             ],
             default => $base,
         };

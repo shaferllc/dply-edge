@@ -7,6 +7,7 @@ namespace App\Modules\Edge\Services\Containers;
 use App\Models\EdgeDeployment;
 use App\Models\Site;
 use App\Modules\Billing\Services\StarterTrafficGate;
+use App\Modules\Edge\Services\EdgeBuildRunner;
 use App\Modules\Edge\Services\EdgeDeliveryContextResolver;
 use App\Modules\Edge\Services\EdgeQueueConsumers;
 use App\Modules\Edge\Support\EdgeContainerConnections;
@@ -29,8 +30,8 @@ use Throwable;
  * `@cloudflare/containers` class fronting the app image, a queue consumer that
  * pushes batches into the app, and a queue producer endpoint the app calls),
  * then runs `wrangler deploy --dispatch-namespace` in the deployer image
- * against the host Docker socket. wrangler builds and pushes the image and
- * rolls the container out.
+ * against the host Docker socket. wrangler builds the image in the isolated
+ * BuildKit builder (deployerScript), pushes it and rolls the container out.
  *
  * One script per site (`dply-ctr-<site>`), not per deployment: the container
  * application and its Durable Objects hang off the script, so a per-deploy
@@ -287,6 +288,33 @@ class EdgeContainerDeployer
         return $services;
     }
 
+    /**
+     * The image's asset stage runs `npm run build` with no site env, but Vite
+     * bakes VITE_* into the JS. Write them to .env.production.local in the
+     * checkout (Vite's highest-priority file for a production build).
+     * Returns whether anything was written.
+     *
+     * ponytail: a repo .dockerignore that excludes .env* drops this file; pass
+     * them as build args if that turns up.
+     *
+     * @param  array<string, string>  $env
+     */
+    public static function writeViteBuildEnv(string $checkout, array $env): bool
+    {
+        $lines = [];
+        foreach ($env as $key => $value) {
+            if (str_starts_with($key, 'VITE_') && preg_match('/^[A-Z0-9_]+$/', $key) === 1) {
+                $lines[] = $key.'='.json_encode((string) $value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            }
+        }
+        if ($lines === []) {
+            return false;
+        }
+        File::put($checkout.'/.env.production.local', implode("\n", $lines)."\n");
+
+        return true;
+    }
+
     /** Shared secret between the site Worker and the app for /_dply/* calls. */
     public static function queueToken(Site $site): string
     {
@@ -303,6 +331,7 @@ class EdgeContainerDeployer
         EdgePhpBaseImage::ensure($checkout, $log);
         $injectLaravel = self::needsLaravelPackage($site, $checkout);
         $image = EdgeContainerDockerfile::prepare($checkout, $injectLaravel);
+        File::put($image['path'], self::scopeCacheMounts((string) file_get_contents($image['path']), self::cacheScope($site)));
         if ($injectLaravel) {
             $log("Added dply/laravel so this app can use the attached resources.\n");
         }
@@ -360,7 +389,10 @@ class EdgeContainerDeployer
         $queueEnv += EdgeQueueWorkers::dispatchEnv($site);
 
         $env = EdgeContainerConnections::omitAsleepRedis($site, $env);
-        File::put($project.'/secrets.json', json_encode(array_merge(EdgeContainerConnections::redisDriverEnv($site), EdgeContainerConnections::storageDriverEnv($site), EdgeContainerConnections::kvDriverEnv($site), $queueEnv, $env, [
+        if (self::writeViteBuildEnv($checkout, array_merge(EdgeContainerConnections::realtimeBuildEnv($site), $env))) {
+            $log("VITE_* variables are passed to the asset build.\n");
+        }
+        File::put($project.'/secrets.json', json_encode(array_merge(EdgeContainerConnections::redisDriverEnv($site), EdgeContainerConnections::storageDriverEnv($site), EdgeContainerConnections::kvDriverEnv($site), EdgeContainerConnections::realtimeDriverEnv($site), $queueEnv, $env, [
             'DPLY_QUEUE_TOKEN' => self::queueToken($site),
             'DPLY_APP_URL' => (string) ($site->edgeLiveUrl() ?? ''),
             'DPLY_MIGRATE_ON_BOOT' => $migrateOnBoot ? '1' : '0',
@@ -385,6 +417,7 @@ class EdgeContainerDeployer
         }
 
         $this->ensureDeployerImage($log);
+        self::ensureBuilderNetwork();
 
         $namespace = (string) config('edge.cloudflare.dispatch_namespace_name');
         // wrangler goes quiet after the layer push while Cloudflare ingests the
@@ -392,27 +425,9 @@ class EdgeContainerDeployer
         // Say so, or every deploy reads as a hang at exactly this point.
         $log("Building the image (npm, Vite, Composer) and pushing it. Docker output follows.\n");
 
-        // Same absolute path inside the deployer so the Dockerfile path in
-        // wrangler.jsonc resolves; the host socket does the actual build.
-        $result = $this->runWithHeartbeat($log, Process::timeout($timeoutSeconds ?? 1800), [
-            // Named so cancelling can kill it: the container outlives this
-            // client, and an abandoned one keeps building and pushing.
-            'docker', 'run', '--rm', '--name', self::buildContainerName($deployment),
-            '-v', '/var/run/docker.sock:/var/run/docker.sock',
-            '-v', $workRoot.':'.$workRoot,
-            '-w', $project,
-            '-e', 'CLOUDFLARE_API_TOKEN='.config('edge.cloudflare.api_token'),
-            '-e', 'CLOUDFLARE_ACCOUNT_ID='.config('edge.cloudflare.account_id'),
-            '-e', 'WRANGLER_SEND_METRICS=false',
-            // Without this buildx uses TTY progress: it rewrites the same lines
-            // in place and batches when stdout isn't a terminal, so a live build
-            // looks frozen in the log. Plain mode appends one line per event.
-            '-e', 'BUILDKIT_PROGRESS=plain',
-            (string) config('edge.build.containers.deployer_image'),
-            'sh', '-c', 'npm install --silent --no-audit --no-fund && wrangler deploy --dispatch-namespace "$0" --secrets-file secrets.json --containers-rollout "$1"',
-            $namespace,
-            $settings['rollout_mode'],
-        ]);
+        $result = $this->runWithHeartbeat($log, Process::timeout($timeoutSeconds ?? 1800), self::deployerCommand(
+            self::buildContainerName($deployment), $workRoot, $project, $namespace, $settings['rollout_mode'],
+        ));
 
         File::delete($project.'/secrets.json');
 
@@ -705,8 +720,6 @@ class EdgeContainerDeployer
             '__CRON_HANDLERS__' => json_encode((object) $crons, JSON_UNESCAPED_SLASHES),
             '__PAUSE_KEY__' => json_encode(StarterTrafficGate::KEY_PREFIX.$site->id),
             '__CONNECTIONS__' => json_encode($this->workerConnections($site), JSON_UNESCAPED_SLASHES),
-            '__QSTASH_TOKEN__' => json_encode((string) config('edge.upstash.qstash_token')),
-            '__DELIVERY_USAGE_URL__' => json_encode(rtrim((string) config('app.url'), '/').'/hooks/edge/'.$site->id.'/delivery'),
             '__CLIENT_CERT__' => json_encode(EdgeContainerConnections::clientCertificateId($site) !== '' ? 'CLIENT_CERT' : ''),
             '__BROWSER__' => EdgeContainerConnections::browserEnabled($site) ? 'true' : 'false',
             '__SQLITE_SYNC__' => $sqliteSync ? 'true' : 'false',
@@ -752,8 +765,6 @@ const QUEUE_BINDINGS = __QUEUE_BINDINGS__; // queue name -> binding name
 const CRON_HANDLERS = __CRON_HANDLERS__; // schedule -> [artisan command / rake task]
 
 const CONNECTIONS = __CONNECTIONS__;
-const QSTASH_TOKEN = __QSTASH_TOKEN__;
-const DELIVERY_USAGE_URL = __DELIVERY_USAGE_URL__;
 
 const BUILD_ID = __BUILD_ID__;
 
@@ -932,6 +943,16 @@ export class App extends Container {
   // when the ones before them are full, and go back to sleep when traffic
   // drops. A yes holds a slot until the request arrives (or 30s pass), so a
   // burst at a cold instance does not all pile onto it.
+  //
+  // WebSockets: the SDK (0.3.7) counts an open socket in inflightRequests
+  // until it closes or errors, and its close path shares decrementInflight
+  // with plain requests, so sockets cannot be told apart here without a
+  // second proxy hop. Each open socket therefore holds one CAPACITY slot for
+  // its whole life (new traffic spills to the next instance), and while any
+  // socket is open the instance never sleeps: isActivityExpired() is false
+  // while inflightRequests > 0, and every message both ways renews the
+  // sleepAfter timer. No renewActivityTimeout call is needed. It also means
+  // a paused site keeps its open sockets until they close.
   reservations = [];
 
   async hasRoom(index) {
@@ -943,6 +964,9 @@ export class App extends Container {
     return true;
   }
 
+  // The Worker reaches this through the Durable Object fetch handler (not the
+  // containerFetch RPC), which is the path the SDK proxies WebSocket
+  // upgrades on: it answers with a 101 whose webSocket it pipes both ways.
   async fetch(request) {
     this.reservations.shift();
     return super.fetch(request);
@@ -1047,20 +1071,6 @@ async function connectionFetch(c, request, env) {
     return Response.json(await binding.prepare(body.sql).bind(...(body.params || [])).all());
   }
   if (c.kind === 'queue' && request.method === 'POST') { await binding.send(await request.text()); return new Response(null, { status: 202 }); }
-  if (c.kind === 'http_delivery' && request.method === 'POST') {
-    if (!QSTASH_TOKEN) return new Response('HTTP delivery is not ready.', { status: 503 });
-    const parsed = await json();
-    const target = String(parsed.url || '');
-    if (!target.startsWith('https://')) return new Response('Name an https address.', { status: 400 });
-    const payload = typeof parsed.body === 'string' ? parsed.body : JSON.stringify(parsed.body ?? {});
-    const headers = { authorization: 'Bearer ' + QSTASH_TOKEN, 'content-type': 'application/json' };
-    if (parsed.delay) headers['upstash-delay'] = String(parsed.delay);
-    const published = await fetch('https://qstash.upstash.io/v2/publish/' + target, { method: 'POST', headers, body: payload });
-    if (published.ok) {
-      await fetch(DELIVERY_USAGE_URL, { method: 'POST', headers: { 'content-type': 'application/json', 'x-dply-queue-token': env.DPLY_QUEUE_TOKEN }, body: JSON.stringify({ messages: 1, bytes: payload.length }) }).catch(() => {});
-    }
-    return new Response(await published.text(), { status: published.status });
-  }
   if (c.kind === 'ai' && request.method === 'POST') { const body = await json(); return Response.json(await binding.run(body.model, body.input)); }
   if (c.kind === 'vectors' && request.method === 'POST') { const body = await json(); return Response.json(await binding.query(body.vector, { topK: body.topK || 5 })); }
   if (c.kind === 'images' && request.method === 'POST') {
@@ -1223,7 +1233,15 @@ async function warm(env) {
   ]);
 }
 
+// A WebSocket answer (101) passes through untouched: a new Response cannot
+// carry status 101 or the socket. Sockets still stick: webTarget routes by
+// the cookie the page load already set, or picks an instance.
+function isSocket(response) {
+  return response.status === 101 || Boolean(response.webSocket);
+}
+
 function withStickyCookie(response, id) {
+  if (isSocket(response)) return response;
   const headers = new Headers(response.headers);
   headers.append('set-cookie', 'dply_instance=' + id + '; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800');
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
@@ -1272,6 +1290,10 @@ async function proxy(env, request, target) {
   } catch {
     // fetch() below starts the container again.
   }
+  // A WebSocket upgrade goes through here too, Upgrade / Sec-WebSocket-*
+  // headers intact (httpRequest copies them). A 101 never enters the retry
+  // loop; the SDK's 5xx for an upgrade come before any socket exists (start
+  // failed, connection lost), so retrying one does not replay a live socket.
   let response = await container.fetch(request);
   for (let attempt = 0; retryable && attempt < 2 && response.status >= 500; attempt++) {
     const preview = await response.clone().text();
@@ -1294,7 +1316,7 @@ async function proxy(env, request, target) {
 
 function revealAppErrors(env, response) {
   const flag = String(env.APP_DEBUG ?? '').trim().toLowerCase();
-  if (flag !== 'true' && flag !== '1' && flag !== '(true)') return response;
+  if (isSocket(response) || (flag !== 'true' && flag !== '1' && flag !== '(true)')) return response;
   const headers = new Headers(response.headers);
   headers.set('x-dply-app-debug', '1');
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
@@ -1493,6 +1515,10 @@ JS, $replace);
         $out = [];
         foreach (EdgeEffectiveBindings::for($site, $deployment) as $binding) {
             if ($binding['kind'] === 'queue' && $binding['value'] !== '') {
+                // The account is shared: a repo may only bind this org's queues.
+                if ($binding['source'] === 'repo' && ($site->organization === null || ! EdgeContainerConnections::owns('queue', $binding['value'], $site->organization))) {
+                    throw new RuntimeException(sprintf('wrangler.toml binding %s (%s): it is not a queue this organization owns.', $binding['name'], $binding['value']));
+                }
                 $out[$binding['name']] = $binding['value'];
             }
         }
@@ -1545,6 +1571,115 @@ JS, $replace);
         }
 
         return $context->kvNamespaceId;
+    }
+
+    /**
+     * The deployer `docker run`. Only trusted code runs in it (wrangler and
+     * the scaffold's pinned deps, install scripts off) next to the socket and
+     * token; the customer's Dockerfile goes to the BuildKit builder, where
+     * RUN steps get neither. See docs/edge-build-isolation.md.
+     *
+     * @return list<string>
+     */
+    public static function deployerCommand(string $name, string $workRoot, string $project, string $namespace, string $rolloutMode): array
+    {
+        $builder = trim((string) config('edge.build.containers.builder', ''));
+        $token = trim((string) config('edge.build.containers.deploy_api_token', ''));
+
+        return [
+            // Named so cancelling can kill it: the container outlives this
+            // client, and an abandoned one keeps building and pushing.
+            'docker', 'run', '--rm', '--name', $name,
+            '-v', '/var/run/docker.sock:/var/run/docker.sock',
+            // Same absolute path inside the deployer so the Dockerfile path in
+            // wrangler.jsonc resolves.
+            '-v', $workRoot.':'.$workRoot,
+            '-w', $project,
+            '-e', 'CLOUDFLARE_API_TOKEN='.($token !== '' ? $token : (string) config('edge.cloudflare.api_token')),
+            '-e', 'CLOUDFLARE_ACCOUNT_ID='.config('edge.cloudflare.account_id'),
+            '-e', 'WRANGLER_SEND_METRICS=false',
+            // Without this buildx uses TTY progress: it rewrites the same lines
+            // in place and batches when stdout isn't a terminal, so a live build
+            // looks frozen in the log. Plain mode appends one line per event.
+            '-e', 'BUILDKIT_PROGRESS=plain',
+            // wrangler runs `docker build`, which buildx routes to this builder.
+            ...($builder !== '' ? ['-e', 'BUILDX_BUILDER='.$builder] : []),
+            (string) config('edge.build.containers.deployer_image'),
+            'sh', '-c', self::deployerScript($builder), $namespace, $rolloutMode,
+        ];
+    }
+
+    /**
+     * Create the docker-container builder on the build network if this
+     * (throwaway) client doesn't know it; an existing builder container is
+     * reused, so the driver opts only take effect when it is first created.
+     * `&&`: no builder means no deploy, never a silent host-daemon build.
+     */
+    public static function deployerScript(string $builder): string
+    {
+        $deploy = 'npm install --silent --no-audit --no-fund --ignore-scripts && wrangler deploy --dispatch-namespace "$0" --secrets-file secrets.json --containers-rollout "$1"';
+        if ($builder === '') {
+            return $deploy;
+        }
+
+        $opts = ['image='.(string) config('edge.build.containers.builder_image', 'moby/buildkit:v0.32.2')];
+        $network = trim((string) config('edge.build.sandbox.network', ''));
+        if ($network !== '') {
+            $opts[] = 'network='.$network;
+        }
+        $memory = trim((string) config('edge.build.containers.builder_memory', ''));
+        if ($memory !== '') {
+            array_push($opts, 'memory='.$memory, 'memory-swap='.$memory);
+        }
+        $cpus = (float) config('edge.build.containers.builder_cpus', 0);
+        if ($cpus > 0) {
+            array_push($opts, 'cpu-period=100000', 'cpu-quota='.(int) round($cpus * 100000));
+        }
+
+        $create = 'docker buildx create --name '.escapeshellarg($builder).' --driver docker-container';
+        foreach ($opts as $opt) {
+            $create .= ' --driver-opt '.escapeshellarg($opt);
+        }
+
+        return '{ docker buildx inspect '.escapeshellarg($builder).' >/dev/null 2>&1 || '.$create.' >/dev/null; } && '.$deploy;
+    }
+
+    private static function ensureBuilderNetwork(): void
+    {
+        $network = trim((string) config('edge.build.sandbox.network', ''));
+        if (trim((string) config('edge.build.containers.builder', '')) !== '' && $network !== '') {
+            EdgeBuildRunner::ensureBuildNetwork($network, (array) config('edge.build.sandbox', []));
+        }
+    }
+
+    /** Per-org, unguessable prefix for BuildKit cache mount ids. */
+    public static function cacheScope(Site $site): string
+    {
+        return substr(hash_hmac('sha256', 'container-build-cache:'.(string) $site->organization_id, (string) config('app.key')), 0, 16);
+    }
+
+    /**
+     * BuildKit cache mounts are keyed by id (default: the target path) across
+     * every build on the builder, so one org's `RUN --mount=type=cache` could
+     * poison another's npm/composer cache — including explicit ids copied
+     * from docs (`id=pnpm`). Prefix every cache id with the org scope.
+     */
+    public static function scopeCacheMounts(string $dockerfile, string $scope): string
+    {
+        return preg_replace_callback('/--mount=(\S+)/', static function (array $m) use ($scope): string {
+            $opts = [];
+            foreach (explode(',', $m[1]) as $part) {
+                [$key, $value] = array_pad(explode('=', $part, 2), 2, '');
+                $opts[strtolower($key)] = $value;
+            }
+            $id = $opts['id'] ?? $opts['target'] ?? $opts['dst'] ?? $opts['destination'] ?? '';
+            if (($opts['type'] ?? '') !== 'cache' || $id === '' || str_starts_with($id, 'dply-'.$scope)) {
+                return $m[0];
+            }
+            $rest = array_filter(explode(',', $m[1]), static fn (string $part): bool => strtolower(explode('=', $part, 2)[0]) !== 'id');
+
+            return '--mount=id=dply-'.$scope.'-'.ltrim($id, '/').','.implode(',', $rest);
+        }, $dockerfile) ?? $dockerfile;
     }
 
     /** @param callable(string): void $log */

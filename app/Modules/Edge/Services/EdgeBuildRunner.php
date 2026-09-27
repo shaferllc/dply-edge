@@ -496,30 +496,6 @@ class EdgeBuildRunner
                 $this->appendBuildLog($buildLog, sprintf("SSR mode (%s) — adapter detected, build = %s\n", $ssrProfile->label, $buildCommand));
             }
 
-            // Build cache restore — best-effort. For workspace monorepos
-            // key + restore from the git root (lockfile + node_modules
-            // live there after filtered installs).
-            $site = $deployment->site;
-            $cacheKey = null;
-            $cacheTarget = ($normalizedRepoRoot !== '' && $this->isWorkspaceRoot($checkoutRoot))
-                ? $checkoutRoot
-                : $checkout;
-            if ($site !== null) {
-                try {
-                    // Key off the package checkout (package.json / local lock);
-                    // restore into the workspace root when filtered installs
-                    // place node_modules there.
-                    $cacheKey = app(EdgeBuildCache::class)->cacheKey($checkout, null);
-                    $restoreResult = app(EdgeBuildCache::class)->restore($cacheTarget, null, $cacheKey, $site);
-                    $this->appendBuildLog(
-                        $buildLog,
-                        '[cache] '.$restoreResult['message'].' (key '.$cacheKey.')'."\n",
-                    );
-                } catch (\Throwable $e) {
-                    $this->appendBuildLog($buildLog, '[cache] restore error: '.$e->getMessage()."\n");
-                }
-            }
-
             // Pick the Node image from the repo's own version hints
             // (engines.node / .nvmrc / .node-version / packageManager). Falls
             // back to the env-configured default when nothing is declared, so
@@ -541,6 +517,31 @@ class EdgeBuildRunner
                     "[node] No version hints in repo — using default %s\n",
                     $dockerImage,
                 ));
+            }
+
+            // Build cache restore — best-effort. For workspace monorepos
+            // key + restore from the git root (lockfile + node_modules
+            // live there after filtered installs).
+            $site = $deployment->site;
+            $cacheKey = null;
+            $cacheTarget = ($normalizedRepoRoot !== '' && $this->isWorkspaceRoot($checkoutRoot))
+                ? $checkoutRoot
+                : $checkout;
+            if ($site !== null) {
+                try {
+                    // Key off the package checkout (package.json / local lock);
+                    // restore into the workspace root when filtered installs
+                    // place node_modules there.
+                    // Keyed by the build image so native modules never cross Node majors.
+                    $cacheKey = app(EdgeBuildCache::class)->cacheKey($checkout, null, $dockerImage);
+                    $restoreResult = app(EdgeBuildCache::class)->restore($cacheTarget, null, $cacheKey, $site);
+                    $this->appendBuildLog(
+                        $buildLog,
+                        '[cache] '.$restoreResult['message'].' (key '.$cacheKey.')'."\n",
+                    );
+                } catch (\Throwable $e) {
+                    $this->appendBuildLog($buildLog, '[cache] restore error: '.$e->getMessage()."\n");
+                }
             }
 
             // Step marker — everything after this line is the install +
@@ -565,12 +566,13 @@ class EdgeBuildRunner
                 ->run(
                     [
                         'docker', 'run', '--rm',
+                        ...self::sandboxFlags(),
                         '-v', $checkoutRoot.':/src',
                         '-w', $containerWorkdir,
-                        ...$this->packageStoreVolumeFlags(),
-                        ...$this->dockerEnvFlags($env),
+                        ...$this->packageStoreVolumeFlags($site?->organization_id),
+                        ...$this->dockerEnvFlags($env, $site?->organization_id),
                         $dockerImage,
-                        'bash', '-lc', $script,
+                        'bash', '-lc', self::sandboxScript($script),
                     ],
                     // Stream stdout/stderr into the build log as it arrives so
                     // the live tail in the BuildJourney UI shows pnpm install
@@ -1286,17 +1288,20 @@ class EdgeBuildRunner
     }
 
     /**
-     * Host-side npm/pnpm/yarn caches bind-mounted into the build container.
+     * Host-side npm/pnpm/yarn caches bind-mounted into the build container,
+     * one set per organization: a build script can write anything into its
+     * cache, so a shared store would let one org trojan another's installs.
+     * No organization → no cache (the build still works, just cold).
      *
      * @return list<string>
      */
-    private function packageStoreVolumeFlags(): array
+    private function packageStoreVolumeFlags(?string $organizationId): array
     {
-        if (! (bool) config('edge.build.package_store_enabled', true)) {
+        $root = $this->packageStoreDir($organizationId);
+        if ($root === null) {
             return [];
         }
 
-        $root = rtrim((string) config('edge.build.package_store_dir', storage_path('app/edge-pkg-store')), '/');
         File::ensureDirectoryExists($root.'/npm');
         File::ensureDirectoryExists($root.'/pnpm');
         File::ensureDirectoryExists($root.'/yarn');
@@ -1306,6 +1311,157 @@ class EdgeBuildRunner
             '-v', $root.'/pnpm:/pnpm-store',
             '-v', $root.'/yarn:/yarn-cache',
         ];
+    }
+
+    private function packageStoreDir(?string $organizationId): ?string
+    {
+        if (! (bool) config('edge.build.package_store_enabled', true)) {
+            return null;
+        }
+
+        $segment = preg_replace('/[^A-Za-z0-9_-]/', '', (string) $organizationId);
+        if ($segment === null || $segment === '') {
+            return null;
+        }
+
+        $root = rtrim((string) config('edge.build.package_store_dir', storage_path('app/edge-pkg-store')), '/');
+
+        return $root.'/org-'.$segment;
+    }
+
+    /**
+     * Isolation flags for every `docker run` that executes customer code
+     * (build + middleware bundle). What is enforced here: no capabilities,
+     * no setuid escalation, memory/CPU/pids caps, a non-root uid, and a
+     * dedicated no-ICC bridge with metadata/host names sinkholed. Blocking
+     * the bridge from host-local ports and private ranges by IP needs the
+     * host firewall rules in docs/edge-build-isolation.md.
+     *
+     * @return list<string>
+     */
+    public static function sandboxFlags(): array
+    {
+        $cfg = (array) config('edge.build.sandbox', []);
+        $flags = ['--cap-drop=ALL', '--security-opt=no-new-privileges'];
+
+        $user = self::sandboxUser();
+        if ($user === null) {
+            // Root in the container still has to write the host-owned mounts.
+            foreach (['CHOWN', 'DAC_OVERRIDE', 'FOWNER', 'SETUID', 'SETGID'] as $cap) {
+                $flags[] = '--cap-add='.$cap;
+            }
+        } else {
+            // Arbitrary uid has no passwd entry/home; give npm, corepack and
+            // `npm i -g` somewhere writable.
+            array_push($flags, '--user', $user, '-e', 'HOME=/tmp', '-e', 'NPM_CONFIG_PREFIX=/tmp/.npm-global');
+        }
+
+        foreach (['memory' => '--memory', 'cpus' => '--cpus', 'pids_limit' => '--pids-limit'] as $key => $flag) {
+            $value = trim((string) ($cfg[$key] ?? ''));
+            if ($value !== '') {
+                $flags[] = $flag.'='.$value;
+            }
+        }
+        if (trim((string) ($cfg['memory'] ?? '')) !== '') {
+            // No swap beyond the memory cap.
+            $flags[] = '--memory-swap='.trim((string) $cfg['memory']);
+        }
+
+        $network = trim((string) ($cfg['network'] ?? ''));
+        if ($network !== '') {
+            self::ensureBuildNetwork($network, $cfg);
+            $flags[] = '--network='.$network;
+        }
+
+        foreach ((array) ($cfg['sinkhole_hosts'] ?? []) as $host) {
+            $host = trim((string) $host);
+            if ($host !== '') {
+                $flags[] = '--add-host='.$host.':127.0.0.1';
+            }
+        }
+
+        return $flags;
+    }
+
+    /**
+     * Wrap a build script for the sandbox user: login shells reset PATH, and
+     * a non-root `corepack enable` can't write /usr/local/bin.
+     */
+    public static function sandboxScript(string $script): string
+    {
+        if (self::sandboxUser() === null) {
+            return $script;
+        }
+
+        $script = preg_replace(
+            '/\bcorepack\s+enable\b(?!\s+--install-directory)/',
+            'corepack enable --install-directory "$NPM_CONFIG_PREFIX/bin"',
+            $script,
+        ) ?? $script;
+
+        return 'mkdir -p "$NPM_CONFIG_PREFIX/bin" && export PATH="$NPM_CONFIG_PREFIX/bin:$PATH" && '.$script;
+    }
+
+    /** uid:gid the build runs as, or null for container root. */
+    private static function sandboxUser(): ?string
+    {
+        $user = trim((string) config('edge.build.sandbox.user', 'host'));
+        if ($user === 'root' || $user === '0' || $user === '0:0') {
+            return null;
+        }
+        if ($user !== '' && $user !== 'host') {
+            return $user;
+        }
+        if (! function_exists('posix_getuid') || posix_getuid() === 0) {
+            // A root worker's files are root-owned anyway; nothing to map to.
+            return null;
+        }
+
+        return posix_getuid().':'.posix_getgid();
+    }
+
+    /** @var array<string, true> */
+    private static array $readyNetworks = [];
+
+    /**
+     * Create the build bridge if missing. ICC off so concurrent builds can't
+     * reach each other; a fixed bridge name + subnet so host firewall rules
+     * can target it. Concurrent creators race — "already exists" is success.
+     *
+     * @param  array<string, mixed>  $cfg
+     */
+    public static function ensureBuildNetwork(string $network, array $cfg): void
+    {
+        if (isset(self::$readyNetworks[$network])) {
+            return;
+        }
+
+        if (! self::networkExists($network)) {
+            $create = ['docker', 'network', 'create', '--driver', 'bridge',
+                '-o', 'com.docker.network.bridge.enable_icc=false'];
+            $bridge = trim((string) ($cfg['bridge_name'] ?? ''));
+            if ($bridge !== '') {
+                array_push($create, '-o', 'com.docker.network.bridge.name='.$bridge);
+            }
+            $subnet = trim((string) ($cfg['subnet'] ?? ''));
+            if ($subnet !== '') {
+                array_push($create, '--subnet', $subnet);
+            }
+            $create[] = $network;
+
+            $result = Process::timeout(30)->run($create);
+            if (! $result->successful() && ! self::networkExists($network)) {
+                throw new RuntimeException('Could not create the build network '.$network.': '.trim($result->errorOutput()));
+            }
+        }
+
+        self::$readyNetworks[$network] = true;
+    }
+
+    /** @phpstan-impure — another worker may create it between calls. */
+    private static function networkExists(string $network): bool
+    {
+        return Process::timeout(30)->run(['docker', 'network', 'inspect', $network])->successful();
     }
 
     private function isWorkspaceRoot(string $root): bool
@@ -1488,12 +1644,14 @@ class EdgeBuildRunner
      * @param  array<string, mixed>  $env
      * @return list<string>
      */
-    private function dockerEnvFlags(array $env): array
+    private function dockerEnvFlags(array $env, ?string $organizationId = null): array
     {
         // Defaults encourage npm/pnpm/vite to emit progress instead of
         // buffering quietly in a non-TTY docker run. Site env wins on conflict.
+        // Store paths only when packageStoreVolumeFlags mounts them — an
+        // unmounted /npm-cache isn't creatable by the non-root build user.
         $storeDefaults = [];
-        if ((bool) config('edge.build.package_store_enabled', true)) {
+        if ($this->packageStoreDir($organizationId) !== null) {
             $storeDefaults = [
                 'npm_config_cache' => '/npm-cache',
                 'PNPM_STORE_DIR' => '/pnpm-store',

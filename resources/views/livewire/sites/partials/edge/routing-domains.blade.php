@@ -34,6 +34,7 @@
                     $sslStatus = is_array($info) ? (string) ($info['ssl_status'] ?? '') : '';
                     $cnameTarget = is_array($info) ? (string) ($info['cname_target'] ?? $edgeDeliveryHostname ?? $site->edgeHostname()) : ($edgeDeliveryHostname ?? $site->edgeHostname());
                     $ownership = is_array($info) && is_array($info['ownership_verification'] ?? null) ? $info['ownership_verification'] : null;
+                    $dplyProof = is_array($info) && is_array($info['dply_verification'] ?? null) ? $info['dply_verification'] : null;
                     $statusBadge = match ($dnsStatus) {
                         'ready' => 'bg-emerald-100 text-emerald-800 dark:bg-raw-emerald-950/40 dark:text-emerald-300',
                         'failed' => 'bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300',
@@ -94,6 +95,24 @@
                                             type="button"
                                             class="inline-flex items-center gap-1 rounded-lg border border-brand-ink/10 bg-white px-2 py-1 text-xs font-medium text-brand-moss hover:bg-brand-sand/40"
                                             @click="navigator.clipboard.writeText(@js($ownership['value'])); copied = true; setTimeout(() => copied = false, 2000)"
+                                        >
+                                            <x-heroicon-o-clipboard class="h-4 w-4" />
+                                            <span x-show="!copied">{{ __('Copy') }}</span>
+                                            <span x-show="copied" x-cloak>{{ __('Copied') }}</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            @endif
+                            @if ($dplyProof && $dnsStatus !== 'ready' && ($dplyProof['value'] ?? '') !== '')
+                                <div class="mt-2" x-data="{ copied: false }">
+                                    <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Verification TXT record') }}</p>
+                                    <p class="mt-1 font-mono text-xs text-brand-moss break-all">{{ $dplyProof['name'] }}</p>
+                                    <div class="mt-1 flex flex-wrap items-center gap-2">
+                                        <code class="rounded-lg bg-brand-sand/30 px-2 py-1 font-mono text-xs text-brand-ink break-all">{{ $dplyProof['value'] }}</code>
+                                        <button
+                                            type="button"
+                                            class="inline-flex items-center gap-1 rounded-lg border border-brand-ink/10 bg-white px-2 py-1 text-xs font-medium text-brand-moss hover:bg-brand-sand/40"
+                                            @click="navigator.clipboard.writeText(@js($dplyProof['value'])); copied = true; setTimeout(() => copied = false, 2000)"
                                         >
                                             <x-heroicon-o-clipboard class="h-4 w-4" />
                                             <span x-show="!copied">{{ __('Copy') }}</span>

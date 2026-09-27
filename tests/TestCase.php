@@ -51,6 +51,10 @@ abstract class TestCase extends BaseTestCase
 
         $this->withoutVite();
 
+        // Outbound URL checks resolve DNS; answer with a public address so
+        // tests never depend on the network. A test can swap in its own.
+        $this->app->instance('dply.outbound-dns', static fn (string $host): array => ['93.184.216.34']);
+
         // Avoid blocking Livewire tests on SSH; tests that assert queued manage jobs opt in explicitly.
         config(['server_manage.queue_remote_tasks' => false]);
 

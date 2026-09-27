@@ -109,7 +109,12 @@ trait ManagesEdgeDashboardBindings
         }
 
         $this->dashboard_bindings[] = ['name' => $name, 'kind' => $kind, 'value' => $value];
-        $this->persistEdgeDashboardBindings();
+        $refused = $this->persistEdgeDashboardBindings();
+        if ($refused !== null) {
+            $this->addError('new_value', $refused);
+
+            return;
+        }
 
         $this->new_name = '';
         $this->new_value = '';
@@ -134,7 +139,11 @@ trait ManagesEdgeDashboardBindings
         $this->toastSuccess(__('Binding detached — the resource was left in place.'));
     }
 
-    protected function persistEdgeDashboardBindings(): void
+    /**
+     * Returns why a new row could not be attached (not this organization's
+     * resource, or a paid-only kind on a trial), or null.
+     */
+    protected function persistEdgeDashboardBindings(): ?string
     {
         $previous = EdgeEffectiveBindings::dashboardOverrides($this->site);
         $kinds = array_flip(EdgeEffectiveBindings::KIND_FOR_CONNECTION);
@@ -146,9 +155,10 @@ trait ManagesEdgeDashboardBindings
             }
         }
         $had = array_column($previous, 'name');
+        $refused = null;
         foreach ($this->dashboard_bindings as $row) {
             if (! in_array($row['name'], $had, true)) {
-                EdgeContainerConnections::attach($this->site, $kinds[$row['kind']], $row['name'], $row['value']);
+                $refused ??= EdgeContainerConnections::attach($this->site, $kinds[$row['kind']], $row['name'], $row['value']);
             }
         }
 
@@ -162,6 +172,8 @@ trait ManagesEdgeDashboardBindings
         );
 
         $this->refreshEdgeDashboardBindingsFromMeta();
+
+        return $refused;
     }
 
     protected function latestEdgeConfigDeployment(): ?EdgeDeployment

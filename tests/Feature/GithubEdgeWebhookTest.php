@@ -163,6 +163,16 @@ test('invalid signature returns 403', function () {
     $response->assertStatus(403);
 });
 
+test('a site with no webhook secret refuses even an empty-key signature', function () {
+    Queue::fake();
+    $site = makeSourceSite();
+    $site->forceFill(['webhook_secret' => null])->save();
+
+    postWebhook($site, 'push', json_encode(['ref' => 'refs/heads/main', 'after' => str_repeat('a', 40)]))
+        ->assertStatus(403);
+    Queue::assertNothingPushed();
+});
+
 test('non edge site returns 422', function () {
     $site = makeSourceSite();
     $site->update(['edge_backend' => null, 'meta' => []]);

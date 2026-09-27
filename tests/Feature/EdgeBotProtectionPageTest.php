@@ -11,6 +11,8 @@ use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
+use App\Models\Workspace;
+use App\Models\WorkspaceMember;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 
@@ -86,4 +88,26 @@ test('edge bot protection generates keys with fake edge', function () {
     expect($turnstile['enabled'] ?? false)->toBeTrue()
         ->and($turnstile['generated'] ?? false)->toBeTrue()
         ->and((string) ($turnstile['site_key'] ?? ''))->toStartWith('0x4AAAAAAAFakeSite');
+});
+
+test('a site viewer never receives the turnstile secret key', function () {
+    [$owner, $server, $site] = edgeBotProtectionSite();
+    $site->mergeEdgeMeta(['turnstile' => ['enabled' => true, 'site_key' => 'pub-key', 'secret_key' => 'super-secret-turnstile']]);
+    $site->save();
+
+    $viewer = User::factory()->create();
+    $site->organization->users()->attach($viewer->id, ['role' => 'member']);
+    $workspace = Workspace::factory()->create(['organization_id' => $site->organization_id, 'user_id' => $owner->id]);
+    $workspace->members()->create(['user_id' => $viewer->id, 'role' => WorkspaceMember::ROLE_VIEWER]);
+    $site->update(['workspace_id' => $workspace->id]);
+    expect($viewer->can('view', $site))->toBeTrue()->and($viewer->can('update', $site))->toBeFalse();
+
+    Livewire::actingAs($viewer)
+        ->test(BotProtection::class, ['server' => $server, 'site' => $site])
+        ->assertSet('site_key', 'pub-key')
+        ->assertSet('secret_key', '');
+
+    Livewire::actingAs($owner)
+        ->test(BotProtection::class, ['server' => $server, 'site' => $site])
+        ->assertSet('secret_key', 'super-secret-turnstile');
 });

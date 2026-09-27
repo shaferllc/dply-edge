@@ -251,7 +251,10 @@ final class EdgeContainerDockerfile
                     continue;
                 }
                 $extension = substr($name, 4);
-                if ($extension === '' || isset($baked[$extension]) || isset($extra[$extension])) {
+                // Names reach `RUN install-php-extensions …` in the shared base
+                // image EdgePhpBaseImage builds on the host and pushes for every
+                // org: anything but an extension name is shell injection.
+                if (preg_match('/^[a-z0-9][a-z0-9_-]*$/', $extension) !== 1 || isset($baked[$extension]) || isset($extra[$extension])) {
                     continue;
                 }
                 $extra[$extension] = true;

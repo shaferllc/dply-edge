@@ -286,3 +286,41 @@ test('bulk assign page can quick add notification channel', function () {
         'label' => 'Ops alerts',
     ]);
 });
+
+test('webhook channels refuse internal targets at save, on test and on delivery', function () {
+    Http::fake();
+
+    $user = User::factory()->create();
+    $org = Organization::factory()->create();
+    $org->users()->attach($user->id, ['role' => 'owner']);
+
+    Livewire::actingAs($user)
+        ->test(OrgNotificationChannels::class, ['organization' => $org])
+        ->set('new_type', NotificationChannel::TYPE_WEBHOOK)
+        ->set('new_label', 'Metadata')
+        ->set('new_webhook_url', 'http://169.254.169.254/latest/meta-data/')
+        ->call('createChannel')
+        ->assertHasErrors('new_webhook_url');
+
+    // A row saved before the rule existed (or written another way).
+    $channel = $org->notificationChannels()->create([
+        'type' => NotificationChannel::TYPE_WEBHOOK,
+        'label' => 'Internal',
+        'config' => ['url' => 'http://127.0.0.1:6379/', 'headers' => ['X-Test' => '1']],
+    ]);
+
+    $result = $channel->sendTest($user);
+    expect($result['ok'])->toBeFalse()
+        ->and($result['message'])->toContain('not allowed');
+
+    $channel->sendOperationalMessage('Subject', 'Body');
+
+    $slack = $org->notificationChannels()->create([
+        'type' => NotificationChannel::TYPE_SLACK,
+        'label' => 'Slack',
+        'config' => ['webhook_url' => 'http://localhost/hook'],
+    ]);
+    $slack->sendOperationalMessage('Subject', 'Body');
+
+    Http::assertNothingSent();
+});

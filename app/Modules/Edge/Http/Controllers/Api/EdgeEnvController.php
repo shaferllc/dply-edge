@@ -197,6 +197,8 @@ class EdgeEnvController extends Controller
             return response()->json(['message' => 'Site is not an Edge site.'], 422);
         }
 
+        EdgeApiController::authorizeTokenUser($request, $site);
+
         return null;
     }
 

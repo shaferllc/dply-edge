@@ -2,9 +2,9 @@
 
 namespace App\Modules\Notifications\Services;
 
+use App\Models\NotificationChannel;
 use App\Models\NotificationEvent;
 use App\Models\NotificationWebhookDestination;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -122,7 +122,7 @@ class NotificationWebhookDestinationRouter
                 default => ['text' => $text],
             };
 
-            $response = Http::timeout(10)->acceptJson()->post($url, $payload);
+            $response = NotificationChannel::postToWebhookUrl($url, $payload, ['Accept' => 'application/json']);
             if (! $response->successful()) {
                 Log::warning('notification webhook destination failed', [
                     'hook_id' => $destination->id,

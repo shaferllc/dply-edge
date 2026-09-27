@@ -84,12 +84,12 @@ class EdgeRepoBindingTranslator
         // auto-create on first use). The dply.yaml `bindings:` schema
         // is no longer parsed; everything declarative comes through
         // wrangler.toml via WranglerBindingsExtractor at build time.
-        $declared = [];
-        if (is_array($config['bindings'] ?? null) && $site instanceof Site) {
-            $declared = $this->autoResolver->resolve($site, $deployment) ?: $config['bindings'];
-        } elseif (is_array($config['bindings'] ?? null)) {
-            $declared = $config['bindings'];
-        }
+        // Only resolved values reach the upload: a raw repo value could name
+        // any bucket or namespace in the shared account. An unowned target
+        // throws and fails the deploy, naming the binding.
+        $declared = is_array($config['bindings'] ?? null) && $site instanceof Site
+            ? $this->autoResolver->resolve($site, $deployment)
+            : [];
 
         $declaredNames = $this->collectDeclaredNames($declared);
 
@@ -103,25 +103,25 @@ class EdgeRepoBindingTranslator
         }
 
         foreach ((array) ($declared['kv'] ?? []) as $name => $namespaceId) {
-            if (! $this->isUsableName($name) || ! is_string($namespaceId)) {
+            if (! $this->isUsableName($name)) {
                 continue;
             }
             $out[] = ['name' => $name, 'type' => 'kv_namespace', 'namespace_id' => $namespaceId];
         }
         foreach ((array) ($declared['r2'] ?? []) as $name => $bucketName) {
-            if (! $this->isUsableName($name) || ! is_string($bucketName)) {
+            if (! $this->isUsableName($name)) {
                 continue;
             }
             $out[] = ['name' => $name, 'type' => 'r2_bucket', 'bucket_name' => $bucketName];
         }
         foreach ((array) ($declared['d1'] ?? []) as $name => $databaseId) {
-            if (! $this->isUsableName($name) || ! is_string($databaseId)) {
+            if (! $this->isUsableName($name)) {
                 continue;
             }
             $out[] = ['name' => $name, 'type' => 'd1', 'id' => $databaseId];
         }
         foreach ((array) ($declared['queues'] ?? []) as $name => $queueName) {
-            if (! $this->isUsableName($name) || ! is_string($queueName)) {
+            if (! $this->isUsableName($name)) {
                 continue;
             }
             $out[] = ['name' => $name, 'type' => 'queue', 'queue_name' => $queueName];

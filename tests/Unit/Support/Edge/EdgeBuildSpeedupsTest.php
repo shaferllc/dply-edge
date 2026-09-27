@@ -46,23 +46,54 @@ test('composeBuildScript uses pnpm --filter for workspace package roots', functi
         ->toContain('pnpm run --if-present build');
 });
 
-test('packageStoreVolumeFlags mounts host npm/pnpm/yarn caches', function () {
+test('packageStoreVolumeFlags mounts the organization\'s own npm/pnpm/yarn caches', function () {
     $store = storage_path('framework/testing/edge-mono/pkg-store');
     config()->set('edge.build.package_store_enabled', true);
     config()->set('edge.build.package_store_dir', $store);
 
-    $flags = invokePrivate(new EdgeBuildRunner, 'packageStoreVolumeFlags');
+    $flags = invokePrivate(new EdgeBuildRunner, 'packageStoreVolumeFlags', ['01jorga']);
 
     expect($flags)->toContain('-v')
-        ->and($flags)->toContain($store.'/npm:/npm-cache')
-        ->and($flags)->toContain($store.'/pnpm:/pnpm-store')
-        ->and(is_dir($store.'/npm'))->toBeTrue();
+        ->and($flags)->toContain($store.'/org-01jorga/npm:/npm-cache')
+        ->and($flags)->toContain($store.'/org-01jorga/pnpm:/pnpm-store')
+        ->and(is_dir($store.'/org-01jorga/npm'))->toBeTrue();
+});
+
+test('two organizations never share a package store', function () {
+    $store = storage_path('framework/testing/edge-mono/pkg-store');
+    config()->set('edge.build.package_store_enabled', true);
+    config()->set('edge.build.package_store_dir', $store);
+
+    $a = invokePrivate(new EdgeBuildRunner, 'packageStoreVolumeFlags', ['01jorga']);
+    $b = invokePrivate(new EdgeBuildRunner, 'packageStoreVolumeFlags', ['01jorgb']);
+
+    expect(array_intersect(array_filter($a, fn ($f) => $f !== '-v'), $b))->toBe([]);
+});
+
+test('no organization means no cache mounts and no store env', function () {
+    config()->set('edge.build.package_store_enabled', true);
+
+    $runner = new EdgeBuildRunner;
+
+    expect(invokePrivate($runner, 'packageStoreVolumeFlags', [null]))->toBe([])
+        ->and(implode(' ', invokePrivate($runner, 'dockerEnvFlags', [[], null])))->not->toContain('/npm-cache');
+});
+
+test('the org segment of the store path cannot escape the store root', function () {
+    $store = storage_path('framework/testing/edge-mono/pkg-store');
+    config()->set('edge.build.package_store_enabled', true);
+    config()->set('edge.build.package_store_dir', $store);
+
+    $dir = invokePrivate(new EdgeBuildRunner, 'packageStoreDir', ['../../etc/x']);
+
+    expect($dir)->toBe($store.'/org-etcx')
+        ->and(invokePrivate(new EdgeBuildRunner, 'packageStoreDir', ['../']))->toBeNull();
 });
 
 test('dockerEnvFlags point package managers at mounted stores', function () {
     config()->set('edge.build.package_store_enabled', true);
 
-    $flags = invokePrivate(new EdgeBuildRunner, 'dockerEnvFlags', [[]]);
+    $flags = invokePrivate(new EdgeBuildRunner, 'dockerEnvFlags', [[], '01jorga']);
 
     $joined = implode(' ', $flags);
     expect($joined)->toContain('PNPM_STORE_DIR=/pnpm-store')

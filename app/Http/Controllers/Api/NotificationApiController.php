@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\NotificationChannel;
+use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
@@ -16,6 +17,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Gate;
 
 /**
  * Notification channels and per-subject event routing, for the CLI.
@@ -252,6 +254,7 @@ class NotificationApiController extends Controller
         if ($site->server?->organization_id !== $organization?->id) {
             abort(403);
         }
+        $this->authorizeTokenUser($request, $site);
     }
 
     private function assertServerOwnership(Request $request, Server $server): void
@@ -261,5 +264,22 @@ class NotificationApiController extends Controller
         if ($server->organization_id !== $organization?->id) {
             abort(403);
         }
+        $this->authorizeTokenUser($request, $server);
+    }
+
+    /**
+     * The token's abilities are not enough: its user must also be allowed on
+     * this site/server (reads 'view', writes 'update'), as in the UI.
+     */
+    private function authorizeTokenUser(Request $request, Model $subject): void
+    {
+        $user = $request->user();
+        $organization = $request->attributes->get('api_organization');
+        if (! $user instanceof User || ! $organization instanceof Organization) {
+            abort(403);
+        }
+
+        $user->rememberCurrentOrganization($organization);
+        Gate::forUser($user)->authorize($request->isMethodSafe() ? 'view' : 'update', $subject);
     }
 }

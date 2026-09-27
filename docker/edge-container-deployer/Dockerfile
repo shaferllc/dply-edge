@@ -1,5 +1,6 @@
 # Toolchain for deploying dply container sites: wrangler builds the app image
-# through the host Docker socket, pushes it to registry.cloudflare.com and
+# in the isolated dply-builds BuildKit builder (BUILDX_BUILDER, created over the
+# host Docker socket), pushes it to registry.cloudflare.com and
 # rolls out the Worker + container. Built on first use by EdgeContainerDeployer.
 FROM node:22-bookworm
 # Current Docker CLI + buildx: Debian's docker.io (20.10) speaks an API version
