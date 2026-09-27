@@ -25,7 +25,7 @@ class Activity extends Component
     #[Url(as: 'family', except: '')]
     public string $family = '';
 
-    /** Optional free-text search against `action` / `subject_summary`. */
+    /** Optional free-text search against the action, subject type and recorded values. */
     #[Url(as: 'q', except: '')]
     public string $search = '';
 
@@ -38,7 +38,7 @@ class Activity extends Component
      * old/new value diff. Kept in the component (not the URL) — short-
      * lived UI state.
      *
-     * @var list<int>
+     * @var list<string>
      */
     public array $expandedIds = [];
 
@@ -74,7 +74,7 @@ class Activity extends Component
         $this->resetPage();
     }
 
-    public function toggleRow(int $id): void
+    public function toggleRow(string $id): void
     {
         if (in_array($id, $this->expandedIds, true)) {
             $this->expandedIds = array_values(array_diff($this->expandedIds, [$id]));
@@ -109,19 +109,27 @@ class Activity extends Component
         if ($this->search !== '') {
             $needle = '%'.trim($this->search).'%';
             $query->where(function (Builder $q) use ($needle): void {
-                $q->where('action', 'like', $needle)
-                    ->orWhere('subject_summary', 'like', $needle);
+                // subject_summary is a PHP accessor, not a column; the names it
+                // shows are in the recorded values, so search those instead.
+                $q->where('action', 'ilike', $needle)
+                    ->orWhere('subject_type', 'ilike', $needle)
+                    ->orWhereRaw('CAST(old_values AS text) ILIKE ?', [$needle])
+                    ->orWhereRaw('CAST(new_values AS text) ILIKE ?', [$needle]);
             });
         }
 
         $perPage = max(10, min(100, $this->perPage));
 
-        return $query->paginate($perPage);
+        // Unfiltered, the paginator's COUNT(*) is exactly familyTotals['']
+        // (same org scope), so hand it over instead of counting twice.
+        $total = $this->family === '' && $this->search === '' ? $this->familyTotals[''] : null;
+
+        return $query->paginate($perPage, total: $total);
     }
 
     /**
      * Per-family totals scoped to this org. Drives the count chips on
-     * each filter pill — they show "Servers · 42" so an admin can spot
+     * each filter pill — they show "Apps · 42" so an admin can spot
      * spikes at a glance. Excludes the search box so the totals don't
      * jump around as you type.
      *
@@ -184,27 +192,21 @@ class Activity extends Component
      */
     private static function familyConditions(): array
     {
-        return [
-            'server' => "action LIKE 'server.%'",
+        $families = [
             'site' => "action LIKE 'site.%' AND action NOT LIKE 'site.edge.%'",
             'edge' => "action LIKE 'site.edge.%'",
-            'project' => "action LIKE 'project.%'",
+            'resources' => "(action LIKE 'database.%' OR action LIKE 'queue.%')",
             'team' => "action LIKE 'team.%'",
             'billing' => "action LIKE 'billing.%'",
-            'security' => "(action LIKE 'api_token.%' OR action LIKE 'invitation.%' OR action LIKE 'notification_channel.%')",
+            'security' => "(action LIKE 'api_token.%' OR action LIKE 'invitation.%' OR action LIKE 'notification_channel.%' "
+                ."OR action LIKE 'user.%' OR action LIKE 'credential.%' OR action LIKE 'impersonation.%')",
             'org' => "action LIKE 'organization.%'",
-            'backup' => "action LIKE 'backup.%'",
-            'insight' => "action LIKE 'insight.%'",
-            'import' => "action LIKE 'import.%'",
-            'background' => "action LIKE 'queue_worker.%'",
-            'other' => "action NOT LIKE 'server.%' AND action NOT LIKE 'site.%' "
-                ."AND action NOT LIKE 'project.%' AND action NOT LIKE 'team.%' "
-                ."AND action NOT LIKE 'billing.%' AND action NOT LIKE 'api_token.%' "
-                ."AND action NOT LIKE 'invitation.%' AND action NOT LIKE 'notification_channel.%' "
-                ."AND action NOT LIKE 'organization.%' AND action NOT LIKE 'backup.%' "
-                ."AND action NOT LIKE 'insight.%' AND action NOT LIKE 'import.%' "
-                ."AND action NOT LIKE 'queue_worker.%'",
         ];
+
+        // Everything else, including rows from the removed VM products.
+        $families['other'] = 'NOT ('.implode(' OR ', array_map(fn (string $sql): string => "({$sql})", $families)).')';
+
+        return $families;
     }
 
     public function render(): View

@@ -1,7 +1,7 @@
 <div>
     <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
         @include('livewire.sites.edge.workspace.partials.feature-guide', [
-            'docSlug' => 'edge-crons',
+            'docSlug' => 'scheduled-tasks',
             'what' => __('Schedule your Edge Worker on a UTC cron expression. Dashboard rows merge with dply.yaml on the next deploy — Dply Edge then calls scheduled() in your middleware (or SSR) Worker.'),
             'steps' => [
                 __('Add middleware (src/middleware.ts) that exports scheduled — see Use in code below.'),

@@ -50,7 +50,7 @@ trait ManagesEdgeDeployCommit
         if (! $this->site->usesEdgeRuntime()) {
             return;
         }
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
 
         $sha = trim($this->edge_deploy_commit_sha);
         if ($sha === '') {
@@ -78,7 +78,7 @@ trait ManagesEdgeDeployCommit
         if (! $this->site->usesEdgeRuntime()) {
             return;
         }
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
 
         $source = is_array($this->site->edgeMeta()['source'] ?? null) ? $this->site->edgeMeta()['source'] : [];
         $this->edge_deploy_ref_branch = (string) ($source['branch'] ?? 'main');

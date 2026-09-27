@@ -45,6 +45,53 @@ class CancelStuckEdgeDeployment
     public function abandon(Site $site, EdgeDeployment $deployment): void
     {
         $this->failInFlight($site, $deployment, 'Cancelled by operator.');
+        self::restoreSiteStatus($site);
+    }
+
+    /**
+     * Builds whose worker died: nothing retries them for Redis retry_after
+     * (~2h) and nothing marks them failed, so they sit at "building" and hold
+     * the org's slot. A live build is killed by its own timeout, so one still
+     * in flight past timeout + 15 min (the slot TTL) has no worker left.
+     */
+    public function reapStuck(): int
+    {
+        $reaped = 0;
+        $inFlight = EdgeDeployment::query()
+            ->whereIn('status', [EdgeDeployment::STATUS_BUILDING, EdgeDeployment::STATUS_PUBLISHING])
+            ->whereNotNull('build_started_at')
+            ->where('build_started_at', '<', now()->subMinutes(15))
+            ->get();
+
+        foreach ($inFlight as $deployment) {
+            $site = Site::find($deployment->site_id);
+            $timeout = (int) ($site?->organization?->tierAllowances()['build_timeout_minutes'] ?? 20);
+            if ($site === null || $deployment->build_started_at->gt(now()->subMinutes($timeout + 15))) {
+                continue;
+            }
+            $deployment->markCancelledByOperator(__('The build stopped responding after :minutes minutes — the worker running it exited. Deploy again.', ['minutes' => $timeout + 15]));
+            $this->killBuildContainer($deployment);
+            EdgeBuildSlots::releaseFor($site->organization);
+            self::restoreSiteStatus($site);
+            $reaped++;
+        }
+
+        return $reaped;
+    }
+
+    /**
+     * After a deploy stops without publishing: still provisioning if another
+     * is in flight, active if an earlier deploy is live, otherwise failed.
+     */
+    public static function restoreSiteStatus(Site $site): void
+    {
+        $deployments = EdgeDeployment::query()->where('site_id', $site->id);
+        $status = match (true) {
+            (clone $deployments)->whereIn('status', [EdgeDeployment::STATUS_BUILDING, EdgeDeployment::STATUS_PUBLISHING])->exists() => Site::STATUS_EDGE_PROVISIONING,
+            (clone $deployments)->where('status', EdgeDeployment::STATUS_LIVE)->exists() => Site::STATUS_EDGE_ACTIVE,
+            default => Site::STATUS_EDGE_FAILED,
+        };
+        $site->update(['status' => $status]);
     }
 
     private function failInFlight(Site $site, EdgeDeployment $deployment, string $reason): void
@@ -64,14 +111,33 @@ class CancelStuckEdgeDeployment
             throw new \RuntimeException('Only in-flight deployments can be cancelled.');
         }
 
-        $deployment->update([
-            'status' => EdgeDeployment::STATUS_FAILED,
-            'failed_at' => now(),
-            'failure_reason' => $reason,
-        ]);
+        // Sets meta.cancelled too, so the job cannot flip it back to publishing.
+        $deployment->markCancelledByOperator($reason);
 
         EdgeBuildSlots::releaseFor($site->organization);
         $this->killBuildContainer($deployment);
+    }
+
+    /**
+     * A new deploy makes every older in-flight build for the site pointless:
+     * cancel them so the new one gets the build slot now instead of waiting.
+     */
+    public function supersedeInFlight(Site $site, EdgeDeployment $newest): void
+    {
+        $older = EdgeDeployment::query()
+            ->where('site_id', $site->id)
+            ->whereKeyNot($newest->getKey())
+            ->whereIn('status', [EdgeDeployment::STATUS_BUILDING, EdgeDeployment::STATUS_PUBLISHING])
+            ->get();
+
+        foreach ($older as $deployment) {
+            $deployment->markCancelledByOperator(__('Cancelled — a newer deploy (:id) replaced it.', ['id' => $newest->id]));
+            $this->killBuildContainer($deployment);
+        }
+
+        if ($older->isNotEmpty()) {
+            EdgeBuildSlots::releaseFor($site->organization);
+        }
     }
 
     /**

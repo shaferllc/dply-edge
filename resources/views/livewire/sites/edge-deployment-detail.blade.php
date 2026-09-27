@@ -52,7 +52,7 @@
                             {{ __('All deploys') }}
                         </a>
                         @if (! $isActiveDeployment && in_array($deployment->status, [\App\Models\EdgeDeployment::STATUS_LIVE, \App\Models\EdgeDeployment::STATUS_SUPERSEDED], true) && $deployment->storage_prefix !== null)
-                            @can('update', $site)
+                            @can('deploy', $site)
                                 <button
                                     type="button"
                                     wire:click="confirmRollbackEdgeDeployment('{{ $deployment->id }}')"

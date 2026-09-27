@@ -23,7 +23,7 @@ trait ManagesEdgeRedeploy
         if (! $this->site->usesEdgeRuntime()) {
             return;
         }
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
 
         try {
             (new RedeployEdgeSite)->handle($this->site);

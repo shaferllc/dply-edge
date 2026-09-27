@@ -42,7 +42,7 @@ trait ManagesEdgeDeploymentLifecycle
         if (! $this->site->usesEdgeRuntime()) {
             return;
         }
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
 
         $deployment = EdgeDeployment::query()
             ->where('site_id', $this->site->id)
@@ -72,7 +72,7 @@ trait ManagesEdgeDeploymentLifecycle
         if (! $this->site->usesEdgeRuntime()) {
             return;
         }
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
 
         try {
             (new RollbackEdgeDeployment)->handle($this->site, $deploymentId);
@@ -102,7 +102,7 @@ trait ManagesEdgeDeploymentLifecycle
         if (! $this->site->usesEdgeRuntime() || $this->site->isEdgePreview()) {
             return;
         }
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
 
         $preview = Site::query()->find($previewSiteId);
         if ($preview === null
@@ -163,7 +163,7 @@ trait ManagesEdgeDeploymentLifecycle
         if (! $this->site->usesEdgeRuntime() || $this->site->isEdgePreview()) {
             return;
         }
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
 
         try {
             $deployment = app(PromoteEdgePreview::class)->handle($this->site, $previewSiteId);
@@ -198,7 +198,7 @@ trait ManagesEdgeDeploymentLifecycle
         if (! $this->site->usesEdgeRuntime() || $this->site->isEdgePreview()) {
             return;
         }
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
 
         try {
             if ($percentage <= 0) {
@@ -233,7 +233,7 @@ trait ManagesEdgeDeploymentLifecycle
             return;
         }
 
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
 
         try {
             app(QueueEdgeDeployReplay::class)->handle(

@@ -11,15 +11,13 @@ use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Laravel\Pennant\Feature;
 use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
 
 beforeEach(function () {
     // Deploy contract promote-gate is out of scope for these review-hub assertions.
-    Feature::define('global.deploy_contract', fn () => false);
-    Feature::flushCache();
+    config(['deploy_contract.require_for_promote' => false]);
 });
 
 test('preview review hub renders for edge preview site', function () {

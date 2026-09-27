@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace App\Modules\Edge\Support;
 
 use App\Models\Site;
+use App\Modules\Billing\Support\UsagePrice;
 use App\Modules\Providers\Valkey\ValkeyGatewayClient;
+use App\Modules\Providers\Valkey\ValkeyRegions;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 /**
@@ -19,20 +22,43 @@ final class EdgeValkey
     public const PREFIX = 'valkey:';
 
     /**
-     * Owner's price table (2026-09-24). Flex sleeps when idle; pro stays on
-     * and keeps an append-only file. Billed per second awake, up to the cap.
+     * Sizes on the shared ladder (EdgeSizeLadder::VALKEY_CLASSES). Flex
+     * sleeps when idle; pro stays on and keeps an append-only file. Billed
+     * per second awake, up to the monthly cap.
      *
-     * @var array<string, array{label: string, memory_mb: int, sleeps: bool, per_second: float, cap_cents: int}>
+     * cost_per_second (dollars) and cap_cost_cents are dply's COST. They were
+     * backed out of the owner's 2026-09-24 customer price table at the
+     * then-default 20% margin (price / 1.2), so they are NOT a measured
+     * cluster cost, and at today's 30% default every Valkey price is about
+     * 8% above that table (docs/pricing-review.md §3). The customer price
+     * comes from {@see spec()} (UsagePrice).
+     *
+     * @var array<string, array{label: string, memory_mb: int, sleeps: bool, cost_per_second: float, cap_cost_cents: float}>
      */
     public const CLASSES = [
-        'flex_250m' => ['label' => 'Flex 250 MB', 'memory_mb' => 250, 'sleeps' => true, 'per_second' => 0.00000248, 'cap_cents' => 600],
-        'flex_1g' => ['label' => 'Flex 1 GB', 'memory_mb' => 1024, 'sleeps' => true, 'per_second' => 0.00000992, 'cap_cents' => 2400],
-        'flex_2_5g' => ['label' => 'Flex 2.5 GB', 'memory_mb' => 2560, 'sleeps' => true, 'per_second' => 0.0000198, 'cap_cents' => 4800],
-        'pro_5g' => ['label' => 'Pro 5 GB', 'memory_mb' => 5120, 'sleeps' => false, 'per_second' => 0.0000318, 'cap_cents' => 7700],
-        'pro_12g' => ['label' => 'Pro 12 GB', 'memory_mb' => 12288, 'sleeps' => false, 'per_second' => 0.0000744, 'cap_cents' => 18000],
-        'pro_25g' => ['label' => 'Pro 25 GB', 'memory_mb' => 25600, 'sleeps' => false, 'per_second' => 0.000103, 'cap_cents' => 25000],
-        'pro_50g' => ['label' => 'Pro 50 GB', 'memory_mb' => 51200, 'sleeps' => false, 'per_second' => 0.000207, 'cap_cents' => 50000],
+        'flex_250m' => ['label' => '0.25 vCPU', 'memory_mb' => 250, 'sleeps' => true, 'cost_per_second' => 0.00000248 / 1.2, 'cap_cost_cents' => 600 / 1.2],
+        'flex_1g' => ['label' => '0.5 vCPU', 'memory_mb' => 1024, 'sleeps' => true, 'cost_per_second' => 0.00000992 / 1.2, 'cap_cost_cents' => 2400 / 1.2],
+        'flex_2_5g' => ['label' => '1 vCPU', 'memory_mb' => 2560, 'sleeps' => true, 'cost_per_second' => 0.0000198 / 1.2, 'cap_cost_cents' => 4800 / 1.2],
+        'pro_5g' => ['label' => '2 vCPU', 'memory_mb' => 5120, 'sleeps' => false, 'cost_per_second' => 0.0000318 / 1.2, 'cap_cost_cents' => 7700 / 1.2],
+        'pro_12g' => ['label' => '4 vCPU', 'memory_mb' => 12288, 'sleeps' => false, 'cost_per_second' => 0.0000744 / 1.2, 'cap_cost_cents' => 18000 / 1.2],
+        'pro_25g' => ['label' => 'Large 25 GB', 'memory_mb' => 25600, 'sleeps' => false, 'cost_per_second' => 0.000103 / 1.2, 'cap_cost_cents' => 25000 / 1.2],
+        'pro_50g' => ['label' => 'Large 50 GB', 'memory_mb' => 51200, 'sleeps' => false, 'cost_per_second' => 0.000207 / 1.2, 'cap_cost_cents' => 50000 / 1.2],
     ];
+
+    /**
+     * A class with its customer prices: per_second (dollars) and cap_cents.
+     *
+     * @return array{label: string, memory_mb: int, sleeps: bool, cost_per_second: float, cap_cost_cents: float, per_second: float, cap_cents: float}
+     */
+    public static function spec(string $class): array
+    {
+        $key = isset(self::CLASSES[$class]) ? $class : self::DEFAULT_CLASS;
+
+        return self::CLASSES[$key] + [
+            'per_second' => UsagePrice::valkeyPerSecond($key) / 100_000,
+            'cap_cents' => UsagePrice::valkeyCapCents($key),
+        ];
+    }
 
     public const DEFAULT_CLASS = 'flex_250m';
 
@@ -43,10 +69,15 @@ final class EdgeValkey
      */
     public const NOT_OFFERED = ['pro_25g', 'pro_50g'];
 
-    /** @return array<string, array{label: string, memory_mb: int, sleeps: bool, per_second: float, cap_cents: int}> */
+    /** @return array<string, array{label: string, memory_mb: int, sleeps: bool, cost_per_second: float, cap_cost_cents: float, per_second: float, cap_cents: float}> */
     public static function offered(): array
     {
-        return array_diff_key(self::CLASSES, array_flip(self::NOT_OFFERED));
+        $offered = [];
+        foreach (array_diff_key(self::CLASSES, array_flip(self::NOT_OFFERED)) as $key => $class) {
+            $offered[$key] = self::spec($key);
+        }
+
+        return $offered;
     }
 
     /** Idle time before a flex database sleeps, in seconds. 0 stays on. */
@@ -64,9 +95,28 @@ final class EdgeValkey
         return str_starts_with($target, self::PREFIX);
     }
 
+    /**
+     * The gateway's id for a target. Targets are valkey:{id} (default
+     * region) or valkey:{region}:{id}; the gateway only sees the id.
+     */
     public static function tenantId(string $target): string
     {
-        return substr($target, strlen(self::PREFIX));
+        $rest = substr($target, strlen(self::PREFIX));
+
+        return str_contains($rest, ':') ? substr($rest, strpos($rest, ':') + 1) : $rest;
+    }
+
+    /** The region a target lives in (ValkeyRegions key). */
+    public static function region(string $target): string
+    {
+        $rest = substr($target, strlen(self::PREFIX));
+
+        return str_contains($rest, ':') ? substr($rest, 0, strpos($rest, ':')) : ValkeyRegions::default();
+    }
+
+    public static function target(string $id, string $region): string
+    {
+        return self::PREFIX.($region === ValkeyRegions::default() ? '' : $region.':').$id;
     }
 
     public static function sleepAfter(string $class, int $sleep): int
@@ -83,17 +133,18 @@ final class EdgeValkey
      *
      * @return array{target: string, url: string}
      */
-    public static function provision(Site $site, string $resource, string $class, int $sleep): array
+    public static function provision(Site $site, string $resource, string $class, int $sleep, ?string $region = null): array
     {
         $class = isset(self::offered()[$class]) ? $class : self::DEFAULT_CLASS;
         $spec = self::CLASSES[$class];
         $label = substr(trim((string) preg_replace('/[^a-z0-9]+/', '-', strtolower($resource)), '-'), 0, 12);
         $id = trim(strtolower((string) $site->id).'-'.$label, '-');
         $password = Str::random(40);
+        $region = ValkeyRegions::get($region ?? DataRegion::forSite($site))['key'];
 
-        ValkeyGatewayClient::fromConfig()->put($id, $password, $spec['memory_mb'], self::sleepAfter($class, $sleep), ! $spec['sleeps']);
+        ValkeyGatewayClient::fromConfig($region)->put($id, $password, $spec['memory_mb'], self::sleepAfter($class, $sleep), ! $spec['sleeps']);
 
-        return ['target' => self::PREFIX.$id, 'url' => self::url($id, $password)];
+        return ['target' => self::target($id, $region), 'url' => self::url($id, $password, $region)];
     }
 
     /** New size or sleep time. The password stays; it is read back from REDIS_URL. */
@@ -101,12 +152,41 @@ final class EdgeValkey
     {
         $spec = self::CLASSES[$class] ?? self::CLASSES[self::DEFAULT_CLASS];
         $password = rawurldecode((string) (parse_url($url, PHP_URL_PASS) ?? ''));
-        ValkeyGatewayClient::fromConfig()->put(self::tenantId($target), $password, $spec['memory_mb'], self::sleepAfter($class, $sleep), ! $spec['sleeps']);
+        ValkeyGatewayClient::fromConfig(self::region($target))->put(self::tenantId($target), $password, $spec['memory_mb'], self::sleepAfter($class, $sleep), ! $spec['sleeps']);
+    }
+
+    /** Idle seconds before a store put to sleep from its card goes down. */
+    public const ASLEEP_SLEEP = 60;
+
+    /**
+     * The card's Sleep/Wake. Asleep, the store (Pro sizes too) goes down a
+     * minute after its last client, so it stops billing once the next deploy
+     * takes REDIS_URL off the app; keys are kept (snapshot, or the Pro disk).
+     * Only the record changes here: sleeping a big store now would stream
+     * every key inside the request, and the live app would wake it again.
+     * Wake restores the size's own sleep setting.
+     */
+    public static function setAsleep(string $target, string $url, string $class, int $sleep, bool $asleep): void
+    {
+        if (! $asleep) {
+            self::update($target, $url, $class, $sleep);
+
+            return;
+        }
+        $spec = self::CLASSES[$class] ?? self::CLASSES[self::DEFAULT_CLASS];
+        $password = rawurldecode((string) (parse_url($url, PHP_URL_PASS) ?? ''));
+        $client = ValkeyGatewayClient::fromConfig(self::region($target));
+        if ($password === '') {
+            $client->sleep(self::tenantId($target)); // no address to connect with: nothing wakes it
+
+            return;
+        }
+        $client->put(self::tenantId($target), $password, $spec['memory_mb'], self::ASLEEP_SLEEP, ! $spec['sleeps']);
     }
 
     public static function destroy(string $target): void
     {
-        ValkeyGatewayClient::fromConfig()->delete(self::tenantId($target));
+        ValkeyGatewayClient::fromConfig(self::region($target))->delete(self::tenantId($target));
     }
 
     /**
@@ -121,7 +201,9 @@ final class EdgeValkey
     /** host:port an app connects to (TLS). */
     public static function address(string $target): string
     {
-        return self::tenantId($target).'.'.config('edge.valkey.domain', 'cache.dply.local').':'.(int) config('edge.valkey.port', 6380);
+        $region = ValkeyRegions::get(self::region($target));
+
+        return self::tenantId($target).'.'.$region['domain'].':'.$region['port'];
     }
 
     /**
@@ -233,7 +315,81 @@ final class EdgeValkey
         ];
     }
 
+    /**
+     * Jobs waiting per Laravel queue. Laravel prefixes its keys with the app
+     * name (REDIS_PREFIX), so each queue's list is found by pattern and summed
+     * server-side; the reply is one integer per queue.
+     *
+     * @param  list<string>  $queues
+     * @return array<string, int>
+     */
+    public static function queueLengths(string $target, string $password, array $queues): array
+    {
+        [$host, $port] = explode(':', self::address($target));
+        $socket = self::open($host, (int) $port);
+        $sum = "local n = 0 for _, k in ipairs(redis.call('KEYS', ARGV[1])) do if redis.call('TYPE', k).ok == 'list' then n = n + redis.call('LLEN', k) end end return n";
+        try {
+            self::send($socket, 'AUTH', 'default', $password);
+            $out = [];
+            foreach ($queues as $queue) {
+                $out[$queue] = (int) self::send($socket, 'EVAL', $sum, '0', '*queues:'.$queue);
+            }
+
+            return $out;
+        } finally {
+            fclose($socket);
+        }
+    }
+
     /** @return resource TLS socket to a tenant, as an app connects. */
+    /**
+     * Jobs waiting on these queues, cheap enough to ask every few seconds.
+     * Laravel's list is `{prefix}queues:{name}` and only the app knows its
+     * prefix, so the key is found once (SCAN, server side) and remembered;
+     * after that each check is one LLEN (plus LINDEX 0 for the oldest job:
+     * Laravel pushes right and pops left).
+     *
+     * @param  list<string>  $queues
+     * @return array{waiting: int, oldest_age: ?int, delayed: int}
+     */
+    public static function queueBacklog(string $target, string $password, array $queues): array
+    {
+        [$host, $port] = explode(':', self::address($target));
+        $socket = self::open($host, (int) $port);
+        $find = "local c = '0' repeat local r = redis.call('SCAN', c, 'MATCH', ARGV[1], 'COUNT', 1000) c = r[1] "
+            ."for _, k in ipairs(r[2]) do if redis.call('TYPE', k).ok == 'list' then return k end end until c == '0' return false";
+        try {
+            self::send($socket, 'AUTH', 'default', $password);
+            $total = 0;
+            $delayed = 0;
+            $oldest = null;
+            foreach ($queues as $queue) {
+                $remember = 'edge:valkey:'.$target.':queue-key:'.$queue;
+                $key = Cache::get($remember);
+                if (! is_string($key) || $key === '') {
+                    $key = self::send($socket, 'EVAL', $find, '0', '*queues:'.$queue);
+                    if ($key === '(nil)' || $key === '') {
+                        continue; // nothing queued yet: Laravel creates the list on the first push
+                    }
+                    Cache::put($remember, $key, now()->addHour());
+                }
+                $waiting = (int) self::send($socket, 'LLEN', $key);
+                $delayed += (int) self::send($socket, 'ZCARD', $key.':delayed');
+                $total += $waiting;
+                if ($waiting > 0) {
+                    $created = (int) (json_decode(self::send($socket, 'LINDEX', $key, '0'), true)['createdAt'] ?? 0);
+                    if ($created > 0) {
+                        $oldest = min($oldest ?? PHP_INT_MAX, $created);
+                    }
+                }
+            }
+
+            return ['waiting' => $total, 'oldest_age' => $oldest !== null ? max(0, now()->getTimestamp() - $oldest) : null, 'delayed' => $delayed];
+        } finally {
+            fclose($socket);
+        }
+    }
+
     private static function open(string $host, int $port)
     {
         $context = stream_context_create(['ssl' => ['peer_name' => $host, 'SNI_enabled' => true, 'verify_peer' => true]]);
@@ -283,11 +439,10 @@ final class EdgeValkey
         return substr($line, 1);
     }
 
-    public static function url(string $id, string $password): string
+    public static function url(string $id, string $password, ?string $region = null): string
     {
-        $domain = (string) config('edge.valkey.domain', 'cache.dply.local');
-        $port = (int) config('edge.valkey.port', 6380);
+        $settings = ValkeyRegions::get($region);
 
-        return 'rediss://default:'.rawurlencode($password).'@'.$id.'.'.$domain.':'.$port;
+        return 'rediss://default:'.rawurlencode($password).'@'.$id.'.'.$settings['domain'].':'.$settings['port'];
     }
 }

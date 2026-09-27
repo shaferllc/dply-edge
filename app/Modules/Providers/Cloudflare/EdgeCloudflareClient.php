@@ -107,20 +107,30 @@ class EdgeCloudflareClient
      */
     public function listKvNamespaces(): array
     {
-        $payload = $this->decode(
-            Http::withToken($this->apiToken)
-                ->get(self::BASE.'/accounts/'.$this->accountId.'/storage/kv/namespaces'),
-        );
+        // Every page: the account holds every organization's namespaces, and a
+        // title lookup that saw only the first page would create a duplicate.
+        $all = [];
+        for ($page = 1; $page <= 100; $page++) {
+            $payload = $this->decode(
+                Http::withToken($this->apiToken)
+                    ->get(self::BASE.'/accounts/'.$this->accountId.'/storage/kv/namespaces', ['per_page' => 100, 'page' => $page]),
+            );
 
-        // decode() already unwraps `result`, so $payload IS the namespace list.
-        // (Mirrors listD1Databases/listQueues; the previous `$payload['result']`
-        // re-index always yielded [] → ensureKvNamespace never matched an
-        // existing namespace and re-created one on every call.)
-        if (isset($payload['value']) && is_array($payload['value'])) {
-            return $payload['value'];
+            // decode() already unwraps `result`, so $payload IS the namespace list.
+            // (Mirrors listD1Databases/listQueues; the previous `$payload['result']`
+            // re-index always yielded [] → ensureKvNamespace never matched an
+            // existing namespace and re-created one on every call.)
+            if (isset($payload['value']) && is_array($payload['value'])) {
+                $payload = $payload['value'];
+            }
+            $rows = $payload !== [] && array_is_list($payload) ? $payload : [];
+            $all = [...$all, ...$rows];
+            if (count($rows) < 100) {
+                break;
+            }
         }
 
-        return $payload !== [] && array_is_list($payload) ? $payload : [];
+        return $all;
     }
 
     /**
@@ -194,25 +204,37 @@ class EdgeCloudflareClient
     /**
      * @return list<string>
      */
-    public function listKvKeys(string $namespaceId): array
+    public function listKvKeys(string $namespaceId, ?string $cursor = null, ?string $prefix = null): array
     {
-        $payload = $this->decode(
-            Http::withToken($this->apiToken)->get($this->kvNamespaceUrl($namespaceId).'/keys'),
-        );
+        return array_column($this->listKvKeysPage($namespaceId, $cursor, $prefix)['keys'], 'name');
+    }
+
+    /**
+     * One page of keys, with Cloudflare's expiration (unix seconds) and
+     * metadata when set. `cursor` is null on the last page.
+     *
+     * @return array{keys: list<array{name: string, expiration: ?int, metadata: mixed}>, cursor: ?string}
+     */
+    public function listKvKeysPage(string $namespaceId, ?string $cursor = null, ?string $prefix = null, int $limit = 100): array
+    {
+        $query = array_filter(['cursor' => $cursor, 'prefix' => $prefix, 'limit' => $limit], static fn ($v): bool => $v !== null && $v !== '');
+        $response = Http::withToken($this->apiToken)->get($this->kvNamespaceUrl($namespaceId).'/keys', $query);
+        $payload = $this->decode($response);
         $rows = isset($payload['value']) && is_array($payload['value']) ? $payload['value'] : $payload;
         if (! is_array($rows) || ! array_is_list($rows)) {
-            return [];
+            $rows = [];
         }
 
-        $names = [];
+        $keys = [];
         foreach ($rows as $row) {
             $name = is_array($row) ? (string) ($row['name'] ?? '') : '';
             if ($name !== '') {
-                $names[] = $name;
+                $keys[] = ['name' => $name, 'expiration' => isset($row['expiration']) ? (int) $row['expiration'] : null, 'metadata' => $row['metadata'] ?? null];
             }
         }
+        $next = $response->json('result_info.cursor');
 
-        return $names;
+        return ['keys' => $keys, 'cursor' => is_string($next) && $next !== '' ? $next : null];
     }
 
     public function getKvValue(string $namespaceId, string $key): ?string
@@ -229,11 +251,13 @@ class EdgeCloudflareClient
         return $response->body();
     }
 
-    public function putKvValue(string $namespaceId, string $key, string $value): void
+    /** $ttl is Cloudflare's expiration_ttl in seconds (60 or more); null keeps the key forever. */
+    public function putKvValue(string $namespaceId, string $key, string $value, ?int $ttl = null): void
     {
+        $url = $this->kvNamespaceUrl($namespaceId).'/values/'.rawurlencode($key);
         $response = Http::withToken($this->apiToken)
             ->withBody($value, 'text/plain')
-            ->put($this->kvNamespaceUrl($namespaceId).'/values/'.rawurlencode($key));
+            ->put($ttl === null ? $url : $url.'?expiration_ttl='.$ttl);
         if (! $response->successful()) {
             $message = $response->json('errors.0.message');
             throw new RuntimeException(is_string($message) && $message !== '' ? $message : 'The key could not be saved.');
@@ -265,12 +289,21 @@ class EdgeCloudflareClient
     /**
      * @return list<array{key: string, size: int}>
      */
-    public function listR2Objects(string $bucket): array
+    public function listR2Objects(string $bucket, ?string $cursor = null, ?string $prefix = null): array
     {
-        $payload = $this->decode(
-            Http::withToken($this->apiToken)
-                ->get($this->r2ObjectsUrl($bucket), ['per_page' => 100]),
-        );
+        return $this->listR2ObjectsPage($bucket, $cursor, $prefix)['objects'];
+    }
+
+    /**
+     * One page of objects. `cursor` is null on the last page.
+     *
+     * @return array{objects: list<array{key: string, size: int}>, cursor: ?string}
+     */
+    public function listR2ObjectsPage(string $bucket, ?string $cursor = null, ?string $prefix = null): array
+    {
+        $query = array_filter(['per_page' => 100, 'cursor' => $cursor, 'prefix' => $prefix], static fn ($v): bool => $v !== null && $v !== '');
+        $response = Http::withToken($this->apiToken)->get($this->r2ObjectsUrl($bucket), $query);
+        $payload = $this->decode($response);
         $rows = array_is_list($payload) ? $payload : (is_array($payload['objects'] ?? null) ? $payload['objects'] : []);
         $objects = [];
         foreach ($rows as $row) {
@@ -279,8 +312,10 @@ class EdgeCloudflareClient
             }
             $objects[] = ['key' => $row['key'], 'size' => (int) ($row['size'] ?? 0)];
         }
+        $next = $response->json('result_info.cursor');
+        $more = $response->json('result_info.is_truncated') !== false;
 
-        return $objects;
+        return ['objects' => $objects, 'cursor' => $more && is_string($next) && $next !== '' ? $next : null];
     }
 
     public function getR2Object(string $bucket, string $key): ?string
@@ -331,6 +366,19 @@ class EdgeCloudflareClient
         $encoded = implode('/', array_map(rawurlencode(...), explode('/', $key)));
 
         return $this->r2ObjectsUrl($bucket).'/'.$encoded;
+    }
+
+    /**
+     * One KV namespace by id ({id, title}), or [] when there is none. The
+     * list endpoint pages, so an ownership check by id comes here instead.
+     *
+     * @return array<string, mixed>
+     */
+    public function getKvNamespace(string $namespaceId): array
+    {
+        $response = Http::withToken($this->apiToken)->get(self::BASE.'/accounts/'.$this->accountId.'/storage/kv/namespaces/'.rawurlencode($namespaceId));
+
+        return $response->status() === 404 ? [] : $this->decode($response);
     }
 
     public function kvNamespaceIdByTitle(string $title): ?string
@@ -966,7 +1014,8 @@ class EdgeCloudflareClient
 
         $json = $response->json();
         if (! is_array($json)) {
-            throw new RuntimeException('Analytics Engine SQL failed.');
+            // Errors (an unknown dataset, a token without Account Analytics) come back as plain text.
+            throw new RuntimeException('Analytics Engine SQL failed (HTTP '.$response->status().'): '.Str::limit(trim($response->body()), 300));
         }
 
         if (array_key_exists('success', $json) && $json['success'] !== true) {
@@ -1076,7 +1125,7 @@ class EdgeCloudflareClient
                 limit: 100
                 filter: { datetime_geq: $since, datetime_leq: $until, bucketName: $bucket }
               ) {
-                max { payloadSize, metadataSize }
+                max { payloadSize, metadataSize, objectCount }
               }
               r2OperationsAdaptiveGroups(
                 limit: 1000
@@ -1123,11 +1172,13 @@ class EdgeCloudflareClient
         // per sample. Billed storage = payload + metadata (object headers count
         // against quota), so sum them per group before taking the peak.
         $storedBytes = 0;
+        $objectCount = 0;
         if (is_array($storageGroups)) {
             foreach ($storageGroups as $group) {
                 $groupBytes = (int) data_get($group, 'max.payloadSize', 0)
                     + (int) data_get($group, 'max.metadataSize', 0);
                 $storedBytes = max($storedBytes, $groupBytes);
+                $objectCount = max($objectCount, (int) data_get($group, 'max.objectCount', 0));
             }
         }
 
@@ -1154,6 +1205,7 @@ class EdgeCloudflareClient
             r2StorageBytes: $storedBytes,
             r2ClassAOps: $classA,
             r2ClassBOps: $classB,
+            r2ObjectCount: $objectCount,
         );
     }
 
@@ -1415,31 +1467,43 @@ class EdgeCloudflareClient
     }
 
     /**
-     * Recent Workers Logs events for one script (Workers Observability).
-     * The events payload isn't fully documented, so fields are read
-     * defensively.
+     * Recent Workers Logs events for one or more services (Workers
+     * Observability), newest first. A container app's own stdout/stderr is
+     * logged under its container application's id, not the script name, so
+     * pass both to see it. The events payload isn't fully documented, so
+     * fields are read defensively.
      *
-     * @return list<array{at: ?string, level: string, message: string}>
+     * @param  string|list<string>  $services
+     * @return list<array{at: ?string, level: string, message: string, service: string}>
      */
-    public function workerLogs(string $scriptName, int $minutes = 15, int $limit = 200): array
+    public function workerLogs(string|array $services, int $minutes = 15, int $limit = 200, ?string $contains = null): array
     {
-        $payload = $this->decode(Http::withToken($this->apiToken)->post(self::BASE.'/accounts/'.$this->accountId.'/workers/observability/telemetry/query', [
-            'queryId' => 'dply-logs-'.$scriptName,
-            'view' => 'events',
-            'limit' => $limit,
-            'timeframe' => ['from' => now()->subMinutes($minutes)->getTimestampMs(), 'to' => now()->getTimestampMs()],
-            'parameters' => ['filters' => [['key' => '$metadata.service', 'operation' => 'eq', 'type' => 'string', 'value' => $scriptName]]],
-        ]));
-
-        $events = data_get($payload, 'events.events', data_get($payload, 'events', []));
+        $events = [];
+        // An empty list means the whole account (one query, however many apps).
+        foreach ($services === [] ? [null] : (array) $services as $service) {
+            $filters = $service === null ? [] : [['key' => '$metadata.service', 'operation' => 'eq', 'type' => 'string', 'value' => $service]];
+            if ($contains !== null) {
+                $filters[] = ['key' => '$metadata.message', 'operation' => 'includes', 'type' => 'string', 'value' => $contains];
+            }
+            $payload = $this->decode(Http::withToken($this->apiToken)->post(self::BASE.'/accounts/'.$this->accountId.'/workers/observability/telemetry/query', [
+                'queryId' => 'dply-logs-'.($service ?? 'account-'.md5((string) $contains)),
+                'view' => 'events',
+                'limit' => $limit,
+                'timeframe' => ['from' => now()->subMinutes($minutes)->getTimestampMs(), 'to' => now()->getTimestampMs()],
+                'parameters' => ['filters' => $filters],
+            ]));
+            array_push($events, ...array_values((array) data_get($payload, 'events.events', data_get($payload, 'events', []))));
+        }
+        usort($events, static fn ($a, $b): int => (int) data_get($b, 'timestamp', 0) <=> (int) data_get($a, 'timestamp', 0));
         $out = [];
-        foreach ((array) $events as $event) {
+        foreach ($events as $event) {
             $message = data_get($event, '$metadata.message', data_get($event, 'source.message', data_get($event, 'message')));
             $timestamp = data_get($event, 'timestamp', data_get($event, '$metadata.timestamp'));
             $out[] = [
                 'at' => is_numeric($timestamp) ? Carbon::createFromTimestampMs((int) $timestamp)->toIso8601String() : (is_string($timestamp) ? $timestamp : null),
                 'level' => (string) data_get($event, '$metadata.level', data_get($event, 'source.level', 'log')),
                 'message' => is_string($message) ? $message : (string) json_encode($message ?? data_get($event, 'source')),
+                'service' => (string) data_get($event, '$metadata.service', ''),
             ];
         }
 
@@ -1505,6 +1569,29 @@ class EdgeCloudflareClient
         if ($response->status() !== 404) {
             $this->decode($response);
         }
+    }
+
+    /**
+     * One account-scoped GraphQL Analytics query; returns the account node
+     * (data.viewer.accounts.0). $accountTag is filled in. Throws on errors so
+     * a wrong field name is loud, not zero usage. Used by
+     * EdgePlatformUsageCollector.
+     *
+     * @param  array<string, mixed>  $variables
+     * @return array<string, mixed>
+     */
+    public function accountAnalytics(string $query, array $variables): array
+    {
+        $response = Http::withToken($this->apiToken)->post(self::BASE.'/graphql', [
+            'query' => $query,
+            'variables' => ['accountTag' => $this->accountId] + $variables,
+        ]);
+        $json = $response->json();
+        if (! is_array($json) || ! empty($json['errors'])) {
+            throw new RuntimeException('Cloudflare GraphQL request failed: '.Str::limit(json_encode($json['errors'] ?? $response->body()) ?: '', 500));
+        }
+
+        return (array) data_get($json, 'data.viewer.accounts.0', []);
     }
 
     /**
@@ -1699,6 +1786,128 @@ class EdgeCloudflareClient
     }
 
     /**
+     * Vectorize v2 indexes: [{name, config: {dimensions, metric}, …}].
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function listVectorizeIndexes(): array
+    {
+        return array_values(array_filter($this->decode(Http::withToken($this->apiToken)->get($this->vectorizeUrl())), 'is_array'));
+    }
+
+    /** @return array<string, mixed> */
+    public function createVectorizeIndex(string $name, int $dimensions, string $metric): array
+    {
+        return $this->decode(Http::withToken($this->apiToken)->post($this->vectorizeUrl(), [
+            'name' => $name,
+            'config' => ['dimensions' => $dimensions, 'metric' => $metric],
+        ]));
+    }
+
+    /**
+     * The index with its config, plus `info` (vectorCount, dimensions, …).
+     *
+     * @return array<string, mixed>
+     */
+    public function getVectorizeIndex(string $name): array
+    {
+        $index = $this->decode(Http::withToken($this->apiToken)->get($this->vectorizeUrl($name)));
+        $index['info'] = $this->decode(Http::withToken($this->apiToken)->get($this->vectorizeUrl($name).'/info'));
+
+        return $index;
+    }
+
+    public function deleteVectorizeIndex(string $name): void
+    {
+        $response = Http::withToken($this->apiToken)->delete($this->vectorizeUrl($name));
+        if ($response->status() !== 404) {
+            $this->decode($response);
+        }
+    }
+
+    /**
+     * @param  list<float|int>  $vector
+     * @return array<string, mixed> {count, matches: [{id, score, metadata}]}
+     */
+    public function queryVectorize(string $name, array $vector, int $topK = 5): array
+    {
+        return $this->decode(Http::withToken($this->apiToken)->post($this->vectorizeUrl($name).'/query', [
+            'vector' => $vector,
+            'topK' => $topK,
+            'returnValues' => false,
+            'returnMetadata' => 'all',
+        ]));
+    }
+
+    /**
+     * Upsert NDJSON vectors ({"id","values","metadata"} per line). Applied
+     * asynchronously: returns {mutationId}.
+     *
+     * @return array<string, mixed>
+     */
+    public function upsertVectors(string $name, string $ndjson): array
+    {
+        return $this->decode(Http::withToken($this->apiToken)
+            ->withBody($ndjson, 'application/x-ndjson')
+            ->post($this->vectorizeUrl($name).'/upsert'));
+    }
+
+    private function vectorizeUrl(string $name = ''): string
+    {
+        return self::BASE.'/accounts/'.$this->accountId.'/vectorize/v2/indexes'.($name !== '' ? '/'.rawurlencode($name) : '');
+    }
+
+    /**
+     * Hyperdrive configs: [{id, name, origin: {host, port, database, user, scheme}, caching}].
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function listHyperdriveConfigs(): array
+    {
+        return array_values(array_filter($this->decode(Http::withToken($this->apiToken)->get($this->hyperdriveUrl())), 'is_array'));
+    }
+
+    /**
+     * Hyperdrive connects to the origin before answering, and a parked
+     * database has to wake first, so this waits up to 25s (under PHP's 30s).
+     *
+     * @param  array{host: string, port: int, database: string, user: string, password: string, scheme: string}  $origin
+     * @return array<string, mixed>
+     */
+    public function createHyperdriveConfig(string $name, array $origin): array
+    {
+        return $this->decode(Http::withToken($this->apiToken)->timeout(25)->post($this->hyperdriveUrl(), [
+            'name' => $name,
+            'origin' => $origin,
+        ]));
+    }
+
+    /**
+     * Empty when the config no longer exists, so a gone pool can be detached.
+     *
+     * @return array<string, mixed>
+     */
+    public function getHyperdriveConfig(string $id): array
+    {
+        $response = Http::withToken($this->apiToken)->get($this->hyperdriveUrl($id));
+
+        return $response->status() === 404 ? [] : $this->decode($response);
+    }
+
+    public function deleteHyperdriveConfig(string $id): void
+    {
+        $response = Http::withToken($this->apiToken)->delete($this->hyperdriveUrl($id));
+        if ($response->status() !== 404) {
+            $this->decode($response);
+        }
+    }
+
+    private function hyperdriveUrl(string $id = ''): string
+    {
+        return self::BASE.'/accounts/'.$this->accountId.'/hyperdrive/configs'.($id !== '' ? '/'.rawurlencode($id) : '');
+    }
+
+    /**
      * Cloudflare returns a numeric list in `result` for list endpoints and a
      * map for single-object ones, so the key type is deliberately open.
      *
@@ -1723,5 +1932,65 @@ class EdgeCloudflareClient
         $result = $json['result'] ?? [];
 
         return is_array($result) ? $result : ['value' => $result];
+    }
+
+    /**
+     * Run a Workers AI model on the platform account (the Resources AI demo).
+     *
+     * @param  array<string, mixed>  $input
+     * @return array<array-key, mixed>
+     */
+    public function runAi(string $model, array $input): array
+    {
+        return $this->decode(
+            Http::withToken($this->apiToken)->timeout(25)
+                ->post(self::BASE.'/accounts/'.$this->accountId.'/ai/run/'.$model, $input),
+        );
+    }
+
+    /**
+     * Attach a hostname to a Worker as a Workers Custom Domain: Cloudflare
+     * creates the DNS record and issues a certificate for that exact name, at
+     * any depth (e.g. shop.realtime.dply.io), with no wildcard cert needed.
+     *
+     * @return array<string, mixed>
+     */
+    public function attachWorkerDomain(string $hostname, string $service, string $zoneId, string $environment = 'production'): array
+    {
+        return $this->decode(
+            Http::withToken($this->apiToken)->timeout(30)
+                ->put(self::BASE.'/accounts/'.$this->accountId.'/workers/domains', [
+                    'hostname' => $hostname,
+                    'service' => $service,
+                    'zone_id' => $zoneId,
+                    'environment' => $environment,
+                ]),
+        );
+    }
+
+    /** @return array<string, mixed>|null the custom domain attached for this hostname, if any */
+    public function findWorkerDomain(string $hostname): ?array
+    {
+        $rows = $this->decode(
+            Http::withToken($this->apiToken)->timeout(15)
+                ->get(self::BASE.'/accounts/'.$this->accountId.'/workers/domains', ['hostname' => $hostname]),
+        );
+        foreach ((array) $rows as $row) {
+            if (is_array($row) && strtolower((string) ($row['hostname'] ?? '')) === strtolower($hostname)) {
+                return $row;
+            }
+        }
+
+        return null;
+    }
+
+    /** Detach a Workers Custom Domain (Cloudflare removes its DNS record). A missing one is fine. */
+    public function detachWorkerDomain(string $domainId): void
+    {
+        $response = Http::withToken($this->apiToken)->timeout(15)
+            ->delete(self::BASE.'/accounts/'.$this->accountId.'/workers/domains/'.rawurlencode($domainId));
+        if ($response->status() !== 404) {
+            $this->decode($response);
+        }
     }
 }

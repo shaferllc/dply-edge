@@ -12,6 +12,7 @@ use App\Models\Site;
 use App\Modules\Edge\Jobs\CheckEdgeContainerHealthJob;
 use App\Modules\Edge\Jobs\TeardownEdgeSiteJob;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 
@@ -42,20 +43,42 @@ test('a healthy container records the check and stays quiet', function () {
         ->and(NotificationEvent::query()->count())->toBe(0);
 });
 
-test('a 5xx answer keeps the deploy live', function () {
+test('a 4xx answer is the app answering and keeps the deploy live', function () {
+    Http::fake(['*' => Http::response('Not Found', 404)]);
+    $deployment = liveContainer();
+
+    (new CheckEdgeContainerHealthJob($deployment->id))->handle();
+
+    expect($deployment->fresh()->meta['container']['health'])->toMatchArray(['ok' => true, 'status' => 404])
+        ->and($deployment->fresh()->status)->toBe(EdgeDeployment::STATUS_LIVE)
+        ->and(NotificationEvent::query()->where('event_key', 'edge.deploy.failed')->count())->toBe(0);
+});
+
+test('a 5xx answer is a failed deploy', function () {
     Http::fake(['*' => Http::response('boom', 500)]);
     $deployment = liveContainer();
 
     (new CheckEdgeContainerHealthJob($deployment->id))->handle();
 
-    expect($deployment->fresh()->meta['container']['health'])->toMatchArray(['ok' => true, 'status' => 500])
-        ->and($deployment->fresh()->status)->toBe(EdgeDeployment::STATUS_LIVE)
-        ->and(NotificationEvent::query()->where('event_key', 'edge.deploy.failed')->count())->toBe(0);
+    expect($deployment->fresh()->meta['container']['health'])->toMatchArray(['ok' => false, 'status' => 500])
+        ->and($deployment->fresh()->status)->toBe(EdgeDeployment::STATUS_FAILED)
+        ->and($deployment->fresh()->failure_reason)->toBe('https://shop.on-dply.live answered HTTP 500: boom')
+        ->and(NotificationEvent::query()->where('event_key', 'edge.deploy.failed')->count())->toBe(1);
+});
+
+test('a container that would not start is a failed deploy that says so', function () {
+    Http::fake(['*' => Http::response('Failed to start container: Failed to verify port 8080 is available after 3600ms, last error: The container is not running, consider calling start()', 500)]);
+    $deployment = liveContainer();
+
+    (new CheckEdgeContainerHealthJob($deployment->id))->handle();
+
+    expect($deployment->fresh()->status)->toBe(EdgeDeployment::STATUS_FAILED)
+        ->and($deployment->fresh()->failure_reason)->toStartWith('the container did not start (https://shop.on-dply.live answered HTTP 500: Failed to start container');
 });
 
 test('a container that never answers is a failed deploy', function () {
     Http::fake(function () {
-        throw new \Illuminate\Http\Client\ConnectionException('cURL error 28: Operation timed out after 90000 milliseconds with 0 bytes received');
+        throw new ConnectionException('cURL error 28: Operation timed out after 90000 milliseconds with 0 bytes received');
     });
     $deployment = liveContainer();
 

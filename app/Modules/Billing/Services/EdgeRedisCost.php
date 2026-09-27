@@ -37,8 +37,9 @@ class EdgeRedisCost
     }
 
     /**
-     * dply Valkey (T-021): awake seconds times the class's price per second,
-     * capped at the class's monthly price per app. The class is the one the
+     * dply Valkey (T-021): awake seconds times the class's customer price per
+     * second (EdgeValkey::spec, cost + margin), capped at the class's monthly
+     * price per app. The class is the one the
      * app has now. ponytail: a mid-month resize prices the whole month at the
      * new class; keep seconds per class if that matters.
      *
@@ -60,8 +61,8 @@ class EdgeRedisCost
                 if ($connection['kind'] !== 'redis' || ! EdgeValkey::isTarget($connection['target'])) {
                     continue;
                 }
-                $class = EdgeValkey::CLASSES[$connection['plan']] ?? EdgeValkey::CLASSES[EdgeValkey::DEFAULT_CLASS];
-                $cents += min((float) $class['cap_cents'], $secondsBySite[$site->id] * $class['per_second'] * 100);
+                $class = EdgeValkey::spec((string) $connection['plan']);
+                $cents += min($class['cap_cents'], $secondsBySite[$site->id] * $class['per_second'] * 100);
 
                 return;
             }

@@ -15,6 +15,14 @@ class SiteWorkspaceController
     {
         Gate::authorize('view', $site);
 
+        // The Overview lives at the project URL; old /general and /overview
+        // links land there.
+        if (in_array($section, ['general', 'overview'], true) && request()->segment(3) === $section) {
+            $query = request()->getQueryString();
+
+            return redirect('/projects/'.$site->getRouteKey().($query ? '?'.$query : ''), 301);
+        }
+
         return RendersLivewirePage::render(EdgeSettings::class, [
             'server' => $site->server,
             'site' => $site,

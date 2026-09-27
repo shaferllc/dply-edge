@@ -7,6 +7,7 @@ namespace App\Modules\Edge\Services\Containers;
 use App\Models\EdgeDeployment;
 use App\Models\Site;
 use App\Modules\Billing\Services\StarterTrafficGate;
+use App\Modules\Edge\Services\EdgeBuildRunner;
 use App\Modules\Edge\Services\EdgeDeliveryContextResolver;
 use App\Modules\Edge\Services\EdgeQueueConsumers;
 use App\Modules\Edge\Support\EdgeContainerConnections;
@@ -14,6 +15,7 @@ use App\Modules\Edge\Support\EdgeContainerSettings;
 use App\Modules\Edge\Support\EdgeEffectiveBindings;
 use App\Modules\Edge\Support\EdgeEffectiveCrons;
 use App\Modules\Edge\Support\EdgeLogCopy;
+use App\Modules\Edge\Support\EdgeQueueWorkers;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Contracts\Process\ProcessResult;
 use Illuminate\Process\PendingProcess;
@@ -28,8 +30,8 @@ use Throwable;
  * `@cloudflare/containers` class fronting the app image, a queue consumer that
  * pushes batches into the app, and a queue producer endpoint the app calls),
  * then runs `wrangler deploy --dispatch-namespace` in the deployer image
- * against the host Docker socket. wrangler builds and pushes the image and
- * rolls the container out.
+ * against the host Docker socket. wrangler builds the image in the isolated
+ * BuildKit builder (deployerScript), pushes it and rolls the container out.
  *
  * One script per site (`dply-ctr-<site>`), not per deployment: the container
  * application and its Durable Objects hang off the script, so a per-deploy
@@ -41,6 +43,12 @@ class EdgeContainerDeployer
 {
     /** Silence longer than this during a deploy gets a heartbeat line. */
     private const HEARTBEAT_AFTER_SECONDS = 30;
+
+    /** A database round trip above this (ms) means the app landed far from its data (next door is ~13 ms). */
+    public const FAR_FROM_DATABASE_MS = 40;
+
+    /** Restarts of the web instance to try for a closer placement. */
+    public const REPLACE_ATTEMPTS = 2;
 
     public const QUEUE_PATH = '/_dply/queue';
 
@@ -158,6 +166,11 @@ class EdgeContainerDeployer
         if (EdgeContainerSettings::for($site)['scheduler']) {
             return true;
         }
+        // The workspace's database tools (migrate, status, seed) and queue
+        // workers (failed jobs, autoscaling) run through /_dply/command.
+        if (($site->edgeMeta()['database']['engine'] ?? '') !== '' || EdgeQueueWorkers::for($site)['enabled']) {
+            return true;
+        }
         foreach (EdgeContainerConnections::for($site) as $connection) {
             if ($connection['asleep']) {
                 continue;
@@ -184,8 +197,122 @@ class EdgeContainerDeployer
     public static function keepsInstancesAwake(array $settings): bool
     {
         return $settings['min_instances'] > 0
+            || ($settings['worker_instances'] ?? 0) > 0
             || ($settings['dedicated_jobs'] && $settings['jobs_always_on'])
             || array_filter($settings['schedules'], static fn (array $w): bool => $w['min'] > 0) !== [];
+    }
+
+    /**
+     * Where the app landed and how far that is from its dply database: the
+     * app's own round trip, measured from inside the container (dply/laravel
+     * db-probe). Cloudflare places by region, not city, so this is how a
+     * far-off placement shows up. Best effort: never fails a deploy.
+     *
+     * @param  callable(string): void  $log
+     */
+    public function recordPlacement(Site $site, callable $log): void
+    {
+        $database = $site->edgeMeta()['database'] ?? [];
+        if (! $site->isLaravelFrameworkDetected() || ! is_array($database) || ($database['provider'] ?? '') !== 'dply'
+            || ! in_array($database['engine'] ?? '', ['postgres', 'mysql'], true)) {
+            return;
+        }
+        $probe = static function () use ($site): ?array {
+            try {
+                $body = EdgeQueueWorkers::command($site, 'db-probe');
+            } catch (Throwable) {
+                return null;
+            }
+
+            return ($body['ok'] ?? false) ? [
+                'location' => strtolower((string) ($body['location'] ?? '')),
+                'region' => (string) ($body['region'] ?? ''),
+                'rtt_ms' => (float) ($body['rtt_median_ms'] ?? 0),
+                'at' => now()->getTimestamp(),
+            ] : null;
+        };
+        $describe = static fn (array $p): string => sprintf('%s (%s), %s ms to the database', $p['location'] ?: '?', $p['region'] ?: '?', rtrim(rtrim(number_format($p['rtt_ms'], 1), '0'), '.'));
+
+        $best = $probe();
+        if ($best === null) {
+            return;
+        }
+        $log('Running in '.$describe($best).".\n");
+        // Cloudflare places by region, not city: a far landing is re-rolled.
+        for ($try = 1; $try <= self::REPLACE_ATTEMPTS && $best['rtt_ms'] > self::FAR_FROM_DATABASE_MS; $try++) {
+            $log("That is far for a database round trip. Starting the app again to be placed closer.\n");
+            try {
+                Http::timeout(120)->withHeaders(['x-dply-queue-token' => self::queueToken($site)])
+                    ->post(rtrim((string) $site->edgeLiveUrl(), '/').'/_dply/replace', ['index' => 0])->throw();
+            } catch (Throwable $e) {
+                $log('Could not restart it: '.$e->getMessage()."\n");
+                break;
+            }
+            $again = $probe();
+            if ($again === null) {
+                break;
+            }
+            $log('Now running in '.$describe($again).".\n");
+            $same = $again['location'] === $best['location'];
+            $best = $again; // what is running now, even if an earlier landing was closer
+            if ($same) {
+                // Cloudflare chose the same place again (seen on waypost: atl13
+                // three times); another restart only costs time.
+                break;
+            }
+        }
+        $site->mergeEdgeMeta(['placement' => $best]);
+        $site->save();
+    }
+
+    /**
+     * Where a container app's logs are: its Worker script, and the container
+     * applications wrangler named after it (their stdout/stderr).
+     *
+     * @return list<string>
+     */
+    public static function logServices(Site $site, EdgeCloudflareClient $client): array
+    {
+        $script = self::scriptName($site);
+        $services = [$script];
+        try {
+            foreach ($client->listContainerApplications() as $application) {
+                if ($application['id'] !== '' && str_starts_with($application['name'], $script)) {
+                    $services[] = $application['id'];
+                }
+            }
+        } catch (Throwable) {
+            // A token without Containers Read still shows the Worker's logs.
+        }
+
+        return $services;
+    }
+
+    /**
+     * The image's asset stage runs `npm run build` with no site env, but Vite
+     * bakes VITE_* into the JS. Write them to .env.production.local in the
+     * checkout (Vite's highest-priority file for a production build).
+     * Returns whether anything was written.
+     *
+     * ponytail: a repo .dockerignore that excludes .env* drops this file; pass
+     * them as build args if that turns up.
+     *
+     * @param  array<string, string>  $env
+     */
+    public static function writeViteBuildEnv(string $checkout, array $env): bool
+    {
+        $lines = [];
+        foreach ($env as $key => $value) {
+            if (str_starts_with($key, 'VITE_') && preg_match('/^[A-Z0-9_]+$/', $key) === 1) {
+                $lines[] = $key.'='.json_encode((string) $value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            }
+        }
+        if ($lines === []) {
+            return false;
+        }
+        File::put($checkout.'/.env.production.local', implode("\n", $lines)."\n");
+
+        return true;
     }
 
     /** Shared secret between the site Worker and the app for /_dply/* calls. */
@@ -204,6 +331,7 @@ class EdgeContainerDeployer
         EdgePhpBaseImage::ensure($checkout, $log);
         $injectLaravel = self::needsLaravelPackage($site, $checkout);
         $image = EdgeContainerDockerfile::prepare($checkout, $injectLaravel);
+        File::put($image['path'], self::scopeCacheMounts((string) file_get_contents($image['path']), self::cacheScope($site)));
         if ($injectLaravel) {
             $log("Added dply/laravel so this app can use the attached resources.\n");
         }
@@ -257,11 +385,18 @@ class EdgeContainerDeployer
             }
         }
 
+        // A push queue's QUEUE_CONNECTION stays; the app's own env (below) wins over both.
+        $queueEnv += EdgeQueueWorkers::dispatchEnv($site);
+
         $env = EdgeContainerConnections::omitAsleepRedis($site, $env);
-        File::put($project.'/secrets.json', json_encode(array_merge(EdgeContainerConnections::redisDriverEnv($site), EdgeContainerConnections::storageDriverEnv($site), EdgeContainerConnections::kvDriverEnv($site), $queueEnv, $env, [
+        if (self::writeViteBuildEnv($checkout, array_merge(EdgeContainerConnections::realtimeBuildEnv($site), $env))) {
+            $log("VITE_* variables are passed to the asset build.\n");
+        }
+        File::put($project.'/secrets.json', json_encode(array_merge(EdgeContainerConnections::redisDriverEnv($site), EdgeContainerConnections::storageDriverEnv($site), EdgeContainerConnections::kvDriverEnv($site), EdgeContainerConnections::realtimeDriverEnv($site), $queueEnv, $env, [
             'DPLY_QUEUE_TOKEN' => self::queueToken($site),
             'DPLY_APP_URL' => (string) ($site->edgeLiveUrl() ?? ''),
-            'DPLY_MIGRATE_ON_BOOT' => $migrateOnBoot ? '1' : '0',
+            // Never on a preview: its migrations would run against whatever database it reaches.
+            'DPLY_MIGRATE_ON_BOOT' => $migrateOnBoot && ! $site->isEdgePreview() ? '1' : '0',
             'DPLY_SQLITE_SYNC' => $sqliteSync ? '1' : '0',
         ]), JSON_THROW_ON_ERROR));
 
@@ -283,6 +418,7 @@ class EdgeContainerDeployer
         }
 
         $this->ensureDeployerImage($log);
+        self::ensureBuilderNetwork();
 
         $namespace = (string) config('edge.cloudflare.dispatch_namespace_name');
         // wrangler goes quiet after the layer push while Cloudflare ingests the
@@ -290,27 +426,9 @@ class EdgeContainerDeployer
         // Say so, or every deploy reads as a hang at exactly this point.
         $log("Building the image (npm, Vite, Composer) and pushing it. Docker output follows.\n");
 
-        // Same absolute path inside the deployer so the Dockerfile path in
-        // wrangler.jsonc resolves; the host socket does the actual build.
-        $result = $this->runWithHeartbeat($log, Process::timeout($timeoutSeconds ?? 1800), [
-            // Named so cancelling can kill it: the container outlives this
-            // client, and an abandoned one keeps building and pushing.
-            'docker', 'run', '--rm', '--name', self::buildContainerName($deployment),
-            '-v', '/var/run/docker.sock:/var/run/docker.sock',
-            '-v', $workRoot.':'.$workRoot,
-            '-w', $project,
-            '-e', 'CLOUDFLARE_API_TOKEN='.config('edge.cloudflare.api_token'),
-            '-e', 'CLOUDFLARE_ACCOUNT_ID='.config('edge.cloudflare.account_id'),
-            '-e', 'WRANGLER_SEND_METRICS=false',
-            // Without this buildx uses TTY progress: it rewrites the same lines
-            // in place and batches when stdout isn't a terminal, so a live build
-            // looks frozen in the log. Plain mode appends one line per event.
-            '-e', 'BUILDKIT_PROGRESS=plain',
-            (string) config('edge.build.containers.deployer_image'),
-            'sh', '-c', 'npm install --silent --no-audit --no-fund && wrangler deploy --dispatch-namespace "$0" --secrets-file secrets.json --containers-rollout "$1"',
-            $namespace,
-            $settings['rollout_mode'],
-        ]);
+        $result = $this->runWithHeartbeat($log, Process::timeout($timeoutSeconds ?? 1800), self::deployerCommand(
+            self::buildContainerName($deployment), $workRoot, $project, $namespace, $settings['rollout_mode'],
+        ));
 
         File::delete($project.'/secrets.json');
 
@@ -327,7 +445,7 @@ class EdgeContainerDeployer
         }
 
         // Cloudflare can report the rollout idle while the public URL never
-        // answers. Any HTTP status is enough — a 500 is the app. A hang is not.
+        // answers, or answers with the worker's own "container not running".
         $url = $site->edgeLiveUrl();
         if (! is_string($url) || $url === '') {
             throw new RuntimeException('Container deploy failed: the app has no live URL to check.');
@@ -339,6 +457,10 @@ class EdgeContainerDeployer
             throw new RuntimeException("Container deploy failed: {$url} did not answer: ".$e->getMessage(), previous: $e);
         }
         $log(sprintf("App answered HTTP %d.\n", $response->status()));
+        $unhealthy = self::unhealthyReason($url, $response->status(), $response->body());
+        if ($unhealthy !== null) {
+            throw new RuntimeException('Container deploy failed: '.$unhealthy);
+        }
 
         if (self::keepsInstancesAwake($settings)) {
             $log("Starting the always-on instances.\n");
@@ -353,6 +475,8 @@ class EdgeContainerDeployer
             }
         }
 
+        $this->recordPlacement($site, $log);
+
         return [
             'script_name' => self::scriptName($site),
             'stack' => $image['stack'],
@@ -361,6 +485,26 @@ class EdgeContainerDeployer
             'rollout' => $rollout,
             'fingerprint' => $fingerprint,
         ];
+    }
+
+    /**
+     * Why a live-URL check means the app is not up, or null when it is. A 4xx
+     * is the app answering (a 404 at / is fine); a 5xx is not — including the
+     * worker's own 500 when the container would not start.
+     */
+    public static function unhealthyReason(string $url, ?int $status, string $body, ?string $error = null): ?string
+    {
+        if ($status === null) {
+            return "{$url} did not answer: ".($error ?? 'no response');
+        }
+        if ($status < 500) {
+            return null;
+        }
+        $detail = trim(mb_substr(strip_tags($body), 0, 300));
+
+        return preg_match('/not running|Failed to start container|Container crashed|suddenly disconnected|port \d+ is available/i', $body) === 1
+            ? "the container did not start ({$url} answered HTTP {$status}: {$detail}). Check the container logs for why it exited."
+            : "{$url} answered HTTP {$status}".($detail !== '' ? ": {$detail}" : '.');
     }
 
     /**
@@ -474,7 +618,7 @@ class EdgeContainerDeployer
                 'class_name' => 'App',
                 'image' => $dockerfile,
                 'instance_type' => EdgeContainerSettings::wranglerInstanceType($site),
-                'max_instances' => EdgeContainerSettings::wranglerMaxInstances(EdgeContainerSettings::peakInstances($settings), $settings['dedicated_jobs'], EdgeContainerSettings::deployOverlap($site)),
+                'max_instances' => EdgeContainerSettings::wranglerMaxInstances(EdgeContainerSettings::peakInstances($settings), $settings['dedicated_jobs'], EdgeContainerSettings::deployOverlap($site), $settings['worker_instances']),
                 'constraints' => EdgeContainerSettings::constraints($site),
                 'rollout_step_percentage' => $settings['rollout_step_percentage'] !== [] ? $settings['rollout_step_percentage'] : null,
                 'rollout_active_grace_period' => $settings['rollout_active_grace_period'] > 0 ? $settings['rollout_active_grace_period'] : null,
@@ -557,17 +701,26 @@ class EdgeContainerDeployer
             '__JOBS_ALWAYS_ON__' => $settings['dedicated_jobs'] && $settings['jobs_always_on'] ? 'true' : 'false',
             '__STICKY__' => $settings['sticky_sessions'] ? 'true' : 'false',
             '__DEDICATED_JOBS__' => $settings['dedicated_jobs'] ? 'true' : 'false',
+            '__SCHEDULER_WORKER__' => json_encode(EdgeQueueWorkers::runsScheduler($site) ? 'worker-0' : ''),
+            '__WORKER_GROUPS__' => json_encode($settings['worker_instances'] > 0 ? array_map(static fn (array $g): array => [
+                'key' => $g['key'],
+                'prefix' => $g['prefix'],
+                'max' => $g['capacity'],
+                'min' => min($g['capacity'], $g['instances']),
+                'autoscale' => $g['autoscale'],
+                'env' => (object) EdgeQueueWorkers::env($site, $g['key']),
+            ], EdgeQueueWorkers::groups($site)) : [], JSON_UNESCAPED_SLASHES),
             '__FPM_CHILDREN__' => (string) EdgeContainerSettings::phpFpmPool($settings['instance_type'], $site)['max_children'],
             '__FPM_LIMIT__' => json_encode(EdgeContainerSettings::phpFpmPool($settings['instance_type'], $site)['memory_limit']),
             '__QUEUE_PATH__' => json_encode(self::QUEUE_PATH, JSON_UNESCAPED_SLASHES),
             '__QUEUE_SEND_PATH__' => json_encode(self::QUEUE_SEND_PATH, JSON_UNESCAPED_SLASHES),
             '__QUEUE_BINDINGS__' => json_encode((object) $queueBindings, JSON_UNESCAPED_SLASHES),
             '__SCHEDULE_PATH__' => json_encode(self::SCHEDULE_PATH, JSON_UNESCAPED_SLASHES),
+            // New per deploy: a schedule plan from older code is not trusted.
+            '__BUILD_ID__' => json_encode(bin2hex(random_bytes(6))),
             '__CRON_HANDLERS__' => json_encode((object) $crons, JSON_UNESCAPED_SLASHES),
             '__PAUSE_KEY__' => json_encode(StarterTrafficGate::KEY_PREFIX.$site->id),
             '__CONNECTIONS__' => json_encode($this->workerConnections($site), JSON_UNESCAPED_SLASHES),
-            '__QSTASH_TOKEN__' => json_encode((string) config('edge.upstash.qstash_token')),
-            '__DELIVERY_USAGE_URL__' => json_encode(rtrim((string) config('app.url'), '/').'/hooks/edge/'.$site->id.'/delivery'),
             '__CLIENT_CERT__' => json_encode(EdgeContainerConnections::clientCertificateId($site) !== '' ? 'CLIENT_CERT' : ''),
             '__BROWSER__' => EdgeContainerConnections::browserEnabled($site) ? 'true' : 'false',
             '__SQLITE_SYNC__' => $sqliteSync ? 'true' : 'false',
@@ -613,8 +766,62 @@ const QUEUE_BINDINGS = __QUEUE_BINDINGS__; // queue name -> binding name
 const CRON_HANDLERS = __CRON_HANDLERS__; // schedule -> [artisan command / rake task]
 
 const CONNECTIONS = __CONNECTIONS__;
-const QSTASH_TOKEN = __QSTASH_TOKEN__;
-const DELIVERY_USAGE_URL = __DELIVERY_USAGE_URL__;
+
+const BUILD_ID = __BUILD_ID__;
+
+// Whether a 5-field cron expression is due at `date` in time zone `tz`.
+// Anything it does not understand counts as due: waking early is safe,
+// skipping a task is not.
+function cronDue(expr, tz, date) {
+  try {
+    const f = String(expr).trim().split(/\s+/);
+    if (f.length !== 5) return true;
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz || 'UTC', hour12: false, minute: 'numeric', hour: 'numeric', day: 'numeric', month: 'numeric', weekday: 'short' })
+      .formatToParts(date).map((p) => [p.type, p.value]));
+    const dow = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(parts.weekday);
+    const now = [Number(parts.minute), Number(parts.hour) % 24, Number(parts.day), Number(parts.month), dow];
+    const ranges = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 7]];
+    const hit = (field, value, [lo, hi]) => field.split(',').some((part) => {
+      const [range, stepText] = part.split('/');
+      const step = stepText === undefined ? 1 : Number(stepText);
+      let [a, b] = range === '*' ? [lo, hi] : range.split('-').map(Number);
+      if (b === undefined) b = stepText === undefined ? a : hi;
+      if (![a, b, step].every(Number.isInteger) || step < 1) throw new Error('unsupported');
+      for (let v = a; v <= b; v += step) if (v === value || (value === 0 && v === 7 && hi === 7)) return true;
+      return false;
+    });
+    const [m, h, dom, mon, dw] = f;
+    if (!hit(m, now[0], ranges[0]) || !hit(h, now[1], ranges[1]) || !hit(mon, now[3], ranges[3])) return false;
+    // Day of month and day of week: either matches when both are restricted.
+    const domAny = dom === '*', dowAny = dw === '*';
+    const domHit = hit(dom, now[2], ranges[2]), dowHit = hit(dw, now[4], ranges[4]);
+    return domAny || dowAny ? domHit && dowHit : domHit || dowHit;
+  } catch {
+    return true;
+  }
+}
+
+// Queue worker groups: instances named {prefix}N (worker-0, worker-high-0, …).
+// max can run; the first min are always on, the rest start while dply's
+// autoscaler wants them.
+const WORKER_GROUPS = __WORKER_GROUPS__;
+// The worker that also runs the Laravel scheduler (schedule:work), or ''.
+const SCHEDULER_WORKER = __SCHEDULER_WORKER__;
+function isWorker(name) { return typeof name === 'string' && name.startsWith('worker-'); }
+// The group a worker name belongs to (longest prefix wins: worker-high-0 is
+// not the main group's), and its index in it.
+function workerGroup(name) {
+  let found = null;
+  for (const g of WORKER_GROUPS) {
+    const rest = String(name).slice(g.prefix.length);
+    if (String(name).startsWith(g.prefix) && /^\d+$/.test(rest) && (!found || g.prefix.length > found.group.prefix.length)) {
+      found = { group: g, index: Number(rest) };
+    }
+  }
+  return found;
+}
+function workerNames(group) { return Array.from({ length: group.max }, (_, i) => group.prefix + i); }
+function allWorkerNames() { return WORKER_GROUPS.flatMap(workerNames); }
 
 export class App extends Container {
   defaultPort = __PORT__;
@@ -656,6 +863,80 @@ export class App extends Container {
       DPLY_PHP_FPM_MAX_CHILDREN: '__FPM_CHILDREN__',
       DPLY_PHP_MEMORY_LIMIT: __FPM_LIMIT__,
     });
+    // Queue workers are App instances named worker-N. Whoever starts one
+    // (warm, or the platform after a restart), it boots in worker mode.
+    const worker = isWorker(ctx.id.name) ? workerGroup(ctx.id.name) : null;
+    if (worker) Object.assign(this.envVars, worker.group.env, { DPLY_WORKER_NAME: ctx.id.name }, ctx.id.name === SCHEDULER_WORKER ? { DPLY_WORKER_SCHEDULER: '1' } : {});
+  }
+
+  // Queue workers run queue:work, not a web server: start without waiting
+  // for a port. Each remembers whether it is wanted: each group's first `min`
+  // always are; the autoscaler turns the rest on and off.
+  async wanted(index) {
+    const flag = await this.ctx.storage.get('dply:wanted');
+    const worker = workerGroup(index);
+    return flag ?? (worker !== null && worker.index < worker.group.min);
+  }
+
+  async startWorker(index) {
+    await this.remember(index);
+    if (await this.ctx.storage.get('dply:paused')) return;
+    await this.ctx.storage.put('dply:wanted', true);
+    if (this.container.running) return;
+    await this.start({ envVars: this.envVars });
+  }
+
+  // SIGTERM: the supervisor lets the running job finish, then exits.
+  async stopWorker(index) {
+    await this.remember(index);
+    await this.ctx.storage.put('dply:wanted', false);
+    if (this.container.running) await this.stop('SIGTERM');
+  }
+
+  // Bring back a wanted worker Cloudflare restarted.
+  async resumeWorker(index) {
+    await this.remember(index);
+    if ((await this.ctx.storage.get('dply:paused')) || !(await this.wanted(index)) || this.container.running) return;
+    await this.start({ envVars: this.envVars });
+  }
+
+  // Stop this instance and start it again: Cloudflare places it afresh.
+  // dply uses it when a deploy lands far from the app's data.
+  async replace(index) {
+    await this.remember(index);
+    if (this.container.running) {
+      await this.stop('SIGTERM');
+      for (let i = 0; i < 60 && this.container.running; i++) await new Promise((r) => setTimeout(r, 500));
+    }
+    await this.startAndWaitForPorts({ ports: [__PORT__], cancellationOptions: { portReadyTimeoutMS: 45000 } });
+  }
+
+  // The scheduler's plan lives in the storage of the "dply-schedule"
+  // instance, which never starts a container.
+  async schedulePlan() {
+    return (await this.ctx.storage.get('dply:schedule-plan')) ?? null;
+  }
+
+  async saveSchedulePlan(plan) {
+    await this.ctx.storage.put('dply:schedule-plan', plan);
+  }
+
+  async workerState(index) {
+    await this.remember(index);
+    return { ...(await this.getState()), wanted: await this.wanted(index), paused: Boolean(await this.ctx.storage.get('dply:paused')) };
+  }
+
+  // Paused workers stay stopped through warms, scaling and deploys until
+  // resumed. Stopping lets the running job finish.
+  async pauseWorker(index, paused) {
+    await this.remember(index);
+    await this.ctx.storage.put('dply:paused', paused);
+    if (paused) {
+      if (this.container.running) await this.stop('SIGTERM');
+      return;
+    }
+    await this.ctx.storage.delete('dply:wanted'); // back to the default: the always-on ones run
+    await this.resumeWorker(index);
   }
 
   // Autoscaling. The Worker asks instance-0, instance-1, … in order and
@@ -663,6 +944,16 @@ export class App extends Container {
   // when the ones before them are full, and go back to sleep when traffic
   // drops. A yes holds a slot until the request arrives (or 30s pass), so a
   // burst at a cold instance does not all pile onto it.
+  //
+  // WebSockets: the SDK (0.3.7) counts an open socket in inflightRequests
+  // until it closes or errors, and its close path shares decrementInflight
+  // with plain requests, so sockets cannot be told apart here without a
+  // second proxy hop. Each open socket therefore holds one CAPACITY slot for
+  // its whole life (new traffic spills to the next instance), and while any
+  // socket is open the instance never sleeps: isActivityExpired() is false
+  // while inflightRequests > 0, and every message both ways renews the
+  // sleepAfter timer. No renewActivityTimeout call is needed. It also means
+  // a paused site keeps its open sockets until they close.
   reservations = [];
 
   async hasRoom(index) {
@@ -674,6 +965,9 @@ export class App extends Container {
     return true;
   }
 
+  // The Worker reaches this through the Durable Object fetch handler (not the
+  // containerFetch RPC), which is the path the SDK proxies WebSocket
+  // upgrades on: it answers with a 101 whose webSocket it pipes both ways.
   async fetch(request) {
     this.reservations.shift();
     return super.fetch(request);
@@ -688,7 +982,9 @@ export class App extends Container {
 
   async onActivityExpired() {
     const index = this.index ?? (await this.ctx.storage.get('dply:index'));
-    const keep = index === 'jobs' ? JOBS_ALWAYS_ON : typeof index === 'number' && index < limits().min;
+    const keep = index === 'jobs' ? JOBS_ALWAYS_ON
+      : isWorker(index) ? (workerGroup(index)?.index ?? Infinity) < (workerGroup(index)?.group.max ?? 0) && (await this.wanted(index)) && !(await this.ctx.storage.get('dply:paused'))
+      : typeof index === 'number' && index < limits().min;
     // A paused site (usage credit used up) lets its always-on instances sleep.
     if (keep && (await trafficOpen(this.env))) return;
     return super.onActivityExpired();
@@ -776,20 +1072,6 @@ async function connectionFetch(c, request, env) {
     return Response.json(await binding.prepare(body.sql).bind(...(body.params || [])).all());
   }
   if (c.kind === 'queue' && request.method === 'POST') { await binding.send(await request.text()); return new Response(null, { status: 202 }); }
-  if (c.kind === 'http_delivery' && request.method === 'POST') {
-    if (!QSTASH_TOKEN) return new Response('HTTP delivery is not ready.', { status: 503 });
-    const parsed = await json();
-    const target = String(parsed.url || '');
-    if (!target.startsWith('https://')) return new Response('Name an https address.', { status: 400 });
-    const payload = typeof parsed.body === 'string' ? parsed.body : JSON.stringify(parsed.body ?? {});
-    const headers = { authorization: 'Bearer ' + QSTASH_TOKEN, 'content-type': 'application/json' };
-    if (parsed.delay) headers['upstash-delay'] = String(parsed.delay);
-    const published = await fetch('https://qstash.upstash.io/v2/publish/' + target, { method: 'POST', headers, body: payload });
-    if (published.ok) {
-      await fetch(DELIVERY_USAGE_URL, { method: 'POST', headers: { 'content-type': 'application/json', 'x-dply-queue-token': env.DPLY_QUEUE_TOKEN }, body: JSON.stringify({ messages: 1, bytes: payload.length }) }).catch(() => {});
-    }
-    return new Response(await published.text(), { status: published.status });
-  }
   if (c.kind === 'ai' && request.method === 'POST') { const body = await json(); return Response.json(await binding.run(body.model, body.input)); }
   if (c.kind === 'vectors' && request.method === 'POST') { const body = await json(); return Response.json(await binding.query(body.vector, { topK: body.topK || 5 })); }
   if (c.kind === 'images' && request.method === 'POST') {
@@ -940,13 +1222,27 @@ async function warm(env) {
   if (!(await trafficOpen(env))) return;
   const targets = Array.from({ length: limits().min }, (_, i) => [instance(env, i), i]);
   if (JOBS_ALWAYS_ON) targets.push([getContainer(env.APP, 'jobs'), 'jobs']);
-  await Promise.all(targets.map(async ([container, index]) => {
-    await container.remember(index);
-    await container.startAndWaitForPorts({ ports: [__PORT__], cancellationOptions: { portReadyTimeoutMS: 45000 } });
-  }));
+  const workers = WORKER_GROUPS.flatMap((g) => workerNames(g).map((name) => [name, g]));
+  await Promise.all([
+    ...targets.map(async ([container, index]) => {
+      await container.remember(index);
+      await container.startAndWaitForPorts({ ports: [__PORT__], cancellationOptions: { portReadyTimeoutMS: 45000 } });
+    }),
+    // Without autoscaling every worker is always on (this also clears a
+    // flag left from when the app autoscaled).
+    ...workers.map(([name, g]) => g.autoscale ? getContainer(env.APP, name).resumeWorker(name) : getContainer(env.APP, name).startWorker(name)),
+  ]);
+}
+
+// A WebSocket answer (101) passes through untouched: a new Response cannot
+// carry status 101 or the socket. Sockets still stick: webTarget routes by
+// the cookie the page load already set, or picks an instance.
+function isSocket(response) {
+  return response.status === 101 || Boolean(response.webSocket);
 }
 
 function withStickyCookie(response, id) {
+  if (isSocket(response)) return response;
   const headers = new Headers(response.headers);
   headers.append('set-cookie', 'dply_instance=' + id + '; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800');
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
@@ -964,7 +1260,7 @@ async function trafficOpen(env) {
 // A rollout or a cold start can exit the process before the port is open.
 // container.fetch turns that into a 500 ("not running, consider calling start()")
 // on the first try. Start again and give FrankenPHP time to listen.
-function httpRequest(request) {
+function httpRequest(request, body) {
   const url = new URL(request.url);
   url.protocol = 'http:';
   const init = {
@@ -972,13 +1268,20 @@ function httpRequest(request) {
     headers: new Headers(request.headers),
     redirect: 'manual',
   };
-  if (request.method !== 'GET' && request.method !== 'HEAD') init.body = request.body;
+  if (request.method !== 'GET' && request.method !== 'HEAD') init.body = body ?? request.body;
   return new Request(url, init);
 }
 
 async function proxy(env, request, target) {
+  // A retry needs the body again, and a stream can only be read once: buffer
+  // small bodies (forms, JSON, dply's own commands); stream large uploads and
+  // do not retry them.
+  const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
+  const retryable = !hasBody || Number(request.headers.get('content-length') ?? Infinity) <= 1048576;
+  const body = hasBody && retryable ? await request.arrayBuffer() : undefined;
   // The public URL stays HTTPS. The container only accepts HTTP on this hop.
-  request = httpRequest(request);
+  const fresh = () => httpRequest(request, body);
+  request = fresh();
   const container = target.container;
   try {
     await container.startAndWaitForPorts({
@@ -988,8 +1291,12 @@ async function proxy(env, request, target) {
   } catch {
     // fetch() below starts the container again.
   }
+  // A WebSocket upgrade goes through here too, Upgrade / Sec-WebSocket-*
+  // headers intact (httpRequest copies them). A 101 never enters the retry
+  // loop; the SDK's 5xx for an upgrade come before any socket exists (start
+  // failed, connection lost), so retrying one does not replay a live socket.
   let response = await container.fetch(request);
-  for (let attempt = 0; attempt < 2 && response.status >= 500; attempt++) {
+  for (let attempt = 0; retryable && attempt < 2 && response.status >= 500; attempt++) {
     const preview = await response.clone().text();
     if (!/not running|Failed to start container|Container crashed|suddenly disconnected/.test(preview)) {
       return revealAppErrors(env, response);
@@ -1002,7 +1309,7 @@ async function proxy(env, request, target) {
     } catch {
       // fetch() below starts the container again.
     }
-    response = await container.fetch(request);
+    response = await container.fetch(fresh());
   }
   if (target.cookie !== null) response = withStickyCookie(response, target.cookie);
   return revealAppErrors(env, response);
@@ -1010,7 +1317,7 @@ async function proxy(env, request, target) {
 
 function revealAppErrors(env, response) {
   const flag = String(env.APP_DEBUG ?? '').trim().toLowerCase();
-  if (flag !== 'true' && flag !== '1' && flag !== '(true)') return response;
+  if (isSocket(response) || (flag !== 'true' && flag !== '1' && flag !== '(true)')) return response;
   const headers = new Headers(response.headers);
   headers.set('x-dply-app-debug', '1');
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
@@ -1026,6 +1333,66 @@ export default {
       if (url.pathname === '/_dply/warm' && request.method === 'POST') {
         ctx.waitUntil(warm(env));
         return new Response(null, { status: 202 });
+      }
+      // Web instance state (running or not), for sampling only awake apps.
+      if (url.pathname === '/_dply/instances' && request.method === 'GET') {
+        const names = Array.from({ length: INSTANCES }, (_, i) => 'instance-' + i);
+        return Response.json(await Promise.all(names.map(async (name) => ({ name, ...(await getContainer(env.APP, name).getState()) }))));
+      }
+      // Queue worker state for the workspace. Reading it never starts one.
+      if (url.pathname === '/_dply/workers' && request.method === 'GET') {
+        const names = allWorkerNames();
+        return Response.json(await Promise.all(names.map(async (name) => ({ name, group: workerGroup(name)?.group.key ?? '', ...(await getContainer(env.APP, name).workerState(name)) }))));
+      }
+      if (url.pathname === '/_dply/workers/pause' && request.method === 'POST') {
+        const { paused = true } = await request.json();
+        const names = allWorkerNames();
+        return Response.json(await Promise.all(names.map(async (name) => {
+          try {
+            await getContainer(env.APP, name).pauseWorker(name, Boolean(paused));
+            return { name, ok: true };
+          } catch (e) {
+            return { name, ok: false, error: String(e && e.message ? e.message : e) };
+          }
+        })));
+      }
+      if (url.pathname === '/_dply/replace' && request.method === 'POST') {
+        const { index = 0 } = await request.json();
+        try {
+          await instance(env, Number(index) || 0).replace(Number(index) || 0);
+          return Response.json({ ok: true });
+        } catch (e) {
+          return Response.json({ ok: false, error: String(e && e.message ? e.message : e) }, { status: 500 });
+        }
+      }
+      // The autoscaler: run a group's first `count` workers, stop the rest.
+      if (url.pathname === '/_dply/workers/scale' && request.method === 'POST') {
+        const { count = 0, group = '' } = await request.json();
+        const g = WORKER_GROUPS.find((x) => x.key === group);
+        if (!g) return Response.json({ error: `No worker group ${group}` }, { status: 404 });
+        const want = Math.max(g.min, Math.min(g.max, Number(count) || 0));
+        const names = workerNames(g);
+        return Response.json(await Promise.all(names.map(async (name, i) => {
+          try {
+            const c = getContainer(env.APP, name);
+            await (i < want ? c.startWorker(name) : c.stopWorker(name));
+            return { name, wanted: i < want, ok: true };
+          } catch (e) {
+            return { name, wanted: i < want, ok: false, error: String(e && e.message ? e.message : e) };
+          }
+        })));
+      }
+      // Start the workers now and say what happened to each (warm does it in the background).
+      if (url.pathname === '/_dply/workers/start' && request.method === 'POST') {
+        const names = allWorkerNames();
+        return Response.json(await Promise.all(names.map(async (name) => {
+          try {
+            await getContainer(env.APP, name).resumeWorker(name);
+            return { name, ok: true };
+          } catch (e) {
+            return { name, ok: false, error: String(e && e.message ? e.message : e) };
+          }
+        })));
       }
       if (url.pathname === '/_dply/command' && request.method === 'POST') {
         return proxy(env, request, await webTarget(env, request));
@@ -1060,11 +1427,28 @@ export default {
   async scheduled(controller, env, ctx) {
     if (!(await trafficOpen(env))) return;
     for (const handler of CRON_HANDLERS[controller.cron] ?? [null]) {
-      ctx.waitUntil((async () => proxy(env, new Request('http://app' + __SCHEDULE_PATH__, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-dply-queue-token': env.DPLY_QUEUE_TOKEN },
-        body: JSON.stringify({ cron: controller.cron, handler }),
-      }), await jobsTarget(env)))());
+      // The every-minute Laravel scheduler: wake the app only when a task is
+      // due (the app reports its tasks' crons after each run), so an app
+      // with a nightly task sleeps the rest of the day.
+      const plans = handler === 'schedule:run' && controller.cron === '* * * * *' ? getContainer(env.APP, 'dply-schedule') : null;
+      if (plans) {
+        const saved = await plans.schedulePlan();
+        const trusted = saved && saved.build === BUILD_ID && Date.now() - saved.at < 86400000 && Array.isArray(saved.plan);
+        if (trusted && !saved.plan.some((p) => cronDue(p.cron, p.tz, new Date(controller.scheduledTime)))) continue;
+      }
+      ctx.waitUntil((async () => {
+        const response = await proxy(env, new Request('http://app' + __SCHEDULE_PATH__, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dply-queue-token': env.DPLY_QUEUE_TOKEN },
+          body: JSON.stringify({ cron: controller.cron, handler }),
+        }), await jobsTarget(env));
+        if (plans) {
+          const body = await response.clone().json().catch(() => ({}));
+          // No plan (sub-minute tasks, an older dply/laravel): keep waking every minute.
+          await plans.saveSchedulePlan({ build: BUILD_ID, at: Date.now(), plan: Array.isArray(body.plan) ? body.plan : null });
+        }
+        return response;
+      })());
     }
   },
 
@@ -1110,7 +1494,9 @@ JS, $replace);
         }
 
         $crons = [];
-        if (EdgeContainerSettings::for($site)['scheduler']) {
+        // With queue workers the scheduler runs in worker-0 instead, so the
+        // web container is not woken every minute.
+        if (EdgeContainerSettings::for($site)['scheduler'] && ! EdgeQueueWorkers::runsScheduler($site)) {
             $crons['* * * * *'][] = 'schedule:run';
         }
         foreach (EdgeEffectiveCrons::for($site, $deployment) as $cron) {
@@ -1130,6 +1516,10 @@ JS, $replace);
         $out = [];
         foreach (EdgeEffectiveBindings::for($site, $deployment) as $binding) {
             if ($binding['kind'] === 'queue' && $binding['value'] !== '') {
+                // The account is shared: a repo may only bind this org's queues.
+                if ($binding['source'] === 'repo' && ($site->organization === null || ! EdgeContainerConnections::owns('queue', $binding['value'], $site->organization))) {
+                    throw new RuntimeException(sprintf('wrangler.toml binding %s (%s): it is not a queue this organization owns.', $binding['name'], $binding['value']));
+                }
                 $out[$binding['name']] = $binding['value'];
             }
         }
@@ -1182,6 +1572,115 @@ JS, $replace);
         }
 
         return $context->kvNamespaceId;
+    }
+
+    /**
+     * The deployer `docker run`. Only trusted code runs in it (wrangler and
+     * the scaffold's pinned deps, install scripts off) next to the socket and
+     * token; the customer's Dockerfile goes to the BuildKit builder, where
+     * RUN steps get neither. See docs/edge-build-isolation.md.
+     *
+     * @return list<string>
+     */
+    public static function deployerCommand(string $name, string $workRoot, string $project, string $namespace, string $rolloutMode): array
+    {
+        $builder = trim((string) config('edge.build.containers.builder', ''));
+        $token = trim((string) config('edge.build.containers.deploy_api_token', ''));
+
+        return [
+            // Named so cancelling can kill it: the container outlives this
+            // client, and an abandoned one keeps building and pushing.
+            'docker', 'run', '--rm', '--name', $name,
+            '-v', '/var/run/docker.sock:/var/run/docker.sock',
+            // Same absolute path inside the deployer so the Dockerfile path in
+            // wrangler.jsonc resolves.
+            '-v', $workRoot.':'.$workRoot,
+            '-w', $project,
+            '-e', 'CLOUDFLARE_API_TOKEN='.($token !== '' ? $token : (string) config('edge.cloudflare.api_token')),
+            '-e', 'CLOUDFLARE_ACCOUNT_ID='.config('edge.cloudflare.account_id'),
+            '-e', 'WRANGLER_SEND_METRICS=false',
+            // Without this buildx uses TTY progress: it rewrites the same lines
+            // in place and batches when stdout isn't a terminal, so a live build
+            // looks frozen in the log. Plain mode appends one line per event.
+            '-e', 'BUILDKIT_PROGRESS=plain',
+            // wrangler runs `docker build`, which buildx routes to this builder.
+            ...($builder !== '' ? ['-e', 'BUILDX_BUILDER='.$builder] : []),
+            (string) config('edge.build.containers.deployer_image'),
+            'sh', '-c', self::deployerScript($builder), $namespace, $rolloutMode,
+        ];
+    }
+
+    /**
+     * Create the docker-container builder on the build network if this
+     * (throwaway) client doesn't know it; an existing builder container is
+     * reused, so the driver opts only take effect when it is first created.
+     * `&&`: no builder means no deploy, never a silent host-daemon build.
+     */
+    public static function deployerScript(string $builder): string
+    {
+        $deploy = 'npm install --silent --no-audit --no-fund --ignore-scripts && wrangler deploy --dispatch-namespace "$0" --secrets-file secrets.json --containers-rollout "$1"';
+        if ($builder === '') {
+            return $deploy;
+        }
+
+        $opts = ['image='.(string) config('edge.build.containers.builder_image', 'moby/buildkit:v0.32.2')];
+        $network = trim((string) config('edge.build.sandbox.network', ''));
+        if ($network !== '') {
+            $opts[] = 'network='.$network;
+        }
+        $memory = trim((string) config('edge.build.containers.builder_memory', ''));
+        if ($memory !== '') {
+            array_push($opts, 'memory='.$memory, 'memory-swap='.$memory);
+        }
+        $cpus = (float) config('edge.build.containers.builder_cpus', 0);
+        if ($cpus > 0) {
+            array_push($opts, 'cpu-period=100000', 'cpu-quota='.(int) round($cpus * 100000));
+        }
+
+        $create = 'docker buildx create --name '.escapeshellarg($builder).' --driver docker-container';
+        foreach ($opts as $opt) {
+            $create .= ' --driver-opt '.escapeshellarg($opt);
+        }
+
+        return '{ docker buildx inspect '.escapeshellarg($builder).' >/dev/null 2>&1 || '.$create.' >/dev/null; } && '.$deploy;
+    }
+
+    private static function ensureBuilderNetwork(): void
+    {
+        $network = trim((string) config('edge.build.sandbox.network', ''));
+        if (trim((string) config('edge.build.containers.builder', '')) !== '' && $network !== '') {
+            EdgeBuildRunner::ensureBuildNetwork($network, (array) config('edge.build.sandbox', []));
+        }
+    }
+
+    /** Per-org, unguessable prefix for BuildKit cache mount ids. */
+    public static function cacheScope(Site $site): string
+    {
+        return substr(hash_hmac('sha256', 'container-build-cache:'.(string) $site->organization_id, (string) config('app.key')), 0, 16);
+    }
+
+    /**
+     * BuildKit cache mounts are keyed by id (default: the target path) across
+     * every build on the builder, so one org's `RUN --mount=type=cache` could
+     * poison another's npm/composer cache — including explicit ids copied
+     * from docs (`id=pnpm`). Prefix every cache id with the org scope.
+     */
+    public static function scopeCacheMounts(string $dockerfile, string $scope): string
+    {
+        return preg_replace_callback('/--mount=(\S+)/', static function (array $m) use ($scope): string {
+            $opts = [];
+            foreach (explode(',', $m[1]) as $part) {
+                [$key, $value] = array_pad(explode('=', $part, 2), 2, '');
+                $opts[strtolower($key)] = $value;
+            }
+            $id = $opts['id'] ?? $opts['target'] ?? $opts['dst'] ?? $opts['destination'] ?? '';
+            if (($opts['type'] ?? '') !== 'cache' || $id === '' || str_starts_with($id, 'dply-'.$scope)) {
+                return $m[0];
+            }
+            $rest = array_filter(explode(',', $m[1]), static fn (string $part): bool => strtolower(explode('=', $part, 2)[0]) !== 'id');
+
+            return '--mount=id=dply-'.$scope.'-'.ltrim($id, '/').','.implode(',', $rest);
+        }, $dockerfile) ?? $dockerfile;
     }
 
     /** @param callable(string): void $log */

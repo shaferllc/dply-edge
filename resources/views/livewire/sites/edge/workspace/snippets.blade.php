@@ -1,7 +1,9 @@
 <div>
+    {{-- Read-only for anyone who cannot configure this app (org Deployer, app Viewer/Deployer). --}}
+    <fieldset @disabled(! auth()->user()?->can('update', $site)) class="min-w-0">
     <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
         @include('livewire.sites.edge.workspace.partials.feature-guide', [
-            'docSlug' => 'edge-snippets',
+            'docSlug' => 'snippets',
             'what' => __('Snippets inject small HTML into matching pages at the Edge — banners, pixels, or support widgets — without rebuilding or redeploying your app.'),
             'steps' => [
                 __('Add a snippet: name it, choose head or body injection, and set a path pattern (/* for all pages).'),
@@ -53,7 +55,7 @@
                     <div class="grid gap-3 sm:grid-cols-3">
                         <div>
                             <x-input-label :value="__('Name')" />
-                            <x-text-input wire:model="items.{{ $i }}.name" type="text" class="mt-1 block w-full text-sm" @disabled(! $managedDelivery) />
+                            <x-text-input wire:model="items.{{ $i }}.name" type="text" class="mt-1 block w-full text-sm" :disabled="! $managedDelivery" />
                         </div>
                         <div>
                             <x-input-label :value="__('Inject')" />
@@ -64,7 +66,7 @@
                         </div>
                         <div>
                             <x-input-label :value="__('Path')" />
-                            <x-text-input wire:model="items.{{ $i }}.path" type="text" class="mt-1 block w-full font-mono text-sm" @disabled(! $managedDelivery) />
+                            <x-text-input wire:model="items.{{ $i }}.path" type="text" class="mt-1 block w-full font-mono text-sm" :disabled="! $managedDelivery" />
                         </div>
                     </div>
                     <div>
@@ -79,7 +81,7 @@
 
             <div class="flex flex-wrap items-center justify-between gap-3">
                 <button type="button" wire:click="addItem" class="text-sm font-semibold text-brand-sage" @disabled(! $managedDelivery)>{{ __('Add snippet') }}</button>
-                <x-primary-button type="button" wire:click="save" @disabled(! $managedDelivery)>{{ __('Save') }}</x-primary-button>
+                <x-primary-button type="button" wire:click="save" :disabled="! $managedDelivery">{{ __('Save') }}</x-primary-button>
             </div>
         </div>
     </section>
@@ -122,4 +124,5 @@ snippets:
       path: /*
       html: '<div style="background:#111;color:#fff;padding:.5rem;text-align:center">We shipped.</div>'
     </x-edge-yaml-advanced>
+    </fieldset>
 </div>

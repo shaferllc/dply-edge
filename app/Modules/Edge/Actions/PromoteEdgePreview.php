@@ -85,11 +85,15 @@ class PromoteEdgePreview
             .'/'.$parent->organization_id.'/'.$parent->id.'/'.Str::ulid();
 
         $context = app(EdgeDeliveryContextResolver::class)->forSite($parent);
-        app(EdgeArtifactPublisher::class)->copyPrefix(
+        $copied = app(EdgeArtifactPublisher::class)->copyPrefix(
             $previewDeployment->storage_prefix,
             $newPrefix,
             $context->diskName,
         );
+        if ($copied === 0) {
+            // Going live on an empty prefix would take the site down.
+            throw new \RuntimeException('The preview has no files to promote. Redeploy the preview and try again.');
+        }
 
         $promotedMeta = $previewDeployment->meta;
         $promotedMeta['promoted_from'] = [

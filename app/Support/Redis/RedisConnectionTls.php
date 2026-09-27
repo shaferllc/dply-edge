@@ -7,7 +7,7 @@ namespace App\Support\Redis;
 /**
  * DigitalOcean managed Redis/Valkey (and Upstash) are TLS-only. A plaintext
  * PhpRedis dial surfaces as "read error on connection" at Redis->auth() and
- * 500s every request that touches cache (ThrottleRequests, Livewire, Pennant).
+ * 500s every request that touches cache (ThrottleRequests, Livewire).
  *
  * Laravel's default REDIS_SCHEME is `tcp`. Infer `tls` / `rediss` from the
  * host and port so a control-plane deploy that restores a stale `.env`

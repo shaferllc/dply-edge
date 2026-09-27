@@ -1,4 +1,4 @@
-# dply — https://dply.io
+# dply — https://edge.dply.io
 # Public marketing + docs pages are crawlable by default. The authenticated
 # app, admin console, and API surfaces are kept out of search results.
 
@@ -37,4 +37,4 @@ Disallow: /impersonate
 Disallow: /coming-soon
 Disallow: /storage/
 
-Sitemap: https://dply.io/sitemap.xml
+Sitemap: https://edge.dply.io/sitemap.xml

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -468,4 +469,37 @@ func (m *mongo) load(r io.Reader) error {
 	cmd := exec.Command("mongorestore", m.adminArgs("--archive", "--nsInclude", "app.*", "--quiet")...)
 	cmd.Stdin = r
 	return runCaptured(cmd)
+}
+
+// stats is the Statistics tab's numbers for the app database, in the same
+// shape the dply app reads from Postgres and MySQL. The app has no MongoDB
+// driver, so these come through the gateway (GET /tenants/{id}/stats).
+func (m *mongo) stats() (json.RawMessage, error) {
+	if !m.running() {
+		return nil, errors.New("the database is not running")
+	}
+	out, err := m.eval(`
+const app = db.getSiblingDB('app'), s = app.stats(), st = db.serverStatus(), c = st.wiredTiger.cache;
+// Counters can be Long; Number() keeps them numbers (Long + Long concatenates).
+const asked = Number(c['pages requested from the cache']), read = Number(c['pages read into cache']);
+const largest = app.getCollectionInfos({type: 'collection'}).map(i => {
+  const x = app.getCollection(i.name).stats();
+  return {name: i.name, rows: Number(x.count), bytes: Number(x.size) + Number(x.totalIndexSize)};
+}).sort((a, b) => b.bytes - a.bytes).slice(0, 5);
+print(JSON.stringify({
+  engine: 'mongodb', version: 'MongoDB ' + st.version, uptime_seconds: Math.floor(st.uptime),
+  size_bytes: Number(s.dataSize) + Number(s.indexSize), tables: Number(s.collections), rows: Number(s.objects),
+  connections: Number(st.connections.current), max_connections: Number(st.connections.current) + Number(st.connections.available),
+  cache_hit_ratio: asked > 0 ? Math.round((asked - read) / asked * 1000) / 10 : null,
+  commits: Number(st.opcounters.insert) + Number(st.opcounters.update) + Number(st.opcounters.delete), rollbacks: 0,
+  largest,
+}))`)
+	if err != nil {
+		return nil, err
+	}
+	line := lastLines(out, 1)
+	if !json.Valid([]byte(line)) {
+		return nil, fmt.Errorf("mongosh: unexpected output: %s", line)
+	}
+	return json.RawMessage(line), nil
 }

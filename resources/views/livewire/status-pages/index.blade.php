@@ -5,7 +5,7 @@
     $showShellActions = $hasOrganization && $hasPagesInScope && $canCreateStatusPage;
     $publicCount = $hasPagesInScope ? $pages->where('is_public', true)->count() : 0;
     $shellDescription = $hasOrganization
-        ? __('Public status pages and incidents for your servers and sites—similar to other hosting panels.')
+        ? __('Public status pages and incidents for your apps, driven by their uptime checks.')
         : __('Select an organization from the header to manage public status pages and incidents.');
 @endphp
 
@@ -80,7 +80,7 @@
                     </span>
                     <h2 id="status-pages-empty-heading" class="mt-4 text-sm font-semibold text-brand-ink">{{ __('No status pages yet') }}</h2>
                     <p class="mt-1 max-w-md text-sm leading-relaxed text-brand-moss">
-                        {{ __('Create one, then add servers or sites to monitor and publish incidents.') }}
+                        {{ __('Create one, then add apps to monitor and publish incidents.') }}
                     </p>
                     @if ($canCreateStatusPage)
                         <div class="mt-5">

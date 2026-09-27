@@ -7,12 +7,15 @@ use App\Models\Organization;
 use App\Modules\Billing\Services\BillingAnalytics;
 use App\Modules\Billing\Services\DesiredBillingState;
 use App\Modules\Billing\Services\OrganizationBillingStateComputer;
+use App\Modules\Billing\Services\PlanCheckout;
 use App\Modules\Billing\Services\StandardSubscriptionCreator;
+use App\Modules\Billing\Services\StarterTrafficGate;
 use App\Modules\Billing\Services\SubscriptionPlanResolver;
 use App\Modules\Billing\Services\VatInsightService;
 use Carbon\CarbonInterface;
 use Illuminate\Contracts\View\View;
-use Illuminate\Support\Collection;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rule;
 use Laravel\Cashier\Invoice;
 use Laravel\Cashier\Subscription;
@@ -27,7 +30,6 @@ use Throwable;
  * magic, so the contract is stated here.
  *
  * @property-read Subscription|null $subscription
- * @property-read string|null $subscriptionInterval
  * @property-read DesiredBillingState $billingState
  * @property-read array<string, int|null|string> $costForecast
  * @property-read bool $standardPricingAvailable
@@ -52,6 +54,22 @@ class Show extends Component
 
     public string $billing_details = '';
 
+    /** Usage soft limit in dollars ('' = the default, twice the plan price). */
+    public string $usage_alert_dollars = '';
+
+    /** Flipped by wire:init so the Stripe invoice list never blocks first paint. */
+    public bool $invoicesLoaded = false;
+
+    /** Stripe reads are cached per customer; SyncBillingOnSubscriptionWebhook busts them. */
+    private const STRIPE_CACHE_TTL = 600;
+
+    public static function forgetStripeCache(string $stripeId): void
+    {
+        Cache::forget("billing:stripe:{$stripeId}:invoices");
+        Cache::forget("billing:stripe:{$stripeId}:next-invoice");
+        Cache::forget("billing:stripe:{$stripeId}:payment-summary");
+    }
+
     public function mount(Organization $organization): void
     {
         $this->authorize('update', $organization);
@@ -60,6 +78,18 @@ class Show extends Component
         $this->vat_number = (string) ($organization->vat_number ?? '');
         $this->billing_currency = (string) ($organization->billing_currency ?? '');
         $this->billing_details = (string) ($organization->billing_details ?? '');
+        $this->usage_alert_dollars = $organization->usage_alert_cents === null ? '' : (string) ($organization->usage_alert_cents / 100);
+    }
+
+    /** Owners are emailed at 50/80/100% of this each billing period (UsageAlerts). */
+    public function saveUsageAlert(): void
+    {
+        $this->authorize('update', $this->organization);
+        $this->validate(['usage_alert_dollars' => ['nullable', 'numeric', 'min:1', 'max:1000000']]);
+        $this->organization->forceFill([
+            'usage_alert_cents' => $this->usage_alert_dollars === '' ? null : (int) round((float) $this->usage_alert_dollars * 100),
+        ])->save();
+        $this->toastSuccess(__('Usage alert saved.'));
     }
 
     public function saveBillingDetails(VatInsightService $vatInsights): void
@@ -144,15 +174,22 @@ class Show extends Component
         if ($org->pm_last_four) {
             return '•••• '.$org->pm_last_four;
         }
-        $paymentMethod = $org->defaultPaymentMethod();
-        if ($paymentMethod && method_exists($paymentMethod, 'asStripePaymentMethod')) {
-            $pm = $paymentMethod->asStripePaymentMethod();
-            if (isset($pm->card->last4)) {
-                return '•••• '.$pm->card->last4;
-            }
+        if (! $org->hasStripeId()) {
+            return 'No payment method';
         }
 
-        return 'No payment method';
+        // defaultPaymentMethod() is a Stripe round-trip; cache it like the invoices.
+        return Cache::remember("billing:stripe:{$org->stripe_id}:payment-summary", self::STRIPE_CACHE_TTL, function () use ($org): string {
+            $paymentMethod = $org->defaultPaymentMethod();
+            if ($paymentMethod && method_exists($paymentMethod, 'asStripePaymentMethod')) {
+                $pm = $paymentMethod->asStripePaymentMethod();
+                if (isset($pm->card->last4)) {
+                    return '•••• '.$pm->card->last4;
+                }
+            }
+
+            return 'No payment method';
+        });
     }
 
     /**
@@ -167,47 +204,75 @@ class Show extends Component
         return $this->subscription !== null;
     }
 
-    /**
-     * @return Collection<int, Invoice>
-     */
-    public function getInvoicesProperty(): Collection
+    public function loadInvoices(): void
     {
-        if (! $this->organization->hasStripeId()) {
-            return collect();
+        $this->invoicesLoaded = true;
+    }
+
+    /**
+     * Plain rows (not Cashier Invoice objects) so they cache cleanly.
+     *
+     * @return list<array{date: int, total: string, url: string|null}>
+     */
+    public function getInvoicesProperty(): array
+    {
+        if (! $this->invoicesLoaded || ! $this->organization->hasStripeId()) {
+            return [];
         }
 
         try {
-            return $this->organization->invoices(false, ['limit' => 12]);
+            return Cache::remember(
+                "billing:stripe:{$this->organization->stripe_id}:invoices",
+                self::STRIPE_CACHE_TTL,
+                $this->stripeInvoiceRows(...),
+            );
         } catch (Throwable) {
-            return collect();
+            return [];
         }
     }
 
     /**
-     * Start a Stripe Checkout session for a paid tier. Line items are seeded
-     * from what the org runs today on that tier (extra sites, SSR, seats…).
+     * @return list<array{date: int, total: string, url: string|null}>
+     */
+    private function stripeInvoiceRows(): array
+    {
+        return $this->organization->invoices(false, ['limit' => 12])
+            ->map(fn (Invoice $invoice): array => [
+                'date' => $invoice->date()->getTimestamp(),
+                'total' => $invoice->total(),
+                'url' => $invoice->asStripeInvoice()->hosted_invoice_url ?? null,
+            ])->values()->all();
+    }
+
+    /**
+     * Start a Stripe Checkout session for a paid plan. Line items are the
+     * plan fee plus any extra seats the org already has.
      */
     public function subscribeTier(string $tier = 'pro'): mixed
     {
         $this->authorize('update', $this->organization);
 
-        if (! in_array($tier, ['pro', 'team'], true)) {
-            $this->addError('plan', __('Choose Pro or Team.'));
+        if (! in_array($tier, SubscriptionPlanResolver::PAID_TIERS, true)) {
+            $this->addError('plan', __('Choose Starter, Pro or Team.'));
+
+            return null;
+        }
+        if (($seatError = $this->seatCapError($tier)) !== null) {
+            $this->addError('plan', $seatError);
 
             return null;
         }
 
-        if ($this->organization->subscription('default') !== null) {
+        if ($this->organization->subscription('default')?->valid()) {
             $this->addError('billing', __('This organization already has a subscription. Change plan below instead.'));
 
             return null;
         }
 
-        $items = app(StandardSubscriptionCreator::class)->buildPriceList(
-            app(OrganizationBillingStateComputer::class)->computeForTier($this->organization, $tier),
-        );
-        if ($items === []) {
-            $this->addError('billing', __('Plan pricing is not configured yet. Contact support.'));
+        $subscriptionUrl = route('subscription.show', $this->organization);
+        $url = app(PlanCheckout::class)->url($this->organization, $tier, $subscriptionUrl.'?checkout=success', $subscriptionUrl.'?checkout=cancelled');
+        if ($url === null) {
+            $this->addError('billing', __('Plan pricing is not configured yet. Contact :email.', ['email' => config('dply.support_email')]));
 
             return null;
         }
@@ -216,21 +281,10 @@ class Show extends Component
             'plan' => $tier,
         ]);
 
-        $subscriptionUrl = route('subscription.show', $this->organization);
-        $builder = $this->organization->newSubscription('default');
-        foreach ($items as $item) {
-            $builder->price($item['price'], $item['quantity']);
-        }
-
-        $checkout = $builder->checkout([
-            'success_url' => $subscriptionUrl.'?checkout=success',
-            'cancel_url' => $subscriptionUrl.'?checkout=cancelled',
-        ], []);
-
         // Stripe Checkout lives on a different origin (checkout.stripe.com),
         // so Livewire's default wire:navigate redirect fails silently — pass
         // navigate: false to force a full-page window.location swap.
-        return $this->redirect((string) $checkout->asStripeCheckoutSession()->url, navigate: false);
+        return $this->redirect($url, navigate: false);
     }
 
     /**
@@ -245,20 +299,18 @@ class Show extends Component
         if (! $subscription || ! $subscription->valid()) {
             return $this->billingRedirect('billing_error', __('No active subscription to change.'));
         }
-        if (! in_array($tier, ['pro', 'team'], true) || $tier === $this->organization->subscribedTier()) {
+        if (! in_array($tier, SubscriptionPlanResolver::PAID_TIERS, true) || $tier === $this->organization->subscribedTier()) {
             return $this->billingRedirect('billing_error', __('Choose a different plan.'));
         }
-
-        $proSeats = (int) config('subscription.standard.tiers.pro.seats');
-        if ($tier === 'pro' && $this->organization->users()->count() > $proSeats) {
-            return $this->billingRedirect('billing_error', __('Pro includes :count seats. Remove members before moving to Pro.', ['count' => $proSeats]));
+        if (($seatError = $this->seatCapError($tier)) !== null) {
+            return $this->billingRedirect('billing_error', $seatError);
         }
 
         $items = app(StandardSubscriptionCreator::class)->buildPriceList(
             app(OrganizationBillingStateComputer::class)->computeForTier($this->organization, $tier),
         );
         if ($items === []) {
-            return $this->billingRedirect('billing_error', __('Plan pricing is not configured yet. Contact support.'));
+            return $this->billingRedirect('billing_error', __('Plan pricing is not configured yet. Contact :email.', ['email' => config('dply.support_email')]));
         }
 
         audit_log($this->organization, auth()->user(), 'billing.plan_changed', null, null, [
@@ -267,13 +319,16 @@ class Show extends Component
         ]);
 
         try {
-            $subscription->swapAndInvoice(collect($items)->mapWithKeys(
+            $prices = collect($items)->mapWithKeys(
                 static fn (array $item): array => [$item['price'] => ['quantity' => $item['quantity']]],
-            )->all());
+            )->all();
+            // During a trial there is nothing to prorate: swap and keep the
+            // trial (Cashier keeps trial_end while onTrial()).
+            $subscription->onTrial() ? $subscription->swap($prices) : $subscription->swapAndInvoice($prices);
         } catch (Throwable $e) {
             report($e);
 
-            return $this->billingRedirect('billing_error', __('Could not change plan. Please try again or contact support.'));
+            return $this->billingRedirect('billing_error', __('Could not change plan. Please try again or contact :email.', ['email' => config('dply.support_email')]));
         }
 
         OrganizationBillingStateComputer::flushMemo((string) $this->organization->id);
@@ -281,6 +336,29 @@ class Show extends Component
         return $this->billingRedirect('billing_status', __('You\'re now on :plan.', [
             'plan' => (string) config('subscription.standard.tiers.'.$tier.'.label'),
         ]));
+    }
+
+    /**
+     * End a card trial now and start paying: lifts the trial's spending cap.
+     */
+    public function endTrial(): mixed
+    {
+        $this->authorize('update', $this->organization);
+        $subscription = $this->organization->subscription('default');
+        if (! $subscription || ! $subscription->onTrial()) {
+            return $this->billingRedirect('billing_error', __('There is no trial to end.'));
+        }
+        try {
+            $subscription->endTrial();
+        } catch (Throwable $e) {
+            report($e);
+
+            return $this->billingRedirect('billing_error', __('Could not end the trial. Please try again or contact :email.', ['email' => config('dply.support_email')]));
+        }
+        audit_log($this->organization, auth()->user(), 'billing.trial_ended_early');
+        app(StarterTrafficGate::class)->syncOrganization($this->organization->fresh());
+
+        return $this->billingRedirect('billing_status', __('Your plan is active and billed from today.'));
     }
 
     /**
@@ -305,7 +383,7 @@ class Show extends Component
         try {
             $subscription->cancel();
         } catch (Throwable $e) {
-            return $this->billingRedirect('billing_error', __('Could not cancel the subscription. Please try again or contact support.'));
+            return $this->billingRedirect('billing_error', __('Could not cancel the subscription. Please try again or contact :email.', ['email' => config('dply.support_email')]));
         }
 
         // getAttribute(): ends_at is a Cashier column (cast to datetime in
@@ -335,7 +413,7 @@ class Show extends Component
         try {
             $subscription->resume();
         } catch (Throwable $e) {
-            return $this->billingRedirect('billing_error', __('Could not resume the subscription. Please try again or contact support.'));
+            return $this->billingRedirect('billing_error', __('Could not resume the subscription. Please try again or contact :email.', ['email' => config('dply.support_email')]));
         }
 
         return $this->billingRedirect('billing_status', __('Your subscription has been resumed.'));
@@ -369,9 +447,28 @@ class Show extends Component
 
     public function getStandardPricingAvailableProperty(): bool
     {
-        // Checkout needs a tier price; everything else on the list is optional.
-        return (string) config('subscription.standard.stripe.tier_pro') !== ''
-            || (string) config('subscription.standard.stripe.tier_team') !== '';
+        // Checkout needs a plan price; everything else on the list is optional.
+        foreach (SubscriptionPlanResolver::PAID_TIERS as $tier) {
+            if ((string) config('subscription.standard.stripe.tier_'.$tier) !== '') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Why the org's members do not fit a plan with a hard seat cap, or null. */
+    private function seatCapError(string $tier): ?string
+    {
+        $plan = (array) config('subscription.standard.tiers.'.$tier);
+        if (($plan['extra_seat_cents'] ?? null) !== null || ($plan['seats'] ?? null) === null) {
+            return null;
+        }
+        $seats = (int) $plan['seats'];
+
+        return $this->organization->seatCount() > $seats
+            ? trans_choice(':plan includes :count seat. Remove members before moving to :plan.|:plan includes :count seats. Remove members before moving to :plan.', $seats, ['plan' => $plan['label'], 'count' => $seats])
+            : null;
     }
 
     /**
@@ -402,36 +499,13 @@ class Show extends Component
 
     /**
      * Structured line items for the "Your bill" hero — one per Edge site kind
-     * in use plus metered Edge usage. Cents preserved so the view can choose
-     * monthly/yearly presentation.
+     * in use plus metered Edge usage.
      *
      * @return list<array{label: string, quantity: int, unit_cents: int, line_cents: int, detail?: ?string}>
      */
     public function getTierLineItemsProperty(): array
     {
         return app(BillingAnalytics::class)->lineItems($this->billingState);
-    }
-
-    public function getYearlyTotalCentsProperty(): int
-    {
-        $pct = (int) config('subscription.standard.annual_discount_pct', 20);
-
-        return (int) round($this->billingState->monthlyTotalCents * 12 * (100 - $pct) / 100);
-    }
-
-    public function getSubscriptionIntervalProperty(): ?string
-    {
-        $sub = $this->subscription;
-        if (! $sub) {
-            return null;
-        }
-
-        return $this->subscriptionIsYearly($sub) ? 'year' : 'month';
-    }
-
-    private function subscriptionIsYearly(Subscription $sub): bool
-    {
-        return SubscriptionPlanResolver::isYearly($sub);
     }
 
     public function getNextInvoiceAtProperty(): ?CarbonInterface
@@ -442,9 +516,13 @@ class Show extends Component
         }
 
         try {
-            $upcoming = $this->organization->upcomingInvoice();
+            $ts = Cache::remember(
+                "billing:stripe:{$this->organization->stripe_id}:next-invoice",
+                self::STRIPE_CACHE_TTL,
+                fn (): int => $this->organization->upcomingInvoice()?->date()->getTimestamp() ?? 0,
+            );
 
-            return $upcoming?->date();
+            return $ts > 0 ? Carbon::createFromTimestamp($ts) : null;
         } catch (Throwable) {
             return null;
         }

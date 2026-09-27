@@ -30,6 +30,7 @@ final class ConfigDirectoryAliases
         'cli' => 'product.cli',
         'console_actions' => 'product.console_actions',
         'dply' => 'product.dply',
+        'docs' => 'product.docs',
         'edge' => 'product.edge',
         'passkeys' => 'product.passkeys',
         'preview' => 'product.preview',
@@ -50,12 +51,11 @@ final class ConfigDirectoryAliases
     ];
 
     /**
-     * Root config/*.php files that may remain (Laravel, packages, Pennant landmines).
+     * Root config/*.php files that may remain (Laravel and packages).
      *
      * @var list<string>
      */
     public const ROOT_ALLOW_LIST = [
-        'admin_feature_flags.php',
         'app.php',
         'auth.php',
         'blade-icons.php',
@@ -63,13 +63,11 @@ final class ConfigDirectoryAliases
         'cache.php',
         'database.php',
         'debugbar.php',
-        'features.php',
         'filesystems.php',
         'horizon.php',
         'logging.php',
         'mail.php',
         'octane.php',
-        'pennant.php',
         'pulse.php',
         'queue.php',
         'reverb.php',

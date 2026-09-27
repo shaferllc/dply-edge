@@ -12,6 +12,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/subtle"
 	"crypto/tls"
@@ -22,9 +23,11 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -37,6 +40,9 @@ type config struct {
 	adminSecret   string
 	pool          map[int]int // memory MB -> warm pods kept ready
 	namespace     string
+	dbNamespace   string // database pods and volumes; tenant records stay in namespace
+	dbNodePool    string // node pool databases run on; "" = anywhere
+	noProPools    bool   // PRO_NODE_POOLS=off: Pro tenants run anywhere (local clusters have no pro pools)
 	domain        string
 	dbDomain      string // databases: {tenant}.{dbDomain}:5432
 	image         string
@@ -58,6 +64,9 @@ func env(key, fallback string) string {
 func main() {
 	cfg := config{
 		namespace:     env("NAMESPACE", "dply-valkey"),
+		dbNamespace:   env("DB_NAMESPACE", env("NAMESPACE", "dply-valkey")),
+		dbNodePool:    os.Getenv("DB_NODE_POOL"),
+		noProPools:    os.Getenv("PRO_NODE_POOLS") == "off",
 		domain:        env("DOMAIN", "cache.dply.local"),
 		dbDomain:      env("DB_DOMAIN", env("DOMAIN", "cache.dply.local")),
 		image:         env("VALKEY_IMAGE", "valkey/valkey:8-alpine"),
@@ -82,6 +91,10 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	// client-go defaults to 5 requests/s (burst 10), shared by every client
+	// connect, the reaper and leader election. Past that, calls queue on
+	// the client for seconds and a connect misses its 15s deadline.
+	restCfg.QPS, restCfg.Burst = 50, 100
 	kube, err := kubernetes.NewForConfig(restCfg)
 	if err != nil {
 		log.Fatal(err)
@@ -92,7 +105,11 @@ func main() {
 	}
 
 	g := &gateway{cfg: cfg, kube: kube, store: store, tenants: map[string]*tenantState{}}
-	go g.reap(context.Background())
+	// SIGTERM cancels ctx: the active gateway gives up its lease so a standby
+	// takes over at once (leader.go).
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+	defer stop()
+	g.runActive(ctx)
 	go g.serveAPI()
 	g.serveProxy()
 }
@@ -105,6 +122,7 @@ type tenantState struct {
 	conns        map[net.Conn]struct{}
 	restarts     map[string]int32 // container restarts seen, per pod
 	ip           string           // set once the pod answered PING; cleared on sleep
+	checkedPod   bool             // databases: looked for an awake pod after becoming active
 
 }
 
@@ -114,6 +132,7 @@ type gateway struct {
 	store   *snapshotStore
 	mu      sync.Mutex
 	tenants map[string]*tenantState
+	records tenantCache
 }
 
 func (g *gateway) state(id string) *tenantState {
@@ -189,6 +208,13 @@ func (g *gateway) handle(client *tls.Conn) {
 	if !ok {
 		return
 	}
+	// Authenticate before waking: see preauth.go.
+	reader := bufio.NewReaderSize(client, 16*1024)
+	first, refusal := authorizeFirstCommand(reader, id, g.getTenantRecord)
+	if refusal != "" {
+		_, _ = client.Write([]byte(refusal))
+		return
+	}
 	var upstream net.Conn
 	for attempt := 0; attempt < 2 && upstream == nil; attempt++ {
 		started := time.Now()
@@ -212,6 +238,9 @@ func (g *gateway) handle(client *tls.Conn) {
 	}
 	defer upstream.Close()
 	_ = client.SetDeadline(time.Time{})
+	if _, err := upstream.Write(first); err != nil {
+		return
+	}
 
 	s := g.state(id)
 	s.mu.Lock()
@@ -225,13 +254,13 @@ func (g *gateway) handle(client *tls.Conn) {
 	}()
 
 	done := make(chan struct{}, 2)
-	go func() { copyTouching(upstream, client, func() { g.touch(id) }); done <- struct{}{} }()
+	go func() { copyTouching(upstream, reader, func() { g.touch(id) }); done <- struct{}{} }()
 	go func() { copyTouching(client, upstream, nil); done <- struct{}{} }()
 	<-done
 }
 
 // copyTouching copies src to dst and calls touch on each read, at most once a second.
-func copyTouching(dst net.Conn, src net.Conn, touch func()) {
+func copyTouching(dst net.Conn, src io.Reader, touch func()) {
 	buf := make([]byte, 32*1024)
 	var last time.Time
 	for {
@@ -256,8 +285,16 @@ func copyTouching(dst net.Conn, src net.Conn, touch func()) {
 
 // ---- sleep ----
 
+// reap runs on the active gateway only, until ctx ends (leadership lost).
 func (g *gateway) reap(ctx context.Context) {
-	for range time.Tick(10 * time.Second) {
+	tick := time.NewTicker(10 * time.Second)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
 		g.fillPool(ctx)
 		tenants, err := g.listTenants(ctx)
 		if err != nil {
@@ -314,7 +351,23 @@ func (g *gateway) reapDatabase(ctx context.Context, t tenant) {
 	}
 	awake := s.ip != ""
 	idle := time.Since(s.lastActivity)
+	checked := s.checkedPod
+	s.checkedPod = true
 	s.mu.Unlock()
+	if !awake && !checked {
+		// A gateway that just became active (deploy, failover) has no memory
+		// of which databases are awake, and would never park them. Pick the
+		// awake ones up from their pods, once, and give them a full sleep-after.
+		if pod, ok := g.databasePod(ctx, t.ID); ok && !databaseParked(pod) {
+			s.mu.Lock()
+			if s.ip == "" {
+				s.ip = pod.Status.PodIP
+				s.lastActivity = time.Now()
+			}
+			s.mu.Unlock()
+		}
+		return
+	}
 	if awake && t.SleepAfter > 0 && idle > time.Duration(t.SleepAfter)*time.Second {
 		if err := g.sleepDatabase(ctx, t, true); errors.Is(err, errBusy) {
 			// A backup or a long query with no traffic: it is not idle. Look
@@ -411,6 +464,12 @@ func (g *gateway) serveAPI() {
 	mux.HandleFunc("POST /tenants/{id}/sleep", g.auth(g.sleepTenant))
 	mux.HandleFunc("POST /tenants/{id}/restore", g.auth(g.restoreTenant))
 	mux.HandleFunc("GET /tenants/{id}/backup", g.auth(g.backupStatus))
+	mux.HandleFunc("GET /tenants/{id}/stats", g.auth(g.databaseStats))
+	mux.HandleFunc("GET /tenants/{id}/slowlog", g.auth(g.slowlog))
+	mux.HandleFunc("GET /tenants/{id}/insights", g.auth(g.databaseInsights))
+	mux.HandleFunc("POST /tenants/{id}/action/{name}", g.auth(g.databaseAction))
+	mux.HandleFunc("GET /tenants/{id}/exports", g.auth(g.databaseExports))
+	mux.HandleFunc("POST /tenants/{id}/upload-link", g.auth(g.databaseUploadLink))
 	mux.HandleFunc("GET /usage", g.authOnly(g.usage))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 	log.Printf("api on %s", g.cfg.apiAddr)
@@ -594,6 +653,33 @@ func (g *gateway) backupStatus(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(w, resp.Body)
 }
 
+// databaseStats wakes the database and returns its agent's /stats: for
+// engines the app cannot read directly (MongoDB). The client waits for a wake.
+func (g *gateway) databaseStats(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if t, err := g.getTenantRecord(r.Context(), id); err != nil || !isDatabase(t.Engine) {
+		http.Error(w, "not a database", http.StatusNotFound)
+		return
+	}
+	ip, err := g.wakeDatabase(r.Context(), id)
+	if err != nil {
+		http.Error(w, "this database could not start: "+err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	g.touch(id) // reading stats counts as use, like a connection
+	req, _ := http.NewRequestWithContext(r.Context(), http.MethodGet, "http://"+net.JoinHostPort(ip, agentPort)+"/stats", nil)
+	req.Header.Set("Authorization", "Bearer "+g.cfg.adminPassword)
+	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
+}
+
 func (g *gateway) getTenant(w http.ResponseWriter, r *http.Request) {
 	t, err := g.getTenantRecord(r.Context(), r.PathValue("id"))
 	if err != nil {
@@ -601,6 +687,72 @@ func (g *gateway) getTenant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, g.status(r.Context(), *t))
+}
+
+// slowlog returns a Valkey tenant's slowest recent commands (SLOWLOG GET,
+// which tenants cannot run themselves). Only the command and its key: values
+// can hold app data. An asleep tenant is not woken; it has nothing to report.
+func (g *gateway) slowlog(w http.ResponseWriter, r *http.Request) {
+	t, err := g.getTenantRecord(r.Context(), r.PathValue("id"))
+	if err != nil || isDatabase(t.Engine) {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	ip, awake := g.podIP(r.Context(), t.ID)
+	if !awake {
+		writeJSON(w, http.StatusOK, map[string]any{"awake": false, "entries": []any{}})
+		return
+	}
+	c, err := dialAdmin(net.JoinHostPort(ip, "6379"), g.cfg.adminPassword)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer c.Close()
+	reply, err := c.do("SLOWLOG", "GET", "10")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"awake": true, "entries": slowlogEntries(reply)})
+}
+
+// slowlogEntries turns SLOWLOG GET's reply into {at, micros, command, key}.
+func slowlogEntries(reply any) []map[string]any {
+	out := []map[string]any{}
+	rows, _ := reply.([]any)
+	for _, row := range rows {
+		fields, ok := row.([]any)
+		if !ok || len(fields) < 4 {
+			continue
+		}
+		at, _ := fields[1].(int64)
+		micros, _ := fields[2].(int64)
+		args, _ := fields[3].([]any)
+		entry := map[string]any{"at": at, "micros": micros, "command": "", "key": ""}
+		if len(args) > 0 {
+			entry["command"] = strings.ToUpper(bulkString(args[0]))
+		}
+		if len(args) > 1 {
+			key := bulkString(args[1])
+			if len(key) > 120 {
+				key = key[:120] + "…"
+			}
+			entry["key"] = key
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+func bulkString(v any) string {
+	switch x := v.(type) {
+	case []byte:
+		return string(x)
+	case string:
+		return x
+	}
+	return ""
 }
 
 func (g *gateway) sleepTenant(w http.ResponseWriter, r *http.Request) {

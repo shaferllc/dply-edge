@@ -9,6 +9,8 @@ use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
+use App\Models\Workspace;
+use App\Models\WorkspaceMember;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
@@ -68,19 +70,19 @@ it('scopes the event catalog to the subject', function () {
         ->and($all->count())->toBeGreaterThan($siteGroups->count());
 });
 
-it('offers edge and serverless events only to those kinds of site', function () {
+it('offers edge events only to edge apps', function () {
     [, $site, , $token] = notificationFixture();
 
     $keys = fn (Site $subject) => collect(
         $this->withToken($token)->getJson("/api/v1/sites/{$subject->slug}/notifications")->json('data.groups')
     )->flatMap(fn ($group) => collect($group['events'])->pluck('key'));
 
-    expect($keys($site))->not->toContain('serverless.assets.over_budget');
+    $site->forceFill(['edge_backend' => null])->save();
+    expect($keys($site->fresh()))->not->toContain('edge.deploy.failed');
 
-    $site->meta = ['runtime_profile' => 'digitalocean_functions_web'];
-    $site->save();
-
-    expect($keys($site->fresh()))->toContain('serverless.assets.over_budget');
+    $site->forceFill(['edge_backend' => 'dply_edge'])->save();
+    expect($keys($site->fresh()))->toContain('edge.deploy.failed')
+        ->not->toContain('serverless.assets.over_budget');
 });
 
 it('routes an event to a channel and back off again', function () {
@@ -193,4 +195,27 @@ it('keeps another organization out', function () {
     $this->withToken($token)
         ->getJson("/api/v1/sites/{$foreignSite->slug}/notifications")
         ->assertForbidden();
+});
+
+it('holds a token to its user: removed members are refused, site viewers cannot reroute', function () {
+    [$owner, $site, , $ownerToken] = notificationFixture();
+    $organization = $site->organization;
+
+    $viewer = User::factory()->create();
+    $organization->users()->attach($viewer->id, ['role' => 'member']);
+    $workspace = Workspace::factory()->create(['organization_id' => $organization->id, 'user_id' => $owner->id]);
+    $workspace->members()->create(['user_id' => $viewer->id, 'role' => WorkspaceMember::ROLE_VIEWER]);
+    $site->update(['workspace_id' => $workspace->id]);
+    $channel = NotificationChannel::factory()->forUser($viewer)->create();
+    ['plaintext' => $viewerToken] = ApiToken::createToken($viewer, $organization, 'viewer', null, ['notifications.read', 'notifications.write']);
+
+    $this->withToken($viewerToken)->getJson("/api/v1/sites/{$site->slug}/notifications")->assertOk();
+    $this->withToken($viewerToken)->postJson("/api/v1/sites/{$site->slug}/notifications", [
+        'channel' => (string) $channel->id,
+        'subscribe' => ['site.uptime.down'],
+    ])->assertForbidden();
+
+    $organization->users()->detach($owner->id);
+    Organization::flushMemberRoleCache(); // a new request in production
+    $this->withToken($ownerToken)->getJson('/api/v1/notifications/channels')->assertForbidden();
 });

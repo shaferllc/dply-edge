@@ -11,7 +11,6 @@ use App\Models\Site;
 use App\Models\User;
 use App\Modules\Edge\Livewire\Databases;
 use App\Modules\Edge\Support\EdgeContainerConnections;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -89,7 +88,12 @@ test('another organization cannot open your database', function () {
     $other = Organization::factory()->create();
     $db = EdgeDatabase::query()->create(['organization_id' => $other->id, 'name' => 'theirs', 'cloudflare_id' => 'u9']);
 
-    expect(fn () => Livewire::actingAs($this->user)->test(Databases::class)
+    Http::fake();
+
+    // Livewire 4.4.6 turns the not-found into a 404 response instead of rethrowing.
+    Livewire::actingAs($this->user)->test(Databases::class)
         ->call('select', $db->id)
-        ->call('run'))->toThrow(ModelNotFoundException::class);
+        ->call('run')
+        ->assertStatus(404);
+    Http::assertNothingSent();
 });

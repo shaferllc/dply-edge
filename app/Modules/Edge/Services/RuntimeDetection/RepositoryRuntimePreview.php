@@ -39,9 +39,11 @@ final class RepositoryRuntimePreview
      * delete the temp directory. The plan is returned even when no
      * runtime is detected (caller distinguishes via the nullable return).
      *
+     * @param  array<string, string>  $gitEnv  private-repo credentials (GitCloneAuth)
+     *
      * @throws GitCloneException when the clone fails
      */
-    public function fromUrl(string $url, string $branch = 'main'): ?RepositoryRuntimePlan
+    public function fromUrl(string $url, string $branch = 'main', array $gitEnv = []): ?RepositoryRuntimePlan
     {
         $url = trim($url);
         $branch = trim($branch);
@@ -59,7 +61,7 @@ final class RepositoryRuntimePreview
         $checkoutPath = $tmpRoot.'/repo';
 
         try {
-            $this->cloner->shallowClone($url, $branch, $checkoutPath);
+            $this->cloner->shallowClone($url, $branch, $checkoutPath, $gitEnv);
 
             return $this->composer->compose($checkoutPath);
         } finally {

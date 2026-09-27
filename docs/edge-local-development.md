@@ -15,21 +15,15 @@ Use **fake edge** to build and serve Edge sites on your Mac without Cloudflare R
 
    Use the **same host as `APP_URL`** (or any domain already linked in Valet). New Edge sites get hostnames like `my-app.dplyi.test`.
 
-2. Purge Pennant if `/edge` was previously hidden:
-
-   ```bash
-   php artisan pennant:purge surface.edge
-   ```
-
-3. Run queue worker (builds run async):
+2. Run queue worker (builds run async):
 
    ```bash
    php artisan queue:work
    ```
 
-4. Create an Edge site, wait for the build, then open the live URL from the site dashboard (for example `https://my-app.dplyi.test`).
+3. Create an Edge site, wait for the build, then open the live URL from the site dashboard (for example `https://my-app.dplyi.test`).
 
-5. Verify setup:
+4. Verify setup:
 
    ```bash
    php artisan dply:edge:doctor

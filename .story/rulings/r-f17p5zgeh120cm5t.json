@@ -1,0 +1,14 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-26",
+  "id": "r-f17p5zgeh120cm5t",
+  "recordedBy": {
+    "client": "claude",
+    "id": "f20904ff-02dd-4dbf-a887-a002dfcc1fc2"
+  },
+  "scopeTags": [
+    "billing"
+  ],
+  "supersedes": "r-wdxrhbm4ww21hgj3",
+  "text": "Owner: \"i want to switch to 5 day free trial, not a free plan, i cant afford that\". The Free plan is removed. New orgs get a 5-day trial of Pro with a card required at signup (Stripe trial; bills automatically on day 6 unless canceled); trial compute is capped by a spending limit. A trial that ends without payment pauses the org (sites stop serving, containers and databases sleep, builds stop) and keeps its data 7 days, then deletes it. Every org on Free when this ships gets a fresh 5-day trial from then, with notice, then the same pause rule. Beta-invited orgs get the same trial as everyone (no free beta). dply's own orgs are exempt through a per-org comp flag that counts as Team with no bill; the owner's orgs get it at ship. Owners are told by email (trial start, 1 day before the trial ends, at pause, 2 days before deletion) plus the in-app banner. The automatic deletion ships off: a dry-run lists what it would delete, and the owner turns it on with an env flag after reviewing. Everything else from r-zdescb7y05vp1bxx stands: Pro $20/mo and Team $49/mo with their allowances, extra sites $2, SSR $7, over-allowance usage billed monthly, monthly only."
+}

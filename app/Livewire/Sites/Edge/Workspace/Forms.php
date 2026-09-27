@@ -7,6 +7,7 @@ namespace App\Livewire\Sites\Edge\Workspace;
 use App\Livewire\Concerns\DispatchesToastNotifications;
 use App\Livewire\Concerns\Edge\MountsEdgeWorkspaceSection;
 use App\Livewire\Concerns\Edge\PublishesEdgeHostMap;
+use App\Models\EdgeFormSubmission;
 use App\Models\Server;
 use App\Models\Site;
 use App\Support\Sites\EdgeSiteViewData;
@@ -189,6 +190,11 @@ class Forms extends Component
                 'liveHostname' => $liveUrl !== '' ? preg_replace('#^https?://#', '', $liveUrl) : null,
                 'sourcePath' => $repo['source_path'],
                 'repoForms' => $repo['section'],
+                'submissions' => EdgeFormSubmission::query()
+                    ->where('site_id', $this->site->id)
+                    ->latest()
+                    ->limit(20)
+                    ->get(),
             ],
         ));
     }

@@ -39,7 +39,7 @@ trait ManagesDeployContract
             return;
         }
 
-        $this->authorize('update', $parent);
+        $this->authorize('deploy', $parent);
 
         $preview = Site::query()->find($previewSiteId);
         if ($preview === null

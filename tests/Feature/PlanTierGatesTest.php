@@ -6,18 +6,21 @@ namespace Tests\Feature\PlanTierGatesTest;
 
 use App\Enums\SiteType;
 use App\Livewire\Organizations\Activity;
+use App\Livewire\Organizations\Members;
 use App\Models\Organization;
+use App\Models\OrganizationInvitation;
 use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
 use App\Modules\Billing\Models\Subscription;
+use App\Modules\Billing\Services\OrganizationBillingStateComputer;
 use App\Modules\Edge\Services\EdgeCustomDomainProvisioner;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
 
-/** Tier allowances enforced where each thing happens (ruling r-zdescb7y05vp1bxx). */
+/** Tier allowances enforced where each thing happens (rulings r-zdescb7y05vp1bxx, r-f17p5zgeh120cm5t: no Free plan). */
 beforeEach(function () {
     config([
         'edge.fake.enabled' => true,
@@ -26,7 +29,7 @@ beforeEach(function () {
         'subscription.standard.stripe.tier_pro' => 'price_tier_pro',
         'subscription.standard.stripe.tier_team' => 'price_tier_team',
     ]);
-    $this->org = Organization::factory()->create();
+    $this->org = Organization::factory()->noPlan()->create();
 });
 
 function onTier(Organization $org, string $tier): Organization
@@ -48,7 +51,7 @@ function liveSite(Organization $org): Site
 }
 
 test('the tier is read from the subscription price', function () {
-    expect($this->org->billingTier())->toBe('free')
+    expect($this->org->billingTier())->toBe('none')
         ->and(onTier($this->org, 'team')->billingTier())->toBe('team');
 });
 
@@ -58,23 +61,53 @@ test('seats hard-cap on pro and bill past the allowance on team; free is unlimit
         ->and(onTier(Organization::factory()->create(), 'team')->effectiveMemberSeatCap())->toBeNull();
 });
 
-test('free sites get ten custom domains, pro sites get more', function () {
+test('view-only members and their invitations are free: not billed, not against the seat cap', function () {
+    $org = onTier(Organization::factory()->create(), 'pro'); // 3 seats, hard cap
+    $owner = User::factory()->create();
+    $org->users()->attach($owner->id, ['role' => 'owner']);
+    $org->users()->attach(User::factory()->create()->id, ['role' => Organization::VIEW_ONLY_ROLE]);
+    $org->users()->attach(User::factory()->create()->id, ['role' => Organization::VIEW_ONLY_ROLE]);
+    OrganizationInvitation::createFor($org, 'viewer@example.com', Organization::VIEW_ONLY_ROLE, $owner);
+    OrganizationInvitation::createFor($org, 'member@example.com', 'member', $owner);
+    $org = $org->fresh();
+
+    expect($org->seatCount())->toBe(1)
+        ->and($org->seatsWithPendingInvites())->toBe(2)
+        ->and(app(OrganizationBillingStateComputer::class)->computeForTier($org, 'pro')->seatCount)->toBe(1);
+
+    // Two seats used of three: one more member fits, the next does not.
+    $this->actingAs($owner);
+    Livewire::test(Members::class, ['organization' => $org])
+        ->set('invite_email', 'second@example.com')->set('invite_role', 'member')->call('inviteMember')
+        ->assertHasNoErrors();
+    Livewire::test(Members::class, ['organization' => $org->fresh()])
+        ->set('invite_email', 'third@example.com')->set('invite_role', 'member')->call('inviteMember')
+        ->assertHasErrors('invite_email');
+});
+
+test('custom domains follow the plan, and an org without one gets none', function () {
     $provisioner = app(EdgeCustomDomainProvisioner::class);
 
-    $free = liveSite($this->org);
-    $provisioner->provision($free, 'one.example.com');
-    $provisioner->provision($free->fresh(), 'one.example.com'); // re-provisioning is not a new domain
-    $provisioner->provision($free->fresh(), 'two.example.com');
+    expect(fn () => $provisioner->provision(liveSite($this->org), 'one.example.com'))
+        ->toThrow(\RuntimeException::class, 'no plan');
 
-    config(['subscription.standard.tiers.free.custom_domains_per_site' => 1]);
-    $capped = liveSite(Organization::factory()->create());
-    $provisioner->provision($capped, 'one.example.com');
-    expect(fn () => $provisioner->provision($capped->fresh(), 'two.example.com'))
-        ->toThrow(\RuntimeException::class, 'Upgrade to Pro');
+    $trial = liveSite(Organization::factory()->create(['trial_ends_at' => now()->addDays(3)]));
+    $provisioner->provision($trial, 'one.example.com');
+    $provisioner->provision($trial->fresh(), 'one.example.com'); // re-provisioning is not a new domain
+    $provisioner->provision($trial->fresh(), 'two.example.com');
 
+    // One cap only: org-wide, across every app.
+    config(['subscription.standard.tiers.pro.custom_domains' => 3]);
+    $second = liveSite($trial->organization);
+    $provisioner->provision($second, 'three.example.com');
+    expect(fn () => $provisioner->provision($second->fresh(), 'four.example.com'))
+        ->toThrow(\RuntimeException::class, '3 custom domains across the organization');
+
+    config(['subscription.standard.tiers.pro.custom_domains' => 20]);
     $pro = liveSite(onTier(Organization::factory()->create(), 'pro'));
-    $provisioner->provision($pro, 'one.example.com');
-    $provisioner->provision($pro->fresh(), 'two.example.com');
+    $provisioner->provision($pro, 'one.pro.example.com');
+    $provisioner->provision($pro->fresh(), 'two.pro.example.com');
+    expect(config('subscription.standard.tiers.pro'))->not->toHaveKey('custom_domains_per_site');
 
     expect($pro->fresh()->edgeMeta()['routing']['custom_domains'])->toHaveCount(2);
 });

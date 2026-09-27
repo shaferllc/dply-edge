@@ -26,7 +26,7 @@ final class ProcessGitCloner implements GitCloner
         private readonly int $timeoutSeconds = 120,
     ) {}
 
-    public function shallowClone(string $url, string $branch, string $destination): void
+    public function shallowClone(string $url, string $branch, string $destination, array $env = []): void
     {
         if ($url === '') {
             throw new GitCloneException('Repository URL is required.');
@@ -38,7 +38,7 @@ final class ProcessGitCloner implements GitCloner
         $process = $this->runClone([
             'git', 'clone', '--depth=1', '--single-branch',
             '--branch', $branch, $url, $destination,
-        ], $url);
+        ], $url, $env);
 
         if ($process->isSuccessful()) {
             return;
@@ -54,7 +54,7 @@ final class ProcessGitCloner implements GitCloner
         if ($this->looksLikeMissingBranch($stderr)) {
             $fallback = $this->runClone([
                 'git', 'clone', '--depth=1', $url, $destination,
-            ], $url);
+            ], $url, $env);
             if ($fallback->isSuccessful()) {
                 return;
             }
@@ -68,10 +68,11 @@ final class ProcessGitCloner implements GitCloner
 
     /**
      * @param  array<int, string>  $command
+     * @param  array<string, string>  $env
      */
-    private function runClone(array $command, string $url): Process
+    private function runClone(array $command, string $url, array $env = []): Process
     {
-        $process = new Process($command);
+        $process = new Process($command, null, $env === [] ? null : $env);
         $process->setTimeout($this->timeoutSeconds);
 
         try {

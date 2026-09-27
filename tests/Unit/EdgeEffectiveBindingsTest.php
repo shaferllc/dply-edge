@@ -3,6 +3,7 @@
 namespace Tests\Unit\EdgeEffectiveBindingsTest;
 
 use App\Models\EdgeDeployment;
+use App\Models\Organization;
 use App\Models\Site;
 use App\Modules\Edge\Services\EdgeBindingsAutoResolver;
 use App\Modules\Edge\Services\EdgeDeliveryContextResolver;
@@ -186,6 +187,8 @@ test('translator emits worker-capable resources as upload-API bindings', functio
         ['name' => 'POOL', 'kind' => 'database_pool', 'value' => 'hd-1'],
         ['name' => 'STATE', 'kind' => 'durable_object', 'value' => ''],
     ]);
+    // AI, Images and vectors need a paid plan; a comped org has one.
+    $site->setRelation('organization', (new Organization)->forceFill(['comped_until' => now()->addYear()]));
     $deployment = deploymentWithRepoBindings([], $site);
 
     $out = collect(translator()->bindingsFor($deployment))->keyBy('name');
@@ -195,6 +198,19 @@ test('translator emits worker-capable resources as upload-API bindings', functio
         ->and($out['IMAGES'])->toBe(['name' => 'IMAGES', 'type' => 'images'])
         ->and($out['POOL'])->toBe(['name' => 'POOL', 'type' => 'hyperdrive', 'id' => 'hd-1'])
         ->and($out->has('STATE'))->toBeFalse();
+});
+
+test('translator leaves AI, Images and vectors out for an org on a trial', function () {
+    $site = siteWithOverrides([
+        ['name' => 'AI', 'kind' => 'ai', 'value' => ''],
+        ['name' => 'SEARCH', 'kind' => 'vectors', 'value' => 'docs-index'],
+        ['name' => 'IMAGES', 'kind' => 'images', 'value' => ''],
+        ['name' => 'POOL', 'kind' => 'database_pool', 'value' => 'hd-1'],
+    ]);
+    $site->forceFill(['meta' => ['edge' => $site->edgeMeta() + ['browser' => true]]]);
+    $site->setRelation('organization', (new Organization)->forceFill(['trial_ends_at' => now()->addDays(3)]));
+
+    expect(array_column(translator()->bindingsFor(deploymentWithRepoBindings([], $site)), 'name'))->toBe(['POOL']);
 });
 
 test('names keep their case so env.myStore still resolves', function () {

@@ -1,7 +1,7 @@
 <div>
     <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
         @include('livewire.sites.edge.workspace.partials.feature-guide', [
-            'docSlug' => 'edge-jobs',
+            'docSlug' => 'queue-workers',
             'what' => __('Edge Jobs wire a default queue binding so middleware or SSR workers can enqueue background work without a separate Cloud app.'),
             'steps' => [
                 __('Add a queue binding (name it something like JOBS) — use Manage bindings below, no need to leave this page.'),
@@ -30,7 +30,7 @@
 
             <div>
                 <x-input-label for="default_queue" :value="__('Default queue binding name')" />
-                <x-text-input id="default_queue" wire:model="default_queue" type="text" class="mt-1 block w-full font-mono text-sm" @disabled(! $managedDelivery) />
+                <x-text-input id="default_queue" wire:model="default_queue" type="text" class="mt-1 block w-full font-mono text-sm" :disabled="! $managedDelivery" />
                 <p class="mt-1 text-xs text-brand-moss">{{ __('Must match a queue binding (e.g. JOBS). Use Manage bindings to create one.') }}</p>
             </div>
 
@@ -89,7 +89,7 @@
             </div>
 
             <div class="flex justify-end">
-                <x-primary-button type="button" wire:click="save" wire:loading.attr="disabled" @disabled(! $managedDelivery)>
+                <x-primary-button type="button" wire:click="save" wire:loading.attr="disabled" :disabled="! $managedDelivery">
                     <span wire:loading.remove wire:target="save">{{ __('Save') }}</span>
                     <span wire:loading wire:target="save">{{ __('Saving…') }}</span>
                 </x-primary-button>

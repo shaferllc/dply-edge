@@ -8,9 +8,13 @@ use App\Jobs\DetectRepositoryRuntimeJob;
 use App\Livewire\Forms\EdgeCreateForm;
 use App\Modules\Edge\Services\EdgeMonorepoDetector;
 use App\Modules\Edge\Services\RuntimeDetection\FrontendAssetBuild;
+use App\Modules\Edge\Services\RuntimeDetection\NodeFrameworkRules;
+use App\Modules\Edge\Services\RuntimeDetection\RubyRuntimeDetector;
+use App\Modules\Edge\Support\EdgeEligibility;
 use App\Modules\Edge\Support\EdgeSitePackageHeuristics;
 use App\Modules\SourceControl\Contracts\GitIdentity;
 use App\Modules\SourceControl\Services\DefaultBranchResolver;
+use App\Modules\SourceControl\Services\GitCloneAuth;
 use App\Modules\SourceControl\Services\GitIdentityResolver;
 use App\Modules\SourceControl\Services\SourceControlRepositoryBrowser;
 use Carbon\Carbon;
@@ -443,7 +447,12 @@ trait ManagesEdgeRepoDetection
                 if ($packageJson === null) {
                     return false;
                 }
-                $planArray = $this->synthesizeNodePlan($packageJson, $url, $branch);
+                $planArray = $this->synthesizeNodePlan(
+                    $packageJson,
+                    $url,
+                    $branch,
+                    fn (string $file): ?string => $this->fetchGitHubFile($owner, $repo, $branch, $file, $repoRoot),
+                );
             }
             if ($planArray === null) {
                 // package.json present but framework unknown — defer to
@@ -533,6 +542,9 @@ trait ManagesEdgeRepoDetection
         }
 
         $gemfile = $this->fetchGitHubFile($owner, $repo, $branch, 'Gemfile', $subdir);
+        if ($gemfile !== null && RubyRuntimeDetector::isJekyllGemfile($gemfile)) {
+            return [...$plan('static', 'jekyll', 'Gemfile', null, null), 'reasons' => ['Fast-path GitHub API detection', 'Found a Jekyll Gemfile — a static site generator']];
+        }
         if ($gemfile !== null) {
             $framework = match (true) {
                 preg_match('/^\s*gem\s+["\']rails["\']/m', $gemfile) === 1 => 'rails',
@@ -582,7 +594,10 @@ trait ManagesEdgeRepoDetection
         $token = null;
         if ($user !== null) {
             try {
-                $identity = app(GitIdentityResolver::class)->forUserProvider($user, 'github');
+                $identity = $this->gitIdentityForRemoteRefs();
+                if ($identity?->provider() !== 'github') {
+                    $identity = app(GitIdentityResolver::class)->forUserProvider($user, 'github');
+                }
                 $accessToken = $identity?->accessToken();
                 if (is_string($accessToken) && $accessToken !== '') {
                     $token = $accessToken;
@@ -620,69 +635,24 @@ trait ManagesEdgeRepoDetection
     }
 
     /**
-     * Heuristic plan synthesis from a parsed package.json. Recognizes
-     * the most common JS frameworks operators deploy to Edge and maps
-     * each to a sensible default build command + output dir. Returns
-     * null when we can't classify (caller falls back to clone).
+     * Plan from a parsed package.json, using the same {@see NodeFrameworkRules}
+     * as the clone path. Null when there's no framework and no build script
+     * (caller falls back to the clone, which has broader heuristics).
      *
      * @param  array<string, mixed>  $pkg
+     * @param  callable(string): ?string  $readFile
      * @return array<string, mixed>|null
      */
-    private function synthesizeNodePlan(array $pkg, string $url, string $branch): ?array
+    private function synthesizeNodePlan(array $pkg, string $url, string $branch, callable $readFile): ?array
     {
-        $deps = array_merge(
-            is_array($pkg['dependencies'] ?? null) ? $pkg['dependencies'] : [],
-            is_array($pkg['devDependencies'] ?? null) ? $pkg['devDependencies'] : [],
-        );
+        $rules = NodeFrameworkRules::plan($pkg, $readFile);
+        $framework = $rules['framework'];
 
-        // Framework lookup: dep name → [framework, default build, default output]
-        // Keel before hono/vite — kits declare both `@shaferllc/keel` and `hono`.
-        // Node HTTP servers run as containers; a Nest app is a server even
-        // when it also pulls in a frontend toolchain.
-        if (isset($deps['@nestjs/core'])) {
-            return $this->nodeServerPlan('nest', $pkg, $url, $branch);
+        if (in_array($framework, EdgeEligibility::CONTAINER_FRAMEWORKS, true)) {
+            return $this->nodeServerPlan($framework, $pkg, $url, $branch);
         }
-
-        $frameworkMap = [
-            '@shaferllc/keel' => ['keel', 'npm run css:build --if-present', 'public'],
-            'astro' => ['astro', 'npm run build', 'dist'],
-            'next' => ['next', 'npm run build', 'out'],
-            'nuxt' => ['nuxt', 'npm run generate', '.output/public'],
-            'gatsby' => ['gatsby', 'npm run build', 'public'],
-            '@sveltejs/kit' => ['sveltekit', 'npm run build', 'build'],
-            'vite' => ['vite', 'npm run build', 'dist'],
-            '@11ty/eleventy' => ['eleventy', 'npm run build', '_site'],
-            'vitepress' => ['vitepress', 'npm run docs:build', 'docs/.vitepress/dist'],
-            '@docusaurus/core' => ['docusaurus', 'npm run build', 'build'],
-            'hono' => ['hono', 'npm run build', 'dist'],
-        ];
-
-        $framework = null;
-        $build = (string) ($pkg['scripts']['build'] ?? '');
-        $output = null;
-        foreach ($frameworkMap as $dep => [$f, $b, $o]) {
-            if (isset($deps[$dep])) {
-                $framework = $f;
-                $build = $build !== '' ? 'npm run build' : $b;
-                $output = $o;
-                break;
-            }
-        }
-
-        // Fallback Node plan when no framework matched but a build
-        // script exists — assume vite/webpack-style dist output.
-        if ($framework === null) {
-            foreach (['express', 'fastify', 'koa'] as $server) {
-                if (isset($deps[$server])) {
-                    return $this->nodeServerPlan($server, $pkg, $url, $branch);
-                }
-            }
-            if (! isset($pkg['scripts']['build'])) {
-                return null;
-            }
-            $framework = 'node_generic';
-            $build = 'npm run build';
-            $output = 'dist';
+        if ($framework === 'node' && $rules['build_command'] === null) {
+            return null;
         }
 
         $engines = (string) ($pkg['engines']['node'] ?? '');
@@ -695,15 +665,15 @@ trait ManagesEdgeRepoDetection
             'runtime' => 'node',
             'version' => $version,
             'framework' => $framework,
-            'build_command' => $build,
-            'start_command' => null,
+            'build_command' => $rules['build_command'],
+            'start_command' => $rules['start_command'],
             'app_port' => null,
-            'output_dir' => $output,
+            'output_dir' => $rules['output_dir'],
             'confidence' => $notASite ? 'low' : 'high',
             'sources' => ['package.json'],
             'reasons' => $notASite
-                ? ['Fast-path GitHub API detection', 'Root looks like a framework/monorepo package, not a single site']
-                : ['Fast-path GitHub API detection'],
+                ? ['Fast-path GitHub API detection', ...$rules['reasons'], 'Root looks like a framework/monorepo package, not a single site']
+                : ['Fast-path GitHub API detection', ...$rules['reasons']],
             'warnings' => $notASite
                 ? ['Pick an app package directory before deploying to Edge.']
                 : [],
@@ -779,7 +749,7 @@ trait ManagesEdgeRepoDetection
         // forever spinner.
         if (! is_array($cached)) {
             $this->detectedPlan = [
-                'error' => __('Detection timed out. Click "Detect runtime" to retry.'),
+                'error' => __('Detection timed out. You can still deploy with the build settings under Advanced.'),
             ];
             $this->runtimeDetectionPending = false;
             $this->applyDetectedRuntimePrefills();
@@ -794,7 +764,7 @@ trait ManagesEdgeRepoDetection
         // so the UI unblocks and the next Detect runtime click re-dispatches.
         if (in_array($state, ['queued', 'running'], true) && $this->isStaleDetectionEntry($cached)) {
             $this->detectedPlan = [
-                'error' => __('Detection took longer than expected and may have died. Click "Detect runtime" to try again.'),
+                'error' => __('Detection took longer than expected and may have died. You can still deploy with the build settings under Advanced.'),
             ];
             $this->runtimeDetectionPending = false;
             $this->applyDetectedRuntimePrefills();
@@ -833,7 +803,9 @@ trait ManagesEdgeRepoDetection
         }
 
         try {
-            $result = app(EdgeMonorepoDetector::class)->inspectUrl($url, $branch);
+            $user = auth()->user();
+            $gitEnv = $user !== null ? app(GitCloneAuth::class)->envForUser($user, $this->source_control_account_id, $url) : [];
+            $result = app(EdgeMonorepoDetector::class)->inspectUrl($url, $branch, $gitEnv);
             $this->monorepoDetected = (bool) $result['is_monorepo'];
             $this->monorepoPackages = $result['packages'];
             $this->monorepoMarkers = $result['markers'];

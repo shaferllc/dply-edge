@@ -1,4 +1,5 @@
-@can('update', $site)
+{{-- Read-only for anyone who cannot configure this app. --}}
+<fieldset @disabled(! auth()->user()?->can('update', $site)) class="min-w-0">
     @if (! $edgeIsPreviewChild)
         <section id="edge-previews-protection" class="scroll-mt-24 border-b border-brand-ink/10">
             <div class="border-b border-brand-ink/10 bg-brand-sand/15 px-5 py-3 sm:px-6">
@@ -96,4 +97,4 @@
             </form>
         </section>
     @endif
-@endcan
+</fieldset>

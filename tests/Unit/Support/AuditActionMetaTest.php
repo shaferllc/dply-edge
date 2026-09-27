@@ -17,14 +17,14 @@ test('exact overrides win and carry their own icon and tone', function () {
         'label' => 'Server created',
         'icon' => 'heroicon-o-plus-circle',
         'tone' => 'success',
-        'family' => 'server',
+        'family' => 'other',
     ]);
 
     expect(AuditActionMeta::meta('server.deleted'))->toBe([
         'label' => 'Server deleted',
         'icon' => 'heroicon-o-trash',
         'tone' => 'danger',
-        'family' => 'server',
+        'family' => 'other',
     ]);
 });
 
@@ -49,7 +49,7 @@ test('prefix patterns build a label from the family label plus the humanized tai
     expect(AuditActionMeta::meta('server.firewall.rule_created'))->toMatchArray([
         'label' => 'Firewall rule created',
         'icon' => 'heroicon-o-fire',
-        'family' => 'server',
+        'family' => 'other',
     ]);
 
     expect(AuditActionMeta::meta('server.ssh_keys.key_added'))->toMatchArray([
@@ -83,11 +83,11 @@ test('more specific prefixes are matched before the general one', function () {
     ]);
 });
 
-test('queue worker actions resolve to the background family', function () {
+test('queue worker actions from the VM era resolve to other', function () {
     expect(AuditActionMeta::meta('queue_worker.pool_created'))->toMatchArray([
         'label' => 'Queue worker pool created',
         'icon' => 'heroicon-o-queue-list',
-        'family' => 'background',
+        'family' => 'other',
     ]);
 });
 
@@ -113,15 +113,11 @@ test('family resolution prefers the more specific prefix', function () {
     // ordered, and swapping them would fold the whole Edge feed into Sites.
     expect(AuditActionMeta::family('site.edge.created'))->toBe('edge')
         ->and(AuditActionMeta::family('site.deploy.success'))->toBe('site')
-        ->and(AuditActionMeta::family('insight.ignored'))->toBe('insight')
-        ->and(AuditActionMeta::family('backup.schedule.created'))->toBe('backup')
-        ->and(AuditActionMeta::family('queue_worker.restarted'))->toBe('background')
-        ->and(AuditActionMeta::family('server.created'))->toBe('server')
-        ->and(AuditActionMeta::family('project.deploy.queued'))->toBe('project')
+        ->and(AuditActionMeta::family('database.created'))->toBe('resources')
+        ->and(AuditActionMeta::family('queue.deleted'))->toBe('resources')
         ->and(AuditActionMeta::family('team.created'))->toBe('team')
         ->and(AuditActionMeta::family('billing.portal_accessed'))->toBe('billing')
         ->and(AuditActionMeta::family('organization.created'))->toBe('org')
-        ->and(AuditActionMeta::family('import.migration.started'))->toBe('import')
         ->and(AuditActionMeta::family('script.created'))->toBe('other')
         ->and(AuditActionMeta::family('nonsense'))->toBe('other');
 });
@@ -133,14 +129,17 @@ test('every security-family prefix maps to security', function () {
         'notification_channel.created',
         'user.password_changed',
         'credential.created',
+        'impersonation.started',
     ] as $action) {
         expect(AuditActionMeta::family($action))->toBe('security');
     }
 });
 
-test('marketplace actions share the import family so both land in one filter', function () {
-    expect(AuditActionMeta::family('marketplace.server_recipe_imported'))->toBe('import')
-        ->and(AuditActionMeta::family('import.migration.started'))->toBe('import');
+test('actions from the removed VM products land in other', function () {
+    foreach (['server.created', 'project.deploy.queued', 'backup.schedule.created', 'insight.ignored', 'import.migration.started', 'marketplace.server_recipe_imported', 'queue_worker.restarted'] as $action) {
+        expect(AuditActionMeta::family($action))->toBe('other');
+    }
+    expect(array_column(AuditActionMeta::FAMILIES, 'id'))->not->toContain('server', 'project', 'backup', 'insight', 'import', 'background');
 });
 
 test('every family declares an id label and icon, and every resolved family exists', function () {

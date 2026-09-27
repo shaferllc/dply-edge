@@ -69,7 +69,6 @@ final class SiteSettingsViewData
         $edgeAnalytics = self::edgeAnalyticsForSection($site, $section);
         $edgeContext = EdgeSiteViewData::context($site, $section);
         $sectionConsoleActionKinds = (array) (config('console_actions.section_kinds.'.$section, []));
-        $sectionConsoleActionRun = self::consoleActionRun($site, $sectionConsoleActionKinds);
         $contextualDocSlug = null;
 
         return array_merge(
@@ -83,7 +82,6 @@ final class SiteSettingsViewData
                 'sectionHeader',
                 'settingsBreadcrumbs',
                 'sectionConsoleActionKinds',
-                'sectionConsoleActionRun',
                 'contextualDocSlug',
             ),
             $header,
@@ -110,7 +108,8 @@ final class SiteSettingsViewData
         $headerOrg = $headerUser?->currentOrganization();
         $headerCanUpdateSite = (bool) $headerUser?->can('update', $site);
         $headerCanDeleteSite = (bool) $headerUser?->can('delete', $site);
-        $headerIsDeployer = (bool) $headerOrg?->userIsDeployer($headerUser);
+        // Deploy but not configure: an org Deployer, or an app Deployer role.
+        $headerIsDeployer = ! $headerCanUpdateSite && (bool) $headerUser?->can('deploy', $site);
         $headerIsAdmin = (bool) $headerOrg?->hasAdminAccess($headerUser);
         $headerRoleLabel = match (true) {
             $headerIsAdmin => null,
@@ -156,7 +155,7 @@ final class SiteSettingsViewData
     public static function edgeOverviewObservability(Site $site): array
     {
         $edgeUsageBillingEnabled = (bool) config('dply.edge.usage_billing.enabled', false);
-        $edgeManagedFee = ((int) config('subscription.standard.edge_cents', 0)) / 100;
+        $edgeManagedFee = 0; // no site fees (ruling r-2zxevg4sj675qn1m)
         $edgeUsageRates = app(ManagedProductCostEstimator::class)->edgeUsageRates();
         $edgeSiteBilling = app(EdgeSiteBillingAnalytics::class)->forSite($site);
         $edgeSiteTraffic = app(EdgeSiteTrafficAnalytics::class)->forSite($site, billing: $edgeSiteBilling);
@@ -295,7 +294,7 @@ final class SiteSettingsViewData
     {
         return [
             'edgeUsageBillingEnabled' => (bool) config('dply.edge.usage_billing.enabled', false),
-            'edgeManagedFee' => ((int) config('subscription.standard.edge_cents', 0)) / 100,
+            'edgeManagedFee' => 0,
             'edgeUsageRates' => [],
             'edgeSiteBilling' => null,
             'edgeSiteTraffic' => null,
@@ -351,9 +350,12 @@ final class SiteSettingsViewData
     }
 
     /**
-     * @param  array<string, mixed>  $kinds
+     * Latest undismissed run of these kinds — read by the ConsoleActionBanner
+     * component, which polls it on its own instead of re-rendering the shell.
+     *
+     * @param  array<array-key, string>  $kinds
      */
-    private static function consoleActionRun(Site $site, array $kinds): ?ConsoleAction
+    public static function consoleActionRun(Site $site, array $kinds): ?ConsoleAction
     {
         if ($kinds === []) {
             return null;

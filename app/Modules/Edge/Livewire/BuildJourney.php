@@ -9,6 +9,7 @@ use App\Livewire\Concerns\DispatchesToastNotifications;
 use App\Models\EdgeDeployment;
 use App\Modules\Edge\Actions\CancelStuckEdgeDeployment;
 use App\Modules\Edge\Services\EdgeBuildRunner;
+use App\Modules\Edge\Support\AnsiHtml;
 use App\Support\Sites\SiteShowViewData;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Gate;
@@ -31,8 +32,8 @@ class BuildJourney extends Component
     use ConfirmsActionWithModal;
     use DispatchesToastNotifications;
 
-    /** Cap buffer per step so a chatty install doesn't blow Livewire payload. */
-    private const BUFFER_MAX_CHARS = 256_000;
+    /** Bytes read from the log per tick. */
+    private const CHUNK_BYTES = 48_000;
 
     #[Locked]
     public string $deploymentId = '';
@@ -40,10 +41,19 @@ class BuildJourney extends Component
     /** Create-flow log: one scrolling output plus Cancel / Go to app. */
     public bool $logOnly = false;
 
-    /** Raw log buffer, fed by tail(); split on render. */
-    public string $buffer = '';
-
+    /**
+     * The log itself never lives in the snapshot: tail() sends only the new
+     * lines to the browser (`edge-build-log` event → Alpine store
+     * `buildLogs`, see resources/js/app.js), which appends and trims them.
+     * The server keeps just the byte offset and which steps have output.
+     */
     public int $offset = 0;
+
+    /** @var list<string> step keys (clone/build/publish) that have output */
+    public array $logSteps = [];
+
+    /** Step the next log line belongs to (last `[dply:step]` marker seen). */
+    public ?string $logStep = null;
 
     /** Flips to false once the deployment is no longer in flight. */
     public bool $polling = true;
@@ -58,11 +68,21 @@ class BuildJourney extends Component
 
     private bool $viewAuthorized = false;
 
+    /**
+     * Collected during mount() and rendered into the root's x-init, which
+     * *replaces* the browser's copy — so a remount never doubles the log and
+     * doesn't depend on event timing.
+     *
+     * @var array<string, string>|null
+     */
+    private ?array $seed = null;
+
     public function mount(string $deploymentId): void
     {
         $this->deploymentId = $deploymentId;
         // tail() loads once, authorizes, and seeds the log; render()
         // reuses the same request-memoized deployment row.
+        $this->seed = [];
         $this->tail();
     }
 
@@ -79,7 +99,7 @@ class BuildJourney extends Component
             return;
         }
 
-        Gate::authorize('update', $deployment->site);
+        Gate::authorize('deploy', $deployment->site);
 
         if (! in_array($deployment->status, [
             EdgeDeployment::STATUS_BUILDING,
@@ -111,7 +131,7 @@ class BuildJourney extends Component
             return;
         }
 
-        Gate::authorize('update', $deployment->site);
+        Gate::authorize('deploy', $deployment->site);
 
         try {
             app(CancelStuckEdgeDeployment::class)->abandon($deployment->site, $deployment);
@@ -140,7 +160,7 @@ class BuildJourney extends Component
             return;
         }
 
-        Gate::authorize('update', $deployment->site);
+        Gate::authorize('deploy', $deployment->site);
 
         if (! in_array($deployment->status, [
             EdgeDeployment::STATUS_BUILDING,
@@ -196,7 +216,7 @@ class BuildJourney extends Component
             return;
         }
 
-        Gate::authorize('update', $deployment->site);
+        Gate::authorize('deploy', $deployment->site);
 
         try {
             app(CancelStuckEdgeDeployment::class)->handle($deployment->site, $deployment);
@@ -239,20 +259,64 @@ class BuildJourney extends Component
             EdgeDeployment::STATUS_PUBLISHING,
         ], true);
 
-        $chunk = $deployment->readLocalBuildLogSince($this->offset, 48_000);
+        $read = $deployment->readLocalBuildLogSince($this->offset, self::CHUNK_BYTES);
+        $body = $read['body'];
 
-        if ($chunk['body'] !== '') {
-            $this->buffer .= $chunk['body'];
-            $this->offset = $chunk['offset'];
+        // Consume whole lines only, so a step marker or ANSI sequence is never
+        // split across ticks. A finished build flushes the remainder.
+        if ($isInProgress && strlen($body) < self::CHUNK_BYTES) {
+            $newline = strrpos($body, "\n");
+            $body = $newline === false ? '' : substr($body, 0, $newline + 1);
+        }
 
-            if (strlen($this->buffer) > self::BUFFER_MAX_CHARS) {
-                $this->buffer = "… (older lines trimmed) …\n".substr($this->buffer, -self::BUFFER_MAX_CHARS);
+        if ($body !== '') {
+            $this->offset += strlen($body);
+            $chunks = array_map(AnsiHtml::toHtml(...), $this->routeLines($body));
+
+            if ($this->seed !== null) {
+                foreach ($chunks as $key => $html) {
+                    $this->seed[$key] = ($this->seed[$key] ?? '').$html;
+                }
+            } else {
+                $this->dispatch('edge-build-log', id: $this->deploymentId, chunks: $chunks);
             }
         }
 
-        if (! $isInProgress) {
+        // One last read catches the tail end; keep going while a full chunk
+        // came back (more is waiting), then stop so the page can settle.
+        if (! $isInProgress && strlen($read['body']) < self::CHUNK_BYTES) {
             $this->polling = false;
         }
+    }
+
+    /**
+     * Route new lines to the step they belong to, on `[dply:step] <name>`
+     * markers. Lines before any marker go to `clone`; the old `deploy` step
+     * (container image build) folds into `build`. `_all` is the raw text for
+     * the create-flow's single log.
+     *
+     * @return array<string, string>
+     */
+    private function routeLines(string $body): array
+    {
+        $out = $this->logOnly ? ['_all' => $body] : [];
+
+        foreach (explode("\n", rtrim($body, "\n")) as $line) {
+            if (preg_match('/^\[dply:step\]\s+([a-z0-9_-]+)\s*\r?$/i', $line, $m) === 1) {
+                $step = strtolower($m[1]);
+                $this->logStep = $step === 'deploy' ? 'build' : $step;
+
+                continue;
+            }
+
+            $key = $this->logStep ?? 'clone';
+            $out[$key] = ($out[$key] ?? '').$line."\n";
+            if (! in_array($key, $this->logSteps, true)) {
+                $this->logSteps[] = $key;
+            }
+        }
+
+        return $out;
     }
 
     public function render(): View
@@ -263,7 +327,7 @@ class BuildJourney extends Component
             return view('livewire.edge.build-journey', [
                 'missing' => true,
                 'journey' => null,
-                'sections' => [],
+                'seed' => null,
                 'deployment' => null,
                 'site' => null,
                 'server' => null,
@@ -271,30 +335,7 @@ class BuildJourney extends Component
         }
 
         $journey = SiteShowViewData::edgeDeploymentJourney($deployment);
-        $sections = $this->splitBufferBySteps($this->buffer);
-        // Container deploys used to mark the image build as `[dply:step] deploy`,
-        // which no row renders — so npm, Vite, and composer output vanished
-        // while "Installing dependencies" looked stuck. Fold it into build.
-        if (isset($sections['deploy'])) {
-            $sections['build'] = trim(($sections['build'] ?? '')."\n".$sections['deploy']);
-            unset($sections['deploy']);
-        }
-
-        // Fallback: if the runner is older code (no `[dply:step]` markers)
-        // OR the build died before emitting one, attribute the whole
-        // buffer to the current step so the operator still sees output
-        // rather than a silent empty steps list.
-        if ($sections === [] && trim($this->buffer) !== '') {
-            $sectionMap = [
-                'queued' => 'clone',
-                'building' => 'build',
-                'publishing' => 'publish',
-                'live' => 'publish',
-                'failed' => 'build',
-            ];
-            $fallbackKey = $sectionMap[$journey['state']] ?? 'build';
-            $sections = [$fallbackKey => trim($this->buffer)];
-        }
+        $sections = array_fill_keys($this->logSteps, true);
 
         // Status flips to BUILDING before clone finishes. Prefer the latest
         // log step marker so "Installing…" doesn't show Waiting while clone
@@ -306,7 +347,7 @@ class BuildJourney extends Component
         return view('livewire.edge.build-journey', [
             'missing' => false,
             'journey' => $journey,
-            'sections' => $sections,
+            'seed' => $this->seed,
             'deployment' => $deployment,
             'site' => $deployment->site,
             'server' => $deployment->site?->server,
@@ -315,7 +356,7 @@ class BuildJourney extends Component
 
     /**
      * @param  array<string, mixed>  $journey
-     * @param  array<string, string>  $sections
+     * @param  array<string, true>  $sections
      * @return array<string, mixed>
      */
     private function alignJourneyToLogStep(array $journey, array $sections): array
@@ -401,45 +442,5 @@ class BuildJourney extends Component
         }
 
         $this->viewAuthorized = true;
-    }
-
-    /**
-     * Split the streamed log on `[dply:step] <name>` markers. Anything
-     * before the first marker is dropped (it's just the `=== dply Edge
-     * build <id> ===` header line). Returns a map of step key →
-     * concatenated lines.
-     *
-     * @return array<string, string>
-     */
-    private function splitBufferBySteps(string $buffer): array
-    {
-        if ($buffer === '') {
-            return [];
-        }
-
-        $sections = [];
-        $currentKey = null;
-        $currentBuf = '';
-
-        foreach (preg_split('/\r?\n/', $buffer) ?: [] as $line) {
-            if (preg_match('/^\[dply:step\]\s+([a-z0-9_-]+)\s*$/i', $line, $m) === 1) {
-                if ($currentKey !== null) {
-                    $sections[$currentKey] = rtrim($currentBuf, "\n");
-                }
-                $currentKey = strtolower($m[1]);
-                $currentBuf = '';
-
-                continue;
-            }
-            if ($currentKey !== null) {
-                $currentBuf .= $line."\n";
-            }
-        }
-
-        if ($currentKey !== null) {
-            $sections[$currentKey] = rtrim($currentBuf, "\n");
-        }
-
-        return $sections;
     }
 }

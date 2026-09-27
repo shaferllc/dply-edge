@@ -206,11 +206,6 @@ final class SiteSettingsHeader
                 'description' => __('Scheduled worker invocations.'),
                 'icon' => 'heroicon-o-clock',
             ],
-            'resources' => [
-                'title' => __('Resources'),
-                'description' => __('Edge, app size, cache, and database. A new app starts on Flex. A size change applies on the next deploy.'),
-                'icon' => 'heroicon-o-squares-2x2',
-            ],
             'security' => [
                 'title' => __('Security'),
                 'description' => __('Hostname, TLS, and whether firewall, bot protection, and rate limits are on. Recent blocked requests from this app.'),

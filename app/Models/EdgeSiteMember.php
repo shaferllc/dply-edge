@@ -12,8 +12,9 @@ use Illuminate\Support\Carbon;
 
 /**
  * @property string $id
- *                      Per-site role grant for an Edge site (P12). Stacks on top of the
- *                      org-level membership — grants only ELEVATE rights, never restrict.
+ *                      Per-site role for an Edge site. For org members below admin it
+ *                      replaces the org role on this one app (restricts or elevates);
+ *                      org owners/admins are unaffected.
  *
  * @see SitePolicy
  *
@@ -62,6 +63,12 @@ class EdgeSiteMember extends Model
     public function invitedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'invited_by_user_id');
+    }
+
+    protected static function booted(): void
+    {
+        static::saved(static fn () => SitePolicy::flushAppRoleCache());
+        static::deleted(static fn () => SitePolicy::flushAppRoleCache());
     }
 
     public static function isValidRole(string $role): bool

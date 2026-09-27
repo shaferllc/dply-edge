@@ -6,11 +6,12 @@ namespace App\Modules\Billing\Services;
 
 use App\Models\EdgeDataUsage;
 use App\Models\Organization;
+use App\Modules\Billing\Support\UsagePrice;
 use Carbon\CarbonInterface;
 
 /**
- * Prices D1 (rows read/written, storage) and Queues (operations) usage at
- * Cloudflare list price plus the usage markup.
+ * Prices D1 (rows read/written, storage) and Queues (operations) usage:
+ * cost from dply.edge.usage_billing, priced by UsagePrice (one margin).
  */
 class EdgeDataUsageCost
 {
@@ -38,13 +39,11 @@ class EdgeDataUsageCost
     /** Storage is billed as the month's peak size for a full month. */
     public function cents(int $rowsRead, int $rowsWritten, int $storageBytes, int $queueOperations): int
     {
-        $rate = static fn (string $key): float => (float) config('dply.edge.usage_billing.'.$key, 0);
+        $millicents = $rowsRead / 1_000_000 * UsagePrice::cost('d1_rows_read_millicents_per_million')
+            + $rowsWritten / 1_000_000 * UsagePrice::cost('d1_rows_written_millicents_per_million')
+            + $storageBytes / 1024 ** 3 * UsagePrice::cost('d1_storage_millicents_per_gb_month')
+            + $queueOperations / 1_000_000 * UsagePrice::cost('queue_operations_millicents_per_million');
 
-        $millicents = $rowsRead / 1_000_000 * $rate('d1_rows_read_millicents_per_million')
-            + $rowsWritten / 1_000_000 * $rate('d1_rows_written_millicents_per_million')
-            + $storageBytes / 1024 ** 3 * $rate('d1_storage_millicents_per_gb_month')
-            + $queueOperations / 1_000_000 * $rate('queue_operations_millicents_per_million');
-
-        return (int) ceil($millicents * (100 + max(0, (int) config('dply.edge.usage_billing.markup_percent', 0))) / 100 / 1000);
+        return UsagePrice::cents($millicents);
     }
 }

@@ -17,7 +17,7 @@
                 {{ __('View all →') }}
             </a>
         @elseif ($edgeDeployments->count() > 0)
-            @can('update', $site)
+            @can('deploy', $site)
                 <button
                     type="button"
                     wire:click="redeployEdge"
@@ -33,7 +33,7 @@
     </div>
 
     @unless ($compact)
-        @can('update', $site)
+        @can('deploy', $site)
             @php
                 $edgeDeployRefMissingProvider = $this->edgeDeployRefMissingProvider();
             @endphp
@@ -114,7 +114,7 @@
     @if ($tableDeployments->isEmpty())
         <div class="px-6 py-8 text-center text-sm text-brand-moss sm:px-8">
             <p>{{ __('No deployments yet.') }}</p>
-            @can('update', $site)
+            @can('deploy', $site)
                 <button type="button" wire:click="redeployEdge" wire:loading.attr="disabled" class="mt-3 text-sm font-medium text-brand-forest hover:underline dark:text-brand-sage">
                     {{ __('Trigger first deploy') }}
                 </button>
@@ -210,13 +210,13 @@
                             </td>
                             <td class="px-6 py-3 text-right text-xs sm:px-8">
                                 @if (! $isActive && ($deployment->status === \App\Models\EdgeDeployment::STATUS_LIVE || $deployment->status === \App\Models\EdgeDeployment::STATUS_SUPERSEDED) && $deployment->storage_prefix !== null)
-                                    @can('update', $site)
+                                    @can('deploy', $site)
                                         <button type="button" wire:click="confirmRollbackEdgeDeployment('{{ $deployment->id }}')" class="font-medium text-brand-forest hover:underline dark:text-brand-sage">
                                             {{ __('Roll back') }}
                                         </button>
                                     @endcan
                                 @elseif ($deployment->storage_prefix === null && $deployment->git_commit)
-                                    @can('update', $site)
+                                    @can('deploy', $site)
                                         <button type="button" wire:click="$set('edge_deploy_commit_sha', '{{ $deployment->git_commit }}')" class="font-medium text-brand-moss hover:underline" title="{{ __('Fill the deploy-commit input with this SHA so you can rebuild from it.') }}">
                                             {{ __('Rebuild') }}
                                         </button>

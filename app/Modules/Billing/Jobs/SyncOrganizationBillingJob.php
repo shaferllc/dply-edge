@@ -5,8 +5,10 @@ namespace App\Modules\Billing\Jobs;
 use App\Models\BillingSubscriptionSyncEvent;
 use App\Models\Organization;
 use App\Modules\Billing\Services\BillingSubscriptionSyncEventRecorder;
+use App\Modules\Billing\Services\OrganizationBillingEnforcer;
 use App\Modules\Billing\Services\OrganizationBillingStateComputer;
 use App\Modules\Billing\Services\StripeSubscriptionSyncer;
+use App\Modules\Billing\Services\UsageAlerts;
 use App\Modules\Edge\Services\EdgeQueueConsumers;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -48,8 +50,12 @@ class SyncOrganizationBillingJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
-        // Queue speed follows the tier, including a drop to Free on cancel.
+        // Queue speed follows the tier, including a drop to no plan on cancel.
         app(EdgeQueueConsumers::class)->applyTier($organization);
+
+        // Pause or resume now rather than at the next hourly run: a payment
+        // should bring the sites back at once.
+        app(OrganizationBillingEnforcer::class)->enforce($organization);
 
         // Only sync orgs on the new Standard plan. Enterprise subs are managed
         // by hand in Stripe; legacy Pro subs are flat-fee and have no quantities.
@@ -58,6 +64,7 @@ class SyncOrganizationBillingJob implements ShouldBeUnique, ShouldQueue
         }
 
         $desired = $computer->compute($organization);
+        app(UsageAlerts::class)->check($organization, $desired);
 
         try {
             $changes = $syncer->reconcile($organization, $desired);

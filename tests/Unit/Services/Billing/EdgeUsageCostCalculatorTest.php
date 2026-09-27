@@ -10,13 +10,10 @@ use Illuminate\Support\Facades\Config;
 
 beforeEach(function () {
     Config::set('dply.edge.usage_billing.enabled', true);
-    Config::set('dply.edge.usage_billing.markup_percent', 0);
-    Config::set('dply.edge.usage_billing.requests_cents_per_million', 50);
-    Config::set('dply.edge.usage_billing.egress_cents_per_gb', 5);
-    Config::set('dply.edge.usage_billing.r2_storage_cents_per_gb_month', 3);
-    Config::set('dply.edge.usage_billing.included_requests_per_site', 1_000_000);
-    Config::set('dply.edge.usage_billing.included_egress_gb_per_site', 10);
-    Config::set('dply.edge.usage_billing.included_r2_storage_gb_per_site', 1);
+    Config::set('dply.edge.usage_billing.margin_percent', 0);
+    Config::set('dply.edge.usage_billing.requests_millicents_per_million', 50_000);
+    Config::set('dply.edge.usage_billing.egress_millicents_per_gb', 5_000);
+    Config::set('dply.edge.usage_billing.r2_storage_millicents_per_gb_month', 3_000);
 
     $this->calculator = app(EdgeUsageCostCalculator::class);
 });
@@ -24,42 +21,22 @@ beforeEach(function () {
 test('returns zero when usage billing disabled', function () {
     Config::set('dply.edge.usage_billing.enabled', false);
 
-    $estimate = $this->calculator->estimate(new EdgeUsageTotals(requests: 5_000_000), 1);
-
-    expect($estimate['subtotal_cents'])->toBe(0);
+    expect($this->calculator->estimate(new EdgeUsageTotals(requests: 5_000_000))['subtotal_cents'])->toBe(0);
 });
 
-test('applies per site included allowances before billing', function () {
-    $usage = new EdgeUsageTotals(
-        requests: 2_500_000,
-        bytesEgress: 15 * 1024 ** 3,
-    );
+test('every request and byte bills: there are no per-site allowances', function () {
+    $estimate = $this->calculator->estimate(new EdgeUsageTotals(requests: 2_500_000, bytesEgress: 15 * 1024 ** 3));
 
-    $estimate = $this->calculator->estimate($usage, 1);
-
-    expect($estimate['billable_requests'])->toBe(1_500_000);
-    expect($estimate['billable_bytes_egress'])->toBe(5 * 1024 ** 3);
-    // 1.5M requests => $0.75 (75 cents) + 5 GB => $0.25 (25 cents)
-    expect($estimate['subtotal_cents'])->toBe(100);
+    expect($estimate['billable_requests'])->toBe(2_500_000)
+        ->and($estimate['billable_bytes_egress'])->toBe(15 * 1024 ** 3)
+        // 2.5M requests => $1.25 + 15 GB => $0.75
+        ->and($estimate['subtotal_cents'])->toBe(200)
+        ->and($estimate)->not->toHaveKey('included_requests');
 });
 
-test('scales included allowances with edge site count', function () {
-    $usage = new EdgeUsageTotals(requests: 3_000_000);
+test('the margin is applied once, by UsagePrice, and rounded to the nearest cent', function () {
+    Config::set('dply.edge.usage_billing.margin_percent', 25);
 
-    $estimate = $this->calculator->estimate($usage, 2);
-
-    expect($estimate['included_requests'])->toBe(2_000_000);
-    expect($estimate['billable_requests'])->toBe(1_000_000);
-    expect($estimate['subtotal_cents'])->toBe(50);
-});
-
-test('markup is applied on top of metered subtotal', function () {
-    Config::set('dply.edge.usage_billing.markup_percent', 25);
-
-    $usage = new EdgeUsageTotals(requests: 2_000_000);
-
-    $estimate = $this->calculator->estimate($usage, 1);
-
-    // 1M billable requests @ $0.50 = 50 cents, +25% = 63 cents (ceil)
-    expect($estimate['subtotal_cents'])->toBe(63);
+    // 1M requests @ $0.50 cost = 50 cents, +25% = 62.5 → 63 cents
+    expect($this->calculator->estimate(new EdgeUsageTotals(requests: 1_000_000))['subtotal_cents'])->toBe(63);
 });

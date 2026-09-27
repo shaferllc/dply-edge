@@ -76,6 +76,13 @@
                         <x-heroicon-o-credit-card class="{{ $hiGuest }}" />
                         {{ __('Pricing') }}
                     </a>
+                    <a
+                        href="{{ route('docs.index') }}"
+                        class="inline-flex items-center gap-1.5 text-brand-moss hover:text-brand-ink transition-colors"
+                    >
+                        <x-heroicon-o-book-open class="{{ $hiGuest }}" />
+                        {{ __('Docs') }}
+                    </a>
                     <a href="{{ route('login') }}" class="inline-flex items-center gap-1.5 text-brand-moss hover:text-brand-ink transition-colors">
                         <x-heroicon-o-arrow-right-end-on-rectangle class="{{ $hiGuest }}" />
                         {{ __('Log in') }}
@@ -107,7 +114,7 @@
                                 <x-heroicon-o-magnifying-glass class="h-4 w-4 shrink-0" />
                                 <kbd class="hidden items-center font-terminal text-2xs font-semibold tracking-tight text-brand-mist lg:inline-flex">⌘K</kbd>
                             </button>
-                            @if (auth()->user()->currentOrganization() && \Illuminate\Support\Facades\Route::has('edge.create'))
+                            @if (auth()->user()->currentOrganization() && \Illuminate\Support\Facades\Route::has('edge.create') && auth()->user()->can('create', \App\Models\Site::class))
                                 <a
                                     href="{{ route('edge.create') }}"
                                     wire:navigate
@@ -172,6 +179,18 @@
                                             {{ __('Organization') }}
                                         </x-dropdown-link>
                                     @endif
+                                    <x-dropdown-link :href="route('docs.index')" :description="__('Guides, reference & API')">
+                                        <x-slot name="icon">
+                                            <x-heroicon-o-book-open class="{{ $hi }}" />
+                                        </x-slot>
+                                        {{ __('Docs') }}
+                                    </x-dropdown-link>
+                                    <x-dropdown-link :href="'mailto:'.config('dply.support_email')" :description="config('dply.support_email')">
+                                        <x-slot name="icon">
+                                            <x-heroicon-o-envelope class="{{ $hi }}" />
+                                        </x-slot>
+                                        {{ __('Email support') }}
+                                    </x-dropdown-link>
                                 </div>
 
                                 {{-- Sign out footer. --}}
@@ -254,6 +273,14 @@
                 <a href="{{ route('pricing') }}" class="flex items-center gap-2.5 border-l-4 {{ $pricingActive ? 'border-brand-gold bg-brand-sand/30 text-brand-ink' : 'border-transparent text-brand-moss hover:bg-brand-sand/30' }} py-2 ps-3 pe-4 text-base font-medium">
                     <x-heroicon-o-credit-card class="h-5 w-5 shrink-0 opacity-90" />
                     {{ __('Pricing') }}
+                </a>
+                <a href="{{ route('docs.index') }}" class="flex items-center gap-2.5 border-l-4 border-transparent text-brand-moss hover:bg-brand-sand/30 py-2 ps-3 pe-4 text-base font-medium">
+                    <x-heroicon-o-book-open class="h-5 w-5 shrink-0 opacity-90" />
+                    {{ __('Docs') }}
+                </a>
+                <a href="mailto:{{ config('dply.support_email') }}" class="flex items-center gap-2.5 border-l-4 border-transparent text-brand-moss hover:bg-brand-sand/30 py-2 ps-3 pe-4 text-base font-medium">
+                    <x-heroicon-o-envelope class="h-5 w-5 shrink-0 opacity-90" />
+                    {{ __('Email support') }}
                 </a>
                 <div class="pt-4 mt-2 border-t border-brand-ink/10">
                     <p class="px-4 text-xs font-semibold uppercase tracking-wider text-brand-mist">{{ Auth::user()->name }}</p>

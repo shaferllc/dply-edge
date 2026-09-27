@@ -14,22 +14,31 @@ use App\Console\Commands\PruneErrorEventsCommand;
 use App\Console\Commands\PruneNotificationInboxItemsCommand;
 use App\Console\Commands\PruneOrphanedSiteDataCommand;
 use App\Console\Commands\PruneSiteUptimeCheckResultsCommand;
-use App\Console\Commands\PruneTestingHostnameRecordsCommand;
 use App\Console\Commands\ReapStuckConsoleActionsCommand;
 use App\Console\Commands\SyncErrorEventsCommand;
+use App\Modules\Billing\Console\EnforceOrganizationBillingCommand;
 use App\Modules\Billing\Console\SnapshotOrganizationBillingCommand;
 use App\Modules\Billing\Console\SyncAllOrganizationBillingCommand;
+use App\Modules\Edge\Console\CheckEdgeQueueWorkersCommand;
+use App\Modules\Edge\Console\CheckEdgeRealtimeCommand;
 use App\Modules\Edge\Console\CheckEdgeRumAlertsCommand;
 use App\Modules\Edge\Console\CollectEdgeContainerUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeDataUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeKvUsageCommand;
+use App\Modules\Edge\Console\CollectEdgePlatformUsageCommand;
+use App\Modules\Edge\Console\CollectEdgeRealtimeUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeValkeyUsageCommand;
 use App\Modules\Edge\Console\EvaluateEdgeGuardrailsCommand;
+use App\Modules\Edge\Console\ReapStuckEdgeBuildsCommand;
 use App\Modules\Edge\Console\RollupEdgeAnalyticsEngineCommand;
+use App\Modules\Edge\Console\SampleContainerMemoryCommand;
+use App\Modules\Edge\Console\SampleEdgeDatabasesCommand;
+use App\Modules\Edge\Console\ScaleEdgeQueueWorkersCommand;
 use App\Modules\Edge\Console\WarmEdgeBuildImagesCommand;
 use App\Modules\Edge\Console\WarmEdgeContainersCommand;
 use App\Modules\Edge\Jobs\VerifyEdgeCustomDomainsJob;
+use App\Modules\Edge\Services\Realtime\EdgeRealtimeMonitor;
 use App\Modules\Secrets\Console\SecretsEscrowCommand;
 use App\Modules\Secrets\Console\SecretsRestoreDrillCommand;
 use App\Support\DplyRuntime;
@@ -72,6 +81,8 @@ final class DplySchedule
             ->name('reap-stuck-console-actions');
 
         $schedule->command(SyncAllOrganizationBillingCommand::class)->dailyAt('02:30');
+        // Trials: emails, pause when unpaid, resume when paid (ruling r-f17p5zgeh120cm5t).
+        $schedule->command(EnforceOrganizationBillingCommand::class)->hourly()->withoutOverlapping()->onOneServer();
         $schedule->command(SnapshotOrganizationBillingCommand::class)->dailyAt('02:10');
 
         // Value-less flags must be scheduled as `--today` (not `--today => true`,
@@ -79,6 +90,10 @@ final class DplySchedule
         $schedule->command(CollectEdgeUsageCommand::class, ['--today'])
             ->hourly()
             ->name('edge-usage-today');
+        // The hourly run never sees a day's last hour: collect yesterday in full.
+        $schedule->command(CollectEdgeUsageCommand::class)
+            ->dailyAt('01:30')
+            ->name('edge-usage-yesterday');
 
         // Container compute: today so far every hour, and yesterday once more
         // after Cloudflare's late samples land (per-minute billing reads both).
@@ -91,10 +106,37 @@ final class DplySchedule
             ->name('edge-container-usage-yesterday');
         // Min instances, scaling windows and always-on jobs instances. Windows
         // start on the minute, so an instance can take up to 5 minutes to follow.
+        // Every minute: a deploy's rolling update restarts containers after the
+        // deploy's own warm, and always-on workers should not wait long.
         $schedule->command(WarmEdgeContainersCommand::class)
-            ->everyFiveMinutes()
+            ->everyMinute()
             ->withoutOverlapping()
             ->name('edge-warm-containers');
+        // Autoscaled queue workers follow each app's backlog.
+        $schedule->command(ScaleEdgeQueueWorkersCommand::class, ['--for' => 50, '--every' => 10])
+            ->everyMinute()
+            ->withoutOverlapping()
+            ->runInBackground() // a slow neighbour must not delay scaling
+            ->name('edge-scale-queue-workers');
+        // Failing jobs and crash-looping workers, from the workers' logs.
+        $schedule->command(CheckEdgeQueueWorkersCommand::class)
+            ->everyFiveMinutes()
+            ->withoutOverlapping()
+            ->runInBackground() // a slow neighbour must not delay scaling
+            ->name('edge-check-queue-workers');
+        // dply database history and disk / connection alerts, from
+        // each database's last snapshot (never wakes one).
+        $schedule->command(SampleEdgeDatabasesCommand::class)
+            ->hourly()
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->name('edge-sample-databases');
+        // Peak memory of awake container apps, for smaller-size suggestions.
+        $schedule->command(SampleContainerMemoryCommand::class)
+            ->hourly()
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->name('edge-sample-container-memory');
         $schedule->command(CollectEdgeDataUsageCommand::class, ['--today'])
             ->hourly()
             ->withoutOverlapping()
@@ -102,6 +144,11 @@ final class DplySchedule
         $schedule->command(CollectEdgeDataUsageCommand::class)
             ->dailyAt('01:50')
             ->name('edge-data-usage-yesterday');
+        // Builds whose worker died sit at "building" and hold the org's slot.
+        $schedule->command(ReapStuckEdgeBuildsCommand::class)
+            ->everyMinute()
+            ->withoutOverlapping()
+            ->name('edge-reap-stuck-builds');
         // dply Valkey awake seconds; each run adds what changed since the last.
         $schedule->command(CollectEdgeValkeyUsageCommand::class)
             ->hourly()
@@ -114,6 +161,27 @@ final class DplySchedule
         $schedule->command(CollectEdgeKvUsageCommand::class)
             ->dailyAt('02:00')
             ->name('edge-kv-usage-yesterday');
+        // Workers CPU, Durable Objects, customer R2 buckets (full-day totals, re-runs overwrite).
+        $schedule->command(CollectEdgePlatformUsageCommand::class, ['--today'])
+            ->hourly()
+            ->withoutOverlapping()
+            ->name('edge-platform-usage-today');
+        $schedule->command(CollectEdgePlatformUsageCommand::class)
+            ->dailyAt('02:10')
+            ->name('edge-platform-usage-yesterday');
+        // Realtime connection time + messages; each run adds what changed since the last.
+        $schedule->command(CollectEdgeRealtimeUsageCommand::class)
+            ->hourly()
+            ->withoutOverlapping()
+            ->name('edge-realtime-usage');
+        // Synthetic round trip through the customer realtime relay; alerts platform admins.
+        if (EdgeRealtimeMonitor::enabled()) {
+            $schedule->command(CheckEdgeRealtimeCommand::class)
+                ->everyMinute()
+                ->withoutOverlapping()
+                ->runInBackground()
+                ->name('edge-check-realtime');
+        }
 
         // Keep Node build images warm on workers so Edge deploys skip cold pulls.
         if ((bool) config('edge.build.warm_images_on_schedule', true)) {
@@ -141,7 +209,6 @@ final class DplySchedule
         $schedule->command(PruneErrorEventsCommand::class)->dailyAt('03:25');
         $schedule->command(PruneNotificationInboxItemsCommand::class)->dailyAt('03:35');
         $schedule->command(PruneAuditLogsCommand::class)->dailyAt('03:20');
-        $schedule->command(PruneTestingHostnameRecordsCommand::class)->dailyAt('03:30');
         $schedule->command(PruneOrphanedSiteDataCommand::class)->weeklyOn(1, '04:40');
         $schedule->command(PruneSiteUptimeCheckResultsCommand::class)->dailyAt('03:55');
 

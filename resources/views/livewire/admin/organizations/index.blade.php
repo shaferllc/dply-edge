@@ -8,7 +8,7 @@
     <x-profile-shell
         class="mt-4"
         :title="__('Organizations')"
-        :description="__('Search all organizations, review override counts, and open org-specific flag tabs.')"
+        :description="__('Search all organizations and open one to see its members.')"
         icon="heroicon-o-building-office-2"
     >
         <section class="border-b border-brand-ink/10">
@@ -31,7 +31,6 @@
                         <th class="px-3 py-2 font-semibold sm:px-4">{{ __('Organization') }}</th>
                         <th class="px-3 py-2 font-semibold">{{ __('Servers') }}</th>
                         <th class="px-3 py-2 font-semibold">{{ __('Sites') }}</th>
-                        <th class="px-3 py-2 font-semibold">{{ __('Overrides') }}</th>
                         <th class="px-3 py-2 font-semibold">{{ __('Created') }}</th>
                     </tr>
                 </thead>
@@ -44,11 +43,10 @@
                             </td>
                             <td class="px-3 py-2.5 font-mono tabular-nums text-brand-moss">{{ number_format($org->servers_count) }}</td>
                             <td class="px-3 py-2.5 font-mono tabular-nums text-brand-moss">{{ number_format($org->sites_count) }}</td>
-                            <td class="px-3 py-2.5 font-mono tabular-nums text-brand-moss">{{ number_format($overrideCounts[$org->id] ?? 0) }}</td>
                             <td class="px-3 py-2.5 text-xs text-brand-moss">{{ $org->created_at?->timezone(config('app.timezone'))->format('Y-m-d') }}</td>
                         </tr>
                     @empty
-                        <tr><td colspan="5" class="px-3 py-8 text-center text-brand-mist sm:px-4">{{ __('No organizations match your search.') }}</td></tr>
+                        <tr><td colspan="4" class="px-3 py-8 text-center text-brand-mist sm:px-4">{{ __('No organizations match your search.') }}</td></tr>
                     @endforelse
                 </tbody>
             </table>

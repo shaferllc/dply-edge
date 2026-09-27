@@ -203,6 +203,7 @@ class AccountApiController extends Controller
         $query = ApiToken::query()
             ->where('organization_id', $organization->id)
             ->where('name', (string) config('cli.token_name', 'dply CLI'))
+            ->whereNull('revoked_at')
             ->with('user:id,name,email');
 
         if (! $organization->hasAdminAccess($user)) {

@@ -17,10 +17,16 @@ final class EdgeAnalyticsEngineRollup
 {
     private const SOURCE = 'analytics_engine';
 
+    private readonly EdgeCloudflareClient $client;
+
+    // The client needs the account id and token from config, so the
+    // container cannot build it: take one in tests, else use config.
     public function __construct(
-        private readonly EdgeCloudflareClient $client,
         private readonly EdgePerformanceHourlyRollup $rollup,
-    ) {}
+        ?EdgeCloudflareClient $client = null,
+    ) {
+        $this->client = $client ?? EdgeCloudflareClient::fromConfig();
+    }
 
     /**
      * @return array{hours: int, rows: int}
@@ -49,7 +55,7 @@ final class EdgeAnalyticsEngineRollup
               sumIf(1, double1 >= 200 AND double1 < 300) AS status_2xx,
               sumIf(1, double1 >= 400 AND double1 < 500) AS status_4xx,
               sumIf(1, double1 >= 500) AS status_5xx,
-              sumIf(1, positionCaseInsensitive(blob5, 'hit') > 0) AS cache_hits
+              sumIf(1, position('hit' IN lower(blob5)) > 0) AS cache_hits
             FROM %s
             WHERE timestamp >= NOW() - INTERVAL '%d' HOUR
             GROUP BY site_id, hour_start
@@ -106,8 +112,14 @@ final class EdgeAnalyticsEngineRollup
             ->values();
     }
 
+    // Analytics Engine SQL has no backtick quoting; dataset names are plain
+    // identifiers, so accept only those.
     private function quoteIdentifier(string $identifier): string
     {
-        return '`'.str_replace('`', '``', $identifier).'`';
+        if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $identifier) !== 1) {
+            throw new \InvalidArgumentException("Not an Analytics Engine dataset name: {$identifier}");
+        }
+
+        return $identifier;
     }
 }

@@ -73,7 +73,11 @@ class EdgeBuildCache
             }
         }
 
-        return substr(hash('sha256', implode('|', $parts)), 0, 32);
+        // "<env>-<deps>": the env half (node + repo root) is the restore-key
+        // prefix — a lockfile change falls back to the newest cache with the
+        // same env instead of going fully cold.
+        return substr(hash('sha256', $nodeVersion.'|'.$rootSegment), 0, 12)
+            .'-'.substr(hash('sha256', implode('|', $parts)), 0, 32);
     }
 
     /**
@@ -87,14 +91,29 @@ class EdgeBuildCache
 
         $disk = $this->disk($diskName);
         $key = $this->storageKey($site, $cacheKey);
+        $restored = 'restored '.$cacheKey;
         if (! $disk->exists($key)) {
-            return ['ok' => false, 'restored_bytes' => 0, 'message' => 'cache miss for key '.$cacheKey];
+            // Like actions/cache restore-keys: the package manager reconciles
+            // a near-miss far faster than a cold install.
+            $key = $this->newestWithEnv($disk, $site, $cacheKey);
+            if ($key === null) {
+                return ['ok' => false, 'restored_bytes' => 0, 'message' => 'cache miss for key '.$cacheKey];
+            }
+            $restored = 'cache miss for key '.$cacheKey.', restored fallback '.basename($key, '.tar.gz');
         }
 
         $base = $this->extractRoot($checkout, $repoRoot);
-        $tmpTar = tempnam(sys_get_temp_dir(), 'dply-edge-cache-').'.tar.gz';
+        $tmpTar = (string) tempnam(sys_get_temp_dir(), 'dply-edge-cache-');
         try {
-            file_put_contents($tmpTar, $disk->get($key));
+            // Streamed — the tarball can be hundreds of MB.
+            $in = $disk->readStream($key);
+            $out = fopen($tmpTar, 'wb');
+            if (! is_resource($in) || $out === false) {
+                return ['ok' => false, 'restored_bytes' => 0, 'message' => 'cache download failed for '.basename($key)];
+            }
+            stream_copy_to_stream($in, $out);
+            fclose($in);
+            fclose($out);
             $restoredBytes = filesize($tmpTar) ?: 0;
             $result = Process::timeout(120)->run([
                 'tar', '-xzf', $tmpTar, '-C', $base,
@@ -103,7 +122,7 @@ class EdgeBuildCache
                 return ['ok' => false, 'restored_bytes' => 0, 'message' => 'tar extract failed: '.$result->errorOutput()];
             }
 
-            return ['ok' => true, 'restored_bytes' => $restoredBytes, 'message' => 'restored '.$cacheKey];
+            return ['ok' => true, 'restored_bytes' => $restoredBytes, 'message' => $restored];
         } finally {
             @unlink($tmpTar);
         }
@@ -124,7 +143,7 @@ class EdgeBuildCache
             return ['ok' => false, 'snapshot_bytes' => 0, 'message' => 'no cache paths exist yet'];
         }
 
-        $tmpTar = tempnam(sys_get_temp_dir(), 'dply-edge-cache-snap-').'.tar.gz';
+        $tmpTar = (string) tempnam(sys_get_temp_dir(), 'dply-edge-cache-snap-');
         try {
             // GNU/BSD tar both accept `-C` + relative paths. Listing
             // each path explicitly avoids tar-ing the entire checkout.
@@ -136,10 +155,20 @@ class EdgeBuildCache
 
             $bytes = filesize($tmpTar) ?: 0;
             $disk = $this->disk($diskName);
-            $disk->put($this->storageKey($site, $cacheKey), file_get_contents($tmpTar), [
-                'visibility' => 'private',
-                'ContentType' => 'application/gzip',
-            ]);
+            $stream = fopen($tmpTar, 'rb');
+            try {
+                $ok = $disk->writeStream($this->storageKey($site, $cacheKey), $stream, [
+                    'visibility' => 'private',
+                    'ContentType' => 'application/gzip',
+                ]);
+            } finally {
+                if (is_resource($stream)) {
+                    fclose($stream);
+                }
+            }
+            if ($ok === false) {
+                return ['ok' => false, 'snapshot_bytes' => 0, 'message' => 'cache upload failed'];
+            }
 
             return ['ok' => true, 'snapshot_bytes' => $bytes, 'message' => 'snapshotted '.count($existing).' path(s), '.$bytes.' bytes'];
         } finally {
@@ -220,6 +249,29 @@ class EdgeBuildCache
         }
 
         return $base;
+    }
+
+    /**
+     * Newest cache tarball for this site whose key shares $cacheKey's env
+     * prefix. Scoped to cache/{site_id}/, so never another site's (or org's).
+     */
+    private function newestWithEnv(Filesystem $disk, Site $site, string $cacheKey): ?string
+    {
+        $env = strstr($cacheKey, '-', true);
+        if ($env === false) {
+            return null;
+        }
+
+        $newest = null;
+        $newestAt = -1;
+        foreach ($disk->listContents('cache/'.$site->id, false) as $item) {
+            if ($item->isFile() && str_starts_with(basename($item->path()), $env.'-') && ($item->lastModified() ?? 0) > $newestAt) {
+                $newest = $item->path();
+                $newestAt = $item->lastModified() ?? 0;
+            }
+        }
+
+        return $newest;
     }
 
     private function storageKey(Site $site, string $cacheKey): string

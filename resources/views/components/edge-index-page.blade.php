@@ -20,6 +20,8 @@
 @php
     $isProductionSurface = $emptyState === 'production';
     $allTotal = (int) ($totals['all'] ?? 0);
+    // Deployers and viewers can't create apps; don't offer the button.
+    $showCreateAction = $showCreateAction && (auth()->user()?->can('create', \App\Models\Site::class) ?? false);
     $showShellCreate = $edgeEnabled && $showCreateAction && $hasSitesInScope && $allTotal > 0;
     $showShellSecondary = $edgeEnabled && $showSecondaryActions && $hasSitesInScope && $allTotal > 0;
     $createUrl ??= route('edge.create');
@@ -224,14 +226,51 @@
                     <div class="min-w-0 pl-1">
                         <p class="text-xs font-semibold uppercase tracking-[0.2em] text-brand-forest">{{ __('Dashboard') }}</p>
                         <h1 class="mt-1.5 truncate text-2xl font-semibold tracking-tight text-brand-ink sm:text-3xl">{{ $orgName ?: __('Apps') }}</h1>
+                        <p class="mt-1 text-sm text-brand-moss">
+                            {{ trans_choice(':count app|:count apps', $allTotal - (int) ($totals['previews'] ?? 0), ['count' => $allTotal - (int) ($totals['previews'] ?? 0)]) }}
+                            @if (($totals['previews'] ?? 0) > 0)
+                                · {{ trans_choice(':count open preview|:count open previews', $totals['previews'], ['count' => $totals['previews']]) }}
+                            @endif
+                        </p>
                     </div>
-                    <p class="text-sm text-brand-moss">
-                        {{ trans_choice(':count app|:count apps', $allTotal, ['count' => $allTotal]) }}
-                    </p>
+                    @if ($showSecondaryActions || $showCreateAction)
+                        <div class="flex flex-wrap items-center gap-2">
+                            @if ($showSecondaryActions)
+                                <x-outline-link :href="$usageUrl" size="xxs" wire:navigate>{{ __('Usage') }}</x-outline-link>
+                            @endif
+                            @if ($showCreateAction)
+                                <a href="{{ $createUrl }}" wire:navigate class="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-ink px-4 py-2 text-sm font-semibold text-brand-cream shadow-md transition-colors hover:bg-brand-forest">
+                                    <x-heroicon-o-sparkles class="h-4 w-4 shrink-0" aria-hidden="true" />
+                                    {{ __('Deploy an app') }}
+                                </a>
+                            @endif
+                        </div>
+                    @endif
                 </div>
             </header>
             @if (isset($alert) && filled(trim((string) $alert)))
                 <div class="mb-4">{{ $alert }}</div>
+            @endif
+            @if ($showFilters)
+                <div class="mb-4 flex flex-wrap gap-1.5" role="group" aria-label="{{ __('Filter apps') }}">
+                    @foreach (['all' => __('All'), 'active' => __('Active'), 'provisioning' => __('Building'), 'failed' => __('Failed'), 'previews' => __('Previews')] as $key => $label)
+                        @php $count = (int) ($totals[$key] ?? 0); @endphp
+                        @continue($key !== 'all' && $key !== $filter && $count === 0)
+                        <button
+                            type="button"
+                            wire:click="$set('filter', '{{ $key }}')"
+                            aria-pressed="{{ $filter === $key ? 'true' : 'false' }}"
+                            @class([
+                                'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition',
+                                'border-brand-ink bg-brand-ink text-brand-cream' => $filter === $key,
+                                'border-brand-ink/10 text-brand-moss hover:border-brand-ink/30 hover:text-brand-ink dark:border-brand-mist/20' => $filter !== $key,
+                            ])
+                        >
+                            {{ $label }}
+                            <span @class(['font-mono font-normal', 'text-rose-600 dark:text-rose-300' => $key === 'failed' && $filter !== $key, 'opacity-70' => $key !== 'failed' || $filter === $key])>{{ $count }}</span>
+                        </button>
+                    @endforeach
+                </div>
             @endif
                 @if ($rows->isEmpty())
                     <div class="flex flex-col items-center justify-center px-5 py-16 text-center sm:px-6">
@@ -249,10 +288,34 @@
                         @endif
                     </div>
                 @else
-                    <ul class="grid gap-3 sm:grid-cols-2">
-                        @foreach ($rows as $site)
-                            @include('components.partials.edge-index-card', ['site' => $site])
+                    @php
+                        // Rows arrive with each parent's previews directly after it
+                        // (Index::render); fold those onto the parent's card.
+                        $cards = [];
+                        foreach ($rows as $row) {
+                            if ($row->isPreviewChild && $cards !== []) {
+                                $cards[array_key_last($cards)]['previews'][] = $row;
+
+                                continue;
+                            }
+                            $cards[] = ['site' => $row, 'previews' => []];
+                        }
+                    @endphp
+                    <ul class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                        @foreach ($cards as $card)
+                            @include('components.partials.edge-index-card', $card)
                         @endforeach
+                        @if ($showCreateAction)
+                            <li>
+                                <a href="{{ $createUrl }}" wire:navigate class="flex h-full min-h-56 flex-col items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-brand-ink/20 p-7 text-center text-brand-moss transition hover:border-brand-ink hover:text-brand-ink dark:border-brand-mist/25">
+                                    <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-ink text-brand-cream">
+                                        <x-heroicon-o-plus class="h-5 w-5" aria-hidden="true" />
+                                    </span>
+                                    <span class="text-sm font-semibold text-brand-ink">{{ __('Deploy an app') }}</span>
+                                    <span class="text-xs">{{ __('From a repo, a template, or an import') }}</span>
+                                </a>
+                            </li>
+                        @endif
                     </ul>
                 @endif
         @endunless

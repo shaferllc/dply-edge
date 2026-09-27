@@ -41,7 +41,10 @@ class BotProtection extends Component
         $cfg = is_array($site->edgeMeta()['turnstile'] ?? null) ? $site->edgeMeta()['turnstile'] : [];
         $this->enabled = (bool) ($cfg['enabled'] ?? false);
         $this->site_key = (string) ($cfg['site_key'] ?? '');
-        $this->secret_key = (string) ($cfg['secret_key'] ?? '');
+        // Public props ship in the Livewire snapshot: only editors get the secret.
+        if (auth()->user()?->can('update', $site)) {
+            $this->secret_key = (string) ($cfg['secret_key'] ?? '');
+        }
         $mode = (string) ($cfg['mode'] ?? 'forms');
         $this->mode = in_array($mode, ['forms', 'all'], true) ? $mode : 'forms';
     }

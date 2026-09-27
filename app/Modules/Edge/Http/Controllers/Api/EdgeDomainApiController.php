@@ -36,6 +36,7 @@ class EdgeDomainApiController extends EdgeApiController
                 'cname_target' => $info['cname_target'] ?? $found->edgeHostname(),
                 'cf_custom_hostname_id' => $info['cf_custom_hostname_id'] ?? null,
                 'ownership_verification' => $info['ownership_verification'] ?? null,
+                'dply_verification' => $info['dply_verification'] ?? null,
                 'analytics_zone' => $info['analytics_zone'] ?? null,
                 'attached_at' => $info['attached_at'] ?? null,
                 'verified_at' => $info['verified_at'] ?? null,

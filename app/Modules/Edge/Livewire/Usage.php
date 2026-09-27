@@ -107,10 +107,8 @@ class Usage extends Component
         });
 
         // KPI strip totals are sums of the row values shown below — that
-        // way the numbers always reconcile (top = sum(rows)). Using the
-        // pooled EdgeOrganizationUsageReader estimate gave a different
-        // number because per-site billing counts overages individually
-        // while org-level pooling shares included quotas across sites.
+        // way the numbers always reconcile (top = sum(rows)). Sites carry
+        // no fee, so platform_cents is always 0.
         $billableSiteCount = count(array_filter($rows, fn ($r) => ($r['billable'] ?? false)));
         $platformSubtotalCents = (int) array_sum(array_column($rows, 'platform_cents'));
         $usageSubtotalCents = (int) array_sum(array_column($rows, 'usage_cents'));

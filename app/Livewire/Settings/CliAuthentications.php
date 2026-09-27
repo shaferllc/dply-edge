@@ -99,6 +99,7 @@ class CliAuthentications extends Component
             ? ApiToken::query()
                 ->where('organization_id', $org->id)
                 ->where('name', (string) config('cli.token_name', 'dply CLI'))
+                ->whereNull('revoked_at')
                 ->with('user:id,name,email')
                 ->orderByDesc('last_used_at')
                 ->orderByDesc('created_at')

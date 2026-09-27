@@ -3,26 +3,34 @@
     // big one — color-coded so it doubles as a banner.
     $edgeSiteCount = $this->billingState->edgeCount;
     $monthlyCents = (int) ($this->billingState->monthlyTotalCents ?? 0);
-    $intervalLabel = $this->subscriptionInterval === 'year' ? __('billed annually') : __(':plan · billed monthly', ['plan' => $this->organization->planTierLabel()]);
+    $intervalLabel = __(':plan · billed monthly', ['plan' => $this->organization->planTierLabel()]);
+    $subscriptionValid = (bool) $this->subscription?->valid();
+    $keepDays = (int) config('subscription.standard.trial.keep_data_days', 30);
 
-    $betaFeeWaived = $this->organization->betaFeeWaived();
-
-    if ($betaFeeWaived) {
+    $org = $this->organization;
+    if ($org->isComped()) {
         $statusTone = 'success';
-        $statusLabel = __('Beta');
-        $statusSub = __('$0 — nothing due');
+        $statusLabel = __('Comped');
+        $statusSub = __(':plan · nothing due', ['plan' => $org->planTierLabel()]);
+    } elseif ($org->onTrialPlan()) {
+        $statusTone = 'info';
+        $statusLabel = __('Trial');
+        $statusSub = __(':plan until :date', ['plan' => $org->planTierLabel(), 'date' => $org->planTrialEndsAt()?->toFormattedDayDateString()]);
+    } elseif (! $org->hasPlan()) {
+        $statusTone = $org->billing_paused_at ? 'danger' : 'neutral';
+        $statusLabel = $org->billing_paused_at ? __('Paused') : __('No plan');
+        $statusSub = $org->eligibleForTrial()
+            ? __('Start a :days-day trial below', ['days' => (int) config('subscription.standard.trial.days', 5)])
+            : __('Choose a plan below');
     } elseif ($this->onGracePeriod) {
         $statusTone = 'warning';
         $statusLabel = __('Cancelled');
         $statusSub = $this->subscriptionEndsAt ? __('Access until :date', ['date' => $this->subscriptionEndsAt->toFormattedDateString()]) : __('In grace period');
-    } elseif ($this->subscription) {
+    } else {
+        // hasPlan() with no trial or comp means a live subscription.
         $statusTone = 'success';
         $statusLabel = __('Active');
         $statusSub = $intervalLabel;
-    } else {
-        $statusTone = 'neutral';
-        $statusLabel = __('Pay as you go');
-        $statusSub = __('Add a card to bill live sites');
     }
 
     $statusTiles = [
@@ -47,7 +55,7 @@
             :organization="$organization"
             section="billing"
             :title="__('Billing')"
-            :description="__('Pay per live Edge site plus metered delivery usage. Previews stay free.')"
+            :description="__('A monthly plan plus metered usage past its included credit. Preview usage counts too.')"
             icon="heroicon-o-credit-card"
             :breadcrumb="[
                 ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
@@ -81,11 +89,7 @@
                         <dd class="mt-0.5 flex items-baseline gap-1.5">
                             <span class="font-mono text-base font-semibold tabular-nums text-brand-ink">${{ number_format($monthlyCents / 100, 0) }}</span>
                             <span class="truncate text-xs text-brand-moss">
-                                @if ($this->subscriptionInterval === 'year')
-                                    {{ __('/mo · $:n/yr', ['n' => number_format($this->yearlyTotalCents / 100, 0)]) }}
-                                @else
-                                    {{ __('/mo · :interval', ['interval' => $intervalLabel]) }}
-                                @endif
+                                {{ __('/mo · :interval', ['interval' => $intervalLabel]) }}
                             </span>
                         </dd>
                     </div>
@@ -95,18 +99,6 @@
             @if ($errors->isNotEmpty())
                 <div class="border-b border-brand-ink/10 px-3 py-2 sm:px-4">
                     <x-livewire-validation-errors />
-                </div>
-            @endif
-
-            @if ($betaFeeWaived)
-                <div class="border-b border-brand-ink/10 bg-brand-gold/8 px-3 py-2 sm:px-4">
-                    <p class="flex items-center gap-2 text-sm font-semibold text-brand-ink">
-                        <x-heroicon-o-sparkles class="h-4 w-4 shrink-0 text-brand-gold" aria-hidden="true" />
-                        {{ __('You’re in the dply beta — $0, nothing due') }}
-                    </p>
-                    <p class="mt-1 text-sm text-brand-moss">
-                        {{ __('Your Edge site fees are waived during the beta. Add a card any time if you want billing running before launch.') }}
-                    </p>
                 </div>
             @endif
 
@@ -136,7 +128,7 @@
                 </div>
             @endif
 
-            <div wire:loading.flex wire:target="subscribeTier,changeTier,portal,cancelSubscription,resumeSubscription"
+            <div wire:loading.flex wire:target="subscribeTier,changeTier,endTrial,portal,cancelSubscription,resumeSubscription"
                  class="hidden items-center gap-3 border-b border-brand-ink/10 bg-brand-gold/10 px-3 py-2 sm:px-4">
                 <x-spinner variant="ink" size="sm" />
                 <span class="text-sm font-medium text-brand-ink">{{ __('Updating your subscription with Stripe…') }}</span>
@@ -222,9 +214,11 @@
             @endif
 
             {{-- Invoices --}}
-            <section id="invoices" class="border-b border-brand-ink/10">
+            <section id="invoices" class="border-b border-brand-ink/10" wire:init="loadInvoices">
                 <x-workspace-panel-head dense icon="heroicon-o-document" :title="__('Invoices')" :note="__('Recent invoices from Stripe.')" />
-                    @if ($this->invoices->isEmpty())
+                    @if (! $invoicesLoaded)
+                        <p class="px-3 py-8 text-center text-xs text-brand-mist sm:px-4">{{ __('Loading invoices…') }}</p>
+                    @elseif ($this->invoices === [])
                         <div class="px-3 py-8 text-center sm:px-4">
                             <span class="mx-auto inline-flex h-9 w-9 items-center justify-center rounded-xl bg-brand-sand/45 text-brand-mist ring-1 ring-brand-ink/10">
                                 <x-heroicon-o-document class="h-4 w-4" aria-hidden="true" />
@@ -234,17 +228,17 @@
                                 compact
                                 icon="heroicon-o-document-text"
                                 :title="__('No invoices yet')"
-                                :description="__('Invoices appear here once a live site is billed.')"
+                                :description="__('Invoices appear here once your plan is billed.')"
                             />
                         </div>
                     @else
                         <ul class="divide-y divide-brand-ink/10">
                             @foreach ($this->invoices as $invoice)
-                                @php $hosted = $invoice->asStripeInvoice()->hosted_invoice_url ?? null; @endphp
+                                @php $hosted = $invoice['url']; @endphp
                                 <li class="flex items-center justify-between gap-4 px-3 py-2 transition-colors hover:bg-brand-sand/15 sm:px-4">
                                     <div class="min-w-0">
-                                        <p class="text-sm font-semibold text-brand-ink">{{ $invoice->date()->toFormattedDateString() }}</p>
-                                        <p class="mt-0.5 font-mono text-xs text-brand-moss tabular-nums">{{ $invoice->total() }}</p>
+                                        <p class="text-sm font-semibold text-brand-ink">{{ \Illuminate\Support\Carbon::createFromTimestamp($invoice['date'])->toFormattedDateString() }}</p>
+                                        <p class="mt-0.5 font-mono text-xs text-brand-moss tabular-nums">{{ $invoice['total'] }}</p>
                                     </div>
                                     @if ($hosted)
                                         <a href="{{ $hosted }}" target="_blank" rel="noopener noreferrer" class="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-brand-sage hover:text-brand-ink">
@@ -262,13 +256,13 @@
 
             {{-- Subscription — cancel / resume. Last so the page reads
                  amount → forecast → pay → invoices → leave. --}}
-            @if ($this->canManageBilling)
+            @if ($subscriptionValid)
                 <section class="border-b border-brand-ink/10 last:border-b-0">
                     <x-workspace-panel-head
                         dense
                         :icon="$this->onGracePeriod ? 'heroicon-o-clock' : 'heroicon-o-arrow-path'"
                         :title="__('Cancel or resume')"
-                        :note="__('Cancel keeps your sites and data — billing just stops at the end of the period.')"
+                        :note="$this->subscription->onTrial() ? __('Cancel during the trial and you are never charged. When the trial ends, the organization is paused.') : __('Your plan runs to the end of the period. Usage from that period is invoiced once, then the organization is paused.')"
                     />
                     <div class="px-3 py-3 sm:px-4">
                         @if ($this->onGracePeriod)
@@ -302,19 +296,21 @@
             @endif
 
             {{-- Confirmation modals --}}
-            @if ($this->subscription)
+            @if ($subscriptionValid)
                 <x-modal name="cancel-subscription" maxWidth="md">
                     <div class="p-6">
                         <h3 class="text-lg font-semibold text-brand-ink">{{ __('Cancel subscription') }}</h3>
                         <p class="mt-3 text-sm text-brand-moss leading-relaxed">
-                            @if ($this->nextInvoiceAt)
-                                {{ __('You\'ll keep full access until :date — no further charges after that.', ['date' => $this->nextInvoiceAt->toFormattedDateString()]) }}
+                            @if ($this->subscription->onTrial())
+                                {{ __('Your trial runs until :date and you won\'t be charged, for the plan or for trial usage.', ['date' => $this->organization->planTrialEndsAt()?->toFormattedDateString()]) }}
+                            @elseif ($this->nextInvoiceAt)
+                                {{ __('You\'ll keep full access until :date. There are no further plan charges, but usage from this period is invoiced once when it ends.', ['date' => $this->nextInvoiceAt->toFormattedDateString()]) }}
                             @else
-                                {{ __('You\'ll keep full access until the end of your current billing period — no further charges after that.') }}
+                                {{ __('You\'ll keep full access until the end of your current billing period. There are no further plan charges, but usage from this period is invoiced once when it ends.') }}
                             @endif
                         </p>
                         <p class="mt-2 text-sm text-brand-moss leading-relaxed">
-                            {{ __('Your sites and data stay intact. You can resume anytime before the period ends.') }}
+                            {{ __('After that the organization is paused: sites show a paused page and its data is kept :days days. You can resume anytime before the period ends.', ['days' => $keepDays]) }}
                         </p>
                         <div class="mt-6 flex justify-end gap-3">
                             <x-secondary-button type="button" x-on:click="$dispatch('close-modal', 'cancel-subscription')">

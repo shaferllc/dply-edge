@@ -17,10 +17,10 @@ use Illuminate\Support\Facades\Cache;
 
 uses(RefreshDatabase::class);
 
-/** Build minutes and concurrency are tier allowances (ruling r-zdescb7y05vp1bxx). */
-function edgeSite(): array
+/** Build minutes and concurrency are tier allowances; an org on its trial runs as Pro (ruling r-f17p5zgeh120cm5t). */
+function edgeSite(array $org = []): array
 {
-    $org = Organization::factory()->create();
+    $org = Organization::factory()->create($org + ['trial_ends_at' => now()->addDays(3)]);
     $server = Server::factory()->create(['organization_id' => $org->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]]);
     $site = Site::factory()->create([
         'organization_id' => $org->id, 'server_id' => $server->id, 'type' => SiteType::Static,
@@ -38,50 +38,33 @@ function neverRuns(): EdgeBuildRunner
     return \Mockery::mock(EdgeBuildRunner::class)->shouldNotReceive('build')->getMock();
 }
 
-test('build minutes round each build up and bill overage in millicents', function () {
+test('build time bills per second, with no allowance and no rounding up per build', function () {
+    config(['dply.edge.usage_billing.build_millicents_per_minute' => 500]);
     [$org, , $deployment] = edgeSite();
     $deployment->update(['build_seconds' => 61]);
     EdgeDeployment::query()->create(['site_id' => $deployment->site_id, 'organization_id' => $org->id, 'build_seconds' => 120]);
 
-    $pro = config('subscription.standard.tiers.pro');
+    $seconds = EdgeBuildMinutes::secondsBetween($org, now()->startOfMonth(), now());
 
-    expect(EdgeBuildMinutes::usedThisMonth($org))->toBe(4)
-        ->and(EdgeBuildMinutes::overageCents(1_001, $pro))->toBe(1)   // 0.6¢ rounds up
-        ->and(EdgeBuildMinutes::overageCents(1_500, $pro))->toBe(300)
-        ->and(EdgeBuildMinutes::exhausted(300, ['build_minutes' => 300, 'build_minute_overage_millicents' => null]))->toBeTrue()
-        ->and(EdgeBuildMinutes::exhausted(300, config('subscription.standard.tiers.free')))->toBeFalse()
-        ->and(EdgeBuildMinutes::exhausted(5_000, $pro))->toBeFalse();
+    expect($seconds)->toBe(181)
+        ->and(EdgeBuildMinutes::costMillicents($seconds))->toEqualWithDelta(181 / 60 * 500, 1e-9);
 });
 
-test('a free org out of build minutes fails the deploy but keeps the live site', function () {
-    config([
-        'subscription.standard.tiers.free.build_minutes' => 300,
-        'subscription.standard.tiers.free.build_minute_overage_millicents' => null,
-    ]);
-    [$org, $site, $deployment] = edgeSite();
-    EdgeDeployment::query()->create(['site_id' => $site->id, 'organization_id' => $org->id, 'build_seconds' => 300 * 60]);
+test('a trial at its usage credit fails the deploy but keeps the live site', function () {
+    config(['subscription.standard.trial.spending_limit_cents' => 0]);
+    [, $site, $deployment] = edgeSite([]);
 
     (new BuildEdgeSiteJob($deployment->id))->handle(neverRuns());
 
     expect($deployment->fresh()->status)->toBe(EdgeDeployment::STATUS_FAILED)
-        ->and($deployment->fresh()->failure_reason)->toContain('build minutes are used up')
-        ->and($site->fresh()->status)->toBe(Site::STATUS_EDGE_ACTIVE);
-});
-
-test('a free org at its usage credit fails the deploy but keeps the live site', function () {
-    config(['subscription.standard.tiers.free.spending_limit_cents' => 0]);
-    [, $site, $deployment] = edgeSite();
-
-    (new BuildEdgeSiteJob($deployment->id))->handle(neverRuns());
-
-    expect($deployment->fresh()->status)->toBe(EdgeDeployment::STATUS_FAILED)
-        ->and($deployment->fresh()->failure_reason)->toContain('usage credit is used up')
+        ->and($deployment->fresh()->failure_reason)->toContain('usage cap is used up')
         ->and($site->fresh()->status)->toBe(Site::STATUS_EDGE_ACTIVE);
 });
 
 test('a build waits when the org has no free build slot', function () {
-    [$org, , $deployment] = edgeSite();
-    Cache::lock('edge-build-slot:'.$org->id.':0', 600)->get(); // Free: 1 concurrent build, taken
+    [$org, , $deployment] = edgeSite([]);
+    Cache::lock('edge-build-slot:'.$org->id.':0', 600)->get(); // Pro: 2 concurrent builds, both taken
+    Cache::lock('edge-build-slot:'.$org->id.':1', 600)->get();
 
     $job = (new BuildEdgeSiteJob($deployment->id))->withFakeQueueInteractions();
 
@@ -90,4 +73,14 @@ test('a build waits when the org has no free build slot', function () {
     $job->assertReleased(20);
 
     expect($deployment->fresh()->status)->toBe(EdgeDeployment::STATUS_BUILDING);
+});
+
+test('an org without a plan cannot deploy', function () {
+    [, $site, $deployment] = edgeSite(['trial_ends_at' => now()->subDay()]);
+
+    (new BuildEdgeSiteJob($deployment->id))->handle(neverRuns());
+
+    expect($deployment->fresh()->status)->toBe(EdgeDeployment::STATUS_FAILED)
+        ->and($deployment->fresh()->failure_reason)->toContain('no plan')
+        ->and($site->fresh()->status)->toBe(Site::STATUS_EDGE_ACTIVE);
 });

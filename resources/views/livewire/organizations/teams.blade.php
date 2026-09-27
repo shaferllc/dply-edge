@@ -30,7 +30,7 @@
             :organization="$organization"
             section="teams"
             :title="__('Teams')"
-            :description="__('Group members to scope servers, sites, and notifications. Each member can belong to multiple teams.')"
+            :description="__('Group people and route notifications to them. Teams don’t change what anyone can access. A member can belong to several teams.')"
             icon="heroicon-o-rectangle-group"
             :breadcrumb="[
                 ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
@@ -39,7 +39,7 @@
             ]"
         >
             <x-slot:actions>
-                <x-docs-link slug="org-roles-and-limits" class="!h-6 !gap-1 !rounded-md !px-2 !py-0 !text-xs !font-semibold">
+                <x-docs-link slug="roles-and-permissions" class="!h-6 !gap-1 !rounded-md !px-2 !py-0 !text-xs !font-semibold">
                     <x-heroicon-o-queue-list class="h-3.5 w-3.5 shrink-0 opacity-90" aria-hidden="true" />
                     {{ __('Roles & limits') }}
                 </x-docs-link>
@@ -117,7 +117,7 @@
                                 {{ __('Scoped alerts') }}
                             </dt>
                             <dd class="mt-1 text-xs leading-relaxed text-brand-moss">
-                                {{ __('Every team has its own notification channels, so an alert reaches the group that owns the server instead of everyone.') }}
+                                {{ __('Every team has its own notification channels, so an alert reaches the group that owns the app instead of everyone.') }}
                             </dd>
                         </div>
                         <div class="bg-brand-cream/40 px-5 py-3 sm:px-6">
@@ -154,7 +154,7 @@
                         </span>
                         <p class="mt-3 text-sm font-medium text-brand-ink">{{ __('No teams yet.') }}</p>
                         <p class="mx-auto mt-1 max-w-md text-xs leading-relaxed text-brand-mist">
-                            {{ __('A team is a named group of people — “Platform”, “On-call”, “Customer success”. Give it its own notification channels so the right group hears about the servers they own.') }}
+                            {{ __('A team is a named group of people — “Platform”, “On-call”, “Customer success”. Give it its own notification channels so the right group hears about the apps they own.') }}
                         </p>
                         @if ($isAdmin)
                             <button type="button" wire:click="openCreateTeamModal" class="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-brand-sage hover:text-brand-ink">
@@ -329,7 +329,7 @@
                         <x-heroicon-o-information-circle class="h-4 w-4 shrink-0 text-brand-sage" aria-hidden="true" />
                         {{ __('Roles are organization-wide — being on a team doesn\'t grant extra access.') }}
                     </span>
-                    <x-docs-link slug="org-roles-and-limits" class="!h-6 !gap-1 !rounded-md !px-2 !py-0 !text-xs !font-semibold">
+                    <x-docs-link slug="roles-and-permissions" class="!h-6 !gap-1 !rounded-md !px-2 !py-0 !text-xs !font-semibold">
                         {{ __('Roles & limits') }}
                     </x-docs-link>
                     @if ($pendingTeamInvites > 0)
@@ -360,7 +360,7 @@
                         <p class="text-xs font-semibold uppercase tracking-[0.18em] text-brand-sage">{{ __('Create team') }}</p>
                         <h2 class="mt-1 text-lg font-semibold text-brand-ink">{{ __('Name your team') }}</h2>
                         <p class="mt-1 text-sm leading-6 text-brand-moss">
-                            {{ __('Teams help you scope notifications and access. You can add organization members after the team is created.') }}
+                            {{ __('Teams group people and route notifications; they don’t change access. You can add organization members after the team is created.') }}
                         </p>
                     </div>
                 </div>

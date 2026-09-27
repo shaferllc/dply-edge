@@ -1,4 +1,7 @@
 <x-modal name="link-organization-secret-modal" :show="$showLinkOrganizationSecretModal" maxWidth="2xl" overlayClass="bg-brand-ink/40">
+    {{-- The body (vault listing, workspace options, paste preview) renders only
+         while the modal is open, so the closed page skips its queries. --}}
+    @if ($showLinkOrganizationSecretModal)
     <div class="border-b border-brand-ink/10 px-6 py-5">
         <h2 class="text-lg font-semibold text-brand-ink">{{ __('Secrets') }}</h2>
         <p class="mt-1 text-sm text-brand-moss">{{ __('Paste a .env snippet — comments and section headers are fine. Each key is saved write-never and injected on the next deploy.') }}</p>
@@ -109,4 +112,7 @@
     <div class="flex justify-end border-t border-brand-ink/10 bg-brand-sand/20 px-6 py-4">
         <x-secondary-button type="button" wire:click="closeLinkOrganizationSecretModal" x-on:click="$dispatch('close')">{{ __('Close') }}</x-secondary-button>
     </div>
+    @else
+    <p class="px-6 py-10 text-center text-sm text-brand-moss">{{ __('Loading…') }}</p>
+    @endif
 </x-modal>

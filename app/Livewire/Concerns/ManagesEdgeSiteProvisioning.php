@@ -35,7 +35,7 @@ trait ManagesEdgeSiteProvisioning
 
     public function retryProvisioning(): void
     {
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
 
         $this->site->refresh();
 

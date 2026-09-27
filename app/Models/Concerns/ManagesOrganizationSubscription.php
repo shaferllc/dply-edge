@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace App\Models\Concerns;
 
 use App\Modules\Billing\Services\SubscriptionPlanResolver;
+use Carbon\CarbonInterface;
+use Illuminate\Support\Facades\Cache;
+use Laravel\Cashier\Subscription;
 
 /**
  * Concern extracted from the host Livewire component to keep it under control.
@@ -14,9 +17,8 @@ use App\Modules\Billing\Services\SubscriptionPlanResolver;
 trait ManagesOrganizationSubscription
 {
     /**
-     * The plan record the org's quota ceilings are read from. dply-edge has no
-     * paid plan tiers, so this is always the Free allowance — paying orgs are
-     * uncapped upstream ({@see ManagesOrganizationQuotas::quotaLimit()}).
+     * The legacy per-surface quota record ({@see ManagesOrganizationQuotas::quotaLimit()}),
+     * always `free`: every ceiling is unlimited. Plans are `billingTier()`.
      *
      * @return array{key: string, label: string, price_cents: int, max_sites: ?int, max_edge_apps: ?int, max_functions: ?int}
      */
@@ -31,17 +33,19 @@ trait ManagesOrganizationSubscription
     }
 
     /**
-     * The tier whose price is on the subscription: `pro`, `team`,
+     * The tier whose price is on the subscription: `starter`, `pro`, `team`,
      * `enterprise`, or null (no subscription, or a pre-tier per-site one the
-     * next billing sync moves onto a tier).
+     * next billing sync moves onto a tier). A grandfathered plan price counts
+     * when it is listed in `STRIPE_PRICE_*_LEGACY`
+     * ({@see SubscriptionPlanResolver::tierPriceIds()}).
      */
     public function subscribedTier(): ?string
     {
         if ($this->onEnterpriseSubscription()) {
             return 'enterprise';
         }
-        foreach (['team', 'pro'] as $tier) {
-            if ($this->subscriptionMatchesAnyPrice([config('subscription.standard.stripe.tier_'.$tier)])) {
+        foreach (SubscriptionPlanResolver::PAID_TIERS as $tier) {
+            if ($this->subscriptionMatchesAnyPrice(SubscriptionPlanResolver::tierPriceIds($tier))) {
                 return $tier;
             }
         }
@@ -50,12 +54,120 @@ trait ManagesOrganizationSubscription
     }
 
     /**
-     * Tier used for allowances and feature gates. A pre-tier per-site
-     * subscription reads as Pro until the sync moves it.
+     * Prices on the live subscription that no config list knows — most
+     * likely an archived plan price nobody listed as legacy.
+     *
+     * @return list<string>
+     */
+    public function unrecognisedSubscriptionPrices(): array
+    {
+        $subscription = $this->liveSubscription();
+
+        if ($subscription === null) {
+            return [];
+        }
+        // A single-price subscription also names its price on the row.
+        $prices = $subscription->items->pluck('stripe_price')->push($subscription->stripe_price)
+            ->filter(static fn (mixed $id): bool => is_string($id) && $id !== '')->unique()->values()->all();
+
+        return SubscriptionPlanResolver::unrecognisedPrices($prices);
+    }
+
+    /**
+     * Tier used for allowances and feature gates (ruling r-f17p5zgeh120cm5t):
+     * a comped org is Team; a subscription's tier (a Stripe trial reads as
+     * its tier: valid() is true while trialing); a pre-tier per-site
+     * subscription reads as Pro until the sync moves it; an org on its
+     * card-less trial (organizations.trial_ends_at) gets the trial tier.
+     * Anything else is `none`: no plan, paused.
+     *
+     * A live subscription on a price no config knows (an archived plan price
+     * not listed in STRIPE_PRICE_*_LEGACY) is paying: it reads as Pro so the
+     * org is not paused, and is reported so someone lists the price.
      */
     public function billingTier(): string
     {
-        return $this->subscribedTier() ?? ($this->onStandardSubscription() ? 'pro' : 'free');
+        if ($this->isComped()) {
+            return 'team';
+        }
+
+        return $this->subscribedTier()
+            ?? ($this->onStandardSubscription() ? 'pro' : null)
+            ?? ($this->reportUnrecognisedPrices() ? 'pro' : null)
+            ?? ($this->onGenericTrial() ? (string) config('subscription.standard.trial.tier', 'pro') : 'none');
+    }
+
+    /** Reports (at most daily per price) a live subscription's unknown prices; true when there are any. */
+    private function reportUnrecognisedPrices(): bool
+    {
+        $unknown = $this->unrecognisedSubscriptionPrices();
+        foreach ($unknown as $priceId) {
+            if (Cache::add('billing.unrecognised_price.'.$priceId, true, now()->addDay())) {
+                report(new \RuntimeException("Organization {$this->getKey()} is subscribed to Stripe price {$priceId}, which no STRIPE_PRICE_* or STRIPE_PRICE_*_LEGACY setting lists; treating it as Pro. Add it to the right *_LEGACY list."));
+            }
+        }
+
+        return $unknown !== [];
+    }
+
+    /** False once the trial is over and nothing is paid: the org is paused. */
+    public function hasPlan(): bool
+    {
+        return $this->billingTier() !== 'none';
+    }
+
+    /** dply's own orgs and hand-picked ones: Team, no bill. */
+    public function isComped(): bool
+    {
+        $until = $this->getAttribute('comped_until');
+
+        return $until !== null && $until->isFuture();
+    }
+
+    /**
+     * On a trial, card or not: capped by the trial spending limit, and
+     * shown as a trial in billing. Comped and paid orgs are not.
+     */
+    public function onTrialPlan(): bool
+    {
+        if ($this->isComped()) {
+            return false;
+        }
+        $subscription = $this->liveSubscription();
+        if ($subscription !== null) {
+            return $subscription->onTrial();
+        }
+
+        return $this->onGenericTrial();
+    }
+
+    /** When the trial ends (Stripe's or the card-less one), or null. */
+    public function planTrialEndsAt(): ?CarbonInterface
+    {
+        $subscription = $this->subscription('default');
+        if ($subscription !== null && $subscription->onTrial()) {
+            return $subscription->trial_ends_at;
+        }
+
+        return $this->onGenericTrial() ? $this->trial_ends_at : null;
+    }
+
+    /**
+     * Whether Checkout should start a trial: only an org that has never had
+     * one or a subscription, whose owners have not had one on another org.
+     */
+    public function eligibleForTrial(): bool
+    {
+        if ($this->trial_ends_at !== null || $this->subscriptions()->exists()) {
+            return false;
+        }
+        $owners = $this->users()->wherePivot('role', 'owner')->pluck('users.id');
+
+        return ! static::query()
+            ->whereKeyNot($this->getKey())
+            ->whereHas('users', fn ($q) => $q->whereIn('users.id', $owners)->where('organization_user.role', 'owner'))
+            ->where(fn ($q) => $q->whereNotNull('trial_ends_at')->orWhereHas('subscriptions'))
+            ->exists();
     }
 
     /**
@@ -72,7 +184,7 @@ trait ManagesOrganizationSubscription
      */
     public function onAnyPaidPlan(): bool
     {
-        return $this->onStandardSubscription() || $this->onEnterpriseSubscription();
+        return $this->isComped() || $this->onStandardSubscription() || $this->onEnterpriseSubscription();
     }
 
     /**
@@ -105,8 +217,9 @@ trait ManagesOrganizationSubscription
             $stripe['edge_ssr_yearly'] ?? null,
             $stripe['edge_usage'] ?? null,
             $stripe['edge_lb_endpoint'] ?? null,
-            $stripe['tier_pro'] ?? null,
-            $stripe['tier_team'] ?? null,
+            ...SubscriptionPlanResolver::tierPriceIds('starter'),
+            ...SubscriptionPlanResolver::tierPriceIds('pro'),
+            ...SubscriptionPlanResolver::tierPriceIds('team'),
             $stripe['team_seat'] ?? null,
         ];
 
@@ -127,12 +240,32 @@ trait ManagesOrganizationSubscription
     }
 
     /**
+     * The subscription while it counts: valid (active, trialing, canceled but
+     * paid through), or past due while Stripe retries a paying customer's
+     * card. The first charge after a trial failing is not a paying customer
+     * yet, so that one does not count (ruling r-f17p5zgeh120cm5t).
+     */
+    public function liveSubscription(): ?Subscription
+    {
+        $subscription = $this->subscription('default');
+        if ($subscription === null) {
+            return null;
+        }
+        if ($subscription->valid()) {
+            return $subscription;
+        }
+        $firstChargeAfterTrial = $subscription->trial_ends_at !== null && $subscription->trial_ends_at->gt(now()->subDays(35));
+
+        return $subscription->pastDue() && ! $firstChargeAfterTrial ? $subscription : null;
+    }
+
+    /**
      * @param  list<?string>  $priceIds
      */
     private function subscriptionMatchesAnyPrice(array $priceIds): bool
     {
-        $subscription = $this->subscription('default');
-        if (! $subscription || ! $subscription->valid()) {
+        $subscription = $this->liveSubscription();
+        if ($subscription === null) {
             return false;
         }
 
@@ -146,9 +279,29 @@ trait ManagesOrganizationSubscription
     }
 
     /**
-     * Tier seat cap: hard on tiers without a per-seat price (Free, Pro), none
-     * where extra seats are billed (Team) or unlimited (Enterprise). Beta orgs
-     * without a subscription aren't seat-capped.
+     * The organization role that can only view (ruling r-jnv0r3qf1xk49kmc:
+     * view-only members are free). Such members and their invitations never
+     * take a seat: not in the bill, not against a plan's hard seat cap.
+     */
+    public const VIEW_ONLY_ROLE = 'viewer';
+
+    /** Members that are seats: everyone but view-only members. */
+    public function seatCount(): int
+    {
+        return $this->users()->wherePivot('role', '!=', self::VIEW_ONLY_ROLE)->count();
+    }
+
+    /** Seats plus unexpired invitations that would become seats: what the hard cap checks. */
+    public function seatsWithPendingInvites(): int
+    {
+        return $this->seatCount()
+            + $this->invitations()->where('expires_at', '>', now())->where('role', '!=', self::VIEW_ONLY_ROLE)->count();
+    }
+
+    /**
+     * Tier seat cap: hard on tiers without a per-seat price (Starter, Pro), none
+     * where extra seats are billed (Team) or unlimited (Enterprise). Beta
+     * status changes nothing (ruling r-jnv0r3qf1xk49kmc: no beta perks).
      */
     public function seatCapFromSubscription(): ?int
     {
@@ -156,15 +309,13 @@ trait ManagesOrganizationSubscription
         if (($tier['extra_seat_cents'] ?? null) !== null || ($tier['seats'] ?? null) === null) {
             return null;
         }
-        if ($this->isBeta() && ! $this->onAnyPaidPlan()) {
-            return null;
-        }
 
         return (int) $tier['seats'];
     }
 
     /**
-     * Maximum members + pending invites; null means unlimited.
+     * Maximum seats (members + pending invites, view-only ones excluded);
+     * null means unlimited.
      */
     public function effectiveMemberSeatCap(): ?int
     {

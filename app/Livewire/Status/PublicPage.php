@@ -74,7 +74,9 @@ class PublicPage extends Component
                 : 'incident';
         } elseif ($worstMonitor === MonitorOperationalState::OUTAGE) {
             $banner = 'outage';
-        } elseif ($worstMonitor === MonitorOperationalState::DEGRADED || $worstMonitor === MonitorOperationalState::UNKNOWN) {
+        } elseif ($worstMonitor === MonitorOperationalState::DEGRADED) {
+            // Unknown (not checked yet, or stale) is shown per row; it is not
+            // evidence of degradation, so it doesn't change the banner.
             $banner = 'degraded';
         }
 

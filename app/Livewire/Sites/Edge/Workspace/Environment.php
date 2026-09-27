@@ -20,6 +20,7 @@ use App\Modules\Edge\Support\EdgeContainerSettings;
 use App\Services\Sites\DotEnvFileParser;
 use App\Support\Sites\EdgeSiteViewData;
 use Illuminate\Contracts\View\View;
+use Illuminate\Support\Collection;
 use Livewire\Component;
 
 class Environment extends Component
@@ -36,6 +37,14 @@ class Environment extends Component
     public string $edgeEnvText = '';
 
     public bool $pending = false;
+
+    /**
+     * Every env row for the site, loaded once per request. Private, so it is
+     * never serialized into the snapshot; values decrypt only when read.
+     *
+     * @var Collection<int, EdgeSiteEnvVar>|null
+     */
+    private ?Collection $envRows = null;
 
     public function mount(Server $server, Site $site): void
     {
@@ -104,6 +113,7 @@ class Environment extends Component
         }
 
         $this->resetErrorBag('edgeEnvText');
+        $this->envRows = null;
         $this->edgeEnvText = $this->envText();
         $this->pending = false;
         if (! $quiet) {
@@ -130,12 +140,27 @@ class Environment extends Component
         $this->redeployEdge();
     }
 
+    /** @return Collection<int, EdgeSiteEnvVar> */
+    private function envRows(): Collection
+    {
+        return $this->envRows ??= $this->site->edgeEnvVars()->get();
+    }
+
+    /**
+     * Keys across every scope. Overrides the trait's query so the linked
+     * secrets list reuses the rows this component already loaded.
+     *
+     * @return list<string>
+     */
+    private function siteEnvKeys(): array
+    {
+        return $this->envRows()->pluck('key')->map(fn ($key): string => (string) $key)->values()->all();
+    }
+
     private function envText(): string
     {
-        return $this->site->edgeEnvVars()
+        return $this->envRows()
             ->where('scope', EdgeSiteEnvVar::SCOPE_PRODUCTION)
-            ->orderBy('key')
-            ->get()
             ->reject(fn (EdgeSiteEnvVar $row): bool => in_array($row->key, EdgeContainerConnections::MANAGED_REDIS_KEYS, true))
             ->map(fn (EdgeSiteEnvVar $row): string => $row->key.'='.$this->quoteEnvValue($row->value))
             ->implode("\n");
@@ -151,8 +176,13 @@ class Environment extends Component
     private function resourceInjections(array $dashboardKeys): array
     {
         $meta = $this->site->edgeMeta();
+        // Realtime reaches Worker apps too (as bindings), so it comes before the container-only rows.
+        $realtime = [];
+        foreach (EdgeContainerConnections::realtimeDriverEnv($this->site) as $key => $value) {
+            $realtime[] = ['key' => $key, 'value' => str_ends_with($key, '_SECRET') ? '••••' : $value, 'from' => __('Realtime')];
+        }
         if (($meta['runtime_mode'] ?? '') !== 'container') {
-            return [];
+            return in_array($meta['runtime_mode'] ?? '', ['ssr', 'hybrid'], true) ? $this->markOverridden($realtime, $dashboardKeys) : [];
         }
 
         $rows = [];
@@ -190,6 +220,16 @@ class Environment extends Component
             $rows[] = $row;
         }
 
+        return $this->markOverridden([...$rows, ...$realtime], $dashboardKeys);
+    }
+
+    /**
+     * @param  list<array{key: string, value: string, from: string}>  $rows
+     * @param  list<string>  $dashboardKeys
+     * @return list<array{key: string, value: string, from: string, overridden: bool}>
+     */
+    private function markOverridden(array $rows, array $dashboardKeys): array
+    {
         return array_map(function (array $row) use ($dashboardKeys): array {
             $row['overridden'] = in_array($row['key'], $dashboardKeys, true)
                 && ! in_array($row['key'], EdgeContainerConnections::MANAGED_REDIS_KEYS, true);
@@ -228,7 +268,7 @@ class Environment extends Component
         // Detect missing secrets (declared in repo, no dashboard value)
         // so we can warn the user inline.
         $declaredSecretNames = is_array($repoEnv['secret'] ?? null) ? $repoEnv['secret'] : [];
-        $dashboardKeys = $this->site->edgeEnvVars()->pluck('key')->all();
+        $dashboardKeys = $this->siteEnvKeys();
         $missingSecrets = array_values(array_filter(
             $declaredSecretNames,
             static fn ($name): bool => is_string($name) && ! in_array($name, $dashboardKeys, true),

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\DeployContract\Checks;
 
 use App\Models\EdgeDeployReplay;
+use App\Modules\Edge\Services\EdgeDeployReplaySampler;
 use App\Services\DeployContract\Contracts\DeployContractCheck;
 use App\Services\DeployContract\DeployContractCheckResult;
 use App\Services\DeployContract\DeployContractContext;
@@ -54,6 +55,15 @@ final class EdgeDeployReplayPassCheck implements DeployContractCheck
             ->first();
 
         if ($replay === null) {
+            // A new or quiet app has no recent production traffic to sample,
+            // so a replay can never run — don't let that block promote.
+            if (app(EdgeDeployReplaySampler::class)->sample($context->parent, 1) === []) {
+                return new DeployContractCheckResult(
+                    DeployContractCheckResult::STATUS_PASS,
+                    (string) __('No production traffic in the last hour to replay — passed without a replay.'),
+                );
+            }
+
             return new DeployContractCheckResult(
                 DeployContractCheckResult::STATUS_FAIL,
                 (string) __('Run shadow replay against this preview before promote.'),

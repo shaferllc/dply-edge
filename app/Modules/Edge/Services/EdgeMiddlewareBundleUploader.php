@@ -24,7 +24,7 @@ use Illuminate\Support\Facades\Log;
  * Script naming: `dply-mw-{site-tail6}-{deploy-tail8}` — disambiguated
  * from SSR scripts (`dply-ssr-…`) so both can coexist on a single
  * deployment without name collisions. Same bindings as the SSR
- * uploader (HOST_MAP, ASSETS, DEPLOYMENT_ID, SITE_ID, STORAGE_PREFIX)
+ * uploader (DEPLOYMENT_ID, SITE_ID, STORAGE_PREFIX)
  * so middleware can read site state if it needs to.
  *
  * Pass-through contract (enforced in `packages/edge-worker/src/handler.ts`):
@@ -247,17 +247,13 @@ class EdgeMiddlewareBundleUploader
      */
     private function bindingsFor(EdgeDeployment $deployment, EdgeDeliveryContext $context): array
     {
+        // Customer code: only its own identifiers, never the platform's
+        // shared HOST_MAP / EDGE_CACHE / ASSETS (see EdgeSsrBundleUploader).
         $bindings = [
-            ['name' => 'HOST_MAP', 'type' => 'kv_namespace', 'namespace_id' => $context->kvNamespaceId],
-            ['name' => 'ASSETS', 'type' => 'r2_bucket', 'bucket_name' => $context->r2Bucket],
             ['name' => 'DEPLOYMENT_ID', 'type' => 'plain_text', 'text' => (string) $deployment->id],
             ['name' => 'SITE_ID', 'type' => 'plain_text', 'text' => (string) $deployment->site_id],
             ['name' => 'STORAGE_PREFIX', 'type' => 'plain_text', 'text' => (string) $deployment->storage_prefix],
         ];
-
-        if ($context->cacheKvNamespaceId !== '') {
-            $bindings[] = ['name' => 'EDGE_CACHE', 'type' => 'kv_namespace', 'namespace_id' => $context->cacheKvNamespaceId];
-        }
 
         // P10c — append user-declared bindings from dply.yaml so the
         // middleware can read its KV / R2 / D1 / Queues by name.
@@ -279,6 +275,8 @@ class EdgeMiddlewareBundleUploader
                     'text' => $value,
                 ];
             }
+            // Realtime env after the site's own, skipping names it already set.
+            $bindings = [...$bindings, ...EdgeContainerConnections::realtimeWorkerBindings($site, array_column($bindings, 'name'))];
         }
 
         return $bindings;

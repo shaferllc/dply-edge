@@ -17,7 +17,8 @@ use Illuminate\Support\Facades\Http;
 uses(RefreshDatabase::class);
 
 beforeEach(function () {
-    config(['edge.valkey.api_url' => 'http://gateway.test', 'edge.valkey.token' => 'tok']);
+    // Valkey's costs are backed out of its prices at 20% (EdgeValkey::CLASSES).
+    config(['edge.valkey.api_url' => 'http://gateway.test', 'edge.valkey.token' => 'tok', 'dply.edge.usage_billing.margin_percent' => 20]);
     $user = User::factory()->create();
     $this->org = Organization::factory()->create();
     $server = Server::factory()->create(['organization_id' => $this->org->id, 'user_id' => $user->id]);

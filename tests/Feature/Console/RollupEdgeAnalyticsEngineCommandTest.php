@@ -51,8 +51,8 @@ test('analytics engine rollup writes hourly rows by site', function () {
         ]);
 
     app()->instance(EdgeAnalyticsEngineRollup::class, new EdgeAnalyticsEngineRollup(
-        $mockClient,
-        app(EdgePerformanceHourlyRollup::class),
+        rollup: app(EdgePerformanceHourlyRollup::class),
+        client: $mockClient,
     ));
 
     $this->artisan('dply:edge:rollup-analytics-engine', ['--hours' => 2])->assertOk();

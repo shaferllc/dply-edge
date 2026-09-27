@@ -19,6 +19,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Model;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\On;
 use Livewire\Component;
 
 #[Layout('layouts.app')]
@@ -93,8 +94,6 @@ class EdgeSettings extends Component
             'edge-alerts' => 'alerts',
             'edge-audit' => 'audit',
             'edge-billing' => 'billing',
-            'bindings' => 'resources',
-            'edge-bindings' => 'resources',
             'edge-bot-protection' => 'bot-protection',
             'edge-build' => 'build',
             'edge-container' => 'container',
@@ -177,6 +176,10 @@ class EdgeSettings extends Component
             auth()->user(),
         ));
     }
+
+    /** The banner component finished a run: re-render once to pick up its side effects. */
+    #[On('console-action-finished')]
+    public function refreshAfterConsoleAction(): void {}
 
     protected function currentEdgeSection(): ?string
     {

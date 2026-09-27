@@ -383,6 +383,15 @@ class EdgeHostMapPublisher
         if ($effErrors['maintenance_enabled']) {
             $payload['maintenance_mode'] = true;
         }
+        // Billing pause (ruling r-f17p5zgeh120cm5t): the org's trial ended
+        // unpaid, or its usage passed the trial's spending cap. Served as
+        // maintenance so nothing behind it wakes; the site's own maintenance
+        // setting is left as it was.
+        $organization = $site->organization;
+        if ($organization !== null && $organization->billing_paused_at !== null && (! $organization->hasPlan() || $organization->onTrialPlan())) {
+            $payload['maintenance_mode'] = true;
+            $payload['maintenance_html'] = view('edge.billing-paused')->render();
+        }
 
         if (($edgeMeta['runtime_mode'] ?? 'static') === 'hybrid') {
             // Hybrid origin (P55-followup): repo-declared `origin:` from
@@ -436,9 +445,49 @@ class EdgeHostMapPublisher
             if (is_array($info) && ($info['dns_status'] ?? null) !== 'ready') {
                 continue;
             }
+            // Owned by another site (e.g. a preview's copy of its parent's
+            // routing, or a legacy duplicate): never write or delete its key.
+            if ($this->hostnameClaimedElsewhere($site, $hostname)) {
+                continue;
+            }
             $hosts[] = strtolower($hostname);
         }
 
         return $hosts;
+    }
+
+    /**
+     * Whether another (non-preview) site holds this custom hostname — ready
+     * only, or attached at all. Preview sites copy their parent's routing, so
+     * they are never owners.
+     *
+     * ponytail: scans sites.meta as text per hostname; move custom domains to
+     * a table with a unique index if publish gets slow.
+     */
+    public function hostnameClaimedElsewhere(Site $site, string $hostname, bool $readyOnly = true): bool
+    {
+        $hostname = rtrim(strtolower(trim($hostname)), '.');
+        if ($hostname === '') {
+            return false;
+        }
+
+        return Site::query()
+            ->whereKeyNot($site->getKey())
+            ->whereRaw('meta::text ilike ?', ['%'.addcslashes('"'.$hostname.'"', '\\%_').'%'])
+            ->get(['id', 'meta'])
+            ->contains(function (Site $other) use ($hostname, $readyOnly): bool {
+                $domains = $other->edgeMeta()['routing']['custom_domains'] ?? null;
+                if ($other->isEdgePreview() || ! is_array($domains)) {
+                    return false;
+                }
+                foreach ($domains as $key => $info) {
+                    if (is_string($key) && rtrim(strtolower(trim($key)), '.') === $hostname
+                        && (! $readyOnly || ! is_array($info) || ($info['dns_status'] ?? null) === 'ready')) {
+                        return true;
+                    }
+                }
+
+                return false;
+            });
     }
 }

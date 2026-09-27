@@ -12,10 +12,12 @@ use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
- * Free orgs have no card, so container traffic past the usage credit is a
- * loss: Cloudflare keeps billing while the container is awake. Once the
- * credit is used, write a KV flag the edge worker checks before it starts
- * the container. Paid orgs are never flagged — their overage is invoiced.
+ * A trial has not been charged yet, so container traffic past its spending
+ * cap is a loss: Cloudflare keeps billing while the container is awake. Once
+ * the cap is used (or the org has no plan), write a KV flag the edge worker
+ * checks before it starts the container. Worker-only sites are stopped by the
+ * paused page instead (OrganizationBillingEnforcer). Paid orgs are never
+ * flagged — their usage is invoiced.
  */
 final class StarterTrafficGate
 {
@@ -47,7 +49,8 @@ final class StarterTrafficGate
 
     public function syncOrganization(Organization $organization): void
     {
-        $pause = $this->budget->status($organization)['exhausted'];
+        // No plan (trial over, unpaid): nothing runs. On a trial: past its cap.
+        $pause = ! $organization->hasPlan() || $this->budget->status($organization)['exhausted'];
 
         Site::query()
             ->where('organization_id', $organization->id)

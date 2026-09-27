@@ -7,7 +7,6 @@ namespace Tests\Feature\EdgeNavLinkTest;
 use App\Models\Organization;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Laravel\Pennant\Feature;
 
 uses(RefreshDatabase::class);
 
@@ -16,8 +15,6 @@ uses(RefreshDatabase::class);
  | Compute tab strip is not on this page.
  */
 test('dashboard does not show the compute nav row', function () {
-    Feature::define('surface.edge', fn () => true);
-    Feature::flushCache();
     $user = ownerWithOrg();
 
     $this->actingAs($user)
@@ -26,17 +23,6 @@ test('dashboard does not show the compute nav row', function () {
         ->assertDontSee('Compute')
         ->assertSee('Dashboard')
         ->assertSee(route('dashboard'), false);
-});
-
-test('dashboard stays reachable when the retired surface edge flag is off', function () {
-    Feature::define('surface.edge', fn () => false);
-    Feature::flushCache();
-
-    $user = ownerWithOrg();
-
-    $this->actingAs($user)
-        ->get(route('dashboard'))
-        ->assertOk();
 });
 
 function ownerWithOrg(): User

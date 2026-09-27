@@ -13,8 +13,8 @@ use Illuminate\Support\Facades\Cache;
 
 uses(RefreshDatabase::class);
 
-test('an exhausted free org pauses its managed container apps', function () {
-    config(['subscription.standard.tiers.free.spending_limit_cents' => 0, 'edge.fake.enabled' => true]);
+test('a trial past its credit pauses its managed container apps', function () {
+    config(['subscription.standard.trial.spending_limit_cents' => 0, 'edge.fake.enabled' => true]);
     $org = Organization::factory()->create();
     $server = Server::factory()->for($org)->create();
     $site = Site::factory()->for($org)->for($server)->create([
@@ -26,9 +26,9 @@ test('an exhausted free org pauses its managed container apps', function () {
     expect(Cache::get('edge:fake:kv-text')[StarterTrafficGate::KEY_PREFIX.$site->id] ?? null)->toBe('1');
 });
 
-test('a free org under the credit clears the pause flag', function () {
+test('a trial under its credit clears the pause flag', function () {
     config(['edge.fake.enabled' => true]);
-    $org = Organization::factory()->create();
+    $org = Organization::factory()->create(['trial_ends_at' => now()->addDays(3)]);
     $server = Server::factory()->for($org)->create();
     $site = Site::factory()->for($org)->for($server)->create([
         'meta' => ['edge' => ['runtime_mode' => 'container']],
@@ -41,7 +41,7 @@ test('a free org under the credit clears the pause flag', function () {
 });
 
 test('a bring-your-own cloudflare container is not paused', function () {
-    config(['subscription.standard.tiers.free.spending_limit_cents' => 0, 'edge.fake.enabled' => true]);
+    config(['subscription.standard.trial.spending_limit_cents' => 0, 'edge.fake.enabled' => true]);
     $org = Organization::factory()->create();
     $server = Server::factory()->for($org)->create();
     Site::factory()->for($org)->for($server)->create([
@@ -52,4 +52,16 @@ test('a bring-your-own cloudflare container is not paused', function () {
     app(StarterTrafficGate::class)->syncOrganization($org);
 
     expect(Cache::get('edge:fake:kv-text', []))->toBe([]);
+});
+
+test('an org without a plan pauses its managed container apps', function () {
+    config(['edge.fake.enabled' => true]);
+    $org = Organization::factory()->noPlan()->create();
+    $site = Site::factory()->for($org)->for(Server::factory()->for($org)->create())->create([
+        'meta' => ['edge' => ['runtime_mode' => 'container']],
+    ]);
+
+    app(StarterTrafficGate::class)->syncOrganization($org);
+
+    expect(Cache::get('edge:fake:kv-text')[StarterTrafficGate::KEY_PREFIX.$site->id] ?? null)->toBe('1');
 });

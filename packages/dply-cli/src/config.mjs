@@ -7,11 +7,11 @@ import { fileURLToPath } from 'node:url';
 const GLOBAL_CONFIG_DIR = join(homedir(), '.dply');
 const GLOBAL_CONFIG_PATH = join(GLOBAL_CONFIG_DIR, 'config.json');
 const LOCAL_LINK_FILE = '.dply/site.json';
-const PUBLIC_CLOUD_URL = 'https://dply.io';
+const PUBLIC_CLOUD_URL = 'https://edge.dply.io';
 
 /**
  * Baked in when the CLI is packaged from a dply instance (/cli/dply-cli.tgz).
- * Local monorepo installs ship https://dplyi.test; production tarballs use APP_URL.
+ * The source default is the hosted origin; tarballs are rewritten to the serving origin.
  *
  * @returns {string | null}
  */
@@ -97,8 +97,8 @@ export async function resolveLoginBaseUrl(flags = {}) {
  * and remembers which is active, instead of one set of fields that each login
  * clobbered.
  *
- * Instances are keyed by hostname (`dply.test`, `dply.io`): no invented alias
- * to learn, and `dply use dply.io` reads as what it does.
+ * Instances are keyed by hostname (`dply.test`, `edge.dply.io`): no invented alias
+ * to learn, and `dply use edge.dply.io` reads as what it does.
  *
  * @param {string} baseUrl
  * @returns {string}

@@ -32,10 +32,9 @@ class EdgeCreateForm extends Form
 
     public bool $spa_fallback = true;
 
-    // Off by default — operators have to opt in on the create form so a
-    // freshly connected repo doesn't silently auto-deploy on every push
-    // (especially noisy for forks, scratch repos, and `main`-pushed work).
-    public bool $deploy_on_push = false;
+    // On by default: create registers the GitHub webhook when the repo came
+    // from a linked GitHub account. Example templates turn it off.
+    public bool $deploy_on_push = true;
 
     public string $runtime_mode = 'static';
 

@@ -102,7 +102,7 @@
                                     'border-brand-ink/10 bg-white text-brand-mist cursor-not-allowed opacity-60' => $count === 0 && $family !== $f['id'],
                                 ])
                             >
-                                <x-dynamic-component :component="$f['icon']" class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                @svg($f['icon'], 'h-3.5 w-3.5 shrink-0', ['aria-hidden' => 'true'])
                                 {{ $f['label'] }}
                                 <span @class([
                                     'ms-0.5 rounded px-1 py-px text-2xs tabular-nums',
@@ -120,7 +120,7 @@
                         <input
                             type="search"
                             wire:model.live.debounce.300ms="search"
-                            placeholder="{{ __('Search action or subject…') }}"
+                            placeholder="{{ __('Search action, subject, or values…') }}"
                             class="block h-7 w-full rounded-md border-brand-ink/15 bg-white py-1 ps-8 pe-2.5 text-xs shadow-sm focus:border-brand-sage focus:ring-brand-sage"
                         />
                     </div>
@@ -163,17 +163,19 @@
                                 $palette = $tonePalette[$meta['tone']] ?? $tonePalette['neutral'];
                                 $expanded = in_array($log->id, $expandedIds, true);
                                 $hasDiff = ! empty($log->old_values ?? []) || ! empty($log->new_values ?? []);
+                                // Accessor resolves the morph subject; read it once per row.
+                                $subjectSummary = $log->subject_summary;
                             @endphp
                             <li wire:key="log-{{ $log->id }}" class="group">
                                 <button
                                     type="button"
-                                    @if ($hasDiff) wire:click="toggleRow({{ $log->id }})" @endif
+                                    @if ($hasDiff) wire:click="toggleRow('{{ $log->id }}')" @endif
                                     @disabled(! $hasDiff)
                                     class="flex w-full items-start gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-brand-sand/15 disabled:cursor-default sm:px-4"
                                 >
                                     <span class="relative shrink-0">
                                         <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg ring-1 {{ $palette['tile'] }}">
-                                            <x-dynamic-component :component="$meta['icon']" class="h-3.5 w-3.5" aria-hidden="true" />
+                                            @svg($meta['icon'], 'h-3.5 w-3.5', ['aria-hidden' => 'true'])
                                         </span>
                                         <span class="absolute -end-0.5 -bottom-0.5 inline-block h-1.5 w-1.5 rounded-full ring-2 ring-white {{ $palette['dot'] }}" aria-hidden="true"></span>
                                     </span>
@@ -190,18 +192,18 @@
                                         <p class="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-brand-moss">
                                             @if ($log->user)
                                                 <span class="inline-flex items-center gap-1">
-                                                    <x-heroicon-m-user-circle class="h-3.5 w-3.5 shrink-0 text-brand-mist" aria-hidden="true" />
+                                                    @svg('heroicon-m-user-circle', 'h-3.5 w-3.5 shrink-0 text-brand-mist', ['aria-hidden' => 'true'])
                                                     {{ $log->user->name }}
                                                 </span>
                                             @else
                                                 <span class="inline-flex items-center gap-1 text-brand-mist">
-                                                    <x-heroicon-m-bolt class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                                    @svg('heroicon-m-bolt', 'h-3.5 w-3.5 shrink-0', ['aria-hidden' => 'true'])
                                                     {{ __('System') }}
                                                 </span>
                                             @endif
-                                            @if ($log->subject_summary)
+                                            @if ($subjectSummary)
                                                 <span class="text-brand-mist">·</span>
-                                                <span class="truncate font-mono text-xs text-brand-ink/85">{{ $log->subject_summary }}</span>
+                                                <span class="truncate font-mono text-xs text-brand-ink/85">{{ $subjectSummary }}</span>
                                             @endif
                                             <span class="text-brand-mist">·</span>
                                             <code class="font-mono text-2xs text-brand-mist">{{ $log->action }}</code>
@@ -211,9 +213,9 @@
                                     @if ($hasDiff)
                                         <span class="shrink-0 self-center text-brand-mist transition group-hover:text-brand-moss">
                                             @if ($expanded)
-                                                <x-heroicon-m-chevron-up class="h-4 w-4" aria-hidden="true" />
+                                                @svg('heroicon-m-chevron-up', 'h-4 w-4', ['aria-hidden' => 'true'])
                                             @else
-                                                <x-heroicon-m-chevron-down class="h-4 w-4" aria-hidden="true" />
+                                                @svg('heroicon-m-chevron-down', 'h-4 w-4', ['aria-hidden' => 'true'])
                                             @endif
                                         </span>
                                     @endif

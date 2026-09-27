@@ -12,22 +12,18 @@ use App\Models\Site;
 use App\Models\User;
 use App\Services\DeployContract\DeployContractEvaluator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Laravel\Pennant\Feature;
 use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
 
 beforeEach(function () {
-    Feature::purge('global.deploy_contract');
     config([
-        'features.global.deploy_contract' => true,
         'deploy_contract.require_for_promote' => true,
         'deploy_contract.require_run_before_promote' => true,
         'deploy_contract.require_replay_when_enabled' => false,
         'edge.preview_review.require_approval' => false,
         'edge.preview_review.block_open_comments' => false,
     ]);
-    Feature::flushCache();
 });
 
 test('promote is blocked until deploy contract passes', function () {

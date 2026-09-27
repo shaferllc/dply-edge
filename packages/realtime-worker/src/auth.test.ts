@@ -116,6 +116,18 @@ describe('verifyPublishRequest', () => {
     expect(ok).toBe(false);
   });
 
+  it('rejects a Pusher signature that leaves the body unsigned', async () => {
+    const path = '/apps/app1/events';
+    const params = new URLSearchParams();
+    params.set('auth_key', 'pubkey');
+    params.set('auth_timestamp', Math.floor(1_700_000_000).toString());
+    const sig = await hmacSha256Hex(app.secret, buildPusherSignString('POST', path, params));
+    params.set('auth_signature', sig);
+
+    const ok = await verifyPublishRequest(app, 'POST', path, params, new Headers(), '{"name":"evil"}', 1_700_000_000 * 1000);
+    expect(ok).toBe(false);
+  });
+
   it('rejects a stale timestamp', async () => {
     const params = new URLSearchParams();
     params.set('auth_key', 'pubkey');

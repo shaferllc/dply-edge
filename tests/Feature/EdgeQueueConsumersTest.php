@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\EdgeQueueConsumersTest;
 
+use App\Models\EdgeQueue;
 use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
@@ -18,7 +19,7 @@ uses(RefreshDatabase::class);
 
 beforeEach(function () {
     $this->user = User::factory()->create();
-    $this->org = Organization::factory()->create();
+    $this->org = Organization::factory()->noPlan()->create();
 });
 
 function siteOnQueue(Organization $org, User $user, string $runtime, string $createdAt): Site
@@ -27,6 +28,8 @@ function siteOnQueue(Organization $org, User $user, string $runtime, string $cre
     $site = Site::factory()->create(['organization_id' => $org->id, 'server_id' => $server->id, 'user_id' => $user->id, 'edge_backend' => 'dply_edge', 'created_at' => $createdAt]);
     $site->mergeEdgeMeta(['runtime_mode' => $runtime]);
     $site->save();
+    // attach() only binds the org's own queues.
+    EdgeQueue::query()->firstOrCreate(['cloudflare_name' => 'shared-jobs'], ['organization_id' => $org->id, 'name' => 'shared-jobs', 'cloudflare_id' => 'q-shared']);
     EdgeContainerConnections::attach($site, 'queue', 'JOBS', 'shared-jobs');
 
     return $site->fresh();
@@ -53,8 +56,8 @@ test('an asleep queue does not make its app the owner', function () {
 });
 
 test('queue speed comes from the tier', function (string $tier, ?int $concurrency, int $waitMs) {
-    config(['subscription.standard.tiers.free.queue_concurrency' => config("subscription.standard.tiers.{$tier}.queue_concurrency")]);
-    config(['subscription.standard.tiers.free.queue_batch_wait_seconds' => config("subscription.standard.tiers.{$tier}.queue_batch_wait_seconds")]);
+    config(['subscription.standard.tiers.none.queue_concurrency' => config("subscription.standard.tiers.{$tier}.queue_concurrency")]);
+    config(['subscription.standard.tiers.none.queue_batch_wait_seconds' => config("subscription.standard.tiers.{$tier}.queue_batch_wait_seconds")]);
 
     $settings = EdgeQueueConsumers::settings($this->org);
 
@@ -62,7 +65,7 @@ test('queue speed comes from the tier', function (string $tier, ?int $concurrenc
         ->and($settings['max_wait_time_ms'])->toBe($waitMs)
         ->and($settings['batch_size'])->toBe(10);
 })->with([
-    'free' => ['free', 1, 5000],
+    'none' => ['none', 1, 5000],
     'pro' => ['pro', 10, 2000],
     'team' => ['team', 50, 1000],
     'enterprise' => ['enterprise', null, 0],

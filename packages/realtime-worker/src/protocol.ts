@@ -60,3 +60,49 @@ export function buildPresencePayload(members: Map<string, unknown>): {
     },
   };
 }
+
+export const DEFAULT_MAX_MESSAGE_BYTES = 10240;
+
+export interface AppLimits {
+  allowedOrigins: string[];
+  clientEvents: boolean;
+  maxMessageBytes: number;
+}
+
+/** Resolve the optional KV record fields to their defaults (old records lack them). */
+export function appLimits(record: {
+  allowedOrigins?: unknown;
+  clientEvents?: unknown;
+  maxMessageBytes?: unknown;
+}): AppLimits {
+  const max = Number(record.maxMessageBytes);
+  return {
+    allowedOrigins: Array.isArray(record.allowedOrigins) ? record.allowedOrigins.map(String) : [],
+    clientEvents: record.clientEvents === true,
+    maxMessageBytes: Number.isFinite(max) && max > 0 ? max : DEFAULT_MAX_MESSAGE_BYTES,
+  };
+}
+
+/** Empty allow-list = any origin; otherwise the Origin header must match one exactly. */
+export function originAllowed(allowedOrigins: string[], origin: string | null): boolean {
+  return allowedOrigins.length === 0 || (origin !== null && allowedOrigins.includes(origin));
+}
+
+/** UTF-8 size of an event's `data` as it goes on the wire (strings as-is, else JSON). */
+export function payloadBytes(data: unknown): number {
+  return new TextEncoder().encode(typeof data === 'string' ? data : JSON.stringify(data ?? {})).byteLength;
+}
+
+/** Hard ceiling on shards per app, whatever the KV record says. */
+export const MAX_SHARDS = 32;
+
+/** KV `shards` → an integer in [1, MAX_SHARDS]; missing/garbage = 1 (one hub, as before sharding). */
+export function shardCount(raw: unknown): number {
+  const n = Math.floor(Number(raw));
+  return Number.isFinite(n) && n > 1 ? Math.min(n, MAX_SHARDS) : 1;
+}
+
+/** Durable Object name of an app's shard: shard 0 is the app id itself (the pre-sharding hub). */
+export function hubName(appId: string, shard: number): string {
+  return shard === 0 ? appId : `${appId}:${shard}`;
+}

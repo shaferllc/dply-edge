@@ -128,6 +128,20 @@ trait ManagesEdgeBuildSettings
             }
         }
 
+        // Deploy on push needs the GitHub webhook — connect it when missing.
+        $provisioner = app(EdgeGithubWebhookProvisioner::class);
+        if ($this->buildForm->edge_deploy_on_push && ! $site->isEdgePreview() && ! $provisioner->isConnected($site) && auth()->user() !== null) {
+            $result = $provisioner->enableWithDefaultAccount($site->fresh(), auth()->user());
+            $this->site->refresh();
+            if ($result === null || ! $result['ok']) {
+                $this->toastError(__('Build settings saved, but deploy on push needs the GitHub webhook: :reason', [
+                    'reason' => $result['message'] ?? __('link a GitHub account under Profile → Source control, then connect it under Deploy triggers.'),
+                ]));
+
+                return;
+            }
+        }
+
         $this->toastSuccess(__('Build settings saved. Changes apply on the next deploy.'));
     }
 
@@ -521,7 +535,7 @@ trait ManagesEdgeBuildSettings
         if (! $this->site->usesEdgeRuntime()) {
             return;
         }
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
 
         $tag = trim($this->buildForm->edge_cache_purge_tag);
         if ($tag === '') {

@@ -35,6 +35,18 @@ variable "registry_name" {
   default     = "dply-cloud"
 }
 
+variable "cluster_name" {
+  description = "dply-pods for the first region; e.g. dply-pods-sfo3 for more (docs/DATA_REGIONS.md)."
+  type        = string
+  default     = "dply-pods"
+}
+
+variable "create_registry" {
+  description = "Only the first region creates the account's registry."
+  type        = bool
+  default     = true
+}
+
 variable "node_size" {
   description = "Flex tenants only (250 MB - 2.5 GB). Pro sizes (5-50 GB) need a bigger pool."
   type        = string
@@ -53,14 +65,23 @@ provider "digitalocean" {
 
 data "digitalocean_kubernetes_versions" "current" {}
 
+# One registry per DigitalOcean account: only the first region creates it;
+# other regions (create_registry = false) pull from the same one.
 resource "digitalocean_container_registry" "dply" {
+  count                  = var.create_registry ? 1 : 0
   name                   = var.registry_name
   subscription_tier_slug = "basic"
   region                 = var.region
 }
 
+# The registry gained a count: same resource, not a new one.
+moved {
+  from = digitalocean_container_registry.dply
+  to   = digitalocean_container_registry.dply[0]
+}
+
 resource "digitalocean_kubernetes_cluster" "valkey" {
-  name                 = "dply-pods"
+  name                 = var.cluster_name
   region               = var.region
   version              = data.digitalocean_kubernetes_versions.current.latest_version
   registry_integration = true
@@ -72,13 +93,15 @@ resource "digitalocean_kubernetes_cluster" "valkey" {
     start_time = "06:00"
   }
 
+  # The cache pool: flex Valkey tenants and the gateway. Kept named "flex":
+  # renaming the cluster's default pool replaces the whole cluster. Two nodes
+  # so one failing does not take every cache down.
   node_pool {
     name       = "flex"
     size       = var.node_size
     auto_scale = true
-    min_nodes  = 1
-    # Ceiling on surprise spend: 2 x $24. Raise when real load needs it.
-    max_nodes = 2
+    min_nodes  = 2
+    max_nodes  = 3
   }
 
   depends_on = [digitalocean_container_registry.dply]
@@ -98,7 +121,27 @@ output "cluster_id" {
 }
 
 output "registry" {
-  value = "registry.digitalocean.com/${digitalocean_container_registry.dply.name}"
+  value = "registry.digitalocean.com/${var.registry_name}"
+}
+
+# Databases only (Postgres, MySQL, MongoDB): the gateway sets DB_NODE_POOL=db,
+# and the taint keeps cache pods off. Their disk I/O and page cache would
+# otherwise slow the cache nodes. Two nodes, so a database whose node fails
+# reattaches its volume on the other one.
+resource "digitalocean_kubernetes_node_pool" "db" {
+  cluster_id = digitalocean_kubernetes_cluster.valkey.id
+  name       = "db"
+  size       = var.node_size
+  auto_scale = true
+  min_nodes  = 2
+  max_nodes  = 4
+  node_count = 2
+
+  taint {
+    key    = "dply.dev/db"
+    value  = "true"
+    effect = "NoSchedule"
+  }
 }
 
 # Pro tenants only (packages/valkey-gateway/placement.go). Both pools sit at

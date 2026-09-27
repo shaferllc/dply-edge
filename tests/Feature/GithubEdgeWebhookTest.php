@@ -37,6 +37,24 @@ test('pull request opened spawns preview', function () {
     Queue::assertPushed(BuildEdgeSiteJob::class);
 });
 
+test('pull request from a fork does not build a preview with the parent secrets', function () {
+    Queue::fake();
+    $site = makeSourceSite();
+
+    $response = postWebhook($site, 'pull_request', json_encode([
+        'action' => 'opened',
+        'pull_request' => [
+            'number' => 7,
+            'head' => ['ref' => 'patch-1', 'sha' => str_repeat('d', 40), 'repo' => ['full_name' => 'mallory/marketing']],
+            'base' => ['ref' => 'main', 'repo' => ['full_name' => 'acme/marketing']],
+        ],
+    ]));
+
+    $response->assertOk()->assertJsonPath('reason', 'fork_pull_request');
+    Queue::assertNotPushed(BuildEdgeSiteJob::class);
+    expect(Site::query()->whereJsonContains('meta->edge->preview_parent_site_id', $site->id)->count())->toBe(0);
+});
+
 test('pull request synchronize redeploys existing preview', function () {
     Queue::fake();
     $site = makeSourceSite();
@@ -95,6 +113,21 @@ test('push to source branch queues redeploy', function () {
 
     $response->assertOk()->assertJsonPath('queued', 'redeploy');
     Queue::assertPushed(BuildEdgeSiteJob::class);
+});
+
+test('push does not deploy when deploy on push is off', function () {
+    Queue::fake();
+    $site = makeSourceSite(['deploy_on_push' => false]);
+
+    $response = postWebhook($site, 'push', json_encode([
+        'ref' => 'refs/heads/main',
+        'after' => 'bbbb',
+    ]));
+
+    $response->assertOk()
+        ->assertJsonPath('queued', false)
+        ->assertJsonPath('reason', 'deploy_on_push_disabled');
+    Queue::assertNotPushed(BuildEdgeSiteJob::class);
 });
 
 test('push to other branch is no op', function () {
@@ -161,6 +194,16 @@ test('invalid signature returns 403', function () {
     );
 
     $response->assertStatus(403);
+});
+
+test('a site with no webhook secret refuses even an empty-key signature', function () {
+    Queue::fake();
+    $site = makeSourceSite();
+    $site->forceFill(['webhook_secret' => null])->save();
+
+    postWebhook($site, 'push', json_encode(['ref' => 'refs/heads/main', 'after' => str_repeat('a', 40)]))
+        ->assertStatus(403);
+    Queue::assertNothingPushed();
 });
 
 test('non edge site returns 422', function () {

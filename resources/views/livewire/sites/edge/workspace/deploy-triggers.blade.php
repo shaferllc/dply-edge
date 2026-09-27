@@ -1,7 +1,7 @@
 <div>
     <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
         @include('livewire.sites.edge.workspace.partials.feature-guide', [
-            'docSlug' => 'edge-deploy-triggers',
+            'docSlug' => 'deploy-triggers',
             'what' => __('Start Edge deploys without the dashboard — GitHub push/PR webhooks and per-site deploy hook URLs for CMS publish flows.'),
             'steps' => [
                 __('Enable the GitHub auto-deploy webhook (linked account under Source control).'),

@@ -5,7 +5,7 @@
 <div>
     <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
         @include('livewire.sites.edge.workspace.partials.feature-guide', [
-            'docSlug' => 'edge-error-pages',
+            'docSlug' => 'error-pages',
             'what' => __('Error pages and maintenance let you brand 404/500 responses and take the site offline with a 503 — all at the Edge, without touching your repo.'),
             'steps' => [
                 __('Paste full HTML for 404 and/or 500, or leave blank to keep the built-in defaults.'),

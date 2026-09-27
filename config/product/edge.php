@@ -152,9 +152,21 @@ return [
         // built from docker/edge-container-deployer on first use.
         'containers' => [
             'deployer_image' => env('DPLY_EDGE_CONTAINER_DEPLOYER_IMAGE', 'dply/edge-container-deployer:1'),
+            // Customer Dockerfiles build in this BuildKit builder (docker-container
+            // driver on edge.build.sandbox.network), not the host daemon's.
+            // '' = host default builder (unsandboxed). Limits cover all
+            // concurrent container builds together; they apply when the
+            // builder container is created. See docs/edge-build-isolation.md.
+            'builder' => env('DPLY_EDGE_CONTAINER_BUILDER', 'dply-builds'),
+            'builder_image' => env('DPLY_EDGE_CONTAINER_BUILDER_IMAGE', 'moby/buildkit:v0.32.2'),
+            'builder_memory' => env('DPLY_EDGE_CONTAINER_BUILDER_MEMORY', '8g'),
+            'builder_cpus' => env('DPLY_EDGE_CONTAINER_BUILDER_CPUS', '4'),
+            // Narrow token for wrangler in the deployer; falls back to the
+            // platform DPLY_EDGE_CF_API_TOKEN. Scopes: docs/edge-build-isolation.md.
+            'deploy_api_token' => env('DPLY_EDGE_CONTAINER_DEPLOY_API_TOKEN'),
             'instance_type' => env('DPLY_EDGE_CONTAINER_INSTANCE_TYPE', 'basic'),
             'max_instances' => (int) env('DPLY_EDGE_CONTAINER_MAX_INSTANCES', 5),
-            'sleep_after' => env('DPLY_EDGE_CONTAINER_SLEEP_AFTER', '10m'),
+            'sleep_after' => env('DPLY_EDGE_CONTAINER_SLEEP_AFTER', '5m'),
             'default_port' => 8080,
             /*
              * Prebuilt PHP base with the extensions already compiled, e.g.
@@ -202,6 +214,26 @@ return [
         // container so installs reuse downloaded tarballs across deploys.
         'package_store_enabled' => filter_var(env('DPLY_EDGE_BUILD_PACKAGE_STORE', true), FILTER_VALIDATE_BOOLEAN),
         'package_store_dir' => env('DPLY_EDGE_BUILD_PACKAGE_STORE_DIR', storage_path('app/edge-pkg-store')),
+        /*
+         * Isolation for containers that run customer code (build script,
+         * middleware bundle) — see docs/edge-build-isolation.md, which also
+         * has the host firewall rules the app can't apply itself.
+         * user: 'host' = the worker's uid:gid (default), 'root', or 'uid:gid'.
+         * network: '' = Docker's default bridge (not recommended).
+         * An existing network keeps the options it was created with.
+         */
+        'sandbox' => [
+            'user' => env('DPLY_EDGE_BUILD_USER', 'host'),
+            'memory' => env('DPLY_EDGE_BUILD_MEMORY', '4g'),
+            'cpus' => env('DPLY_EDGE_BUILD_CPUS', '2'),
+            'pids_limit' => env('DPLY_EDGE_BUILD_PIDS_LIMIT', '2048'),
+            'network' => env('DPLY_EDGE_BUILD_NETWORK', 'dply-builds'),
+            'bridge_name' => env('DPLY_EDGE_BUILD_BRIDGE', 'dply-builds0'),
+            'subnet' => env('DPLY_EDGE_BUILD_SUBNET', '172.30.0.0/16'),
+            // Resolved to 127.0.0.1 inside the build. IP-literal metadata
+            // (169.254.169.254) needs the DOCKER-USER rule in the docs.
+            'sinkhole_hosts' => ['host.docker.internal', 'gateway.docker.internal', 'metadata.google.internal', 'metadata', 'instance-data'],
+        ],
         // Upload node_modules cache to R2 after publish (off the deploy
         // critical path). When false, snapshot runs inline after build.
         'async_cache_snapshot' => filter_var(env('DPLY_EDGE_BUILD_ASYNC_CACHE_SNAPSHOT', true), FILTER_VALIDATE_BOOLEAN),
@@ -338,24 +370,46 @@ return [
     | Preview review hub — approve-to-promote workflow on Edge previews.
     */
     /*
-    | https://upstash.com
-    | QStash only: the HTTP delivery resource (UpstashQstashClient). Redis
-    | is dply's own Valkey now (edge.valkey below).
-    */
-    'upstash' => [
-        'email' => env('DPLY_UPSTASH_EMAIL'),
-        'api_key' => env('DPLY_UPSTASH_API_KEY'),
-        'qstash_token' => env('DPLY_QSTASH_TOKEN'),
-    ],
-
-    /*
     | dply's own Valkey (packages/valkey-gateway, T-021). When api_url and
     | token are set, "Create new" Redis on the Resources page starts one of
-    | these instead of an Upstash database.
+    | these.
     */
     // Local testing only: start paid resources without a card. Ignored
     // unless APP_ENV=local (Resources::cardOnFile).
     'skip_card_check' => (bool) env('DPLY_EDGE_SKIP_CARD_CHECK', false),
+
+    /*
+    | Realtime: the customer relay (packages/realtime-worker, `--env apps`).
+    | dply provisions an app by writing its credentials into the relay's KV
+    | namespace; it never re-deploys the Worker. See docs/edge-realtime.md.
+    */
+    'realtime' => [
+        'host' => env('EDGE_REALTIME_HOST', 'realtime-apps.on-dply.site'),
+        'worker' => env('EDGE_REALTIME_WORKER', 'dply-realtime-apps'),
+        'kv_namespace_id' => env('EDGE_REALTIME_KV_NAMESPACE_ID'),
+        'default_max_connections' => (int) env('EDGE_REALTIME_DEFAULT_MAX_CONNECTIONS', 200),
+        'max_message_bytes' => (int) env('EDGE_REALTIME_MAX_MESSAGE_BYTES', 10240),
+        // Sockets per relay hub (Durable Object). An app's KV record gets
+        // shards = ceil(max_connections / shard_size); 1 shard = one hub.
+        'shard_size' => (int) env('EDGE_REALTIME_SHARD_SIZE', 10000),
+        // Every app gets {label}.{app_host_suffix} (stored at provision, written
+        // to KV). per_app_hosts decides whether the app's env and the sheet use
+        // it; off, everything stays on the shared host above.
+        'app_host_suffix' => env('EDGE_REALTIME_APP_HOST_SUFFIX', 'realtime.dply.io'),
+        'per_app_hosts' => (bool) env('EDGE_REALTIME_PER_APP_HOSTS', false),
+        // Each app's hostname is attached to the relay Worker as a Workers
+        // Custom Domain (Cloudflare issues its certificate; no wildcard cert or
+        // ACM). zone_id is the zone the suffix lives in (dply.io).
+        'custom_domains' => (bool) env('EDGE_REALTIME_CUSTOM_DOMAINS', false),
+        'zone_id' => env('EDGE_REALTIME_ZONE_ID'),
+        // dply:edge:check-realtime: a round trip every minute through the shared
+        // host, alerting platform admins. Runs only when kv_namespace_id is set.
+        'monitor' => [
+            'enabled' => (bool) env('EDGE_REALTIME_MONITOR_ENABLED', true),
+            // Node >= 22 (global WebSocket); cron's PATH may lack it, so set an absolute path there.
+            'node' => env('EDGE_REALTIME_MONITOR_NODE', 'node'),
+        ],
+    ],
 
     'valkey' => [
         'api_url' => env('DPLY_VALKEY_API_URL'),
@@ -364,130 +418,25 @@ return [
         // dply databases answer on {id}.{db_domain} (5432 / 3306 / 27017; the gateway's DB_DOMAIN).
         'db_domain' => env('DPLY_VALKEY_DB_DOMAIN', 'db.dply.local'),
         'port' => (int) env('DPLY_VALKEY_PORT', 6380),
-    ],
-
-    /*
-    | Preview review hub — approve-to-promote workflow on Edge previews.
-    */
-    /*
-    | https://upstash.com
-    | QStash only: the HTTP delivery resource (UpstashQstashClient). Redis
-    | is dply's own Valkey now (edge.valkey below).
-    */
-    'upstash' => [
-        'email' => env('DPLY_UPSTASH_EMAIL'),
-        'api_key' => env('DPLY_UPSTASH_API_KEY'),
-        'qstash_token' => env('DPLY_QSTASH_TOKEN'),
-    ],
-
-    /*
-    | dply's own Valkey (packages/valkey-gateway, T-021). When api_url and
-    | token are set, "Create new" Redis on the Resources page starts one of
-    | these instead of an Upstash database.
-    */
-    // Local testing only: start paid resources without a card. Ignored
-    // unless APP_ENV=local (Resources::cardOnFile).
-    'skip_card_check' => (bool) env('DPLY_EDGE_SKIP_CARD_CHECK', false),
-
-    'valkey' => [
-        'api_url' => env('DPLY_VALKEY_API_URL'),
-        'token' => env('DPLY_VALKEY_TOKEN'),
-        'domain' => env('DPLY_VALKEY_DOMAIN', 'cache.dply.local'),
-        // dply databases answer on {id}.{db_domain} (5432 / 3306 / 27017; the gateway's DB_DOMAIN).
-        'db_domain' => env('DPLY_VALKEY_DB_DOMAIN', 'db.dply.local'),
-        'port' => (int) env('DPLY_VALKEY_PORT', 6380),
-    ],
-
-    /*
-    | Preview review hub — approve-to-promote workflow on Edge previews.
-    */
-    /*
-    | https://upstash.com
-    | QStash only: the HTTP delivery resource (UpstashQstashClient). Redis
-    | is dply's own Valkey now (edge.valkey below).
-    */
-    'upstash' => [
-        'email' => env('DPLY_UPSTASH_EMAIL'),
-        'api_key' => env('DPLY_UPSTASH_API_KEY'),
-        'qstash_token' => env('DPLY_QSTASH_TOKEN'),
-    ],
-
-    /*
-    | dply's own Valkey (packages/valkey-gateway, T-021). When api_url and
-    | token are set, "Create new" Redis on the Resources page starts one of
-    | these instead of an Upstash database.
-    */
-    // Local testing only: start paid resources without a card. Ignored
-    // unless APP_ENV=local (Resources::cardOnFile).
-    'skip_card_check' => (bool) env('DPLY_EDGE_SKIP_CARD_CHECK', false),
-
-    'valkey' => [
-        'api_url' => env('DPLY_VALKEY_API_URL'),
-        'token' => env('DPLY_VALKEY_TOKEN'),
-        'domain' => env('DPLY_VALKEY_DOMAIN', 'cache.dply.local'),
-        // dply databases answer on {id}.{db_domain} (5432 / 3306 / 27017; the gateway's DB_DOMAIN).
-        'db_domain' => env('DPLY_VALKEY_DB_DOMAIN', 'db.dply.local'),
-        'port' => (int) env('DPLY_VALKEY_PORT', 6380),
-    ],
-
-    /*
-    | Preview review hub — approve-to-promote workflow on Edge previews.
-    */
-    /*
-    | https://upstash.com
-    | QStash only: the HTTP delivery resource (UpstashQstashClient). Redis
-    | is dply's own Valkey now (edge.valkey below).
-    */
-    'upstash' => [
-        'email' => env('DPLY_UPSTASH_EMAIL'),
-        'api_key' => env('DPLY_UPSTASH_API_KEY'),
-        'qstash_token' => env('DPLY_QSTASH_TOKEN'),
-    ],
-
-    /*
-    | dply's own Valkey (packages/valkey-gateway, T-021). When api_url and
-    | token are set, "Create new" Redis on the Resources page starts one of
-    | these instead of an Upstash database.
-    */
-    // Local testing only: start paid resources without a card. Ignored
-    // unless APP_ENV=local (Resources::cardOnFile).
-    'skip_card_check' => (bool) env('DPLY_EDGE_SKIP_CARD_CHECK', false),
-
-    'valkey' => [
-        'api_url' => env('DPLY_VALKEY_API_URL'),
-        'token' => env('DPLY_VALKEY_TOKEN'),
-        'domain' => env('DPLY_VALKEY_DOMAIN', 'cache.dply.local'),
-        // dply databases answer on {id}.{db_domain} (5432 / 3306 / 27017; the gateway's DB_DOMAIN).
-        'db_domain' => env('DPLY_VALKEY_DB_DOMAIN', 'db.dply.local'),
-        'port' => (int) env('DPLY_VALKEY_PORT', 6380),
-    ],
-
-    /*
-    | https://neon.tech
-    | Neon is a Postgres database that suspends compute when idle.
-    */
-    'neon' => [
-        'api_key' => env('DPLY_NEON_API_KEY'),
-        'region' => env('DPLY_NEON_REGION', 'aws-us-east-1'),
-        'organization' => env('DPLY_NEON_ORGANIZATION'),
-        'min_cu' => (float) env('DPLY_NEON_MIN_CU', 0.25),
-        'max_cu' => (float) env('DPLY_NEON_MAX_CU', 2),
-        'suspend_seconds' => (int) env('DPLY_NEON_SUSPEND_SECONDS', 300),
-    ],
-
-    /*
-    | https://planetscale.com
-    | PlanetScale is a MySQL database that stays on.
-    */
-    'planetscale' => [
-        'organization' => env('DPLY_PLANETSCALE_ORGANIZATION'),
-        'id' => env('DPLY_PLANETSCALE_ID'),
-        'secret' => env('DPLY_PLANETSCALE_SECRET'),
-        'token_id' => env('DPLY_PLANETSCALE_TOKEN_ID'),
-        'token' => env('DPLY_PLANETSCALE_TOKEN'),
-        'region' => env('DPLY_PLANETSCALE_REGION', ''),
-        'cluster_size' => env('DPLY_PLANETSCALE_CLUSTER_SIZE', 'PS_10'),
-        'monthly_cents' => (int) env('DPLY_PLANETSCALE_MONTHLY_CENTS', 3900),
+        // Cloudflare region nearest the gateway's cluster (DOKS nyc3). Container
+        // apps using a dply database or Valkey run here unless they pick a region.
+        'data_region' => env('DPLY_EDGE_DATA_REGION', 'ENAM'),
+        // One gateway cluster per region (ValkeyRegions). The first is the
+        // original single-region setup; add more with DPLY_VALKEY_REGIONS, a
+        // JSON list of {key, label, cloudflare, api_url, token, domain, db_domain}.
+        'regions' => array_values(array_filter([
+            [
+                'key' => env('DPLY_VALKEY_REGION', 'nyc3'),
+                'label' => env('DPLY_VALKEY_REGION_LABEL', 'New York'),
+                'cloudflare' => env('DPLY_EDGE_DATA_REGION', 'ENAM'),
+                'api_url' => env('DPLY_VALKEY_API_URL'),
+                'token' => env('DPLY_VALKEY_TOKEN'),
+                'domain' => env('DPLY_VALKEY_DOMAIN', 'cache.dply.local'),
+                'db_domain' => env('DPLY_VALKEY_DB_DOMAIN', 'db.dply.local'),
+                'port' => (int) env('DPLY_VALKEY_PORT', 6380),
+            ],
+            ...(array) (json_decode((string) env('DPLY_VALKEY_REGIONS', '[]'), true) ?: []),
+        ], 'is_array')),
     ],
 
     /*

@@ -1,0 +1,86 @@
+                    <div @class([
+                        'rounded-2xl border p-3.5',
+                        'resource-asleep border-dashed border-brand-ink/20 bg-white/70 dark:border-brand-mist/25 dark:bg-zinc-900/70' => $connection['asleep'],
+                        'border-brand-ink/15 bg-white dark:border-brand-mist/20 dark:bg-zinc-900' => ! $connection['asleep'],
+                    ])>
+                        <div class="flex flex-col gap-2">
+                            <p class="flex items-center gap-1.5 whitespace-nowrap text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">
+                                <x-resource-kind-icon :kind="$connection['kind']" class="h-3.5 w-3.5 shrink-0" />
+                                {{ $connection['kind'] === 'redis' && ! \App\Modules\Edge\Support\EdgeValkey::isTarget($connection['target']) ? __('Redis') : __($connectionKinds[$connection['kind']]['label']) }}
+                                @if ($connection['asleep'])
+                                    <span class="font-medium text-brand-moss">{{ __('Asleep') }}</span>
+                                    <span class="resource-snore" aria-hidden="true"><span>z</span><span>z</span><span>z</span></span>
+                                @endif
+                            </p>
+                            <span class="flex flex-wrap gap-1">
+                                @if ($connection['kind'] === 'service')
+                                    <button type="button" wire:click="$set('explainConnectionHost', '{{ $connection['host'] }}')" wire:island="resources-service" x-on:click="$dispatch('open-modal', 'resources-service')" class="rounded-md border border-brand-ink/15 px-2 py-0.5 text-2xs font-semibold text-brand-ink hover:border-brand-ink/40 dark:border-brand-mist/25">{{ __('Open') }}</button>
+                                @elseif ($connection['kind'] === 'key_value')
+                                    <button type="button" wire:click="openKv('{{ $connection['host'] }}')" wire:island="resources-kv" wire:loading.attr="disabled" wire:target="openKv" class="rounded-md border border-brand-ink/15 px-2 py-0.5 text-2xs font-semibold text-brand-ink hover:border-brand-ink/40 disabled:opacity-50 dark:border-brand-mist/25">{{ __('Settings') }}</button>
+                                @elseif ($connection['kind'] === 'object_storage')
+                                    <button type="button" wire:click="openObject('{{ $connection['host'] }}')" wire:island="resources-object" x-on:click="$dispatch('open-modal', 'resources-object')" class="rounded-md border border-brand-ink/15 px-2 py-0.5 text-2xs font-semibold text-brand-ink hover:border-brand-ink/40 dark:border-brand-mist/25">{{ __('Open') }}</button>
+                                @elseif ($connection['kind'] === 'redis' && \App\Modules\Edge\Support\EdgeValkey::isTarget($connection['target']))
+                                    <button type="button" wire:click="$set('valkeyHost', '{{ $connection['host'] }}')" wire:island="resources-valkey" x-on:click="$dispatch('open-modal', 'resources-valkey')" class="rounded-md border border-brand-ink/15 px-2 py-0.5 text-2xs font-semibold text-brand-ink hover:border-brand-ink/40 dark:border-brand-mist/25">{{ __('Details') }}</button>
+                                @elseif ($connection['kind'] === 'images')
+                                    <button type="button" wire:click="$set('imagesHost', '{{ $connection['host'] }}')" wire:island="resources-images" x-on:click="$dispatch('open-modal', 'resources-images')" class="rounded-md border border-brand-ink/15 px-2 py-0.5 text-2xs font-semibold text-brand-ink hover:border-brand-ink/40 dark:border-brand-mist/25">{{ __('Settings') }}</button>
+                                @else
+                                    {{-- Every other kind: its sheet is resources-{kind}, opened by host. --}}
+                                    <button type="button" wire:click="openResource('{{ $connection['host'] }}')" wire:island="resources-{{ $connection['kind'] === 'redis' ? 'redis-external' : str_replace('_', '-', $connection['kind']) }}" class="rounded-md border border-brand-ink/15 px-2 py-0.5 text-2xs font-semibold text-brand-ink hover:border-brand-ink/40 dark:border-brand-mist/25">{{ __('Open') }}</button>
+                                @endif
+                                <button type="button" wire:click="sleepConnection('{{ $connection['host'] }}', {{ $connection['asleep'] ? 'false' : 'true' }})" class="rounded-md border border-brand-ink/15 px-2 py-0.5 text-2xs font-semibold text-brand-ink hover:border-brand-ink/40 dark:border-brand-mist/25">{{ $connection['asleep'] ? __('Wake') : __('Sleep') }}</button>
+                                <button type="button" wire:click="askDeleteConnection('{{ $connection['host'] }}')" wire:island="resources-delete-connection" x-on:click="$dispatch('open-modal', 'resources-delete-connection')" class="rounded-md border border-brand-ink/15 px-2 py-0.5 text-2xs font-semibold text-brand-ink hover:border-brand-ink/40 dark:border-brand-mist/25">{{ __('Delete') }}</button>
+                                {{-- Realtime has no attach, so Detach would orphan a live app (removeConnection refuses it). --}}
+                                @unless (($connection['kind'] === 'redis' && \App\Modules\Edge\Support\EdgeValkey::isTarget($connection['target'])) || $connection['kind'] === 'realtime')
+                                    <button type="button" wire:click="removeConnection('{{ $connection['host'] }}')" class="rounded-md border border-brand-ink/15 px-2 py-0.5 text-2xs font-semibold text-brand-ink hover:border-brand-ink/40 dark:border-brand-mist/25">{{ __('Detach') }}</button>
+                                @endunless
+                            </span>
+                        </div>
+                        @if ($connection['kind'] === 'object_storage')
+                            <p class="mt-1 text-xs text-brand-moss">{{ __('Bucket :name', ['name' => $connection['target']]) }}</p>
+                        @elseif ($connection['kind'] === 'redis' && \App\Modules\Edge\Support\EdgeValkey::isTarget($connection['target']) && ! $cardOnFile)
+                            <p class="mt-1 text-xs text-brand-moss">{{ __('Add a card to keep using this Redis. It stays off the app until then.') }}</p>
+                            @if ($site->organization)
+                                <a href="{{ route('billing.show', $site->organization) }}" class="rounded-md border border-brand-ink/15 px-2 py-0.5 text-2xs font-semibold text-brand-ink hover:border-brand-ink/40 dark:border-brand-mist/25">{{ __('Billing') }}</a>
+                            @endif
+                        @elseif ($connection['kind'] === 'key_value' && $connection['asleep'])
+                            <p class="mt-1 font-mono text-xs text-brand-moss">{{ $connection['host'] }}</p>
+                            <p class="mt-1 text-xs text-brand-moss">{{ __('Asleep. The address comes off the app on the next deploy. Stored data is still billed.') }}</p>
+                        @elseif ($connection['kind'] === 'redis' && ! \App\Modules\Edge\Support\EdgeValkey::isTarget($connection['target']))
+                            {{-- A pasted Redis: show where it points (host only; the password never reaches the page). --}}
+                            @php $externalRedisHost = collect(\App\Modules\Edge\Support\EdgeContainerConnections::redisInjectionPreview($site))->firstWhere('key', 'REDIS_HOST')['value'] ?? ''; @endphp
+                            @if ($externalRedisHost !== '')
+                                <p class="mt-1 truncate font-mono text-xs text-brand-moss" title="{{ $externalRedisHost }}">{{ $externalRedisHost }}</p>
+                            @endif
+                        @elseif ($connection['kind'] === 'realtime')
+                            {{-- The internal host means nothing here: show where browsers connect and the size (no relay call in render). --}}
+                            @php $realtimeRow = $connection['target'] !== '' ? \App\Models\EdgeRealtimeApp::query()->whereKey($connection['target'])->where('organization_id', $site->organization_id)->first(['id', 'max_connections', 'hostname']) : null; @endphp
+                            <p class="mt-1 font-mono text-xs text-brand-moss">{{ \App\Modules\Edge\Services\Realtime\EdgeRealtimeApps::hostFor($realtimeRow) }}</p>
+                            @if ($realtimeRow)
+                                <p class="mt-1 text-xs text-brand-moss">{{ __('Up to :count connections', ['count' => number_format($realtimeRow->max_connections)]) }}</p>
+                            @endif
+                        @elseif ($connection['kind'] !== 'redis')
+                            <p class="mt-1 font-mono text-xs text-brand-moss">{{ $isWorker ? 'env.'.$connection['name'] : $connection['host'] }}</p>
+                        @endif
+                        @if ($isWorker && ! in_array($connection['kind'], $allowedKinds, true))
+                            <p class="mt-1 text-xs font-semibold text-red-700 dark:text-red-400">{{ __('This app runs as a Worker. This resource needs a container app, so it is not attached.') }}</p>
+                        @endif
+                        @if ($connection['kind'] === 'redis' && \App\Modules\Edge\Support\EdgeValkey::isTarget($connection['target']))
+                            @php
+                                $valkeyClass = \App\Modules\Edge\Support\EdgeValkey::spec((string) $connection['plan']);
+                                $valkeySleepNow = (int) ($site->edgeMeta()['valkey_sleep'][$connection['target']] ?? ($valkeyClass['sleeps'] ? \App\Modules\Edge\Support\EdgeValkey::DEFAULT_SLEEP : 0));
+                            @endphp
+                            {{-- Size and sleep are edited in the Valkey sheet; the map box only shows them. --}}
+                            <p class="mt-1 text-xs text-brand-moss">{{ __($valkeyClass['label']) }} · {{ $valkeyClass['sleeps'] && $valkeySleepNow > 0 ? __('sleeps after :time idle', ['time' => __(\App\Modules\Edge\Support\EdgeValkey::SLEEPS[$valkeySleepNow] ?? '5 minutes')]) : __('stays on') }}</p>
+                        @endif
+                        @if ($connection['kind'] === 'queue' && isset($queueOwners[$connection['target']]))
+                            <p class="mt-1 text-xs text-brand-moss">{{ __('Sends only. :app runs these jobs.', ['app' => $queueOwners[$connection['target']]]) }}</p>
+                        @endif
+                        @if (in_array($connection['name'], $overriddenByRepo, true))
+                            <p class="mt-1 text-xs font-semibold text-brand-ink">{{ __('Overridden by wrangler.toml. The repo binding is used.') }}</p>
+                        @endif
+                        @if (isset($connectionEstimates[$connection['host']]) && $connection['kind'] === 'redis' && \App\Modules\Edge\Support\EdgeValkey::isTarget($connection['target']))
+                            <p class="mt-1 text-xs font-semibold tabular-nums text-brand-ink">{{ __('$:price so far this month · up to $:cap/mo', ['price' => \App\Modules\Edge\Support\EdgeValkey::money($connectionEstimates[$connection['host']]), 'cap' => number_format($valkeyClass['cap_cents'] / 100, 0)]) }}</p>
+                        @elseif (isset($connectionEstimates[$connection['host']]))
+                            <p class="mt-1 text-xs font-semibold tabular-nums text-brand-ink">{{ __('Cost estimate · $:price', ['price' => number_format($connectionEstimates[$connection['host']] / 100, 2)]) }}</p>
+                        @endif
+                    </div>

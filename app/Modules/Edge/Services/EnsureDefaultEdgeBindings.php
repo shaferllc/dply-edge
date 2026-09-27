@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Edge\Services;
 
 use App\Models\Site;
+use App\Modules\Edge\Support\FakeEdgeProvision;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -48,6 +49,17 @@ class EnsureDefaultEdgeBindings
         }
 
         return ['kv' => $kvId];
+    }
+
+    /** Delete the default KV namespace (app teardown). No-op when none was made. */
+    public function delete(Site $site): void
+    {
+        $kvId = $site->edgeMeta()['default_bindings']['kv'] ?? null;
+        if (! is_string($kvId) || $kvId === '' || FakeEdgeProvision::enabled()) {
+            return;
+        }
+
+        $this->clientFor($site)->deleteKvNamespace($kvId);
     }
 
     private function ensureKv(Site $site, mixed $existingId, string $title, ?\Closure $log): ?string

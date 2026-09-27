@@ -9,12 +9,13 @@ use App\Models\Organization;
 use App\Models\Site;
 use App\Modules\Billing\Services\StarterTrafficGate;
 use App\Modules\Billing\Services\StarterUsageBudget;
+use App\Modules\Edge\Actions\CancelStuckEdgeDeployment;
 use App\Modules\Edge\Services\EdgeArtifactPublisher;
 use App\Modules\Edge\Services\EdgeBuildRunner;
 use App\Modules\Edge\Services\EdgeDeliveryContextResolver;
 use App\Modules\Edge\Services\EdgeProductionEnv;
-use App\Modules\Edge\Support\EdgeBuildMinutes;
 use App\Modules\Edge\Support\EdgeBuildSlots;
+use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeLiveBuildLog;
 use App\Modules\Edge\Support\EdgeRepoRoot;
 use App\Modules\Notifications\Services\NotificationPublisher;
@@ -45,6 +46,22 @@ class BuildEdgeSiteJob implements ShouldQueue
         $this->onQueue((string) config('edge.build.queue', 'dply-provision'));
     }
 
+    /**
+     * The job gave up for good (timed out, retries exhausted): without this
+     * the deployment stays "building" forever.
+     */
+    public function failed(?Throwable $e): void
+    {
+        $deployment = EdgeDeployment::query()->find($this->deploymentId);
+        if ($deployment === null || ! in_array($deployment->status, [EdgeDeployment::STATUS_BUILDING, EdgeDeployment::STATUS_PUBLISHING], true)) {
+            return;
+        }
+        $deployment->markCancelledByOperator(__('The build did not finish: :error', ['error' => $e?->getMessage() ?: __('the worker stopped.')]));
+        if ($site = Site::find($deployment->site_id)) {
+            CancelStuckEdgeDeployment::restoreSiteStatus($site);
+        }
+    }
+
     /** A build waiting on its org's concurrency slots keeps retrying this long. */
     public function retryUntil(): \DateTimeInterface
     {
@@ -52,9 +69,9 @@ class BuildEdgeSiteJob implements ShouldQueue
     }
 
     /**
-     * Tier gates before the build proper (ruling r-zdescb7y05vp1bxx): orgs whose
-     * tier stops at its build-minute allowance fail fast once it's used, and
-     * each org gets `concurrent_builds` slots — a build without one waits.
+     * Plan gates before the build proper: a capped (trial / no-plan) org past
+     * its spending limit stops, and each org gets `concurrent_builds` slots —
+     * a build without one waits. Build time bills per second as usage.
      */
     public function handle(EdgeBuildRunner $runner): void
     {
@@ -67,12 +84,15 @@ class BuildEdgeSiteJob implements ShouldQueue
             return;
         }
 
-        $tier = $organization->tierAllowances();
-        if (EdgeBuildMinutes::exhausted(EdgeBuildMinutes::usedThisMonth($organization), $tier)) {
-            $this->pauseDeploy($site, $deployment, __('This month’s :minutes build minutes are used up. Upgrade to Pro for more, or wait until the 1st.', ['minutes' => number_format((int) $tier['build_minutes'])]));
+        if (! $organization->hasPlan()) {
+            $this->pauseDeploy($site, $deployment, $organization->eligibleForTrial()
+                ? __('Start your :days-day trial on the billing page to deploy.', ['days' => (int) config('subscription.standard.trial.days', 5)])
+                : __('This organization has no plan, so deploys are paused. Choose a plan on the billing page.'));
 
             return;
         }
+
+        $tier = $organization->tierAllowances();
 
         $budget = app(StarterUsageBudget::class);
         $spend = $budget->status($organization);
@@ -80,7 +100,9 @@ class BuildEdgeSiteJob implements ShouldQueue
         if ($spend['exhausted']) {
             app(StarterTrafficGate::class)->syncOrganization($organization);
             $limit = number_format(((int) $spend['limit_cents']) / 100, 0);
-            $this->pauseDeploy($site, $deployment, __('This month’s $:limit usage credit is used up. Builds and traffic pause until the 1st, or upgrade to Pro.', ['limit' => $limit]));
+            $this->pauseDeploy($site, $deployment, $organization->onTrialPlan()
+                ? __('The trial’s $:limit usage cap is used up. Builds and traffic pause until the trial ends; end it early on the billing page to continue now.', ['limit' => $limit])
+                : __('This month’s $:limit spending limit is used up. Builds and traffic pause until the 1st.', ['limit' => $limit]));
 
             return;
         }
@@ -172,7 +194,8 @@ class BuildEdgeSiteJob implements ShouldQueue
             // through the encrypted accessor and filtered against the
             // model's RESERVED_NAMES so customer code can't shadow
             // platform bindings like HOST_MAP / ASSETS / DEPLOYMENT_ID.
-            $buildEnv = app(EdgeProductionEnv::class)->forSite($site);
+            // A Realtime resource's VITE_* go under it, so a saved value wins.
+            $buildEnv = array_merge(EdgeContainerConnections::realtimeBuildEnv($site), app(EdgeProductionEnv::class)->forSite($site));
 
             // Build minutes bill from here (queue wait and publish excluded).
             $buildStartedAt = now();

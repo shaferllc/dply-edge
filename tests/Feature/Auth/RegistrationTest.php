@@ -6,15 +6,9 @@ use App\Http\Middleware\RedirectGuestsToComingSoon;
 use App\Livewire\Auth\Register;
 use App\Models\Organization;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Laravel\Pennant\Feature;
 use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
-
-beforeEach(function () {
-    Feature::define('global.signups_open', fn () => true);
-    Feature::flushCache();
-});
 
 test('registration screen can be rendered', function () {
     // Bypass RedirectGuestsToComingSoon — non-local environments

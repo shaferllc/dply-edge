@@ -10,8 +10,8 @@ use Illuminate\Support\Facades\Config;
 
 uses(RefreshDatabase::class);
 
-// The trial and its pause ladder were dropped (2026-09-11); the banner now only
-// reminds a canceled subscription that it is in its paid-through grace period.
+// No Free plan (ruling r-f17p5zgeh120cm5t): the banner shows where an org is
+// in its trial, when it is paused, and a canceled subscription's grace period.
 
 function renderTrialPauseBanner(Organization $org): string
 {
@@ -20,10 +20,20 @@ function renderTrialPauseBanner(Organization $org): string
     ]);
 }
 
-test('an org with no subscription shows no banner', function () {
+test('an org whose trial ended is told to choose a plan, not to start a trial', function () {
     $org = Organization::factory()->create(['trial_ends_at' => now()->subDays(60)]);
 
-    expect(trim(renderTrialPauseBanner($org)))->toBe('');
+    expect(renderTrialPauseBanner($org))->toContain('Your trial has ended')->not->toContain('Start your');
+});
+
+test('a new org is asked to start its trial, one on trial sees when it ends, a paused one sees it is paused', function () {
+    expect(renderTrialPauseBanner(Organization::factory()->create(['trial_ends_at' => null])))->toContain('Start your 5-day trial');
+    expect(renderTrialPauseBanner(Organization::factory()->create(['trial_ends_at' => now()->addDays(3)])))->toContain('Trial until');
+    expect(renderTrialPauseBanner(Organization::factory()->create(['trial_ends_at' => now()->subDays(2), 'billing_paused_at' => now()->subDay()])))->toContain('Your sites are paused');
+});
+
+test('a comped org shows no banner', function () {
+    expect(trim(renderTrialPauseBanner(Organization::factory()->create(['comped_until' => now()->addYear()]))))->toBe('');
 });
 
 test('subscribed org shows no banner', function () {

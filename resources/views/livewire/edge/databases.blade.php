@@ -1,5 +1,5 @@
 @if ($compact)
-    <div class="max-h-[70vh] overflow-y-auto">
+    <div>
         @include('livewire.edge.partials.databases-manager')
     </div>
 @else

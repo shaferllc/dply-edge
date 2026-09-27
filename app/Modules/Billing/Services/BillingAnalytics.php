@@ -66,7 +66,7 @@ final class BillingAnalytics
             'spend_trend' => $spendTrend,
             'category_breakdown' => $this->categoryBreakdown($state),
             'line_items' => $this->lineItems($state),
-            'edge_usage_daily' => $this->edgeUsageDaily($organization, $state->edgeCount, 30),
+            'edge_usage_daily' => $this->edgeUsageDaily($organization, 30),
             'edge_sites' => $this->edgeSiteBillingAnalytics->sitesForOrganization($organization),
             'sync_events' => $this->recentSyncEvents($organization),
             'invoice_history' => $this->invoiceHistory($organization),
@@ -82,14 +82,11 @@ final class BillingAnalytics
     {
         $interval = $this->subscriptionInterval($organization);
         $monthlyCents = $state->monthlyTotalCents;
-        $annualPct = (int) config('subscription.standard.annual_discount_pct', 20);
-        $yearlyCents = (int) round($monthlyCents * 12 * (100 - $annualPct) / 100);
         /** @var Subscription|null $defaultSubscription */
         $defaultSubscription = $organization->subscription('default');
 
         return [
             'monthly_total_cents' => $monthlyCents,
-            'yearly_total_cents' => $yearlyCents,
             'daily_run_rate_cents' => (int) round($monthlyCents / 30),
             'interval' => $interval,
             'subscribed' => $defaultSubscription?->valid() ?? false,
@@ -107,10 +104,8 @@ final class BillingAnalytics
         $segments = [];
         foreach ([
             ['plan', $state->planLabel, $state->planPriceCents, 'bg-brand-forest/70'],
-            ['edge', __('Extra & SSR sites'), $state->edgeSubtotalCents, 'bg-emerald-500/70'],
             ['seats', __('Extra seats'), $state->extraSeatSubtotalCents, 'bg-amber-500/60'],
-            ['edge_lb', __('Load balancing'), $state->edgeLbSubtotalCents, 'bg-sky-500/60'],
-            ['edge_usage', __('Usage'), $state->usageLineCents(), 'bg-brand-sage/50'],
+            ['usage', __('Usage after credit'), $state->usageChargeCents(), 'bg-brand-sage/50'],
         ] as [$key, $label, $cents, $color]) {
             if ($cents > 0) {
                 $segments[] = ['key' => $key, 'label' => $label, 'cents' => $cents, 'color' => $color];
@@ -121,7 +116,9 @@ final class BillingAnalytics
     }
 
     /**
-     * Bill lines for a state — shared by the billing page and the API.
+     * Bill lines for a state — shared by the billing page and the API: plan,
+     * extra seats, one line per usage category at customer price, then the
+     * included usage credit as a negative line.
      *
      * @return list<array{label: string, quantity: int, unit_cents: int, line_cents: int, detail: ?string}>
      */
@@ -135,60 +132,59 @@ final class BillingAnalytics
         if ($state->planPriceCents > 0) {
             $items[] = $line(__(':plan plan', ['plan' => $state->planLabel]), 1, $state->planPriceCents);
         }
-        if ($state->extraSiteCount > 0) {
-            $items[] = $line(__('Extra site'), $state->extraSiteCount, (int) config('subscription.standard.edge_cents', 200));
-        }
-        if ($state->edgeSsrCount > 0 && $state->edgeSubtotalCents > 0) {
-            $items[] = $line(__('SSR site'), $state->edgeSsrCount, (int) config('subscription.standard.edge_ssr_cents', 700));
-        }
         if ($state->extraSeatCount > 0) {
             $items[] = $line(__('Extra seat'), $state->extraSeatCount, intdiv($state->extraSeatSubtotalCents, $state->extraSeatCount));
         }
-        if ($state->edgeLbSubtotalCents > 0) {
-            $items[] = $line(__('Load balancing endpoint'), $state->edgeLbEndpointCount, intdiv($state->edgeLbSubtotalCents, $state->edgeLbEndpointCount));
+        foreach ($state->usageLines() as $key => $cents) {
+            $detail = match ($key) {
+                'delivery' => $this->formatEdgeUsageDetail($state->edgeUsageEstimate),
+                'builds' => __(':minutes build minutes, billed per second', ['minutes' => number_format($state->buildSeconds / 60, 1)]),
+                default => null,
+            };
+            $items[] = $line(__(DesiredBillingState::usageLineLabel($key)), 1, $cents, $detail);
         }
-        if ($state->buildMinuteOverageCents > 0) {
-            $items[] = $line(__('Build minutes over allowance'), 1, $state->buildMinuteOverageCents, __(':minutes minutes used this month', ['minutes' => number_format($state->buildMinutes)]));
-        }
-        if ($state->containerComputeGrossCents > 0) {
-            $credit = $state->containerComputeGrossCents - $state->containerComputeCents;
-            $items[] = $line(__('Container compute'), 1, $state->containerComputeCents, $credit > 0
-                ? __(':gross used, :credit covered by your plan', ['gross' => '$'.number_format($state->containerComputeGrossCents / 100, 2), 'credit' => '$'.number_format($credit / 100, 2)])
-                : null);
-        }
-        if ($state->dataUsageCents > 0) {
-            $items[] = $line(__('Databases & queues'), 1, $state->dataUsageCents, __('D1 rows and storage, Queues operations, Redis commands and storage, HTTP delivery messages, key-value reads and storage, Postgres compute and storage, MySQL clusters'));
-        }
-        if ($state->edgeUsageSubtotalCents > 0) {
-            $items[] = $line(__('Delivery usage over allowance'), 1, $state->edgeUsageSubtotalCents, $this->formatEdgeUsageDetail($state->edgeUsageEstimate));
+        if ($state->creditAppliedCents() > 0) {
+            $items[] = $line(__(DesiredBillingState::usageLineLabel('credit')), 1, -$state->creditAppliedCents(), __(':plan includes :credit of usage each period', ['plan' => $state->planLabel, 'credit' => '$'.number_format($state->usageCreditCents / 100, 2)]));
         }
 
         return $items;
     }
 
     /**
+     * Delivery usage per day. Storage is a level: each site's peak that day,
+     * summed across sites (a MAX across the org was the single largest site).
+     *
      * @return list<array{date: string, label: string, requests: int, bytes_egress: int, cost_cents: int}>
      */
-    private function edgeUsageDaily(Organization $organization, int $edgeSiteCount, int $days): array
+    private function edgeUsageDaily(Organization $organization, int $days): array
     {
         $start = now()->subDays(max(1, $days - 1))->startOfDay();
 
-        $rows = EdgeUsageSnapshot::query()
+        $perSite = EdgeUsageSnapshot::query()
             ->where('organization_id', $organization->id)
             ->where('period_start', '>=', $start->toDateString())
+            ->groupBy('period_start', 'site_id')
+            ->select([
+                'period_start',
+                DB::raw('SUM(requests) as requests'),
+                DB::raw('SUM(bytes_egress) as bytes_egress'),
+                DB::raw('MAX(r2_storage_bytes) as r2_storage_bytes'),
+                DB::raw('SUM(r2_class_a_ops) as r2_class_a_ops'),
+                DB::raw('SUM(r2_class_b_ops) as r2_class_b_ops'),
+            ]);
+        $rows = DB::query()->fromSub($perSite, 'per_site')
             ->groupBy('period_start')
             ->orderBy('period_start')
             ->get([
                 'period_start',
                 DB::raw('COALESCE(SUM(requests), 0) as requests'),
                 DB::raw('COALESCE(SUM(bytes_egress), 0) as bytes_egress'),
-                DB::raw('COALESCE(MAX(r2_storage_bytes), 0) as r2_storage_bytes'),
+                DB::raw('COALESCE(SUM(r2_storage_bytes), 0) as r2_storage_bytes'),
                 DB::raw('COALESCE(SUM(r2_class_a_ops), 0) as r2_class_a_ops'),
                 DB::raw('COALESCE(SUM(r2_class_b_ops), 0) as r2_class_b_ops'),
             ]);
 
         $calculator = app(EdgeUsageCostCalculator::class);
-        $edgeSiteCount = max(1, $edgeSiteCount);
         $series = [];
 
         foreach ($rows as $row) {
@@ -199,14 +195,15 @@ final class BillingAnalytics
                 r2ClassAOps: (int) $row->r2_class_a_ops,
                 r2ClassBOps: (int) $row->r2_class_b_ops,
             );
-            $date = (string) $row->period_start;
+            $date = Carbon::parse((string) $row->period_start)->toDateString();
 
             $series[] = [
                 'date' => $date,
                 'label' => Carbon::parse($date)->format('M j'),
                 'requests' => $totals->requests,
                 'bytes_egress' => $totals->bytesEgress,
-                'cost_cents' => $calculator->estimate($totals, max(1, $edgeSiteCount))['subtotal_cents'],
+                'r2_storage_bytes' => $totals->r2StorageBytes,
+                'cost_cents' => $calculator->estimate($totals)['subtotal_cents'],
             ];
         }
 

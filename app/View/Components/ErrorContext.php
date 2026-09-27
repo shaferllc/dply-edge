@@ -70,7 +70,7 @@ class ErrorContext
                     $context['server'] = $site->server;
                     $context['suggestions'][] = [
                         'label' => 'Back to site: '.($site->primaryDomain()->hostname ?? $site->name),
-                        'url' => route('sites.show', [$site->server, $site]),
+                        'url' => route('sites.show', ['site' => $site]),
                         'primary' => true,
                     ];
                 }

@@ -34,6 +34,18 @@ return [
     'coming_soon' => filter_var(env('COMING_SOON', false), FILTER_VALIDATE_BOOLEAN),
 
     /*
+    | Where customers reach us: the pricing page, help menus, email footers
+    | and the docs all point here (ruling r-jnv0r3qf1xk49kmc).
+    */
+    'support_email' => env('DPLY_SUPPORT_EMAIL', 'hello@dply.io'),
+
+    /*
+    | Where vulnerability reports go: security.txt, the /compliance page and
+    | the docs. General support stays on support_email.
+    */
+    'security_email' => env('DPLY_SECURITY_EMAIL', 'security@dply.io'),
+
+    /*
     | IP allow-list for the coming-soon gate. These addresses (and any logged-in
     | user) see the FULL site; everyone else only sees the coming-soon page.
     | Supports IPv4, IPv6, and CIDR ranges. Sources are merged: the base list
@@ -281,90 +293,111 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Edge: usage-based billing (pass-through + margin)
+    | Edge: usage billing — provider cost + one margin
     |--------------------------------------------------------------------------
     |
-    | When enabled, delivery past the plan allowance is metered on top of the
-    | plan. Extra sites and SSR sites are separate lines (edge_cents /
-    | edge_ssr_cents in config/subscription.php). Snapshots are collected by
-    | `dply:edge:collect-usage` (scheduled daily).
+    | Pricing model (docs/adr/pricing-model-2026-09.md, ruling r-2zxevg4sj675qn1m).
+    | Every rate below is what the meter COSTS dply, in millicents (1/1000 ¢;
+    | 100,000 = $1). The customer price is cost × (1 + margin_percent / 100),
+    | applied in one place: App\Modules\Billing\Support\UsagePrice. Nothing else
+    | marks up. Each plan's included usage credit
+    | (subscription.standard.tiers.*.usage_credit_cents) comes off the bill;
+    | there are no per-meter allowances. Snapshots come from the
+    | dply:edge:collect-* commands.
     |
-    | Unit rates are ~Cloudflare list (cost floor). `markup_percent` is applied
-    | on the metered subtotal (default 25%). Plan allowances cover quiet
-    | sites; only extras and SSR add a site fee.
-    |
-    | Approx CF list (2026): Workers requests ~$0.30/M, R2 storage ~$0.015/GB-mo,
-    | Class A $4.50/M, Class B $0.36/M. Egress is charged as CDN delivery.
+    | Sources: Cloudflare list prices (2026) unless the comment says otherwise.
     */
     'edge' => [
         'usage_billing' => [
             'enabled' => filter_var(env('DPLY_EDGE_USAGE_BILLING_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
-            // Blanket margin on overage.
-            'markup_percent' => (int) env('DPLY_EDGE_USAGE_MARKUP_PERCENT', 25),
-            // Cost-floor unit rates (cents). Customer pays rate × (1 + markup%).
-            'requests_cents_per_million' => (int) env('DPLY_EDGE_USAGE_REQUESTS_CENTS_PER_MILLION', 50),
-            'egress_cents_per_gb' => (int) env('DPLY_EDGE_USAGE_EGRESS_CENTS_PER_GB', 5),
-            'r2_storage_cents_per_gb_month' => (int) env('DPLY_EDGE_USAGE_R2_STORAGE_CENTS_PER_GB_MONTH', 3),
-            'r2_class_a_cents_per_million' => (int) env('DPLY_EDGE_USAGE_R2_CLASS_A_CENTS_PER_MILLION', 450),
-            // Cloudflare R2 Class B (reads) list price is $0.36 / million = 36
-            // cents. The previous default of 360 was a 10x typo that billed
-            // customers ten times the real cost.
-            'r2_class_b_cents_per_million' => (int) env('DPLY_EDGE_USAGE_R2_CLASS_B_CENTS_PER_MILLION', 36),
-            // 5M was break-even against the $2 platform fee on its own: 5M
-            // requests is $1.50 at Cloudflare list ($0.30/M), and $2 only buys
-            // ~6.7M before storage, ops and the custom hostname are paid for —
-            // so any site that actually used its allowance was served at a loss.
-            // 1M costs $0.30 and still sits well above what a typical static
-            // site does in a month (usually under 500k).
-            'included_requests_per_site' => (int) env('DPLY_EDGE_USAGE_INCLUDED_REQUESTS_PER_SITE', 1_000_000),
-            'included_egress_gb_per_site' => (int) env('DPLY_EDGE_USAGE_INCLUDED_EGRESS_GB_PER_SITE', 100),
-            'included_r2_storage_gb_per_site' => (int) env('DPLY_EDGE_USAGE_INCLUDED_R2_STORAGE_GB_PER_SITE', 5),
-            // R2 operations included allowances — keep small sites at $0.
-            // Class A = writes (PUT/POST/LIST/COPY); Class B = reads (GET/HEAD).
-            // Cloudflare's free tier is 1M Class A + 10M Class B per month
-            // org-wide. Class B (reads) stays generous — cache hits never touch
-            // R2, so the allowance is nearly free to give. Class A (writes) is
-            // sized to a real deploy cadence instead.
-            // 100k writes is $0.45 at list — small next to a plan — for an
-            // allowance nothing reaches: a 2,000-file site deploying ten times
-            // a month writes 20k objects.
-            'included_r2_class_a_ops_per_site' => (int) env('DPLY_EDGE_USAGE_INCLUDED_R2_CLASS_A_OPS_PER_SITE', 20_000),
-            'included_r2_class_b_ops_per_site' => (int) env('DPLY_EDGE_USAGE_INCLUDED_R2_CLASS_B_OPS_PER_SITE', 1_000_000),
-            // Container compute, per second at Cloudflare list price in
-            // millicents (1/1000 ¢), marked up like the rest of usage:
-            //   vCPU $0.000020/s · memory $0.0000025/GiB-s · disk $0.00000007/GB-s
-            //   egress $0.025/GB. Collected by dply:edge:collect-container-usage.
-            'container_vcpu_millicents_per_hour' => (int) env('DPLY_EDGE_CONTAINER_VCPU_MC_PER_HOUR', 7_200),
-            'container_memory_millicents_per_gib_hour' => (int) env('DPLY_EDGE_CONTAINER_MEMORY_MC_PER_GIB_HOUR', 900),
-            'container_disk_millicents_per_gb_hour' => (int) env('DPLY_EDGE_CONTAINER_DISK_MC_PER_GB_HOUR', 25),
-            'container_egress_millicents_per_gb' => (int) env('DPLY_EDGE_CONTAINER_EGRESS_MC_PER_GB', 2_500),
-            // D1 and Queues at Cloudflare list price, millicents, marked up:
-            //   rows read $0.001/M · rows written $1.00/M · storage $0.75/GB-month
-            //   queue operations $0.40/M. Collected by dply:edge:collect-data-usage.
-            'd1_rows_read_millicents_per_million' => (int) env('DPLY_EDGE_D1_READ_MC_PER_MILLION', 100),
-            'd1_rows_written_millicents_per_million' => (int) env('DPLY_EDGE_D1_WRITE_MC_PER_MILLION', 100_000),
-            'd1_storage_millicents_per_gb_month' => (int) env('DPLY_EDGE_D1_STORAGE_MC_PER_GB_MONTH', 75_000),
-            'queue_operations_millicents_per_million' => (int) env('DPLY_EDGE_QUEUE_OPS_MC_PER_MILLION', 40_000),
-            // HTTP delivery. Customer prices, no second markup: $2 per 100k
-            // messages, $0.10 per GB after the first 1 GB. Recorded by the
-            // delivery usage hook. Read by EdgeDeliveryCost.
-            'delivery_messages_millicents_per_100k' => (int) env('DPLY_EDGE_DELIVERY_MESSAGES_MC_PER_100K', 200_000),
-            'delivery_bandwidth_millicents_per_gb' => (int) env('DPLY_EDGE_DELIVERY_BANDWIDTH_MC_PER_GB', 10_000),
-            'delivery_included_bandwidth_bytes' => (int) env('DPLY_EDGE_DELIVERY_INCLUDED_BANDWIDTH_BYTES', 1024 ** 3),
-            // Key-value stores. Customer prices, no second markup: reads $1
-            // per million; writes, deletes, and lists $10 per million; storage
-            // $1 per GB-month after the first 1 GB. Collected by
-            // dply:edge:collect-kv-usage. Read by EdgeKvCost.
-            'kv_reads_millicents_per_million' => (int) env('DPLY_EDGE_KV_READS_MC_PER_MILLION', 100_000),
-            'kv_writes_millicents_per_million' => (int) env('DPLY_EDGE_KV_WRITES_MC_PER_MILLION', 1_000_000),
-            'kv_storage_millicents_per_gb_month' => (int) env('DPLY_EDGE_KV_STORAGE_MC_PER_GB_MONTH', 100_000),
-            // Postgres compute and storage at Launch list price, then
-            // markup_percent. $0.106/CU-hour, $0.35/GB-month storage,
-            // $0.20/GB-month history, $0.09/GB-month snapshots, $0.10/GB
-            // public transfer after 500 GB. Collected by
-            // dply:edge:collect-postgres-usage. Read by EdgeAppDatabaseCost.
-            'postgres_compute_millicents_per_cu_hour' => (int) env('DPLY_EDGE_POSTGRES_COMPUTE_MC_PER_CU_HOUR', 10_600),
-            'postgres_storage_millicents_per_gb_month' => (int) env('DPLY_EDGE_POSTGRES_STORAGE_MC_PER_GB_MONTH', 35_000),
+            // The single knob. Changing it reprices every meter, the pricing
+            // page, the docs tables (dply:billing:price-table) and invoices.
+            'margin_percent' => (float) env('DPLY_USAGE_MARGIN_PERCENT', 30),
+
+            // Delivery. Workers Standard: $0.30 per million requests.
+            'requests_millicents_per_million' => (float) env('DPLY_USAGE_REQUESTS_MC_PER_MILLION', 30_000),
+            // Bandwidth. NOT a Cloudflare cost: Workers/R2 egress is
+            // unmetered at Cloudflare. $0.06/GB is a dply-set CUSTOMER PRICE
+            // (ruling r-jnv0r3qf1xk49kmc: "bandwidth stays $0.06/GB"), so it is
+            // listed in fixed_price_meters below: the margin is not added and
+            // changing margin_percent leaves it at $0.06. The env var sets the
+            // price, not a cost.
+            'egress_millicents_per_gb' => (float) env('DPLY_USAGE_EGRESS_MC_PER_GB', 6_000),
+            // Meters whose value above is the customer price, not a cost
+            // (UsagePrice::cost() backs the cost out at the current margin).
+            'fixed_price_meters' => ['egress_millicents_per_gb'],
+            // Site/build artifact storage (R2): $0.015/GB-month, Class A
+            // (writes) $4.50/M, Class B (reads) $0.36/M.
+            'r2_storage_millicents_per_gb_month' => (float) env('DPLY_USAGE_R2_STORAGE_MC_PER_GB_MONTH', 1_500),
+            'r2_class_a_millicents_per_million' => (float) env('DPLY_USAGE_R2_CLASS_A_MC_PER_MILLION', 450_000),
+            'r2_class_b_millicents_per_million' => (float) env('DPLY_USAGE_R2_CLASS_B_MC_PER_MILLION', 36_000),
+
+            // Build time, billed per second (EdgeDeployment.build_seconds).
+            // NOT a provider list price: builds run on dply's own build hosts.
+            // $0.005/minute is dply's cost figure (the old Team overage rate).
+            'build_millicents_per_minute' => (float) env('DPLY_USAGE_BUILD_MC_PER_MINUTE', 500),
+
+            // Container apps and queue workers (Cloudflare Containers), per
+            // second awake: vCPU $0.000020/s, memory $0.0000025/GiB-s, disk
+            // $0.00000007/GB-s. Collected by dply:edge:collect-container-usage
+            // (per-second counters). Container egress (tx_bytes) is recorded
+            // but not billed: visitor responses already bill once as delivery
+            // bandwidth (see EdgeContainerComputeCost).
+            'container_vcpu_millicents_per_second' => (float) env('DPLY_USAGE_CONTAINER_VCPU_MC_PER_SECOND', 2.0),
+            'container_memory_millicents_per_gib_second' => (float) env('DPLY_USAGE_CONTAINER_MEMORY_MC_PER_GIB_SECOND', 0.25),
+            'container_disk_millicents_per_gb_second' => (float) env('DPLY_USAGE_CONTAINER_DISK_MC_PER_GB_SECOND', 0.007),
+
+            // D1: rows read $0.001/M, rows written $1.00/M, storage
+            // $0.75/GB-month. Queues: $0.40 per million operations.
+            // Collected by dply:edge:collect-data-usage.
+            'd1_rows_read_millicents_per_million' => (float) env('DPLY_EDGE_D1_READ_MC_PER_MILLION', 100),
+            'd1_rows_written_millicents_per_million' => (float) env('DPLY_EDGE_D1_WRITE_MC_PER_MILLION', 100_000),
+            'd1_storage_millicents_per_gb_month' => (float) env('DPLY_EDGE_D1_STORAGE_MC_PER_GB_MONTH', 75_000),
+            'queue_operations_millicents_per_million' => (float) env('DPLY_EDGE_QUEUE_OPS_MC_PER_MILLION', 40_000),
+
+            // Workers KV: reads $0.50/M; writes, deletes and lists $5.00/M;
+            // storage $0.50/GB-month. Collected by dply:edge:collect-kv-usage.
+            'kv_reads_millicents_per_million' => (float) env('DPLY_USAGE_KV_READS_MC_PER_MILLION', 50_000),
+            'kv_writes_millicents_per_million' => (float) env('DPLY_USAGE_KV_WRITES_MC_PER_MILLION', 500_000),
+            'kv_storage_millicents_per_gb_month' => (float) env('DPLY_USAGE_KV_STORAGE_MC_PER_GB_MONTH', 50_000),
+
+            // dply databases (Postgres/MySQL/MongoDB pods on dply's cluster),
+            // per compute-unit second awake (1 CU = 1 vCPU + 4 GB) plus
+            // storage per GB-month, prorated by the second the volume is held.
+            // NOT a provider list price: dply's infra cost figure, $0.106 per
+            // CU-hour and $0.35/GB-month (the Launch rates the old model used
+            // as its cost floor). Collected by dply:edge:collect-valkey-usage.
+            'database_compute_millicents_per_cu_second' => (float) env('DPLY_USAGE_DATABASE_MC_PER_CU_SECOND', 10_600 / 3600),
+            'database_storage_millicents_per_gb_month' => (float) env('DPLY_USAGE_DATABASE_STORAGE_MC_PER_GB_MONTH', 35_000),
+
+            // Realtime (docs/edge-realtime.md). Messages: $0.45 per million is
+            // a dply-set figure (ruling r-p3dsj9znvtnyhphr), NOT a Cloudflare
+            // list price: Durable Objects bill incoming WebSocket messages at
+            // 20:1 as requests, outgoing ones are free, and hibernation
+            // removes duration (docs/pricing-review.md §3).
+            // Connection-minutes have no per-unit provider price; the cost is
+            // backed out of the old $0.50/M customer price at the then-default
+            // 20% margin (0.05 / 1.2); at 30% it is about $0.54/M.
+            // Collected by dply:edge:collect-realtime-usage.
+            'realtime_connection_minute_millicents' => (float) env('DPLY_USAGE_REALTIME_CONNECTION_MINUTE_MC', 0.05 / 1.2),
+            'realtime_message_millicents_per_million' => (float) env('DPLY_USAGE_REALTIME_MESSAGES_MC_PER_MILLION', 45_000),
+
+            // Workers CPU $0.02 per million CPU-ms. Durable Objects: requests
+            // $0.15/M, duration $12.50 per million GB-s, rows read $0.001/M,
+            // rows written $1.00/M, storage $0.20/GB-month. Object-storage
+            // buckets (R2): $0.015/GB-month, Class A $4.50/M, Class B $0.36/M.
+            // Images: $0.50 per 1,000 unique transformations.
+            // Collected by dply:edge:collect-platform-usage.
+            'workers_cpu_millicents_per_million_ms' => (float) env('DPLY_EDGE_WORKERS_CPU_MC_PER_MILLION_MS', 2_000),
+            'do_requests_millicents_per_million' => (float) env('DPLY_EDGE_DO_REQUESTS_MC_PER_MILLION', 15_000),
+            'do_duration_millicents_per_million_gb_s' => (float) env('DPLY_EDGE_DO_DURATION_MC_PER_MILLION_GB_S', 1_250_000),
+            'do_rows_read_millicents_per_million' => (float) env('DPLY_EDGE_DO_ROWS_READ_MC_PER_MILLION', 100),
+            'do_rows_written_millicents_per_million' => (float) env('DPLY_EDGE_DO_ROWS_WRITTEN_MC_PER_MILLION', 100_000),
+            'do_storage_millicents_per_gb_month' => (float) env('DPLY_EDGE_DO_STORAGE_MC_PER_GB_MONTH', 20_000),
+            'r2_bucket_storage_millicents_per_gb_month' => (float) env('DPLY_EDGE_R2_BUCKET_STORAGE_MC_PER_GB_MONTH', 1_500),
+            'r2_bucket_class_a_millicents_per_million' => (float) env('DPLY_EDGE_R2_BUCKET_CLASS_A_MC_PER_MILLION', 450_000),
+            'r2_bucket_class_b_millicents_per_million' => (float) env('DPLY_EDGE_R2_BUCKET_CLASS_B_MC_PER_MILLION', 36_000),
+            'images_transformations_millicents_per_million' => (float) env('DPLY_EDGE_IMAGES_TRANSFORMATIONS_MC_PER_MILLION', 50_000_000),
         ],
     ],
 

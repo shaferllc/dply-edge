@@ -55,6 +55,8 @@ test('a laravel repo with a vite package.json is detected as laravel and presele
         ->assertSet('detectedPlan.framework', 'laravel')
         ->assertSet('detectedPlan.build_command', 'composer install --no-dev --optimize-autoloader && npm install && npm run build')
         ->assertSet('form.runtime_mode', 'container')
+        // The detected framework is summarised on the wizard's review step.
+        ->set('wizardStep', 3)
         ->assertDontSee('Not an Edge workload')
         ->assertSee('laravel')
         ->assertSee('Container');
@@ -94,6 +96,7 @@ test('a vite site stays static', function () {
         ->call('detectFromRepository')
         ->assertSet('detectedPlan.framework', 'vite')
         ->assertSet('form.runtime_mode', 'static')
+        ->set('wizardStep', 3)
         ->assertSee('vite')
         ->assertSee('Static');
 });

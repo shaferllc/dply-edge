@@ -39,7 +39,7 @@ class ResourceNotificationContextResolver
                 'team_id' => null,
                 'resource_type' => Site::class,
                 'resource_id' => (string) $subject->getKey(),
-                'url' => route('sites.show', [$subject->server, $subject], absolute: true),
+                'url' => route('sites.show', ['site' => $subject], absolute: true),
                 'stakeholder_user_ids' => $this->siteStakeholders($subject),
             ];
         }

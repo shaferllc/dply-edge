@@ -161,6 +161,12 @@ trait ResolvesSiteRuntime
             ['source' => 'kubernetes', 'blob' => data_get($meta, 'kubernetes_runtime.detected')],
             ['source' => 'serverless', 'blob' => data_get($meta, 'serverless.detected_runtime') ?: data_get($meta, 'serverless.detected')],
             ['source' => 'vm', 'blob' => data_get($meta, 'vm_runtime.detected')],
+            // Edge apps record the framework their build detected; without this
+            // a Laravel container app never shows its Laravel-only tools.
+            ['source' => 'edge', 'blob' => filled(data_get($meta, 'edge.build.framework')) ? [
+                'framework' => (string) data_get($meta, 'edge.build.framework'),
+                'language' => ['laravel' => 'php', 'rails' => 'ruby'][strtolower((string) data_get($meta, 'edge.build.framework'))] ?? '',
+            ] : null],
         ];
 
         foreach ($candidates as $candidate) {

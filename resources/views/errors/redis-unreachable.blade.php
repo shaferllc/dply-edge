@@ -1,6 +1,6 @@
 {{-- Self-contained Redis-unreachable diagnostic page. Renders without
-     touching Cache / Pennant / session — the layout used by other error
-     pages pulls site-header + marketing-footer + Pennant feature lookups
+     touching Cache / session — the layout used by other error
+     pages pulls site-header + marketing-footer
      and would recurse on the very RedisException we're trying to surface. --}}
 <!DOCTYPE html>
 <html lang="en">
@@ -89,7 +89,7 @@
         <span class="badge">{{ __('Redis backend timed out') }}</span>
         <h1>{{ __('Dply can\'t talk to its own cache / queue backend.') }}</h1>
         <p>
-            {{ __('Every page render touches Cache (Livewire snapshots, session lookups, feature flags). The configured Redis at :host::port stopped responding within the :timeout-second timeout, so the request failed instead of wedging PHP-FPM for a minute. Fix one of the items below to bring pages back.', [
+            {{ __('Every page render touches Cache (Livewire snapshots, session lookups). The configured Redis at :host::port stopped responding within the :timeout-second timeout, so the request failed instead of wedging PHP-FPM for a minute. Fix one of the items below to bring pages back.', [
                 'host' => $host,
                 'port' => $port,
                 'timeout' => $timeout,

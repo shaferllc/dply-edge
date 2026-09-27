@@ -23,11 +23,9 @@ use RuntimeException;
  * deploy gets its own immutable script and the platform Worker can
  * route traffic to a specific deployment without redeploys.
  *
- * Bindings handed to the per-deployment script:
- *   - ASSETS:    R2 bucket bound at the deployment's storage_prefix
- *   - HOST_MAP:  KV namespace for hostname → routing payload
- *   - DEPLOYMENT_ID / SITE_ID / STORAGE_PREFIX: plain-text identifiers
- *     the SSR runtime can read for asset lookups + logging.
+ * Bindings handed to the per-deployment script: DEPLOYMENT_ID / SITE_ID /
+ * STORAGE_PREFIX (plain text) plus the app's own resources. Never the
+ * platform's shared KV or bucket — this script runs customer code.
  *
  * Script naming: `dply-ssr-{site-tail6}-{deploy-tail8}`. Stays under
  * Cloudflare's 64-char script name limit and is human-readable in the
@@ -256,41 +254,15 @@ class EdgeSsrBundleUploader
      */
     private function bindingsFor(EdgeDeployment $deployment, EdgeDeliveryContext $context): array
     {
+        // Customer code runs in this script, so it gets only its own
+        // identifiers — never the platform's HOST_MAP (every site's routing
+        // secrets), EDGE_CACHE or the shared ASSETS bucket (every site's
+        // build files). The platform Worker serves static files itself.
         $bindings = [
-            [
-                'name' => 'HOST_MAP',
-                'type' => 'kv_namespace',
-                'namespace_id' => $context->kvNamespaceId,
-            ],
-            [
-                'name' => 'ASSETS',
-                'type' => 'r2_bucket',
-                'bucket_name' => $context->r2Bucket,
-            ],
-            [
-                'name' => 'DEPLOYMENT_ID',
-                'type' => 'plain_text',
-                'text' => (string) $deployment->id,
-            ],
-            [
-                'name' => 'SITE_ID',
-                'type' => 'plain_text',
-                'text' => (string) $deployment->site_id,
-            ],
-            [
-                'name' => 'STORAGE_PREFIX',
-                'type' => 'plain_text',
-                'text' => (string) $deployment->storage_prefix,
-            ],
+            ['name' => 'DEPLOYMENT_ID', 'type' => 'plain_text', 'text' => (string) $deployment->id],
+            ['name' => 'SITE_ID', 'type' => 'plain_text', 'text' => (string) $deployment->site_id],
+            ['name' => 'STORAGE_PREFIX', 'type' => 'plain_text', 'text' => (string) $deployment->storage_prefix],
         ];
-
-        if ($context->cacheKvNamespaceId !== '') {
-            $bindings[] = [
-                'name' => 'EDGE_CACHE',
-                'type' => 'kv_namespace',
-                'namespace_id' => $context->cacheKvNamespaceId,
-            ];
-        }
 
         // P10c — append user-declared bindings from dply.yaml so SSR
         // code can read from its KV / R2 / D1 / Queues by name.
@@ -310,6 +282,8 @@ class EdgeSsrBundleUploader
                     'text' => $value,
                 ];
             }
+            // Realtime env after the site's own, skipping names it already set.
+            $bindings = [...$bindings, ...EdgeContainerConnections::realtimeWorkerBindings($site, array_column($bindings, 'name'))];
         }
 
         return $bindings;

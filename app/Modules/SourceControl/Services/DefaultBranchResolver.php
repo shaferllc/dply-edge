@@ -56,7 +56,8 @@ final class DefaultBranchResolver
             Log::debug('DefaultBranchResolver: ls-remote threw', [
                 'url' => $repositoryUrl,
                 'authed' => $account !== null,
-                'message' => $e->getMessage(),
+                // A timeout message quotes the command line, token-bearing URL included.
+                'message' => str_replace($url, $repositoryUrl, $e->getMessage()),
             ]);
 
             return null;
@@ -115,7 +116,8 @@ final class DefaultBranchResolver
         } catch (Throwable $e) {
             Log::debug('DefaultBranchResolver: ls-remote threw', [
                 'url' => $repositoryUrl,
-                'message' => $e->getMessage(),
+                // A timeout message quotes the command line, token-bearing URL included.
+                'message' => str_replace($url, $repositoryUrl, $e->getMessage()),
             ]);
 
             return $empty;

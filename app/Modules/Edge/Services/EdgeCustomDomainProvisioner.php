@@ -12,6 +12,7 @@ use App\Modules\Edge\Support\FakeEdgeProvision;
 use App\Modules\Notifications\Services\NotificationPublisher;
 use App\Modules\Providers\Cloudflare\CloudflareDnsService;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
+use Closure;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -27,29 +28,52 @@ final class EdgeCustomDomainProvisioner
     public function __construct(
         private readonly EdgeHostMapPublisher $hostMapPublisher,
         private readonly EdgeDeliveryContextResolver $contextResolver,
+        /** Test seam: fn (string $host, int $type): array, defaults to dns_get_record. */
+        private readonly ?Closure $dnsLookup = null,
     ) {}
+
+    public static function normalizeHostname(string $hostname): string
+    {
+        return rtrim(strtolower(trim($hostname)), '.');
+    }
 
     /**
      * @return array<string, mixed>|null
      */
     public function provision(Site $site, string $hostname): ?array
     {
-        $hostname = strtolower(trim($hostname));
+        $hostname = self::normalizeHostname($hostname);
         if ($hostname === '') {
             return null;
         }
 
-        // Tier allowance: custom_domains_per_site (re-provisioning an attached
-        // hostname never counts as a new one).
+        // Re-provisioning an attached hostname never counts as a new one.
         $routing = is_array($site->edgeMeta()['routing'] ?? null) ? $site->edgeMeta()['routing'] : [];
         $attached = is_array($routing['custom_domains'] ?? null) ? $routing['custom_domains'] : [];
-        $limit = $site->organization?->tierAllowances()['custom_domains_per_site'] ?? null;
-        if ($limit !== null && ! isset($attached[$hostname]) && count($attached) >= (int) $limit) {
-            throw new RuntimeException(trans_choice(
-                '{1} Your plan includes :count custom domain per site. Upgrade to Pro for up to 100.|[2,*] Your plan includes :count custom domains per site.',
-                (int) $limit,
-            ));
+
+        if (! isset($attached[$hostname])) {
+            // One hostname, one site, across every org: a second claimant would
+            // overwrite the owner's host-map entry and share its Cloudflare
+            // custom hostname (which its remove() would then delete).
+            // ponytail: first claim wins, so a hostname can be squatted while
+            // pending; support detaches it until self-serve takeover exists.
+            if ($this->hostMapPublisher->hostnameClaimedElsewhere($site, $hostname, readyOnly: false)) {
+                throw new RuntimeException(__(':hostname is already attached to another site. Remove it there first, or contact support if you own it.', ['hostname' => $hostname]));
+            }
+
+            // The plan's one domain cap is org-wide (subscription.standard.
+            // tiers.*.custom_domains): Cloudflare for SaaS bills every
+            // hostname past 100 per account.
+            $orgLimit = $site->organization?->tierAllowances()['custom_domains'] ?? null;
+            if ($orgLimit !== null && $this->organizationDomainCount($site) >= (int) $orgLimit) {
+                throw new RuntimeException(trans_choice(
+                    '{0} This organization has no plan. Choose one on the billing page to add domains.|{1} Your plan includes :count custom domain across the organization. Remove it or upgrade to add more.|[2,*] Your plan includes :count custom domains across the organization. Remove one or upgrade to add more.',
+                    (int) $orgLimit,
+                ));
+            }
         }
+
+        $this->ensureVerificationToken($site, $hostname);
 
         $edgeHost = $this->cnameTargetFor($site);
         if ($edgeHost === '') {
@@ -145,10 +169,16 @@ final class EdgeCustomDomainProvisioner
      */
     public function verify(Site $site, string $hostname): ?array
     {
-        $hostname = strtolower(trim($hostname));
-        if ($hostname === '') {
+        $hostname = self::normalizeHostname($hostname);
+        $routing = is_array($site->edgeMeta()['routing'] ?? null) ? $site->edgeMeta()['routing'] : [];
+        $previous = $routing['custom_domains'][$hostname] ?? null;
+        // Only a hostname attached through provision() (with its uniqueness
+        // and plan checks) can be verified; updateEntry() would create one.
+        // A preview holds a copy of its parent's domains and never serves them.
+        if ($hostname === '' || ! is_array($previous) || $site->isEdgePreview()) {
             return null;
         }
+        $proof = $this->ensureVerificationToken($site, $hostname);
 
         $edgeHost = $this->cnameTargetFor($site);
         if ($edgeHost === '') {
@@ -158,47 +188,80 @@ final class EdgeCustomDomainProvisioner
             ]);
         }
 
-        $records = @dns_get_record($hostname, DNS_CNAME | DNS_A);
-        if (! is_array($records) || $records === []) {
+        $records = $this->dnsRecords($hostname, DNS_CNAME | DNS_A | DNS_AAAA);
+        if ($records === []) {
             return $this->updateEntry($site, $hostname, [
                 'dns_status' => 'failed',
                 'cname_target' => $edgeHost,
+                'verified_at' => now()->toIso8601String(),
                 'error' => __('No DNS records found for :hostname. Publish the CNAME and wait for propagation.', ['hostname' => $hostname]),
             ]);
         }
 
         $resolved = [];
+        $hasCname = false;
         foreach ($records as $record) {
             $type = strtoupper((string) ($record['type'] ?? ''));
             if ($type === 'CNAME') {
+                $hasCname = true;
                 $resolved[] = strtolower(rtrim((string) ($record['target'] ?? ''), '.'));
-            } elseif ($type === 'A') {
-                $resolved[] = (string) ($record['ip'] ?? '');
+            } elseif ($type === 'A' || $type === 'AAAA') {
+                $resolved[] = (string) ($record['ip'] ?? $record['ipv6'] ?? '');
             }
         }
-        $resolved = array_filter($resolved);
+        $resolved = array_values(array_filter($resolved));
         $expected = strtolower(rtrim($edgeHost, '.'));
         $matches = in_array($expected, $resolved, true);
 
+        // An apex can't hold a CNAME: CNAME flattening / ALIAS / ANAME answer
+        // with the target's addresses instead. Addresses are shared by every
+        // site behind the target, so they prove routing, not ownership — the
+        // TXT token below is required for this path.
+        $flattened = false;
+        if (! $matches && ! $hasCname) {
+            $targetIps = [];
+            foreach ($this->dnsRecords($expected, DNS_A | DNS_AAAA) as $record) {
+                $targetIps[] = (string) ($record['ip'] ?? $record['ipv6'] ?? '');
+            }
+            $matches = $flattened = array_intersect($resolved, array_filter($targetIps)) !== [];
+        }
+
         // Also accept CNAME → site edge hostname when UI shows a fallback origin override.
+        $perSiteCname = false;
         if (! $matches) {
             $siteHost = strtolower(rtrim((string) $site->edgeHostname(), '.'));
             if ($siteHost !== '' && $siteHost !== $expected) {
-                $matches = in_array($siteHost, $resolved, true);
+                $matches = $perSiteCname = in_array($siteHost, $resolved, true);
             }
         }
 
-        $entry = $this->updateEntry($site, $hostname, [
+        $error = $matches ? null : __('Hostname resolves to :actual, expected :expected.', [
+            'actual' => implode(', ', $resolved),
+            'expected' => $expected,
+        ]);
+
+        // The shared fallback origin is the same CNAME for every org, so it
+        // proves nothing about who owns the hostname: require the site's TXT
+        // token. A CNAME to the site's own edge hostname is per-site already.
+        // Domains that were ready before this check are grandfathered.
+        $grandfathered = ($previous['dns_status'] ?? null) === 'ready' || ! empty($previous['ownership_verified_at']);
+        if ($matches && ! $perSiteCname && ($flattened || $this->usesSharedFallback($site)) && ! $grandfathered
+            && ! in_array($proof['value'], $this->txtValues($proof['name']), true)) {
+            $matches = false;
+            $error = __('Add a TXT record :name with value :value to prove you own this hostname, then verify again.', $proof);
+        }
+
+        if ($matches && $this->hostMapPublisher->hostnameClaimedElsewhere($site, $hostname)) {
+            $matches = false;
+            $error = __(':hostname is already live on another site.', ['hostname' => $hostname]);
+        }
+
+        $entry = $this->updateEntry($site, $hostname, array_merge([
             'dns_status' => $matches ? 'ready' : 'failed',
             'cname_target' => $edgeHost,
             'verified_at' => now()->toIso8601String(),
-            'error' => $matches
-                ? null
-                : __('Hostname resolves to :actual, expected :expected.', [
-                    'actual' => implode(', ', $resolved),
-                    'expected' => $expected,
-                ]),
-        ]);
+            'error' => $error,
+        ], $matches && empty($previous['ownership_verified_at']) ? ['ownership_verified_at' => now()->toIso8601String()] : []));
 
         if ($matches) {
             $this->publishReadyHostname($site->fresh(), $hostname);
@@ -206,10 +269,12 @@ final class EdgeCustomDomainProvisioner
             $entry = $this->syncCustomHostnameSsl($site->fresh(), $hostname) ?? $entry;
         }
 
-        // P9b: notify subscribers when verification flips state.
-        // Wrapped in try/catch — notification failures must not bubble
-        // out of the verify path; the caller treats this as the source
-        // of truth for the DNS row's status.
+        // P9b: notify subscribers only when verification flips state — the
+        // 15-minute recheck re-verifies failed rows, so a repeat failure must
+        // stay quiet. Best-effort: the DNS row is the source of truth.
+        if (($previous['dns_status'] ?? null) === $entry['dns_status']) {
+            return $entry;
+        }
         try {
             $eventKey = $matches ? 'edge.domain.verified' : 'edge.domain.failing';
             $title = $matches
@@ -302,10 +367,16 @@ final class EdgeCustomDomainProvisioner
 
     public function remove(Site $site, string $hostname): void
     {
-        $hostname = strtolower(trim($hostname));
+        $legacyKey = strtolower(trim($hostname));
+        $hostname = self::normalizeHostname($hostname);
         $meta = $site->edgeMeta();
         $routing = is_array($meta['routing'] ?? null) ? $meta['routing'] : [];
         $domains = is_array($routing['custom_domains'] ?? null) ? $routing['custom_domains'] : [];
+
+        // Keys attached before normalization may still carry a trailing dot.
+        if (! isset($domains[$hostname]) && isset($domains[$legacyKey])) {
+            $hostname = $legacyKey;
+        }
 
         $removed = $domains[$hostname] ?? null;
         unset($domains[$hostname]);
@@ -315,7 +386,10 @@ final class EdgeCustomDomainProvisioner
         $site->update(['meta' => array_merge(is_array($site->meta) ? $site->meta : [], ['edge' => $meta])]);
 
         try {
-            $this->hostMapPublisher->unpublishHostname($site, $hostname, $this->contextResolver->forSite($site));
+            // Never delete the KV entry of the site that owns this hostname.
+            if (! $this->hostMapPublisher->hostnameClaimedElsewhere($site, $hostname)) {
+                $this->hostMapPublisher->unpublishHostname($site, $hostname, $this->contextResolver->forSite($site));
+            }
         } catch (Throwable $e) {
             Log::info('Edge custom-domain KV cleanup failed (non-fatal).', [
                 'site_id' => $site->id,
@@ -327,7 +401,10 @@ final class EdgeCustomDomainProvisioner
         ResolveEdgeCustomDomain::invalidateHostMap();
 
         if (is_array($removed)) {
-            $this->deleteCustomHostnameRemote($site, $hostname, $removed);
+            // A legacy duplicate shares the owner's Cloudflare custom hostname.
+            if (! $this->hostMapPublisher->hostnameClaimedElsewhere($site, $hostname, readyOnly: false)) {
+                $this->deleteCustomHostnameRemote($site, $hostname, $removed);
+            }
 
             if (($removed['mode'] ?? null) === 'auto') {
                 $this->removeAutoDnsRecord($site, $hostname, $removed);
@@ -513,6 +590,67 @@ final class EdgeCustomDomainProvisioner
         }
     }
 
+    /**
+     * The per-site ownership TXT record, minted once per attached hostname.
+     *
+     * @return array{type: string, name: string, value: string}
+     */
+    private function ensureVerificationToken(Site $site, string $hostname): array
+    {
+        $routing = is_array($site->edgeMeta()['routing'] ?? null) ? $site->edgeMeta()['routing'] : [];
+        $existing = $routing['custom_domains'][$hostname]['dply_verification'] ?? null;
+        if (is_array($existing) && ($existing['value'] ?? '') !== '') {
+            return $existing;
+        }
+
+        $proof = ['type' => 'TXT', 'name' => '_dply-verify.'.$hostname, 'value' => 'dply-verify='.Str::random(32)];
+        $this->updateEntry($site, $hostname, ['dply_verification' => $proof]);
+
+        return $proof;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function txtValues(string $name): array
+    {
+        $values = [];
+        foreach ($this->dnsRecords($name, DNS_TXT) as $record) {
+            $values[] = trim((string) (isset($record['entries']) ? implode('', (array) $record['entries']) : ($record['txt'] ?? '')));
+        }
+
+        return $values;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function dnsRecords(string $host, int $type): array
+    {
+        $records = $this->dnsLookup !== null ? ($this->dnsLookup)($host, $type) : @dns_get_record($host, $type);
+
+        return is_array($records) ? array_values(array_filter($records, 'is_array')) : [];
+    }
+
+    private function organizationDomainCount(Site $site): int
+    {
+        return (int) Site::query()
+            ->where('organization_id', $site->organization_id)
+            ->get(['id', 'meta'])
+            ->reject(fn (Site $s): bool => $s->isEdgePreview()) // previews copy the parent's routing
+            ->sum(function (Site $s): int {
+                $domains = $s->edgeMeta()['routing']['custom_domains'] ?? null;
+
+                return is_array($domains) ? count($domains) : 0;
+            });
+    }
+
+    private function usesSharedFallback(Site $site): bool
+    {
+        return trim((string) config('edge.custom_hostnames.fallback_origin', '')) !== ''
+            && $this->shouldUseCustomHostnames($site);
+    }
+
     private function shouldUseCustomHostnames(Site $site): bool
     {
         if (! filter_var(config('edge.custom_hostnames.enabled', true), FILTER_VALIDATE_BOOLEAN)) {
@@ -550,11 +688,26 @@ final class EdgeCustomDomainProvisioner
         return $client->activeZoneId($zoneName);
     }
 
-    private function findCloudflareCredentialForZone(Site $site, string $hostname): ?ProviderCredential
+    /**
+     * Zones that could hold $hostname, longest first — the hostname itself
+     * (an apex, or a delegated subdomain zone) down to its two-label parent.
+     *
+     * @return list<string>
+     */
+    private static function candidateZones(string $hostname): array
     {
         $labels = explode('.', $hostname);
-        for ($i = 1; $i <= count($labels) - 2; $i++) {
-            $zone = implode('.', array_slice($labels, $i));
+        $zones = [];
+        for ($i = 0; $i <= count($labels) - 2; $i++) {
+            $zones[] = implode('.', array_slice($labels, $i));
+        }
+
+        return $zones;
+    }
+
+    private function findCloudflareCredentialForZone(Site $site, string $hostname): ?ProviderCredential
+    {
+        foreach (self::candidateZones($hostname) as $zone) {
             $credential = ProviderCredential::query()
                 ->where('organization_id', $site->organization_id)
                 ->where('provider', 'cloudflare')
@@ -578,9 +731,7 @@ final class EdgeCustomDomainProvisioner
 
     private function findOwnedCloudflareZone(ProviderCredential $credential, string $hostname): ?string
     {
-        $labels = explode('.', $hostname);
-        for ($i = 1; $i <= count($labels) - 2; $i++) {
-            $candidate = implode('.', array_slice($labels, $i));
+        foreach (self::candidateZones($hostname) as $candidate) {
             try {
                 if ((new CloudflareDnsService($credential))->zoneExists($candidate)) {
                     return $candidate;

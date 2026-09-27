@@ -6,7 +6,9 @@ namespace App\Modules\Edge\Livewire\Concerns;
 
 use App\Enums\QuotaSurface;
 use App\Models\EdgeSiteEnvVar;
+use App\Models\Organization;
 use App\Models\Site;
+use App\Modules\Billing\Services\PlanCheckout;
 use App\Modules\Edge\Actions\CreateEdgeSite;
 use App\Modules\Edge\Actions\RedeployEdgeSite;
 use App\Modules\Edge\Support\EdgeEligibility;
@@ -36,6 +38,9 @@ trait ManagesEdgeDeploy
         if ($site === null) {
             return;
         }
+        // launchedSiteId is a public property: the browser can send any id.
+        // Changing the branch is a build setting, so this needs update.
+        $this->authorize('update', $site);
 
         $this->validate([
             'branch' => ['required', 'string', 'max:120'],
@@ -58,6 +63,52 @@ trait ManagesEdgeDeploy
         $this->launchedDeploymentId = (string) $deployment->id;
     }
 
+    /**
+     * No plan yet: straight to Stripe Checkout (the trial when eligible),
+     * coming back to this form with the draft in the query (applyQueryPrefills)
+     * to press Deploy again. Only an org's billing managers can pay; anyone
+     * else, or a checkout that cannot start, gets the message instead.
+     */
+    private function checkoutForDraft(Organization $org): void
+    {
+        $days = (int) config('subscription.standard.trial.days', 5);
+        $message = $org->eligibleForTrial()
+            ? __('Start your :days-day trial on the billing page to deploy.', ['days' => $days])
+            : __('This organization has no plan. Choose one on the billing page to deploy.');
+        if (! (auth()->user()?->can('update', $org) ?? false)) {
+            $this->toastError($message);
+
+            return;
+        }
+
+        $draft = array_filter([
+            'repo' => $this->repo,
+            'branch' => $this->branch,
+            'name' => $this->form->name,
+            'runtime_mode' => $this->form->runtime_mode,
+            'build_command' => $this->form->build_command,
+            'output_dir' => $this->form->output_dir,
+        ], static fn ($value): bool => is_string($value) && $value !== '');
+        try {
+            $url = app(PlanCheckout::class)->url(
+                $org,
+                'pro',
+                route('edge.create', $draft + ['checkout' => 'success']),
+                route('edge.create', $draft + ['checkout' => 'cancelled']),
+            );
+        } catch (\Throwable $e) {
+            report($e);
+            $url = null;
+        }
+        if ($url === null) {
+            $this->toastError($message);
+
+            return;
+        }
+
+        $this->redirect($url, navigate: false);
+    }
+
     public function deploy(): void
     {
         $org = auth()->user()?->currentOrganization();
@@ -66,8 +117,20 @@ trait ManagesEdgeDeploy
 
             return;
         }
+        // Deployers and viewers don't create apps (ruling r-jnv0r3qf1xk49kmc).
+        if (! in_array($org->memberRole(auth()->user()), ['owner', 'admin', 'member'], true)) {
+            $this->toastError(__('Your role cannot create apps. Ask an organization admin or member.'));
+
+            return;
+        }
 
         $this->validateCreateForm();
+
+        if (! $org->hasPlan()) {
+            $this->checkoutForDraft($org);
+
+            return;
+        }
 
         if (! $org->canCreateOnSurface(QuotaSurface::Edge)) {
             $this->toastError($org->quotaLimitMessage(QuotaSurface::Edge));
@@ -76,25 +139,31 @@ trait ManagesEdgeDeploy
         }
 
         if ($this->form->runtime_mode === 'container' && ! EdgeSsrAvailability::isAvailable()) {
-            $this->toastError(__('Container delivery isn’t set up on this install yet: it needs the Edge platform API token (with container access) and a dispatch namespace.'));
+            $this->toastError(__('Apps aren’t set up on this install yet: they need the Edge platform API token (with container access) and a dispatch namespace.'));
 
             return;
         }
 
-        if ($this->form->runtime_mode === 'container' && ! ($org->tierAllowances()['containers'] ?? false) && ! $org->isBeta()) {
+        if ($this->form->runtime_mode === 'container' && ! ($org->tierAllowances()['containers'] ?? false)) {
             $this->toastError(__('Container apps are not included on this plan. Choose a plan on the billing page.'));
 
             return;
         }
 
         if ($this->detectedPlan !== [] && EdgeEligibility::needsContainer($this->detectedPlan) && $this->form->runtime_mode !== 'container') {
-            $this->toastError(__('This looks like a PHP or Rails app. Choose "Container" delivery to run it on Edge.'));
+            $this->toastError(__('This is a server app (PHP, Ruby or Node.js). Choose "App" so dply runs it.'));
 
             return;
         }
 
-        if ($this->form->runtime_mode === 'ssr' && ! ($org->tierAllowances()['ssr'] ?? false) && ! $org->isBeta()) {
-            $this->toastError(__('Worker-native SSR sites are on Pro and Team. Choose a plan on the billing page, or deploy as static or hybrid.'));
+        if ($this->form->runtime_mode === 'ssr' && ! EdgeSsrAvailability::isAvailable()) {
+            $this->toastError(__('Apps aren’t set up on this install yet. Deploy it as a site, or send server routes to your own server under Advanced.'));
+
+            return;
+        }
+
+        if ($this->form->runtime_mode === 'ssr' && ! ($org->tierAllowances()['ssr'] ?? false)) {
+            $this->toastError(__('Apps that render on the server are on Pro and Team. Choose a plan on the billing page, or deploy it as a site.'));
 
             return;
         }
@@ -108,7 +177,7 @@ trait ManagesEdgeDeploy
 
         if ($this->detectedPlan !== [] && EdgeSsrDetection::planLooksLikeSsr($this->detectedPlan)
             && ! in_array($this->form->runtime_mode, ['hybrid', 'ssr'], true)) {
-            $this->toastError(__('This repository looks like an SSR app. Pick "Worker-native SSR" (Next.js via OpenNext), hybrid mode with an origin URL, or run it on a server.'));
+            $this->toastError(__('This app renders on the server, so a static site won’t work. Choose "App", or send server routes to your own server under Advanced.'));
 
             return;
         }
@@ -158,7 +227,7 @@ trait ManagesEdgeDeploy
         $this->redirect(route('sites.show', [
             'server' => $site->server,
             'site' => $site,
-            'section' => 'resources',
+            'section' => 'general',
         ]), navigate: true);
     }
 

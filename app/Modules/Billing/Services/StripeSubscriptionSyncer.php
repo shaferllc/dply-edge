@@ -12,11 +12,17 @@ use Throwable;
  * Reconciles an organization's Stripe subscription line items against a
  * {@see DesiredBillingState}:
  *
- * - A subscription without its tier price (pre-tier per-site, monthly or
- *   yearly) is swapped wholesale onto the tier's line items.
- * - Otherwise each line converges on its quantity: extra sites (`edge`), SSR
- *   sites (`edge_ssr`), extra seats (`team_seat`), load balancer endpoints and
- *   usage cents (`edge_usage`). Changing tier is the billing page's job.
+ * - A subscription without its plan price (pre-tier per-site, monthly or
+ *   yearly) is swapped wholesale onto the plan's line items.
+ * - Otherwise the extra-seat line (`team_seat`) converges on its quantity.
+ *   Changing plan is the billing page's job.
+ *
+ * - Usage is not a subscription line: UsageInvoicer adds it to each renewal
+ *   invoice for the period that just ended, less the plan's usage credit.
+ * - The retired per-site lines (`subscription.standard.stripe.retired_site_fees`:
+ *   extra site, SSR site, load balancing) and a legacy `edge_usage` line are
+ *   removed without proration, so they neither bill nor credit (ruling
+ *   r-2zxevg4sj675qn1m).
  *
  * - Items on a **retired** price (old plan tiers, serverless, Cloud, … — see
  *   `subscription.standard.stripe.retired`) are removed, so customers stop
@@ -61,19 +67,35 @@ class StripeSubscriptionSyncer
             return [];
         }
 
-        if (! $subscription->hasPrice($tierPriceId)) {
+        $onTier = collect(SubscriptionPlanResolver::tierPriceIds($desired->planKey))
+            ->contains(static fn (string $priceId): bool => $subscription->hasPrice($priceId));
+        $unknown = $onTier ? [] : $organization->unrecognisedSubscriptionPrices();
+        if ($unknown !== []) {
+            // Most likely an archived plan price nobody listed in
+            // STRIPE_PRICE_*_LEGACY. Moving it would reprice a customer on a
+            // guessed plan, so leave it and say so.
+            report(new \RuntimeException("Not syncing organization {$organization->id}: its subscription carries unrecognised Stripe price(s) ".implode(', ', $unknown).'. List them in STRIPE_PRICE_*_LEGACY (grandfather) or move the subscription by hand.'));
+
+            return [];
+        }
+        if (! $onTier) {
             // Pre-tier per-site subscription (possibly yearly): move it onto
             // the tier in one swap, invoiced now (owner: auto-move, 2026-09-16).
+            // A grandfathered plan price (STRIPE_PRICE_*_LEGACY) counts as on
+            // the tier and is never moved.
             $changes[] = $this->moveToTier($subscription, $desired);
         } else {
-            foreach ([
-                'edge' => $desired->extraSiteCount,
-                'edge_ssr' => $desired->edgeSsrCount,
-                'team_seat' => $desired->extraSeatCount,
-                'edge_lb_endpoint' => $desired->edgeLbEndpointCount,
-                'edge_usage' => $desired->usageLineCents(),
-            ] as $product => $quantity) {
-                $this->reconcileLine($subscription, $changes, $product, $quantity);
+            $this->reconcileLine($subscription, $changes, 'team_seat', $desired->extraSeatCount);
+
+            // The plan price stays on the subscription, so removing these
+            // never empties it.
+            $usagePriceId = (string) (config('subscription.standard.stripe.edge_usage') ?? '');
+            foreach (array_filter([$usagePriceId, ...SubscriptionPlanResolver::retiredSiteFeePriceIds()]) as $priceId) {
+                if ($subscription->hasPrice($priceId)) {
+                    $from = $this->currentQuantity($subscription, $priceId);
+                    $subscription->noProrate()->removePrice($priceId);
+                    $changes[] = ['tier' => $priceId === $usagePriceId ? 'edge_usage' : 'retired_site_fee', 'action' => 'remove', 'from' => $from, 'to' => 0];
+                }
             }
         }
 
@@ -129,21 +151,28 @@ class StripeSubscriptionSyncer
             // for the change rather than accumulating it for the next renewal.
             // Customers see "you added a site, here's the prorated charge"
             // same-day, which is especially important for yearly subscriptions
-            // where renewals are far apart.
+            // where renewals are far apart. During a trial nothing is billed
+            // yet, so lines change without an invoice (the first one, at the
+            // trial's end, carries them).
+            if ($subscription->onTrial()) {
+                $subscription->noProrate();
+            } else {
+                $subscription->alwaysInvoice();
+            }
             if ($currentQty === null && $desiredQty > 0) {
-                $subscription->alwaysInvoice()->addPrice($priceId, $desiredQty);
+                $subscription->addPrice($priceId, $desiredQty);
 
                 return ['action' => 'add', 'from' => null, 'to' => $desiredQty];
             }
 
             if ($currentQty !== null && $desiredQty === 0) {
-                $subscription->alwaysInvoice()->removePrice($priceId);
+                $subscription->removePrice($priceId);
 
                 return ['action' => 'remove', 'from' => $currentQty, 'to' => 0];
             }
 
             if ($currentQty !== null && $currentQty !== $desiredQty) {
-                $subscription->alwaysInvoice()->updateQuantity($desiredQty, $priceId);
+                $subscription->updateQuantity($desiredQty, $priceId);
 
                 return ['action' => 'update', 'from' => $currentQty, 'to' => $desiredQty];
             }

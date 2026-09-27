@@ -32,7 +32,7 @@ class ServerPolicy
     {
         $org = $user->currentOrganization();
 
-        return $org !== null && ! $org->userIsDeployer($user);
+        return $org !== null && ! $org->userHasRestrictedRole($user);
     }
 
     public function update(User $user, Server $server): bool

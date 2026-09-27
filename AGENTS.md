@@ -260,12 +260,11 @@ has **no breadcrumb**.
 
 ### Enablement layers — what to flip, and where
 
-Product rollout flags are **retired**. `config/features.php` is an **empty
-map** so `FeatureServiceProvider` registers nothing. Edge, status pages,
-billing, signups, delivery, deploy contract, and shadow replay are **always
-on**. Do not reintroduce Pennant gates for product surfaces. Persisted rows
-in `features` / `feature_platform_overrides` from the old catalog are inert
-until a flag is registered again.
+There are **no feature flags**: Laravel Pennant, the flag admin pages and the
+`features` / `feature_platform_overrides` tables were removed on 2026-09-25.
+Edge, status pages, billing, signups, delivery, deploy contract, and shadow
+replay are **always on**. Don't reintroduce flags for product surfaces; gate on
+the plan tier or on config.
 
 Match remaining questions to the layer that still exists:
 
@@ -405,10 +404,16 @@ Match remaining questions to the layer that still exists:
   overview card). Auto-require framework helpers (`laravel-dply` / `dply-rails`)
   when a resource needs them. Resource cards show a **cost estimate**; omit
   cards for disabled capabilities (e.g. no Cache card when cache is off).
-  **Managed Redis** and **managed KV** are Upstash-backed (TCP/HTTP Redis; KV
-  via platform SDKs) — create/attach on Resources, **bill with markup**, and
-  require a payment method when billed. **Managed HTTP queues** use QStash the
-  same way. **Postgres, MySQL and MongoDB** are dply databases (one pod each on
+  **Managed Redis** is **dply Valkey** (one pod per store on the dply-pods
+  cluster, TLS through the gateway, `EdgeValkey`); **managed KV** is
+  Cloudflare KV. Create/attach on Resources, **bill at cost + the one margin (UsagePrice)**, and
+  require a payment method when billed. dply Valkey is on **every plan**; only
+  the always-on **Pro** sizes need a paid plan (owner ruling
+  r-bpg8ddw2gza360sr) — `EdgeContainerConnections::redisSuppliesEnv` is the
+  one rule for whether an app gets `REDIS_*`, and queue workers use it too.
+  Valkey evicts `volatile-lru` when full (cache entries with a TTL go, queue
+  lists stay); Redis queue workers block for jobs (`block_for` 5, set by
+  dply/laravel). The gateway hop costs ~1.2 ms; distance is the rest. **Postgres, MySQL and MongoDB** are dply databases (one pod each on
   the dply-pods cluster, `EdgeDplyDatabase`; Neon and PlanetScale were removed
   2026-09-25), shown as **Coming soon** when the gateway is not configured. One **Database**
   tile is enough — do not offer separate SQL-database / connection-pool
@@ -434,6 +439,43 @@ Match remaining questions to the layer that still exists:
   operator configures. Queued resource/app deletes must show an in-progress /
   deleting state — not a silent “queued” toast that leaves the row looking
   live.
+- **Queue workers** (`EdgeQueueWorkers`, Laravel Cloud-style) are always-on
+  App instances named `worker-N` (extra groups: `worker-{group}-N`) that run
+  the app's own image with `DPLY_ROLE=worker`: the generated Dockerfile's
+  supervisor runs N `queue:work` loops, lets the current job finish on TERM,
+  backs off when one dies on boot, and tags its lines `[dply-worker …]` (how
+  worker logs and alerts find them). The Worker template's `WORKER_GROUPS`
+  table drives warm, keep-alive, pause, status and scaling.
+  - **Connection**: auto picks Redis (dply Valkey) when the app can reach it,
+    else its dply Postgres/MySQL. The app is pointed at the same connection
+    (`QUEUE_CONNECTION` via `dispatchEnv`) unless it sets its own.
+  - **Autoscaling**: `dply:edge:scale-queue-workers --for=50 --every=10`
+    reads the backlog **from the queue itself** (Valkey `LLEN`, or the jobs
+    table) so it never wakes the web container; up at once, down after 5
+    quiet minutes; also up when the oldest job waited past `max_wait`.
+  - **Scale to zero**: with autoscaling, 0 always-on is allowed. An asleep
+    queue store is not woken to be checked (the gateway says so); one worker
+    stays while delayed jobs exist.
+  - **Scheduler**: with an always-on `worker-0` it runs as `schedule:work`
+    there (the app can sleep). Otherwise the Worker's every-minute cron wakes
+    the app **only when a task is due**: after each `schedule:run` the app
+    reports its tasks' crons and time zones, and the Worker keeps that plan
+    per deploy (`cronDue`; anything unclear means wake).
+  - **Plans**: `worker_instances` / `worker_autoscale` / `worker_groups` per
+    tier, applied in `EdgeQueueWorkers::groups()`.
+  - **Right-size**: an hourly job samples awake apps' `memory.peak`; the App
+    card suggests a smaller size after six samples with 30% headroom.
+  - **dply/laravel** is injected for apps with a database or workers
+    (commands: migrate/status/seed, failed jobs, queue-size, queue-test,
+    db-probe). After a deploy dply measures the database round trip from
+    inside the app and restarts a far instance once or twice to be placed
+    again (`recordPlacement`). Best effort: Cloudflare often picks the same
+    location again (waypost: atl13 three times), so it stops when it does.
+  - **Placement**: an app using a dply database or Valkey with no region set
+    runs in `DPLY_EDGE_DATA_REGION` (ENAM). From the wrong side of the
+    continent a round trip is ~145 ms instead of ~13.
+  - Local Horizon keeps old classes in memory: run `php artisan
+    queue:restart` before a real deploy from freshly edited code.
 - **PHP + frontend assets:** when `package.json` has `scripts.build`, detection
   appends the frontend asset step (`FrontendAssetBuild`) beside Composer so the
   stored build command matches the image's Node assets stage (default
@@ -487,41 +529,60 @@ Match remaining questions to the layer that still exists:
 
 ### Billing
 
-- **Plan tiers + usage** (ruling r-zdescb7y05vp1bxx, 2026-09-16): Free $0,
-  Pro $20, Team $49 — monthly only, all allowances in
-  `subscription.standard.tiers`. `Organization::billingTier()` reads the tier
-  price off the subscription. Sites past the tier's count bill at `edge_cents`;
-  seats hard-cap on Pro and bill `extra_seat_cents` on Team; build minutes
-  are unlimited on Free (they draw the $5 credit) and bill overage on Pro/Team.
-  No trial. Previews consume a usage credit, not a site slot.
-- **Free is the starter plan** (parity target: Laravel Cloud starter): unlimited
-  apps, seats, and builds (`plans.free.max_edge_apps` and `tiers.free.sites` /
-  `seats` / `build_minutes` are null), containers on, scale-to-zero compute, 10
-  custom domains, 1 managed queue, short log retention, spending limits/alerts,
-  and a **$5 usage credit** (`spending_limit_cents`). `StarterUsageBudget`
-  pauses new builds when that credit is used, and `StarterTrafficGate` stops
-  managed container traffic, because a free org has no card.
-  **Any paid subscription bills overage** (`quotaLimit()` returns null) —
-  extra sites bill, so a cap on payers is no revenue lever.
-- **Extra sites** (managed `dply_edge` only): static, hybrid, and container
-  sites **past** the plan's included count bill at `edge_cents` ($2). Every
-  Worker-native SSR site bills at `edge_ssr_cents` ($7) and does not use an
-  included slot. Included sites are $0. Container apps also meter **compute**
-  (tier compute credit, then overage). BYO `org_cloudflare` pays Cloudflare
-  directly: no site fee and no usage meter today.
-- Each live site includes **1M requests / 100 GB egress / 5 GB R2 storage**
-  plus R2 op allowances (`dply.edge.usage_billing.included_requests_per_site`,
-  reduced from an earlier 5M — the config comment explains why), then metered
-  **overage** when usage billing is on (`DPLY_EDGE_USAGE_BILLING_ENABLED`,
-  `edge_usage_snapshots`, `dply:edge:collect-usage`). Overage = billable units
-  × cost-floor rates × **`dply.edge.usage_billing.markup_percent`** (25%, read
-  by `EdgeUsageCostCalculator`) into the Stripe `edge_usage` price. **Previews
-  stay free.**   Customer-facing compute pricing **never shows platform margin**;
-  cost figures are **estimates**, and sleep/savings context belongs beside them
-  where helpful. Larger compute tiers should carry a **lower** relative take so
-  bigger apps stay competitive.   **Managed Redis, KV, QStash queues, and app databases (Postgres/MySQL)** are
-  billed the same way — meter usage, apply markup, never show the platform take
-  or the underlying vendor name to customers.
+- **Three plans + included usage credit + one margin** (ruling
+  r-2zxevg4sj675qn1m, 2026-09-27; spec `docs/adr/pricing-model-2026-09.md`):
+  Starter $5 / Pro $20 / Team $49, monthly only, all per-plan values in
+  `subscription.standard.tiers` (price, seats, `extra_seat_cents` — Team only,
+  `usage_credit_cents`, `fair_use_apps`, and the non-price limits).
+  `Organization::billingTier()` reads the plan price off the subscription
+  (`SubscriptionPlanResolver::PAID_TIERS` lists the self-serve plans). Sites
+  are unlimited: **no per-site fees and no per-meter allowances**. Seats hard-cap
+  on Starter and Pro and bill `extra_seat_cents` on Team.
+- **No Free plan: a 5-day Pro trial** (ruling r-f17p5zgeh120cm5t, 2026-09-26),
+  settings in `subscription.standard.trial`:
+  - Checkout (`Show::subscribeTier`) adds the trial for an org that has never
+    had one (`eligibleForTrial()`: one per owner). The card is required, and a
+    trial that ends without a card cancels rather than going past due. Orgs
+    that were on Free got a card-less trial (`organizations.trial_ends_at`).
+  - A trial (card or not) is capped at `trial.spending_limit_cents` ($5).
+    `StarterUsageBudget` pauses builds and `StarterTrafficGate` stops container
+    traffic past it; **End trial now** on the billing page lifts the cap.
+  - No plan (`billingTier() === 'none'`): no deploys, no site creation, no
+    domains. `dply:billing:enforce` pauses the org (the host map serves
+    `edge.billing-paused` as maintenance, the container gate is set, queue
+    workers are paused and flagged `billing_paused`) and resumes it when paid.
+    It also sends the four `OrganizationBillingNotice` emails, once each.
+  - Data is deleted 7 days after the pause (`OrganizationDataPurger`: sites,
+    dply databases, Valkey, D1, queues), but only with
+    `DPLY_BILLING_PURGE_ENABLED=true`. Review `dply:billing:enforce --dry-run`
+    before turning it on.
+  - Comped orgs (`comped_until`, `dply:billing:comp`) are Team with no bill.
+    The migration comps orgs that a platform admin (`PLATFORM_ADMIN_EMAILS`)
+    belongs to. Beta orgs get the trial like everyone.
+  - A paying customer whose card fails keeps running while Stripe retries
+    (`liveSubscription()`: past due counts); the first charge after a trial
+    failing does not. Unpaid or canceled pauses.
+  - **Any paid subscription is uncapped by quota** (`quotaLimit()` returns
+    null); only the hidden fair-use cap applies.
+- **One margin.** Every meter in `dply.edge.usage_billing` is the provider
+  **cost** in millicents (Cloudflare list, or dply's infra cost for databases,
+  Valkey and builds — each source is commented in config). The customer price
+  is cost × (1 + `margin_percent`/100) (`DPLY_USAGE_MARGIN_PERCENT`, default
+  20), applied **only** in `App\Modules\Billing\Support\UsagePrice`. No cost
+  class marks up on its own and no size gets a different take. Pricing page,
+  billing page, resource sheets and docs (`dply:billing:price-table`) all read
+  the helper. **Never show the margin** to customers.
+- Apps, queue workers, dply databases and Valkey bill **per second awake**;
+  build time per second; everything else per unit. The plan's included
+  credit comes off the invoice: `UsageInvoicer` adds one line per usage
+  category and a negative **Included usage credit** line = min(credit, usage).
+  Usage never goes below $0. Previews have no fee but their usage counts.
+  BYO `org_cloudflare` pays Cloudflare directly: no usage meter today.
+- **Fair use** (ruling r-bc0k0cta8e50x8vr): `CreateEdgeSite::assertWithinFairUse`
+  caps non-preview apps per plan (`fair_use_apps`) with a contact-us message —
+  no charge, no upgrade push. The pricing page says "Unlimited sites".
+- One **size ladder** (0.25/0.5/1/2/4 vCPU, `EdgeSizeLadder`) names container
+  instance types, database sizes and Valkey classes; stored keys are unchanged.
 - **Lifecycle:** `StandardSubscriptionCreator` **will not create** a
   subscription for a zero-dollar bill — Stripe rejects $0 subs, so free-zone
   orgs need no card. Note the asymmetry: there is **no automatic cancellation**
@@ -534,8 +595,8 @@ Match remaining questions to the layer that still exists:
   browser alert.
 - Org billing is **one page** (`billing.show`). `/billing/analytics` and
   `/invoices` redirect there. Forecast and invoices live on that page — no
-  separate analytics/invoices nav. Copy names the plan (Free/Pro/Team) and
-  what it includes; the plan picker sits under the payment method. The **payment method** (add/manage card) is the primary CTA;
+  separate analytics/invoices nav. Copy names the plan (Pro/Team) and
+  what it includes; new orgs are offered the trial; the plan picker sits under the payment method. The **payment method** (add/manage card) is the primary CTA;
   forecast and invoices sit below.
 - Billing numbers are customer-facing (`authorize('update', $organization)`),
   so write them from the **payer's** side. The MRR/ARR tiles and competitor
@@ -569,10 +630,10 @@ Match remaining questions to the layer that still exists:
   ability set.
 - **Programmatic access must mirror site membership, not just the org.** MCP
   site list/deploy/logs still enforce it through **`SiteApiAccess`** — org
-  admins bypass, everyone else must match their UI workspace role. Known drift:
-  the Edge REST base controller currently scopes by **organization only**, so
-  `/api/v1/edge/*` is more permissive than the UI it mirrors. Do not widen it
-  further, and prefer `SiteApiAccess` when touching that path.
+  admins bypass, everyone else must match their UI workspace role. The Edge
+  REST controllers check the token's user against `SitePolicy` on every
+  request (`view` for reads, `deploy` for deployments/previews/cache purge,
+  `update` for other writes), so `/api/v1/edge/*` matches the UI.
 - Control-plane **outbound GETs** (hybrid origin healthchecks and the like) go
   through **`PublicOutboundUrl`**, which blocks private/loopback/link-local/metadata
   targets and does not follow redirects onto internal ones.
@@ -659,9 +720,6 @@ Match remaining questions to the layer that still exists:
   tests (`APP_ENV=testing`) use local `*.test` apexes so the suite never talks
   to a public zone. Edge delivery resolves through `EdgeTestingDomains`, which
   falls back to `TestingDomains::edge()`.
-- Procedural Pest tests behind Pennant gates need **`usesFeatures()`** in
-  `tests/Pest.php` — `WithFeatures` only works when the PHPUnit class sets
-  `$features`.
 - For routing sub-tabs, an HTTP GET with `?tab=…` does not activate the panel
   on a full-page Livewire component — use
   `Livewire::withQueryParams(['tab' => '…'])`. Lazy-tab tests may need the tab

@@ -28,18 +28,13 @@ final class AuditActionMeta
 {
     /** @var list<array{id: string, label: string, icon: string}> */
     public const FAMILIES = [
-        ['id' => 'server', 'label' => 'Servers', 'icon' => 'heroicon-o-server-stack'],
-        ['id' => 'site', 'label' => 'Sites', 'icon' => 'heroicon-o-globe-alt'],
+        ['id' => 'site', 'label' => 'Apps', 'icon' => 'heroicon-o-globe-alt'],
         ['id' => 'edge', 'label' => 'Edge', 'icon' => 'heroicon-o-bolt'],
-        ['id' => 'project', 'label' => 'Projects', 'icon' => 'heroicon-o-rectangle-stack'],
+        ['id' => 'resources', 'label' => 'Resources', 'icon' => 'heroicon-o-circle-stack'],
         ['id' => 'team', 'label' => 'Team', 'icon' => 'heroicon-o-user-group'],
         ['id' => 'billing', 'label' => 'Billing', 'icon' => 'heroicon-o-credit-card'],
         ['id' => 'security', 'label' => 'Security', 'icon' => 'heroicon-o-shield-check'],
         ['id' => 'org', 'label' => 'Organization', 'icon' => 'heroicon-o-building-office-2'],
-        ['id' => 'backup', 'label' => 'Backups', 'icon' => 'heroicon-o-archive-box-arrow-down'],
-        ['id' => 'insight', 'label' => 'Insights', 'icon' => 'heroicon-o-light-bulb'],
-        ['id' => 'import', 'label' => 'Imports', 'icon' => 'heroicon-o-arrow-down-tray'],
-        ['id' => 'background', 'label' => 'Background', 'icon' => 'heroicon-o-queue-list'],
         ['id' => 'other', 'label' => 'Other', 'icon' => 'heroicon-o-ellipsis-horizontal-circle'],
     ];
 
@@ -70,25 +65,24 @@ final class AuditActionMeta
 
     public static function family(string $action): string
     {
+        // Server, project, backup, insight, import and queue-worker actions
+        // came from the removed VM products; their historic rows land in
+        // `other` (the exact/prefix maps still label them).
         return match (true) {
-            str_starts_with($action, 'insight.') => 'insight',
             str_starts_with($action, 'site.edge.') => 'edge',
-            str_starts_with($action, 'backup.') => 'backup',
-            str_starts_with($action, 'queue_worker.') => 'background',
-            str_starts_with($action, 'server.') => 'server',
             str_starts_with($action, 'site.') => 'site',
-            str_starts_with($action, 'project.') => 'project',
+            str_starts_with($action, 'database.'),
+            str_starts_with($action, 'queue.') => 'resources',
             str_starts_with($action, 'team.') => 'team',
             str_starts_with($action, 'billing.') => 'billing',
             str_starts_with($action, 'api_token.'),
             str_starts_with($action, 'invitation.'),
+            str_starts_with($action, 'member.'),
             str_starts_with($action, 'notification_channel.'),
             str_starts_with($action, 'user.'),
-            str_starts_with($action, 'credential.') => 'security',
+            str_starts_with($action, 'credential.'),
+            str_starts_with($action, 'impersonation.') => 'security',
             str_starts_with($action, 'organization.') => 'org',
-            str_starts_with($action, 'import.') => 'import',
-            str_starts_with($action, 'marketplace.') => 'import',
-            str_starts_with($action, 'script.') => 'other',
             default => 'other',
         };
     }
@@ -220,6 +214,10 @@ final class AuditActionMeta
             'api_token.device_authorized' => ['label' => 'Device authorized', 'icon' => 'heroicon-o-device-phone-mobile', 'tone' => 'success'],
             'invitation.sent' => ['label' => 'Invitation sent', 'icon' => 'heroicon-o-envelope', 'tone' => 'info'],
             'invitation.cancelled' => ['label' => 'Invitation cancelled', 'icon' => 'heroicon-o-no-symbol', 'tone' => 'warning'],
+            'member.role_changed' => ['label' => 'Member role changed', 'icon' => 'heroicon-o-user-circle', 'tone' => 'info'],
+            'member.removed' => ['label' => 'Member removed', 'icon' => 'heroicon-o-user-minus', 'tone' => 'danger'],
+            'member.left' => ['label' => 'Member left', 'icon' => 'heroicon-o-arrow-left-start-on-rectangle', 'tone' => 'warning'],
+            'organization.ownership_transferred' => ['label' => 'Ownership transferred', 'icon' => 'heroicon-o-key', 'tone' => 'warning'],
             'notification_channel.created' => ['label' => 'Notification channel created', 'icon' => 'heroicon-o-bell-alert', 'tone' => 'success'],
             'user.password_changed' => ['label' => 'Password changed', 'icon' => 'heroicon-o-lock-closed', 'tone' => 'warning'],
             'user.passkey_removed' => ['label' => 'Passkey removed', 'icon' => 'heroicon-o-finger-print', 'tone' => 'danger'],

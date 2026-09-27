@@ -70,10 +70,10 @@ test('user is deployer', function () {
     expect($org->hasAdminAccess($user))->toBeFalse();
 });
 
-test('plan tier label defaults to free without a paid subscription', function () {
+test('plan tier label is no plan without a subscription or trial', function () {
     $org = new Organization;
 
-    expect($org->planTierLabel())->toBe('Free');
+    expect($org->planTierLabel())->toBe('No plan');
 });
 
 test('a pre-tier per-site subscription reads as pro until the sync moves it', function () {
@@ -177,6 +177,6 @@ test('unlimited plans never block site creation', function () {
     expect($org->siteLimitMessage())->toBe('');
 });
 
-test('org creation no longer starts a trial', function () {
-    expect(Organization::factory()->create()->trial_ends_at)->toBeNull();
+test('a new workspace does not start a trial: Checkout does, with a card', function () {
+    expect(\App\Actions\Organizations\EnsureUserHasWorkspaceOrganization::run(\App\Models\User::factory()->create())->trial_ends_at)->toBeNull();
 });

@@ -17,8 +17,8 @@
 <div>
     <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
         @include('livewire.sites.edge.workspace.partials.feature-guide', [
-            'docSlug' => 'edge-forms',
-            'what' => __('Edge Forms turns a path on your live Edge hostname into a mail-backed endpoint. Visitors POST; the Edge Worker checks spam defenses, then Dply emails you the fields — no app server or serverless function.'),
+            'docSlug' => 'forms',
+            'what' => __('Edge Forms turns a path on your live Edge hostname into a mail-backed endpoint. Visitors POST; the Edge Worker checks spam defenses, then Dply emails you the fields and lists them below — no app server or serverless function.'),
             'steps' => [
                 __('Enable Edge forms and add an endpoint (path + inbox), or click an example below.'),
                 __('Save — delivery republishes so the Worker starts accepting POSTs on that path.'),
@@ -44,10 +44,13 @@
         ])
 
         @include('livewire.sites.edge.workspace.partials.managed-only-banner', ['managedDelivery' => $managedDelivery])
+        @php
+            $canConfigure = $managedDelivery && auth()->user()?->can('update', $site);
+        @endphp
 
         <div class="mt-4 space-y-4">
             <label class="flex items-start gap-3">
-                <input type="checkbox" wire:model.live="enabled" class="mt-0.5 rounded border-brand-ink/20 text-brand-sage" @disabled(! $managedDelivery) />
+                <input type="checkbox" wire:model.live="enabled" class="mt-0.5 rounded border-brand-ink/20 text-brand-sage" @disabled(! $canConfigure) />
                 <span class="text-sm font-medium text-brand-ink">{{ __('Enable Edge forms') }}</span>
             </label>
 
@@ -59,7 +62,7 @@
                         <button
                             type="button"
                             wire:click="addExample('{{ $example['key'] }}')"
-                            @disabled(! $managedDelivery)
+                            @disabled(! $canConfigure)
                             class="inline-flex items-center gap-1.5 rounded-lg border border-brand-ink/15 bg-white px-2.5 py-1.5 text-xs font-semibold text-brand-ink shadow-sm transition hover:border-brand-sage/40 hover:bg-brand-sage/5 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-900"
                             title="{{ $example['hint'] }}"
                         >
@@ -75,24 +78,24 @@
                     <div class="grid gap-3 sm:grid-cols-2">
                         <div>
                             <x-input-label :value="__('Path')" />
-                            <x-text-input wire:model.live="endpoints.{{ $i }}.path" type="text" class="mt-1 block w-full font-mono text-sm" @disabled(! $managedDelivery) />
+                            <x-text-input wire:model.live="endpoints.{{ $i }}.path" type="text" class="mt-1 block w-full font-mono text-sm" :disabled="! $canConfigure" />
                             <p class="mt-1 text-xs text-brand-moss">{{ __('POST path on your Edge hostname, e.g. /contact or /api/support.') }}</p>
                         </div>
                         <div>
                             <x-input-label :value="__('Email to')" />
-                            <x-text-input wire:model="endpoints.{{ $i }}.to_email" type="email" class="mt-1 block w-full text-sm" @disabled(! $managedDelivery) />
+                            <x-text-input wire:model="endpoints.{{ $i }}.to_email" type="email" class="mt-1 block w-full text-sm" :disabled="! $canConfigure" />
                             <p class="mt-1 text-xs text-brand-moss">{{ __('Inbox that receives each submission (org mail must be configured).') }}</p>
                         </div>
                     </div>
                     <div class="grid gap-3 sm:grid-cols-2">
                         <div>
                             <x-input-label :value="__('Honeypot field')" />
-                            <x-text-input wire:model.live="endpoints.{{ $i }}.honeypot" type="text" class="mt-1 block w-full font-mono text-sm" @disabled(! $managedDelivery) />
+                            <x-text-input wire:model.live="endpoints.{{ $i }}.honeypot" type="text" class="mt-1 block w-full font-mono text-sm" :disabled="! $canConfigure" />
                             <p class="mt-1 text-xs text-brand-moss">{{ __('Hidden input name in your HTML. If filled, the Worker drops the POST as spam.') }}</p>
                         </div>
                         <div class="pt-1">
                             <label class="flex items-start gap-2 text-sm text-brand-ink">
-                                <input type="checkbox" wire:model.live="endpoints.{{ $i }}.require_turnstile" class="mt-0.5 rounded border-brand-ink/20 text-brand-sage" @disabled(! $managedDelivery) />
+                                <input type="checkbox" wire:model.live="endpoints.{{ $i }}.require_turnstile" class="mt-0.5 rounded border-brand-ink/20 text-brand-sage" @disabled(! $canConfigure) />
                                 <span>
                                     <span class="font-medium">{{ __('Require bot check') }}</span>
                                     <span class="mt-0.5 block text-xs text-brand-moss">{{ __('Needs Bot protection keys. Form must include a Turnstile token (cf-turnstile-response).') }}</span>
@@ -108,7 +111,7 @@
 
             <div class="flex flex-wrap items-center justify-between gap-3">
                 <div class="flex flex-wrap items-center gap-3">
-                    <button type="button" wire:click="addEndpoint" class="text-sm font-semibold text-brand-sage" @disabled(! $managedDelivery)>{{ __('Add endpoint') }}</button>
+                    <button type="button" wire:click="addEndpoint" class="text-sm font-semibold text-brand-sage" @disabled(! $canConfigure)>{{ __('Add endpoint') }}</button>
                     <button
                         type="button"
                         x-on:click="$dispatch('open-modal', 'edge-forms-html-example')"
@@ -118,9 +121,33 @@
                         {{ __('HTML example') }}
                     </button>
                 </div>
-                <x-primary-button type="button" wire:click="save" @disabled(! $managedDelivery)>{{ __('Save') }}</x-primary-button>
+                <x-primary-button type="button" wire:click="save" :disabled="! $canConfigure">{{ __('Save') }}</x-primary-button>
             </div>
         </div>
+    </section>
+
+    <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
+        <p class="text-xs font-semibold uppercase tracking-[0.16em] text-brand-sage">{{ __('Recent submissions') }}</p>
+        @if ($submissions->isEmpty())
+            <p class="mt-2 text-sm text-brand-moss">{{ __('None yet. Each accepted submission is emailed to its endpoint\'s inbox and listed here.') }}</p>
+        @else
+            <ul class="mt-3 divide-y divide-brand-ink/10 rounded-xl border border-brand-ink/10">
+                @foreach ($submissions as $submission)
+                    <li class="px-3 py-2.5 text-sm" wire:key="submission-{{ $submission->id }}">
+                        <div class="flex flex-wrap items-baseline justify-between gap-2">
+                            <span class="font-mono text-xs text-brand-ink">{{ $submission->path }}</span>
+                            <time class="text-xs text-brand-mist" datetime="{{ $submission->created_at->toIso8601String() }}">{{ $submission->created_at->diffForHumans() }}</time>
+                        </div>
+                        <dl class="mt-1 grid grid-cols-1 gap-x-3 gap-y-0.5 text-xs sm:grid-cols-[8rem_1fr]">
+                            @foreach ($submission->fields as $name => $value)
+                                <dt class="truncate text-brand-mist">{{ $name }}</dt>
+                                <dd class="break-words text-brand-moss">{{ \Illuminate\Support\Str::limit($value, 500) }}</dd>
+                            @endforeach
+                        </dl>
+                    </li>
+                @endforeach
+            </ul>
+        @endif
     </section>
 
     <x-modal

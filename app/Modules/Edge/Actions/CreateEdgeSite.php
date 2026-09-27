@@ -12,11 +12,13 @@ use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
 use App\Modules\Edge\Jobs\BuildEdgeSiteJob;
+use App\Modules\Edge\Services\EdgeGithubWebhookProvisioner;
 use App\Modules\Edge\Support\EdgeContainerPlans;
 use App\Modules\Edge\Support\EdgeOrgCredentialConfig;
 use App\Modules\Edge\Support\EdgeRepoRoot;
 use App\Modules\Edge\Support\EdgeSsrAvailability;
 use App\Modules\Edge\Support\EdgeTestingDomains;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use RuntimeException;
 
@@ -27,6 +29,8 @@ class CreateEdgeSite
      */
     public function handle(User $user, Organization $organization, array $payload): Site
     {
+        self::assertWithinFairUse($organization);
+
         $name = (string) ($payload['name'] ?? '');
         $slug = Str::slug($name) ?: 'edge-'.Str::random(6);
         $repo = $this->normalizeRepo((string) ($payload['repo'] ?? ''));
@@ -146,6 +150,10 @@ class CreateEdgeSite
             ],
         ]);
 
+        if ($deployOnPush) {
+            $this->connectGithubWebhook($user, $site);
+        }
+
         $prefix = trim((string) config('edge.r2.key_prefix', 'edge/'), '/')
             .'/'.$organization->id.'/'.$site->id.'/'.Str::ulid();
 
@@ -170,6 +178,41 @@ class CreateEdgeSite
         BuildEdgeSiteJob::dispatch($deployment->id, $gitCommit);
 
         return $site;
+    }
+
+    /**
+     * Hidden fair-use cap (ruling r-bc0k0cta8e50x8vr): sites are unlimited on
+     * the pricing page, but each plan has an anti-abuse ceiling on non-preview
+     * apps (subscription.standard.tiers.*.fair_use_apps; null = none). No
+     * charge and no upgrade push at the cap — just contact us.
+     */
+    public static function assertWithinFairUse(Organization $organization): void
+    {
+        $limit = $organization->tierAllowances()['fair_use_apps'] ?? null;
+        if ($limit === null) {
+            return;
+        }
+        $apps = $organization->sites()->get(['id', 'meta'])->reject(fn (Site $site): bool => $site->isEdgePreview())->count();
+        if ($apps >= (int) $limit) {
+            throw new RuntimeException(__('You\'ve reached the fair-use limit for your plan — contact us to raise it.'));
+        }
+    }
+
+    /**
+     * Deploy on push needs the GitHub webhook — register it with the account
+     * the repo was picked from (or the user's GitHub login). Best effort: a failure leaves Deploy triggers
+     * → Enable as the retry and never blocks the create.
+     */
+    private function connectGithubWebhook(User $user, Site $site): void
+    {
+        try {
+            $result = app(EdgeGithubWebhookProvisioner::class)->enableWithDefaultAccount($site, $user);
+            if ($result !== null && ! $result['ok']) {
+                Log::warning('Edge create: GitHub webhook not connected', ['site_id' => $site->id, 'message' => $result['message']]);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Edge create: GitHub webhook failed', ['site_id' => $site->id, 'error' => $e->getMessage()]);
+        }
     }
 
     /**

@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\ServiceProvider;
 use League\Flysystem\Filesystem;
+use Pdo\Pgsql;
 
 class DplyServiceProvider extends ServiceProvider
 {
@@ -27,10 +28,95 @@ class DplyServiceProvider extends ServiceProvider
 
         $this->registerStorageDisks();
         $this->registerKvStores();
+        $this->blockOnRedisQueue();
+        $this->oneRoundTripPostgres();
+        $this->oneRoundTripMysql();
+    }
+
+    /**
+     * Opt-in (DPLY_MYSQL_ONE_ROUND_TRIP=true): MySQL queries in one round trip
+     * instead of two. Laravel turns emulated prepares off, so pdo_mysql sends
+     * PREPARE and EXECUTE separately. Emulated, PDO escapes the parameters
+     * into the query itself (with the connection's charset) and sends it once.
+     * Since PHP 8.1 numbers still come back as ints and floats. What changes:
+     * parameters reach MySQL as quoted literals, so a column compared to a
+     * string parameter is cast by MySQL, not bound by type. Only when the app
+     * did not set it.
+     */
+    private function oneRoundTripMysql(): void
+    {
+        if ((string) env('DPLY_QUEUE_TOKEN', '') === '' || ! filter_var(env('DPLY_MYSQL_ONE_ROUND_TRIP', false), FILTER_VALIDATE_BOOL)) {
+            return;
+        }
+        $config = $this->app['config'];
+        foreach ((array) $config->get('database.connections', []) as $name => $connection) {
+            if (! is_array($connection) || ! in_array($connection['driver'] ?? '', ['mysql', 'mariadb'], true)) {
+                continue;
+            }
+            $options = (array) ($connection['options'] ?? []);
+            if (! array_key_exists(\PDO::ATTR_EMULATE_PREPARES, $options)) {
+                $options[\PDO::ATTR_EMULATE_PREPARES] = true;
+                $config->set("database.connections.{$name}.options", $options);
+            }
+        }
+    }
+
+    /**
+     * On dply, Postgres queries go in one round trip instead of three.
+     * Laravel prepares a new statement for every query; pdo_pgsql then
+     * sends PREPARE, EXECUTE and DEALLOCATE as separate round trips (265 ms
+     * vs 88 ms per query measured through the dply gateway at ~88 ms RTT).
+     * PGSQL_ATTR_DISABLE_PREPARES sends the query and its parameters together
+     * (PQexecParams): the server still binds the parameters, so typing and
+     * injection safety are unchanged. Only when the app did not set it.
+     */
+    private function oneRoundTripPostgres(): void
+    {
+        $config = $this->app['config'];
+        if ((string) env('DPLY_QUEUE_TOKEN', '') === '') {
+            return;
+        }
+        // PHP 8.4+ names it Pdo\Pgsql::ATTR_DISABLE_PREPARES (the PDO:: one is deprecated in 8.5).
+        $attribute = class_exists(Pgsql::class) ? Pgsql::ATTR_DISABLE_PREPARES
+            : (defined('PDO::PGSQL_ATTR_DISABLE_PREPARES') ? constant('PDO::PGSQL_ATTR_DISABLE_PREPARES') : null);
+        if ($attribute === null) {
+            return;
+        }
+        foreach ((array) $config->get('database.connections', []) as $name => $connection) {
+            if (! is_array($connection) || ($connection['driver'] ?? '') !== 'pgsql') {
+                continue;
+            }
+            $options = (array) ($connection['options'] ?? []);
+            if (! array_key_exists($attribute, $options)) {
+                $options[$attribute] = true;
+                $config->set("database.connections.{$name}.options", $options);
+            }
+        }
+    }
+
+    /**
+     * On dply, a Redis queue worker waits on the list for a job (BLPOP)
+     * instead of asking every few seconds: a job starts the moment it is
+     * pushed, and far fewer commands cross the network. Only when the app
+     * left block_for unset.
+     */
+    private function blockOnRedisQueue(): void
+    {
+        $config = $this->app['config'];
+        if ((string) env('DPLY_QUEUE_TOKEN', '') === '' || ! is_array($config->get('queue.connections.redis'))) {
+            return;
+        }
+        if ($config->get('queue.connections.redis.block_for') === null) {
+            $config->set('queue.connections.redis.block_for', max(1, (int) env('DPLY_REDIS_BLOCK_FOR', 5)));
+        }
     }
 
     public function boot(): void
     {
+        if ($this->app->runningInConsole()) {
+            $this->commands([ProbeCommand::class]);
+        }
+
         /** @var QueueManager $manager */
         $manager = $this->app['queue'];
         $manager->addConnector('dply', fn () => new DplyConnector);

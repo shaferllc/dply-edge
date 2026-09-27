@@ -21,6 +21,8 @@
     {{-- Footer --}}
     <x-slot:footer>
         <x-mail::footer>
+            @lang('Questions? Email') {{ config('dply.support_email') }}
+
             © {{ date('Y') }} {{ config('app.name') }}. @lang('All rights reserved.')
         </x-mail::footer>
     </x-slot:footer>

@@ -9,7 +9,6 @@ use App\Models\Server;
 use App\Models\Site;
 use App\Support\Servers\ServerRegistry;
 use Illuminate\Support\Facades\Gate;
-use Laravel\Pennant\Feature;
 
 /**
  * Concern extracted from the host Livewire component to keep it under control.
@@ -62,7 +61,6 @@ trait ResolvesCommandPaletteItems
                 ['Admin overview', 'admin platform overview', 'admin.overview', 'wrench-screwdriver', [], null, true],
                 ['Admin operations', 'admin operations ops', 'admin.operations', 'wrench-screwdriver', [], null, true],
                 ['Audit log', 'admin audit log', 'admin.audit', 'document-text', [], null, true],
-                ['Global feature flags', 'admin flags features', 'admin.flags.global', 'wrench-screwdriver', [], null, true],
                 ['Beta invites', 'admin beta invites', 'admin.beta-invites', 'wrench-screwdriver', [], null, true],
                 ['Platform organizations', 'admin organizations', 'admin.organizations.index', 'building-office-2', [], null, true],
             ],
@@ -81,13 +79,9 @@ trait ResolvesCommandPaletteItems
         foreach ($commands as $command) {
             [$label, $keywords, $routeName, $icon] = $command;
             $params = $command[4] ?? [];
-            $feature = $command[5] ?? null;
             $adminOnly = $command[6] ?? false;
 
             if ($adminOnly && ! $isAdmin) {
-                continue;
-            }
-            if ($feature !== null && ! Feature::active($feature)) {
                 continue;
             }
             if ($needle !== '' && ! str_contains(mb_strtolower($label.' '.$keywords), $needle)) {
@@ -196,9 +190,12 @@ trait ResolvesCommandPaletteItems
             return $this->scopedSiteMemo[$key];
         }
 
-        $site = Site::query()
-            ->whereIn('server_id', $org->serverIds())
-            ->find($id);
+        // The page usually already bound and authorized this site; reuse it
+        // when it is the same row in the same organization.
+        $bound = request()->route('site');
+        $site = $bound instanceof Site && (string) $bound->getKey() === $id && $org->serverIds()->contains($bound->server_id)
+            ? $bound
+            : Site::query()->whereIn('server_id', $org->serverIds())->find($id);
 
         // Shared Server instance rather than a per-call eager load — see
         // ServerRegistry; the site page resolved this same row already.

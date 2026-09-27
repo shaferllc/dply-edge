@@ -1,7 +1,7 @@
 @php
     $toneClass = [
-        'ok' => 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300',
-        'warn' => 'bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200',
+        'ok' => 'bg-emerald-100 text-emerald-800 dark:text-emerald-300',
+        'warn' => 'bg-amber-100 text-amber-900',
         'bad' => 'bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300',
         'muted' => 'bg-brand-sand/60 text-brand-moss',
     ];
@@ -66,7 +66,7 @@
                         <div class="flex items-center gap-3">
                             <span @class([
                                 'rounded-full px-2 py-0.5 text-xs font-semibold',
-                                'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300' => $control['on'],
+                                'bg-emerald-100 text-emerald-800 dark:text-emerald-300' => $control['on'],
                                 'bg-brand-sand/60 text-brand-moss' => ! $control['on'],
                             ])>{{ $control['on'] ? __('On') : __('Off') }}</span>
                             <a href="{{ $control['href'] }}" wire:navigate class="text-xs font-semibold text-brand-sage hover:underline">{{ __('Open') }}</a>
@@ -81,12 +81,18 @@
                 <div class="flex flex-wrap items-center justify-between gap-3 border-b border-brand-ink/10 px-4 py-3">
                     <p class="text-xs font-semibold uppercase tracking-[0.16em] text-brand-sage">{{ __('Calls to other servers') }}</p>
                     @if ($outboundCertificate === '')
-                        <button type="button" wire:click="enableOutboundCertificate" class="rounded-md bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white">{{ __('Turn on') }}</button>
+                        @can('update', $site)
+                            <button type="button" wire:click="enableOutboundCertificate" class="rounded-md bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white">{{ __('Turn on') }}</button>
+                        @endcan
                     @else
                         <div class="flex items-center gap-3">
-                            <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">{{ __('On') }}</span>
-                            <button type="button" wire:click="redeployEdge" class="rounded-md bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white">{{ __('Deploy') }}</button>
-                            <button type="button" wire:click="askRemoveOutboundCertificate" x-on:click="$dispatch('open-modal', 'security-remove-certificate')" class="text-xs font-semibold text-brand-ink underline">{{ __('Remove') }}</button>
+                            <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800 dark:text-emerald-300">{{ __('On') }}</span>
+                            @can('deploy', $site)
+                                <button type="button" wire:click="redeployEdge" class="rounded-md bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white">{{ __('Deploy') }}</button>
+                            @endcan
+                            @can('update', $site)
+                                <button type="button" wire:click="askRemoveOutboundCertificate" x-on:click="$dispatch('open-modal', 'security-remove-certificate')" class="text-xs font-semibold text-brand-ink underline">{{ __('Remove') }}</button>
+                            @endcan
                         </div>
                     @endif
                 </div>
@@ -124,7 +130,7 @@
                             <span @class([
                                 'rounded-full px-2 py-0.5 text-xs font-semibold',
                                 'bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-300' => $row['status'] === 403,
-                                'bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200' => $row['status'] === 429,
+                                'bg-amber-100 text-amber-900' => $row['status'] === 429,
                             ])>{{ $row['status'] }}</span>
                             <span class="font-mono text-xs text-brand-moss">{{ $row['method'] }}</span>
                             <span class="min-w-0 flex-1 truncate font-mono text-sm text-brand-ink" title="{{ $row['path'] }}">{{ $row['path'] }}</span>

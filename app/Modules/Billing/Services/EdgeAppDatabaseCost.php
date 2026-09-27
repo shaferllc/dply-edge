@@ -6,23 +6,31 @@ namespace App\Modules\Billing\Services;
 
 use App\Models\EdgePostgresUsage;
 use App\Models\Organization;
+use App\Modules\Billing\Support\UsagePrice;
 use Carbon\CarbonInterface;
 
 /**
- * dply databases (Postgres, MySQL, MongoDB): compute-unit hours while awake
- * plus the disk's GB-months whether awake or asleep, from edge_postgres_usage
- * (written by EdgeValkeyUsageCollector). Each database is priced exactly and
- * the organization's total is rounded once to the nearest cent.
+ * dply databases (Postgres, MySQL, MongoDB): compute-unit seconds while awake
+ * plus the disk's GB-months (prorated by the second held) whether awake or
+ * asleep, from edge_postgres_usage (written by EdgeValkeyUsageCollector).
+ * Cost rates in dply.edge.usage_billing.database_*, priced by UsagePrice.
+ * The organization's total is rounded once to the nearest cent.
  *
  * Called from OrganizationBillingStateComputer, StarterUsageBudget and the
  * Resources tab (rates).
  */
 class EdgeAppDatabaseCost
 {
+    /** Customer dollars per second awake for a size. */
+    public function perSecond(float $cu): string
+    {
+        return UsagePrice::dollars(UsagePrice::rate('database_compute_millicents_per_cu_second') * $cu);
+    }
+
     public function hourly(float $cu): string
     {
         // Dollars: rates are in millicents (100,000 per dollar).
-        return number_format($cu * $this->rate('postgres_compute_millicents_per_cu_hour') / 100_000, 3);
+        return number_format($cu * UsagePrice::rate('database_compute_millicents_per_cu_second') * 3600 / 100_000, 3);
     }
 
     public function daily(float $cu): string
@@ -36,7 +44,7 @@ class EdgeAppDatabaseCost
     }
 
     /**
-     * Customer-facing rates after markup. Hour is the smallest size (0.25 CU).
+     * Customer-facing rates. Hour is the smallest size (0.25 CU).
      *
      * @return array{hour: string, gigabyte: string}
      */
@@ -44,7 +52,7 @@ class EdgeAppDatabaseCost
     {
         return [
             'hour' => $this->hourly(0.25),
-            'gigabyte' => number_format($this->rate('postgres_storage_millicents_per_gb_month') / 100_000, 2),
+            'gigabyte' => number_format(UsagePrice::rate('database_storage_millicents_per_gb_month') / 100_000, 2),
         ];
     }
 
@@ -71,18 +79,12 @@ class EdgeAppDatabaseCost
         return ['databases' => $rows->count(), 'cents' => (int) round($cents)];
     }
 
-    /** Exact (fractional) cents for one database's month so far. */
+    /** Exact (fractional) customer cents for one database's month so far. */
     public function databaseCents(int $computeUnitSeconds, int $storageByteHours, int $hoursInMonth): float
     {
-        $millicents = $computeUnitSeconds / 3600 * $this->rate('postgres_compute_millicents_per_cu_hour')
-            + $storageByteHours / (1024 ** 3) / $hoursInMonth * $this->rate('postgres_storage_millicents_per_gb_month');
+        $millicents = $computeUnitSeconds * UsagePrice::cost('database_compute_millicents_per_cu_second')
+            + $storageByteHours / (1024 ** 3) / $hoursInMonth * UsagePrice::cost('database_storage_millicents_per_gb_month');
 
-        return $millicents / 1000;
-    }
-
-    /** A configured rate in millicents, after markup. */
-    private function rate(string $key): float
-    {
-        return (float) config('dply.edge.usage_billing.'.$key, 0) * (100 + max(0, (int) config('dply.edge.usage_billing.markup_percent', 0))) / 100;
+        return UsagePrice::customer($millicents) / 1000;
     }
 }

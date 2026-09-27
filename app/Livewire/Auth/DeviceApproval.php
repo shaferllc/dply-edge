@@ -96,6 +96,7 @@ class DeviceApproval extends Component
         $roleCap = array_values(match (true) {
             $org->hasAdminAccess($user) => config('cli.device_flow_role_caps.admin', []),
             $org->userIsDeployer($user) => config('cli.device_flow_role_caps.deployer', []),
+            $org->userIsViewer($user) => config('cli.device_flow_role_caps.viewer', []),
             default => config('cli.device_flow_role_caps.member', []),
         });
 

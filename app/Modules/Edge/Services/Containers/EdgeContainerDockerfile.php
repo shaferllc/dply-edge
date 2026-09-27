@@ -251,7 +251,10 @@ final class EdgeContainerDockerfile
                     continue;
                 }
                 $extension = substr($name, 4);
-                if ($extension === '' || isset($baked[$extension]) || isset($extra[$extension])) {
+                // Names reach `RUN install-php-extensions …` in the shared base
+                // image EdgePhpBaseImage builds on the host and pushes for every
+                // org: anything but an extension name is shell injection.
+                if (preg_match('/^[a-z0-9][a-z0-9_-]*$/', $extension) !== 1 || isset($baked[$extension]) || isset($extra[$extension])) {
                     continue;
                 }
                 $extra[$extension] = true;
@@ -573,14 +576,20 @@ final class EdgeContainerDockerfile
         $lines[] = is_file($checkout.'/composer.lock')
             ? 'COPY composer.json composer.lock ./'
             : 'COPY composer.json ./';
-        if ($injectLaravel && $laravel && ! self::composerRequires($checkout, 'dply/laravel')) {
+        $inject = $injectLaravel && $laravel && ! self::composerRequires($checkout, 'dply/laravel');
+        if ($inject) {
             self::stageLaravelPackage($checkout);
             $lines[] = 'COPY dply-laravel /opt/dply/laravel';
-            $lines[] = self::cachedRun('composer config repositories.dply \'{"type":"path","url":"/opt/dply/laravel","options":{"symlink":false}}\' && composer require dply/laravel:^1.0 --no-dev --no-interaction --no-progress --no-scripts --no-plugins --no-install && composer install --no-dev --no-interaction --no-progress --no-scripts --no-autoloader', '/root/.composer/cache');
+            // Keep the edited composer.json/lock: COPY . . below brings back
+            // the app's own, and the autoloader is dumped from those.
+            $lines[] = self::cachedRun('composer config repositories.dply \'{"type":"path","url":"/opt/dply/laravel","options":{"symlink":false}}\' && composer require dply/laravel:^1.0 --update-no-dev --no-interaction --no-progress --no-scripts --no-plugins --no-install && composer install --no-dev --no-interaction --no-progress --no-scripts --no-autoloader && cp composer.json composer.lock /opt/dply/', '/root/.composer/cache');
         } else {
             $lines[] = self::cachedRun('composer install --no-dev --no-interaction --no-progress --no-scripts --no-autoloader', '/root/.composer/cache');
         }
         $lines[] = 'COPY . .';
+        if ($inject) {
+            $lines[] = 'RUN cp /opt/dply/composer.json /opt/dply/composer.lock ./';
+        }
         if ($assets !== null) {
             $lines[] = 'COPY --from=assets /app/public /app/public';
         }
@@ -637,7 +646,9 @@ final class EdgeContainerDockerfile
         // ready, and before this every cold start's first request got a 502.
         $start = match ($server) {
             'swoole' => 'exec php artisan octane:start --server=swoole --host=0.0.0.0 --port=8080',
-            'roadrunner' => 'exec php artisan octane:start --server=roadrunner --host=0.0.0.0 --port=8080 --rr-config=.rr.yaml',
+            // No --rr-config: Octane then uses the repo's .rr.yaml, or touches an
+            // empty one. With the flag, a repo without the file exits on boot.
+            'roadrunner' => 'exec php artisan octane:start --server=roadrunner --host=0.0.0.0 --port=8080',
             'fpm' => 'children="${DPLY_PHP_FPM_MAX_CHILDREN:-2}"; limit="${DPLY_PHP_MEMORY_LIMIT:-128M}"; mkdir -p /tmp/views /tmp/client_body /tmp/fastcgi; chmod 1777 /tmp/views /tmp/client_body /tmp/fastcgi; export VIEW_COMPILED_PATH=/tmp/views; printf "[global]\npid = /tmp/php-fpm.pid\nerror_log = /tmp/php-fpm.log\ndaemonize = no\n[www]\nuser = www-data\ngroup = www-data\nlisten = 127.0.0.1:9000\npm = ondemand\npm.max_children = %s\npm.process_idle_timeout = 10s\npm.max_requests = 500\nclear_env = no\n" "$children" > /tmp/php-fpm.conf; php-fpm -F -y /tmp/php-fpm.conf -d "memory_limit=$limit" -d opcache.enable=1 -d opcache.memory_consumption=64 -d opcache.max_accelerated_files=10000 & until php -r \'exit(@fsockopen("127.0.0.1", 9000) ? 0 : 1);\'; do sleep 0.1; done; exec nginx -g "daemon off;"',
             default => 'exec frankenphp run --config /etc/frankenphp/Caddyfile',
         };
@@ -646,8 +657,38 @@ final class EdgeContainerDockerfile
             $start = 'php artisan inertia:start-ssr & '.$start;
         }
         $sqlite = 'if [ "$DB_CONNECTION" = "sqlite" ] && [ -n "$DB_DATABASE" ]; then mkdir -p "$(dirname "$DB_DATABASE")"; if [ "$DPLY_SQLITE_SYNC" = "1" ]; then php -r \'@copy("http://sqlite.dply/db", getenv("DB_DATABASE"));\'; fi; [ -f "$DB_DATABASE" ] || touch "$DB_DATABASE"; chmod 666 "$DB_DATABASE"; if [ "$DPLY_SQLITE_SYNC" = "1" ]; then ( while true; do php -r \'$p=getenv("DB_DATABASE"); if(!is_file($p)) exit; $b=file_get_contents($p); $c=stream_context_create(["http"=>["method"=>"PUT","header"=>"Content-Type: application/octet-stream\r\n","content"=>$b,"timeout"=>60]]); @file_get_contents("http://sqlite.dply/db", false, $c);\' ; sleep 20; done ) & fi; fi; ';
+        // --isolated takes a cache lock. With CACHE_STORE=database on a new
+        // database, cache_locks does not exist until migrate creates it, so
+        // retry once without the lock.
+        // ponytail: that retry is unlocked; two instances booting a new database at once could both migrate.
+        // Queue workers (EdgeQueueWorkers): the same image, started with
+        // DPLY_ROLE=worker, runs N queue:work loops instead of the web server.
+        // On TERM the shell stops relaunching and every worker gets TERM,
+        // which lets queue:work finish its current job before exiting.
+        // Supervisor lines start "[dply-worker worker-N]" so the workspace can
+        // pick worker output out of the app's logs (EdgeQueueWorkers::logs).
+        $worker = 'if [ "$DPLY_ROLE" = "worker" ]; then '
+            .'w="[dply-worker ${DPLY_WORKER_NAME:-worker}]"; '
+            .'echo "$w starting ${DPLY_WORKER_PROCESSES:-1} x queue:work $DPLY_WORKER_CONNECTION --queue=${DPLY_WORKER_QUEUES:-default}"; '
+            // Where this worker landed and how far its data is (read back from the logs).
+            .'(php artisan dply:probe --prefix="$w" 2>/dev/null || true) & '
+            .'trap \'echo "$w stopping after current jobs"; trap "" TERM; kill -TERM 0; wait; exit 0\' TERM INT; '
+            .'i=0; while [ "$i" -lt "${DPLY_WORKER_PROCESSES:-1}" ]; do '
+            // Each loop waits out its php on TERM (dash would otherwise die at
+            // once and PID 1 exit, killing the job mid-run) and stops relaunching.
+            .'(trap "stop=1" TERM; while [ -z "$stop" ]; do t=$(date +%s); php artisan queue:work "$DPLY_WORKER_CONNECTION" --queue="${DPLY_WORKER_QUEUES:-default}" '
+            .'--sleep="${DPLY_WORKER_SLEEP:-3}" --tries="${DPLY_WORKER_TRIES:-3}" --timeout="${DPLY_WORKER_TIMEOUT:-60}" '
+            .'--memory="${DPLY_WORKER_MEMORY:-128}" --max-time="${DPLY_WORKER_MAX_TIME:-3600}" & p=$!; wait $p; c=$?; wait $p 2>/dev/null; '
+            // A worker that dies on boot (bad config, missing class) backs
+            // off instead of restarting every second.
+            .'if [ -z "$stop" ]; then if [ $(($(date +%s) - t)) -lt 10 ]; then echo "$w queue:work exited ($c) within 10s, retrying in 5s"; sleep 5; else echo "$w queue:work exited ($c), restarting"; sleep 1; fi; fi; done) & '
+            .'i=$((i+1)); done; '
+            // worker-0 also runs the scheduler when told to (EdgeQueueWorkers::runsScheduler).
+            .'if [ "$DPLY_WORKER_SCHEDULER" = "1" ]; then echo "$w running the scheduler (schedule:work)"; '
+            .'(trap "stop=1" TERM; while [ -z "$stop" ]; do php artisan schedule:work & p=$!; wait $p; wait $p 2>/dev/null; [ -z "$stop" ] && sleep 5; done) & fi; '
+            .'wait; exit 0; fi; ';
         $boot = $laravel
-            ? $sqlite.'if [ "$DPLY_MIGRATE_ON_BOOT" = "1" ]; then php artisan migrate --force --isolated || true; fi; '.$start
+            ? $worker.$sqlite.'if [ "$DPLY_MIGRATE_ON_BOOT" = "1" ]; then php artisan migrate --force --isolated || php artisan migrate --force || true; fi; '.$start
             : $start;
         $lines[] = 'CMD ["sh", "-c", '.json_encode($boot, JSON_UNESCAPED_SLASHES).']';
 

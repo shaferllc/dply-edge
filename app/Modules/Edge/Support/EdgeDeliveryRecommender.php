@@ -12,15 +12,20 @@ use App\Modules\Edge\Services\Ssr\EdgeSsrFrameworkRegistry;
  * one-line reason the create page shows. One place, so the prefill, the
  * "Recommended" badge and the deploy checks can't disagree:
  *
- *   PHP / Ruby / Node HTTP server   → container
- *   server-rendered JS framework    → hybrid (edge + your origin); Worker SSR
- *                                     stays opt-in (needs an adapter + plan)
- *   anything else that builds files → static
+ *   PHP / Ruby / Node HTTP server   → container          ("App" on the create page)
+ *   Next.js / Keel server app       → Worker SSR          ("App"; the build adds
+ *                                     the adapter itself) when SSR is available
+ *   other server-rendered JS        → hybrid (edge + your origin, "Advanced");
+ *                                     their Worker SSR needs an adapter in the repo
+ *   anything else that builds files → static             ("Site")
  */
 final class EdgeDeliveryRecommender
 {
     /** Frameworks with a Worker SSR adapter ({@see EdgeSsrFrameworkRegistry}). */
     private const WORKER_SSR_FRAMEWORKS = ['keel', 'next', 'sveltekit', 'astro', 'remix'];
+
+    /** Worker SSR builds these without anything in the repo (OpenNext / wrangler). */
+    private const SELF_ADAPTING_SSR_FRAMEWORKS = ['keel', 'next'];
 
     private const LABELS = [
         'laravel' => 'Laravel', 'symfony' => 'Symfony', 'php' => 'PHP', 'rails' => 'Rails', 'sinatra' => 'Sinatra', 'ruby' => 'Ruby',
@@ -48,8 +53,12 @@ final class EdgeDeliveryRecommender
         $serverRendered = EdgeSsrDetection::planLooksLikeSsr($plan)
             || EdgeFrameworkPresetRegistry::byDetectionPlan($plan)->runtimeMode === 'hybrid';
 
-        // Hybrid, not Worker SSR: Worker SSR needs a Cloudflare adapter in the
-        // repo (OpenNext etc.) and a paid plan, so it stays an explicit choice.
+        if ($serverRendered && in_array($framework, self::SELF_ADAPTING_SSR_FRAMEWORKS, true) && EdgeSsrAvailability::isAvailable()) {
+            return ['mode' => 'ssr', 'reason' => __(':framework renders on the server, so it runs as an app on the edge.', ['framework' => $label])];
+        }
+
+        // Hybrid for the rest: their Worker SSR needs a Cloudflare adapter in
+        // the repo, so it stays an explicit choice.
         if ($serverRendered) {
             return ['mode' => 'hybrid', 'reason' => in_array($framework, self::WORKER_SSR_FRAMEWORKS, true)
                 ? __(':framework renders on the server: static assets from the edge, server routes from your origin. Worker SSR also works if the repo has an edge adapter.', ['framework' => $label])

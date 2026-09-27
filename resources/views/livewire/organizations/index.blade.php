@@ -12,7 +12,7 @@
 
 <div>
     <div class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <x-dashboard-breadcrumb doc-route="docs.markdown" doc-slug="org-roles-and-limits" :current="__('Organizations')" current-icon="building-office-2" />
+        <x-dashboard-breadcrumb doc-route="docs.markdown" doc-slug="roles-and-permissions" :current="__('Organizations')" current-icon="building-office-2" />
 
         <x-profile-shell
             :title="__('Organizations')"

@@ -1,0 +1,17 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-27",
+  "id": "r-2zxevg4sj675qn1m",
+  "recordedBy": {
+    "client": "claude",
+    "id": "7287ab43-961f-4f49-a652-045813268214"
+  },
+  "scopeTags": [
+    "billing",
+    "pricing",
+    "plans",
+    "hosting"
+  ],
+  "supersedes": null,
+  "text": "\"I like it all and 20% margin seems right but make it easy to adjust that margin\" — approving the simplified model: three plans (Starter ~$5 / 1 seat / $5 included usage credit; Pro $20 / 3 seats / $20 credit; Team $49 / 10 seats then $5 each / $50 credit; Enterprise is contact-sales, not a plan). No per-site fees (the $2 extra site and $7 SSR site charges go away). One included usage credit per plan replaces all per-meter allowances. Every meter is priced at provider cost + one published margin (20%, configurable in one place). Anything that runs (container apps, workers, databases, Valkey) bills per second while awake; events bill per unit (requests, bandwidth, storage, operations, messages). Two hosting choices for users: Site (static) and App (dply picks Worker or container); hybrid becomes an advanced option. One size ladder (0.25/0.5/1/2/4 vCPU) shared by apps, databases and Valkey. Supersedes the tier and allowance parts of r-zdescb7y05vp1bxx; the 5-day card-up-front trial with its $5 cap stays."
+}

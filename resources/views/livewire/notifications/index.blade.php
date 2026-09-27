@@ -226,6 +226,21 @@
                     @endif
                 </div>
             @endforelse
+
+            @if ($hasMore)
+                <div class="flex justify-center pt-1">
+                    <button
+                        type="button"
+                        wire:click="loadMore"
+                        wire:loading.attr="disabled"
+                        wire:target="loadMore"
+                        class="inline-flex items-center gap-1.5 rounded-lg border border-brand-ink/15 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink shadow-sm hover:bg-brand-sand/40 disabled:opacity-60"
+                    >
+                        <x-heroicon-o-chevron-down class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        {{ __('Load more') }}
+                    </button>
+                </div>
+            @endif
         </div>
         </x-profile-shell>
     </div>

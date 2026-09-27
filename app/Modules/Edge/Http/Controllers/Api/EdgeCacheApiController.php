@@ -11,6 +11,8 @@ use Illuminate\Validation\ValidationException;
 
 class EdgeCacheApiController extends EdgeApiController
 {
+    protected const WRITE_ABILITY = 'deploy';
+
     public function purge(Request $request, string $site): JsonResponse
     {
         $found = $this->findEdgeSite($request, $site);

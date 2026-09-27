@@ -4,9 +4,7 @@ namespace App\Livewire\StatusPages;
 
 use App\Livewire\Concerns\ConfirmsActionWithModal;
 use App\Livewire\Concerns\DispatchesToastNotifications;
-use App\Livewire\Concerns\RequiresFeature;
 use App\Models\Incident;
-use App\Models\Server;
 use App\Models\Site;
 use App\Models\SiteUptimeMonitor;
 use App\Models\StatusPage;
@@ -19,10 +17,6 @@ use Livewire\Component;
 #[Layout('layouts.app')]
 class Manage extends Component
 {
-    use RequiresFeature;
-
-    protected string $requiredFeature = 'surface.status_pages';
-
     use ConfirmsActionWithModal;
     use DispatchesToastNotifications;
 
@@ -34,7 +28,7 @@ class Manage extends Component
 
     public bool $is_public = true;
 
-    public string $monitorKind = 'server';
+    public string $monitorKind = 'site';
 
     public ?string $monitorId = null;
 
@@ -115,7 +109,7 @@ class Manage extends Component
         $this->authorize('update', $this->statusPage);
 
         $this->validate([
-            'monitorKind' => 'required|in:server,site,site_uptime',
+            'monitorKind' => 'required|in:site,site_uptime',
             'monitorSiteId' => [
                 Rule::requiredIf(fn (): bool => $this->monitorKind === 'site_uptime'),
                 'nullable',
@@ -127,11 +121,7 @@ class Manage extends Component
 
         $orgId = $this->statusPage->organization_id;
 
-        if ($this->monitorKind === 'server') {
-            $server = Server::query()->where('organization_id', $orgId)->findOrFail($this->monitorId);
-            $this->authorize('view', $server);
-            $model = $server;
-        } elseif ($this->monitorKind === 'site') {
+        if ($this->monitorKind === 'site') {
             $site = Site::query()->where('organization_id', $orgId)->findOrFail($this->monitorId);
             $this->authorize('view', $site);
             $model = $site;
@@ -291,7 +281,6 @@ class Manage extends Component
     {
         $orgId = $this->statusPage->organization_id;
 
-        $servers = Server::query()->where('organization_id', $orgId)->orderBy('name')->get();
         $sites = Site::query()->where('organization_id', $orgId)->orderBy('name')->get();
 
         $uptimeMonitorsForPicker = collect();
@@ -304,7 +293,6 @@ class Manage extends Component
         }
 
         return view('livewire.status-pages.manage', [
-            'servers' => $servers,
             'sites' => $sites,
             'uptimeMonitorsForPicker' => $uptimeMonitorsForPicker,
         ]);

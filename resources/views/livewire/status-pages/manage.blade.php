@@ -97,7 +97,7 @@
                 icon="heroicon-o-heart"
                 :title="__('Monitors')"
                 :count="$statusPage->monitors->count()"
-                :note="__('Servers and sites follow their health checks; site uptime monitors use the scheduled HTTP checks configured per site.')"
+                :note="__('An app shows the worst of its uptime checks; an uptime check shows that one check. Checks run every few minutes against the app\'s live URL.')"
             />
 
             @if ($statusPage->monitors->isEmpty())
@@ -120,14 +120,13 @@
                 <div>
                     <x-input-label for="mk" :value="__('Type')" />
                     <select id="mk" wire:model.live="monitorKind" class="mt-1 block w-full rounded-lg border-brand-ink/15 text-sm shadow-sm focus:border-brand-sage focus:ring-brand-sage/30">
-                        <option value="server">{{ __('Server') }}</option>
-                        <option value="site">{{ __('Site') }}</option>
-                        <option value="site_uptime">{{ __('Site uptime check') }}</option>
+                        <option value="site">{{ __('App') }}</option>
+                        <option value="site_uptime">{{ __('App uptime check') }}</option>
                     </select>
                 </div>
                 @if ($monitorKind === 'site_uptime')
                     <div class="min-w-[12rem]">
-                        <x-input-label for="msite" :value="__('Site')" />
+                        <x-input-label for="msite" :value="__('App')" />
                         <select id="msite" wire:model.live="monitorSiteId" class="mt-1 block w-full rounded-lg border-brand-ink/15 text-sm shadow-sm focus:border-brand-sage focus:ring-brand-sage/30">
                             <option value="">{{ __('Choose…') }}</option>
                             @foreach ($sites as $s)
@@ -148,18 +147,12 @@
                     </div>
                 @else
                     <div class="min-w-[12rem]">
-                        <x-input-label for="mid" :value="__('Resource')" />
+                        <x-input-label for="mid" :value="__('App')" />
                         <select id="mid" wire:model="monitorId" class="mt-1 block w-full rounded-lg border-brand-ink/15 text-sm shadow-sm focus:border-brand-sage focus:ring-brand-sage/30">
                             <option value="">{{ __('Choose…') }}</option>
-                            @if ($monitorKind === 'server')
-                                @foreach ($servers as $s)
-                                    <option value="{{ $s->id }}">{{ $s->name }}</option>
-                                @endforeach
-                            @else
-                                @foreach ($sites as $s)
-                                    <option value="{{ $s->id }}">{{ $s->name }}</option>
-                                @endforeach
-                            @endif
+                            @foreach ($sites as $s)
+                                <option value="{{ $s->id }}">{{ $s->name }}</option>
+                            @endforeach
                         </select>
                         <x-input-error :messages="$errors->get('monitorId')" class="mt-1" />
                     </div>

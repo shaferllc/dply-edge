@@ -92,29 +92,6 @@ enum QuotaSurface: string
     }
 
     /**
-     * Key under `subscription.standard.beta` holding the beta envelope for
-     * this surface. Beta caps replace plan ceilings until cutover.
-     */
-    public function betaConfigKey(): string
-    {
-        return match ($this) {
-            self::Site => 'sites',
-            self::Edge => 'edge_apps',
-        };
-    }
-
-    /**
-     * Fallback beta ceiling when the config key is absent.
-     */
-    public function betaDefault(): int
-    {
-        return match ($this) {
-            self::Site => 25,
-            self::Edge => 25,
-        };
-    }
-
-    /**
      * `singular|plural` for trans_choice, e.g. "2 Edge apps".
      */
     public function nounKey(): string

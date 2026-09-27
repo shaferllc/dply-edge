@@ -145,12 +145,17 @@ export async function enforceRateLimit(
   pathname: string,
   config: RateLimitConfig | undefined,
   turnstile: TurnstileConfig | undefined,
+  scope: string,
 ): Promise<Response | null> {
   if (!config?.enabled || !config.rules?.length) return null;
   const ip = clientIp(request);
+  // Every matching rule counts (see docs/site/rate-limits.md). Fixed windows:
+  // the window index is in the key, so a count resets when its window ends
+  // instead of every hit pushing the expiry out again.
   for (const rule of config.rules) {
     if (!pathMatches(rule.path, pathname)) continue;
-    const key = `rl:${ip}:${rule.path}:${rule.window_seconds}`;
+    const windowIndex = Math.floor(Date.now() / (rule.window_seconds * 1000));
+    const key = `rl:${scope}:${ip}:${rule.path}:${rule.window_seconds}:${windowIndex}`;
     const allowed = await bumpCacheCounter(key, rule.limit, rule.window_seconds);
     if (allowed) continue;
     if (rule.action === 'challenge' && turnstile?.enabled && turnstile.secret_key) {
@@ -244,6 +249,33 @@ export async function handleEdgeForm(
     }
   }
 
+  // Forward to dply's signed ingest (per-app key from the host entry). The
+  // configured endpoint path is sent, not the request path, so dply can look
+  // up the endpoint's inbox itself.
+  if (!config.ingest_url || !config.ingest_key) {
+    return jsonFormError('Form delivery is not configured', 503);
+  }
+  const body = JSON.stringify({
+    path: endpoint.path,
+    fields: Object.fromEntries(
+      Object.entries(fields).filter(([k]) => !['cf-turnstile-response', 'turnstile_token', honeypot].includes(k)),
+    ),
+    submitted_at: new Date().toISOString(),
+  });
+  try {
+    const res = await fetch(config.ingest_url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Dply-Edge-Form-Signature': await formHmacHex(config.ingest_key, body),
+      },
+      body,
+    });
+    if (!res.ok) return jsonFormError('Could not deliver form', 502);
+  } catch {
+    return jsonFormError('Could not deliver form', 502);
+  }
+
   const wantsHtml = (request.headers.get('accept') || '').includes('text/html');
   if (wantsHtml) {
     return new Response('<!doctype html><html><body><p>Thanks — we received your message.</p></body></html>', {
@@ -268,12 +300,34 @@ function jsonFormError(message: string, status: number): Response {
   });
 }
 
+async function formHmacHex(secret: string, body: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body));
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 const WR_COOKIE = 'dply_wr';
+const WR_BUCKETS = 10;
+
+/**
+ * Counters are shared per data center across every app, so each key carries
+ * the app's id (the hostname when a host entry has none).
+ */
+function counterScope(request: Request, host: EdgeAddonsHostEntry): string {
+  return host.site_id || new URL(request.url).hostname;
+}
 
 export async function enforceWaitingRoom(
   request: Request,
   pathname: string,
   config: WaitingRoomConfig | undefined,
+  scope: string,
 ): Promise<Response | null> {
   if (!config?.enabled) return null;
   const paths = config.paths?.length ? config.paths : ['/*'];
@@ -283,19 +337,32 @@ export async function enforceWaitingRoom(
   const admitted = cookieHeader.split(';').some((c) => c.trim().startsWith(`${WR_COOKIE}=1`));
   if (admitted) return null;
 
-  const ip = clientIp(request);
-  const minuteKey = `wr:admit:${Math.floor(Date.now() / 60000)}`;
-  const activeKey = `wr:active`;
-  const admittedThisMinute = await readCacheCount(minuteKey);
-  const activeApprox = await readCacheCount(activeKey);
+  const now = Date.now();
+  const minuteKey = `wr:${scope}:admit:${Math.floor(now / 60000)}`;
+  // Active visitors = admissions within the last session length, counted in
+  // time buckets that expire on their own, so admitted visitors age out
+  // instead of the count only growing. Reads one extra bucket, so it
+  // over-counts by at most a tenth of a session (errs toward queueing).
+  const sessionMs = Math.max(1, config.session_duration_minutes || 30) * 60000;
+  const bucketMs = Math.max(60000, Math.ceil(sessionMs / WR_BUCKETS));
+  const nowBucket = Math.floor(now / bucketMs);
+  const bucketCount = Math.ceil(sessionMs / bucketMs);
+  const activeKey = (bucket: number) => `wr:${scope}:active:${bucketMs}:${bucket}`;
+  const [admittedThisMinute, ...activeCounts] = await Promise.all([
+    readCacheCount(minuteKey),
+    ...Array.from({ length: bucketCount + 1 }, (_, i) => readCacheCount(activeKey(nowBucket - i))),
+  ]);
+  const activeApprox = activeCounts.reduce((sum, n) => sum + n, 0);
 
   if (
     admittedThisMinute < config.new_users_per_minute &&
     activeApprox < config.total_active_users
   ) {
-    await bumpCacheCounter(minuteKey, config.new_users_per_minute + 1, 120);
-    await bumpCacheCounter(activeKey, config.total_active_users + 1, config.session_duration_minutes * 60);
-    // Let request through; caller stamps cookie via waitingRoomAdmitHeaders
+    await Promise.all([
+      bumpCacheCounter(minuteKey, config.new_users_per_minute + 1, 120),
+      bumpCacheCounter(activeKey(nowBucket), config.total_active_users + 1, Math.ceil((sessionMs + bucketMs) / 1000)),
+    ]);
+    // Let request through; handleRequest stamps the cookie on whatever answers it
     (request as Request & { __dplyWaitingRoomAdmit?: boolean }).__dplyWaitingRoomAdmit = true;
     return null;
   }
@@ -461,13 +528,14 @@ export async function runEarlyAddons(
   pathname: string,
   host: EdgeAddonsHostEntry,
 ): Promise<Response | null> {
-  const waiting = await enforceWaitingRoom(request, pathname, host.waiting_room);
+  const scope = counterScope(request, host);
+  const waiting = await enforceWaitingRoom(request, pathname, host.waiting_room, scope);
   if (waiting) return waiting;
 
   const form = await handleEdgeForm(request, pathname, host.forms, host.turnstile);
   if (form) return form;
 
-  const limited = await enforceRateLimit(request, pathname, host.rate_limit, host.turnstile);
+  const limited = await enforceRateLimit(request, pathname, host.rate_limit, host.turnstile, scope);
   if (limited) return limited;
 
   return null;

@@ -18,18 +18,20 @@ final class ValkeyGatewayClient
         private readonly string $token,
     ) {}
 
-    public static function configured(): bool
+    public static function configured(?string $region = null): bool
     {
-        return trim((string) config('edge.valkey.api_url')) !== '' && trim((string) config('edge.valkey.token')) !== '';
+        return ValkeyRegions::configured($region);
     }
 
-    public static function fromConfig(): self
+    /** The gateway of a region (ValkeyRegions); null or unknown means the default region. */
+    public static function fromConfig(?string $region = null): self
     {
-        if (! self::configured()) {
-            throw new RuntimeException('dply Valkey is not configured. Set DPLY_VALKEY_API_URL and DPLY_VALKEY_TOKEN.');
+        if (! self::configured($region)) {
+            throw new RuntimeException('dply Valkey is not configured for region '.ValkeyRegions::get($region)['key'].'. Set DPLY_VALKEY_API_URL and DPLY_VALKEY_TOKEN (or DPLY_VALKEY_REGIONS).');
         }
+        $settings = ValkeyRegions::get($region);
 
-        return new self(rtrim((string) config('edge.valkey.api_url'), '/'), (string) config('edge.valkey.token'));
+        return new self($settings['api_url'], $settings['token']);
     }
 
     /**
@@ -94,6 +96,82 @@ final class ValkeyGatewayClient
         $status = $this->http()->timeout(5)->get('/tenants/'.$id.'/backup')->throw()->json();
 
         return is_array($status) ? array_map('strval', $status) : [];
+    }
+
+    /**
+     * Live stats from the database's agent (MongoDB: the app has no driver).
+     * Wakes the database; a first wake on a node can take a while.
+     *
+     * @return array<string, mixed>
+     */
+    /**
+     * A Valkey store's slowest recent commands (command and key only). Never
+     * wakes an asleep store.
+     *
+     * @return array{awake: bool, entries: list<array{at: int, micros: int, command: string, key: string}>}
+     */
+    public function slowlog(string $id): array
+    {
+        $body = $this->http()->timeout(15)->get('/tenants/'.$id.'/slowlog')->throw()->json();
+
+        return ['awake' => (bool) ($body['awake'] ?? false), 'entries' => array_values(array_filter((array) ($body['entries'] ?? []), 'is_array'))];
+    }
+
+    public function databaseStats(string $id): array
+    {
+        return $this->http()->timeout(25)->get('/tenants/'.$id.'/stats')->throw()->json() ?? [];
+    }
+
+    /**
+     * A database's Insights (packages/valkey-gateway/dbagent/insights.go):
+     * stats, top queries, running queries, index and vacuum health,
+     * extensions. $cached never wakes it: a sleeping database answers with
+     * the snapshot taken before it last stopped (awake: false).
+     *
+     * @return array<string, mixed>
+     */
+    public function insights(string $id, bool $cached = false): array
+    {
+        return $this->http()->timeout($cached ? 10 : 45)->get('/tenants/'.$id.'/insights', $cached ? ['cached' => 1] : [])->throw()->json() ?? [];
+    }
+
+    /**
+     * Run a database action: queries-reset, cancel {pid}, extension {name},
+     * readonly {password}, query {sql | collection, filter}, export, import
+     * {key}. Wakes the database. The agent's message comes back as the error.
+     *
+     * @param  array<string, mixed>  $body
+     * @return array<string, mixed>
+     */
+    public function action(string $id, string $name, array $body = []): array
+    {
+        $long = in_array($name, ['export', 'import'], true);
+        $response = $this->http()->timeout($long ? 3600 : 60)->asJson()->post('/tenants/'.$id.'/action/'.$name, (object) $body);
+        if ($response->failed()) {
+            throw new RuntimeException(trim($response->body()) ?: 'The database did not answer ('.$response->status().').');
+        }
+
+        return $response->json() ?? [];
+    }
+
+    /**
+     * This database's exports, newest last, each with an hour-long download link.
+     *
+     * @return list<array{file: string, key: string, bytes: int, at: string, url: string}>
+     */
+    public function databaseExports(string $id): array
+    {
+        return array_values((array) ($this->http()->timeout(10)->get('/tenants/'.$id.'/exports')->throw()->json('exports') ?? []));
+    }
+
+    /**
+     * A signed PUT for tenants/{id}/imports/{file}, valid an hour.
+     *
+     * @return array{key: string, url: string}
+     */
+    public function databaseUploadLink(string $id, string $file): array
+    {
+        return $this->http()->timeout(10)->post('/tenants/'.$id.'/upload-link?file='.rawurlencode($file))->throw()->json();
     }
 
     public function sleep(string $id): void

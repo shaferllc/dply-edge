@@ -1,5 +1,15 @@
 import './bootstrap';
 
+// Livewire drops a wire:poll tick when the component's previous request is
+// still in flight, and rejects that tick's promise with a null status. Nothing
+// failed, but wire:poll never catches it, so it logs "Uncaught (in promise)".
+window.addEventListener('unhandledrejection', (e) => {
+    const r = e.reason;
+    if (r && typeof r === 'object' && r.status === null && 'errors' in r && 'json' in r) {
+        e.preventDefault();
+    }
+});
+
 import {
     dplyEnsureDocsProseStyles,
     registerDplyLazyAssetListeners,
@@ -41,6 +51,33 @@ const toastRegionClasses = {
 };
 
 document.addEventListener('alpine:init', () => {
+    // Stacked sheets (<x-sheet>): names, bottom first. Opening a sheet while
+    // another is open layers it on top; closing one closes everything above it.
+    if (! Alpine.store('sheets')) {
+        Alpine.store('sheets', {
+            stack: [],
+            open(name) {
+                this.stack = [...this.stack.filter((n) => n !== name), name];
+                document.body.classList.add('overflow-y-hidden');
+            },
+            close(name) {
+                const i = this.stack.indexOf(name);
+                if (i >= 0) this.set(this.stack.slice(0, i));
+            },
+            back(name) {
+                const i = this.stack.indexOf(name);
+                if (i >= 0) this.set(this.stack.slice(0, i + 1));
+            },
+            clear() {
+                this.set([]);
+            },
+            set(stack) {
+                this.stack = stack;
+                if (! stack.length) document.body.classList.remove('overflow-y-hidden');
+            },
+        });
+    }
+
     // Site header Deploy/Console/Sync drawers — store survives Livewire morph
     // (local x-data on DeployControl is lost during poll/lazy clone).
     if (! Alpine.store('deployControl')) {
@@ -65,6 +102,32 @@ document.addEventListener('alpine:init', () => {
             toggleSyncDrawer() {
                 this.syncDrawerOpen = ! this.syncDrawerOpen;
             },
+        });
+    }
+
+    // Live edge build logs (BuildJourney): the server sends only new lines per
+    // poll tick; each step's <pre wire:ignore> renders its slice from here.
+    if (! Alpine.store('buildLogs')) {
+        Alpine.store('buildLogs', {
+            logs: {},
+            get(id, step) {
+                return this.logs[id]?.[step] ?? '';
+            },
+            append(id, chunks, reset = false) {
+                const next = reset ? {} : { ...(this.logs[id] ?? {}) };
+                for (const [step, html] of Object.entries(chunks ?? {})) {
+                    let text = (next[step] ?? '') + html;
+                    // Keep ~256KB per step; cut on a line boundary.
+                    if (text.length > 300_000) {
+                        text = '… (older lines trimmed) …\n' + text.slice(text.indexOf('\n', text.length - 256_000) + 1);
+                    }
+                    next[step] = text;
+                }
+                this.logs = { ...this.logs, [id]: next };
+            },
+        });
+        window.addEventListener('edge-build-log', (e) => {
+            Alpine.store('buildLogs').append(e.detail.id, e.detail.chunks, e.detail.reset);
         });
     }
 
@@ -372,6 +435,25 @@ document.addEventListener(
     true, // capture phase: run before Livewire's own click handler kicks in
 );
 
+// The Livewire island a teleported <x-sheet> was rendered in: walk back from
+// its <template> to the island's start marker, as Livewire's closestIsland()
+// does for elements that stay in place.
+window.dplySheetIsland = (el) => {
+    let node = el?.closest?.('[data-teleport-target]')?._x_teleportBack;
+    let depth = 0;
+    for (; node; node = node.parentElement) {
+        for (let sib = node.previousSibling; sib; sib = sib.previousSibling) {
+            if (sib.nodeType !== Node.COMMENT_NODE) continue;
+            if (sib.textContent.startsWith('[if ENDFRAGMENT:')) depth++;
+            else if (sib.textContent.startsWith('[if FRAGMENT:') && depth-- === 0) {
+                return /\btype=island\|name=([^|\]]+)/.exec(sib.textContent)?.[1] ?? null;
+            }
+        }
+    }
+
+    return null;
+};
+
 document.addEventListener('livewire:init', () => {
     if (! window.Livewire || typeof window.Livewire.hook !== 'function') return;
 
@@ -385,6 +467,17 @@ document.addEventListener('livewire:init', () => {
         if (typeof fail === 'function') {
             fail(() => dplyClearBusyButtons());
         }
+    });
+
+    // A Livewire island around an <x-sheet> (the edge Resources page) loses
+    // the sheet to its teleport: the sheet sits in <body>, outside the
+    // island's markers, so Livewire would send its actions as whole-page
+    // renders. Route them back to the island.
+    if (typeof window.Livewire.interceptAction !== 'function') return;
+    window.Livewire.interceptAction(({ action }) => {
+        if (action.metadata?.island) return;
+        const name = window.dplySheetIsland(action.origin?.el);
+        if (name) action.mergeMetadata({ island: { name, mode: 'morph' } });
     });
 });
 

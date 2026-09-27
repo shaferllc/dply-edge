@@ -34,6 +34,8 @@ export function registerRealtimeConsole(Alpine) {
         received: 0,
         /** Set while the user asked to disconnect, so onclose does not retry. */
         deliberate: false,
+        /** nonce → performance.now() when a test publish was asked for, to time the round trip. */
+        sentAt: {},
 
         init() {
             // wire:navigate tears the DOM out without unloading the page, so an
@@ -164,7 +166,32 @@ export function registerRealtimeConsole(Alpine) {
             }
 
             this.received += 1;
-            this.push('event', JSON.stringify(data), frame.event, frame.channel);
+            const started = this.sentAt[data?.nonce];
+            if (started !== undefined) {
+                delete this.sentAt[data.nonce];
+            }
+            this.push('event', JSON.stringify(data), frame.event, frame.channel,
+                started === undefined ? null : Math.round(performance.now() - started));
+        },
+
+        /**
+         * Ask the server to publish a signed test event to this channel.
+         * `publish(channel, nonce)` is the host's server call; the nonce comes
+         * back in the frame, so latency is measured on this clock alone.
+         */
+        async sendTest(publish) {
+            const nonce = Math.random().toString(36).slice(2, 12) || 'x';
+            this.sentAt[nonce] = performance.now();
+            let result;
+            try {
+                result = await publish(this.channel, nonce);
+            } catch {
+                result = { ok: false, error: 'The request did not reach dply.' };
+            }
+            if (! result?.ok) {
+                delete this.sentAt[nonce];
+                this.push('error', result?.error ?? 'The event was not sent.');
+            }
         },
 
         subscribe() {
@@ -189,8 +216,9 @@ export function registerRealtimeConsole(Alpine) {
             this.push('error', message);
         },
 
-        push(kind, message, event = null, channel = null) {
+        push(kind, message, event = null, channel = null, latency = null) {
             this.log.unshift({
+                latency,
                 id: `${Date.now()}-${this.log.length}`,
                 kind,
                 message,

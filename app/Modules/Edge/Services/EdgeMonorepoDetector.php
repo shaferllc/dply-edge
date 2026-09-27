@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Edge\Services;
 
 use App\Modules\Edge\Support\EdgeRepoRoot;
+use App\Modules\SourceControl\Services\GitCloneAuth;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
 use RuntimeException;
@@ -62,13 +63,14 @@ final class EdgeMonorepoDetector
     /**
      * Shallow-clones a repository branch and inspects the checkout root.
      *
+     * @param  array<string, string>  $gitEnv  private-repo credentials (GitCloneAuth)
      * @return array{
      *     is_monorepo: bool,
      *     markers: list<string>,
      *     packages: list<array{path: string, label: string}>
      * }
      */
-    public function inspectUrl(string $repositoryUrl, string $branch = 'main'): array
+    public function inspectUrl(string $repositoryUrl, string $branch = 'main', array $gitEnv = []): array
     {
         $repositoryUrl = trim($repositoryUrl);
         $branch = trim($branch) !== '' ? trim($branch) : 'main';
@@ -85,11 +87,11 @@ final class EdgeMonorepoDetector
 
         try {
             File::ensureDirectoryExists($workRoot);
-            $clone = Process::timeout(120)->run([
+            $clone = Process::timeout(120)->env($gitEnv)->run([
                 'git', 'clone', '--depth', '1', '--branch', $branch, $repositoryUrl, $checkout,
             ]);
             if (! $clone->successful()) {
-                throw new RuntimeException(trim($clone->errorOutput()) ?: 'Git clone failed.');
+                throw new RuntimeException(GitCloneAuth::redact(trim($clone->errorOutput()), $gitEnv) ?: 'Git clone failed.');
             }
 
             return $this->inspectDirectory($checkout);

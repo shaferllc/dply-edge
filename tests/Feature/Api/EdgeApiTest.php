@@ -12,6 +12,8 @@ use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
+use App\Models\Workspace;
+use App\Models\WorkspaceMember;
 use App\Modules\Edge\Jobs\BuildEdgeSiteJob;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -86,6 +88,32 @@ test('edge lint api returns 422 for parse errors', function () {
         ->assertStatus(422)
         ->assertJsonPath('data.ok', false)
         ->assertJson(fn ($json) => $json->whereType('data.errors', 'array')->etc());
+});
+
+test('a token never outranks its user on a site', function () {
+    Queue::fake();
+    [, $site] = edgeApiContext(['edge.read']);
+    $org = $site->organization;
+
+    $viewer = User::factory()->create();
+    $org->users()->attach($viewer->id, ['role' => 'member']);
+    $workspace = Workspace::factory()->create(['organization_id' => $org->id, 'user_id' => $site->user_id]);
+    $workspace->members()->create(['user_id' => $viewer->id, 'role' => WorkspaceMember::ROLE_VIEWER]);
+    $site->update(['workspace_id' => $workspace->id]);
+
+    ['plaintext' => $plain] = ApiToken::createToken($viewer, $org, 'viewer', null, ['edge.read', 'edge.deploy']);
+    $headers = ['Authorization' => 'Bearer '.$plain, 'Accept' => 'application/json'];
+
+    $this->getJson('/api/v1/edge/sites/'.$site->id, $headers)->assertOk();
+    $this->getJson('/api/v1/edge/sites', $headers)->assertOk()->assertJsonCount(1, 'data');
+    $this->postJson('/api/v1/edge/sites/'.$site->id.'/deployments', [], $headers)->assertForbidden();
+    Queue::assertNothingPushed();
+
+    // Removed from the org: the token stops working on its sites.
+    $org->users()->detach($viewer->id);
+    Organization::flushMemberRoleCache(); // a new request in production
+    $this->getJson('/api/v1/edge/sites/'.$site->id, $headers)->assertForbidden();
+    $this->getJson('/api/v1/edge/sites', $headers)->assertForbidden();
 });
 
 /**

@@ -121,26 +121,60 @@ function orgWith(Subscription $subscription): Organization
 test('the sync moves a pre-tier per-site subscription onto its tier in one swap', function () {
     Config::set('subscription.standard.stripe.tier_pro', 'price_tier_pro');
     $subscription = recordingSubscription(['price_edge_yearly']);
-    $desired = DesiredBillingState::fromPlanAndUsage(
-        plan: ['key' => 'pro', 'label' => 'Pro', 'price_cents' => 2000],
-        edgeCount: 12, edgeUnitCents: 200, includedSites: 10,
-    );
+    $desired = DesiredBillingState::fromPlanAndUsage(plan: ['key' => 'pro', 'label' => 'Pro', 'price_cents' => 2000], edgeCount: 12);
 
     $changes = app(StripeSubscriptionSyncer::class)->reconcile(orgWith($subscription), $desired);
 
-    expect($subscription->swapped)->toBe([
-        'price_tier_pro' => ['quantity' => 1],
-        'price_edge' => ['quantity' => 2],
-    ])->and($changes[0])->toMatchArray(['action' => 'move', 'to' => 'pro']);
+    // Sites carry no fee any more: the plan line is all that is left.
+    expect($subscription->swapped)->toBe(['price_tier_pro' => ['quantity' => 1]])
+        ->and($changes[0])->toMatchArray(['action' => 'move', 'to' => 'pro']);
 });
 
 test('the sync leaves subscriptions alone until tier prices are provisioned', function () {
     Config::set('subscription.standard.stripe.tier_pro', '');
     $subscription = recordingSubscription(['price_edge']);
-    $desired = DesiredBillingState::fromPlanAndUsage(
-        plan: ['key' => 'pro', 'label' => 'Pro', 'price_cents' => 2000], edgeCount: 3, edgeUnitCents: 200, includedSites: 10,
-    );
+    $desired = DesiredBillingState::fromPlanAndUsage(plan: ['key' => 'pro', 'label' => 'Pro', 'price_cents' => 2000], edgeCount: 3);
 
     expect(app(StripeSubscriptionSyncer::class)->reconcile(orgWith($subscription), $desired))->toBe([])
         ->and($subscription->swapped)->toBeNull();
+});
+
+test('the sync takes the retired per-site lines off a plan subscription without proration or credit', function () {
+    Config::set('subscription.standard.stripe.tier_pro', 'price_tier_pro');
+    Config::set('subscription.standard.stripe.retired_site_fees', ['price_edge', 'price_ssr', null]);
+    $real = subscriptionWithPrices(['price_tier_pro', 'price_edge', 'price_ssr']);
+    $fake = new class extends Subscription
+    {
+        public array $log = [];
+
+        public function noProrate()
+        {
+            $this->log[] = 'noProrate';
+
+            return $this;
+        }
+
+        public function alwaysInvoice()
+        {
+            $this->log[] = 'alwaysInvoice';
+
+            return $this;
+        }
+
+        public function removePrice($price)
+        {
+            $this->log[] = 'remove:'.$price;
+
+            return $this;
+        }
+    };
+    $fake->setRawAttributes($real->getAttributes(), true);
+    $fake->exists = true;
+    $fake->setRelation('items', $real->items);
+    $desired = DesiredBillingState::fromPlanAndUsage(plan: ['key' => 'pro', 'label' => 'Pro', 'price_cents' => 2000], edgeCount: 30);
+
+    $changes = app(StripeSubscriptionSyncer::class)->reconcile(orgWith($fake), $desired);
+
+    expect($fake->log)->toBe(['noProrate', 'remove:price_edge', 'noProrate', 'remove:price_ssr'])
+        ->and(array_column($changes, 'tier'))->toBe(['retired_site_fee', 'retired_site_fee']);
 });

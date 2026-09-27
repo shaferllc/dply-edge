@@ -6,6 +6,7 @@ namespace App\Modules\Edge\Support;
 
 use App\Models\EdgeDeployment;
 use App\Models\Site;
+use App\Modules\Billing\Services\EdgeContainerComputeCost;
 
 /**
  * Per-site container settings (`edgeMeta()['container']`), read by
@@ -80,19 +81,19 @@ final class EdgeContainerSettings
     {
         $raw = is_array($site->edgeMeta()['container'] ?? null) ? $site->edgeMeta()['container'] : [];
         $type = (string) ($raw['instance_type'] ?? config('edge.build.containers.instance_type', 'basic'));
-        $sleep = (string) ($raw['sleep_after'] ?? config('edge.build.containers.sleep_after', '10m'));
+        $sleep = (string) ($raw['sleep_after'] ?? config('edge.build.containers.sleep_after', '5m'));
         $jurisdiction = (string) ($raw['jurisdiction'] ?? '');
         $mode = (string) ($raw['rollout_mode'] ?? 'gradual');
+        // The plan's app-instance cap (subscription.standard.tiers.*.app_instances; Starter 1).
+        $planCap = $site->organization?->tierAllowances()['app_instances'] ?? null;
+        $max = max(1, min(self::MAX_INSTANCES, $planCap === null ? self::MAX_INSTANCES : (int) $planCap, (int) ($raw['max_instances'] ?? config('edge.build.containers.max_instances', 5))));
 
         return [
             'instance_type' => $type === 'custom' || array_key_exists($type, self::INSTANCE_TYPES) ? $type : 'basic',
-            'max_instances' => max(1, min(self::MAX_INSTANCES, (int) ($raw['max_instances'] ?? config('edge.build.containers.max_instances', 5)))),
+            'max_instances' => $max,
             // Instances kept awake. 0 = scale to zero. Never above max.
-            'min_instances' => max(0, min(
-                max(1, min(self::MAX_INSTANCES, (int) ($raw['max_instances'] ?? config('edge.build.containers.max_instances', 5)))),
-                (int) ($raw['min_instances'] ?? 0),
-            )),
-            'sleep_after' => in_array($sleep, self::SLEEP_AFTER, true) ? $sleep : '10m',
+            'min_instances' => max(0, min($max, (int) ($raw['min_instances'] ?? 0))),
+            'sleep_after' => in_array($sleep, self::SLEEP_AFTER, true) ? $sleep : '5m',
             // Off by default: this runs a second full framework boot at the
             // moment a cold-starting container has the least memory, and it
             // re-runs on every wake from sleep. Opt in per site.
@@ -105,7 +106,13 @@ final class EdgeContainerSettings
             'dedicated_jobs' => (bool) ($raw['dedicated_jobs'] ?? false),
             // The jobs instance stays awake instead of sleeping with the app.
             'jobs_always_on' => (bool) ($raw['jobs_always_on'] ?? false),
-            'schedules' => self::normalizeSchedules(is_array($raw['schedules'] ?? null) ? $raw['schedules'] : []),
+            // Always-on queue:work instances (EdgeQueueWorkers); 0 when off.
+            'worker_instances' => EdgeQueueWorkers::runningInstances($site),
+            // Scaling windows can raise max past the default, never past the plan's cap.
+            'schedules' => array_map(
+                static fn (array $row): array => $planCap === null ? $row : ['max' => max(1, min($row['max'], (int) $planCap)), 'min' => min($row['min'], max(1, (int) $planCap))] + $row,
+                self::normalizeSchedules(is_array($raw['schedules'] ?? null) ? $raw['schedules'] : []),
+            ),
             'rollout_mode' => in_array($mode, self::ROLLOUT_MODES, true) ? $mode : 'gradual',
             'rollout_step_percentage' => self::validRolloutSteps($raw['rollout_step_percentage'] ?? []),
             'rollout_active_grace_period' => max(0, min(self::ROLLOUT_GRACE_MAX, (int) ($raw['rollout_active_grace_period'] ?? 0))),
@@ -237,6 +244,60 @@ final class EdgeContainerSettings
     }
 
     /**
+     * The region an app runs in when it left placement open but uses a dply
+     * database or dply Valkey: next to that data. Every query is a round trip,
+     * and from the other side of the continent one costs ~145 ms instead of
+     * ~13 (measured on waypost: queue throughput went 2 → 6.8 jobs/s). Null
+     * when the app chose regions or a jurisdiction, or keeps no data with dply.
+     */
+    public static function dataRegion(Site $site): ?string
+    {
+        $settings = self::for($site);
+        if ($settings['regions'] !== [] || $settings['jurisdiction'] !== '') {
+            return null;
+        }
+        // The Cloudflare region paired with the region its data is in.
+        $region = DataRegion::cloudflareFor($site);
+
+        return $region !== null && isset(self::REGIONS[$region]) ? $region : null;
+    }
+
+    /**
+     * A smaller, cheaper size when a week of memory peaks says the app never
+     * needs what it has: the smallest size whose memory leaves 30% headroom
+     * over the highest peak. Needs six hourly samples on the current size.
+     * Never suggests a bigger one.
+     *
+     * @return array{type: string, peak_mb: float, samples: int, save_per_hour: float}|null
+     */
+    public static function sizeSuggestion(Site $site): ?array
+    {
+        $current = self::for($site)['instance_type'];
+        $memory = $site->edgeMeta()['memory'] ?? [];
+        if (! isset(self::INSTANCE_TYPES[$current]) || ($memory['type'] ?? null) !== $current) {
+            return null;
+        }
+        $since = now()->subDays(7)->getTimestamp();
+        $peaks = array_map(static fn ($s): float => (float) $s[1], array_filter((array) ($memory['samples'] ?? []), static fn ($s): bool => is_array($s) && ($s[0] ?? 0) >= $since));
+        if (count($peaks) < 6) {
+            return null;
+        }
+        $peak = max($peaks);
+        $cost = app(EdgeContainerComputeCost::class);
+        $perHour = static fn (string $type): float => $cost->perMinuteMillicents(...self::INSTANCE_TYPES[$type]) * 60 / 100_000;
+        foreach (array_keys(self::INSTANCE_TYPES) as $type) {
+            if ($type === $current) {
+                return null; // nothing smaller fits
+            }
+            if (self::INSTANCE_TYPES[$type][1] * 1024 * 0.7 >= $peak) {
+                return ['type' => $type, 'peak_mb' => $peak, 'samples' => count($peaks), 'save_per_hour' => round($perHour($current) - $perHour($type), 4)];
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Wrangler `containers.constraints`. Null when the operator left placement open.
      *
      * @return array{regions?: list<string>, jurisdiction?: string}|null
@@ -247,6 +308,8 @@ final class EdgeContainerSettings
         $constraints = [];
         if ($settings['regions'] !== []) {
             $constraints['regions'] = $settings['regions'];
+        } elseif (($near = self::dataRegion($site)) !== null) {
+            $constraints['regions'] = [$near];
         }
         if ($settings['jurisdiction'] !== '') {
             $constraints['jurisdiction'] = $settings['jurisdiction'];
@@ -264,11 +327,11 @@ final class EdgeContainerSettings
      * "Maximum number of running container instances exceeded". A dedicated
      * jobs container is another instance on top of that.
      */
-    public static function wranglerMaxInstances(int $desired, bool $dedicatedJobs = false, bool $overlap = false): int
+    public static function wranglerMaxInstances(int $desired, bool $dedicatedJobs = false, bool $overlap = false, int $workers = 0): int
     {
         $desired = max(1, min(self::MAX_INSTANCES, $desired));
 
-        return $desired + ($overlap ? 1 : 0) + ($dedicatedJobs ? 1 : 0);
+        return $desired + ($overlap ? 1 : 0) + ($dedicatedJobs ? 1 : 0) + max(0, $workers);
     }
 
     /**

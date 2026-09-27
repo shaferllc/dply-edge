@@ -20,7 +20,7 @@ class WorkspacePolicy
     public function create(User $user): bool
     {
         $org = $user->currentOrganization();
-        if (! $org || $org->userIsDeployer($user)) {
+        if (! $org || $org->userHasRestrictedRole($user)) {
             return false;
         }
 

@@ -115,6 +115,8 @@ spec:
               valueFrom: { secretKeyRef: { name: valkey-gateway-admin, key: password } }
             # Warm pods kept ready per size (MB:count). The verify script uses 50 MB tenants.
             - { name: POOL, value: "50:2,250:1" }
+            # No pro-16 / pro-64 pools here: Pro tenants run on the local node.
+            - { name: PRO_NODE_POOLS, value: "off" }
           ports:
             - { containerPort: 6380, name: valkey }
             - { containerPort: 5432, name: postgres }

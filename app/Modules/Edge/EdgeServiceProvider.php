@@ -4,10 +4,14 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge;
 
+use App\Modules\Edge\Console\CheckEdgeQueueWorkersCommand;
+use App\Modules\Edge\Console\CheckEdgeRealtimeCommand;
 use App\Modules\Edge\Console\CheckEdgeRumAlertsCommand;
 use App\Modules\Edge\Console\CollectEdgeContainerUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeDataUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeKvUsageCommand;
+use App\Modules\Edge\Console\CollectEdgePlatformUsageCommand;
+use App\Modules\Edge\Console\CollectEdgeRealtimeUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeValkeyUsageCommand;
 use App\Modules\Edge\Console\EdgeDoctorCommand;
@@ -25,7 +29,11 @@ use App\Modules\Edge\Console\MigrateEdgeHostnamesCommand;
 use App\Modules\Edge\Console\MoveRedisToValkeyCommand;
 use App\Modules\Edge\Console\PruneEdgeAnalyticsCommand;
 use App\Modules\Edge\Console\PublishEdgeBaseImagesCommand;
+use App\Modules\Edge\Console\ReapStuckEdgeBuildsCommand;
 use App\Modules\Edge\Console\RollupEdgeAnalyticsEngineCommand;
+use App\Modules\Edge\Console\SampleContainerMemoryCommand;
+use App\Modules\Edge\Console\SampleEdgeDatabasesCommand;
+use App\Modules\Edge\Console\ScaleEdgeQueueWorkersCommand;
 use App\Modules\Edge\Console\WarmEdgeBuildImagesCommand;
 use App\Modules\Edge\Console\WarmEdgeContainersCommand;
 use App\Modules\Edge\Livewire\BuildJourney;
@@ -58,7 +66,10 @@ class EdgeServiceProvider extends ServiceProvider
                 CollectEdgeContainerUsageCommand::class,
                 CollectEdgeDataUsageCommand::class,
                 CollectEdgeKvUsageCommand::class,
+                CollectEdgePlatformUsageCommand::class,
+                CollectEdgeRealtimeUsageCommand::class,
                 CollectEdgeValkeyUsageCommand::class,
+                ReapStuckEdgeBuildsCommand::class,
                 MoveRedisToValkeyCommand::class,
                 CollectEdgeUsageCommand::class,
                 EdgeDoctorCommand::class,
@@ -78,6 +89,11 @@ class EdgeServiceProvider extends ServiceProvider
                 RollupEdgeAnalyticsEngineCommand::class,
                 WarmEdgeBuildImagesCommand::class,
                 WarmEdgeContainersCommand::class,
+                ScaleEdgeQueueWorkersCommand::class,
+                SampleContainerMemoryCommand::class,
+                CheckEdgeQueueWorkersCommand::class,
+                CheckEdgeRealtimeCommand::class,
+                SampleEdgeDatabasesCommand::class,
             ]);
         }
     }

@@ -6,9 +6,11 @@
 @endphp
 
 <div>
+    {{-- Read-only for anyone who cannot configure this app (org Deployer, app Viewer/Deployer). --}}
+    <fieldset @disabled(! auth()->user()?->can('update', $site)) class="min-w-0">
     <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
         @include('livewire.sites.edge.workspace.partials.feature-guide', [
-            'docSlug' => 'edge-rate-limits',
+            'docSlug' => 'rate-limits',
             'what' => __('Rate limits count requests per visitor IP on matching paths. When someone exceeds the limit in the window, Edge stops them before your site or origin does the work — unlike Waiting room, this is about abusive volume from one client, not total concurrent humans.'),
             'steps' => [
                 __('Add a rule: path pattern (e.g. /api/* or /forms/*), max requests, and window in seconds.'),
@@ -76,7 +78,7 @@
                 </span>
                 <x-toggle-switch
                     :enabled="(bool) $enabled"
-                    wire:model.live="enabled" @disabled(! $managedDelivery)
+                    wire:model.live="enabled" :disabled="! $managedDelivery"
                     :on-label="__('On')"
                     :off-label="__('Off')"
                 />
@@ -84,7 +86,7 @@
 
             <div>
                 <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Rules') }}</p>
-                <p class="mt-1 text-xs text-brand-moss">{{ __('First matching path wins for that request. Example: 60 requests / 60 seconds on /api/* ≈ one request per second average per IP.') }}</p>
+                <p class="mt-1 text-xs text-brand-moss">{{ __('Every matching rule counts, per app and per IP. Example: 60 requests / 60 seconds on /api/* ≈ one request per second average per IP.') }}</p>
             </div>
 
             @foreach ($rules as $i => $rule)
@@ -100,17 +102,17 @@
                     <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                         <div>
                             <x-input-label :value="__('Path pattern')" />
-                            <x-text-input wire:model="rules.{{ $i }}.path" type="text" class="mt-1 block w-full font-mono text-sm" placeholder="/api/*" @disabled(! $managedDelivery) />
+                            <x-text-input wire:model="rules.{{ $i }}.path" type="text" class="mt-1 block w-full font-mono text-sm" placeholder="/api/*" :disabled="! $managedDelivery" />
                             <p class="mt-1 text-xs text-brand-moss">{{ __('e.g. /api/* · /login · /*') }}</p>
                         </div>
                         <div>
                             <x-input-label :value="__('Max requests')" />
-                            <x-text-input wire:model="rules.{{ $i }}.limit" type="number" min="1" class="mt-1 block w-full text-sm" @disabled(! $managedDelivery) />
+                            <x-text-input wire:model="rules.{{ $i }}.limit" type="number" min="1" class="mt-1 block w-full text-sm" :disabled="! $managedDelivery" />
                             <p class="mt-1 text-xs text-brand-moss">{{ __('Per IP in the window') }}</p>
                         </div>
                         <div>
                             <x-input-label :value="__('Window (seconds)')" />
-                            <x-text-input wire:model="rules.{{ $i }}.window_seconds" type="number" min="1" class="mt-1 block w-full text-sm" @disabled(! $managedDelivery) />
+                            <x-text-input wire:model="rules.{{ $i }}.window_seconds" type="number" min="1" class="mt-1 block w-full text-sm" :disabled="! $managedDelivery" />
                             <p class="mt-1 text-xs text-brand-moss">{{ __('Counter resets after this many seconds') }}</p>
                         </div>
                         <div>
@@ -127,11 +129,12 @@
 
             <div class="flex flex-wrap items-center justify-between gap-3 border-t border-brand-ink/10 pt-4">
                 <button type="button" wire:click="addRule" class="text-sm font-semibold text-brand-sage hover:underline" @disabled(! $managedDelivery)>{{ __('Add rule') }}</button>
-                <x-primary-button type="button" wire:click="save" wire:loading.attr="disabled" @disabled(! $managedDelivery)>
+                <x-primary-button type="button" wire:click="save" wire:loading.attr="disabled" :disabled="! $managedDelivery">
                     <span wire:loading.remove wire:target="save">{{ __('Save') }}</span>
                     <span wire:loading wire:target="save">{{ __('Saving…') }}</span>
                 </x-primary-button>
             </div>
         </div>
     </section>
+    </fieldset>
 </div>

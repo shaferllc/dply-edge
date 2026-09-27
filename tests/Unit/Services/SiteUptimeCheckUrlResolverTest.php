@@ -72,3 +72,25 @@ test('full url honors the monitor check scheme', function () {
     expect($resolver->resolveFullUrl($site->fresh(), $https))->toBe('https://app.example.test/health');
     expect($resolver->resolveFullUrl($site->fresh(), $http))->toBe('http://app.example.test/health');
 });
+
+test('an edge app checks its first verified custom domain, else its live url', function () {
+    $site = Site::factory()->create([
+        'edge_backend' => 'dply_edge',
+        'meta' => ['edge' => [
+            'live_url' => 'https://shop-abc123.on-dply.live',
+            'routing' => ['custom_domains' => [
+                'pending.example.com' => ['dns_status' => 'pending'],
+            ]],
+        ]],
+    ]);
+    $https = SiteUptimeMonitor::factory()->create(['site_id' => $site->id, 'check_type' => SiteUptimeMonitor::CHECK_HTTPS]);
+    $resolver = app(SiteUptimeCheckUrlResolver::class);
+
+    expect($resolver->resolveFullUrl($site->fresh(), $https))->toBe('https://shop-abc123.on-dply.live');
+
+    $meta = $site->meta;
+    $meta['edge']['routing']['custom_domains']['shop.example.com'] = ['dns_status' => 'ready'];
+    $site->update(['meta' => $meta]);
+
+    expect($resolver->resolveFullUrl($site->fresh(), $https))->toBe('https://shop.example.com');
+});

@@ -88,7 +88,7 @@
                         </ul>
                     </div>
                 @endforeach
-                @can('update', $site)
+                @can('deploy', $site)
                     <div class="flex flex-wrap items-center gap-2 pt-1">
                         <button
                             type="button"

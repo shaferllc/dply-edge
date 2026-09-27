@@ -10,7 +10,7 @@
 #   ./apply.sh [image]     default: the last pushed gateway image
 set -euo pipefail
 cd "$(dirname "$0")"
-IMAGE=${1:-registry.digitalocean.com/dply-cloud/valkey-gateway:202609251635}
+IMAGE=${1:-registry.digitalocean.com/dply-cloud/valkey-gateway:202609261623}
 DOMAIN=${DOMAIN:-dply.io}
 CERT_MANAGER=v1.21.2
 # shellcheck source=/dev/null
@@ -29,14 +29,17 @@ kubectl -n cert-manager wait --for=condition=Available deploy --all --timeout=30
 app_env() { grep -E "^$1=" ../../.env | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//'; }
 r2() { app_env "DPLY_EDGE_R2_$1"; }
 
-kubectl create namespace dply-valkey --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-secret() { kubectl -n dply-valkey create secret generic "$1" "${@:2}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null; }
+# Databases' pods and volumes live in dply-db (DB_NAMESPACE) on the db pool.
+for ns in dply-valkey dply-db; do kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f - >/dev/null; done
+secret() { kubectl -n "${NS:-dply-valkey}" create secret generic "$1" "${@:2}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null; }
 secret cloudflare-dns --from-literal=api-token="$(app_env DPLY_EDGE_CF_API_TOKEN)"
 # --from-literal, not --from-file: the files end in a newline, which Valkey
 # keeps as part of the password while the gateway trims it (WRONGPASS).
 secret valkey-gateway-api --from-literal=token="$(tr -d '[:space:]' < .secrets/api-token)"
 secret valkey-gateway-admin --from-literal=password="$(tr -d '[:space:]' < .secrets/admin-password)"
+NS=dply-db secret valkey-gateway-admin --from-literal=password="$(tr -d '[:space:]' < .secrets/admin-password)"  # database pods read it from their own namespace
 secret valkey-gateway-r2 --from-literal=bucket="$(r2 BUCKET)" --from-literal=endpoint="$(r2 ENDPOINT)" --from-literal=access-key="$(r2 ACCESS_KEY)" --from-literal=secret-key="$(r2 SECRET)"
+NS=dply-db secret valkey-gateway-r2 --from-literal=bucket="$(r2 BUCKET)" --from-literal=endpoint="$(r2 ENDPOINT)" --from-literal=access-key="$(r2 ACCESS_KEY)" --from-literal=secret-key="$(r2 SECRET)"  # database pods read it from their own namespace
 
 sed -e "s#__DOMAIN__#$DOMAIN#g" -e "s#__IMAGE__#$IMAGE#g" gateway.yaml | kubectl apply -f -
 
@@ -45,3 +48,25 @@ kubectl -n dply-valkey wait certificate/valkey-gateway-tls --for=condition=Ready
 kubectl -n dply-valkey rollout status deploy/valkey-gateway --timeout=300s
 ip=$(kubectl -n dply-valkey get svc valkey-gateway -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
 echo "Gateway load balancer: ${ip:-pending}"
+
+# DNS for this region lives in Cloudflare (dply.io's nameservers), not in
+# DigitalOcean: point *.cache.$DOMAIN and *.db.$DOMAIN at this load balancer.
+# Idempotent: an existing record is updated in place.
+if [ -n "${ip:-}" ]; then
+  zone="${ZONE:-dply.io}"
+  node -e '
+    const [token, zone, domain, ip] = process.argv.slice(1);
+    const api = (path, init = {}) => fetch("https://api.cloudflare.com/client/v4" + path, { ...init, headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" } }).then((r) => r.json());
+    (async () => {
+      const zoneId = (await api("/zones?name=" + zone)).result?.[0]?.id;
+      if (!zoneId) throw new Error("zone " + zone + " not found");
+      for (const name of ["*.cache." + domain, "*.db." + domain]) {
+        const existing = (await api(`/zones/${zoneId}/dns_records?type=A&name=${encodeURIComponent(name)}`)).result?.[0];
+        const body = JSON.stringify({ type: "A", name, content: ip, ttl: 300, proxied: false });
+        const res = existing ? await api(`/zones/${zoneId}/dns_records/${existing.id}`, { method: "PUT", body }) : await api(`/zones/${zoneId}/dns_records`, { method: "POST", body });
+        if (!res.success) throw new Error(name + ": " + JSON.stringify(res.errors));
+        console.log(`DNS ${name} -> ${ip}`);
+      }
+    })().catch((e) => { console.error(e.message); process.exit(1); });
+  ' "$(app_env DPLY_EDGE_CF_API_TOKEN)" "$zone" "$DOMAIN" "$ip"
+fi

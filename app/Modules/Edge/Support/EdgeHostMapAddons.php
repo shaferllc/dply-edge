@@ -6,6 +6,7 @@ namespace App\Modules\Edge\Support;
 
 use App\Models\EdgeDeployment;
 use App\Models\Site;
+use App\Modules\Edge\Http\Controllers\EdgeFormIngestController;
 
 /**
  * Flatten Edge product add-ons from site meta (+ optional repo_config)
@@ -88,6 +89,10 @@ final class EdgeHostMapAddons
                 $payload['forms'] = [
                     'enabled' => true,
                     'endpoints' => $endpoints,
+                    // Per-app signing key: the Worker signs forwarded
+                    // submissions with it; the ingest checks the same key.
+                    'ingest_url' => EdgeFormIngestController::ingestUrl($site),
+                    'ingest_key' => EdgeFormIngestController::keyFor($site),
                 ];
             }
         }

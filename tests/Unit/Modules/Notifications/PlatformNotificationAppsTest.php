@@ -10,6 +10,7 @@ use App\Models\PlatformConnection;
 use App\Modules\Notifications\Services\PlatformNotificationApps;
 use App\Modules\Notifications\Services\TelegramBotClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 
 uses(RefreshDatabase::class);
 
@@ -94,4 +95,25 @@ test('stored telegram token makes the bot configured', function () {
 test('masked secret shows only the last four characters', function () {
     expect(PlatformNotificationApps::maskedSecret('xoxb-abcdefgh'))->toBe('••••efgh')
         ->and(PlatformNotificationApps::maskedSecret(''))->toBe('');
+});
+
+test('credential reads share one query per request and writes refresh it', function () {
+    DB::enableQueryLog();
+
+    PlatformNotificationApps::slackReady();
+    PlatformNotificationApps::discordReady();
+    PlatformNotificationApps::telegramReady();
+    PlatformNotificationApps::slackRedirectUri();
+
+    $reads = collect(DB::getQueryLog())
+        ->filter(fn ($q) => str_contains($q['query'], 'platform_connections'));
+    expect($reads)->toHaveCount(1);
+
+    PlatformNotificationApps::save(PlatformConnection::PROVIDER_SLACK, [
+        'client_id' => 'fresh-id',
+        'client_secret' => 'fresh-secret',
+        'redirect' => '',
+    ], ['client_secret']);
+
+    expect(PlatformNotificationApps::slack()['client_id'])->toBe('fresh-id');
 });

@@ -12,7 +12,7 @@
     @else
         <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
             @include('livewire.sites.edge.workspace.partials.feature-guide', [
-                'docSlug' => 'edge-environment',
+                'docSlug' => 'environment-variables',
                 'what' => ($site->edgeMeta()['runtime_mode'] ?? '') === 'container'
                     ? __('Encrypted production secrets for this app. The next deploy puts each one in the container environment.')
                     : __('Encrypted production secrets for this Edge site — injected into the build and middleware/SSR workers on the next deploy.'),
@@ -26,7 +26,7 @@
                     ],
                 ],
                 'tips' => [
-                    __('Preview children inherit env from this parent — edit here, not on the preview site.'),
+                    __('Previews inherit these variables and linked secrets on their next build — edit here, not on the preview site.'),
                     __('Declare secret names in dply.yaml under Advanced; put values only in the dashboard.'),
                 ],
             ])

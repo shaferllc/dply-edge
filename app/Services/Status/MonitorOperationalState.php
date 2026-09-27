@@ -96,6 +96,20 @@ class MonitorOperationalState
      */
     private function stateForSite(Site $site): string
     {
+        // An Edge app's owner Server is a vestigial row with no health, so the
+        // app's own uptime checks are the signal: the worst checked state wins.
+        $site->loadMissing('uptimeMonitors');
+        if ($site->uptimeMonitors->isNotEmpty()) {
+            $states = $site->uptimeMonitors->map(fn (SiteUptimeMonitor $m): string => $this->stateForSiteUptimeMonitor($m));
+            foreach ([self::OUTAGE, self::DEGRADED, self::OPERATIONAL] as $state) {
+                if ($states->contains($state)) {
+                    return $state;
+                }
+            }
+
+            return self::UNKNOWN;
+        }
+
         $server = $site->relationLoaded('server') ? $site->server : $site->server()->first();
         if (! $server instanceof Server) {
             return self::UNKNOWN;

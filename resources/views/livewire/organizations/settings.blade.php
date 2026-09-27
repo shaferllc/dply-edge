@@ -8,7 +8,7 @@
     $iconFallbackStyle = "background-image: linear-gradient(135deg, hsl({$iconHueA}deg 65% 56%) 0%, hsl({$iconHueB}deg 65% 42%) 100%);";
     $canDelete = auth()->user()?->can('delete', $organization);
     $memberCount = $organization->users->count();
-    $tokensCount = $organization->apiTokens->count();
+    $tokensCount = $organization->apiTokens->whereNull('revoked_at')->count();
 @endphp
 
 <div>
@@ -278,7 +278,16 @@
                         @foreach ($organization->apiTokens as $apiToken)
                             <li wire:key="org-api-token-{{ $apiToken->id }}" class="flex items-center justify-between gap-3 px-3 py-2 transition-colors hover:bg-brand-sand/15 sm:px-4">
                                 <div class="min-w-0 flex-1">
-                                    <p class="truncate text-sm font-semibold text-brand-ink">{{ $apiToken->name }}</p>
+                                    <p class="flex min-w-0 items-baseline gap-2">
+                                        <span class="truncate text-sm font-semibold text-brand-ink">{{ $apiToken->name }}</span>
+                                        {{-- Revoked when its owner left or was removed from the organization. --}}
+                                        @if ($apiToken->revoked_at)
+                                            <span class="inline-flex shrink-0 items-center gap-0.5 rounded border border-red-200 bg-red-50 px-1 py-px text-2xs font-semibold uppercase tracking-wide text-red-700">
+                                                <x-heroicon-m-no-symbol class="h-3 w-3" aria-hidden="true" />
+                                                {{ __('Revoked') }}
+                                            </span>
+                                        @endif
+                                    </p>
                                     <p class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-brand-moss">
                                         <span class="font-mono text-brand-mist">{{ $apiToken->token_prefix }}…</span>
                                         @if ($apiToken->last_used_at)
@@ -296,7 +305,7 @@
                                     wire:click='promptRevokeApiToken({{ json_encode((string) $apiToken->id) }})'
                                     class="shrink-0 text-xs font-medium text-red-600 hover:text-red-700 hover:underline"
                                 >
-                                    {{ __('Revoke') }}
+                                    {{ $apiToken->revoked_at ? __('Delete') : __('Revoke') }}
                                 </button>
                             </li>
                         @endforeach

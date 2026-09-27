@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Mcp\Resources;
 
 use App\Mcp\Concerns\ResolvesDplyContext;
+use App\Mcp\Support\SitePayload;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Attributes\Description;
@@ -18,7 +19,7 @@ use Laravel\Mcp\Support\UriTemplate;
  * `dply://sites/{site_id}`. Mirrors the get_site tool output.
  */
 #[MimeType('application/json')]
-#[Description('Configuration snapshot for a single dply site (runtime, status, git, SSL, last deploy).')]
+#[Description('One dply Edge app: runtime mode, status, live URL, repository, custom domains, last deploy.')]
 class SiteConfigResource extends Resource implements HasUriTemplate
 {
     use ResolvesDplyContext;
@@ -32,28 +33,12 @@ class SiteConfigResource extends Resource implements HasUriTemplate
 
     public function handle(Request $request): Response
     {
+        $this->requireAbility('sites.read');
+
         $siteId = (string) $request->get('site_id');
 
         $site = $this->resolveSite($siteId);
 
-        return Response::json([
-            'data' => [
-                'id' => $site->id,
-                'slug' => $site->slug,
-                'name' => $site->name,
-                'server_id' => $site->server_id,
-                'server_name' => $site->server?->name,
-                'type' => $site->type,
-                'runtime' => $site->runtime,
-                'runtime_version' => $site->runtime_version,
-                'status' => $site->status,
-                'deploy_strategy' => $site->deploy_strategy,
-                'document_root' => $site->document_root,
-                'git_repository_url' => $site->git_repository_url,
-                'git_branch' => $site->git_branch,
-                'ssl_status' => $site->ssl_status,
-                'last_deploy_at' => $site->last_deploy_at?->toIso8601String(),
-            ],
-        ]);
+        return Response::json(['data' => SitePayload::detail($site)]);
     }
 }

@@ -7,6 +7,7 @@ namespace App\Modules\Edge\Jobs;
 use App\Models\EdgeDeployment;
 use App\Models\Site;
 use App\Modules\Edge\Actions\RedeployEdgeSite;
+use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Support\EdgeContainerSettings;
 use App\Modules\Notifications\Services\NotificationPublisher;
 use Illuminate\Bus\Queueable;
@@ -56,7 +57,8 @@ class CheckEdgeContainerHealthJob implements ShouldQueue
             $status = null;
             $error = $e->getMessage();
         }
-        $ok = $status !== null;
+        $failure = EdgeContainerDeployer::unhealthyReason($url, $status, $body, $error);
+        $ok = $failure === null;
 
         $meta = is_array($deployment->meta) ? $deployment->meta : [];
         $meta['container']['health'] = [
@@ -66,7 +68,6 @@ class CheckEdgeContainerHealthJob implements ShouldQueue
             'error' => $error ?? ($ok ? null : mb_substr($body, 0, 500)),
             'checked_at' => now()->toIso8601String(),
         ];
-        $failure = $status !== null ? "{$url} answered HTTP {$status}." : "{$url} did not answer: {$error}";
         $deployment->update($ok || $deployment->status !== EdgeDeployment::STATUS_LIVE ? ['meta' => $meta] : [
             'meta' => $meta,
             'status' => EdgeDeployment::STATUS_FAILED,

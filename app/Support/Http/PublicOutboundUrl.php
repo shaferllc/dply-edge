@@ -110,6 +110,10 @@ final readonly class PublicOutboundUrl
         if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
             return [$host];
         }
+        // Test seam: TestCase binds a fake resolver so tests never need DNS.
+        if (app()->bound('dply.outbound-dns')) {
+            return array_values(app('dply.outbound-dns')($host));
+        }
 
         $ips = [];
 

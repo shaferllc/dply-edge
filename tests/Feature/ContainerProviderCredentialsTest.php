@@ -10,13 +10,8 @@ use App\Models\ProviderCredential;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
-use Tests\Concerns\WithFeatures;
 
 uses(RefreshDatabase::class);
-
-uses(WithFeatures::class);
-
-usesFeatures('provider.aws_app_runner');
 
 test('aws app runner panel hidden when provider disabled', function () {
     config(['server_providers.enabled.aws_app_runner' => false]);
@@ -26,30 +21,6 @@ test('aws app runner panel hidden when provider disabled', function () {
     $response = $this->actingAs($user)->get(route('organizations.credentials', $org));
 
     $response->assertOk()->assertDontSee('AWS App Runner');
-});
-
-test('digitalocean credential panel surfaces app platform support', function () {
-    config(['server_providers.enabled.digitalocean' => true]);
-    $user = ownerWithOrg();
-    $org = $user->currentOrganization();
-
-    $response = $this->actingAs($user)->get(route('organizations.credentials', [
-        'organization' => $org,
-        'provider' => 'digitalocean',
-    ]));
-
-    $response->assertOk()->assertSee('App Platform');
-});
-
-test('aws app runner panel renders value prop', function () {
-    config(['server_providers.enabled.aws_app_runner' => true]);
-    $user = ownerWithOrg();
-
-    Livewire::actingAs($user)
-        ->test(AddProviderCredentialModal::class)
-        ->call('openModal', 'aws_app_runner')
-        ->assertSee('Container backend')
-        ->assertSee('App Runner');
 });
 
 test('store aws app runner credential', function () {

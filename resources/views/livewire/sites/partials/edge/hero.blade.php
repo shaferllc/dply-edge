@@ -15,7 +15,7 @@
                     {{ __('Open') }}
                 </a>
             @endif
-            @can('update', $site)
+            @can('deploy', $site)
                 <button
                     type="button"
                     wire:click="redeployEdge"
@@ -32,6 +32,8 @@
         </x-slot:actions>
     </x-workspace-panel-head>
 
+    {{-- The Overview's service map shows the live URL itself, so it passes heroShowsUrl: false. --}}
+    @unless (($heroShowsUrl ?? true) === false && $edgeLiveUrl && ! empty($edgeActiveDeploymentId))
     <div class="px-5 py-4 sm:px-6">
         @if ($edgeLiveUrl && ! empty($edgeActiveDeploymentId))
             <div
@@ -58,5 +60,6 @@
             <p class="text-sm text-brand-moss">{{ __('Live URL pending — complete the first build to publish.') }}</p>
         @endif
     </div>
+    @endunless
 
 </section>

@@ -7,9 +7,9 @@ namespace App\Modules\Edge\Support;
 use App\Modules\Edge\Services\Frameworks\EdgeFrameworkPresetRegistry;
 
 /**
- * Decides whether a runtime-detection plan belongs on dply Edge
- * (JS/static/SSG + hybrid JS SSR, and PHP / Ruby apps as Containers) vs a
- * BYO server for other long-running apps.
+ * Decides whether a runtime-detection plan is something dply can build:
+ * JS/static/SSG sites, server-rendered JS, and PHP / Ruby / Node servers as
+ * Containers. Anything else gets a plain "not supported yet" message.
  *
  * Unknown / empty plans stay eligible so operators can still deploy with
  * manual build settings; we only hard-block when detection clearly says
@@ -47,9 +47,15 @@ final class EdgeEligibility
     ];
 
     /**
-     * Language runtimes that imply a long-running server (unless an
-     * Edge-allowed SSG framework was also detected, e.g. jekyll/hugo
-     * via the static detector).
+     * Generators whose binaries the Node build image doesn't have. Blocked
+     * with a clear message instead of a build that dies on `hugo: not found`.
+     *
+     * @var array<string, string>
+     */
+    private const UNBUILDABLE_GENERATORS = ['hugo' => 'Hugo', 'jekyll' => 'Jekyll'];
+
+    /**
+     * Language runtimes that imply a long-running server.
      *
      * @var list<string>
      */
@@ -136,6 +142,18 @@ final class EdgeEligibility
         $framework = self::normalizeFramework((string) ($plan['framework'] ?? ''));
         $runtime = strtolower(trim((string) ($plan['runtime'] ?? '')));
 
+        if (isset(self::UNBUILDABLE_GENERATORS[$framework])) {
+            return [
+                'eligible' => false,
+                'message' => __(
+                    'dply can’t build :generator sites yet: builds run in a Node.js image without :generator. Commit the built site to a repository and deploy that as a static site, or use a Node.js generator such as Eleventy or Astro.',
+                    ['generator' => self::UNBUILDABLE_GENERATORS[$framework]],
+                ),
+                'alternative_route' => null,
+                'alternative_label' => null,
+            ];
+        }
+
         if ($framework !== '' && self::isAllowedFramework($framework)) {
             return $allow;
         }
@@ -186,8 +204,8 @@ final class EdgeEligibility
      * @return array{
      *     eligible: bool,
      *     message: string,
-     *     alternative_route: string,
-     *     alternative_label: string,
+     *     alternative_route: null,
+     *     alternative_label: null,
      * }
      */
     private static function reject(string $label, string $runtime): array
@@ -197,11 +215,11 @@ final class EdgeEligibility
         return [
             'eligible' => false,
             'message' => __(
-                'This repository looks like a :stack app. Edge runs JavaScript sites, and PHP or Rails apps as containers. Use a BYO server for this workload.',
+                'This repository looks like a :stack app, and dply doesn’t run :stack apps yet. dply runs JavaScript and static sites, and PHP, Ruby or Node.js servers as containers.',
                 ['stack' => $display],
             ),
-            'alternative_route' => 'servers.create',
-            'alternative_label' => __('Create a server'),
+            'alternative_route' => null,
+            'alternative_label' => null,
         ];
     }
 }

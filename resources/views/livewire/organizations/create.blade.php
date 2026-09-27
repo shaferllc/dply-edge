@@ -2,7 +2,7 @@
     <div class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <x-breadcrumb-trail
             doc-route="docs.markdown"
-            doc-slug="org-roles-and-limits"
+            doc-slug="roles-and-permissions"
             :items="[
                 ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
                 ['label' => __('Organizations'), 'href' => route('organizations.index'), 'icon' => 'building-office-2'],

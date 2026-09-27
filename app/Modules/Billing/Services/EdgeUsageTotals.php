@@ -15,6 +15,7 @@ readonly class EdgeUsageTotals
         public int $r2StorageBytes = 0,
         public int $r2ClassAOps = 0,
         public int $r2ClassBOps = 0,
+        public int $r2ObjectCount = 0,
     ) {}
 
     public function add(self $other): self
@@ -25,6 +26,7 @@ readonly class EdgeUsageTotals
             r2StorageBytes: max($this->r2StorageBytes, $other->r2StorageBytes),
             r2ClassAOps: $this->r2ClassAOps + $other->r2ClassAOps,
             r2ClassBOps: $this->r2ClassBOps + $other->r2ClassBOps,
+            r2ObjectCount: max($this->r2ObjectCount, $other->r2ObjectCount),
         );
     }
 

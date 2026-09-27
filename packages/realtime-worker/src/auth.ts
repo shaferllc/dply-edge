@@ -114,9 +114,10 @@ export async function verifyPublishRequest(
   if (Math.abs(now / 1000 - Number(authTimestamp)) > 600) {
     return false;
   }
-  // If the body is signed via body_md5, it must match the actual body.
+  // The signature covers the body only through body_md5, so a request with a
+  // body must carry it (Pusher servers always do) and it must match.
   const bodyMd5 = searchParams.get('body_md5');
-  if (bodyMd5 && !timingSafeEqual(bodyMd5, md5(rawBody))) {
+  if ((rawBody !== '' || bodyMd5) && !timingSafeEqual(bodyMd5 ?? '', md5(rawBody))) {
     return false;
   }
 

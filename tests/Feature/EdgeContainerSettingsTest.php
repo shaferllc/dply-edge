@@ -15,7 +15,6 @@ use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
 use App\Modules\Billing\Models\Subscription;
-use App\Modules\Billing\Services\EdgeDeliveryCost;
 use App\Modules\Billing\Services\EdgeKvCost;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Services\EdgeKvUsageCollector;
@@ -221,19 +220,66 @@ test('invalid sizes are rejected', function () {
 test('logs load from workers observability for the container script', function () {
     config(['edge.cloudflare.account_id' => 'acct', 'edge.cloudflare.api_token' => 'tok']);
     [$user, $server, $site] = containerSite();
-    Http::fake(['api.cloudflare.com/client/v4/accounts/acct/workers/observability/telemetry/query' => Http::response(['success' => true, 'result' => ['events' => ['events' => [
-        ['timestamp' => 1_757_000_000_000, '$metadata' => ['message' => 'Laravel booted', 'level' => 'info', 'service' => 'dply-ctr-x']],
+    Http::fake(['api.cloudflare.com/client/v4/accounts/acct/containers/applications' => Http::response(['success' => true, 'result' => []]), 'api.cloudflare.com/client/v4/accounts/acct/workers/observability/telemetry/query' => Http::response(['success' => true, 'result' => ['events' => ['events' => [
+        ['timestamp' => 1_757_000_000_000, '$metadata' => ['message' => 'Laravel booted', 'level' => 'info', 'service' => 'dply-ctr-'.strtolower((string) $site->id)]],
         ['timestamp' => 1_757_000_001_000, '$metadata' => ['message' => 'SQLSTATE connection refused', 'level' => 'error']],
+        ['timestamp' => 1_757_000_002_000, '$metadata' => ['message' => '[dply-worker worker-emails-1] starting 2 x queue:work', 'level' => 'info']],
     ]]]])]);
 
-    Livewire::actingAs($user)
+    $logs = Livewire::actingAs($user)
         ->test(Container::class, ['server' => $server, 'site' => $site])
         ->call('loadLogs')
         ->assertSet('logsError', null)
         ->assertSee('Laravel booted')
-        ->assertSee('SQLSTATE connection refused');
+        ->assertSee('SQLSTATE connection refused')
+        ->assertSee('Queue workers')
+        ->get('logs');
 
-    Http::assertSent(fn ($request) => $request['parameters']['filters'][0]['value'] === 'dply-ctr-'.strtolower((string) $site->id));
+    expect(array_column($logs, 'source', 'message'))->toBe([
+        'Laravel booted' => 'routing',
+        'SQLSTATE connection refused' => 'app',
+        '[dply-worker worker-emails-1] starting 2 x queue:work' => 'workers',
+    ])->and($logs[2]['worker'])->toBe('worker-emails-1');
+
+    Http::assertSent(fn ($request) => str_ends_with($request->url(), '/telemetry/query') && $request['parameters']['filters'][0]['value'] === 'dply-ctr-'.strtolower((string) $site->id));
+});
+
+test('a sheet body renders when the sheet first opens, not with the page', function () {
+    [$user, $server, $site] = containerSite();
+
+    $page = Livewire::actingAs($user)->test(Resources::class, ['server' => $server, 'site' => $site]);
+    // The app sheet's shell is there to slide in; its body (and the sleep sheet in its island) is not.
+    $pending = '<div data-sheet-pending';
+    expect(substr_count($page->html(), $pending))->toBeGreaterThan(10);
+    $page->assertSeeHtml('resources-app')->assertDontSeeHtml('id="res-rollout-steps"');
+
+    $page->openSheet('resources-app')->assertSeeHtml('id="res-rollout-steps"');
+    expect($page->effects['islandFragments'][0])->toContain('name=resources-app|')->not->toContain($pending);
+});
+
+test('an action in a sheet re-renders only its island and the map', function () {
+    [$user, $server, $site] = containerSite();
+    // What the browser sends for a click inside the app sheet.
+    $inAppSheet = fn (string $method, array $params = []) => [['method' => $method, 'params' => $params, 'path' => '', 'metadata' => ['island' => ['name' => 'resources-app', 'mode' => 'morph']]]];
+
+    $component = Livewire::actingAs($user)
+        ->test(Resources::class, ['server' => $server, 'site' => $site])
+        ->update(calls: $inAppSheet('selectInstances', [3]));
+
+    [$sheet, $map] = $component->effects['islandFragments'];
+    expect($component->effects)->not->toHaveKey('html')
+        ->and($component->effects['islandFragments'])->toHaveCount(2)
+        ->and($sheet)->toContain('name=resources-app|')
+        ->and($map)->toContain('name=map|')->toContain('3 instances');
+
+    // Two calls in one request: the islands show the second.
+    $component->update(calls: [...$inAppSheet('selectInstances', [3]), ...$inAppSheet('selectInstances', [5])]);
+    expect($component->effects['islandFragments'])->toHaveCount(2)
+        ->and($component->effects['islandFragments'][1])->toContain('5 instances');
+
+    // A validation error lands in the sheet's island.
+    $component->update(calls: $inAppSheet('saveRuntime'), updates: ['sleepAfter' => 'forever']);
+    expect($component->effects['islandFragments'][0])->toContain('The selected sleep after is invalid.');
 });
 
 test('state is one durable object the app calls by host', function () {
@@ -241,6 +287,7 @@ test('state is one durable object the app calls by host', function () {
 
     Livewire::actingAs($user)
         ->test(Resources::class, ['server' => $server, 'site' => $site])
+        ->openSheet('resources-connection')
         ->assertSee('State')
         ->assertSee('Redis')
         ->set('connectionKind', 'durable_object')
@@ -321,6 +368,36 @@ test('redis stores an encrypted address and does not ride the worker', function 
         ->and(EdgeContainerConnections::omitAsleepRedis($site, ['REDIS_URL' => $url, 'APP_NAME' => 'book']))->toBe(['APP_NAME' => 'book']);
 });
 
+test('sleeping a Pro Valkey tells the gateway, so it stops billing once the app lets go', function () {
+    config(['edge.valkey.api_url' => 'http://gateway.test', 'edge.valkey.token' => 'tok']);
+    [$user, $server, $site] = containerSite();
+    $site->mergeEdgeMeta(['connections' => [['kind' => 'redis', 'name' => 'REDIS', 'host' => 'redis.internal', 'target' => 'valkey:app-cache', 'plan' => 'pro_5g']]]);
+    $site->save();
+    $site->edgeEnvVars()->create(['key' => 'REDIS_URL', 'value' => 'rediss://default:pw-0123456789abcdef@app-cache.cache.dply.test:6380', 'scope' => EdgeSiteEnvVar::SCOPE_PRODUCTION]);
+    $asleep = fn (): bool => collect(EdgeContainerConnections::for($site->fresh()))->firstWhere('kind', 'redis')['asleep'];
+
+    // Gateway down: nothing changes, so the card never claims a sleep that did not happen.
+    $down = true;
+    Http::fake(function () use (&$down) {
+        return $down ? Http::response('down', 500) : Http::response([]);
+    });
+    $page = Livewire::actingAs($user)->test(Resources::class, ['server' => $server, 'site' => $site]);
+    $host = collect(EdgeContainerConnections::for($site->fresh()))->firstWhere('kind', 'redis')['host']; // mount moves it to the app's host
+    $page->call('sleepConnection', $host, true);
+    expect($asleep())->toBeFalse();
+
+    $down = false;
+    $page->call('sleepConnection', $host, true);
+    // Was: only the meta flag flipped, and a Pro size (sleep_after 0) billed to its cap.
+    Http::assertSent(fn ($request): bool => $request->method() === 'PUT' && $request->url() === 'http://gateway.test/tenants/app-cache'
+        && $request['sleep_after'] === 60 && $request['persistent'] === true && $request['password'] === 'pw-0123456789abcdef');
+    expect($asleep())->toBeTrue();
+
+    $page->call('sleepConnection', $host, false);
+    Http::assertSent(fn ($request): bool => $request->method() === 'PUT' && $request['sleep_after'] === 0 && $request['persistent'] === true);
+    expect($asleep())->toBeFalse();
+});
+
 test('starting redis requires a card', function () {
     config(['edge.valkey.api_url' => 'http://gateway.test', 'edge.valkey.token' => 'tok']);
     Http::fake();
@@ -352,6 +429,18 @@ test('starting redis requires a card', function () {
         'created_by_user_id' => $user->id,
     ]))->save();
 
+    // dply Valkey is on every plan: a Flex size is wired in on Free.
+    expect(EdgeContainerConnections::redisDriverEnv($site->fresh()))->toHaveKey('REDIS_HOST', 'app-cache.cache.dply.test');
+
+    // Only the Pro sizes need a paid plan.
+    $site->mergeEdgeMeta(['connections' => [[
+        'kind' => 'redis',
+        'name' => 'CACHE',
+        'host' => 'cache.internal',
+        'target' => 'valkey:app-cache',
+        'plan' => 'pro_5g',
+    ]]]);
+    $site->save();
     expect(EdgeContainerConnections::redisDriverEnv($site->fresh()))->toBe([])
         ->and(EdgeContainerConnections::omitAsleepRedis($site->fresh(), ['REDIS_URL' => 'rediss://x', 'APP_NAME' => 'book']))->toBe(['APP_NAME' => 'book']);
 });
@@ -360,6 +449,7 @@ test('key value requires a card and bills reads writes and storage', function ()
     config([
         'edge.cloudflare.account_id' => 'acct',
         'edge.cloudflare.api_token' => 'token',
+        'dply.edge.usage_billing.margin_percent' => 0,
         'dply.edge.usage_billing.kv_reads_millicents_per_million' => 100_000,
         'dply.edge.usage_billing.kv_writes_millicents_per_million' => 1_000_000,
         'dply.edge.usage_billing.kv_storage_millicents_per_gb_month' => 100_000,
@@ -380,8 +470,9 @@ test('key value requires a card and bills reads writes and storage', function ()
     $cost = app(EdgeKvCost::class);
     expect($cost->cents(1_000_000, 0, 0, 0, 0))->toBe(100)
         ->and($cost->cents(0, 1_000_000, 0, 0, 0))->toBe(1000)
-        ->and($cost->cents(0, 0, 0, 0, 2 * 1024 ** 3))->toBe(100)
-        ->and($cost->cents(0, 0, 0, 0, 1024 ** 3))->toBe(0);
+        // No free GB any more: every GB-month bills.
+        ->and($cost->cents(0, 0, 0, 0, 2 * 1024 ** 3))->toBe(200)
+        ->and($cost->cents(0, 0, 0, 0, 1024 ** 3))->toBe(100);
 
     $site->mergeEdgeMeta(['connections' => [[
         'kind' => 'key_value',
@@ -408,13 +499,14 @@ test('key value requires a card and bills reads writes and storage', function ()
 
     expect(app(EdgeKvUsageCollector::class)->collectForDate(now())['sites'])->toBe(1)
         ->and((int) EdgeKvUsage::query()->where('namespace_id', 'ns-1')->value('reads'))->toBe(1_000_000)
-        ->and($cost->forOrganization($site->organization, now()->startOfMonth(), now()->endOfMonth())['cents'])->toBe(200);
+        ->and($cost->forOrganization($site->organization, now()->startOfMonth(), now()->endOfMonth())['cents'])->toBe(300); // $1 of reads + 2 GB
 });
 
 test('key value settings show how it works and rename the store', function () {
     config([
         'edge.cloudflare.account_id' => 'acct',
         'edge.cloudflare.api_token' => 'token',
+        'dply.edge.usage_billing.margin_percent' => 0,
         'dply.edge.usage_billing.kv_reads_millicents_per_million' => 100_000,
         'dply.edge.usage_billing.kv_writes_millicents_per_million' => 1_000_000,
         'dply.edge.usage_billing.kv_storage_millicents_per_gb_month' => 100_000,
@@ -452,7 +544,7 @@ test('key value settings show how it works and rename the store', function () {
         ->test(Resources::class, ['server' => $server, 'site' => $site->fresh()])
         ->call('openKv', $host)
         ->assertSee('GET http://'.$host.'/ lists up to 100 keys.')
-        ->assertSee('Reads are $1 per million')
+        ->assertSee('Reads are $1.00 per million')
         ->assertSee('Implementation')
         ->assertSee('The next deploy adds dply/laravel')
         ->assertSee('dply-rails')
@@ -472,10 +564,11 @@ test('key value settings show how it works and rename the store', function () {
         ->and(EdgeContainerConnections::kvDriverEnv($fresh)['DPLY_KV_STORE'])->toBe('notes');
 });
 
-test('an asleep key value store drops its env and is not billed', function () {
+test('an asleep key value store drops its env but is still billed for what it used and stores', function () {
     config([
         'edge.cloudflare.account_id' => 'acct',
         'edge.cloudflare.api_token' => 'token',
+        'dply.edge.usage_billing.margin_percent' => 0,
         'dply.edge.usage_billing.kv_reads_millicents_per_million' => 100_000,
     ]);
     Http::fake(['*' => Http::response(['success' => true, 'result' => []])]);
@@ -502,66 +595,16 @@ test('an asleep key value store drops its env and is not billed', function () {
 
     $fresh = $site->fresh();
     expect(EdgeContainerConnections::kvDriverEnv($fresh))->toBe([])
-        ->and(app(EdgeKvCost::class)->forOrganization($fresh->organization, now()->startOfMonth(), now()->endOfMonth())['cents'])->toBe(0);
+        ->and(app(EdgeKvCost::class)->forOrganization($fresh->organization, now()->startOfMonth(), now()->endOfMonth())['cents'])->toBe(200); // $1 of reads + 2 GB of storage at $0.50
 
     Livewire::actingAs($user)
         ->test(Resources::class, ['server' => $server, 'site' => $fresh])
         ->call('openKv', EdgeContainerConnections::resourceHost($fresh, 'flags'))
         ->call('runKvDemo', 'write')
         ->assertSee('This store is asleep')
-        ->assertSee('Cost estimate · $0.00');
+        ->assertSee('Cost estimate · $2.00');
 
     Http::assertNotSent(fn ($request): bool => $request->method() === 'PUT');
-});
-
-test('http delivery requires a card and bills messages', function () {
-    config([
-        'edge.upstash.email' => 'ops@example.com',
-        'edge.upstash.api_key' => 'secret-key',
-        'edge.upstash.qstash_token' => 'qstash-token',
-        'dply.edge.usage_billing.delivery_messages_millicents_per_100k' => 200_000,
-        'dply.edge.usage_billing.delivery_bandwidth_millicents_per_gb' => 10_000,
-    ]);
-    Http::fake(function ($request) {
-        if (str_contains($request->url(), '/qstash/users')) {
-            return Http::response([['id' => 'qstash-user', 'type' => 'free', 'reserved_type' => '']]);
-        }
-
-        return Http::response('OK');
-    });
-    [$user, $server, $site] = containerSite();
-
-    Livewire::actingAs($user)
-        ->test(Resources::class, ['server' => $server, 'site' => $site])
-        ->set('connectionKind', 'http_delivery')
-        ->set('connectionMode', 'create')
-        ->set('connectionLabel', 'Hooks')
-        ->call('saveConnection')
-        ->assertHasErrors('connection')
-        ->assertSee('Add a card before starting HTTP delivery');
-
-    Http::assertNothingSent();
-
-    config(['subscription.standard.stripe.tier_pro' => 'price_tier_pro']);
-    Subscription::factory()->withPrice('price_tier_pro')->active()->create(['organization_id' => $site->organization_id]);
-
-    Livewire::actingAs($user)
-        ->test(Resources::class, ['server' => $server, 'site' => $site->fresh()])
-        ->set('connectionKind', 'http_delivery')
-        ->set('connectionMode', 'create')
-        ->set('connectionLabel', 'Hooks')
-        ->call('saveConnection')
-        ->assertHasNoErrors();
-
-    expect(EdgeContainerConnections::for($site->fresh())[0]['kind'])->toBe('http_delivery')
-        ->and(app(EdgeDeliveryCost::class)->cents(100_000, 0))->toBe(200)
-        ->and(app(EdgeDeliveryCost::class)->cents(0, 2 * 1024 ** 3))->toBe(10);
-
-    $this->post(route('hooks.edge.delivery', $site), ['messages' => 1, 'bytes' => 40], [
-        'x-dply-queue-token' => EdgeContainerDeployer::queueToken($site),
-    ])->assertNoContent();
-
-    expect(app(EdgeDeliveryCost::class)->forOrganization($site->organization, now()->startOfMonth(), now()->endOfMonth())['cents'])->toBe(1);
 });
 
 test('starting redis starts a dply Valkey and stores its address', function () {
@@ -751,4 +794,24 @@ test('warm-containers knocks only on live sites that keep instances awake', func
     Http::assertSentCount(1);
     Http::assertSent(fn ($request) => $request->url() === 'https://awake.example.test/_dply/warm'
         && $request->header('x-dply-queue-token')[0] === EdgeContainerDeployer::queueToken($awake));
+});
+
+test('an app that keeps its data with dply runs next to it unless it picks a region', function () {
+    config(['edge.valkey.data_region' => 'ENAM']);
+    $app = fn (array $edge): Site => Site::factory()->create(['meta' => ['edge' => array_replace_recursive(['runtime_mode' => 'container'], $edge)]]);
+
+    $postgres = $app(['database' => ['engine' => 'postgres', 'provider' => 'dply']]);
+    $valkey = $app(['connections' => [['kind' => 'redis', 'name' => 'REDIS', 'host' => 'redis.internal', 'target' => 'valkey:x']]]);
+    $chosen = $app(['database' => ['engine' => 'postgres', 'provider' => 'dply'], 'container' => ['regions' => ['WEUR']]]);
+    $eu = $app(['database' => ['engine' => 'postgres', 'provider' => 'dply'], 'container' => ['jurisdiction' => 'eu']]);
+    $sqlite = $app(['database' => ['engine' => 'sql']]);
+
+    expect(EdgeContainerSettings::constraints($postgres))->toBe(['regions' => ['ENAM']])
+        ->and(EdgeContainerSettings::constraints($valkey))->toBe(['regions' => ['ENAM']])
+        ->and(EdgeContainerSettings::constraints($chosen))->toBe(['regions' => ['WEUR']])
+        ->and(EdgeContainerSettings::constraints($eu))->toBe(['jurisdiction' => 'eu'])
+        ->and(EdgeContainerSettings::constraints($sqlite))->toBeNull();
+
+    config(['edge.valkey.data_region' => '']);
+    expect(EdgeContainerSettings::constraints($postgres))->toBeNull();
 });

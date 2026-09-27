@@ -17,6 +17,7 @@ use InvalidArgumentException;
  * @property ?list<string> $allowed_ips
  * @property ?Carbon $expires_at
  * @property ?Carbon $last_used_at
+ * @property ?Carbon $revoked_at
  * @property string $name
  * @property ?string $organization_id
  * @property string $token_hash
@@ -41,6 +42,7 @@ class ApiToken extends Model
         'expires_at',
         'abilities',
         'allowed_ips',
+        'revoked_at',
     ];
 
     /** @return array<string, string> */
@@ -49,6 +51,7 @@ class ApiToken extends Model
         return [
             'last_used_at' => 'datetime',
             'expires_at' => 'datetime',
+            'revoked_at' => 'datetime',
             'abilities' => 'array',
             'allowed_ips' => 'array',
         ];
@@ -211,6 +214,10 @@ class ApiToken extends Model
 
     public function isValid(): bool
     {
+        if ($this->revoked_at !== null) {
+            return false;
+        }
+
         if ($this->expires_at !== null && $this->expires_at->isPast()) {
             return false;
         }
@@ -234,6 +241,11 @@ class ApiToken extends Model
         $this->loadMissing('user', 'organization');
         if ($this->user && $this->organization?->userIsDeployer($this->user)) {
             return in_array($ability, self::deployerApiAllowlist(), true);
+        }
+
+        // Org Viewer: read-only, whatever the token lists.
+        if ($this->user && $this->organization?->userIsViewer($this->user)) {
+            return in_array($ability, (array) config('api_token_permissions.viewer_api_allowlist', []), true);
         }
 
         return true;

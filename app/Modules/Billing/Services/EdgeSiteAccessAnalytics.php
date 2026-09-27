@@ -12,6 +12,7 @@ use App\Modules\Edge\Support\EdgeAnalyticsEngineTraffic;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Throwable;
 
 /**
@@ -24,12 +25,16 @@ final class EdgeSiteAccessAnalytics
      */
     public function forSite(Site $site): array
     {
-        $memoKey = 'edge.access.for_site.'.$site->id;
-        if (app()->bound('request') && request()->attributes->has($memoKey)) {
-            /** @var array<string, mixed> */
-            return request()->attributes->get($memoKey);
-        }
+        // Up to four sequential Analytics Engine calls (~1.2s) sit behind this;
+        // a short cross-request cache keeps tab switches and re-renders cheap.
+        return Cache::remember('edge.access.for_site.'.$site->id, 120, fn (): array => $this->compute($site));
+    }
 
+    /**
+     * @return array<string, mixed>
+     */
+    private function compute(Site $site): array
+    {
         $since = now()->subDays(7);
 
         $recentLogs = EdgeAccessLog::query()
@@ -65,7 +70,7 @@ final class EdgeSiteAccessAnalytics
             ? $this->vitalsFromAnalyticsEngine($site)
             : null;
 
-        $payload = [
+        return [
             'has_worker_logs' => $recentLogs->isNotEmpty() || $hourly->isNotEmpty() || $apiPerformance !== null,
             'has_web_vitals' => $vitals->isNotEmpty() || $apiVitals !== null,
             'recent_logs' => $recentLogs->map(fn (EdgeAccessLog $log): array => [
@@ -97,12 +102,6 @@ final class EdgeSiteAccessAnalytics
                 ? app(EdgeAnalyticsEngineTraffic::class)->overview($site)
                 : EdgeAnalyticsEngineTraffic::empty(),
         ];
-
-        if (app()->bound('request')) {
-            request()->attributes->set($memoKey, $payload);
-        }
-
-        return $payload;
     }
 
     /**

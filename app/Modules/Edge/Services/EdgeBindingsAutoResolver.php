@@ -5,43 +5,39 @@ declare(strict_types=1);
 namespace App\Modules\Edge\Services;
 
 use App\Models\EdgeDeployment;
+use App\Models\Organization;
 use App\Models\Site;
-use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
-use Illuminate\Support\Facades\Log;
+use App\Modules\Edge\Support\EdgeContainerConnections;
+use RuntimeException;
 
 /**
- * Resolves dply.yaml `bindings:` titles to Cloudflare resource IDs,
- * creating the underlying CF resource on first use when needed.
+ * Resolves wrangler.toml / dply.yaml `bindings:` values to Cloudflare resource
+ * ids, creating the resource on first use.
  *
- * Each binding kind has slightly different "what's the right value to
- * upload" semantics:
+ * dply's Cloudflare account is shared by every organization (and holds the
+ * platform's own buckets and namespaces), so a value is only ever one of:
  *
- *   - kv:   workers script API wants `namespace_id` (32-char hex)
- *   - r2:   wants `bucket_name` (the title the user gave it)
- *   - d1:   wants `id` (UUID)
- *   - queue: wants `queue_name`
+ *   - an id or name this organization already owns
+ *     ({@see EdgeContainerConnections::owns}), used as is;
+ *   - a name, read inside the organization's prefix: "cache" is
+ *     `{prefix}cache`, found or created by {@see EdgeContainerConnections::ensure}
+ *     (plan limits and the card rule apply there).
  *
- * Pass-through rules: if the declared value already *looks* like the
- * id the CF API expects, we trust it (existing repos with pasted IDs
- * keep working). Otherwise we treat it as a title and look up / create.
- *
- * Opt-out via `bindings.auto_create: false` in dply.yaml — that path
- * returns the raw map and lets EdgeRepoBindingTranslator pass it
- * straight through (legacy "manual id" mode).
+ * `bindings.auto_create: false` means "must already exist and be ours".
+ * Anything else fails the deploy with a message naming the binding.
  */
 class EdgeBindingsAutoResolver
 {
-    public function __construct(
-        private readonly EdgeDeliveryContextResolver $contexts,
-    ) {}
+    /** Repo bucket => Resources connection kind. */
+    private const KIND = ['kv' => 'key_value', 'r2' => 'object_storage', 'd1' => 'sql', 'queues' => 'queue'];
 
     /**
-     * Returns a resolved bindings map (same shape as the input, but
-     * with title values replaced by canonical CF IDs). Errors during
-     * lookup/create are logged + the offending binding is dropped so a
-     * single bad row never fails the whole deploy.
+     * Returns a resolved bindings map (same shape as the input, with values
+     * replaced by this organization's resource ids).
      *
      * @return array<string, array<string, string>>
+     *
+     * @throws RuntimeException when a binding points at a resource that is not the organization's
      */
     public function resolve(Site $site, EdgeDeployment $deployment): array
     {
@@ -50,30 +46,50 @@ class EdgeBindingsAutoResolver
         if ($declared === []) {
             return [];
         }
+        $organization = $site->organization;
+        if ($organization === null) {
+            throw new RuntimeException('This app has no organization to own its bindings.');
+        }
 
-        // Opt-out: when `auto_create: false`, return as-is so the
-        // translator treats values as final ids.
-        $autoCreate = ! (
-            is_array($declared['auto_create'] ?? null)
-                ? false
-                : ($declared['auto_create'] ?? true) === false
-        );
+        $autoCreate = ($declared['auto_create'] ?? true) !== false;
 
-        $resolved = [
-            'kv' => $this->resolveBucket($site, $declared['kv'] ?? null, 'kv', $autoCreate),
-            'r2' => $this->resolveBucket($site, $declared['r2'] ?? null, 'r2', $autoCreate),
-            'd1' => $this->resolveBucket($site, $declared['d1'] ?? null, 'd1', $autoCreate),
-            'queues' => $this->resolveBucket($site, $declared['queues'] ?? null, 'queues', $autoCreate),
-        ];
+        $earlier = $this->earlierValues($site, $deployment);
+        $resolved = [];
+        foreach (self::KIND as $bucket => $kind) {
+            $resolved[$bucket] = $this->resolveBucket($organization, $declared[$bucket] ?? null, $kind, $autoCreate, $earlier[$bucket] ?? []);
+        }
 
         return array_filter($resolved, static fn (array $b): bool => $b !== []);
     }
 
     /**
-     * @param  array<string, string>|null  $bucket
+     * Binding values this site's earlier deployments declared, by bucket.
+     *
+     * @return array<string, list<string>>
+     */
+    private function earlierValues(Site $site, EdgeDeployment $deployment): array
+    {
+        $out = [];
+        $configs = EdgeDeployment::query()->where('site_id', $site->id)->whereKeyNot((string) $deployment->getKey())->whereNotNull('repo_config')->pluck('repo_config');
+        foreach ($configs as $config) {
+            $bindings = is_array($config) ? ($config['bindings'] ?? []) : [];
+            foreach (array_keys(self::KIND) as $bucket) {
+                foreach ((array) ($bindings[$bucket] ?? []) as $value) {
+                    if (is_string($value)) {
+                        $out[$bucket][] = trim($value);
+                    }
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  list<string>  $earlier
      * @return array<string, string>
      */
-    private function resolveBucket(Site $site, mixed $bucket, string $kind, bool $autoCreate): array
+    private function resolveBucket(Organization $organization, mixed $bucket, string $kind, bool $autoCreate, array $earlier = []): array
     {
         if (! is_array($bucket) || $bucket === []) {
             return [];
@@ -81,121 +97,54 @@ class EdgeBindingsAutoResolver
 
         $out = [];
         foreach ($bucket as $name => $value) {
-            if (trim($value) === '') {
+            $value = is_string($value) ? trim($value) : '';
+            if ($value === '') {
                 continue;
             }
-            $value = trim($value);
-            if (! $autoCreate || $this->looksLikeResolvedId($kind, $value)) {
-                $out[$name] = $value;
-
-                continue;
-            }
-
             try {
-                $resolved = $this->lookupOrCreate($site, $kind, $value);
-                if ($resolved !== null) {
-                    $out[$name] = $resolved;
-                }
+                $out[$name] = $this->target($kind, $value, $organization, $autoCreate, in_array($value, $earlier, true));
             } catch (\Throwable $e) {
-                Log::warning('Edge bindings auto-resolve failed', [
-                    'site_id' => $site->id,
-                    'kind' => $kind,
-                    'binding' => $name,
-                    'value' => $value,
-                    'error' => $e->getMessage(),
-                ]);
+                throw new RuntimeException(sprintf('wrangler.toml binding %s (%s): %s', $name, $value, $e->getMessage()), 0, $e);
             }
         }
 
         return $out;
     }
 
-    private function looksLikeResolvedId(string $kind, string $value): bool
+    private function target(string $kind, string $value, Organization $organization, bool $autoCreate, bool $deployedBefore = false): string
+    {
+        if (EdgeContainerConnections::owns($kind, $value, $organization)) {
+            return $value;
+        }
+        if (! $autoCreate) {
+            throw new RuntimeException('it is not a resource this organization owns. With auto_create off it must already exist and be yours.');
+        }
+        // A name typed with our own prefix still means our resource.
+        $prefix = EdgeContainerConnections::ownedPrefix($organization);
+        $resource = str_starts_with($value, $prefix) ? substr($value, strlen($prefix)) : $value;
+        if ($this->looksLikeId($kind, $resource)) {
+            throw new RuntimeException('it is not a resource this organization owns. Use a name such as "cache" instead of an id, and dply creates it in your organization.');
+        }
+
+        [$jurisdiction, $hint] = $this->mapRegion((string) ($organization->edge_data_region ?? 'default'));
+
+        return EdgeContainerConnections::ensure($kind, $resource, $organization, [
+            'location_hint' => $hint,
+            'jurisdiction' => $kind === 'object_storage' ? $jurisdiction : null,
+            // Only a site that already deployed this binding can have used an
+            // unprefixed resource of that name; new apps just get their own.
+            'refuse_legacy' => $deployedBefore,
+        ]);
+    }
+
+    /** A pasted id that is not ours is refused, not taken for a name to create. */
+    private function looksLikeId(string $kind, string $value): bool
     {
         return match ($kind) {
-            // KV namespace IDs are 32-char hex
-            'kv' => preg_match('/^[a-f0-9]{32}$/i', $value) === 1,
-            // D1 IDs are UUIDs
-            'd1' => preg_match('/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i', $value) === 1,
-            // R2 and Queues use bucket/queue names as the binding value
-            // (CF API echoes the same name back at upload time), so the
-            // title IS the id. No auto-create needed once the resource
-            // exists — but we still want to create it if missing.
-            'r2', 'queues' => false,
+            'key_value' => preg_match('/^[a-f0-9]{32}$/i', $value) === 1,
+            'sql' => preg_match('/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i', $value) === 1,
             default => false,
         };
-    }
-
-    /** Looks up by name; creates if absent. Returns the canonical id (or name, for r2/queues). */
-    private function lookupOrCreate(Site $site, string $kind, string $title): ?string
-    {
-        $client = $this->clientFor($site);
-
-        return match ($kind) {
-            'kv' => $this->lookupOrCreateKv($client, $title),
-            'r2' => $this->lookupOrCreateR2($client, $title, $site),
-            'd1' => $this->lookupOrCreateD1($client, $title, $site),
-            'queues' => $this->lookupOrCreateQueue($client, $title),
-            default => null,
-        };
-    }
-
-    private function lookupOrCreateKv(EdgeCloudflareClient $client, string $title): ?string
-    {
-        $id = $client->kvNamespaceIdByTitle($title);
-        if (is_string($id) && $id !== '') {
-            return $id;
-        }
-        $created = $client->createKvNamespace($title);
-
-        return is_string($created['id'] ?? null) ? (string) $created['id'] : null;
-    }
-
-    private function lookupOrCreateR2(EdgeCloudflareClient $client, string $name, Site $site): string
-    {
-        if ($client->r2BucketExists($name)) {
-            return $name;
-        }
-        // Use the org's preferred residency on create, mirroring
-        // EdgeOrgInfraBootstrapper. Defaults to null (CF picks).
-        $region = (string) ($site->organization->edge_data_region ?? 'default');
-        [$jur, $hint] = $this->mapRegion($region);
-        $client->createR2Bucket($name, $hint, $jur);
-
-        return $name;
-    }
-
-    private function lookupOrCreateD1(EdgeCloudflareClient $client, string $name, Site $site): ?string
-    {
-        foreach ($client->listD1Databases() as $db) {
-            if (($db['name'] ?? null) === $name) {
-                return is_string($db['uuid'] ?? null) ? (string) $db['uuid'] : null;
-            }
-        }
-        $region = (string) ($site->organization->edge_data_region ?? 'wnam');
-        [, $hint] = $this->mapRegion($region);
-        $created = $client->createD1Database($name, $hint ?: 'wnam');
-
-        return is_string($created['uuid'] ?? null) ? (string) $created['uuid'] : null;
-    }
-
-    private function lookupOrCreateQueue(EdgeCloudflareClient $client, string $name): string
-    {
-        foreach ($client->listQueues() as $q) {
-            if (($q['queue_name'] ?? null) === $name) {
-                return $name;
-            }
-        }
-        $client->createQueue($name);
-
-        return $name;
-    }
-
-    private function clientFor(Site $site): EdgeCloudflareClient
-    {
-        $context = $this->contexts->forSite($site);
-
-        return new EdgeCloudflareClient($context->accountId, $context->apiToken);
     }
 
     /** @return array{0: ?string, 1: ?string} */

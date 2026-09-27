@@ -189,6 +189,14 @@ final class PhpRuntimeDetector implements RuntimeDetector
             $reasons[] = "Suggested worker process: `{$command}` (Laravel Horizon detected).";
         }
 
+        // Broadcasting hint only: Reverb is not run in the app. A Realtime
+        // resource points it (and the pusher driver) at dply's relay.
+        foreach (['laravel/reverb' => 'Laravel Reverb', 'pusher/pusher-php-server' => 'the Pusher driver'] as $package => $label) {
+            if (in_array($package, $packages, true)) {
+                $reasons[] = "Detected `{$package}`: add a Realtime resource and {$label} broadcasts through dply's managed WebSockets.";
+            }
+        }
+
         return $processes;
     }
 

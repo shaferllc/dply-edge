@@ -4,6 +4,7 @@ namespace App\Listeners;
 
 use App\Models\Organization;
 use App\Modules\Billing\Jobs\SyncOrganizationBillingJob;
+use App\Modules\Billing\Livewire\Show;
 use Laravel\Cashier\Events\WebhookReceived;
 
 /**
@@ -22,10 +23,20 @@ class SyncBillingOnSubscriptionWebhook
     private const RELEVANT_EVENTS = [
         'customer.subscription.created',
         'customer.subscription.updated',
+        // A canceled or unpaid subscription pauses the org at once.
+        'customer.subscription.deleted',
     ];
 
     public function handle(WebhookReceived $event): void
     {
+        // Any Stripe event for a customer (invoice.*, subscription.*) may change the cached invoice list / next date.
+        // customer.* events carry the id as data.object.id instead.
+        $object = $event->payload['data']['object'] ?? [];
+        $c = $object['customer'] ?? (($object['object'] ?? null) === 'customer' ? ($object['id'] ?? null) : null);
+        if (is_string($c) && $c !== '') {
+            Show::forgetStripeCache($c);
+        }
+
         $type = $event->payload['type'] ?? '';
         if (! in_array($type, self::RELEVANT_EVENTS, true)) {
             return;

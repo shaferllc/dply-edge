@@ -33,6 +33,17 @@ class Cache extends Component
 
     public string $queryString = 'ignore';
 
+    /**
+     * Stored copies from KV, loaded once via wire:init and after a purge —
+     * not in render(), so saving options doesn't re-list KV (10s timeout).
+     * null = not loaded yet.
+     *
+     * @var list<array{path: string, expires_at: int|null}>|null
+     */
+    public ?array $entries = null;
+
+    public string $listMessage = '';
+
     public function mount(Server $server, Site $site): void
     {
         $this->mountEdgeWorkspaceSection($server, $site);
@@ -75,7 +86,7 @@ class Cache extends Component
 
     public function purgeByPath(EdgeCachePurger $purger): void
     {
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
 
         $path = trim($this->purgePath);
         if ($path === '') {
@@ -93,21 +104,21 @@ class Cache extends Component
 
     public function purgeStored(string $path, EdgeCachePurger $purger): void
     {
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
         $result = $purger->purgeByPaths($this->site->fresh(), [$path]);
         $this->finishPurge($result, 'site.edge.cache.purged_by_path', ['path' => $path]);
     }
 
     public function clearAll(EdgeCachePurger $purger): void
     {
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
         $result = $purger->purgeAll($this->site->fresh());
         $this->finishPurge($result, 'site.edge.cache.purged_all', []);
     }
 
     public function purgeByTag(EdgeCachePurger $purger): void
     {
-        $this->authorize('update', $this->site);
+        $this->authorize('deploy', $this->site);
 
         $tag = trim($this->purgeTag);
         if ($tag === '') {
@@ -138,6 +149,7 @@ class Cache extends Component
         }
 
         if ($result['ok']) {
+            $this->loadEntries();
             $this->toastSuccess($result['message']);
 
             return;
@@ -146,15 +158,18 @@ class Cache extends Component
         $this->toastError($result['message']);
     }
 
-    public function render(): View
+    public function loadEntries(): void
     {
         $listed = app(EdgeCachePurger::class)->listEntries($this->site);
+        $this->entries = $listed['entries'];
+        $this->listMessage = $listed['ok'] ? '' : $listed['message'];
+    }
 
+    public function render(): View
+    {
         return view('livewire.sites.edge.workspace.cache', [
             'server' => $this->server,
             'site' => $this->site,
-            'entries' => $listed['entries'],
-            'listMessage' => $listed['ok'] ? '' : $listed['message'],
         ]);
     }
 }

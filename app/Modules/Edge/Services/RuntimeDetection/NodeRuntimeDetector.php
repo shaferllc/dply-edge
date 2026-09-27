@@ -10,9 +10,8 @@ namespace App\Modules\Edge\Services\RuntimeDetection;
  * Pre-fills:
  *   - runtime: "node"
  *   - version: from .tool-versions / .nvmrc / package.json#engines.node
- *   - framework: next | nuxt | astro | nest | remix | sveltekit | express | fastify | koa | "node"
- *   - build: package.json#scripts.build (when present)
- *   - start: package.json#scripts.start, then main, then conventional fallbacks
+ *   - framework, build, start, output: {@see NodeFrameworkRules} (shared
+ *     with the create page's GitHub fast path)
  *   - app port: parsed from start/dev script flags, then framework defaults
  *   - processes: BullMQ/Bull worker hint when a `worker` or `queue` script exists
  */
@@ -40,15 +39,24 @@ final class NodeRuntimeDetector implements RuntimeDetector
 
         $version = $this->detectVersion($workingDirectory, $packageJson, $detectedFiles, $reasons);
         $deps = $this->collectDependencyKeys($packageJson);
-        $framework = $this->detectFramework($deps, $reasons);
+
+        // Same rules as the create page's GitHub fast path.
+        $root = rtrim($workingDirectory, '/');
+        $rules = NodeFrameworkRules::plan($packageJson, static function (string $file) use ($root): ?string {
+            $contents = is_file($root.'/'.$file) ? @file_get_contents($root.'/'.$file) : false;
+
+            return $contents === false ? null : $contents;
+        });
+        array_push($reasons, ...$rules['reasons']);
+        $framework = $rules['framework'];
 
         $scripts = is_array($packageJson['scripts'] ?? null) ? $packageJson['scripts'] : [];
 
-        $buildCommand = $this->detectBuildCommand($scripts, $reasons);
-        $startCommand = $this->detectStartCommand($scripts, $packageJson, $framework, $reasons);
+        $buildCommand = $rules['build_command'];
+        $startCommand = $rules['start_command'];
         $appPort = $this->detectAppPort($scripts, $framework, $reasons);
         $processes = $this->detectProcesses($scripts, $deps, $reasons);
-        $outputDirectory = $this->detectOutputDirectory($framework, $reasons);
+        $outputDirectory = $rules['output_dir'];
 
         $confidence = $framework !== 'node' ? 'high' : 'medium';
 
@@ -108,94 +116,6 @@ final class NodeRuntimeDetector implements RuntimeDetector
             $reasons[] = "Pinned Node {$engineNode} from `package.json#engines.node`.";
 
             return trim($engineNode);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param  list<string>  $deps
-     * @param  list<string>  $reasons
-     */
-    private function detectFramework(array $deps, array &$reasons): string
-    {
-        $frameworks = [
-            // Keel before hono-adjacent stacks — apps declare both.
-            '@shaferllc/keel' => 'keel',
-            'next' => 'next',
-            'nuxt' => 'nuxt',
-            'astro' => 'astro',
-            '@nestjs/core' => 'nest',
-            'remix' => 'remix',
-            '@remix-run/node' => 'remix',
-            '@sveltejs/kit' => 'sveltekit',
-            // Plain HTTP servers — these deploy as containers.
-            'express' => 'express',
-            'fastify' => 'fastify',
-            'koa' => 'koa',
-        ];
-
-        foreach ($frameworks as $packageName => $frameworkKey) {
-            if (in_array($packageName, $deps, true)) {
-                $reasons[] = "Detected {$frameworkKey} from `package.json` dependency `{$packageName}`.";
-
-                return $frameworkKey;
-            }
-        }
-
-        return 'node';
-    }
-
-    /**
-     * @param  array<string, mixed>  $scripts
-     * @param  list<string>  $reasons
-     */
-    private function detectBuildCommand(array $scripts, array &$reasons): ?string
-    {
-        if (isset($scripts['build']) && is_string($scripts['build']) && trim($scripts['build']) !== '') {
-            $reasons[] = 'Suggested build: `npm run build` (script defined in `package.json`).';
-
-            return 'npm run build';
-        }
-
-        return null;
-    }
-
-    /**
-     * @param  array<string, mixed>  $scripts
-     * @param  array<string, mixed>  $packageJson
-     * @param  list<string>  $reasons
-     */
-    private function detectStartCommand(
-        array $scripts,
-        array $packageJson,
-        ?string $framework,
-        array &$reasons,
-    ): ?string {
-        if (isset($scripts['start']) && is_string($scripts['start']) && trim($scripts['start']) !== '') {
-            $reasons[] = 'Suggested start: `npm start` (script defined in `package.json`).';
-
-            return 'npm start';
-        }
-
-        // Framework-specific defaults when there's no `start` script.
-        if ($framework === 'next') {
-            $reasons[] = 'Suggested start: `next start` (Next.js default).';
-
-            return 'next start';
-        }
-
-        if ($framework === 'nuxt') {
-            $reasons[] = 'Suggested start: `node .output/server/index.mjs` (Nuxt default).';
-
-            return 'node .output/server/index.mjs';
-        }
-
-        $main = $packageJson['main'] ?? null;
-        if (is_string($main) && trim($main) !== '') {
-            $reasons[] = "Suggested start: `node {$main}` (from `package.json#main`).";
-
-            return "node {$main}";
         }
 
         return null;
@@ -281,30 +201,6 @@ final class NodeRuntimeDetector implements RuntimeDetector
         }
 
         return array_values(array_unique($deps));
-    }
-
-    /**
-     * @param  list<string>  $reasons
-     */
-    private function detectOutputDirectory(?string $framework, array &$reasons): ?string
-    {
-        $directory = match ($framework) {
-            'next' => 'out',
-            'nuxt' => '.output/public',
-            'astro' => 'dist',
-            'sveltekit' => 'build',
-            'keel' => 'public',
-            'vite', 'vue', 'react', 'svelte', 'remix', 'nest' => 'dist',
-            default => null,
-        };
-
-        if ($directory === null) {
-            return null;
-        }
-
-        $reasons[] = "Suggested output directory: `{$directory}` ({$framework} convention).";
-
-        return $directory;
     }
 
     /**

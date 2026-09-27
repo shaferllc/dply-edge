@@ -17,8 +17,8 @@ use App\Models\ApiToken;
  * The MCP server (routes/ai.php → App\Mcp) reuses these abilities — each tool
  * declares the one it requires and AbstractDplyTool enforces it via
  * $token->allows():
- *   list_sites / get_site / get_operation_status ...................... sites.read
- *   list_servers ...................................................... servers.read
+ *   list_sites / get_site, dply://sites resources ..................... sites.read
+ * (`servers.read` no longer gates anything: list_servers was removed 2026-09-26.)
  *
  * @see ApiToken::allows()
  * @see AbstractDplyTool
@@ -42,6 +42,16 @@ return [
         'edge.env.read',
         'sites.read',
         'servers.read',
+    ],
+
+    // Org Viewer runtime cap: read-only whatever the token lists (ApiToken::allows()).
+    'viewer_api_allowlist' => [
+        'account.read',
+        'account.write',
+        'edge.env.read',
+        'edge.read',
+        'servers.read',
+        'sites.read',
     ],
 
     /*
@@ -83,7 +93,7 @@ return [
         'edge.aliases.index' => 'edge.read',
         'edge.access.show' => 'edge.read',
         'edge.access.update' => 'edge.write',
-        'edge.cache.purge' => 'edge.write',
+        'edge.cache.purge' => 'edge.deploy',
         'edge.usage.show' => 'edge.read',
         'edge.logs.index' => 'edge.read',
         'edge.lint.store' => 'edge.read',

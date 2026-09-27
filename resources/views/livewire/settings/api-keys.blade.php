@@ -1,6 +1,6 @@
 @php
     $totalTokens = $tokens->count();
-    $activeTokens = $tokens->filter(fn ($t) => $t->expires_at === null || ! $t->expires_at->isPast())->count();
+    $activeTokens = $tokens->filter(fn ($t) => $t->revoked_at === null && ($t->expires_at === null || ! $t->expires_at->isPast()))->count();
     $expiringSoon = $tokens->filter(fn ($t) => $t->expires_at !== null && $t->expires_at->isFuture() && $t->expires_at->diffInDays(now()) <= 14)->count();
     $hasApiTokenSearch = trim($token_list_search ?? '') !== '';
     $orgCount = $adminOrganizations->count();
@@ -93,7 +93,7 @@
                     <div class="rounded-md border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs text-sky-950">
                         <span class="inline-flex items-center gap-1.5 font-semibold">
                             <x-heroicon-m-information-circle class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                            {{ __('Pro plan required to create tokens') }}
+                            {{ __('A plan is required to create tokens') }}
                         </span>
                         <p class="mt-1 leading-relaxed">{{ __('Token creation needs an active Pro subscription on the selected organization. Existing tokens can still be revoked.') }}</p>
                     </div>
@@ -200,7 +200,8 @@
                 <ul role="list" class="divide-y divide-brand-ink/10">
                     @foreach ($tokens as $t)
                         @php
-                            $expired = $t->expires_at !== null && $t->expires_at->isPast();
+                            $revoked = $t->revoked_at !== null;
+                            $expired = $revoked || ($t->expires_at !== null && $t->expires_at->isPast());
                             $expiringSoonRow = $t->expires_at !== null && $t->expires_at->isFuture() && $t->expires_at->diffInDays(now()) <= 14;
                             $abilityCount = count($t->abilities ?? []);
                         @endphp
@@ -212,7 +213,7 @@
                                     @if ($expired)
                                         <span class="inline-flex shrink-0 items-center gap-0.5 rounded border border-red-200 bg-red-50 px-1 py-px text-2xs font-semibold uppercase tracking-wide text-red-700">
                                             <x-heroicon-m-no-symbol class="h-3 w-3" aria-hidden="true" />
-                                            {{ __('Expired') }}
+                                            {{ $revoked ? __('Revoked') : __('Expired') }}
                                         </span>
                                     @elseif ($expiringSoonRow)
                                         <span class="inline-flex shrink-0 items-center gap-0.5 rounded border border-amber-200 bg-amber-50 px-1 py-px text-2xs font-semibold uppercase tracking-wide text-amber-900">

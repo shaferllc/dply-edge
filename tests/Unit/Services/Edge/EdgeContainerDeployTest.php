@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Services\Edge\EdgeContainerDeployTest;
 
+use App\Models\Organization;
 use App\Models\Site;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Services\Containers\EdgeContainerDockerfile;
@@ -68,7 +69,8 @@ test('laravel gets a php-fpm image with assets, migrations on boot and port 8080
         ->and($dockerfile)->toContain('http://sqlite.dply/db')
         ->and($dockerfile)->toContain('chmod 666')
         ->and($dockerfile)->not->toContain('DPLY_MIGRATE_ON_BOOT" = "1" ]; then if [ "$DB_CONNECTION" = "sqlite"')
-        ->and($dockerfile)->toContain('php artisan migrate --force --isolated')
+        // cache_locks does not exist on a new database, so --isolated fails; retry unlocked.
+        ->and($dockerfile)->toContain('php artisan migrate --force --isolated || php artisan migrate --force || true')
         ->and($dockerfile)->toContain('RUN npm run build')
         ->and($dockerfile)->toContain('SERVER_NAME=":8080"')
         ->and(EdgeContainerDockerfile::logSummary($dockerfile))->toContain('RUN npm run build');
@@ -339,6 +341,8 @@ test('the generated worker project wires the container, queues and the token-gua
 test('a browser resource imports puppeteer and a site without one does not', function () {
     $site = new Site(['meta' => ['edge' => ['browser' => true]]]);
     $site->id = '01BROWSER';
+    // Browser is paid-only; a comped org is on a paid plan.
+    $site->setRelation('organization', (new Organization)->forceFill(['comped_until' => now()->addYear()]));
     $dir = sys_get_temp_dir().'/dply-container-test-'.bin2hex(random_bytes(4));
 
     (new EdgeContainerDeployer)->scaffold($dir, $site, '/x/Dockerfile', 8080, []);
@@ -438,8 +442,23 @@ test('a laravel app that needs the package gets dply/laravel in the image', func
 
     expect(EdgeContainerDeployer::needsLaravelPackage($site, $dir))->toBeTrue();
 
+    // Database tools and queue workers run through /_dply/command too.
+    $withDatabase = new Site;
+    $withDatabase->meta = ['edge' => ['database' => ['engine' => 'postgres', 'provider' => 'dply']]];
+    $withWorkers = new Site;
+    $withWorkers->meta = ['edge' => ['container' => ['workers' => ['enabled' => true]]]];
+    $plain = new Site;
+    $plain->meta = ['edge' => []];
+    expect(EdgeContainerDeployer::needsLaravelPackage($withDatabase, $dir))->toBeTrue()
+        ->and(EdgeContainerDeployer::needsLaravelPackage($withWorkers, $dir))->toBeTrue()
+        ->and(EdgeContainerDeployer::needsLaravelPackage($plain, $dir))->toBeFalse();
+
     $dockerfile = File::get(EdgeContainerDockerfile::prepare($dir, true)['path']);
 
+    // COPY . . brings back the app's own composer files; the injected ones
+    // must be put back before the autoloader is dumped.
+    expect(strpos($dockerfile, 'RUN cp /opt/dply/composer.json /opt/dply/composer.lock ./'))->toBeGreaterThan(strpos($dockerfile, 'COPY . .'))
+        ->and(strpos($dockerfile, 'RUN cp /opt/dply/composer.json'))->toBeLessThan(strpos($dockerfile, 'composer dump-autoload'));
     expect($dockerfile)->toContain('COPY dply-laravel /opt/dply/laravel')
         ->and($dockerfile)->toContain('composer require dply/laravel:^1.0')
         ->and(File::exists($dir.'/dply-laravel/src/DplyServiceProvider.php'))->toBeTrue()
@@ -522,4 +541,51 @@ test('the worker picks the most specific scaling window in its own time zone', f
 
     expect(trim((string) shell_exec('node '.escapeshellarg($dir.'/limits.mjs').' 2>&1')))
         ->toBe('{"min":6,"max":12}|{"min":4,"max":9}|{"min":2,"max":5}|{"min":1,"max":3}|{"min":0,"max":2}');
+});
+
+test('roadrunner starts without --rr-config so a repo without .rr.yaml still boots', function () {
+    $dir = checkout([
+        'composer.json' => '{"require":{"php":"^8.3","laravel/octane":"^2.0","spiral/roadrunner-http":"^3.0"}}',
+        'artisan' => '',
+    ]);
+
+    $dockerfile = File::get(EdgeContainerDockerfile::prepare($dir)['path']);
+
+    expect($dockerfile)->toContain('octane:start --server=roadrunner --host=0.0.0.0 --port=8080')
+        ->and($dockerfile)->not->toContain('--rr-config');
+});
+
+test('a websocket 101 from the app passes the sticky cookie and debug filters untouched', function () {
+    $site = new Site;
+    $site->id = '01SOCKETS';
+    $dir = sys_get_temp_dir().'/dply-container-test-'.bin2hex(random_bytes(4));
+    (new EdgeContainerDeployer)->scaffold($dir, $site, '/x/Dockerfile', 8080, []);
+    $worker = File::get($dir.'/src/index.js');
+
+    expect($worker)->toContain('if (isSocket(response)) return response;')
+        ->and($worker)->toContain('if (isSocket(response) || (flag !==')
+        ->and($worker)->toContain('return response.status === 101 || Boolean(response.webSocket);');
+
+    if (trim((string) shell_exec('command -v node')) === '') {
+        $this->markTestSkipped('node is not installed');
+    }
+
+    // Run the three filters from the generated worker. A 101 cannot be built
+    // as a Response (RangeError, as in workerd), so a stand-in must come back
+    // as the same object; a plain 200 still gets the cookie and debug header.
+    preg_match('/function isSocket\(response\).*?\n}\n\nfunction withStickyCookie.*?\n}\n/s', $worker, $sticky);
+    preg_match('/function revealAppErrors.*?\n}\n/s', $worker, $reveal);
+    File::put($dir.'/filters.mjs', $sticky[0].$reveal[0].<<<'JS'
+    const env = { APP_DEBUG: 'true' };
+    const socket = { status: 101, webSocket: {}, headers: new Headers({ upgrade: 'websocket' }) };
+    const plain = revealAppErrors(env, withStickyCookie(new Response('ok'), '1'));
+    console.log([
+      revealAppErrors(env, withStickyCookie(socket, '1')) === socket,
+      plain.headers.get('set-cookie'),
+      plain.headers.get('x-dply-app-debug'),
+    ].join('|'));
+    JS);
+
+    expect(trim((string) shell_exec('node '.escapeshellarg($dir.'/filters.mjs').' 2>&1')))
+        ->toBe('true|dply_instance=1; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800|1');
 });

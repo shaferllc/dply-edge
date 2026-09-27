@@ -6,6 +6,7 @@ namespace App\Modules\Edge\Jobs;
 
 use App\Models\Site;
 use App\Modules\Edge\Services\EdgeAppDatabase;
+use App\Modules\Edge\Support\EdgeDplyDatabase;
 use App\Modules\Providers\Valkey\ValkeyGatewayClient;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -46,7 +47,7 @@ class RestoreEdgeDplyPostgresJob implements ShouldQueue
         }
 
         try {
-            ValkeyGatewayClient::fromConfig()->restore((string) $database['remote_id'], $this->targetTime);
+            ValkeyGatewayClient::fromConfig(EdgeDplyDatabase::regionOf($database))->restore((string) $database['remote_id'], $this->targetTime);
             $restore = ['status' => 'done', 'target' => $this->targetTime, 'finished_at' => now()->toIso8601String()];
         } catch (Throwable $e) {
             $restore = ['status' => 'failed', 'target' => $this->targetTime, 'error' => $e->getMessage(), 'finished_at' => now()->toIso8601String()];

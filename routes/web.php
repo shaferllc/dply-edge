@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\ImpersonationController;
 use App\Http\Controllers\CliInstallController;
 use App\Http\Controllers\Credentials\ProviderOAuthController;
+use App\Http\Controllers\DocsController;
 use App\Http\Controllers\Notifications\DiscordOAuthController;
 use App\Http\Controllers\Notifications\SlackOAuthController;
 use App\Http\Controllers\Notifications\TelegramWebhookController;
@@ -12,9 +13,6 @@ use App\Livewire\Admin\AuditLog as AdminAuditLog;
 use App\Livewire\Admin\BetaInvites as AdminBetaInvites;
 use App\Livewire\Admin\ComingSoonAccess as AdminComingSoonAccess;
 use App\Livewire\Admin\Connections as AdminConnections;
-use App\Livewire\Admin\Flags\AllFlags as AdminAllFlags;
-use App\Livewire\Admin\Flags\GlobalFlags as AdminGlobalFlags;
-use App\Livewire\Admin\Flags\ProductLineFlags as AdminProductLineFlags;
 use App\Livewire\Admin\Operations as AdminOperations;
 use App\Livewire\Admin\Organizations\Index as AdminOrganizationsIndex;
 use App\Livewire\Admin\Organizations\Show as AdminOrganizationsShow;
@@ -50,8 +48,8 @@ use App\Livewire\Teams\NotificationChannels as TeamsNotificationChannels;
 use App\Livewire\TwoFactor\Page as TwoFactorPage;
 use App\Modules\Billing\Livewire\Show as BillingShow;
 use App\Modules\Edge\Http\Controllers\EdgeAuditLogExportController;
-use App\Modules\Edge\Http\Controllers\EdgeDeliveryUsageHookController;
 use App\Modules\Edge\Http\Controllers\EdgeDeployHookController;
+use App\Modules\Edge\Http\Controllers\EdgeFormIngestController;
 use App\Modules\Edge\Http\Controllers\EdgeLiveAccessLogPollController;
 use App\Modules\Edge\Http\Controllers\EdgeLogCsvDownloadController;
 use App\Modules\Edge\Http\Controllers\EdgePreviewAccessController;
@@ -66,7 +64,7 @@ use App\Modules\Edge\Livewire\Queues;
 use App\Modules\Edge\Livewire\Templates;
 use App\Modules\Edge\Livewire\Usage;
 use App\Modules\Secrets\Livewire\Secrets as OrganizationsSecrets;
-use App\Support\Admin\AdminFeatureFlags;
+use App\Support\Docs\DocsSite;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Route;
@@ -74,7 +72,7 @@ use Illuminate\Support\Facades\Route;
 Broadcast::routes(['middleware' => ['web', 'auth']]);
 
 // Standalone diagnostic page for Redis-backend failures. Lives outside the
-// `web` middleware group on purpose — StartSession/CSRF/Pennant all touch
+// `web` middleware group on purpose — StartSession/CSRF all touch
 // Cache, so if Redis is down a normal route would recurse on the very error
 // it tries to render. Reads only the config repository, which is an in-memory
 // array by this point — no Cache, no Redis, no DB.
@@ -89,10 +87,6 @@ Route::get('/_redis-unreachable', function () {
     ], 503);
 })->withoutMiddleware(['web']);
 
-Route::post('/hooks/edge/{site}/delivery', EdgeDeliveryUsageHookController::class)
-    ->middleware(['throttle:site-webhook'])
-    ->name('hooks.edge.delivery');
-
 Route::match(['post', 'options'], '/hooks/edge/{site}/github', GithubEdgeWebhookController::class)
     ->middleware(['throttle:site-webhook'])
     ->name('hooks.edge.github');
@@ -103,6 +97,12 @@ Route::match(['post', 'options'], '/hooks/edge/{site}/github', GithubEdgeWebhook
 Route::post('/hooks/telegram', TelegramWebhookController::class)
     ->middleware(['throttle:site-webhook'])
     ->name('hooks.telegram');
+
+// Edge Forms: the Worker forwards screened submissions here, HMAC-signed with
+// a per-app key (EdgeFormIngestController::keyFor).
+Route::post('/hooks/edge/{site}/forms', EdgeFormIngestController::class)
+    ->middleware(['throttle:function-log-ingest'])
+    ->name('hooks.edge.forms');
 
 // Per-site deploy hooks (P10b). Match POST + GET so CMSes that only
 // emit GET pings (Sanity, some Webflow integrations) still work.
@@ -135,6 +135,39 @@ Route::get('/pricing', function () {
 Route::get('/features', function () {
     return view('features');
 })->name('features');
+
+Route::view('/compliance', 'compliance')->name('compliance');
+Route::redirect('/security', '/compliance', 301);
+
+// RFC 9116. A route, not a file in public/, so the contact comes from
+// config('dply.security_email'). Bump Expires at least annually.
+$securityTxt = fn () => response(implode("\n", [
+    'Contact: mailto:'.config('dply.security_email'),
+    'Expires: 2027-09-27T00:00:00.000Z',
+    'Preferred-Languages: en',
+    'Canonical: '.url('/.well-known/security.txt'),
+    'Policy: '.route('compliance').'#disclosure',
+]).
+"\n", 200, ['Content-Type' => 'text/plain; charset=utf-8']);
+Route::get('/.well-known/security.txt', $securityTxt)->name('security-txt');
+Route::get('/security.txt', $securityTxt);
+
+// Public docs, rendered from docs/site/*.md (nav.json is the allow-list).
+// Slugs are [a-z0-9/-] only, so `..`, `.md` and `.txt` never reach `show`.
+Route::redirect('/docs', '/docs/introduction')->name('docs.index');
+Route::get('/docs/llms.txt', [DocsController::class, 'llms'])->name('docs.llms');
+Route::get('/docs/search.json', [DocsController::class, 'search'])->name('docs.search');
+Route::get('/docs/{slug}.md', [DocsController::class, 'markdown'])
+    ->where('slug', '[a-z0-9/-]+')
+    ->name('docs.markdown');
+Route::get('/docs/{slug}', [DocsController::class, 'show'])
+    ->where('slug', '[a-z0-9/-]+')
+    ->name('docs.show');
+
+Route::get('/sitemap.xml', function (DocsSite $docs) {
+    return response()->view('sitemap', ['docs' => array_filter($docs->pages(), fn ($p) => $p['exists'])])
+        ->header('Content-Type', 'application/xml');
+})->name('sitemap');
 
 Route::get('/deploy', function (Request $request) {
     $allowed = ['repo', 'branch', 'name', 'runtime_mode', 'build_command', 'output_dir'];
@@ -190,23 +223,6 @@ Route::middleware(['auth', 'verified', 'org'])->group(function () {
             Route::livewire('/audit', AdminAuditLog::class)->name('audit');
             Route::livewire('/users', Index::class)->name('users.index');
             Route::post('/impersonate/{user}', [ImpersonationController::class, 'start'])->name('impersonate.start');
-            Route::livewire('/flags/all', AdminAllFlags::class)->name('flags.all');
-            Route::livewire('/flags/global', AdminGlobalFlags::class)->name('flags.global');
-            Route::livewire('/flags/edge', AdminProductLineFlags::class)->defaults('line', 'edge')->name('flags.edge');
-            Route::livewire('/flags/platform', AdminProductLineFlags::class)->defaults('line', 'platform')->name('flags.platform');
-            Route::get('/flags/defaults/{group}', function (string $group) {
-                $target = AdminFeatureFlags::legacyDefaultGroupRedirectTarget($group);
-                if ($target === null) {
-                    abort(404);
-                }
-
-                $routeName = AdminFeatureFlags::productLineRoute($target);
-                if ($routeName === null) {
-                    abort(404);
-                }
-
-                return redirect()->route($routeName);
-            })->name('flags.defaults');
             Route::livewire('/organizations', AdminOrganizationsIndex::class)->name('organizations.index');
             Route::livewire('/organizations/{organization}', AdminOrganizationsShow::class)->name('organizations.show');
             Route::livewire('/beta-invites', AdminBetaInvites::class)->name('beta-invites');

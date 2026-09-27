@@ -70,6 +70,14 @@ class GithubEdgeWebhookController extends Controller
         }
 
         if (in_array($action, ['opened', 'reopened', 'synchronize'], true)) {
+            // Previews build with the parent's env and secrets — never for
+            // code from a fork.
+            $headRepo = $pr['head']['repo']['full_name'] ?? null;
+            $baseRepo = $pr['base']['repo']['full_name'] ?? null;
+            if (is_string($headRepo) && is_string($baseRepo) && strcasecmp($headRepo, $baseRepo) !== 0) {
+                return response()->json(['ok' => true, 'queued' => false, 'reason' => 'fork_pull_request', 'branch' => $branch]);
+            }
+
             // Gate against the repo's `previews:` policy in dply.yaml.
             // Disabled globally or branch on the exclude list → skip.
             if (! EdgePreviewPolicy::shouldCreatePreview($site, EdgePreviewPolicy::EVENT_PULL_REQUEST, $branch)) {
@@ -132,6 +140,18 @@ class GithubEdgeWebhookController extends Controller
             ]);
         }
 
+        // Build → "Deploy on push" is the switch; legacy sites without the key deploy.
+        if (($site->edgeMeta()['source']['deploy_on_push'] ?? true) === false) {
+            $this->touchWebhookLastEvent($site);
+
+            return response()->json([
+                'ok' => true,
+                'queued' => false,
+                'reason' => 'deploy_on_push_disabled',
+                'branch' => $branch,
+            ]);
+        }
+
         $changedFiles = EdgeRepoRoot::changedFilesFromPushPayload($payload);
         if (! EdgeRepoRoot::pushTouchesSite($site->edgeRepoRoot(), $changedFiles)) {
             return response()->json([
@@ -158,7 +178,7 @@ class GithubEdgeWebhookController extends Controller
 
     private function verifySignature(Request $request, Site $site, string $signatureHeader): bool
     {
-        if ($signatureHeader === '' || $site->webhook_secret === '') {
+        if ($signatureHeader === '' || blank($site->webhook_secret)) {
             return false;
         }
         $expectedPrefix = 'sha256=';

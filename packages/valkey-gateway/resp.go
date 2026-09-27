@@ -128,6 +128,9 @@ func applyTenant(c *conn, t tenant) error {
 			"-save", "-bgsave", "-bgrewriteaof", "-sync", "-psync", "-failover", "-monitor",
 			"-cluster", "-client|kill", "-migrate"},
 		{"CONFIG", "SET", "maxmemory", strconv.Itoa(t.MemoryMB) + "mb"},
+		// Also here, not only at pod start: a pool pod made by an older
+		// gateway still has the old policy when a tenant adopts it.
+		{"CONFIG", "SET", "maxmemory-policy", "volatile-lru"},
 	}
 	for _, cmd := range commands {
 		reply, err := c.do(cmd...)

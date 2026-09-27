@@ -19,22 +19,11 @@ trait ManagesOrganizationBeta
     /**
      * True while this org is an active closed-beta participant: it redeemed an
      * invite (`beta_joined_at` set) AND the global beta program is still open.
-     * After the cutover this flips false and the org rejoins the normal
-     * plan/trial lifecycle.
+     * A label only: it grants nothing billing-wise (no fee waiver, caps or
+     * seat exemption; ruling r-jnv0r3qf1xk49kmc, "no extra beta perks").
      */
     public function isBeta(): bool
     {
         return data_get($this->getAttributes(), 'beta_joined_at') !== null && BetaProgram::isOpen();
-    }
-
-    /**
-     * True when the dply platform fee is waived this cycle: an active beta org
-     * that has NOT subscribed early. Opting into a paid plan turns the waiver
-     * off (the org wanted to pay) — but the free CX22 stays comped regardless,
-     * via the comped_until column. Drives the $0 plan price in billing.
-     */
-    public function betaFeeWaived(): bool
-    {
-        return $this->isBeta() && ! $this->onAnyPaidPlan();
     }
 }

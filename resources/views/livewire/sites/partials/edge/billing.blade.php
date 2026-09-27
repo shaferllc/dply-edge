@@ -21,14 +21,8 @@
                         <dd class="mt-1 text-xl font-semibold tabular-nums text-brand-ink">${{ number_format(($billing['total_cents'] ?? 0) / 100, 2) }}</dd>
                     </div>
                     <div>
-                        <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ $billing['platform_label'] ?? __('Site fee') }}</dt>
-                        <dd class="mt-1 text-xl font-semibold tabular-nums text-brand-ink">
-                            @if (($billing['platform_cents'] ?? 0) > 0)
-                                ${{ number_format(($billing['platform_cents'] ?? 0) / 100, 2) }}
-                            @else
-                                {{ __('Included') }}
-                            @endif
-                        </dd>
+                        <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Site fee') }}</dt>
+                        <dd class="mt-1 text-xl font-semibold tabular-nums text-brand-ink">{{ __('None') }}</dd>
                     </div>
                     <div>
                         <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Usage MTD') }}</dt>
@@ -53,14 +47,6 @@
                     @endif
                 </dl>
 
-                @if (($billing['usage_billing_enabled'] ?? false) && ! empty($usageDetail['included_requests']))
-                    <p class="mt-3 text-xs text-brand-mist">
-                        {{ __('Includes :requests requests and :egress GB egress before overage.', [
-                            'requests' => number_format((int) ($usageDetail['included_requests'] ?? 0)),
-                            'egress' => number_format(((int) ($usageDetail['included_bytes_egress'] ?? 0)) / (1024 ** 3), 1),
-                        ]) }}
-                    </p>
-                @endif
             </section>
 
             @if (($billing['daily'] ?? []) !== [])
@@ -138,19 +124,16 @@
             <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
                 <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Pricing') }}</p>
                 <p class="mt-2 text-sm text-brand-ink">
-                    {{ __('Sites on your plan are included. On Pro and Team, sites past that count are :extra/mo and Worker SSR sites are :ssr/mo. Usage past the plan is metered.', [
-                        'extra' => '$'.number_format(((int) config('subscription.standard.edge_cents', 200)) / 100, 2),
-                        'ssr' => '$'.number_format(((int) config('subscription.standard.edge_ssr_cents', 700)) / 100, 2),
-                    ]) }}
+                    {{ __('Sites have no fee. Usage is metered, and your plan’s included usage credit pays for it first.') }}
                 </p>
                 @if ($edgeUsageBillingEnabled ?? false)
-                    <p class="mt-2 text-sm text-brand-moss">{{ __('Usage beyond the plan allowance is metered on requests and egress.') }}</p>
+                    <p class="mt-2 text-sm text-brand-moss">{{ __('Delivery is metered on requests and bandwidth.') }}</p>
                     <ul class="mt-2 space-y-1 text-xs text-brand-mist">
                         @if (($edgeUsageRates['requests_per_million'] ?? 0) > 0)
-                            <li>{{ __(':price / million requests', ['price' => '$'.number_format($edgeUsageRates['requests_per_million'], 2)]) }}</li>
+                            <li>{{ __(':price / million requests', ['price' => $edgeUsageRates['requests_per_million_label']]) }}</li>
                         @endif
                         @if (($edgeUsageRates['egress_per_gb'] ?? 0) > 0)
-                            <li>{{ __(':price / GB egress', ['price' => '$'.number_format($edgeUsageRates['egress_per_gb'], 2)]) }}</li>
+                            <li>{{ __(':price / GB bandwidth', ['price' => $edgeUsageRates['egress_per_gb_label']]) }}</li>
                         @endif
                     </ul>
                 @endif

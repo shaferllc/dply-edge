@@ -566,5 +566,20 @@
         @error($p.'webhook_url')
             <p class="mt-1 text-xs text-red-600">{{ $message }}</p>
         @enderror
+        {{-- $channel is the row being edited (the owner's own list), never the client-settable editing_id. --}}
+        @if ($p === 'edit_' && isset($channel) && $channel instanceof \App\Models\NotificationChannel && ($editing_id ?? null) === $channel->id)
+            <x-input-label for="edit_webhook_signing_secret" :value="__('Signing secret')" class="mt-3" />
+            <input
+                id="edit_webhook_signing_secret"
+                type="text"
+                readonly
+                value="{{ \App\Models\NotificationChannel::webhookSigningSecret((string) $channel->id) }}"
+                class="mt-1 block w-full rounded-xl border border-brand-ink/15 bg-brand-sand/20 px-3 py-2 text-xs font-mono shadow-sm"
+                onclick="this.select()"
+            />
+            <p class="mt-1 text-xs text-brand-moss">{{ __('Verify the X-Dply-Signature header with this secret: HMAC-SHA256 of "<timestamp>.<body>".') }}</p>
+        @else
+            <p class="mt-1 text-xs text-brand-moss">{{ __('Every delivery is signed. The signing secret appears when you edit this channel after creating it.') }}</p>
+        @endif
     </div>
 @endif

@@ -5,6 +5,7 @@ namespace Tests;
 use App\Modules\Billing\Services\EdgeOrganizationUsageReader;
 use App\Modules\Billing\Services\OrganizationBillingStateComputer;
 use App\Modules\Notifications\Services\AssignableNotificationChannels;
+use App\Policies\SitePolicy;
 use App\Support\Sites\LinkedOrganizationSecrets;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
@@ -50,6 +51,10 @@ abstract class TestCase extends BaseTestCase
         set_time_limit(0);
 
         $this->withoutVite();
+
+        // Outbound URL checks resolve DNS; answer with a public address so
+        // tests never depend on the network. A test can swap in its own.
+        $this->app->instance('dply.outbound-dns', static fn (string $host): array => ['93.184.216.34']);
 
         // Avoid blocking Livewire tests on SSH; tests that assert queued manage jobs opt in explicitly.
         config(['server_manage.queue_remote_tasks' => false]);
@@ -98,6 +103,7 @@ abstract class TestCase extends BaseTestCase
         OrganizationBillingStateComputer::flushMemo();
         EdgeOrganizationUsageReader::flushMemo();
         AssignableNotificationChannels::flushMemo();
+        SitePolicy::flushAppRoleCache();
 
         parent::tearDown();
     }

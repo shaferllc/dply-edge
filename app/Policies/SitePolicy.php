@@ -24,8 +24,8 @@ class SitePolicy
             return true;
         }
 
-        // Edge per-site members elevate — never restrict — org access.
-        return $this->edgeMemberRank($user, $site) >= EdgeSiteMember::rankFor(EdgeSiteMember::ROLE_VIEWER);
+        // An app role grants view to an org member who could not otherwise see it.
+        return $this->orgRole($user, $site) !== null && $this->appRole($user, $site) !== null;
     }
 
     public function create(User $user): bool
@@ -36,7 +36,7 @@ class SitePolicy
             return false;
         }
 
-        if ($org->userIsDeployer($user)) {
+        if ($org->userHasRestrictedRole($user)) {
             return false;
         }
 
@@ -46,28 +46,69 @@ class SitePolicy
         return $org->canCreateSite();
     }
 
+    /**
+     * Configure the app: settings, env vars, domains, resources, security,
+     * build settings. Org owners/admins always can. Below that, an app role
+     * (EdgeSiteMember) decides when one exists — only app Admin configures —
+     * and otherwise the org role does: members yes, deployers no.
+     */
     public function update(User $user, Site $site): bool
     {
-        $workspace = app(WorkspaceRegistry::class)->for($site);
-        if ($workspace !== null) {
-            if (! $workspace->userCanView($user)) {
-                return false;
-            }
-
-            if ($workspace->userCanUpdate($user)) {
-                return true;
-            }
-
-            return $this->edgeMemberRank($user, $site) >= EdgeSiteMember::rankFor(EdgeSiteMember::ROLE_DEPLOYER);
+        if ($this->isOrgViewer($user, $site)) {
+            return false;
         }
 
-        $server = $this->resolveServer($site);
+        $workspace = app(WorkspaceRegistry::class)->for($site);
+        if ($workspace !== null) {
+            return $workspace->userCanView($user) && $workspace->userCanUpdate($user);
+        }
 
-        if ($server !== null && $user->can('update', $server)) {
+        if (! $this->view($user, $site)) {
+            return false;
+        }
+
+        if ($this->isOrgAdmin($user, $site)) {
             return true;
         }
 
-        return $this->edgeMemberRank($user, $site) >= EdgeSiteMember::rankFor(EdgeSiteMember::ROLE_DEPLOYER);
+        $appRole = $this->appRole($user, $site);
+        if ($appRole !== null) {
+            return EdgeSiteMember::rankFor($appRole) >= EdgeSiteMember::rankFor(EdgeSiteMember::ROLE_ADMIN);
+        }
+
+        return $this->orgRole($user, $site) === 'member';
+    }
+
+    /**
+     * Ship code: deploy, redeploy, roll back, promote/tear down previews,
+     * cancel/restart builds, purge cache. Same resolution as update(), but
+     * app Deployer and org Deployer qualify.
+     */
+    public function deploy(User $user, Site $site): bool
+    {
+        if ($this->isOrgViewer($user, $site)) {
+            return false;
+        }
+
+        $workspace = app(WorkspaceRegistry::class)->for($site);
+        if ($workspace !== null) {
+            return $workspace->userCanView($user) && $workspace->userCanDeploy($user);
+        }
+
+        if (! $this->view($user, $site)) {
+            return false;
+        }
+
+        if ($this->isOrgAdmin($user, $site)) {
+            return true;
+        }
+
+        $appRole = $this->appRole($user, $site);
+        if ($appRole !== null) {
+            return EdgeSiteMember::rankFor($appRole) >= EdgeSiteMember::rankFor(EdgeSiteMember::ROLE_DEPLOYER);
+        }
+
+        return in_array($this->orgRole($user, $site), ['member', 'deployer'], true);
     }
 
     public function clone(User $user, Site $site): bool
@@ -99,24 +140,62 @@ class SitePolicy
             return false;
         }
 
-        if ($this->resolveOrganization($user, $site)?->hasAdminAccess($user) ?? false) {
+        if ($this->isOrgAdmin($user, $site)) {
             return true;
         }
 
-        return $this->edgeMemberRank($user, $site) >= EdgeSiteMember::rankFor(EdgeSiteMember::ROLE_ADMIN);
+        return ! $this->isOrgViewer($user, $site) && $this->appRole($user, $site) === EdgeSiteMember::ROLE_ADMIN;
     }
 
-    private function edgeMemberRank(User $user, Site $site): int
+    /**
+     * The user's app role on this site, or null. Memoized per site+user —
+     * update/deploy run on every @can in a workspace render. Flushed when an
+     * EdgeSiteMember row changes ({@see EdgeSiteMember::booted()}).
+     *
+     * ponytail: process-static memo; a long-running worker that authorizes
+     * after a role change in another process sees the old role until restart.
+     */
+    private function appRole(User $user, Site $site): ?string
     {
         if (! $site->usesEdgeRuntime()) {
-            return 0;
+            return null;
         }
 
-        $role = $site->edgeSiteMembers()
-            ->where('user_id', $user->id)
-            ->value('role');
+        $key = $site->getKey().':'.$user->getKey();
+        if (! array_key_exists($key, self::$appRoleMemo)) {
+            $role = $site->edgeSiteMembers()->where('user_id', $user->id)->value('role');
+            self::$appRoleMemo[$key] = is_string($role) && EdgeSiteMember::isValidRole($role) ? $role : null;
+        }
 
-        return is_string($role) ? EdgeSiteMember::rankFor($role) : 0;
+        return self::$appRoleMemo[$key];
+    }
+
+    /** @var array<string, ?string> */
+    private static array $appRoleMemo = [];
+
+    public static function flushAppRoleCache(): void
+    {
+        self::$appRoleMemo = [];
+    }
+
+    private function orgRole(User $user, Site $site): ?string
+    {
+        return $this->resolveOrganization($user, $site)?->memberRole($user);
+    }
+
+    /** Org Viewers are view-only everywhere: an app role never lifts them (they hold no seat). */
+    private function isOrgViewer(User $user, Site $site): bool
+    {
+        return $this->orgRole($user, $site) === Organization::VIEW_ONLY_ROLE;
+    }
+
+    private function isOrgAdmin(User $user, Site $site): bool
+    {
+        if ($site->organization_id === null) {
+            return (string) $site->user_id === (string) $user->id;
+        }
+
+        return in_array($this->orgRole($user, $site), ['owner', 'admin'], true);
     }
 
     /**

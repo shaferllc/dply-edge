@@ -2,24 +2,22 @@
 
 use App\Console\Scheduling\DplySchedule;
 use App\Http\Middleware\AuthenticateApiToken;
-use App\Http\Middleware\EnforceMaintenanceMode;
 use App\Http\Middleware\EnsureApiTokenAbility;
 use App\Http\Middleware\RedirectGuestsToComingSoon;
 use App\Http\Middleware\SetCurrentOrganization;
 use App\Http\Middleware\StampDebugReference;
 use App\Models\Site;
 use App\Modules\Edge\Http\Middleware\ResolveEdgeCustomDomain;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
 use App\Support\Debug\DebugExceptionDetail;
 use App\Support\DplyRuntime;
 use App\Support\Http\ScannerProbePaths;
 use App\Support\MachineCallbackPaths;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
-use Laravel\Pennant\Middleware\EnsureFeaturesAreActive;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -54,7 +52,6 @@ return Application::configure(basePath: dirname(__DIR__))
             'org' => SetCurrentOrganization::class,
             'auth.api' => AuthenticateApiToken::class,
             'ability' => EnsureApiTokenAbility::class,
-            'feature' => EnsureFeaturesAreActive::class,
         ]);
         // Machine/external callback paths come from the single canonical list
         // (App\Support\MachineCallbackPaths) the guest gates also use, so a new
@@ -77,7 +74,6 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
 
         $middleware->appendToGroup('web', [
-            EnforceMaintenanceMode::class,
             RedirectGuestsToComingSoon::class,
         ]);
     })

@@ -38,20 +38,20 @@ class ComingSoonSignup extends Component
     public function getSuccessMessageProperty(): string
     {
         if ($this->alreadySubscribed) {
-            return __('You are already on the list. We will reach out when access opens up.');
+            return __('You’re already on the list. We’ll be in touch as soon as it opens up.');
         }
 
-        return __('You are on the list. We will let you know as soon as dply is ready.');
+        return __('You’re on the list, thanks! We’ll email you when dply edge opens up.');
     }
 
     public function render(): View
     {
         return view('livewire.marketing.coming-soon-signup', [
             'pageTitle' => __('dply early access'),
-            'metaDescription' => __('Join the dply early-access list and we will contact you when the product is ready.'),
-            'eyebrow' => __('Private preview'),
-            'headline' => __('Infrastructure operations, opening soon.'),
-            'subheadline' => __('Join the list for launch updates and keep `/login` for existing access while we prepare the live rollout.'),
+            'metaDescription' => __('Join the dply edge waitlist. Deploy Laravel, Rails and Node apps, with their databases and queue workers, straight from Git.'),
+            'eyebrow' => __('Waitlist'),
+            'headline' => __('Push a repo. Get the whole app running. Opening soon.'),
+            'subheadline' => __('Leave your email and we’ll let you know when it’s ready: your Laravel, Rails or Node app, its database and queue workers, deployed from Git with nothing to configure first.'),
             'successMessage' => $this->successMessage,
         ])->layout('layouts.status-public', [
             'title' => Str::of(__('dply early access'))->append(' - ', config('app.name'))->value(),

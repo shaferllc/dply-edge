@@ -7,39 +7,59 @@ namespace App\Livewire\Sites\Edge\Workspace;
 use App\Livewire\Concerns\Edge\ManagesEdgeRedeploy;
 use App\Livewire\Concerns\Edge\MountsEdgeWorkspaceSection;
 use App\Livewire\Concerns\Edge\PublishesEdgeHostMap;
+use App\Livewire\Sites\Edge\Workspace\Concerns\Resources\ManagesAiResource;
+use App\Livewire\Sites\Edge\Workspace\Concerns\Resources\ManagesExternalRedisResource;
+use App\Livewire\Sites\Edge\Workspace\Concerns\Resources\ManagesPoolResource;
+use App\Livewire\Sites\Edge\Workspace\Concerns\Resources\ManagesQueueResource;
+use App\Livewire\Sites\Edge\Workspace\Concerns\Resources\ManagesRealtimeBilling;
+use App\Livewire\Sites\Edge\Workspace\Concerns\Resources\ManagesRealtimeResource;
+use App\Livewire\Sites\Edge\Workspace\Concerns\Resources\ManagesSqlResource;
+use App\Livewire\Sites\Edge\Workspace\Concerns\Resources\ManagesStateResource;
+use App\Livewire\Sites\Edge\Workspace\Concerns\Resources\ManagesStorageResources;
+use App\Livewire\Sites\Edge\Workspace\Concerns\Resources\ManagesVectorsResource;
 use App\Models\EdgeDataUsage;
-use App\Models\EdgeDeliveryUsage;
 use App\Models\EdgeDeployment;
 use App\Models\EdgeKvUsage;
+use App\Models\EdgePostgresUsage;
+use App\Models\EdgeRealtimeApp;
 use App\Models\EdgeRedisUsage;
 use App\Models\EdgeSiteEnvVar;
-use App\Models\EdgeUsageSnapshot;
 use App\Models\Server;
 use App\Models\Site;
 use App\Modules\Billing\Services\EdgeAppDatabaseCost;
 use App\Modules\Billing\Services\EdgeContainerComputeCost;
 use App\Modules\Billing\Services\EdgeDataUsageCost;
-use App\Modules\Billing\Services\EdgeDeliveryCost;
 use App\Modules\Billing\Services\EdgeKvCost;
+use App\Modules\Billing\Support\UsagePrice;
+use App\Modules\Edge\Console\ScaleEdgeQueueWorkersCommand;
 use App\Modules\Edge\Jobs\RestoreEdgeDplyPostgresJob;
+use App\Modules\Edge\Jobs\TransferEdgeDplyDatabaseJob;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Edge\Services\EdgeQueueConsumers;
 use App\Modules\Edge\Services\EdgeValkeyUsageCollector;
+use App\Modules\Edge\Services\Realtime\EdgeRealtimeApps;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeContainerPlans;
 use App\Modules\Edge\Support\EdgeContainerSettings;
 use App\Modules\Edge\Support\EdgeDplyDatabase;
+use App\Modules\Edge\Support\EdgeDplyDatabaseStats;
 use App\Modules\Edge\Support\EdgeEffectiveBindings;
+use App\Modules\Edge\Support\EdgeQueueWorkers;
+use App\Modules\Edge\Support\EdgeSizeLadder;
 use App\Modules\Edge\Support\EdgeValkey;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use App\Modules\Providers\Valkey\ValkeyGatewayClient;
 use App\Support\Http\PublicOutboundUrl;
 use App\Support\Http\UnsafeOutboundUrlException;
+use App\Support\Sites\EdgeServiceMap;
 use App\Support\Sites\EdgeSiteViewData;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 /**
@@ -48,7 +68,17 @@ use Livewire\Component;
  */
 class Resources extends Component
 {
+    use ManagesAiResource;
     use ManagesEdgeRedeploy;
+    use ManagesExternalRedisResource;
+    use ManagesPoolResource;
+    use ManagesQueueResource;
+    use ManagesRealtimeBilling;
+    use ManagesRealtimeResource;
+    use ManagesSqlResource;
+    use ManagesStateResource;
+    use ManagesStorageResources;
+    use ManagesVectorsResource;
     use MountsEdgeWorkspaceSection;
     use PublishesEdgeHostMap;
 
@@ -80,6 +110,35 @@ class Resources extends Component
     public bool $stickySessions = true;
 
     public bool $dedicatedJobs = false;
+
+    /**
+     * Queue workers draft (EdgeQueueWorkers): saved with Save and redeploy.
+     *
+     * @var array<string, mixed>
+     */
+    public array $workers = [];
+
+    /** @var array{queues: array<string, int>, failed: ?int}|null */
+    public ?array $workersBacklog = null;
+
+    public ?string $workersBacklogError = null;
+
+    /** @var list<array{name: string, status: string, since: ?int, exit_code: ?int}>|null */
+    public ?array $workersStatus = null;
+
+    /** @var array{total: int, jobs: list<array<string, mixed>>}|null */
+    public ?array $failedJobs = null;
+
+    public ?string $failedJobsError = null;
+
+    public ?string $failedJobsNotice = null;
+
+    public bool $confirmFlushFailed = false;
+
+    public ?string $workersStatusError = null;
+
+    /** @var array<string, array{location: string, region: string, db_ms: ?float, redis_ms: ?float, at: ?string}> */
+    public array $workersPlacement = [];
 
     public bool $migrateOnBoot = false;
 
@@ -131,8 +190,6 @@ class Resources extends Component
 
     public string $connectionMode = 'create';
 
-    public string $queueStyle = '';
-
     public string $connectionLabel = '';
 
     public string $connectionPick = '';
@@ -156,6 +213,13 @@ class Resources extends Component
     public function valkeyPassword(string $host): string
     {
         $this->authorize('update', $this->site);
+
+        return $this->readValkeyPassword($host);
+    }
+
+    /** Server-side use only (stats, backlog): never returned to the browser without update. */
+    private function readValkeyPassword(string $host): string
+    {
         $connection = collect(EdgeContainerConnections::for($this->site))->firstWhere('host', $host);
         if (! is_array($connection) || ! EdgeValkey::isTarget($connection['target'])) {
             return '';
@@ -173,9 +237,10 @@ class Resources extends Component
             if ($connection['host'] !== $host || ! EdgeValkey::isTarget($connection['target']) || ! isset(EdgeValkey::offered()[$class])) {
                 continue;
             }
-            $url = (string) ($this->site->edgeEnvVars()->where('scope', 'production')->where('key', 'REDIS_URL')->first()?->value ?? '');
+            $url = $this->productionRedisUrl();
             try {
-                EdgeValkey::update($connection['target'], $url, $class, $sleep);
+                // An asleep store keeps its short sleep (update would send 0 for Pro).
+                EdgeValkey::setAsleep($connection['target'], $url, $class, $sleep, $connection['asleep']);
             } catch (\Throwable $e) {
                 $this->toastError($e->getMessage());
 
@@ -188,6 +253,11 @@ class Resources extends Component
 
             return;
         }
+    }
+
+    private function productionRedisUrl(): string
+    {
+        return (string) ($this->site->edgeEnvVars()->where('scope', 'production')->where('key', 'REDIS_URL')->first()?->value ?? '');
     }
 
     public string $deleteConnectionHost = '';
@@ -223,6 +293,9 @@ class Resources extends Component
 
     public ?string $valkeyStatsError = null;
 
+    /** @var list<array{at: int, micros: int, command: string, key: string}>|null */
+    public ?array $valkeySlowlog = null;
+
     public function updatedValkeyHost(): void
     {
         if ($this->valkeyHost !== '') {
@@ -251,6 +324,637 @@ class Resources extends Component
         }
     }
 
+    public function addWorkers(): void
+    {
+        $this->authorize('update', $this->site);
+        $saved = is_array($this->site->edgeMeta()['container']['workers'] ?? null);
+        $this->workers = array_merge(EdgeQueueWorkers::normalize($this->workers), ['enabled' => true]);
+        if (! $saved) {
+            // First time: as many processes as the instance comfortably runs.
+            $this->workers['processes'] = EdgeQueueWorkers::recommendedProcesses($this->site);
+        }
+        $this->panel = '';
+        $this->refreshPending();
+    }
+
+    public ?string $schedulerOutput = null;
+
+    /** The Laravel scheduler as a resource: every minute, in a worker when the app has them. */
+    public function addScheduler(): void
+    {
+        $this->authorize('update', $this->site);
+        $this->scheduler = true;
+        $this->panel = '';
+        $this->refreshPending();
+    }
+
+    public function removeScheduler(): void
+    {
+        $this->authorize('update', $this->site);
+        $this->scheduler = false;
+        $this->schedulerOutput = null;
+        $this->refreshPending();
+    }
+
+    /** Run schedule:run once now, in the live app, and show what it printed. */
+    public function runSchedulerNow(): void
+    {
+        $this->authorize('update', $this->site);
+        $url = $this->site->edgeLiveUrl();
+        if (! is_string($url) || $url === '') {
+            $this->schedulerOutput = __('This app has no live URL yet. Deploy it first.');
+
+            return;
+        }
+        try {
+            $response = Http::timeout(120)
+                ->withHeaders(['x-dply-queue-token' => EdgeContainerDeployer::queueToken($this->site)])
+                ->post(rtrim($url, '/').'/_dply/schedule', ['handler' => 'schedule:run']);
+            $body = $response->json();
+            $this->schedulerOutput = is_array($body)
+                ? trim((string) ($body['output'] ?? $body['error'] ?? '')) ?: __('schedule:run finished with nothing to print.')
+                : __('The app answered HTTP :status. Deploy once with the scheduler on so dply/laravel is in the image.', ['status' => $response->status()]);
+        } catch (\Throwable $e) {
+            $this->schedulerOutput = $e->getMessage();
+        }
+    }
+
+    /** Another group of workers for other queues, sized and scaled on its own. */
+    public function addWorkerGroup(): void
+    {
+        $this->authorize('update', $this->site);
+        $groups = array_values((array) ($this->workers['groups'] ?? []));
+        if (count($groups) >= EdgeQueueWorkers::MAX_GROUPS) {
+            return;
+        }
+        $taken = array_map(static fn ($g): string => (string) ($g['queues'] ?? ''), $groups);
+        $groups[] = [
+            'key' => '',
+            'queues' => in_array('high', $taken, true) ? 'group'.(count($groups) + 1) : 'high',
+            'instances' => 1,
+            'processes' => EdgeQueueWorkers::recommendedProcesses($this->site),
+            'autoscale' => false,
+            'max_instances' => 1,
+            'scale_per' => 10,
+            'max_wait' => 60,
+        ];
+        $this->workers['groups'] = $groups;
+        $this->refreshPending();
+    }
+
+    public function removeWorkerGroup(int $index): void
+    {
+        $this->authorize('update', $this->site);
+        $groups = array_values((array) ($this->workers['groups'] ?? []));
+        unset($groups[$index]);
+        $this->workers['groups'] = array_values($groups);
+        $this->refreshPending();
+    }
+
+    public function removeWorkers(): void
+    {
+        $this->authorize('update', $this->site);
+        // Back to the saved settings, off: undoing an unsaved add leaves nothing pending.
+        $this->workers = array_merge(EdgeQueueWorkers::for($this->site), ['enabled' => false]);
+        $this->workersBacklog = null;
+        $this->workersStatus = null;
+        $this->refreshPending();
+    }
+
+    /**
+     * Jobs waiting on the workers' queues, read from Redis or the database
+     * with the app's own login. Reading a sleeping database wakes it.
+     */
+    public function loadWorkersBacklog(): void
+    {
+        $this->authorize('view', $this->site);
+        $this->loadWorkersStatus();
+        $settings = EdgeQueueWorkers::for($this->site);
+        $queues = explode(',', $settings['queues']);
+        $this->workersBacklogError = null;
+        try {
+            if (EdgeQueueWorkers::connection($this->site) === 'redis') {
+                $connection = collect(EdgeContainerConnections::for($this->site))->first(fn (array $c): bool => $c['kind'] === 'redis' && EdgeValkey::isTarget($c['target']));
+                $password = is_array($connection) ? $this->readValkeyPassword($connection['host']) : '';
+                if ($password === '') {
+                    throw new \RuntimeException(__('The backlog can be read from dply Valkey. Deploy once so REDIS_URL is set.'));
+                }
+                $this->workersBacklog = ['queues' => EdgeValkey::queueLengths($connection['target'], $password, $queues), 'failed' => null];
+            } else {
+                $record = $this->dplyDatabaseRecord();
+                if ($record === null) {
+                    throw new \RuntimeException(__('The backlog can be read from a dply database.'));
+                }
+                $this->workersBacklog = EdgeDplyDatabaseStats::queueBacklog((string) $record['engine'], (string) $record['host'], (string) $record['remote_id'], $this->readDatabasePassword(), $queues);
+            }
+        } catch (\Throwable $e) {
+            $this->workersBacklogError = $e->getMessage();
+        }
+    }
+
+    /** Each deployed worker's state, from the live app. Unsaved worker changes are not deployed yet. */
+    private function loadWorkersStatus(): void
+    {
+        $this->workersStatus = null;
+        $this->workersStatusError = null;
+        if (EdgeQueueWorkers::runningInstances($this->site) === 0) {
+            return;
+        }
+        try {
+            $this->workersStatus = EdgeQueueWorkers::status($this->site);
+            try {
+                $this->workersPlacement = EdgeQueueWorkers::placements($this->site);
+            } catch (\Throwable) {
+                $this->workersPlacement = []; // logs unreadable: status still shows
+            }
+        } catch (\Throwable $e) {
+            $this->workersStatusError = __('Could not reach the app for worker status: :error', ['error' => $e->getMessage()]);
+        }
+    }
+
+    /** @var list<array{at: ?string, level: string, message: string}>|null */
+    public ?array $workerLogs = null;
+
+    public ?string $workerLogsError = null;
+
+    public function openWorkerLogs(): void
+    {
+        $this->panel = 'worker-logs';
+        $this->loadWorkerLogs();
+    }
+
+    public function loadWorkerLogs(): void
+    {
+        $this->authorize('view', $this->site);
+        try {
+            $this->workerLogs = EdgeQueueWorkers::logs($this->site);
+            $this->workerLogsError = null;
+        } catch (\Throwable $e) {
+            $this->workerLogs = null;
+            $this->workerLogsError = $e->getMessage();
+        }
+    }
+
+    /** The failed jobs panel: the app's own failed-job store, read through the live app. */
+    public function openFailedJobs(): void
+    {
+        $this->authorize('view', $this->site);
+        $this->panel = 'failed-jobs';
+        $this->confirmFlushFailed = false;
+        $this->failedJobsNotice = null;
+        $this->loadFailedJobs();
+    }
+
+    public function loadFailedJobs(): void
+    {
+        $this->authorize('view', $this->site);
+        $this->failedJobsError = null;
+        try {
+            $body = $this->appCommand('failed-jobs');
+            $this->failedJobs = ['total' => (int) ($body['total'] ?? 0), 'jobs' => array_values(array_filter((array) ($body['jobs'] ?? []), 'is_array'))];
+        } catch (\Throwable $e) {
+            $this->failedJobs = null;
+            $this->failedJobsError = $e->getMessage();
+        }
+    }
+
+    /** Retry one failed job, or every one when $id is null. */
+    public function retryFailedJobs(?string $id = null): void
+    {
+        $this->authorize('update', $this->site);
+        $this->runFailedJobsAction('retry', $id === null ? [] : [$id], $id === null ? __('Every failed job is back on its queue.') : __('The job is back on its queue.'));
+    }
+
+    public function forgetFailedJob(string $id): void
+    {
+        $this->authorize('update', $this->site);
+        $this->runFailedJobsAction('forget', [$id], __('Deleted the failed job.'));
+    }
+
+    public function flushFailedJobs(): void
+    {
+        $this->authorize('update', $this->site);
+        if (! $this->confirmFlushFailed) {
+            $this->confirmFlushFailed = true;
+
+            return;
+        }
+        $this->confirmFlushFailed = false;
+        $this->runFailedJobsAction('flush-failed', [], __('Deleted every failed job.'));
+    }
+
+    /** @param  list<string>  $ids */
+    private function runFailedJobsAction(string $command, array $ids, string $done): void
+    {
+        $this->failedJobsError = null;
+        try {
+            $this->appCommand($command, ['ids' => $ids]);
+            $this->failedJobsNotice = $done;
+        } catch (\Throwable $e) {
+            $this->failedJobsError = $e->getMessage();
+
+            return;
+        }
+        $this->loadFailedJobs();
+        $this->workersBacklog = null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $input
+     * @return array<string, mixed>
+     */
+    private function appCommand(string $command, array $input = []): array
+    {
+        return EdgeQueueWorkers::command($this->site, $command, $input);
+    }
+
+    /** Stop every worker (running jobs finish) until resumed; or resume. */
+    public function pauseWorkers(bool $paused = true): void
+    {
+        $this->authorize('update', $this->site);
+        try {
+            $failed = collect(EdgeQueueWorkers::pause($this->site, $paused))->reject(fn (array $w): bool => $w['ok']);
+        } catch (\Throwable $e) {
+            $this->toastError(__('Could not reach the app: :error', ['error' => $e->getMessage()]));
+
+            return;
+        }
+        $this->site->refresh();
+        $this->workers['paused'] = $paused;
+        $this->refreshPending();
+        if ($failed->isNotEmpty()) {
+            $this->workersStatusError = $failed->map(fn (array $w): string => $w['name'].': '.$w['error'])->implode(' · ');
+        }
+        $this->toastSuccess($paused ? __('Workers paused. Running jobs finish first.') : __('Workers resumed.'));
+        $this->loadWorkersStatus();
+    }
+
+    /** Queue one test job through the app and let the workers pick it up. */
+    public function sendTestJob(): void
+    {
+        $this->authorize('update', $this->site);
+        try {
+            $sent = EdgeQueueWorkers::sendTestJobs($this->site);
+        } catch (\Throwable $e) {
+            $this->toastError(__('Could not queue a test job: :error', ['error' => $e->getMessage()]));
+
+            return;
+        }
+        $expected = EdgeQueueWorkers::connection($this->site);
+        if ($expected !== null && $sent['connection'] !== $expected) {
+            $this->toastError(__('The app queued it on :actual, but the workers read :expected. Redeploy so the app dispatches to :expected.', ['actual' => $sent['connection'], 'expected' => $expected]));
+
+            return;
+        }
+        $this->toastSuccess(__('Test job queued on :queue. It shows in Logs as it runs.', ['queue' => $sent['queue']]));
+    }
+
+    public function startWorkers(): void
+    {
+        $this->authorize('update', $this->site);
+        try {
+            $failed = collect(EdgeQueueWorkers::start($this->site))->reject(fn (array $w): bool => $w['ok']);
+        } catch (\Throwable $e) {
+            $this->toastError(__('Could not reach the app to start the workers: :error', ['error' => $e->getMessage()]));
+
+            return;
+        }
+        if ($failed->isNotEmpty()) {
+            $this->workersStatusError = $failed->map(fn (array $w): string => $w['name'].': '.($w['error'] ?? __('did not start')))->implode(' · ');
+            $this->toastError(__('Some workers did not start.'));
+
+            return;
+        }
+        $this->toastSuccess(__('Workers started.'));
+        $this->loadWorkersStatus();
+    }
+
+    /** Database panel: gateway state (never wakes it) and the agent's backup report. */
+    public ?array $databaseStatus = null;
+
+    public ?array $databaseBackup = null;
+
+    /** Database panel: live numbers from the database itself (wakes it). */
+    public ?array $databaseStats = null;
+
+    public ?string $databaseStatsError = null;
+
+    /**
+     * The app's dply database record, or null when it has none (or SQLite).
+     *
+     * @return array<string, mixed>|null
+     */
+    private function dplyDatabaseRecord(): ?array
+    {
+        $record = $this->site->edgeMeta()['database'] ?? null;
+
+        return is_array($record) && ($record['provider'] ?? '') === 'dply' && ($record['remote_id'] ?? '') !== '' ? $record : null;
+    }
+
+    public function loadDatabaseStatus(): void
+    {
+        $this->authorize('view', $this->site);
+        $record = $this->dplyDatabaseRecord();
+        if ($record === null) {
+            return;
+        }
+        $client = ValkeyGatewayClient::fromConfig(EdgeDplyDatabase::regionOf($record));
+        try {
+            $this->databaseStatus = $client->get((string) $record['remote_id']);
+        } catch (\Throwable $e) {
+            $this->databaseStatsError = $e->getMessage();
+        }
+        try {
+            $this->databaseBackup = $client->backupStatus((string) $record['remote_id']);
+        } catch (\Throwable) {
+            // An asleep database's agent is not running; the stored record still shows.
+        }
+    }
+
+    public function loadDatabaseStats(): void
+    {
+        $this->authorize('view', $this->site);
+        $record = $this->dplyDatabaseRecord();
+        // MongoDB stats come from its agent, not the app's login.
+        $password = ($record['engine'] ?? '') === 'mongodb' ? '' : $this->readDatabasePassword();
+        if ($record === null || ($password === '' && ($record['engine'] ?? '') !== 'mongodb')) {
+            $this->databaseStatsError = __('No password on this app yet. Deploy once so the database address is set.');
+
+            return;
+        }
+        try {
+            $this->databaseStats = EdgeDplyDatabaseStats::read((string) $record['engine'], (string) $record['host'], (string) $record['remote_id'], $password, EdgeDplyDatabase::regionOf($record));
+            $this->databaseStatsError = null;
+        } catch (\Throwable $e) {
+            $this->databaseStatsError = $e->getMessage();
+        }
+        $this->loadDatabaseStatus();
+    }
+
+    /** Database panel: queries, health, extensions (dbagent insights). */
+    public ?array $databaseInsights = null;
+
+    public ?string $databaseInsightsError = null;
+
+    public string $databaseConsoleSql = '';
+
+    public string $databaseConsoleCollection = '';
+
+    public string $databaseConsoleFilter = '{}';
+
+    public ?array $databaseConsoleResult = null;
+
+    public ?string $databaseConsoleError = null;
+
+    /** @var list<array{file: string, key: string, bytes: int, at: string, url: string}>|null */
+    public ?array $databaseExports = null;
+
+    public string $databaseImportFile = '';
+
+    public ?string $databaseUploadCommand = null;
+
+    /**
+     * Insights. Opening the panel reads the snapshot the agent took before its
+     * last stop, which never wakes the database; $live (Refresh) wakes it.
+     */
+    public function loadDatabaseInsights(bool $live = false): void
+    {
+        $this->authorize($live ? 'update' : 'view', $this->site);
+        $record = $this->dplyDatabaseRecord();
+        if ($record === null) {
+            return;
+        }
+        try {
+            $this->databaseInsights = ValkeyGatewayClient::fromConfig(EdgeDplyDatabase::regionOf($record))->insights((string) $record['remote_id'], ! $live);
+            $this->databaseInsightsError = null;
+        } catch (\Throwable $e) {
+            $this->databaseInsightsError = $this->databaseAgentMessage($e);
+        }
+    }
+
+    public function resetDatabaseQueries(): void
+    {
+        if ($this->databaseAgent('queries-reset') !== null) {
+            $this->toastSuccess(__('Query counts start fresh from now.'));
+            $this->loadDatabaseInsights(true);
+        }
+    }
+
+    public function cancelDatabaseQuery(int $pid): void
+    {
+        $out = $this->databaseAgent('cancel', ['pid' => $pid]);
+        if ($out !== null) {
+            ($out['ok'] ?? false) ? $this->toastSuccess(__('Cancelled.')) : $this->toastError(__('That query had already finished.'));
+            $this->loadDatabaseInsights(true);
+        }
+    }
+
+    public function enableDatabaseExtension(string $name): void
+    {
+        if ($this->databaseAgent('extension', ['name' => $name]) !== null) {
+            $this->toastSuccess(__(':name is on.', ['name' => $name]));
+            $this->loadDatabaseInsights(true);
+        }
+    }
+
+    /** One read-only statement (a find for MongoDB), at most 200 rows. */
+    public function runDatabaseConsole(): void
+    {
+        $this->authorize('update', $this->site);
+        $record = $this->dplyDatabaseRecord();
+        if ($record === null) {
+            return;
+        }
+        $body = ($record['engine'] ?? '') === 'mongodb'
+            ? ['collection' => trim($this->databaseConsoleCollection), 'filter' => trim($this->databaseConsoleFilter) ?: '{}']
+            : ['sql' => $this->databaseConsoleSql];
+        try {
+            $this->databaseConsoleResult = ValkeyGatewayClient::fromConfig(EdgeDplyDatabase::regionOf($record))->action((string) $record['remote_id'], 'query', $body);
+            $this->databaseConsoleError = null;
+        } catch (\Throwable $e) {
+            $this->databaseConsoleResult = null;
+            $this->databaseConsoleError = $this->databaseAgentMessage($e);
+        }
+    }
+
+    /**
+     * Turn the read-only login (app_ro) on with a fresh password, returned
+     * once to the page, or off. Postgres and MongoDB only: the MySQL gateway
+     * checks passwords itself.
+     */
+    public function setDatabaseReadonlyLogin(bool $on): string
+    {
+        $password = $on ? bin2hex(random_bytes(16)) : '';
+        if ($this->databaseAgent('readonly', ['password' => $password]) === null) {
+            return '';
+        }
+        $this->site->mergeEdgeMeta(['database' => array_merge($this->site->edgeMeta()['database'] ?? [], ['readonly' => $on])]);
+        $this->site->save();
+        $on ? $this->toastSuccess(__('Read-only login on. Copy the password now; it is not shown again.')) : $this->toastSuccess(__('Read-only login off.'));
+
+        return $password;
+    }
+
+    public function loadDatabaseExports(): void
+    {
+        $this->authorize('view', $this->site);
+        $record = $this->dplyDatabaseRecord();
+        if ($record === null) {
+            return;
+        }
+        try {
+            $this->databaseExports = array_reverse(ValkeyGatewayClient::fromConfig(EdgeDplyDatabase::regionOf($record))->databaseExports((string) $record['remote_id']));
+        } catch (\Throwable $e) {
+            $this->databaseExports = null;
+            $this->databaseInsightsError = $this->databaseAgentMessage($e);
+        }
+    }
+
+    public function exportDatabase(): void
+    {
+        $this->startDatabaseTransfer('export', '');
+    }
+
+    /** Load a file into this database: one it exported, or one uploaded to its imports. */
+    public function importDatabase(string $from, string $file): void
+    {
+        $record = $this->dplyDatabaseRecord();
+        if ($record === null || ! in_array($from, ['exports', 'imports'], true) || preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/', $file) !== 1) {
+            $this->toastError(__('Pick a file to load.'));
+
+            return;
+        }
+        // Built from this database's own id: never a key from the browser.
+        $this->startDatabaseTransfer('import', 'tenants/'.$record['remote_id'].'/'.$from.'/'.$file);
+    }
+
+    /** A curl command that uploads a dump to this database's imports, valid an hour. */
+    public function prepareDatabaseUpload(): void
+    {
+        $this->authorize('update', $this->site);
+        $record = $this->dplyDatabaseRecord();
+        $file = trim($this->databaseImportFile);
+        if ($record === null || preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/', $file) !== 1) {
+            $this->toastError(__('Name the file: letters, digits, dot, dash and underscore.'));
+
+            return;
+        }
+        try {
+            $link = ValkeyGatewayClient::fromConfig(EdgeDplyDatabase::regionOf($record))->databaseUploadLink((string) $record['remote_id'], $file);
+            $this->databaseUploadCommand = 'curl -fT '.escapeshellarg($file).' '.escapeshellarg($link['url']);
+        } catch (\Throwable $e) {
+            $this->toastError($this->databaseAgentMessage($e));
+        }
+    }
+
+    private function startDatabaseTransfer(string $kind, string $key): void
+    {
+        $this->authorize('update', $this->site);
+        $database = $this->dplyDatabaseRecord();
+        if ($database === null) {
+            return;
+        }
+        $running = $database['transfer'] ?? null;
+        // A job lasts at most an hour; past that a "running" row is a dead worker.
+        if (is_array($running) && ($running['status'] ?? '') === 'running' && Carbon::parse($running['started_at'] ?? 'now')->gt(now()->subMinutes(70))) {
+            $this->toastError(__('An export or import is already running.'));
+
+            return;
+        }
+        $this->site->mergeEdgeMeta(['database' => array_merge($database, ['transfer' => ['status' => 'running', 'kind' => $kind, 'file' => basename($key), 'started_at' => now()->toIso8601String()]])]);
+        $this->site->save();
+        TransferEdgeDplyDatabaseJob::dispatch((string) $this->site->id, $kind, $key);
+    }
+
+    /** @param array<string, mixed> $body */
+    private function databaseAgent(string $name, array $body = []): ?array
+    {
+        $this->authorize('update', $this->site);
+        $record = $this->dplyDatabaseRecord();
+        if ($record === null) {
+            return null;
+        }
+        try {
+            return ValkeyGatewayClient::fromConfig(EdgeDplyDatabase::regionOf($record))->action((string) $record['remote_id'], $name, $body);
+        } catch (\Throwable $e) {
+            $this->toastError($this->databaseAgentMessage($e));
+
+            return null;
+        }
+    }
+
+    /**
+     * A gateway or database agent from before insights answers 404: say it
+     * arrives with the update instead of showing "404 page not found".
+     */
+    private function databaseAgentMessage(\Throwable $e): string
+    {
+        $message = trim($e->getMessage());
+        if (preg_match('/\b404\b|page not found|not available for this engine|unknown action/i', $message) === 1) {
+            return __('This arrives with the next database update. A database moves onto it after its next sleep.');
+        }
+        if (preg_match('/timed out|timeout/i', $message) === 1) {
+            return __('The database is still waking up (the first start on a machine can take up to a minute). Try again in a few seconds.');
+        }
+
+        return $message;
+    }
+
+    /**
+     * The app's database password, read from its env only when asked for, so
+     * it is not in the page until someone who can edit the app clicks Show.
+     */
+    public function databasePassword(): string
+    {
+        $this->authorize('update', $this->site);
+
+        return $this->readDatabasePassword();
+    }
+
+    /** Server-side use only (stats, backlog): never returned to the browser without update. */
+    private function readDatabasePassword(): string
+    {
+        $record = $this->dplyDatabaseRecord();
+        if ($record === null) {
+            return '';
+        }
+        $env = fn (string $key): string => (string) ($this->site->edgeEnvVars()->where('scope', 'production')->where('key', $key)->first()?->value ?? '');
+        if (($record['engine'] ?? '') === 'mongodb') {
+            return rawurldecode((string) (parse_url($env('MONGODB_URI'), PHP_URL_PASS) ?? ''));
+        }
+
+        return $env('DB_PASSWORD');
+    }
+
+    /**
+     * This month's awake time and storage, and awake hours for each of the
+     * last 14 days (for the chart).
+     *
+     * @return array{awake_seconds: int, storage_gb_hours: float, days: list<array{date: string, hours: float}>}
+     */
+    private function databaseUsage(): array
+    {
+        $rows = EdgePostgresUsage::query()->where('site_id', $this->site->id)
+            ->where('date', '>=', now()->subDays(40)->toDateString())
+            ->get(['date', 'compute_unit_seconds', 'storage_byte_hours'])
+            ->keyBy(fn ($row) => $row->date->toDateString());
+        $month = $rows->filter(fn ($row) => $row->date->isSameMonth(now()));
+        // Usage is in compute units (1 CU = 4 GB awake for a second): divide by
+        // this database's size to get wall-clock awake time.
+        $cu = (float) (EdgeAppDatabase::POSTGRES_SIZES[(string) ($this->dplyDatabaseRecord()['size'] ?? '0.25')]['cu'] ?? 0.25);
+        $days = [];
+        for ($i = 13; $i >= 0; $i--) {
+            $date = now()->subDays($i)->toDateString();
+            $days[] = ['date' => $date, 'hours' => round(((int) ($rows[$date]->compute_unit_seconds ?? 0)) / $cu / 3600, 1)];
+        }
+
+        return [
+            'awake_seconds' => (int) round($month->sum('compute_unit_seconds') / $cu),
+            'storage_gb_hours' => round($month->sum('storage_byte_hours') / 1024 ** 3, 1),
+            'days' => $days,
+        ];
+    }
+
     public function loadValkeyStatus(): void
     {
         $this->authorize('view', $this->site);
@@ -259,7 +963,7 @@ class Resources extends Component
             return;
         }
         try {
-            $this->valkeyStatus = ValkeyGatewayClient::fromConfig()->get(EdgeValkey::tenantId($connection['target']));
+            $this->valkeyStatus = ValkeyGatewayClient::fromConfig(EdgeValkey::region($connection['target']))->get(EdgeValkey::tenantId($connection['target']));
             $this->valkeyStatsError = null;
         } catch (\Throwable $e) {
             $this->valkeyStatsError = $e->getMessage();
@@ -268,7 +972,8 @@ class Resources extends Component
 
     public function loadValkeyStats(): void
     {
-        $password = $this->valkeyPassword($this->valkeyHost);
+        $this->authorize('view', $this->site);
+        $password = $this->readValkeyPassword($this->valkeyHost);
         $connection = collect(EdgeContainerConnections::for($this->site))->firstWhere('host', $this->valkeyHost);
         if (! is_array($connection) || $password === '') {
             $this->valkeyStatsError = __('No password on this app yet. Deploy once so REDIS_URL is set.');
@@ -278,6 +983,11 @@ class Resources extends Component
         try {
             $this->valkeyStats = EdgeValkey::stats($connection['target'], $password);
             $this->valkeyStatsError = null;
+            try {
+                $this->valkeySlowlog = ValkeyGatewayClient::fromConfig(EdgeValkey::region($connection['target']))->slowlog(EdgeValkey::tenantId($connection['target']))['entries'];
+            } catch (\Throwable) {
+                $this->valkeySlowlog = null; // an older gateway: stats still show
+            }
         } catch (\Throwable $e) {
             $this->valkeyStatsError = $e->getMessage();
         }
@@ -322,7 +1032,8 @@ class Resources extends Component
     /** Test tab: connect like the app does and time a few commands. */
     public function testValkey(): void
     {
-        $password = $this->valkeyPassword($this->valkeyHost);
+        $this->authorize('view', $this->site);
+        $password = $this->readValkeyPassword($this->valkeyHost);
         $connection = collect(EdgeContainerConnections::for($this->site))->firstWhere('host', $this->valkeyHost);
         if (! is_array($connection) || $password === '') {
             $this->valkeyTest = ['ok' => false, 'error' => __('No password on this app yet. Deploy once so REDIS_URL is set.'), 'steps' => [], 'ping_median_ms' => null, 'ping_max_ms' => null];
@@ -372,14 +1083,21 @@ class Resources extends Component
     /** @var list<array{key: string, size: int}> */
     public array $objectList = [];
 
-    /** @var list<array{id: string, label: string}> */
+    /**
+     * The organization's own resources, from catalog(). Locked: attach saves
+     * whichever id is picked from this list, so the browser must not add one.
+     *
+     * @var list<array{id: string, label: string}>
+     */
+    #[Locked]
     public array $connectionOptions = [];
 
     public function mount(Server $server, Site $site): void
     {
         $this->mountEdgeWorkspaceSection($server, $site);
+        // Saves on this same instance; a refresh() here only re-ran every
+        // loaded relation (server, preview domains) for nothing.
         EdgeContainerConnections::prefixBareHosts($site);
-        $this->site->refresh();
         if (($site->edgeMeta()['runtime_mode'] ?? '') === 'container') {
             $settings = EdgeContainerSettings::for($site);
             $this->sleepAfter = $settings['sleep_after'];
@@ -388,6 +1106,7 @@ class Resources extends Component
             $this->scheduler = $settings['scheduler'];
             $this->stickySessions = $settings['sticky_sessions'];
             $this->dedicatedJobs = $settings['dedicated_jobs'];
+            $this->workers = EdgeQueueWorkers::for($this->site);
             $this->migrateOnBoot = $settings['migrate_on_boot'];
             $this->rolloutMode = $settings['rollout_mode'];
             $this->rolloutSteps = implode(', ', $settings['rollout_step_percentage']);
@@ -413,14 +1132,19 @@ class Resources extends Component
             $this->regions = EdgeContainerSettings::normalizeRegions($this->regions, $this->jurisdiction);
         }
 
-        if (in_array($name, ['draftInstanceType', 'sleepAfter', 'jurisdiction', 'scheduler', 'stickySessions', 'dedicatedJobs', 'migrateOnBoot', 'customVcpu', 'customMemoryGib', 'customDiskGb', 'rolloutMode', 'rolloutSteps', 'rolloutGraceSeconds'], true) || str_starts_with($name, 'regions')) {
+        // Auto-save persists these straight away, so hold them to saveRuntime's rules first.
+        if (array_key_exists($name, $this->runtimeRules())) {
+            $this->validateOnly($name, $this->runtimeRules());
+        }
+
+        if (in_array($name, ['draftInstanceType', 'sleepAfter', 'jurisdiction', 'scheduler', 'stickySessions', 'dedicatedJobs', 'migrateOnBoot', 'customVcpu', 'customMemoryGib', 'customDiskGb', 'rolloutMode', 'rolloutSteps', 'rolloutGraceSeconds'], true) || str_starts_with($name, 'regions') || str_starts_with($name, 'workers.')) {
             $this->refreshPending();
         }
     }
 
     public function openPanel(string $panel): void
     {
-        if ($panel !== '' && ! in_array($panel, ['sleep', 'cache', 'databases', 'connection', 'delete-connection', 'browser', 'estimate'], true)) {
+        if ($panel !== '' && ! in_array($panel, ['sleep', 'cache', 'databases', 'connection', 'delete-connection', 'browser', 'estimate', 'failed-jobs', 'worker-logs'], true)) {
             return;
         }
 
@@ -469,6 +1193,17 @@ class Resources extends Component
         $this->refreshPending();
     }
 
+    /** @return array<string, list<string>> */
+    private function runtimeRules(): array
+    {
+        return [
+            'sleepAfter' => ['required', 'in:'.implode(',', EdgeContainerSettings::SLEEP_AFTER)],
+            'jurisdiction' => ['in:'.implode(',', EdgeContainerSettings::JURISDICTIONS)],
+            'rolloutMode' => ['required', 'in:'.implode(',', EdgeContainerSettings::ROLLOUT_MODES)],
+            'rolloutGraceSeconds' => ['integer', 'between:0,'.EdgeContainerSettings::ROLLOUT_GRACE_MAX],
+        ];
+    }
+
     public function saveRuntime(): void
     {
         $this->authorize('update', $this->site);
@@ -476,12 +1211,7 @@ class Resources extends Component
             return;
         }
 
-        $this->validate([
-            'sleepAfter' => ['required', 'in:'.implode(',', EdgeContainerSettings::SLEEP_AFTER)],
-            'jurisdiction' => ['in:'.implode(',', EdgeContainerSettings::JURISDICTIONS)],
-            'rolloutMode' => ['required', 'in:'.implode(',', EdgeContainerSettings::ROLLOUT_MODES)],
-            'rolloutGraceSeconds' => ['integer', 'between:0,'.EdgeContainerSettings::ROLLOUT_GRACE_MAX],
-        ]);
+        $this->validate($this->runtimeRules());
         $stepsError = EdgeContainerSettings::rolloutStepsError($this->rolloutSteps);
         if ($stepsError !== null) {
             $this->addError('rolloutSteps', $stepsError);
@@ -521,6 +1251,11 @@ class Resources extends Component
     {
         $this->authorize('update', $this->site);
         if ($this->allowedKinds() === []) {
+            return;
+        }
+        if (! EdgeContainerConnections::paidFeatures($this->site->organization)) {
+            $this->toastError(EdgeContainerConnections::paidOnlyReason());
+
             return;
         }
         $this->site->mergeEdgeMeta(['browser' => true, 'connections' => $this->connectionsWithoutBrowser()]);
@@ -658,6 +1393,7 @@ class Resources extends Component
         $this->authorize('update', $this->site);
         $this->kvDemoPreview = '';
         $this->kvDemoLog = [];
+        $this->kvDemoMeta = null;
         $this->resetErrorBag('kvDemo');
 
         $connection = collect(EdgeContainerConnections::for($this->site))->firstWhere('host', $this->kvHost);
@@ -688,13 +1424,20 @@ class Resources extends Component
 
                     return;
                 }
-                $client->putKvValue($namespace, $key, $this->kvDemoValue);
-                $this->kvDemoLog[] = __('Saved :key.', ['key' => $key]);
+                $ttl = trim($this->kvDemoTtl);
+                if ($ttl !== '' && (! ctype_digit($ttl) || (int) $ttl < 60)) {
+                    $this->kvDemoLog[] = __('Expire after at least 60 seconds, or leave it empty to keep the key.');
+
+                    return;
+                }
+                $client->putKvValue($namespace, $key, $this->kvDemoValue, $ttl === '' ? null : (int) $ttl);
+                $this->kvDemoLog[] = $ttl === '' ? __('Saved :key.', ['key' => $key]) : __('Saved :key. It expires in :seconds seconds.', ['key' => $key, 'seconds' => number_format((int) $ttl)]);
                 $this->kvDemoPreview = $this->kvDemoValue;
             } elseif ($action === 'read') {
                 $value = $client->getKvValue($namespace, $key);
                 $this->kvDemoLog[] = $value === null ? __('No value for :key.', ['key' => $key]) : __('Read :key.', ['key' => $key]);
                 $this->kvDemoPreview = $value ?? '';
+                $this->kvDemoMeta = $value === null ? null : $this->kvKeyDetails($client, $namespace, $key);
             } elseif ($action === 'delete') {
                 $client->deleteKvValue($namespace, $key);
                 $this->kvDemoLog[] = __('Deleted :key.', ['key' => $key]);
@@ -713,6 +1456,7 @@ class Resources extends Component
         $connection = $this->kvConnection();
         if ($connection === null) {
             $this->kvKeys = [];
+            $this->kvCursor = null;
             $this->kvReads = $this->kvWrites = $this->kvDeletes = $this->kvLists = $this->kvStorageBytes = $this->kvMonthCents = 0;
 
             return;
@@ -721,8 +1465,11 @@ class Resources extends Component
         $this->kvName = EdgeContainerConnections::resourceLabel($connection['host']);
         $this->loadKvUsage($connection['target']);
 
+        $this->kvCursor = null;
         try {
-            $this->kvKeys = EdgeCloudflareClient::fromConfig()->listKvKeys($connection['target']);
+            $page = EdgeCloudflareClient::fromConfig()->listKvKeysPage($connection['target'], null, trim($this->kvPrefix));
+            $this->kvKeys = array_column($page['keys'], 'name');
+            $this->kvCursor = $page['cursor'];
         } catch (\Throwable) {
             $this->kvKeys = [];
             $this->addError('kvSettings', __('The store did not answer.'));
@@ -733,8 +1480,10 @@ class Resources extends Component
     {
         $this->authorize('update', $this->site);
         $this->kvHost = $host;
+        $this->kvPrefix = '';
         $this->kvDemoPreview = '';
         $this->kvDemoLog = [];
+        $this->kvDemoMeta = null;
         $this->resetErrorBag('kvSettings');
         $this->refreshKv();
         $this->dispatch('open-modal', 'resources-kv');
@@ -832,16 +1581,20 @@ class Resources extends Component
     {
         $this->authorize('update', $this->site);
         $this->objectHost = $host;
+        $this->objectPrefix = '';
         $this->objectPreview = '';
         $this->objectLog = [];
         $this->resetErrorBag('object');
         $this->refreshObjectList();
+        $connection = $this->objectConnection();
+        $this->objectUsage = $connection === null ? null : $this->objectBucketUsage($connection['target']);
     }
 
     public function refreshObjectList(): void
     {
         $this->authorize('update', $this->site);
         $connection = $this->objectConnection();
+        $this->objectCursor = null;
         if ($connection === null) {
             $this->objectList = [];
 
@@ -849,7 +1602,9 @@ class Resources extends Component
         }
 
         try {
-            $this->objectList = EdgeCloudflareClient::fromConfig()->listR2Objects($connection['target']);
+            $page = EdgeCloudflareClient::fromConfig()->listR2ObjectsPage($connection['target'], null, trim($this->objectPrefix));
+            $this->objectList = $page['objects'];
+            $this->objectCursor = $page['cursor'];
         } catch (\Throwable) {
             $this->objectList = [];
             $this->addError('object', __('The bucket did not answer.'));
@@ -898,7 +1653,7 @@ class Resources extends Component
             } else {
                 $this->objectLog[] = __('Choose read, write, or delete.');
             }
-            $this->objectList = $client->listR2Objects($bucket);
+            $this->refreshObjectList();
         } catch (\Throwable) {
             $this->objectLog[] = __('Stopped: :message', ['message' => __('The bucket did not answer.')]);
             $this->addError('object', __('The bucket did not answer.'));
@@ -967,11 +1722,7 @@ class Resources extends Component
      */
     private function cardOnFile(): bool
     {
-        if (app()->isLocal() && config('edge.skip_card_check')) {
-            return true;
-        }
-
-        return (bool) $this->site->organization?->onAnyPaidPlan();
+        return EdgeContainerConnections::cardOnFile($this->site->organization);
     }
 
     private function allowedKinds(): array
@@ -1020,17 +1771,36 @@ class Resources extends Component
         return $owners;
     }
 
+    /**
+     * Workers on the database queue keep a sleeping database awake. Queue on
+     * dply Valkey instead: point the workers at Redis and open its setup.
+     */
+    public function useValkeyForWorkers(): void
+    {
+        $this->authorize('update', $this->site);
+        $this->workers['connection'] = 'redis';
+        $this->panel = 'connection';
+        $this->chooseConnectionKind('redis');
+        $this->refreshPending();
+    }
+
     public function chooseConnectionKind(string $kind): void
     {
-        if (! isset(EdgeContainerConnections::KINDS[$kind]) || ! in_array($kind, $this->allowedKinds(), true)) {
+        if (! isset(EdgeContainerConnections::KINDS[$kind]) || ! in_array($kind, $this->allowedKinds(), true) || in_array($kind, EdgeContainerConnections::HIDDEN_FROM_BUILDER, true)) {
             return;
         }
         $this->connectionKind = $kind;
-        $this->queueStyle = '';
-        $this->connectionMode = in_array($kind, EdgeContainerConnections::CREATABLE, true) || $kind === 'redis' || $kind === 'http_delivery' ? 'create' : 'attach';
+        $this->connectionMode = in_array($kind, EdgeContainerConnections::CREATABLE, true) || in_array($kind, ['redis', 'realtime'], true) ? 'create' : 'attach';
         $this->reset('connectionLabel', 'connectionPick', 'connectionOptions');
         $this->resetErrorBag('connection');
         if (in_array($kind, EdgeContainerConnections::ENABLE, true)) {
+            $refused = EdgeContainerConnections::attachError($this->site, $kind, '');
+            if ($refused !== null) {
+                $this->connectionKind = '';
+                $this->toastError($refused);
+
+                return;
+            }
             $this->storeConnection(strtoupper($kind), $kind.'.internal', '');
 
             return;
@@ -1042,7 +1812,7 @@ class Resources extends Component
         if ($kind === 'service') {
             $this->connectionOptions = array_map(static fn (array $peer): array => ['id' => $peer['id'], 'label' => $peer['label']], EdgeContainerConnections::peerApps($this->site));
         } elseif ($this->connectionMode === 'attach' && in_array($kind, EdgeContainerConnections::CREATABLE, true)) {
-            $this->connectionOptions = EdgeContainerConnections::catalog($kind);
+            $this->connectionOptions = EdgeContainerConnections::catalog($kind, $this->site->organization);
         }
     }
 
@@ -1057,14 +1827,19 @@ class Resources extends Component
             return;
         }
         $this->connectionMode = $mode;
-        $this->connectionOptions = $mode === 'attach' ? EdgeContainerConnections::catalog($this->connectionKind) : [];
+        $this->connectionOptions = $mode === 'attach' ? EdgeContainerConnections::catalog($this->connectionKind, $this->site->organization) : [];
     }
 
     public function saveConnection(): void
     {
         $this->authorize('update', $this->site);
         $kind = $this->connectionKind;
-        if (! isset(EdgeContainerConnections::KINDS[$kind]) || in_array($kind, EdgeContainerConnections::ENABLE, true) || ! in_array($kind, $this->allowedKinds(), true)) {
+        if (! isset(EdgeContainerConnections::KINDS[$kind]) || in_array($kind, EdgeContainerConnections::ENABLE, true) || ! in_array($kind, $this->allowedKinds(), true) || in_array($kind, EdgeContainerConnections::HIDDEN_FROM_BUILDER, true)) {
+            return;
+        }
+        if ($kind === 'realtime') {
+            $this->saveRealtimeConnection();
+
             return;
         }
 
@@ -1072,6 +1847,13 @@ class Resources extends Component
             $match = collect($this->connectionOptions)->firstWhere('id', $this->connectionPick);
             if (! is_array($match)) {
                 $this->addError('connection', 'Pick a resource to attach.');
+
+                return;
+            }
+            // connectionOptions is client state: check the pick is still ours.
+            $refused = EdgeContainerConnections::attachError($this->site, $kind, (string) $match['id']);
+            if ($refused !== null) {
+                $this->addError('connection', $refused);
 
                 return;
             }
@@ -1095,13 +1877,15 @@ class Resources extends Component
 
         $target = $identity['resource'];
         if (in_array($kind, EdgeContainerConnections::CREATABLE, true)) {
-            if ($kind === 'key_value' && ! $this->cardOnFile()) {
-                $this->addError('connection', __('Add a card before starting a key-value store. Reads, writes, and storage are billed to that card.'));
-
-                return;
-            }
+            // provision() applies the card rule, plan limits, and paid-only kinds.
             try {
-                $target = EdgeContainerConnections::provision($kind, $identity['resource']);
+                $target = EdgeContainerConnections::provision($kind, $identity['resource'], $this->site->organization, [
+                    'location_hint' => $kind === 'object_storage' && isset(self::R2_LOCATION_HINTS[$this->objectLocationHint]) ? $this->objectLocationHint : null,
+                ] + match ($kind) {
+                    'vectors' => $this->vectorsProvisionOptions(),
+                    'database_pool' => $this->poolProvisionOptions(),
+                    default => [],
+                });
             } catch (\Throwable $e) {
                 $this->addError('connection', $e->getMessage());
 
@@ -1112,22 +1896,6 @@ class Resources extends Component
 
                 return;
             }
-        } elseif ($kind === 'http_delivery') {
-            if (! $this->cardOnFile()) {
-                $this->addError('connection', __('Add a card before starting HTTP delivery. Messages are billed to that card.'));
-
-                return;
-            }
-            try {
-                $target = EdgeContainerConnections::provisionHttpDelivery();
-            } catch (\Throwable $e) {
-                $this->addError('connection', $e->getMessage());
-
-                return;
-            }
-            $this->storeConnection($identity['name'], $identity['host'], $target);
-
-            return;
         } elseif ($kind === 'redis') {
             foreach (EdgeContainerConnections::for($this->site) as $connection) {
                 if ($connection['kind'] === 'redis') {
@@ -1156,7 +1924,7 @@ class Resources extends Component
                 $this->storeConnection($identity['name'], $identity['host'], $started['id'], $this->redisPlan);
                 if ($this->getErrorBag()->has('connection')) {
                     $this->forgetRedisUrl();
-                    EdgeContainerConnections::destroy('redis', $started['id']);
+                    EdgeContainerConnections::destroy('redis', $started['id'], $this->site->organization);
                 } elseif (EdgeValkey::isTarget($started['id'])) {
                     $this->site->mergeEdgeMeta(['valkey_sleep' => [$started['id'] => EdgeValkey::sleepAfter($this->redisPlan, $this->valkeySleep)] + (array) ($this->site->edgeMeta()['valkey_sleep'] ?? [])]);
                     $this->site->save();
@@ -1289,20 +2057,53 @@ class Resources extends Component
         if (! $found) {
             return;
         }
+        $kind = collect($rows)->firstWhere('host', $host)['kind'] ?? '';
+        $valkey = collect($rows)->firstWhere('host', $host);
+        if ($kind === 'redis' && EdgeValkey::isTarget((string) $valkey['target'])) {
+            // The gateway, not the deploy, stops the billing: set it first.
+            try {
+                EdgeValkey::setAsleep($valkey['target'], $this->productionRedisUrl(), $valkey['plan'] !== '' ? $valkey['plan'] : EdgeValkey::DEFAULT_CLASS, (int) ($this->site->edgeMeta()['valkey_sleep'][$valkey['target']] ?? EdgeValkey::DEFAULT_SLEEP), $asleep);
+            } catch (\Throwable $e) {
+                $this->toastError(__('Could not reach the Valkey gateway: :error', ['error' => $e->getMessage()]));
+
+                return;
+            }
+        }
+        if ($kind === 'realtime') {
+            // Enforced by the relay, not the deploy: disable it in KV (and
+            // close open sockets) before the card says asleep. The env stays.
+            $target = (string) (collect($rows)->firstWhere('host', $host)['target'] ?? '');
+            $app = EdgeRealtimeApp::query()->whereKey($target)->where('organization_id', $this->site->organization_id)->first();
+            try {
+                if ($app !== null) {
+                    app(EdgeRealtimeApps::class)->setAsleep($app, $asleep);
+                }
+            } catch (\Throwable $e) {
+                $this->toastError(__('Could not reach the Realtime relay: :error', ['error' => $e->getMessage()]));
+
+                return;
+            }
+        }
         $this->site->mergeEdgeMeta(['connections' => $rows]);
         $this->site->save();
-        $kind = collect($rows)->firstWhere('host', $host)['kind'] ?? '';
+        if ($kind === 'realtime') {
+            $this->toastSuccess($asleep
+                ? __('Asleep. Open connections were closed, and new ones and publishes are refused until you wake it.')
+                : __('Awake. Connections and publishes work again now; no deploy needed.'));
+
+            return;
+        }
         if ($kind === 'redis') {
             $this->toastSuccess($asleep
-                ? __('Asleep. The app stops receiving the Redis address on the next deploy. The database stays.')
+                ? __('Asleep. The app stops receiving the Redis address on the next deploy. The store keeps its keys and stops billing a minute after the app lets go of it.')
                 : __('Awake. The app gets the Redis address on the next deploy.'));
 
             return;
         }
         if ($kind === 'key_value') {
             $this->toastSuccess($asleep
-                ? __('Asleep. The app loses this address on the next deploy, so it cannot read or write. This store is not billed until you wake it.')
-                : __('Awake. The app gets the address on the next deploy, and this month’s usage is billed again.'));
+                ? __('Asleep. The app loses this address on the next deploy, so it cannot read or write. Its stored data is kept and still billed; delete the store to stop that.')
+                : __('Awake. The app gets the address on the next deploy.'));
 
             return;
         }
@@ -1334,33 +2135,118 @@ class Resources extends Component
         if ($target === null) {
             return;
         }
-        try {
-            EdgeContainerConnections::destroy($target['kind'], $target['target']);
-        } catch (\Throwable $e) {
-            $this->addError('connectionDelete', $e->getMessage());
+        // The live deploy still binds it: detach now, delete once the next
+        // deploy has dropped the binding (EdgeContainerConnections::deletePending).
+        $deferred = EdgeContainerConnections::deleteWaitsForDeploy($this->site, $target['kind'])
+            && EdgeContainerConnections::owns($target['kind'], $target['target'], $this->site->organization);
+        $deleted = false;
+        if (! $deferred) {
+            try {
+                $deleted = EdgeContainerConnections::destroy($target['kind'], $target['target'], $this->site->organization);
+            } catch (\Throwable $e) {
+                // A preview can still bind a queue with no live deploy; Cloudflare refuses that too.
+                if ($target['kind'] !== 'queue' || ! str_contains($e->getMessage(), 'still referenced by a binding')) {
+                    $this->addError('connectionDelete', $e->getMessage());
 
-            return;
+                    return;
+                }
+                $deferred = true;
+            }
         }
         if ($target['kind'] === 'redis') {
             $this->forgetRedisUrl();
         }
         $this->site->mergeEdgeMeta(['connections' => $kept]);
+        if ($deferred) {
+            EdgeContainerConnections::deleteAfterDeploy($this->site, $target['kind'], $target['target']);
+            $this->site->mergeEdgeMeta(['settings_saved_at' => now()->toIso8601String()]);
+        }
         $this->site->save();
+        if ($deleted) {
+            // The resource is gone: unbind it from the organization's other
+            // apps too, or their next deploy would bind something missing.
+            $this->detachEverywhere($target['kind'], $target['target']);
+        }
         $this->deleteConnectionHost = '';
         $this->panel = '';
+        if ($host === $this->kvHost) {
+            $this->kvHost = '';
+            $this->dispatch('close-modal', 'resources-kv');
+        }
+        if ($host === $this->objectHost) {
+            $this->objectHost = '';
+            $this->dispatch('close-modal', 'resources-object');
+        }
         $this->dispatch('close-modal', 'resources-delete-connection');
-        $this->toastSuccess(__('Deleted.'));
+        $this->toastSuccess(match (true) {
+            $deferred && EdgeContainerConnections::boundElsewhere($this->site, $target['kind'], $target['target']) => __('Detached. Redeploy this app, and detach or delete it on the other app that still uses it too: it is kept, and billed, until no app does, then deleted after the next deploy.'),
+            $deferred => __('Detached. The live app still uses it, so it is deleted after the next deploy — redeploy to finish.'),
+            $deleted => __('Deleted.'),
+            default => __('Detached. There was nothing this organization created to delete, so it was left in place.'),
+        });
+    }
+
+    /**
+     * The connection whose sheet is open, for kinds that use the generic
+     * opener (SQL, queue, State, AI, external Redis, vectors, pool).
+     */
+    public string $resourceHost = '';
+
+    /** Open a resource's sheet: resources-{kind}, keyed by its host. */
+    public function openResource(string $host): void
+    {
+        $this->authorize('view', $this->site);
+        $connection = collect(EdgeContainerConnections::for($this->site))->firstWhere('host', $host);
+        if (! is_array($connection)) {
+            return;
+        }
+        $this->resourceHost = $host;
+        $kind = $connection['kind'] === 'redis' ? 'redis-external' : $connection['kind'];
+        $this->dispatch('resource-opened', kind: $kind, host: $host);
+        $this->dispatch('open-modal', 'resources-'.str_replace('_', '-', $kind));
+    }
+
+    /** @return array{kind: string, name: string, host: string, target: string, asleep: bool, plan: string, read_regions: int}|null */
+    protected function openResourceConnection(): ?array
+    {
+        $connection = collect(EdgeContainerConnections::for($this->site))->firstWhere('host', $this->resourceHost);
+
+        return is_array($connection) ? $connection : null;
+    }
+
+    private function detachEverywhere(string $kind, string $target): void
+    {
+        Site::query()
+            ->where('organization_id', $this->site->organization_id)
+            ->whereKeyNot($this->site->id)
+            ->get()
+            ->each(function (Site $other) use ($kind, $target): void {
+                foreach (EdgeContainerConnections::for($other) as $connection) {
+                    if ($connection['kind'] === $kind && $connection['target'] === $target) {
+                        EdgeContainerConnections::detach($other, $connection['name']);
+                    }
+                }
+            });
     }
 
     public function removeConnection(string $host): void
     {
         $this->authorize('update', $this->site);
         $rows = EdgeContainerConnections::for($this->site);
+        // Detach only unlinks. A dply Valkey cannot be attached again, so it
+        // has no Detach (it would keep running and billing): Delete it instead.
         foreach ($rows as $connection) {
-            if ($connection['host'] === $host && $connection['kind'] === 'redis') {
-                EdgeContainerConnections::destroy('redis', $connection['target']);
-                $this->forgetRedisUrl();
+            // Same for Realtime: it has no attach, so Detach would orphan a live app.
+            if ($connection['host'] === $host && $connection['kind'] === 'realtime') {
+                return;
             }
+            if ($connection['host'] !== $host || $connection['kind'] !== 'redis') {
+                continue;
+            }
+            if (EdgeValkey::isTarget($connection['target'])) {
+                return;
+            }
+            $this->forgetRedisUrl();
         }
         $kept = array_values(array_filter(
             $rows,
@@ -1488,10 +2374,6 @@ class Resources extends Component
         $this->draftDatabase = $engine;
         $this->databaseVisible = $engine !== 'none';
         $this->refreshPending();
-        if ($engine !== 'none') {
-            $this->dispatch('database-tab', 'settings');
-            $this->dispatch('open-modal', 'resources-app-database');
-        }
     }
 
     public function selectPostgresPlan(string $plan): void
@@ -1563,6 +2445,7 @@ class Resources extends Component
             $this->scheduler = $settings['scheduler'];
             $this->stickySessions = $settings['sticky_sessions'];
             $this->dedicatedJobs = $settings['dedicated_jobs'];
+            $this->workers = EdgeQueueWorkers::for($this->site);
             $this->migrateOnBoot = $settings['migrate_on_boot'];
             $this->rolloutMode = $settings['rollout_mode'];
             $this->rolloutSteps = implode(', ', $settings['rollout_step_percentage']);
@@ -1596,33 +2479,48 @@ class Resources extends Component
      * @param  list<array{kind: string, host: string, target: string, asleep: bool, plan: string, read_regions: int}>  $connections
      * @return array<string, int>
      */
+    /** Once per request: render() and the cost estimate both need it. */
+    private ?int $valkeyAwakeSecondsMemo = null;
+
     /** Awake seconds for this app's Valkey this month (collected hourly). */
     private function valkeyAwakeSeconds(): int
     {
-        return (int) EdgeRedisUsage::query()->where('site_id', $this->site->id)
+        return $this->valkeyAwakeSecondsMemo ??= (int) EdgeRedisUsage::query()->where('site_id', $this->site->id)
             ->whereBetween('date', [now()->startOfMonth()->toDateString(), now()->endOfMonth()->toDateString()])
             ->sum('awake_seconds');
     }
 
     private function connectionCostEstimates(array $connections): array
     {
+        $estimates = $this->sharedCostEstimates($connections);
+        // A resource trait can give its own figure: {kind}CostCents($connection)
+        // (e.g. sqlCostCents for one D1 instead of the organization's total).
+        foreach ($connections as $connection) {
+            $method = Str::camel($connection['kind']).'CostCents';
+            if (method_exists($this, $method) && ($cents = $this->{$method}($connection)) !== null) {
+                $estimates[$connection['host']] = $cents;
+            }
+        }
+
+        return $estimates;
+    }
+
+    /** @return array<string, int|float> */
+    private function sharedCostEstimates(array $connections): array
+    {
         $from = now()->startOfMonth()->toDateString();
         $to = now()->endOfMonth()->toDateString();
         $estimates = [];
         $namespaces = [];
-        $hasDelivery = false;
         $hasSql = false;
         $hasQueue = false;
-        $hasObjects = false;
 
         foreach ($connections as $connection) {
             if ($connection['kind'] === 'key_value' && $connection['target'] !== '') {
                 $namespaces[] = $connection['target'];
             }
-            $hasDelivery = $hasDelivery || $connection['kind'] === 'http_delivery';
             $hasSql = $hasSql || $connection['kind'] === 'sql';
             $hasQueue = $hasQueue || $connection['kind'] === 'queue';
-            $hasObjects = $hasObjects || $connection['kind'] === 'object_storage';
         }
 
         $kvRows = $namespaces === []
@@ -1635,11 +2533,6 @@ class Resources extends Component
         $kvCost = app(EdgeKvCost::class);
         foreach ($connections as $connection) {
             if ($connection['kind'] !== 'key_value') {
-                continue;
-            }
-            if ($connection['asleep']) {
-                $estimates[$connection['host']] = 0;
-
                 continue;
             }
             $rows = $kvRows->get($connection['target'], collect());
@@ -1657,22 +2550,8 @@ class Resources extends Component
             if ($connection['kind'] === 'redis' && EdgeValkey::isTarget($connection['target']) && $this->site->organization !== null) {
                 // Exact (fractional) cents for display: the bill rounds the
                 // month's total to a cent, but a few minutes is $0.0017, not $0.01.
-                $class = EdgeValkey::CLASSES[$connection['plan']] ?? EdgeValkey::CLASSES[EdgeValkey::DEFAULT_CLASS];
-                $estimates[$connection['host']] = min((float) $class['cap_cents'], $valkeySeconds * $class['per_second'] * 100);
-            }
-        }
-
-        if ($hasDelivery) {
-            $delivery = EdgeDeliveryUsage::query()
-                ->where('site_id', $this->site->id)
-                ->whereBetween('date', [$from, $to])
-                ->selectRaw('COALESCE(SUM(messages), 0) as messages, COALESCE(SUM(bandwidth_bytes), 0) as bandwidth')
-                ->first();
-            $deliveryCents = app(EdgeDeliveryCost::class)->cents((int) $delivery->messages, (int) $delivery->bandwidth);
-            foreach ($connections as $connection) {
-                if ($connection['kind'] === 'http_delivery') {
-                    $estimates[$connection['host']] = $deliveryCents;
-                }
+                $class = EdgeValkey::spec((string) $connection['plan']);
+                $estimates[$connection['host']] = min($class['cap_cents'], $valkeySeconds * $class['per_second'] * 100);
             }
         }
 
@@ -1695,38 +2574,53 @@ class Resources extends Component
             }
         }
 
-        if ($hasObjects) {
-            $objects = $this->objectStorageEstimateCents($from, $to);
-            foreach ($connections as $connection) {
-                if ($connection['kind'] === 'object_storage') {
-                    $estimates[$connection['host']] = $objects;
-                }
-            }
-        }
-
         return $estimates;
     }
 
-    private function objectStorageEstimateCents(string $from, string $to): int
+    public function render(): View
     {
-        $row = EdgeUsageSnapshot::query()
-            ->where('site_id', $this->site->id)
-            ->whereDate('period_start', '>=', $from)
-            ->whereDate('period_start', '<=', $to)
-            ->selectRaw('COALESCE(MAX(r2_storage_bytes), 0) as storage, COALESCE(SUM(r2_class_a_ops), 0) as class_a, COALESCE(SUM(r2_class_b_ops), 0) as class_b')
-            ->first();
-        $rate = static fn (string $key): int => max(0, (int) config('dply.edge.usage_billing.'.$key, 0));
-        $storage = max(0, (int) $row->storage - $rate('included_r2_storage_gb_per_site') * 1024 ** 3);
-        $classA = max(0, (int) $row->class_a - $rate('included_r2_class_a_ops_per_site'));
-        $classB = max(0, (int) $row->class_b - $rate('included_r2_class_b_ops_per_site'));
-        $cents = (int) ceil($storage / 1024 ** 3 * $rate('r2_storage_cents_per_gb_month'))
-            + (int) ceil($classA / 1_000_000 * $rate('r2_class_a_cents_per_million'))
-            + (int) ceil($classB / 1_000_000 * $rate('r2_class_b_cents_per_million'));
-
-        return (int) ceil($cents * (100 + $rate('markup_percent')) / 100);
+        return view('livewire.sites.edge.workspace.resources', $this->viewData());
     }
 
-    public function render(EdgeContainerComputeCost $cost): View
+    /**
+     * An action inside a sheet re-renders only that sheet's island
+     * (resources.blade.php). The map shows what the sheets change
+     * (connections, sizes, the redeploy banner), so it re-renders with each.
+     */
+    public function renderIsland($name, $content = null, $mode = 'morph', $with = [], $mount = false)
+    {
+        // Livewire renders the island after each call and skips it after the
+        // first, so a second call in the same request (two $wire calls in one
+        // handler) would be missing from it. Render it again instead.
+        $this->renderedIslandFragments = array_values(array_filter(
+            $this->renderedIslandFragments,
+            fn (string $fragment): bool => ! str_contains($fragment, "|name={$name}|") && ! str_contains($fragment, '|name=map|'),
+        ));
+        $this->viewData = null;
+        parent::renderIsland($name, $content, $mode, $with, $mount);
+
+        if ($name !== 'map') {
+            parent::renderIsland('map');
+        }
+    }
+
+    /** @var array<string, mixed>|null */
+    private ?array $viewData = null;
+
+    /**
+     * An island render skips render(), so each island reads this too
+     * (`with: $this->viewData()`). Memoized: a full render renders every
+     * island. Not with(): a public method is an action the browser can call.
+     *
+     * @return array<string, mixed>
+     */
+    protected function viewData(): array
+    {
+        return $this->viewData ??= $this->buildViewData(app(EdgeContainerComputeCost::class));
+    }
+
+    /** @return array<string, mixed> */
+    private function buildViewData(EdgeContainerComputeCost $cost): array
     {
         $meta = $this->site->edgeMeta();
         $container = is_array($meta['container'] ?? null) ? $meta['container'] : [];
@@ -1771,6 +2665,7 @@ class Resources extends Component
         $postgres = $databaseCost->presentation();
         $postgresSizes = [];
         foreach (EdgeDplyDatabase::sizes() as $key => $size) {
+            $size['second'] = $databaseCost->perSecond($size['cu']);
             $size['hour'] = $databaseCost->hourly($size['cu']);
             $size['day'] = $databaseCost->daily($size['cu']);
             $size['month'] = $databaseCost->monthly($size['cu']);
@@ -1786,7 +2681,7 @@ class Resources extends Component
             $postgresSizes[$key]['month'] = number_format((float) $size['hour'] * ($postgresSuspend === -1 ? 720 : $awakeHours * 30), 2);
         }
 
-        return view('livewire.sites.edge.workspace.resources', array_merge(
+        return array_merge(
             EdgeSiteViewData::context($this->site, 'resources'),
             [
                 'server' => $this->server,
@@ -1816,6 +2711,7 @@ class Resources extends Component
                 'showBrowser' => $hasCode,
                 'connectionKinds' => EdgeContainerConnections::KINDS,
                 'cardOnFile' => $this->cardOnFile(),
+                'paidFeatures' => EdgeContainerConnections::paidFeatures($this->site->organization),
                 'valkeyAwakeSeconds' => $this->valkeyAwakeSeconds(),
                 'allowedKinds' => $allowedKinds,
                 'hasCode' => $hasCode,
@@ -1825,7 +2721,6 @@ class Resources extends Component
                 'databaseEngine' => $databaseEngine,
                 'databaseName' => (string) ($storedDatabase['name'] ?? 'production'),
                 'databaseHost' => $databaseEngine === (string) ($storedDatabase['engine'] ?? '') ? (string) ($storedDatabase['host'] ?? '') : '',
-                'databaseStatus' => $databaseEngine === (string) ($storedDatabase['engine'] ?? '') ? (string) ($storedDatabase['status'] ?? '') : '',
                 'postgresHour' => $postgres['hour'],
                 'postgresGigabyte' => $postgres['gigabyte'],
                 'postgresPlans' => EdgeAppDatabase::POSTGRES_PLANS,
@@ -1838,14 +2733,40 @@ class Resources extends Component
                 'dplyDatabases' => EdgeDplyDatabase::enabled(),
                 'postgresDisks' => EdgeDplyDatabase::DISKS,
                 'postgresDisk' => EdgeDplyDatabase::disk($this->draftPostgresDisk),
-                'deployments' => $this->site->edgeDeployments()->orderByDesc('created_at')->limit(5)->get(),
+                'dplyDatabase' => $this->dplyDatabaseRecord(),
+                'workersUnavailable' => EdgeQueueWorkers::unavailableReason($this->site),
+                'workersConnection' => EdgeQueueWorkers::connection($this->site, (string) (EdgeQueueWorkers::normalize($this->workers)['connection'])),
+                'workersMonthlyCents' => EdgeQueueWorkers::monthlyCents($this->site, EdgeQueueWorkers::draftInstances($this->workers)['min']),
+                'workersMaxMonthlyCents' => EdgeQueueWorkers::monthlyCents($this->site, EdgeQueueWorkers::draftInstances($this->workers)['max']),
+                'workerScaling' => array_values(array_map(fn (array $g): array => [
+                    'label' => $g['key'] !== '' ? $g['key'] : __('main'),
+                    'max' => $g['max_instances'],
+                    'history' => ScaleEdgeQueueWorkersCommand::history($this->site, $g['key']),
+                    'scaler' => Cache::get(ScaleEdgeQueueWorkersCommand::stateKey($this->site, $g['key'])),
+                ], array_filter(EdgeQueueWorkers::groups($this->site), static fn (array $g): bool => $g['autoscale']))),
+                'databaseUsage' => $this->dplyDatabaseRecord() !== null ? $this->databaseUsage() : null,
+                'map' => EdgeServiceMap::for($this->site),
+                'savedDatabase' => $this->persistedState()['database'],
+                'needsRedeploy' => $this->needsRedeploy(),
             ],
-        ));
+        );
     }
 
     protected function currentEdgeSection(): ?string
     {
-        return 'resources';
+        return 'general';
+    }
+
+    /** Settings saved since the last deploy started, so the live app does not have them yet. */
+    private function needsRedeploy(): bool
+    {
+        $saved = $this->site->edgeMeta()['settings_saved_at'] ?? null;
+        if (! is_string($saved) || $saved === '') {
+            return false;
+        }
+        $last = $this->site->edgeDeployments()->max('created_at');
+
+        return $last === null || Carbon::parse($saved)->gt(Carbon::parse($last));
     }
 
     private function hydrateDrafts(): void
@@ -1864,9 +2785,18 @@ class Resources extends Component
         $this->pending = false;
     }
 
+    /**
+     * Settings save as they change. The exception is switching the database
+     * engine: that starts (and bills) a new database or drops the old one, so
+     * it waits for the confirm button in the database sheet (saveSettings).
+     */
     private function refreshPending(): void
     {
-        $this->pending = $this->draftState() != $this->persistedState();
+        $saved = $this->persistedState();
+        $this->pending = $this->draftState() != $saved;
+        if ($this->pending && $this->draftDatabase === $saved['database']) {
+            $this->persistPending(true);
+        }
     }
 
     /**
@@ -1892,6 +2822,7 @@ class Resources extends Component
             'scheduler' => (bool) ($settings['scheduler'] ?? false),
             'sticky_sessions' => (bool) ($settings['sticky_sessions'] ?? true),
             'dedicated_jobs' => (bool) ($settings['dedicated_jobs'] ?? false),
+            'workers' => EdgeQueueWorkers::for($this->site),
             'migrate_on_boot' => (bool) ($settings['migrate_on_boot'] ?? false),
             'custom_vcpu' => (int) ($container['custom_vcpu'] ?? 1),
             'custom_memory_gib' => (int) ($container['custom_memory_gib'] ?? 3),
@@ -1925,6 +2856,7 @@ class Resources extends Component
             'scheduler' => $this->scheduler,
             'sticky_sessions' => $this->stickySessions,
             'dedicated_jobs' => $this->dedicatedJobs,
+            'workers' => EdgeQueueWorkers::normalize($this->workers),
             'migrate_on_boot' => $this->migrateOnBoot,
             'custom_vcpu' => $custom ? $this->customVcpu : $saved['custom_vcpu'],
             'custom_memory_gib' => $custom ? $this->customMemoryGib : $saved['custom_memory_gib'],
@@ -1959,6 +2891,14 @@ class Resources extends Component
             }
         }
 
+        // Only the cache applies live (host map); everything else waits for a deploy.
+        $draft = $this->draftState();
+        $before = $this->persistedState();
+        unset($draft['cache'], $before['cache']);
+        if ($draft != $before) {
+            $this->site->mergeEdgeMeta(['settings_saved_at' => now()->toIso8601String()]);
+        }
+
         $meta = $this->site->edgeMeta();
         $runtime = (string) ($meta['runtime_mode'] ?? 'static');
         if ($runtime === 'container') {
@@ -1971,6 +2911,7 @@ class Resources extends Component
             $current['scheduler'] = $this->scheduler;
             $current['sticky_sessions'] = $this->stickySessions;
             $current['dedicated_jobs'] = $this->dedicatedJobs;
+            $current['workers'] = EdgeQueueWorkers::normalize($this->workers);
             $current['migrate_on_boot'] = $this->migrateOnBoot;
             $current['rollout_mode'] = $this->rolloutMode;
             $current['rollout_step_percentage'] = EdgeContainerSettings::parseRolloutSteps($this->rolloutSteps);
@@ -2079,14 +3020,6 @@ class Resources extends Component
 
     private function sizes(EdgeContainerComputeCost $cost, int $instances): array
     {
-        $labels = [
-            'lite' => 'Lite',
-            'basic' => 'Flex',
-            'standard-1' => 'Small',
-            'standard-2' => 'Medium',
-            'standard-3' => 'Large',
-            'standard-4' => 'XL',
-        ];
         $instances = max(1, $instances);
         $sizes = [];
         foreach (EdgeContainerSettings::INSTANCE_TYPES as $key => [$vcpu, $memory, $disk]) {
@@ -2094,8 +3027,9 @@ class Resources extends Component
             $perMonth = $perMinute * 60 * 730 * $instances;
             $sizes[] = [
                 'key' => $key,
-                'label' => $labels[$key] ?? $key,
+                'label' => EdgeSizeLadder::containerLabel($key),
                 'vcpu' => self::vcpuLabel((float) $vcpu),
+                'second' => UsagePrice::dollars($perMinute * 100_000 / 60),
                 'memory' => $memory < 1 ? ((int) round($memory * 1024)).' MB' : $memory.' GiB',
                 'disk' => $disk.' GB',
                 'price' => $perMonth >= 10
@@ -2125,8 +3059,6 @@ class Resources extends Component
     {
         return match (true) {
             abs($vcpu - (1 / 16)) < 0.001 => '1/16 vCPU',
-            abs($vcpu - 0.25) < 0.001 => '1/4 vCPU',
-            abs($vcpu - 0.5) < 0.001 => '1/2 vCPU',
             default => rtrim(rtrim(number_format($vcpu, 1, '.', ''), '0'), '.').' vCPU',
         };
     }

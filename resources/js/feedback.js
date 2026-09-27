@@ -80,6 +80,9 @@ export function installFeedbackConsoleBuffer() {
     });
 
     window.addEventListener('unhandledrejection', (e) => {
+        if (e.defaultPrevented) {
+            return;
+        }
         const reason = e.reason && e.reason.message ? e.reason.message : e.reason;
         pushConsoleEntry('error', `Unhandled promise rejection: ${stringifyArg(reason)}`);
     });

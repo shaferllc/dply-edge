@@ -6,7 +6,6 @@ namespace App\Livewire\Admin\Organizations;
 
 use App\Livewire\Admin\Concerns\AuthorizesPlatformAdmin;
 use App\Models\Organization;
-use App\Support\Admin\AdminFeatureFlags;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Url;
@@ -36,8 +35,6 @@ class Index extends Component
     {
         $this->authorizePlatformAdmin();
 
-        $overrideCounts = AdminFeatureFlags::bulkOrgOverrideCounts();
-
         $organizations = Organization::query()
             ->withCount(['servers', 'sites'])
             ->when($this->search !== '', function ($query) {
@@ -53,7 +50,6 @@ class Index extends Component
 
         return view('livewire.admin.organizations.index', [
             'organizations' => $organizations,
-            'overrideCounts' => $overrideCounts,
         ]);
     }
 }

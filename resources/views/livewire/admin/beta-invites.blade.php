@@ -23,7 +23,7 @@
     <x-profile-shell
         class="mt-4"
         :title="__('Beta invites')"
-        :description="__('Issue closed-beta invites by email. Invitees get the platform free (BYO servers) plus one free dply-managed server. Admin-only — no peer invites.')"
+        :description="__('Issue closed-beta invites by email. Invitees get the standard card-up-front trial. Admin-only — no peer invites.')"
         icon="heroicon-o-envelope"
     >
         <x-slot:stats>

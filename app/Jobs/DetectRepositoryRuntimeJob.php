@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Jobs;
 
+use App\Models\User;
 use App\Modules\Edge\Services\RuntimeDetection\RepositoryRuntimePlan;
 use App\Modules\Edge\Services\RuntimeDetection\RepositoryRuntimePreview;
 use App\Modules\Edge\Support\EdgeSitePackageHeuristics;
+use App\Modules\SourceControl\Services\GitCloneAuth;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -39,10 +41,17 @@ class DetectRepositoryRuntimeJob implements ShouldQueue
         public string $cacheKey,
         public string $url,
         public string $branch,
+        public ?string $userId = null,
+        public string $accountId = '',
     ) {}
 
     public function handle(RepositoryRuntimePreview $preview): void
     {
+        // Private repos: resolve the linked account here, so no token is
+        // ever serialized into the queue payload.
+        $user = $this->userId !== null ? User::query()->find($this->userId) : null;
+        $gitEnv = $user !== null ? app(GitCloneAuth::class)->envForUser($user, $this->accountId, $this->url) : [];
+
         // Mark as "running" so a second dispatch doesn't double-queue
         // while we're working.
         Cache::put($this->cacheKey, [
@@ -52,7 +61,7 @@ class DetectRepositoryRuntimeJob implements ShouldQueue
         ], now()->addMinutes(15));
 
         try {
-            $plan = $preview->fromUrl($this->url, $this->branch);
+            $plan = $preview->fromUrl($this->url, $this->branch, $gitEnv);
 
             if ($plan === null) {
                 Cache::put($this->cacheKey, [
@@ -75,7 +84,7 @@ class DetectRepositoryRuntimeJob implements ShouldQueue
             Cache::put($this->cacheKey, [
                 'state' => 'failed',
                 'plan' => [
-                    'error' => $e->getMessage(),
+                    'error' => GitCloneAuth::redact($e->getMessage(), $gitEnv),
                     'url' => $this->url,
                     'branch' => $this->branch,
                 ],

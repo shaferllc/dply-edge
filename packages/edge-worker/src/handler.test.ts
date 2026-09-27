@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildObjectKey,
   cacheControlForPath,
@@ -85,6 +85,38 @@ describe('cacheControlForPath', () => {
   it('uses immutable cache for hashed assets', () => {
     expect(isImmutableAsset('assets/app.abc12345.js')).toBe(true);
     expect(cacheControlForPath('assets/app.abc12345.js')).toBe('public, max-age=31536000, immutable');
+  });
+
+  it.each([
+    'assets/index-BXa3Kq9z.js', // Vite 5 (base64url)
+    'assets/index-B-x_3aQz.css', // Vite hash containing - and _
+    'assets/logo-2c1a9b3e.svg', // Vite 4 (hex)
+    'assets/chunk-ABCD2345.js', // esbuild
+    '_next/static/chunks/main-3f9a1c2b4d5e6f70.js',
+    '_next/static/chunks/pages/_app-0a1b2c3d4e5f6a7b.js',
+    '_next/static/css/5c1b2a3d4e5f6a7b.css',
+    '_next/static/abcBuildId/_buildManifest.js',
+    '_astro/index.DkS8a3Qz.css',
+    '_astro/hoisted.BfRxY2Kp.js',
+    '_app/immutable/entry/start.BfZ3kQ2a.js',
+    '_app/immutable/chunks/index.js',
+    'docs/_astro/page.Cq1aB2cD.js',
+  ])('treats %s as immutable', (path) => {
+    expect(cacheControlForPath(path)).toBe('public, max-age=31536000, immutable');
+  });
+
+  it.each([
+    'js/jquery-bootstrap.js',
+    'images/hero-Homepage.png',
+    'scripts/my-script-2024.js',
+    'assets/app.js',
+    'favicon.ico',
+    'robots.txt',
+    '_next/data/build/index.json',
+    'index.html',
+    'about/index.html',
+  ])('keeps %s revalidating', (path) => {
+    expect(isImmutableAsset(path)).toBe(false);
   });
 });
 
@@ -430,7 +462,7 @@ describe('handleRequest', () => {
           tagPuts.push(key);
         }
       },
-    } as KVNamespace;
+    } as unknown as KVNamespace;
 
     const hybridEntry: HostMapEntry = {
       ...hostEntry,
@@ -751,7 +783,7 @@ describe('container sites', () => {
         put: async (key: string) => {
           puts.push(key);
         },
-      } as KVNamespace,
+      } as unknown as KVNamespace,
       DISPATCHER: {
         get: () => ({
           fetch: async () => new Response('console.log(1)', {
@@ -778,5 +810,358 @@ describe('container sites', () => {
     expect(response.headers.get('Cache-Tag')).toBe('assets');
     expect(await response.text()).toBe('console.log(1)');
     expect(puts).toContain('edge_cache:site-1:/build/assets/app-abc123.js');
+  });
+});
+
+describe('websocket passthrough', () => {
+  // Node cannot build a 101 Response (RangeError), which is exactly why the
+  // filters must not rebuild one: a stand-in the handler has to hand back as-is.
+  const socketResponse = (accept = () => {}) =>
+    ({ status: 101, webSocket: { accept }, headers: new Headers(), body: null }) as unknown as Response;
+  const upgrade = (url: string) => new Request(url, { headers: { Upgrade: 'websocket', Connection: 'Upgrade' } });
+  const collectingCtx = (pending: Promise<unknown>[]) =>
+    ({ waitUntil: (p: Promise<unknown>) => pending.push(p) }) as unknown as ExecutionContext;
+
+  it('returns a container 101 untouched with every response filter armed', async () => {
+    const fake = socketResponse();
+    const cacheReads: string[] = [];
+    const seen: Request[] = [];
+    const pending: Promise<unknown>[] = [];
+    const env: Env = {
+      HOST_MAP: createMockKv({
+        'app.example.test': {
+          organization_id: 'org-1',
+          spa_fallback: false,
+          site_id: 'site-1',
+          deployment_id: 'deploy-9',
+          storage_prefix: 'edge/site-1/deploy-9',
+          runtime_mode: 'container',
+          ssr_worker_script: 'dply-ctr-site-1',
+          deploy_footer: true,
+          error_500_html: '<p>oops</p>',
+          repo_header_rules: [{ for: '/*', values: { 'X-Rule': '1' } }],
+          split: { preview_storage_prefix: 'edge/site-1/deploy-8', percentage: 50, sticky_cookie: 'dply_variant' },
+          cache: { mode: 'everything', edge_ttl_seconds: 60, browser_ttl_seconds: 60, query_string: 'ignore' },
+        } as HostMapEntry,
+      }),
+      ARTIFACTS: createMockR2({}),
+      EDGE_CACHE: {
+        get: async (key: string) => {
+          cacheReads.push(key);
+          return null;
+        },
+        put: async () => {},
+      } as unknown as KVNamespace,
+      DISPATCHER: {
+        get: () => ({
+          fetch: async (request: Request) => {
+            seen.push(request);
+            return fake;
+          },
+        }),
+      } as unknown as DispatchNamespace,
+    };
+
+    const response = await handleRequest(upgrade('https://app.example.test/app/ws'), env, collectingCtx(pending));
+    await Promise.all(pending);
+
+    expect(response).toBe(fake);
+    expect(cacheReads).toEqual([]);
+    expect(seen[0].headers.get('Upgrade')).toBe('websocket');
+  });
+
+  it('passes an origin 101 through the rewrite proxy without accepting it', async () => {
+    let accepted = false;
+    const fake = socketResponse(() => {
+      accepted = true;
+    });
+    const pending: Promise<unknown>[] = [];
+    const env: Env = {
+      HOST_MAP: createMockKv({
+        'hybrid.example.test': {
+          site_id: 'site-1',
+          deployment_id: 'deploy-9',
+          organization_id: 'org-1',
+          spa_fallback: false,
+          storage_prefix: 'edge/site-1/deploy-9',
+          repo_rewrites: [{ from: '/ws', to: 'https://origin.example.test/ws' }],
+          repo_header_rules: [{ for: '/*', values: { 'X-Rule': '1' } }],
+          split: { preview_storage_prefix: 'edge/site-1/deploy-8', percentage: 50, sticky_cookie: 'dply_variant' },
+        } as HostMapEntry,
+      }),
+      ARTIFACTS: createMockR2({}),
+    };
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => fake) as unknown as typeof fetch;
+    try {
+      const response = await handleRequest(upgrade('https://hybrid.example.test/ws'), env, collectingCtx(pending));
+      await Promise.all(pending);
+
+      expect(response).toBe(fake);
+      expect(accepted).toBe(false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+describe('static delivery speed', () => {
+  const host: HostMapEntry = {
+    storage_prefix: 'edge/site-1/deploy-9',
+    deployment_id: 'deploy-9',
+    site_id: 'site-1',
+    organization_id: 'org-1',
+    spa_fallback: true,
+  };
+
+  /** R2 that honours `onlyIf.etagDoesNotMatch` the way R2 does: the object, minus its body. */
+  function conditionalR2(objects: Record<string, string>, reads: string[] = []): R2Bucket {
+    return {
+      get: async (key: string, options?: R2GetOptions) => {
+        reads.push(key);
+        const body = objects[key];
+        if (body === undefined) return null;
+        const etag = `etag-${body.length}`;
+        const meta = {
+          etag,
+          writeHttpMetadata(headers: Headers) {
+            headers.set('Content-Type', key.endsWith('.html') ? 'text/html; charset=utf-8' : 'text/javascript');
+          },
+        };
+        const onlyIf = options?.onlyIf as R2Conditional | undefined;
+        if (onlyIf?.etagDoesNotMatch === etag) return meta;
+
+        return { ...meta, body: new Blob([body]).stream(), text: async () => body };
+      },
+    } as unknown as R2Bucket;
+  }
+
+  it('answers a revalidation of unchanged html with 304 and no body', async () => {
+    const env: Env = {
+      HOST_MAP: createMockKv({ 'site.test': host }),
+      ARTIFACTS: conditionalR2({ 'edge/site-1/deploy-9/index.html': '<html><body>hi</body></html>' }),
+    };
+
+    const first = await handleRequest(new Request('https://site.test/'), env);
+    const etag = first.headers.get('ETag');
+    expect(first.status).toBe(200);
+    expect(etag).toMatch(/^W\/"etag-\d+-[a-z0-9]+"$/);
+
+    const second = await handleRequest(new Request('https://site.test/', { headers: { 'If-None-Match': etag! } }), env);
+    expect(second.status).toBe(304);
+    expect(second.body).toBeNull();
+    expect(second.headers.get('ETag')).toBe(etag);
+    expect(second.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    expect(second.headers.get('Cache-Control')).toBe('public, max-age=0, must-revalidate');
+  });
+
+  it('sends the page again when the host entry changed what gets injected', async () => {
+    const objects = { 'edge/site-1/deploy-9/index.html': '<html><body>hi</body></html>' };
+    const before = await handleRequest(new Request('https://site.test/'), {
+      HOST_MAP: createMockKv({ 'site.test': host }),
+      ARTIFACTS: conditionalR2(objects),
+    });
+
+    const after = await handleRequest(
+      new Request('https://site.test/', { headers: { 'If-None-Match': before.headers.get('ETag')! } }),
+      { HOST_MAP: createMockKv({ 'site.test': { ...host, deploy_footer: true } }), ARTIFACTS: conditionalR2(objects) },
+    );
+
+    expect(after.status).toBe(200);
+    expect(await after.text()).toContain('data-dply-deploy="deploy-9"');
+  });
+
+  it('ignores an If-None-Match it did not mint', async () => {
+    const response = await handleRequest(
+      new Request('https://site.test/', { headers: { 'If-None-Match': '"etag-28"' } }),
+      { HOST_MAP: createMockKv({ 'site.test': host }), ARTIFACTS: conditionalR2({ 'edge/site-1/deploy-9/index.html': '<html><body>hi</body></html>' }) },
+    );
+
+    expect(response.status).toBe(200);
+  });
+
+  it('reads skew-protection prefixes in parallel and serves the newest hit', async () => {
+    const reads: string[] = [];
+    const response = await handleRequest(new Request('https://site.test/assets/app-Ab12Cd34.js'), {
+      HOST_MAP: createMockKv({
+        'site.test': { ...host, recent_storage_prefixes: ['edge/site-1/deploy-8', 'edge/site-1/deploy-7', 'edge/site-1/deploy-6'] },
+      }),
+      ARTIFACTS: conditionalR2({
+        'edge/site-1/deploy-7/assets/app-Ab12Cd34.js': 'from 7',
+        'edge/site-1/deploy-6/assets/app-Ab12Cd34.js': 'from 6',
+      }, reads),
+    });
+
+    expect(await response.text()).toBe('from 7');
+    expect(reads).toEqual([
+      'edge/site-1/deploy-9/assets/app-Ab12Cd34.js',
+      'edge/site-1/deploy-8/assets/app-Ab12Cd34.js',
+      'edge/site-1/deploy-7/assets/app-Ab12Cd34.js',
+      'edge/site-1/deploy-6/assets/app-Ab12Cd34.js',
+    ]);
+  });
+
+  describe('colo cache', () => {
+    const store = new Map<string, Response>();
+    const original = (globalThis as { caches?: unknown }).caches;
+
+    beforeEach(() => {
+      store.clear();
+      (globalThis as { caches?: unknown }).caches = {
+        default: {
+          match: async (key: string) => store.get(key)?.clone(),
+          put: async (key: string, response: Response) => {
+            store.set(key, new Response(await response.arrayBuffer(), response));
+          },
+        },
+      };
+    });
+    afterEach(() => {
+      (globalThis as { caches?: unknown }).caches = original;
+    });
+
+    it('serves an asset from the colo cache without touching R2 again', async () => {
+      const reads: string[] = [];
+      const objects: Record<string, string> = { 'edge/site-1/deploy-9/assets/index-BXa3Kq9z.js': 'console.log(1)' };
+      const pending: Promise<unknown>[] = [];
+      const ctx = { waitUntil: (p: Promise<unknown>) => pending.push(p) } as unknown as ExecutionContext;
+      const env: Env = { HOST_MAP: createMockKv({ 'site.test': host }), ARTIFACTS: conditionalR2(objects, reads) };
+
+      const first = await handleRequest(new Request('https://site.test/assets/index-BXa3Kq9z.js'), env, ctx);
+      expect(await first.text()).toBe('console.log(1)');
+      await Promise.all(pending);
+
+      const second = await handleRequest(new Request('https://site.test/assets/index-BXa3Kq9z.js'), env, ctx);
+      expect(await second.text()).toBe('console.log(1)');
+      expect(second.headers.get('Cache-Control')).toBe('public, max-age=31536000, immutable');
+      expect(second.headers.get('Content-Type')).toBe('text/javascript');
+      expect(reads).toHaveLength(1);
+
+      const revalidated = await handleRequest(
+        new Request('https://site.test/assets/index-BXa3Kq9z.js', { headers: { 'If-None-Match': first.headers.get('ETag')! } }),
+        env,
+        ctx,
+      );
+      expect(revalidated.status).toBe(304);
+      expect(reads).toHaveLength(1);
+    });
+
+    it('never puts html in the colo cache', async () => {
+      const pending: Promise<unknown>[] = [];
+      const ctx = { waitUntil: (p: Promise<unknown>) => pending.push(p) } as unknown as ExecutionContext;
+      await handleRequest(new Request('https://site.test/'), {
+        HOST_MAP: createMockKv({ 'site.test': host }),
+        ARTIFACTS: conditionalR2({ 'edge/site-1/deploy-9/index.html': '<html><body>hi</body></html>' }),
+      }, ctx);
+      await Promise.all(pending);
+
+      expect(store.size).toBe(0);
+    });
+  });
+});
+
+describe('container kv reads', () => {
+  it('reads the pause flag and the edge cache at the same time', async () => {
+    const inFlight: string[] = [];
+    let overlap = false;
+    const slow = async <T>(key: string, value: T): Promise<T> => {
+      inFlight.push(key);
+      if (inFlight.length > 1) overlap = true;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight.splice(inFlight.indexOf(key), 1);
+
+      return value;
+    };
+    const host = {
+      site_id: 'site-1',
+      deployment_id: 'deploy-9',
+      storage_prefix: 'edge/site-1/deploy-9',
+      runtime_mode: 'container',
+      ssr_worker_script: 'dply-ctr-site-1',
+      cache: { mode: 'everything', edge_ttl_seconds: 60, browser_ttl_seconds: 60, query_string: 'ignore' },
+    } as HostMapEntry;
+    const env: Env = {
+      HOST_MAP: {
+        get: async (key: string, type?: string) =>
+          key === 'app.test' ? (type === 'json' ? host : JSON.stringify(host)) : slow(key, null),
+      } as unknown as KVNamespace,
+      EDGE_CACHE: { get: async (key: string) => slow(key, null), put: async () => {} } as unknown as KVNamespace,
+      ARTIFACTS: createMockR2({}),
+      DISPATCHER: {
+        get: () => ({ fetch: async () => new Response('ok', { status: 200 }) }),
+      } as unknown as DispatchNamespace,
+    };
+
+    const response = await handleRequest(new Request('https://app.test/'), env);
+
+    expect(await response.text()).toBe('ok');
+    expect(overlap).toBe(true);
+  });
+});
+
+describe('waiting room cookie and edge errors', () => {
+  const room = { enabled: true, total_active_users: 50, new_users_per_minute: 50, session_duration_minutes: 30, paths: [] as string[] };
+
+  it('stamps the waiting room cookie on container responses', async () => {
+    const env: Env = {
+      HOST_MAP: createMockKv({
+        'app.test': {
+          site_id: 'site-1',
+          deployment_id: 'deploy-9',
+          storage_prefix: 'edge/site-1/deploy-9',
+          runtime_mode: 'container',
+          ssr_worker_script: 'dply-ctr-site-1',
+          waiting_room: room,
+        } as HostMapEntry,
+      }),
+      ARTIFACTS: createMockR2({}),
+      DISPATCHER: {
+        get: () => ({ fetch: async () => new Response('ok', { status: 200 }) }),
+      } as unknown as DispatchNamespace,
+    };
+
+    const response = await handleRequest(new Request('https://app.test/checkout'), env);
+
+    expect(await response.text()).toBe('ok');
+    expect(response.headers.get('Set-Cookie')).toContain('dply_wr=1');
+  });
+
+  it('does not stamp the cookie on a visitor who already has it', async () => {
+    const env: Env = {
+      HOST_MAP: createMockKv({
+        'app.test': { site_id: 'site-1', deployment_id: 'deploy-9', storage_prefix: 'edge/site-1/deploy-9', waiting_room: room } as HostMapEntry,
+      }),
+      ARTIFACTS: createMockR2({ 'edge/site-1/deploy-9/index.html': { body: 'hi', contentType: 'text/html' } }),
+    };
+
+    const response = await handleRequest(new Request('https://app.test/', { headers: { cookie: 'dply_wr=1' } }), env);
+
+    expect(response.headers.get('Set-Cookie')).toBeNull();
+  });
+
+  it('never shows visitors the internal error when the edge itself fails', async () => {
+    const errors: unknown[] = [];
+    const spy = vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(args));
+    const env: Env = {
+      HOST_MAP: createMockKv({
+        'app.test': { site_id: 'site-1', deployment_id: 'deploy-9', storage_prefix: 'edge/site-1/deploy-9' } as HostMapEntry,
+      }),
+      ARTIFACTS: {
+        get: async () => {
+          throw new Error('R2 bucket dply-artifacts-internal unreachable');
+        },
+      } as unknown as R2Bucket,
+    };
+
+    const response = await handleRequest(new Request('https://app.test/'), env);
+    spy.mockRestore();
+
+    expect(response.status).toBe(500);
+    expect(response.headers.get('Content-Type')).toContain('text/html');
+    const body = await response.text();
+    expect(body).toContain('Something went wrong');
+    expect(body).not.toContain('dply-artifacts-internal');
+    expect(JSON.stringify(errors)).toContain('dply-artifacts-internal');
   });
 });

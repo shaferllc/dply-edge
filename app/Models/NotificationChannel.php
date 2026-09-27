@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Jobs\DeliverNotificationWebhookJob;
 use App\Jobs\SendNotificationChannelTestEmailJob;
 use App\Mail\NotificationChannelMail;
 use App\Modules\Notifications\Channels\Intercom\IntercomMessage;
@@ -13,6 +14,9 @@ use App\Modules\Notifications\Services\MicrosoftTeamsClient;
 use App\Modules\Notifications\Services\PagerDutyClient;
 use App\Modules\Notifications\Services\SlackWorkspaceClient;
 use App\Modules\Notifications\Services\TelegramBotClient;
+use App\Services\Webhooks\OutboundWebhookSignature;
+use App\Support\Http\PublicOutboundUrl;
+use App\Support\Http\UnsafeOutboundUrlException;
 use Database\Factories\NotificationChannelFactory;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
@@ -20,10 +24,12 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 
 /**
  * @property string $id
@@ -366,9 +372,9 @@ class NotificationChannel extends Model
         }
 
         try {
-            $response = Http::timeout(10)->post($url, $payload);
+            $response = self::postToWebhookUrl($url, $payload);
         } catch (\Throwable $e) {
-            return ['ok' => false, 'message' => $e->getMessage()];
+            return self::webhookFailure($e);
         }
 
         if (! $response->successful()) {
@@ -448,9 +454,9 @@ class NotificationChannel extends Model
         $body = ['content' => $text];
 
         try {
-            $response = Http::timeout(10)->asJson()->post($url, $body);
+            $response = self::postToWebhookUrl($url, $body);
         } catch (\Throwable $e) {
-            return ['ok' => false, 'message' => $e->getMessage()];
+            return self::webhookFailure($e);
         }
 
         if (! $response->successful()) {
@@ -744,9 +750,9 @@ class NotificationChannel extends Model
         }
 
         try {
-            $response = Http::timeout(10)->asJson()->post($url, ['text' => $text]);
+            $response = self::postToWebhookUrl($url, ['text' => $text]);
         } catch (\Throwable $e) {
-            return ['ok' => false, 'message' => $e->getMessage()];
+            return self::webhookFailure($e);
         }
 
         if (! $response->successful()) {
@@ -974,12 +980,9 @@ class NotificationChannel extends Model
         ];
 
         try {
-            $response = Http::timeout(10)
-                ->withHeaders(is_array($this->config['headers'] ?? null) ? $this->config['headers'] : [])
-                ->asJson()
-                ->post($url, $payload);
+            $response = $this->postSignedWebhook($url, $payload, (string) Str::ulid());
         } catch (\Throwable $e) {
-            return ['ok' => false, 'message' => $e->getMessage()];
+            return self::webhookFailure($e);
         }
 
         if (! $response->successful()) {
@@ -1019,7 +1022,7 @@ class NotificationChannel extends Model
                 self::TYPE_GOOGLE_CHAT => $this->deliverGoogleChatPlain($full),
                 self::TYPE_INTERCOM => $this->deliverIntercomPlain($subject, $full),
                 self::TYPE_PAGERDUTY => $this->deliverPagerDutyAlert($subject, $text, $actionUrl, $context),
-                self::TYPE_WEBHOOK => $this->deliverWebhookInsight($subject, $text, $actionUrl),
+                self::TYPE_WEBHOOK => $this->deliverWebhookInsight($subject, $text, $actionUrl, $context),
                 default => null,
             };
         } catch (\Throwable $e) {
@@ -1056,7 +1059,7 @@ class NotificationChannel extends Model
             $payload['channel'] = $channel;
         }
 
-        Http::timeout(10)->post($url, $payload);
+        self::postToWebhookUrl($url, $payload);
     }
 
     protected function deliverDiscordPlain(string $text): void
@@ -1078,7 +1081,7 @@ class NotificationChannel extends Model
             return;
         }
 
-        Http::timeout(10)->asJson()->post($url, ['content' => mb_substr($text, 0, 1900)]);
+        self::postToWebhookUrl($url, ['content' => mb_substr($text, 0, 1900)]);
     }
 
     protected function deliverEmail(string $subject, string $body, ?string $actionUrl = null, ?string $actionLabel = null): void
@@ -1180,7 +1183,7 @@ class NotificationChannel extends Model
             return;
         }
 
-        Http::timeout(10)->asJson()->post($url, ['text' => $text]);
+        self::postToWebhookUrl($url, ['text' => $text]);
     }
 
     protected function deliverGoogleChatPlain(string $text): void
@@ -1190,7 +1193,7 @@ class NotificationChannel extends Model
             return;
         }
 
-        Http::timeout(10)->asJson()->post($url, ['text' => $text]);
+        self::postToWebhookUrl($url, ['text' => $text]);
     }
 
     protected function deliverIntercomPlain(string $subject, string $text): void
@@ -1283,22 +1286,113 @@ class NotificationChannel extends Model
         }
     }
 
-    protected function deliverWebhookInsight(string $subject, string $text, ?string $actionUrl): void
+    /**
+     * Queued, signed and retried: see DeliverNotificationWebhookJob.
+     *
+     * @param  array<string, mixed>  $context  From NotificationRoutingResolver::alertContextFor.
+     */
+    protected function deliverWebhookInsight(string $subject, string $text, ?string $actionUrl, array $context = []): void
     {
         $url = $this->config['url'] ?? null;
         if (! is_string($url) || $url === '') {
             return;
         }
 
-        Http::timeout(10)
-            ->withHeaders(is_array($this->config['headers'] ?? null) ? $this->config['headers'] : [])
-            ->asJson()
-            ->post($url, [
-                'event' => 'server.insights_alerts',
-                'subject' => $subject,
-                'text' => $text,
-                'action_url' => $actionUrl,
-                'sent_at' => now()->toIso8601String(),
-            ]);
+        $event = is_string($context['event_key'] ?? null) && $context['event_key'] !== ''
+            ? $context['event_key']
+            : 'notification';
+
+        DeliverNotificationWebhookJob::dispatch($this->id, [
+            'event' => $event,
+            'severity' => is_string($context['severity'] ?? null) ? $context['severity'] : null,
+            'source' => is_string($context['source'] ?? null) ? $context['source'] : null,
+            'dedup_key' => is_string($context['dedup_key'] ?? null) ? $context['dedup_key'] : null,
+            'subject' => $subject,
+            'text' => $text,
+            'action_url' => $actionUrl,
+            'sent_at' => now()->toIso8601String(),
+        ], (string) Str::ulid());
+    }
+
+    /**
+     * Per-channel HMAC secret for the X-Dply-Signature header. Derived from
+     * APP_KEY, so it needs no storage and is shown on the channel's edit form;
+     * rotating APP_KEY changes every channel's secret.
+     */
+    public static function webhookSigningSecret(string $channelId): string
+    {
+        return hash_hmac('sha256', 'notification-webhook:'.$channelId, (string) config('app.key'));
+    }
+
+    /**
+     * POST $payload signed over the exact bytes sent (`t=<unix>,v1=<hex>` of
+     * `<unix>.<body>`, as OutboundWebhookSignature). Custom headers go first so
+     * they cannot override the signature headers.
+     *
+     * @param  array<string, mixed>  $payload
+     *
+     * @throws UnsafeOutboundUrlException
+     */
+    public function postSignedWebhook(string $url, array $payload, string $deliveryId): Response
+    {
+        $body = (string) json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $ts = time();
+
+        return self::postToWebhookUrl($url, $body, [
+            ...$this->webhookHeaders(),
+            'X-Dply-Event' => (string) ($payload['event'] ?? ''),
+            'X-Dply-Delivery-Id' => $deliveryId,
+            'X-Dply-Timestamp' => (string) $ts,
+            'X-Dply-Signature' => OutboundWebhookSignature::header(self::webhookSigningSecret($this->id), $ts, $body),
+        ]);
+    }
+
+    /**
+     * POST JSON to an operator-supplied URL: resolved and pinned to a public
+     * address with redirects off, so a channel cannot aim the control plane at
+     * internal services (SSRF).
+     *
+     * A string payload is sent as-is (already-encoded JSON, e.g. a signed body).
+     *
+     * @param  array<string, mixed>|string  $payload
+     * @param  array<string, string>  $headers
+     *
+     * @throws UnsafeOutboundUrlException
+     */
+    public static function postToWebhookUrl(string $url, array|string $payload, array $headers = []): Response
+    {
+        $safe = PublicOutboundUrl::parse($url);
+        $request = Http::timeout(10)
+            ->withOptions($safe->httpClientOptions())
+            ->withHeaders($headers);
+
+        return is_string($payload)
+            ? $request->withBody($payload, 'application/json')->post($safe->url)
+            : $request->asJson()->post($safe->url, $payload);
+    }
+
+    /**
+     * The test button's answer for a failed post. Our own URL refusal is shown;
+     * transport errors are logged, not echoed, so the button is no probe.
+     *
+     * @return array{ok: false, message: string}
+     */
+    protected static function webhookFailure(\Throwable $e): array
+    {
+        if ($e instanceof UnsafeOutboundUrlException) {
+            return ['ok' => false, 'message' => __('That URL is not allowed: :reason', ['reason' => $e->getMessage()])];
+        }
+
+        Log::warning('notification_channel.webhook_test_failed', ['error' => $e->getMessage()]);
+
+        return ['ok' => false, 'message' => __('Could not reach the endpoint.')];
+    }
+
+    /** @return array<string, string> */
+    protected function webhookHeaders(): array
+    {
+        $headers = $this->config['headers'] ?? null;
+
+        return is_array($headers) ? array_map('strval', array_filter($headers, 'is_scalar')) : [];
     }
 }

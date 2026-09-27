@@ -1,4 +1,4 @@
-@props(['active' => null])
+@props(['active' => null, 'wide' => false])
 
 {{--
     Guest-facing header for the dply-edge marketing pages ("Terminal" identity).
@@ -14,11 +14,16 @@
         ['label' => __('How it works'), 'href' => url('/#how-it-works')],
         ['label' => __('Pricing'), 'href' => route('pricing'), 'key' => 'pricing'],
         ['label' => __('Features'), 'href' => route('features'), 'key' => 'features'],
+        ['label' => __('Docs'), 'href' => route('docs.index'), 'key' => 'docs'],
     ];
 @endphp
 
 <header class="sticky top-0 z-40 border-b border-edge-line bg-edge-void/95 backdrop-blur supports-[backdrop-filter]:bg-edge-void/80">
-    <div class="mx-auto flex max-w-6xl items-center justify-between gap-6 px-6 py-4 lg:px-10">
+    <div @class([
+        'mx-auto flex items-center justify-between gap-6 py-4',
+        'max-w-6xl px-6 lg:px-10' => ! $wide,
+        'max-w-[90rem] px-4 sm:px-6 lg:px-8' => $wide,
+    ])>
         <a href="{{ url('/') }}" class="transition-opacity hover:opacity-80">
             <x-dply-wordmark class="text-[15px] text-edge-text" />
         </a>

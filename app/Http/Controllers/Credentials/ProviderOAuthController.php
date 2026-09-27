@@ -38,7 +38,7 @@ class ProviderOAuthController extends Controller
                 ->with('error', __('Select or create an organization before connecting a provider.'));
         }
 
-        if ($org->userIsDeployer($user)) {
+        if ($org->userHasRestrictedRole($user)) {
             abort(403);
         }
 
@@ -120,7 +120,7 @@ class ProviderOAuthController extends Controller
         }
 
         $org = Organization::query()->find($organizationId);
-        if (! $org || ! $org->hasMember($user) || $org->userIsDeployer($user)) {
+        if (! $org || ! $org->hasMember($user) || $org->userHasRestrictedRole($user)) {
             return redirect()
                 ->route('organizations.credentials', ['organization' => $organizationId, 'provider' => 'digitalocean'])
                 ->with('error', __('You cannot add credentials for that organization.'));

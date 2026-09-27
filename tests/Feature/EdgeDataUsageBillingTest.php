@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\Http;
 
 uses(RefreshDatabase::class);
 
-beforeEach(fn () => config(['dply.edge.usage_billing.markup_percent' => 0]));
+beforeEach(fn () => config(['dply.edge.usage_billing.margin_percent' => 0]));
 
 test('d1 and queues usage is priced at list rates', function () {
     // 1B rows read (100¢) + 1M rows written (100¢) + 1 GiB storage (75¢) + 1M queue ops (40¢)
@@ -46,7 +46,7 @@ test('usage is attributed to the org that owns each database and queue', functio
 });
 
 test('data usage lands on the usage line and the monthly total', function () {
-    $state = DesiredBillingState::fromPlanAndUsage(plan: ['key' => 'pro', 'label' => 'Pro', 'price_cents' => 2000], dataUsageCents: 315);
+    $state = DesiredBillingState::fromPlanAndUsage(plan: ['key' => 'pro', 'label' => 'Pro', 'price_cents' => 2000], usage: ['data' => 315]);
 
     expect($state->usageLineCents())->toBe(315)->and($state->monthlyTotalCents)->toBe(2315);
 });
