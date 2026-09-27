@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Edge\Support;
 
 use App\Models\Site;
+use App\Modules\Billing\Support\UsagePrice;
 use App\Modules\Providers\Valkey\ValkeyGatewayClient;
 use App\Modules\Providers\Valkey\ValkeyRegions;
 use Illuminate\Support\Facades\Cache;
@@ -21,20 +22,41 @@ final class EdgeValkey
     public const PREFIX = 'valkey:';
 
     /**
-     * Owner's price table (2026-09-24). Flex sleeps when idle; pro stays on
-     * and keeps an append-only file. Billed per second awake, up to the cap.
+     * Sizes on the shared ladder (EdgeSizeLadder::VALKEY_CLASSES). Flex
+     * sleeps when idle; pro stays on and keeps an append-only file. Billed
+     * per second awake, up to the monthly cap.
      *
-     * @var array<string, array{label: string, memory_mb: int, sleeps: bool, per_second: float, cap_cents: int}>
+     * cost_per_second (dollars) and cap_cost_cents are dply's COST. They were
+     * backed out of the owner's 2026-09-24 customer price table at the
+     * default 20% margin (price / 1.2), so customer prices are unchanged at
+     * 20%. The customer price comes from {@see spec()} (UsagePrice).
+     *
+     * @var array<string, array{label: string, memory_mb: int, sleeps: bool, cost_per_second: float, cap_cost_cents: float}>
      */
     public const CLASSES = [
-        'flex_250m' => ['label' => 'Flex 250 MB', 'memory_mb' => 250, 'sleeps' => true, 'per_second' => 0.00000248, 'cap_cents' => 600],
-        'flex_1g' => ['label' => 'Flex 1 GB', 'memory_mb' => 1024, 'sleeps' => true, 'per_second' => 0.00000992, 'cap_cents' => 2400],
-        'flex_2_5g' => ['label' => 'Flex 2.5 GB', 'memory_mb' => 2560, 'sleeps' => true, 'per_second' => 0.0000198, 'cap_cents' => 4800],
-        'pro_5g' => ['label' => 'Pro 5 GB', 'memory_mb' => 5120, 'sleeps' => false, 'per_second' => 0.0000318, 'cap_cents' => 7700],
-        'pro_12g' => ['label' => 'Pro 12 GB', 'memory_mb' => 12288, 'sleeps' => false, 'per_second' => 0.0000744, 'cap_cents' => 18000],
-        'pro_25g' => ['label' => 'Pro 25 GB', 'memory_mb' => 25600, 'sleeps' => false, 'per_second' => 0.000103, 'cap_cents' => 25000],
-        'pro_50g' => ['label' => 'Pro 50 GB', 'memory_mb' => 51200, 'sleeps' => false, 'per_second' => 0.000207, 'cap_cents' => 50000],
+        'flex_250m' => ['label' => '0.25 vCPU', 'memory_mb' => 250, 'sleeps' => true, 'cost_per_second' => 0.00000248 / 1.2, 'cap_cost_cents' => 600 / 1.2],
+        'flex_1g' => ['label' => '0.5 vCPU', 'memory_mb' => 1024, 'sleeps' => true, 'cost_per_second' => 0.00000992 / 1.2, 'cap_cost_cents' => 2400 / 1.2],
+        'flex_2_5g' => ['label' => '1 vCPU', 'memory_mb' => 2560, 'sleeps' => true, 'cost_per_second' => 0.0000198 / 1.2, 'cap_cost_cents' => 4800 / 1.2],
+        'pro_5g' => ['label' => '2 vCPU', 'memory_mb' => 5120, 'sleeps' => false, 'cost_per_second' => 0.0000318 / 1.2, 'cap_cost_cents' => 7700 / 1.2],
+        'pro_12g' => ['label' => '4 vCPU', 'memory_mb' => 12288, 'sleeps' => false, 'cost_per_second' => 0.0000744 / 1.2, 'cap_cost_cents' => 18000 / 1.2],
+        'pro_25g' => ['label' => 'Large 25 GB', 'memory_mb' => 25600, 'sleeps' => false, 'cost_per_second' => 0.000103 / 1.2, 'cap_cost_cents' => 25000 / 1.2],
+        'pro_50g' => ['label' => 'Large 50 GB', 'memory_mb' => 51200, 'sleeps' => false, 'cost_per_second' => 0.000207 / 1.2, 'cap_cost_cents' => 50000 / 1.2],
     ];
+
+    /**
+     * A class with its customer prices: per_second (dollars) and cap_cents.
+     *
+     * @return array{label: string, memory_mb: int, sleeps: bool, cost_per_second: float, cap_cost_cents: float, per_second: float, cap_cents: float}
+     */
+    public static function spec(string $class): array
+    {
+        $key = isset(self::CLASSES[$class]) ? $class : self::DEFAULT_CLASS;
+
+        return self::CLASSES[$key] + [
+            'per_second' => UsagePrice::valkeyPerSecond($key) / 100_000,
+            'cap_cents' => UsagePrice::valkeyCapCents($key),
+        ];
+    }
 
     public const DEFAULT_CLASS = 'flex_250m';
 
@@ -45,10 +67,15 @@ final class EdgeValkey
      */
     public const NOT_OFFERED = ['pro_25g', 'pro_50g'];
 
-    /** @return array<string, array{label: string, memory_mb: int, sleeps: bool, per_second: float, cap_cents: int}> */
+    /** @return array<string, array{label: string, memory_mb: int, sleeps: bool, cost_per_second: float, cap_cost_cents: float, per_second: float, cap_cents: float}> */
     public static function offered(): array
     {
-        return array_diff_key(self::CLASSES, array_flip(self::NOT_OFFERED));
+        $offered = [];
+        foreach (array_diff_key(self::CLASSES, array_flip(self::NOT_OFFERED)) as $key => $class) {
+            $offered[$key] = self::spec($key);
+        }
+
+        return $offered;
     }
 
     /** Idle time before a flex database sleeps, in seconds. 0 stays on. */
@@ -124,6 +151,35 @@ final class EdgeValkey
         $spec = self::CLASSES[$class] ?? self::CLASSES[self::DEFAULT_CLASS];
         $password = rawurldecode((string) (parse_url($url, PHP_URL_PASS) ?? ''));
         ValkeyGatewayClient::fromConfig(self::region($target))->put(self::tenantId($target), $password, $spec['memory_mb'], self::sleepAfter($class, $sleep), ! $spec['sleeps']);
+    }
+
+    /** Idle seconds before a store put to sleep from its card goes down. */
+    public const ASLEEP_SLEEP = 60;
+
+    /**
+     * The card's Sleep/Wake. Asleep, the store (Pro sizes too) goes down a
+     * minute after its last client, so it stops billing once the next deploy
+     * takes REDIS_URL off the app; keys are kept (snapshot, or the Pro disk).
+     * Only the record changes here: sleeping a big store now would stream
+     * every key inside the request, and the live app would wake it again.
+     * Wake restores the size's own sleep setting.
+     */
+    public static function setAsleep(string $target, string $url, string $class, int $sleep, bool $asleep): void
+    {
+        if (! $asleep) {
+            self::update($target, $url, $class, $sleep);
+
+            return;
+        }
+        $spec = self::CLASSES[$class] ?? self::CLASSES[self::DEFAULT_CLASS];
+        $password = rawurldecode((string) (parse_url($url, PHP_URL_PASS) ?? ''));
+        $client = ValkeyGatewayClient::fromConfig(self::region($target));
+        if ($password === '') {
+            $client->sleep(self::tenantId($target)); // no address to connect with: nothing wakes it
+
+            return;
+        }
+        $client->put(self::tenantId($target), $password, $spec['memory_mb'], self::ASLEEP_SLEEP, ! $spec['sleeps']);
     }
 
     public static function destroy(string $target): void

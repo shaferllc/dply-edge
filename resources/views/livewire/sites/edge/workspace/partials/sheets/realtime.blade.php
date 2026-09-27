@@ -104,15 +104,12 @@ PHP;
                         <x-sheet.metric :label="__('Messages')" :note="__('This month, collected daily')">
                             {{ \Illuminate\Support\Number::abbreviate($rtMonth['messages'], maxPrecision: 1) }}
                         </x-sheet.metric>
-                        <x-sheet.metric :label="__('Cost')" :note="__('This month, after the allowance')">
+                        <x-sheet.metric :label="__('Cost')" :note="__('This month so far')">
                             {{ '$'.number_format($rtMonth['cents'] / 100, 2) }}
                         </x-sheet.metric>
                     </x-sheet.metrics>
-                    @php($rtAllow = $rtMonth['allowance'])
-                    @if ($rtAllow['messages'] !== null)
-                        @php($rtAbbr = fn (int $n) => \Illuminate\Support\Number::abbreviate($n, maxPrecision: 1))
-                        <x-sheet.note>{{ __('Your plan includes :c connection-minutes and :m messages a month across all Realtime apps. Used so far: :uc and :um. Past that, $:p per million of each.', ['p' => number_format(config('dply.edge.usage_billing.realtime_message_millicents_per_million') / 100_000, 2), 'c' => $rtAbbr((int) $rtAllow['connection_minutes']), 'm' => $rtAbbr((int) $rtAllow['messages']), 'uc' => $rtAbbr($rtMonth['org_minutes']), 'um' => $rtAbbr($rtMonth['org_messages'])]) }}</x-sheet.note>
-                    @endif
+                    @php($rtAbbr = fn (int $n) => \Illuminate\Support\Number::abbreviate($n, maxPrecision: 1))
+                    <x-sheet.note>{{ __('Across all Realtime apps this month: :uc connection-minutes and :um messages. :c per million connection-minutes and :m per million messages, paid from your plan’s included usage credit first.', ['c' => \App\Modules\Billing\Support\UsagePrice::dollars(\App\Modules\Billing\Support\UsagePrice::rate('realtime_connection_minute_millicents') * 1_000_000), 'm' => \App\Modules\Billing\Support\UsagePrice::dollars(\App\Modules\Billing\Support\UsagePrice::rate('realtime_message_millicents_per_million')), 'uc' => $rtAbbr($rtMonth['org_minutes']), 'um' => $rtAbbr($rtMonth['org_messages'])]) }}</x-sheet.note>
                     @if ($rtAsleep)
                         <x-sheet.note>{{ __('Asleep. The relay refuses connections and broadcasts until you wake it. The app keeps its keys, so waking needs no redeploy.') }}</x-sheet.note>
                     @endif

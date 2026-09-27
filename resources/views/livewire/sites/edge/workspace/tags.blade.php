@@ -1,7 +1,6 @@
 <div>
     <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
         @include('livewire.sites.edge.workspace.partials.feature-guide', [
-            'docSlug' => 'edge-tags',
             'what' => __('Tags load analytics, pixels and chat widgets from the Edge — pick a tool, paste its ID, and Edge adds the loader and setup code. No git deploy.'),
             'steps' => [
                 __('Add a tool from the catalog and paste its ID, or add a custom script URL.'),

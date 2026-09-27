@@ -19,7 +19,7 @@
                             'requests' => number_format($billing['requests'] ?? 0),
                         ]) }}
                     @else
-                        {{ __('Usage this month. Extra sites and SSR sites are billed on the organization plan.') }}
+                        {{ __('Usage this month, billed on the organization plan. Sites have no fee.') }}
                     @endif
                 </p>
             </div>

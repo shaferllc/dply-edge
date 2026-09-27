@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Models\EdgeDataUsage;
 use App\Models\Organization;
 use App\Models\User;
+use App\Modules\Billing\Jobs\BillRenewalUsageJob;
 use App\Modules\Billing\Models\Subscription;
 use App\Modules\Billing\Services\BillingForecastCalculator;
 use App\Modules\Billing\Services\DesiredBillingState;
@@ -15,6 +16,12 @@ use App\Modules\Billing\Services\StandardSubscriptionCreator;
 use App\Modules\Billing\Services\StripeSubscriptionSyncer;
 use App\Modules\Billing\Services\UsageAlerts;
 use App\Modules\Billing\Services\UsageInvoicer;
+use App\Modules\Billing\Support\UsagePrice;
+use App\Modules\Edge\Services\Containers\EdgeContainerUsageCollector;
+use App\Modules\Edge\Services\EdgeDataUsageCollector;
+use App\Modules\Edge\Services\EdgeKvUsageCollector;
+use App\Modules\Edge\Services\EdgePlatformUsageCollector;
+use App\Modules\Edge\Services\EdgeUsageCollector;
 use App\Notifications\UsageThresholdNotice;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Queue\CallQueuedClosure;
@@ -73,12 +80,15 @@ beforeEach(function () {
         'cashier.secret' => 'sk_test_fake',
         'subscription.standard.stripe.tier_pro' => 'price_tier_pro',
         'subscription.standard.stripe.edge_usage' => 'price_edge_usage',
-        'dply.edge.usage_billing.markup_percent' => 0,
+        'dply.edge.usage_billing.margin_percent' => 0,
+        // Most tests read the usage lines alone; the credit line has its own test.
+        'subscription.standard.tiers.pro.usage_credit_cents' => 0,
     ]);
     $this->stripe = new FakeStripeHttp;
     ApiRequestor::setHttpClient($this->stripe);
     $this->org = Organization::factory()->create(['stripe_id' => 'cus_1']);
     $this->org->users()->attach(User::factory()->create()->id, ['role' => 'owner']);
+    fakeUsageCollectors();
 });
 
 afterEach(fn () => ApiRequestor::setHttpClient(null));
@@ -102,7 +112,32 @@ function renewalInvoice(array $overrides = []): array
 
 function stripeEvent(string $type, array $object): void
 {
+    $before = count(Queue::pushedJobs()[BillRenewalUsageJob::class] ?? []);
     event(new WebhookReceived(['type' => $type, 'data' => ['object' => $object]]));
+    // invoice.created is queued: run it as a worker would.
+    foreach (array_slice(Queue::pushedJobs()[BillRenewalUsageJob::class] ?? [], $before) as $pushed) {
+        app()->call([$pushed['job'], 'handle']);
+    }
+}
+
+/** Stand-ins for the date-based usage collectors the renewal re-runs. */
+function fakeUsageCollectors(?Closure $data = null): void
+{
+    $fake = fn (?Closure $then = null) => new class($then)
+    {
+        public function __construct(private ?Closure $then) {}
+
+        public function collectForDate($date, bool $dryRun = false): array
+        {
+            $this->then && ($this->then)($date);
+
+            return [];
+        }
+    };
+    foreach ([EdgeUsageCollector::class, EdgeContainerUsageCollector::class, EdgeKvUsageCollector::class, EdgePlatformUsageCollector::class] as $class) {
+        app()->instance($class, $fake());
+    }
+    app()->instance(EdgeDataUsageCollector::class, $fake($data));
 }
 
 test('a renewal invoice gets the ended period’s usage, once, for exactly that period', function () {
@@ -123,6 +158,27 @@ test('a renewal invoice gets the ended period’s usage, once, for exactly that 
 
     $charge = DB::table('billing_usage_charges')->where('organization_id', $this->org->id)->sole();
     expect($charge->status)->toBe('billed')->and($charge->period_start)->toBe('2026-08-05')->and($charge->period_end)->toBe('2026-09-04')->and($charge->cents)->toBe(555);
+});
+
+test('the renewal re-collects the period’s last day first, so its final hour is billed', function () {
+    dataUsageOn($this->org, '2026-08-05');
+    // Cloudflare's last samples for Sep 4 are only there once collected again.
+    fakeUsageCollectors(fn ($date) => dataUsageOn($this->org, $date->toDateString()));
+
+    stripeEvent('invoice.created', renewalInvoice());
+
+    expect($this->stripe->items()[0]['amount'])->toBe(555); // both days, not 315 + storage for one
+    // The webhook already answered, so the job retries in Stripe's place.
+    expect((new BillRenewalUsageJob([]))->tries)->toBeGreaterThan(1);
+});
+
+test('a collector that fails does not stop the renewal from billing', function () {
+    dataUsageOn($this->org, '2026-08-05');
+    fakeUsageCollectors(fn () => throw new RuntimeException('Cloudflare is down'));
+
+    stripeEvent('invoice.created', renewalInvoice());
+
+    expect($this->stripe->items())->toHaveCount(1);
 });
 
 test('the trial’s own period, other invoices and zero usage bill nothing', function () {
@@ -199,8 +255,9 @@ test('subscription webhooks remember the current stripe period, and billing read
 
 test('usage is never a subscription line: new subscriptions skip it and the sync removes it without proration', function () {
     config(['subscription.standard.stripe.edge' => 'price_edge']);
-    $state = DesiredBillingState::fromPlanAndUsage(plan: ['key' => 'pro', 'label' => 'Pro', 'price_cents' => 2000], dataUsageCents: 500);
+    $state = DesiredBillingState::fromPlanAndUsage(plan: ['key' => 'pro', 'label' => 'Pro', 'price_cents' => 2000], usage: ['data' => 500]);
     expect(app(StandardSubscriptionCreator::class)->buildPriceList($state))->toBe([['price' => 'price_tier_pro', 'quantity' => 1]]);
+    config(['subscription.standard.stripe.retired_site_fees' => []]);
 
     $real = Subscription::factory()->active()->create(['organization_id' => $this->org->id, 'stripe_price' => null]);
     foreach (['price_tier_pro', 'price_edge_usage'] as $price) {
@@ -260,20 +317,17 @@ test('usage is never a subscription line: new subscriptions skip it and the sync
         ->and($changes)->toBe([['tier' => 'edge_usage', 'action' => 'remove', 'from' => 1, 'to' => 0]]);
 });
 
-test('delivery usage still bills when no billable site is left', function () {
-    config(['dply.edge.usage_billing.enabled' => true, 'dply.edge.usage_billing.requests_cents_per_million' => 10]);
-    $tier = (array) config('subscription.standard.tiers.pro');
+test('delivery usage bills without any site: there is no per-site allowance', function () {
+    config(['dply.edge.usage_billing.enabled' => true, 'dply.edge.usage_billing.requests_millicents_per_million' => 10_000]);
 
-    $estimate = app(EdgeUsageCostCalculator::class)->estimate(new EdgeUsageTotals(requests: (int) $tier['requests'] + 5_000_000), 0, $tier);
-
-    expect($estimate['subtotal_cents'])->toBe(50);
+    expect(app(EdgeUsageCostCalculator::class)->estimate(new EdgeUsageTotals(requests: 5_000_000))['subtotal_cents'])->toBe(50);
 });
 
 test('the forecast runs every usage kind out to the period end', function () {
     $state = DesiredBillingState::fromPlanAndUsage(
         plan: ['key' => 'pro', 'label' => 'Pro', 'price_cents' => 2000],
         edgeUsageEstimate: ['period_start' => '2026-09-05'],
-        dataUsageCents: 100,
+        usage: ['data' => 100],
     );
 
     $forecast = app(BillingForecastCalculator::class)->calculate($state, 'month', null, Carbon::parse('2026-09-14'));
@@ -292,7 +346,7 @@ test('owners are emailed at 50, 80 and 100 percent of the usage alert, each once
     $state = fn (int $cents, string $period = '2026-09-05') => DesiredBillingState::fromPlanAndUsage(
         plan: ['key' => 'pro', 'label' => 'Pro', 'price_cents' => 2000],
         edgeUsageEstimate: ['period_start' => $period],
-        dataUsageCents: $cents,
+        usage: ['data' => $cents],
     );
     $alerts = app(UsageAlerts::class);
 
@@ -307,4 +361,26 @@ test('owners are emailed at 50, 80 and 100 percent of the usage alert, each once
     $org->forceFill(['usage_alert_cents' => 10_000])->save();
     expect($alerts->check($org, $state(8000, '2026-10-05')))->toBe(80);
     Notification::assertSentTimes(UsageThresholdNotice::class, 4);
+});
+
+test('the renewal invoice lists usage by category, then the included credit as a negative line', function () {
+    config(['subscription.standard.stripe.tier_starter' => 'price_tier_starter']);
+    $this->stripe->subscription['items']['data'][0]['price']['id'] = 'price_tier_starter';
+    // Per day at cost: 1B rows read $1, 1M written $1, 1M queue ops $0.40;
+    // storage is the 1 GB peak once ($0.75). Two days: $5.55 of cost.
+    dataUsageOn($this->org, '2026-08-05');
+    dataUsageOn($this->org, '2026-09-04');
+
+    stripeEvent('invoice.created', renewalInvoice());
+
+    $items = $this->stripe->items();
+    $data = UsagePrice::cents(2 * 100_000 + 2 * 100_000 + 75_000 + 2 * 40_000);
+    expect($items)->toHaveCount(2)
+        ->and($items[0]['metadata']['dply_usage_line'])->toBe('data')
+        ->and($items[0]['amount'])->toBe($data)
+        ->and($items[1]['metadata']['dply_usage_line'])->toBe('credit')
+        ->and($items[1]['description'])->toContain('Included usage credit')
+        // Starter includes $5: the credit is min($5, usage).
+        ->and($items[1]['amount'])->toBe(-min(500, $data));
+    expect(DB::table('billing_usage_charges')->value('cents'))->toBe(max(0, $data - 500));
 });

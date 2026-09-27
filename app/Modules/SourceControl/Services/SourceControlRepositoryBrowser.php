@@ -104,12 +104,7 @@ class SourceControlRepositoryBrowser
             return $repositoryUrl;
         }
 
-        $user = match ($account->provider()) {
-            'github' => 'x-access-token',
-            'gitlab' => 'oauth2',
-            'bitbucket' => 'x-token-auth',
-            default => '',
-        };
+        $user = self::cloneUsername($account->provider());
 
         if ($user === '') {
             return $repositoryUrl;
@@ -121,6 +116,17 @@ class SourceControlRepositoryBrowser
         $query = isset($parts['query']) ? '?'.$parts['query'] : '';
 
         return $parts['scheme'].'://'.$auth.$port.$path.$query;
+    }
+
+    /** HTTPS username each host expects alongside an OAuth/PAT token. '' = unknown host. */
+    public static function cloneUsername(string $provider): string
+    {
+        return match ($provider) {
+            'github' => 'x-access-token',
+            'gitlab' => 'oauth2',
+            'bitbucket' => 'x-token-auth',
+            default => '',
+        };
     }
 
     /**

@@ -395,7 +395,8 @@ class EdgeContainerDeployer
         File::put($project.'/secrets.json', json_encode(array_merge(EdgeContainerConnections::redisDriverEnv($site), EdgeContainerConnections::storageDriverEnv($site), EdgeContainerConnections::kvDriverEnv($site), EdgeContainerConnections::realtimeDriverEnv($site), $queueEnv, $env, [
             'DPLY_QUEUE_TOKEN' => self::queueToken($site),
             'DPLY_APP_URL' => (string) ($site->edgeLiveUrl() ?? ''),
-            'DPLY_MIGRATE_ON_BOOT' => $migrateOnBoot ? '1' : '0',
+            // Never on a preview: its migrations would run against whatever database it reaches.
+            'DPLY_MIGRATE_ON_BOOT' => $migrateOnBoot && ! $site->isEdgePreview() ? '1' : '0',
             'DPLY_SQLITE_SYNC' => $sqliteSync ? '1' : '0',
         ]), JSON_THROW_ON_ERROR));
 

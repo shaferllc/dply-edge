@@ -17,7 +17,7 @@ use Throwable;
  * the cap is used (or the org has no plan), write a KV flag the edge worker
  * checks before it starts the container. Worker-only sites are stopped by the
  * paused page instead (OrganizationBillingEnforcer). Paid orgs are never
- * flagged — their overage is invoiced.
+ * flagged — their usage is invoiced.
  */
 final class StarterTrafficGate
 {

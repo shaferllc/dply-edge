@@ -12,15 +12,17 @@ use Throwable;
  * Reconciles an organization's Stripe subscription line items against a
  * {@see DesiredBillingState}:
  *
- * - A subscription without its tier price (pre-tier per-site, monthly or
- *   yearly) is swapped wholesale onto the tier's line items.
- * - Otherwise each line converges on its quantity: extra sites (`edge`), SSR
- *   sites (`edge_ssr`), extra seats (`team_seat`) and load balancer
- *   endpoints. Changing tier is the billing page's job.
+ * - A subscription without its plan price (pre-tier per-site, monthly or
+ *   yearly) is swapped wholesale onto the plan's line items.
+ * - Otherwise the extra-seat line (`team_seat`) converges on its quantity.
+ *   Changing plan is the billing page's job.
  *
  * - Usage is not a subscription line: UsageInvoicer adds it to each renewal
- *   invoice for the period that just ended. A legacy `edge_usage` line is
- *   removed without proration, so it neither bills nor credits.
+ *   invoice for the period that just ended, less the plan's usage credit.
+ * - The retired per-site lines (`subscription.standard.stripe.retired_site_fees`:
+ *   extra site, SSR site, load balancing) and a legacy `edge_usage` line are
+ *   removed without proration, so they neither bill nor credit (ruling
+ *   r-2zxevg4sj675qn1m).
  *
  * - Items on a **retired** price (old plan tiers, serverless, Cloud, … — see
  *   `subscription.standard.stripe.retired`) are removed, so customers stop
@@ -70,21 +72,18 @@ class StripeSubscriptionSyncer
             // the tier in one swap, invoiced now (owner: auto-move, 2026-09-16).
             $changes[] = $this->moveToTier($subscription, $desired);
         } else {
-            foreach ([
-                'edge' => $desired->extraSiteCount,
-                'edge_ssr' => $desired->edgeSsrCount,
-                'team_seat' => $desired->extraSeatCount,
-                'edge_lb_endpoint' => $desired->edgeLbEndpointCount,
-            ] as $product => $quantity) {
-                $this->reconcileLine($subscription, $changes, $product, $quantity);
-            }
-        }
+            $this->reconcileLine($subscription, $changes, 'team_seat', $desired->extraSeatCount);
 
-        $usagePriceId = (string) (config('subscription.standard.stripe.edge_usage') ?? '');
-        if ($usagePriceId !== '' && $subscription->hasPrice($usagePriceId) && $subscription->items->count() > 1) {
-            $from = $this->currentQuantity($subscription, $usagePriceId);
-            $subscription->noProrate()->removePrice($usagePriceId);
-            $changes[] = ['tier' => 'edge_usage', 'action' => 'remove', 'from' => $from, 'to' => 0];
+            // The plan price stays on the subscription, so removing these
+            // never empties it.
+            $usagePriceId = (string) (config('subscription.standard.stripe.edge_usage') ?? '');
+            foreach (array_filter([$usagePriceId, ...SubscriptionPlanResolver::retiredSiteFeePriceIds()]) as $priceId) {
+                if ($subscription->hasPrice($priceId)) {
+                    $from = $this->currentQuantity($subscription, $priceId);
+                    $subscription->noProrate()->removePrice($priceId);
+                    $changes[] = ['tier' => $priceId === $usagePriceId ? 'edge_usage' : 'retired_site_fee', 'action' => 'remove', 'from' => $from, 'to' => 0];
+                }
+            }
         }
 
         foreach ($this->retiredPricesToRemove($subscription) as $priceId) {

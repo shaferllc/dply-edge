@@ -12,6 +12,7 @@ use App\Modules\Billing\Models\Subscription;
 use App\Modules\Edge\Livewire\Create;
 use App\Modules\SourceControl\Services\SourceControlRepositoryBrowser;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Livewire\Livewire;
 use ReflectionMethod;
 
@@ -88,7 +89,7 @@ test('newly saved cloudflare credential is selected for byo delivery', function 
         ->assertSet('form.edge_provider_credential_id', 'cred-123');
 });
 
-test('ssr detection still selects hybrid when output_dir is present', function () {
+test('a next.js server app is an App (worker ssr) when worker ssr is available', function () {
     $user = ownerWithOrg();
 
     Livewire::actingAs($user)
@@ -106,8 +107,99 @@ test('ssr detection still selects hybrid when output_dir is present', function (
             $method->setAccessible(true);
             $method->invoke($component->instance());
         })
-        ->assertSet('form.runtime_mode', 'hybrid')
+        ->assertSet('form.runtime_mode', 'ssr')
         ->assertSet('form.output_dir', '.next');
+});
+
+test('step 3 offers Site and App, build overrides and hybrid under Advanced, and no per-site price', function () {
+    $user = ownerWithOrg();
+
+    Livewire::actingAs($user)
+        ->test(Create::class)
+        ->set('repo', 'acme/next-app')
+        ->set('wizardStep', 3)
+        ->set('detectedPlan', ['runtime' => 'node', 'framework' => 'next', 'start_command' => 'next start', 'build_command' => 'npm run build'])
+        ->assertSee('What are you deploying?')
+        ->assertSee('Site')
+        ->assertSee('App')
+        ->assertSee('Advanced')
+        ->assertSee('Build command')
+        ->assertSee('Output directory')
+        ->assertSee('Send server routes to my own server (hybrid)')
+        ->assertDontSee('/mo');
+});
+
+test('a hybrid pick that arrives from queued detection shows the origin url outside Advanced', function () {
+    $user = ownerWithOrg();
+
+    $html = Livewire::actingAs($user)
+        ->test(Create::class)
+        ->set('repo', 'acme/kit-app')
+        ->set('wizardStep', 3)
+        ->set('runtimeDetectionPending', true)
+        ->set('runtimeDetectionKey', 'edge-detect:test')
+        ->tap(fn () => Cache::put('edge-detect:test', ['state' => 'done', 'plan' => ['runtime' => 'node', 'framework' => 'sveltekit', 'build_command' => 'npm run build']]))
+        ->call('pollRuntimeDetection')
+        ->assertSet('form.runtime_mode', 'hybrid')
+        ->html();
+
+    expect(strpos($html, 'Origin URL'))->toBeGreaterThan(strpos($html, '</details>'));
+});
+
+test('choosing App picks worker ssr, or a container for a server stack; Site and hybrid map directly', function () {
+    $user = ownerWithOrg();
+
+    Livewire::actingAs($user)
+        ->test(Create::class)
+        ->set('detectedPlan', ['runtime' => 'node', 'framework' => 'next', 'start_command' => 'next start'])
+        ->call('chooseHosting', 'app')
+        ->assertSet('form.runtime_mode', 'ssr')
+        ->assertSet('runtimeModeTouched', true)
+        ->call('chooseHosting', 'site')
+        ->assertSet('form.runtime_mode', 'static')
+        ->call('chooseHosting', 'hybrid')
+        ->assertSet('form.runtime_mode', 'hybrid')
+        ->set('detectedPlan', ['runtime' => 'php', 'framework' => 'laravel'])
+        ->call('chooseHosting', 'app')
+        ->assertSet('form.runtime_mode', 'container');
+});
+
+test('build overrides typed on the create page are kept and sent to the new site', function () {
+    config(['edge.fake.enabled' => true, 'subscription.standard.stripe.tier_pro' => 'price_tier_pro']);
+    $user = ownerWithOrg();
+    Subscription::factory()->withPrice('price_tier_pro')->active()
+        ->create(['organization_id' => session('current_organization_id')]);
+
+    Livewire::actingAs($user)
+        ->test(Create::class)
+        ->set('form.name', 'Docs')
+        ->set('repo', 'acme/docs')
+        ->set('branch', 'main')
+        ->set('form.build_command', 'pnpm build:docs')
+        ->set('form.output_dir', 'site')
+        ->set('detectedPlan', ['runtime' => 'node', 'framework' => 'vite', 'build_command' => 'npm run build', 'output_dir' => 'dist'])
+        ->tap(function ($component): void {
+            $method = new ReflectionMethod($component->instance(), 'applyDetectedRuntimePrefills');
+            $method->invoke($component->instance());
+        })
+        ->assertSet('form.build_command', 'pnpm build:docs')
+        ->call('deploy');
+
+    $build = Site::query()->firstOrFail()->edgeMeta()['build'];
+    expect($build['command'])->toBe('pnpm build:docs')
+        ->and($build['output_dir'])->toBe('site');
+});
+
+test('?runtime_mode=container is honoured', function () {
+    $user = ownerWithOrg();
+
+    $this->actingAs($user);
+    request()->query->set('runtime_mode', 'container');
+
+    Livewire::actingAs($user)
+        ->withQueryParams(['runtime_mode' => 'container'])
+        ->test(Create::class)
+        ->assertSet('form.runtime_mode', 'container');
 });
 
 test('hybrid framework preset selects hybrid without start command', function () {

@@ -18,7 +18,8 @@ use Illuminate\Support\Facades\Http;
 uses(RefreshDatabase::class);
 
 beforeEach(function () {
-    config(['edge.cloudflare.account_id' => 'acct', 'edge.cloudflare.api_token' => 'tok']);
+    // Cost only, so the numbers below read as Cloudflare list price.
+    config(['edge.cloudflare.account_id' => 'acct', 'edge.cloudflare.api_token' => 'tok', 'dply.edge.usage_billing.margin_percent' => 0]);
 });
 
 /**
@@ -173,11 +174,11 @@ test('storage bills each resource at its peak day, counts sum over the month', f
 test('the billing computer includes platform usage in usage', function () {
     $site = Site::factory()->create();
     $org = $site->organization;
-    $before = app(OrganizationBillingStateComputer::class)->computeForTier($org, 'pro')->dataUsageCents;
+    $before = app(OrganizationBillingStateComputer::class)->computeForTier($org, 'pro')->usageLines()['platform'] ?? 0;
     EdgePlatformUsage::query()->create(['organization_id' => $org->id, 'resource' => 'dply-ctr-x', 'date' => now()->toDateString(), 'cpu_ms' => 100_000_000]);
 
     // 100M CPU-ms at $0.02 per million.
-    expect(app(OrganizationBillingStateComputer::class)->computeForTier($org, 'pro')->dataUsageCents)->toBe($before + 200);
+    expect(app(OrganizationBillingStateComputer::class)->computeForTier($org, 'pro')->usageLines()['platform'] ?? 0)->toBe($before + 200);
 });
 
 test('the trial spending cap counts platform usage', function () {

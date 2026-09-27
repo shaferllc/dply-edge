@@ -222,6 +222,45 @@ test('a pending delete re-attached before the deploy is kept', function () {
     expect($site->fresh()->edgeMeta()['pending_deletes'])->toBe([]);
 });
 
+test('a pending delete another app still binds waits, and goes once no app does', function () {
+    [$org, $site] = ownedApp();
+    $bucket = EdgeContainerConnections::ownedPrefix($org).'uploads';
+    $site->mergeEdgeMeta(['pending_deletes' => [['kind' => 'object_storage', 'target' => $bucket]]]);
+    $site->save();
+    $other = Site::factory()->create(['organization_id' => $org->id, 'server_id' => $site->server_id, 'edge_backend' => 'dply_edge', 'type' => SiteType::Static, 'meta' => ['edge' => [
+        'connections' => [['kind' => 'object_storage', 'name' => 'UPLOADS', 'host' => EdgeContainerConnections::resourceHost($site, 'uploads'), 'target' => $bucket]],
+    ]]]);
+    Http::fake(['api.cloudflare.com/*' => Http::response(['success' => true, 'result' => []])]);
+
+    EdgeContainerConnections::deletePending($site);
+
+    // Was: dropped from the list, so the bucket stayed and billed for good.
+    Http::assertNothingSent();
+    expect($site->fresh()->edgeMeta()['pending_deletes'])->toBe([['kind' => 'object_storage', 'target' => $bucket, 'after_own_deploy' => true]]);
+
+    // The other app lets go and deploys: its deploy finishes this app's delete.
+    $other->mergeEdgeMeta(['connections' => []]);
+    $other->save();
+    EdgeContainerConnections::deletePending($other->fresh());
+
+    Http::assertSent(fn ($request): bool => $request->method() === 'DELETE' && str_ends_with($request->url(), '/r2/buckets/'.$bucket));
+    expect($site->fresh()->edgeMeta()['pending_deletes'])->toBe([]);
+});
+
+test('another app’s deploy never deletes what this app’s live deploy still binds', function () {
+    [$org, $site] = ownedApp();
+    $bucket = EdgeContainerConnections::ownedPrefix($org).'uploads';
+    $site->mergeEdgeMeta(['pending_deletes' => [['kind' => 'object_storage', 'target' => $bucket]]]);
+    $site->save();
+    $other = Site::factory()->create(['organization_id' => $org->id, 'server_id' => $site->server_id, 'edge_backend' => 'dply_edge', 'type' => SiteType::Static]);
+    Http::fake(['api.cloudflare.com/*' => Http::response(['success' => true, 'result' => []])]);
+
+    EdgeContainerConnections::deletePending($other);
+
+    Http::assertNothingSent();
+    expect($site->fresh()->edgeMeta()['pending_deletes'])->toBe([['kind' => 'object_storage', 'target' => $bucket]]);
+});
+
 test('auto-save refuses a sleep value saveRuntime would reject', function () {
     [, $site, $user] = ownedApp(['container' => ['sleep_after' => '10m']]);
 

@@ -65,3 +65,19 @@ test('search matches the action and recorded names without erroring', function (
         ->set('search', 'INVITED')
         ->assertSee('member.invited');
 });
+
+test('filters offer only live families, and VM-era rows fall under other', function () {
+    foreach (['server.created', 'backup.schedule.created', 'database.created', 'queue.created', 'site.edge.created', 'impersonation.started'] as $action) {
+        AuditLog::create(['organization_id' => $this->org->id, 'action' => $action]);
+    }
+
+    $component = Livewire::actingAs($this->admin)->test(Activity::class, ['organization' => $this->org])
+        ->assertDontSee('Servers')->assertDontSee('Backups')->assertDontSee('Insights');
+    expect($component->instance()->familyTotals)->toMatchArray(['other' => 2, 'resources' => 2, 'edge' => 1, 'security' => 1]);
+
+    $component->call('setFamily', 'server');
+    expect($component->instance()->auditLogs->total())->toBe(6);
+
+    $component->call('setFamily', 'other');
+    expect($component->instance()->auditLogs->total())->toBe(2);
+});

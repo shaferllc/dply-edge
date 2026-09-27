@@ -215,25 +215,44 @@ test('bulk assign notifications creates subscription', function () {
     Livewire::actingAs($user)
         ->test(BulkNotificationAssignments::class)
         ->set('selected_channel_ids', [(string) $channel->id])
-        ->set('selected_event_keys', ['server.ssh_login', 'site.deployments'])
-        ->set('selected_server_ids', [(string) $server->id])
+        ->set('selected_event_keys', ['edge.deploy.failed', 'site.uptime.down'])
         ->set('selected_site_ids', [(string) $site->id])
         ->call('assign')
         ->assertHasNoErrors();
 
-    $this->assertDatabaseHas('notification_subscriptions', [
-        'notification_channel_id' => $channel->id,
-        'subscribable_type' => Server::class,
-        'subscribable_id' => $server->id,
-        'event_key' => 'server.ssh_login',
-    ]);
+    foreach (['edge.deploy.failed', 'site.uptime.down'] as $event) {
+        $this->assertDatabaseHas('notification_subscriptions', [
+            'notification_channel_id' => $channel->id,
+            'subscribable_type' => Site::class,
+            'subscribable_id' => $site->id,
+            'event_key' => $event,
+        ]);
+    }
+});
 
-    $this->assertDatabaseHas('notification_subscriptions', [
-        'notification_channel_id' => $channel->id,
-        'subscribable_type' => Site::class,
-        'subscribable_id' => $site->id,
-        'event_key' => 'site.deployments',
+test('bulk assign offers only app events and no servers picker', function () {
+    $user = User::factory()->create();
+    $org = Organization::factory()->create();
+    $org->users()->attach($user->id, ['role' => 'owner']);
+    session(['current_organization_id' => $org->id]);
+    $channel = NotificationChannel::factory()->forUser($user)->create([
+        'type' => NotificationChannel::TYPE_SLACK,
+        'config' => ['webhook_url' => 'https://hooks.slack.com/services/T/B/X'],
     ]);
+    $site = Site::factory()->create(['user_id' => $user->id, 'organization_id' => $org->id]);
+
+    Livewire::actingAs($user)->test(BulkNotificationAssignments::class)
+        ->assertSee('edge.deploy.failed')
+        ->assertDontSee('server.ssh_login')->assertDontSee('backup.database')->assertDontSee('account.git_token.unhealthy')
+        ->assertDontSee('All servers')
+        ->set('selected_channel_ids', [(string) $channel->id])
+        ->set('selected_event_keys', ['server.ssh_login'])
+        ->set('selected_site_ids', [(string) $site->id])
+        ->call('assign')
+        ->assertHasErrors('selected_event_keys');
+
+    expect(collect(config('notification_events.categories'))->flatMap(fn ($c) => array_keys($c['events']))
+        ->filter(fn (string $k): bool => str_starts_with($k, 'server.') || str_starts_with($k, 'backup.')))->toBeEmpty();
 });
 
 test('bulk assign page renders when authenticated', function () {
@@ -245,22 +264,18 @@ test('bulk assign page renders when authenticated', function () {
         ->assertSee('Bulk assign notifications', false);
 });
 
-test('bulk assign page can preselect server from query string', function () {
+test('bulk assign page can preselect an app from query string', function () {
     $user = User::factory()->create();
     $org = Organization::factory()->create();
     $org->users()->attach($user->id, ['role' => 'owner']);
     session(['current_organization_id' => $org->id]);
 
-    $server = Server::factory()->create([
-        'user_id' => $user->id,
-        'organization_id' => $org->id,
-        'name' => 'web-1',
-    ]);
+    $site = Site::factory()->create(['user_id' => $user->id, 'organization_id' => $org->id, 'name' => 'web-1']);
 
     $this->actingAs($user)
-        ->get(route('profile.notification-channels.bulk-assign', ['server' => $server->id]))
+        ->get(route('profile.notification-channels.bulk-assign', ['site' => $site->id]))
         ->assertOk()
-        ->assertSee('Assigning notifications for server:')
+        ->assertSee('Assigning notifications for app:')
         ->assertSee('web-1');
 });
 

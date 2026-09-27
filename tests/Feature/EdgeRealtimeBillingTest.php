@@ -147,57 +147,44 @@ test('the command is registered', function () {
     $this->artisan('dply:edge:collect-realtime-usage', ['--dry-run' => true])->assertSuccessful();
 });
 
-test('cost takes the plan allowance off and bills the rest at $0.50 a million', function () {
-    $cost = app(EdgeRealtimeCost::class);
-    $pro = ['connection_minutes' => 5_000_000, 'messages' => 10_000_000];
-
-    expect($cost->cents(5_000_000 * 60, 10_000_000, $pro))->toBe(0)
-        // 1M extra connection-minutes at 0.05 millicents = 50 cents; 1M extra messages = 50 cents.
-        ->and($cost->cents(6_000_000 * 60, 10_000_000, $pro))->toBe(50)
-        ->and($cost->cents(0, 11_000_000, $pro))->toBe(50)
-        // A little over rounds up to a cent, never down to free.
-        ->and($cost->cents(5_000_001 * 60, 0, $pro))->toBe(1)
-        // Null is unlimited (Enterprise).
-        ->and($cost->cents(1_000_000_000_000, 1_000_000_000_000, ['connection_minutes' => null, 'messages' => null]))->toBe(0);
-});
-
-test('the allowance comes from the plan', function () {
-    [$org] = site();
+test('every connection-minute and message bills at cost plus the margin: no allowance', function () {
+    config(['dply.edge.usage_billing.margin_percent' => 20]);
     $cost = app(EdgeRealtimeCost::class);
 
-    expect($cost->allowance($org, 'pro'))->toBe(['connection_minutes' => 5_000_000, 'messages' => 10_000_000])
-        ->and($cost->allowance($org, 'team'))->toBe(['connection_minutes' => 25_000_000, 'messages' => 50_000_000])
-        ->and($cost->allowance($org, 'enterprise'))->toBe(['connection_minutes' => null, 'messages' => null])
-        ->and($cost->allowance($org, 'none'))->toBe(['connection_minutes' => 0, 'messages' => 0]);
+    // 1M connection-minutes: 0.05/1.2 millicents each at cost → $0.50 at 20%.
+    expect($cost->cents(1_000_000 * 60, 0))->toBe(50)
+        // 1M messages: $0.45 at cost → $0.54.
+        ->and($cost->cents(0, 1_000_000))->toBe(54)
+        ->and($cost->cents(0, 0))->toBe(0);
 });
 
 test('forOrganization sums the month, including a deleted app', function () {
+    config(['dply.edge.usage_billing.margin_percent' => 20]);
     [$org] = site();
-    EdgeRealtimeUsage::query()->create(['organization_id' => $org->id, 'realtime_app_id' => '01GONEGONEGONEGONEGONEGONE', 'date' => now()->toDateString(), 'connection_seconds' => 6_000_000 * 60, 'messages' => 0]);
+    EdgeRealtimeUsage::query()->create(['organization_id' => $org->id, 'realtime_app_id' => '01GONEGONEGONEGONEGONEGONE', 'date' => now()->toDateString(), 'connection_seconds' => 1_000_000 * 60, 'messages' => 0]);
     EdgeRealtimeUsage::query()->create(['organization_id' => $org->id, 'realtime_app_id' => '01OLDOLDOLDOLDOLDOLDOLDOLD', 'date' => now()->subMonths(2)->toDateString(), 'connection_seconds' => 9_000_000 * 60, 'messages' => 0]);
 
-    expect(app(EdgeRealtimeCost::class)->forOrganization($org, now()->startOfMonth(), now()->endOfMonth(), 'pro'))
-        ->toBe(['connection_seconds' => 6_000_000 * 60, 'messages' => 0, 'cents' => 50]);
+    expect(app(EdgeRealtimeCost::class)->forOrganization($org, now()->startOfMonth(), now()->endOfMonth()))
+        ->toBe(['connection_seconds' => 1_000_000 * 60, 'messages' => 0, 'cents' => 50]);
 });
 
 test('the billing computer includes realtime in usage', function () {
+    config(['dply.edge.usage_billing.margin_percent' => 20]);
     [$org] = site(false);
-    $before = app(OrganizationBillingStateComputer::class)->computeForTier($org, 'pro')->dataUsageCents;
-    EdgeRealtimeUsage::query()->create(['organization_id' => $org->id, 'realtime_app_id' => '01APPAPPAPPAPPAPPAPPAPPAPP', 'date' => now()->toDateString(), 'connection_seconds' => 0, 'messages' => 11_000_000]);
+    EdgeRealtimeUsage::query()->create(['organization_id' => $org->id, 'realtime_app_id' => '01APPAPPAPPAPPAPPAPPAPPAPP', 'date' => now()->toDateString(), 'connection_seconds' => 0, 'messages' => 1_000_000]);
 
-    // Pro includes 10M messages; the 1M over bills at $0.50.
-    expect(app(OrganizationBillingStateComputer::class)->computeForTier($org, 'pro')->dataUsageCents)->toBe($before + 50);
+    expect(app(OrganizationBillingStateComputer::class)->computeForTier($org, 'pro')->usageLines()['realtime'] ?? 0)->toBe(54);
 });
 
 test('the card shows this app\'s cost this month', function () {
+    config(['dply.edge.usage_billing.margin_percent' => 20]);
     [, $site, $user] = site();
     $app = realtimeApp($site);
-    EdgeRealtimeUsage::query()->create(['organization_id' => $site->organization_id, 'site_id' => $site->id, 'realtime_app_id' => $app->id, 'date' => now()->toDateString(), 'connection_seconds' => 0, 'messages' => 51_000_000]);
+    EdgeRealtimeUsage::query()->create(['organization_id' => $site->organization_id, 'site_id' => $site->id, 'realtime_app_id' => $app->id, 'date' => now()->toDateString(), 'connection_seconds' => 0, 'messages' => 1_000_000]);
 
     $component = Livewire::actingAs($user)->test(Resources::class, ['server' => $site->server, 'site' => $site])->instance();
 
-    // Comped = Team: 50M messages included, the 1M over is 50 cents.
-    expect($component->realtimeCostCents(['target' => $app->id]))->toBe(50)
+    expect($component->realtimeCostCents(['target' => $app->id]))->toBe(54)
         ->and($component->realtimeCostCents(['target' => '']))->toBeNull();
 });
 

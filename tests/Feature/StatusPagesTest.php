@@ -5,12 +5,14 @@ namespace Tests\Feature\StatusPagesTest;
 use App\Http\Middleware\RedirectGuestsToComingSoon;
 use App\Livewire\Status\PublicPage;
 use App\Livewire\StatusPages\Index as StatusPagesIndex;
+use App\Livewire\StatusPages\Manage;
 use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
 use App\Models\SiteUptimeMonitor;
 use App\Models\StatusPage;
 use App\Models\User;
+use App\Services\Status\MonitorOperationalState;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 
@@ -144,4 +146,44 @@ test('public page shows site uptime monitor state', function () {
     Livewire::test(PublicPage::class, ['statusPage' => $page->fresh()])
         ->assertSee('API health')
         ->assertSee('Operational');
+});
+
+test('an app component follows its uptime checks, and unknown does not degrade the banner', function () {
+    $user = userWithOrg();
+    $org = $user->currentOrganization();
+    $page = StatusPage::factory()->create(['organization_id' => $org->id, 'user_id' => $user->id, 'is_public' => true]);
+    $server = Server::factory()->create(['user_id' => $user->id, 'organization_id' => $org->id]); // vestigial owner row, no health
+    $site = Site::factory()->create([
+        'server_id' => $server->id, 'user_id' => $user->id, 'organization_id' => $org->id,
+        'name' => 'Shop', 'edge_backend' => 'dply_edge',
+    ]);
+    $site->uptimeMonitors()->delete();
+    $check = SiteUptimeMonitor::factory()->create(['site_id' => $site->id, 'last_checked_at' => now(), 'last_ok' => true]);
+    $page->monitors()->create(['monitorable_type' => Site::class, 'monitorable_id' => $site->id, 'sort_order' => 0]);
+
+    Livewire::test(PublicPage::class, ['statusPage' => $page->fresh()])
+        ->assertSee('Shop')->assertSee('Operational')->assertDontSee('Partial service degradation');
+
+    $check->update(['last_ok' => false, 'last_state' => 'outage']);
+    expect(app(MonitorOperationalState::class)->state($site->fresh()))->toBe(MonitorOperationalState::OUTAGE);
+
+    $check->update(['last_checked_at' => null]);
+    Livewire::test(PublicPage::class, ['statusPage' => $page->fresh()])
+        ->assertSee('Unknown')->assertDontSee('Partial service degradation');
+});
+
+test('the server monitor type is gone', function () {
+    $user = userWithOrg();
+    $org = $user->currentOrganization();
+    $page = StatusPage::factory()->create(['organization_id' => $org->id, 'user_id' => $user->id]);
+    $server = Server::factory()->create(['user_id' => $user->id, 'organization_id' => $org->id]);
+
+    Livewire::actingAs($user)->test(Manage::class, ['statusPage' => $page])
+        ->assertDontSee('<option value="server">', false)
+        ->set('monitorKind', 'server')
+        ->set('monitorId', $server->id)
+        ->call('addMonitor')
+        ->assertHasErrors('monitorKind');
+
+    expect($page->monitors()->count())->toBe(0);
 });

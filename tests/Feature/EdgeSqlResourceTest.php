@@ -26,7 +26,7 @@ beforeEach(function () {
     config([
         'edge.cloudflare.account_id' => 'acct',
         'edge.cloudflare.api_token' => 'tok',
-        'dply.edge.usage_billing.markup_percent' => 0,
+        'dply.edge.usage_billing.margin_percent' => 0,
         'dply.edge.usage_billing.d1_rows_read_millicents_per_million' => 0,
         'dply.edge.usage_billing.d1_rows_written_millicents_per_million' => 100_000,
         'dply.edge.usage_billing.d1_storage_millicents_per_gb_month' => 0,

@@ -34,6 +34,9 @@ final class RubyRuntimeDetector implements RuntimeDetector
         }
 
         $gemfileContents = (string) @file_get_contents($gemfilePath);
+        if (self::isJekyllGemfile($gemfileContents)) {
+            return null; // a static site; StaticRuntimeDetector owns it
+        }
         $detectedFiles = ['Gemfile'];
         $reasons = ['Found `Gemfile` at the repo root.'];
 
@@ -60,6 +63,12 @@ final class RubyRuntimeDetector implements RuntimeDetector
             processes: $processes,
             confidence: $confidence,
         );
+    }
+
+    /** A Jekyll (or GitHub Pages) site's Gemfile — a generator, not an app server. */
+    public static function isJekyllGemfile(string $gemfile): bool
+    {
+        return preg_match('/^\s*gem\s+[\'"](jekyll|github-pages)[\'"]/m', $gemfile) === 1;
     }
 
     /**

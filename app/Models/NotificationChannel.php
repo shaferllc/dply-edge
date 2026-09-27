@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Jobs\DeliverNotificationWebhookJob;
 use App\Jobs\SendNotificationChannelTestEmailJob;
 use App\Mail\NotificationChannelMail;
 use App\Modules\Notifications\Channels\Intercom\IntercomMessage;
@@ -13,6 +14,7 @@ use App\Modules\Notifications\Services\MicrosoftTeamsClient;
 use App\Modules\Notifications\Services\PagerDutyClient;
 use App\Modules\Notifications\Services\SlackWorkspaceClient;
 use App\Modules\Notifications\Services\TelegramBotClient;
+use App\Services\Webhooks\OutboundWebhookSignature;
 use App\Support\Http\PublicOutboundUrl;
 use App\Support\Http\UnsafeOutboundUrlException;
 use Database\Factories\NotificationChannelFactory;
@@ -27,6 +29,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 
 /**
  * @property string $id
@@ -977,7 +980,7 @@ class NotificationChannel extends Model
         ];
 
         try {
-            $response = self::postToWebhookUrl($url, $payload, $this->webhookHeaders());
+            $response = $this->postSignedWebhook($url, $payload, (string) Str::ulid());
         } catch (\Throwable $e) {
             return self::webhookFailure($e);
         }
@@ -1019,7 +1022,7 @@ class NotificationChannel extends Model
                 self::TYPE_GOOGLE_CHAT => $this->deliverGoogleChatPlain($full),
                 self::TYPE_INTERCOM => $this->deliverIntercomPlain($subject, $full),
                 self::TYPE_PAGERDUTY => $this->deliverPagerDutyAlert($subject, $text, $actionUrl, $context),
-                self::TYPE_WEBHOOK => $this->deliverWebhookInsight($subject, $text, $actionUrl),
+                self::TYPE_WEBHOOK => $this->deliverWebhookInsight($subject, $text, $actionUrl, $context),
                 default => null,
             };
         } catch (\Throwable $e) {
@@ -1283,20 +1286,65 @@ class NotificationChannel extends Model
         }
     }
 
-    protected function deliverWebhookInsight(string $subject, string $text, ?string $actionUrl): void
+    /**
+     * Queued, signed and retried: see DeliverNotificationWebhookJob.
+     *
+     * @param  array<string, mixed>  $context  From NotificationRoutingResolver::alertContextFor.
+     */
+    protected function deliverWebhookInsight(string $subject, string $text, ?string $actionUrl, array $context = []): void
     {
         $url = $this->config['url'] ?? null;
         if (! is_string($url) || $url === '') {
             return;
         }
 
-        self::postToWebhookUrl($url, [
-            'event' => 'server.insights_alerts',
+        $event = is_string($context['event_key'] ?? null) && $context['event_key'] !== ''
+            ? $context['event_key']
+            : 'notification';
+
+        DeliverNotificationWebhookJob::dispatch($this->id, [
+            'event' => $event,
+            'severity' => is_string($context['severity'] ?? null) ? $context['severity'] : null,
+            'source' => is_string($context['source'] ?? null) ? $context['source'] : null,
+            'dedup_key' => is_string($context['dedup_key'] ?? null) ? $context['dedup_key'] : null,
             'subject' => $subject,
             'text' => $text,
             'action_url' => $actionUrl,
             'sent_at' => now()->toIso8601String(),
-        ], $this->webhookHeaders());
+        ], (string) Str::ulid());
+    }
+
+    /**
+     * Per-channel HMAC secret for the X-Dply-Signature header. Derived from
+     * APP_KEY, so it needs no storage and is shown on the channel's edit form;
+     * rotating APP_KEY changes every channel's secret.
+     */
+    public static function webhookSigningSecret(string $channelId): string
+    {
+        return hash_hmac('sha256', 'notification-webhook:'.$channelId, (string) config('app.key'));
+    }
+
+    /**
+     * POST $payload signed over the exact bytes sent (`t=<unix>,v1=<hex>` of
+     * `<unix>.<body>`, as OutboundWebhookSignature). Custom headers go first so
+     * they cannot override the signature headers.
+     *
+     * @param  array<string, mixed>  $payload
+     *
+     * @throws UnsafeOutboundUrlException
+     */
+    public function postSignedWebhook(string $url, array $payload, string $deliveryId): Response
+    {
+        $body = (string) json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $ts = time();
+
+        return self::postToWebhookUrl($url, $body, [
+            ...$this->webhookHeaders(),
+            'X-Dply-Event' => (string) ($payload['event'] ?? ''),
+            'X-Dply-Delivery-Id' => $deliveryId,
+            'X-Dply-Timestamp' => (string) $ts,
+            'X-Dply-Signature' => OutboundWebhookSignature::header(self::webhookSigningSecret($this->id), $ts, $body),
+        ]);
     }
 
     /**
@@ -1304,20 +1352,23 @@ class NotificationChannel extends Model
      * address with redirects off, so a channel cannot aim the control plane at
      * internal services (SSRF).
      *
-     * @param  array<string, mixed>  $payload
+     * A string payload is sent as-is (already-encoded JSON, e.g. a signed body).
+     *
+     * @param  array<string, mixed>|string  $payload
      * @param  array<string, string>  $headers
      *
      * @throws UnsafeOutboundUrlException
      */
-    public static function postToWebhookUrl(string $url, array $payload, array $headers = []): Response
+    public static function postToWebhookUrl(string $url, array|string $payload, array $headers = []): Response
     {
         $safe = PublicOutboundUrl::parse($url);
-
-        return Http::timeout(10)
+        $request = Http::timeout(10)
             ->withOptions($safe->httpClientOptions())
-            ->withHeaders($headers)
-            ->asJson()
-            ->post($safe->url, $payload);
+            ->withHeaders($headers);
+
+        return is_string($payload)
+            ? $request->withBody($payload, 'application/json')->post($safe->url)
+            : $request->asJson()->post($safe->url, $payload);
     }
 
     /**

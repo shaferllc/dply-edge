@@ -4,16 +4,15 @@ namespace App\Modules\Billing\Services;
 
 use App\Models\Organization;
 use App\Models\Site;
+use App\Modules\Billing\Support\UsagePrice;
 use App\Modules\Edge\Support\EdgeBuildMinutes;
 use Carbon\CarbonInterface;
 
 /**
- * Builds a {@see DesiredBillingState} for an organization: its tier (from the
- * subscription, or the cheapest fit for a pre-tier per-site one), live Edge
- * sites (edge_active, `edge_backend = dply_edge`, not previews), seats, build
- * minutes, load balancer endpoints and metered delivery usage.
- *
- * Age filter: units younger than min_billable_age_days are excluded.
+ * Builds a {@see DesiredBillingState} for an organization: its plan (from the
+ * subscription, or the cheapest fit for a pre-tier per-site one), seats,
+ * every usage category at customer price (UsagePrice) and the plan's
+ * included usage credit. Live sites are counted for fair use, not billed.
  */
 class OrganizationBillingStateComputer
 {
@@ -94,87 +93,67 @@ class OrganizationBillingStateComputer
     /** @param  array{0: CarbonInterface, 1: CarbonInterface}|null  $window  null = the current period */
     private function computeFresh(Organization $organization, ?string $forceTier = null, ?array $window = null): DesiredBillingState
     {
-        $minAgeDays = max(0, (int) config('subscription.standard.min_billable_age_days', 1));
-        $ageCutoff = now()->subDays($minAgeDays);
-
-        $edgeCount = 0;
-        $edgeSsrCount = 0;
-
-        $organization->sites()
-            ->where('created_at', '<=', $ageCutoff)
+        $edgeCount = $organization->sites()
+            ->where('status', Site::STATUS_EDGE_ACTIVE)
+            ->where('edge_backend', 'dply_edge')
             ->get()
-            ->each(function (Site $site) use (&$edgeCount, &$edgeSsrCount): void {
-                if (
-                    $site->status !== Site::STATUS_EDGE_ACTIVE
-                    || $site->edge_backend !== 'dply_edge'
-                    || $site->isEdgePreview()
-                ) {
-                    return;
-                }
-
-                $edgeCount++;
-                $runtimeMode = strtolower((string) ($site->edgeMeta()['runtime_mode'] ?? 'static'));
-                if ($runtimeMode === 'ssr') {
-                    $edgeSsrCount++;
-                }
-            });
+            ->reject(fn (Site $site): bool => $site->isEdgePreview())
+            ->count();
 
         $seatCount = $organization->users()->count();
         $tierKey = $forceTier
             ?? $organization->subscribedTier()
-            ?? ($organization->onStandardSubscription() ? self::cheapestPaidTier($edgeCount - $edgeSsrCount, $seatCount) : ($organization->hasPlan() ? $organization->billingTier() : 'none'));
+            ?? ($organization->onStandardSubscription() ? self::cheapestPaidTier($seatCount) : ($organization->hasPlan() ? $organization->billingTier() : 'none'));
         $tier = (array) config('subscription.standard.tiers.'.$tierKey);
         // No plan, a card-less trial and comped orgs have nothing to bill;
         // Enterprise is invoiced by hand. None owe anything through this path.
-        $billable = in_array($tierKey, ['pro', 'team'], true);
+        $billable = in_array($tierKey, SubscriptionPlanResolver::PAID_TIERS, true);
 
         [$usagePeriodStart, $usagePeriodEnd] = $window ?? $this->usageReader->currentWindow($organization);
         $usageTotals = $this->usageReader->totalsForOrganization($organization, $usagePeriodStart, $usagePeriodEnd);
-        $edgeUsageEstimate = $this->usageCostCalculator->estimate($usageTotals, $edgeCount, $tier);
-        $edgeUsageEstimate = array_merge($edgeUsageEstimate, [
+        $edgeUsageEstimate = array_merge($this->usageCostCalculator->estimate($usageTotals), [
             'period_start' => $usagePeriodStart->toDateString(),
             'period_end' => $usagePeriodEnd->toDateString(),
             'requests' => $usageTotals->requests,
             'bytes_egress' => $usageTotals->bytesEgress,
             'r2_storage_bytes' => $usageTotals->r2StorageBytes,
         ]);
-        $buildMinutes = EdgeBuildMinutes::usedBetween($organization, $usagePeriodStart, $usagePeriodEnd);
-        $compute = $this->computeCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd);
+        $buildSeconds = EdgeBuildMinutes::secondsBetween($organization, $usagePeriodStart, $usagePeriodEnd);
         $data = $this->dataUsageCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd);
-        $redis = $this->redisCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd);
         $kv = $this->kvCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd);
-        $databases = $this->databaseCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd);
-        $realtime = $this->realtimeCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd, $tierKey);
-        $platform = $this->platformUsageCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd);
+
+        $usage = $billable ? [
+            'delivery' => (int) $edgeUsageEstimate['subtotal_cents'],
+            'builds' => UsagePrice::cents(EdgeBuildMinutes::costMillicents($buildSeconds)),
+            'compute' => $this->computeCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd)['cents'],
+            'databases' => $this->databaseCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd)['cents'],
+            'valkey' => $this->redisCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd)['cents'],
+            'data' => $data['cents'] + $kv['cents'],
+            'realtime' => $this->realtimeCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd)['cents'],
+            'platform' => $this->platformUsageCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd)['cents'],
+        ] : [];
 
         return DesiredBillingState::fromPlanAndUsage(
             plan: ['key' => $tierKey, 'label' => (string) $tier['label'], 'price_cents' => (int) $tier['price_cents']],
             edgeCount: $edgeCount,
-            edgeUnitCents: $billable ? (int) config('subscription.standard.edge_cents', 200) : 0,
-            edgeSsrCount: $edgeSsrCount,
-            edgeSsrUnitCents: $billable ? (int) config('subscription.standard.edge_ssr_cents', 700) : 0,
-            edgeUsageSubtotalCents: $billable ? (int) $edgeUsageEstimate['subtotal_cents'] : 0,
-            edgeUsageEstimate: $edgeUsageEstimate,
-            edgeLbEndpointCount: 0,
-            edgeLbEndpointUnitCents: 0,
-            includedSites: $tier['sites'] ?? PHP_INT_MAX,
             seatCount: $seatCount,
             includedSeats: $tier['seats'] ?? null,
             extraSeatUnitCents: $billable ? (int) ($tier['extra_seat_cents'] ?? 0) : 0,
-            buildMinutes: $buildMinutes,
-            buildMinuteOverageCents: $billable ? EdgeBuildMinutes::overageCents($buildMinutes, $tier) : 0,
-            containerComputeCents: $compute['cents'],
-            computeCreditCents: $billable ? (int) ($tier['compute_credit_cents'] ?? 0) : null,
-            dataUsageCents: $billable ? $data['cents'] + $redis['cents'] + $kv['cents'] + $databases['cents'] + $realtime['cents'] + $platform['cents'] : 0,
+            usage: $usage,
+            usageCreditCents: $billable ? (int) ($tier['usage_credit_cents'] ?? 0) : 0,
+            edgeUsageEstimate: $edgeUsageEstimate,
+            buildSeconds: $buildSeconds,
         );
     }
 
     /**
-     * The cheapest Pro/Team tier for a fleet: tier fee + extra sites + extra
-     * seats, skipping tiers whose hard seat cap the org is over. Used to move
-     * a pre-tier per-site subscription onto a tier.
+     * The cheaper of Pro and Team whose seats fit the org (plan fee + extra
+     * seats; a hard seat cap rules a plan out). Used to move a pre-tier
+     * per-site subscription onto a plan (owner, 2026-09-16: auto-move to
+     * Pro/Team). Starter is left out on purpose: its limits (1 build at a
+     * time, 3 domains) could break a site that was already running.
      */
-    public static function cheapestPaidTier(int $baseSites, int $seats): string
+    public static function cheapestPaidTier(int $seats): string
     {
         $best = null;
         $bestCents = PHP_INT_MAX;
@@ -184,7 +163,6 @@ class OrganizationBillingStateComputer
                 continue;
             }
             $cents = (int) $tier['price_cents']
-                + max(0, $baseSites - (int) $tier['sites']) * (int) config('subscription.standard.edge_cents', 200)
                 + ($tier['extra_seat_cents'] === null ? 0 : max(0, $seats - (int) $tier['seats']) * (int) $tier['extra_seat_cents']);
             if ($cents < $bestCents) {
                 [$best, $bestCents] = [$key, $cents];

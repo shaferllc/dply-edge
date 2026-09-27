@@ -307,7 +307,7 @@ class CloudflareDnsService
         $zone = strtolower(trim($zone));
         $relativeName = trim($relativeName);
         $lower = strtolower($relativeName);
-        if ($lower === '') {
+        if ($lower === '' || $lower === '@') {
             return $zone;
         }
         if (str_ends_with($lower, '.'.$zone)) {

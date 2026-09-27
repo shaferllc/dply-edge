@@ -6,13 +6,13 @@ namespace App\Modules\Billing\Services;
 
 use App\Models\EdgeContainerUsage;
 use App\Models\Organization;
-use App\Models\Site;
-use App\Modules\Edge\Support\EdgeContainerSettings;
+use App\Modules\Billing\Support\UsagePrice;
 use Carbon\CarbonInterface;
 
 /**
- * Prices container compute per second — vCPU, memory, disk and egress at
- * Cloudflare list price plus the usage markup — for per-minute billing.
+ * Prices container compute (container apps and queue workers) per second
+ * awake: vCPU-, GiB-memory- and GB-disk-seconds plus egress, at cost from
+ * dply.edge.usage_billing.container_*, priced by UsagePrice (one margin).
  */
 class EdgeContainerComputeCost
 {
@@ -21,71 +21,42 @@ class EdgeContainerComputeCost
      */
     public function forOrganization(Organization $organization, CarbonInterface $from, CarbonInterface $to): array
     {
-        $rows = EdgeContainerUsage::query()
+        $row = EdgeContainerUsage::query()
             ->where('organization_id', $organization->id)
             ->whereBetween('date', [$from->toDateString(), $to->toDateString()])
-            ->get();
+            ->selectRaw('COALESCE(SUM(cpu_seconds), 0) AS cpu, COALESCE(SUM(memory_gib_seconds), 0) AS memory, COALESCE(SUM(disk_gb_seconds), 0) AS disk, COALESCE(SUM(tx_bytes), 0) AS tx')
+            ->toBase()
+            ->first();
+        $totals = [
+            'cpu_seconds' => (float) ($row->cpu ?? 0),
+            'memory_gib_seconds' => (float) ($row->memory ?? 0),
+            'disk_gb_seconds' => (float) ($row->disk ?? 0),
+            'tx_bytes' => (int) ($row->tx ?? 0),
+        ];
 
-        $sites = Site::query()->whereIn('id', $rows->pluck('site_id')->unique()->filter())->get()->keyBy('id');
-        $totals = ['cpu_seconds' => 0.0, 'memory_gib_seconds' => 0.0, 'disk_gb_seconds' => 0.0, 'tx_bytes' => 0];
-        $cents = 0;
-        foreach ($rows as $row) {
-            $totals['cpu_seconds'] += (float) $row->cpu_seconds;
-            $totals['memory_gib_seconds'] += (float) $row->memory_gib_seconds;
-            $totals['disk_gb_seconds'] += (float) $row->disk_gb_seconds;
-            $totals['tx_bytes'] += (int) $row->tx_bytes;
-            $site = $sites->get($row->site_id);
-            $memory = $site instanceof Site ? EdgeContainerSettings::shape($site)['memory_gib'] : 1.0;
-            $cents += $this->cents((float) $row->cpu_seconds, (float) $row->memory_gib_seconds, (float) $row->disk_gb_seconds, (int) $row->tx_bytes, $this->sizeMarkup($memory));
-        }
+        return $totals + ['cents' => $this->cents(...array_values($totals))];
+    }
 
-        return $totals + ['cents' => $cents];
+    /** Customer cents for the usage, rounded once. */
+    public function cents(float $cpuSeconds, float $memoryGibSeconds, float $diskGbSeconds, int $txBytes): int
+    {
+        return UsagePrice::cents($this->costMillicents($cpuSeconds, $memoryGibSeconds, $diskGbSeconds, $txBytes));
+    }
+
+    public function costMillicents(float $cpuSeconds, float $memoryGibSeconds, float $diskGbSeconds, int $txBytes): float
+    {
+        return $cpuSeconds * UsagePrice::cost('container_vcpu_millicents_per_second')
+            + $memoryGibSeconds * UsagePrice::cost('container_memory_millicents_per_gib_second')
+            + $diskGbSeconds * UsagePrice::cost('container_disk_millicents_per_gb_second')
+            + $txBytes / 1024 ** 3 * UsagePrice::cost('container_egress_millicents_per_gb');
     }
 
     /**
-     * Share of the usage markup kept on container compute. Small sizes keep
-     * the full markup. Larger memory keeps less, so a bigger size stays
-     * closer to list price.
-     */
-    public function sizeMarkup(float $memoryGib): int
-    {
-        $base = max(0, (int) config('dply.edge.usage_billing.markup_percent', 0));
-        $factor = match (true) {
-            $memoryGib <= 1 => 1.0,
-            $memoryGib <= 4 => 0.64,
-            $memoryGib <= 6 => 0.48,
-            $memoryGib <= 8 => 0.40,
-            default => 0.32,
-        };
-
-        return (int) round($base * $factor);
-    }
-
-    public function cents(float $cpuSeconds, float $memoryGibSeconds, float $diskGbSeconds, int $txBytes, ?int $markup = null): int
-    {
-        $rate = static fn (string $key): float => (float) config('dply.edge.usage_billing.'.$key, 0);
-
-        $millicents = $cpuSeconds / 3600 * $rate('container_vcpu_millicents_per_hour')
-            + $memoryGibSeconds / 3600 * $rate('container_memory_millicents_per_gib_hour')
-            + $diskGbSeconds / 3600 * $rate('container_disk_millicents_per_gb_hour')
-            + $txBytes / 1024 ** 3 * $rate('container_egress_millicents_per_gb');
-
-        $markup ??= max(0, (int) config('dply.edge.usage_billing.markup_percent', 0));
-
-        return (int) ceil($millicents * (100 + $markup) / 100 / 1000);
-    }
-
-    /**
-     * Price of one instance type running for a minute (all vCPU busy), for
-     * the pricing page.
+     * Customer price of one instance type running for a minute (all vCPU
+     * busy), in millicents — for size pickers and estimates.
      */
     public function perMinuteMillicents(float $vcpu, float $memoryGib, float $diskGb): float
     {
-        $rate = static fn (string $key): float => (float) config('dply.edge.usage_billing.'.$key, 0);
-        $perHour = $vcpu * $rate('container_vcpu_millicents_per_hour')
-            + $memoryGib * $rate('container_memory_millicents_per_gib_hour')
-            + $diskGb * $rate('container_disk_millicents_per_gb_hour');
-
-        return $perHour / 60 * (100 + $this->sizeMarkup($memoryGib)) / 100;
+        return UsagePrice::containerPerSecond($vcpu, $memoryGib, $diskGb) * 60;
     }
 }

@@ -406,7 +406,7 @@ Match remaining questions to the layer that still exists:
   cards for disabled capabilities (e.g. no Cache card when cache is off).
   **Managed Redis** is **dply Valkey** (one pod per store on the dply-pods
   cluster, TLS through the gateway, `EdgeValkey`); **managed KV** is
-  Cloudflare KV. Create/attach on Resources, **bill with markup**, and
+  Cloudflare KV. Create/attach on Resources, **bill at cost + the one margin (UsagePrice)**, and
   require a payment method when billed. dply Valkey is on **every plan**; only
   the always-on **Pro** sizes need a paid plan (owner ruling
   r-bpg8ddw2gza360sr) — `EdgeContainerConnections::redisSuppliesEnv` is the
@@ -529,12 +529,15 @@ Match remaining questions to the layer that still exists:
 
 ### Billing
 
-- **Plan tiers + usage** (ruling r-zdescb7y05vp1bxx, 2026-09-16): Pro $20,
-  Team $49, monthly only, all allowances in `subscription.standard.tiers`.
-  `Organization::billingTier()` reads the tier price off the subscription.
-  Sites past the tier's count bill at `edge_cents`; seats hard-cap on Pro and
-  bill `extra_seat_cents` on Team; build minutes bill overage. Previews
-  consume a usage credit, not a site slot.
+- **Three plans + included usage credit + one margin** (ruling
+  r-2zxevg4sj675qn1m, 2026-09-27; spec `docs/adr/pricing-model-2026-09.md`):
+  Starter $5 / Pro $20 / Team $49, monthly only, all per-plan values in
+  `subscription.standard.tiers` (price, seats, `extra_seat_cents` — Team only,
+  `usage_credit_cents`, `fair_use_apps`, and the non-price limits).
+  `Organization::billingTier()` reads the plan price off the subscription
+  (`SubscriptionPlanResolver::PAID_TIERS` lists the self-serve plans). Sites
+  are unlimited: **no per-site fees and no per-meter allowances**. Seats hard-cap
+  on Starter and Pro and bill `extra_seat_cents` on Team.
 - **No Free plan: a 5-day Pro trial** (ruling r-f17p5zgeh120cm5t, 2026-09-26),
   settings in `subscription.standard.trial`:
   - Checkout (`Show::subscribeTier`) adds the trial for an org that has never
@@ -559,27 +562,27 @@ Match remaining questions to the layer that still exists:
   - A paying customer whose card fails keeps running while Stripe retries
     (`liveSubscription()`: past due counts); the first charge after a trial
     failing does not. Unpaid or canceled pauses.
-  - **Any paid subscription bills overage** (`quotaLimit()` returns null).
-    Extra sites bill, so a cap on payers is no revenue lever.
-- **Extra sites** (managed `dply_edge` only): static, hybrid, and container
-  sites **past** the plan's included count bill at `edge_cents` ($2). Every
-  Worker-native SSR site bills at `edge_ssr_cents` ($7) and does not use an
-  included slot. Included sites are $0. Container apps also meter **compute**
-  (tier compute credit, then overage). BYO `org_cloudflare` pays Cloudflare
-  directly: no site fee and no usage meter today.
-- Each live site includes **1M requests / 100 GB egress / 5 GB R2 storage**
-  plus R2 op allowances (`dply.edge.usage_billing.included_requests_per_site`,
-  reduced from an earlier 5M — the config comment explains why), then metered
-  **overage** when usage billing is on (`DPLY_EDGE_USAGE_BILLING_ENABLED`,
-  `edge_usage_snapshots`, `dply:edge:collect-usage`). Overage = billable units
-  × cost-floor rates × **`dply.edge.usage_billing.markup_percent`** (25%, read
-  by `EdgeUsageCostCalculator`) into the Stripe `edge_usage` price. **Previews
-  stay free.**   Customer-facing compute pricing **never shows platform margin**;
-  cost figures are **estimates**, and sleep/savings context belongs beside them
-  where helpful. Larger compute tiers should carry a **lower** relative take so
-  bigger apps stay competitive.   **Managed Redis, KV, and app databases (Postgres/MySQL)** are
-  billed the same way — meter usage, apply markup, never show the platform take
-  or the underlying vendor name to customers.
+  - **Any paid subscription is uncapped by quota** (`quotaLimit()` returns
+    null); only the hidden fair-use cap applies.
+- **One margin.** Every meter in `dply.edge.usage_billing` is the provider
+  **cost** in millicents (Cloudflare list, or dply's infra cost for databases,
+  Valkey and builds — each source is commented in config). The customer price
+  is cost × (1 + `margin_percent`/100) (`DPLY_USAGE_MARGIN_PERCENT`, default
+  20), applied **only** in `App\Modules\Billing\Support\UsagePrice`. No cost
+  class marks up on its own and no size gets a different take. Pricing page,
+  billing page, resource sheets and docs (`dply:billing:price-table`) all read
+  the helper. **Never show the margin** to customers.
+- Apps, queue workers, dply databases and Valkey bill **per second awake**;
+  build time per second; everything else per unit. The plan's included
+  credit comes off the invoice: `UsageInvoicer` adds one line per usage
+  category and a negative **Included usage credit** line = min(credit, usage).
+  Usage never goes below $0. Previews have no fee but their usage counts.
+  BYO `org_cloudflare` pays Cloudflare directly: no usage meter today.
+- **Fair use** (ruling r-bc0k0cta8e50x8vr): `CreateEdgeSite::assertWithinFairUse`
+  caps non-preview apps per plan (`fair_use_apps`) with a contact-us message —
+  no charge, no upgrade push. The pricing page says "Unlimited sites".
+- One **size ladder** (0.25/0.5/1/2/4 vCPU, `EdgeSizeLadder`) names container
+  instance types, database sizes and Valkey classes; stored keys are unchanged.
 - **Lifecycle:** `StandardSubscriptionCreator` **will not create** a
   subscription for a zero-dollar bill — Stripe rejects $0 subs, so free-zone
   orgs need no card. Note the asymmetry: there is **no automatic cancellation**

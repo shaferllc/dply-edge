@@ -11,7 +11,7 @@ use Stripe\Exception\ApiErrorException;
 
 /**
  * One-shot provisioning command that creates the Stripe products and prices
- * backing Edge billing (per-site Edge fees, Edge delivery usage, Enterprise).
+ * backing billing (Starter / Pro / Team plans, Team seat, Enterprise).
  * Idempotent — re-running after a partial failure picks up where it left off,
  * and re-running after success is a no-op (looks up existing objects by
  * `metadata.dply_role` before creating).
@@ -29,7 +29,7 @@ class ProvisionStripeBillingCommand extends Command
     protected $signature = 'dply:billing:provision-stripe
                             {--dry-run : Inspect what would be created without calling Stripe}';
 
-    protected $description = 'Create the Stripe products and prices for Edge billing (idempotent).';
+    protected $description = 'Create the Stripe products and prices for the plans (idempotent).';
 
     public function handle(): int
     {
@@ -79,37 +79,19 @@ class ProvisionStripeBillingCommand extends Command
 
     private function dryRun(): int
     {
-        $standard = (array) config('subscription.standard', []);
-        $annualPct = (int) ($standard['annual_discount_pct'] ?? 0);
-        $yearlyOf = fn (int $cents): int => (int) round($cents * 12 * (100 - $annualPct) / 100);
+        $tiers = (array) config('subscription.standard.tiers', []);
 
         $this->info('Dry-run — these objects would be created or matched in Stripe:');
         $this->newLine();
-        $edge = (int) ($standard['edge_cents'] ?? 0);
-        if ($edge > 0) {
-            $this->line('  Product: dply Edge site (static / hybrid)');
-            $this->line(sprintf(
-                '    Per site $%s/mo   $%s/yr',
-                number_format($edge / 100, 2),
-                number_format($yearlyOf($edge) / 100, 2),
-            ));
+        foreach (['starter', 'pro', 'team'] as $key) {
+            $tier = (array) ($tiers[$key] ?? []);
+            if ((int) ($tier['price_cents'] ?? 0) > 0) {
+                $this->line(sprintf('  Product: dply %s — $%s/mo', $tier['label'], number_format((int) $tier['price_cents'] / 100, 2)));
+            }
         }
-        $edgeSsr = (int) ($standard['edge_ssr_cents'] ?? 0);
-        if ($edgeSsr > 0) {
-            $this->line('  Product: dply Edge SSR site');
-            $this->line(sprintf(
-                '    Per site $%s/mo   $%s/yr',
-                number_format($edgeSsr / 100, 2),
-                number_format($yearlyOf($edgeSsr) / 100, 2),
-            ));
-        }
-        $edgeUsageUnit = (int) ($standard['edge_usage_unit_cents'] ?? 1);
-        if ($edgeUsageUnit > 0) {
-            $this->line('  Product: dply Edge delivery usage');
-            $this->line(sprintf(
-                '    Metered $%s/unit (monthly, quantity = cents)',
-                number_format($edgeUsageUnit / 100, 2),
-            ));
+        $seat = (int) ($tiers['team']['extra_seat_cents'] ?? 0);
+        if ($seat > 0) {
+            $this->line(sprintf('  Product: dply Team seat — $%s/mo', number_format($seat / 100, 2)));
         }
         $this->line('  Product: dply Enterprise (no prices — sales-led)');
         $this->newLine();

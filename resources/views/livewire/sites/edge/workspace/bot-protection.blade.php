@@ -1,7 +1,7 @@
 <div>
     <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
         @include('livewire.sites.edge.workspace.partials.feature-guide', [
-            'docSlug' => 'edge-bot-protection',
+            'docSlug' => 'bot-protection',
             'what' => __('Bot protection uses a privacy-friendly challenge widget so bots can’t submit forms (or browse pages) as easily as real people.'),
             'steps' => [
                 __('Generate keys for this site (recommended), or paste a site key and secret from your challenge provider.'),

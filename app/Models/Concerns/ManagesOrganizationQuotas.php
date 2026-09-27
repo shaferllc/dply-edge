@@ -24,13 +24,13 @@ trait ManagesOrganizationQuotas
     /**
      * The org's ceiling for one product surface, or null when unlimited.
      *
-     * Pro/Team/Enterprise are uncapped: sites beyond the tier's included count
-     * bill as extra sites. Unsubscribed beta orgs get the beta envelope;
-     * everyone else unsubscribed gets the Free allowance.
+     * Paid plans are uncapped here: sites are unlimited, subject only to the
+     * hidden fair-use cap (CreateEdgeSite). Unsubscribed beta orgs get the
+     * beta envelope; everyone else unsubscribed gets the Free allowance.
      */
     public function quotaLimit(QuotaSurface $surface): ?int
     {
-        // A tier subscription overrides the beta envelope (extra sites bill).
+        // A plan subscription overrides the beta envelope.
         if ($this->onAnyPaidPlan()) {
             return null;
         }
@@ -135,7 +135,7 @@ trait ManagesOrganizationQuotas
 
         // Only unsubscribed orgs reach here — quotaLimit() is null once paying.
         return sprintf(
-            'This plan includes %d %s. Choose Pro on the organization billing page for 10 sites, plus $2 for each site after that.',
+            'This plan includes %d %s. Choose a plan on the organization billing page: every plan includes unlimited sites.',
             $limit,
             trans_choice($surface->nounKey(), $limit),
         );

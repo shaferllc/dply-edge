@@ -556,11 +556,30 @@ export async function handleRequest(
     return notFound('Host not configured.', undefined);
   }
 
+  let response: Response;
   try {
-    return await handleRequestInner(request, env, ctx, started, url, hostEntry);
+    response = await handleRequestInner(request, env, ctx, started, url, hostEntry);
   } catch (err) {
-    return internalServerError(hostEntry, err);
+    response = internalServerError(hostEntry, err);
   }
+
+  return stampWaitingRoomCookie(request, hostEntry, response);
+}
+
+/**
+ * A visitor the waiting room just admitted gets the session cookie on whatever
+ * answers the request (static, SSR, container, redirect, 404, …), so the next
+ * request skips admission. A 101 socket answer cannot be rebuilt.
+ */
+function stampWaitingRoomCookie(request: Request, hostEntry: HostMapEntry, response: Response): Response {
+  const cookie = waitingRoomAdmitCookie(request, hostEntry.waiting_room);
+  if (!cookie || isSocketResponse(response)) {
+    return response;
+  }
+  const stamped = new Response(response.body, response);
+  stamped.headers.append('Set-Cookie', cookie);
+
+  return stamped;
 }
 
 async function handleRequestInner(
@@ -917,12 +936,6 @@ async function handleRequestInner(
 
   response = applyRepoHeaderRules(response, requestPath, hostEntry);
   response = stampVariantCookie(response);
-  const wrCookie = waitingRoomAdmitCookie(request, hostEntry.waiting_room);
-  if (wrCookie) {
-    const stamped = new Response(response.body, response);
-    stamped.headers.append('Set-Cookie', wrCookie);
-    response = stamped;
-  }
 
   recordRequest(ctx, env, request, response, hostEntry, url, requestPath, started, 'hit');
 
@@ -1099,7 +1112,11 @@ function ssrUnavailable(detail: string): Response {
     headers.set(name, value);
   }
 
-  return new Response('Service temporarily unavailable — SSR worker not reachable.\n\n' + detail, {
+  // The detail is for operators (logs), not visitors: it can name internal
+  // scripts and errors.
+  console.log({ src: 'edge', event: 'ssr_unavailable', detail });
+
+  return new Response('Service temporarily unavailable. Please try again shortly.\n', {
     status: 503,
     headers,
   });
@@ -2297,14 +2314,14 @@ function presentAppServerError(response: Response, hostEntry: HostMapEntry): Res
 }
 
 function internalServerError(hostEntry: HostMapEntry, err: unknown): Response {
-  const detail = err instanceof Error ? err.message : String(err ?? 'unknown');
+  // The detail is for the logs only: it can name internal paths and errors.
+  const detail = err instanceof Error ? (err.stack ?? err.message) : String(err ?? 'unknown');
   console.error('edge-worker handleRequest threw', detail);
-  const body = (hostEntry.error_500_html ?? '').trim() || `Internal Server Error\n${detail}`;
-  const isHtml = (hostEntry.error_500_html ?? '').trim() !== '';
+  const body = (hostEntry.error_500_html ?? '').trim() || DEFAULT_APP_500_HTML;
   return new Response(body, {
     status: 500,
     headers: {
-      'Content-Type': isHtml ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8',
+      'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store, max-age=0',
       ...SECURITY_HEADERS,
     },

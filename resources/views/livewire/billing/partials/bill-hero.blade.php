@@ -1,8 +1,6 @@
 @php
     $state = $this->billingState;
     $monthlyDollars = $state->monthlyTotalCents / 100;
-    $yearlyDollars = $this->yearlyTotalCents / 100;
-    $interval = $this->subscriptionInterval;
     $edgeSiteCount = $state->edgeCount;
 
     $totalCents = max(1, $state->monthlyTotalCents);
@@ -25,49 +23,33 @@
             <p class="mt-2 text-sm text-brand-moss leading-relaxed">
                 @if ($this->subscription && $this->nextInvoiceAt)
                     {{ __('Next invoice :date', ['date' => $this->nextInvoiceAt->toFormattedDateString()]) }}.
-                    {{ __('Bill updates automatically when your live sites change.') }}
+                    {{ __('Usage is billed after each period ends, less your plan’s included credit.') }}
                 @else
-                    {{ __('Based on your live Edge sites. Add a card to bill them.') }}
+                    {{ __('Based on your plan and usage so far. Choose a plan to start billing.') }}
                 @endif
             </p>
 
             <div class="mt-6">
                 <div class="flex items-baseline gap-2">
                     <span class="text-4xl font-semibold tracking-tight text-brand-ink">
-                        ${{ number_format($interval === 'year' ? $yearlyDollars : $monthlyDollars, 2) }}
+                        ${{ number_format($monthlyDollars, 2) }}
                     </span>
-                    <span class="text-sm text-brand-moss">{{ $interval === 'year' ? __('/yr') : __('/mo') }}</span>
+                    <span class="text-sm text-brand-moss">{{ __('/mo') }}</span>
                 </div>
-                @if ($interval === 'year')
-                    <p class="mt-1 text-sm text-brand-moss">${{ number_format($yearlyDollars / 12, 2) }} {{ __('/mo effective — 20% off monthly') }}</p>
-                @else
-                    <p class="mt-1 text-sm text-brand-moss">${{ number_format($monthlyDollars * 12 * 0.8, 2) }} {{ __('/yr on annual billing (save 20%)') }}</p>
-                @endif
-
-                {{-- Interval switch — only for an existing subscriber. Opens
-                     a confirmation modal (the swap invoices immediately). --}}
-                @if ($this->subscription)
-                    <div class="mt-3">
-                        <button type="button" x-on:click="$dispatch('open-modal', 'switch-interval')"
-                                class="text-sm font-semibold text-brand-sage hover:text-brand-ink underline underline-offset-2">
-                            @if ($interval === 'year')
-                                {{ __('Switch to monthly billing') }}
-                            @else
-                                {{ __('Switch to annual billing — save 20%') }}
-                            @endif
-                        </button>
-                    </div>
-                @endif
-
-                {{-- Usage run-rate — derived from the monthly total, no history. --}}
+                {{-- Usage vs the plan's included credit — the estimated charge. --}}
                 <div class="mt-4 rounded-xl border border-brand-ink/10 bg-brand-cream/35 px-4 py-3">
-                    <p class="text-sm text-brand-ink">
-                        {{ trans_choice('{0} No live Edge sites yet|{1} :count live Edge site|[2,*] :count live Edge sites', $edgeSiteCount, ['count' => $edgeSiteCount]) }}.
+                    <p class="text-sm text-brand-ink tabular-nums">
+                        {{ __('Usage this period :usage · included credit :credit · estimated charge :charge', [
+                            'usage' => '$'.number_format($state->usageLineCents() / 100, 2),
+                            'credit' => '$'.number_format($state->creditAppliedCents() / 100, 2),
+                            'charge' => '$'.number_format($state->monthlyTotalCents / 100, 2),
+                        ]) }}
                     </p>
-                    @php $includedSites = config('subscription.standard.tiers.'.$state->planKey.'.sites'); @endphp
-                    <p class="mt-0.5 text-xs text-brand-moss">{{ $includedSites === null
-                        ? __(':plan plan: unlimited sites. Usage beyond the plan is billed monthly.', ['plan' => $state->planLabel])
-                        : __(':plan plan: :sites included, then :extra/mo per extra site. Usage beyond the plan is billed monthly.', ['plan' => $state->planLabel, 'sites' => trans_choice(':count site|:count sites', (int) $includedSites), 'extra' => '$'.number_format(((int) config('subscription.standard.edge_cents', 200)) / 100, 2)]) }}</p>
+                    <p class="mt-0.5 text-xs text-brand-moss">{{ __(':plan plan: unlimited sites, :credit of usage included each period. :count live.', [
+                        'plan' => $state->planLabel,
+                        'credit' => '$'.number_format($state->usageCreditCents / 100, 0),
+                        'count' => trans_choice('{0} No sites|{1} :count site|[2,*] :count sites', $edgeSiteCount, ['count' => $edgeSiteCount]),
+                    ]) }}</p>
                 </div>
 
                 {{-- Card CTA is the payment-method strip at the top of the page. --}}
@@ -75,8 +57,7 @@
         </div>
 
         <div class="lg:col-span-7 space-y-4">
-            {{-- Stacked breakdown bar — how the total decomposes across
-                 per-site fees and metered usage. --}}
+            {{-- Stacked breakdown bar — plan, seats and usage after credit. --}}
             <div>
                 <div class="flex h-3 w-full rounded-full overflow-hidden bg-brand-ink/5">
                     @foreach ($segments as $segment)
@@ -99,7 +80,7 @@
             <div class="rounded-xl border border-brand-ink/10 bg-brand-cream/50 overflow-hidden">
                 <div class="px-3 py-2 border-b border-brand-ink/10 bg-white/60">
                     <p class="text-xs font-semibold uppercase tracking-wider text-brand-ink/70">
-                        {{ __('Breakdown') }} — {{ trans_choice('{0} no billable sites|{1} :count site|[2,*] :count sites', $edgeSiteCount, ['count' => $edgeSiteCount]) }}
+                        {{ __('Breakdown') }}
                     </p>
                 </div>
                 <ul class="divide-y divide-brand-ink/5 text-sm">
@@ -120,7 +101,7 @@
                                 @if ($item['quantity'] > 1)
                                     <span class="text-xs text-brand-moss">${{ number_format($item['unit_cents'] / 100, 2) }} {{ __('each') }}</span>
                                 @endif
-                                <span class="font-semibold">${{ number_format($item['line_cents'] / 100, 2) }}</span>
+                                <span class="font-semibold">{{ $item['line_cents'] < 0 ? '−' : '' }}${{ number_format(abs($item['line_cents']) / 100, 2) }}</span>
                             </div>
                         </li>
                     @endforeach

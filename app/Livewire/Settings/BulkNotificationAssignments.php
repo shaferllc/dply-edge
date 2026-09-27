@@ -8,7 +8,6 @@ use App\Livewire\Concerns\DispatchesToastNotifications;
 use App\Models\NotificationChannel;
 use App\Models\NotificationSubscription;
 use App\Models\Organization;
-use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
 use App\Modules\Notifications\Channels\Intercom\IntercomMessage;
@@ -40,12 +39,7 @@ class BulkNotificationAssignments extends Component
     public array $selected_event_keys = [];
 
     /** @var list<int|string> */
-    public array $selected_server_ids = [];
-
-    /** @var list<int|string> */
     public array $selected_site_ids = [];
-
-    public ?string $context_server_id = null;
 
     public ?string $context_site_id = null;
 
@@ -121,13 +115,7 @@ class BulkNotificationAssignments extends Component
             $this->quick_new_type = $types[0];
         }
         $this->quick_new_owner_scope = $this->canManageOrganizationNotificationChannels() ? 'organization' : 'personal';
-        $serverId = request()->string('server')->toString();
         $siteId = request()->string('site')->toString();
-
-        if ($org && $serverId !== '' && Server::query()->where('organization_id', $org->id)->whereKey($serverId)->exists()) {
-            $this->context_server_id = $serverId;
-            $this->selected_server_ids = [$serverId];
-        }
 
         if ($org && $siteId !== '' && Site::query()->where('organization_id', $org->id)->whereKey($siteId)->exists()) {
             $this->context_site_id = $siteId;
@@ -144,19 +132,25 @@ class BulkNotificationAssignments extends Component
     }
 
     /**
-     * @return Collection<int, Server>
+     * Catalog categories whose events target an app. Account-scoped events
+     * (account.*) go to their owner directly and can't be assigned here.
+     *
+     * @return array<string, array{label: string, events: array<string, string>}>
      */
-    protected function serversForCurrentOrg(?Organization $org)
+    protected static function eventCatalog(): array
     {
-        if (! $org) {
-            return collect();
-        }
+        return collect((array) config('notification_events.categories', []))
+            ->filter(fn (array $cat): bool => collect($cat['events'] ?? [])->keys()
+                ->every(fn (string $key): bool => NotificationSubscriptionRules::subscribableClassForEvent($key) === Site::class))
+            ->all();
+    }
 
-        return Server::query()
-            ->where('organization_id', $org->id)
-            ->orderBy('name')
-            ->get()
-            ->filter(fn (Server $s) => Gate::allows('view', $s));
+    /**
+     * @return list<string>
+     */
+    protected static function eventKeys(): array
+    {
+        return collect(self::eventCatalog())->flatMap(fn (array $cat) => array_keys($cat['events']))->values()->all();
     }
 
     /**
@@ -187,29 +181,12 @@ class BulkNotificationAssignments extends Component
 
     public function selectAllEvents(): void
     {
-        $keys = [];
-        foreach (config('notification_events.categories', []) as $cat) {
-            foreach ($cat['events'] as $k => $_) {
-                $keys[] = $k;
-            }
-        }
-        $this->selected_event_keys = $keys;
+        $this->selected_event_keys = self::eventKeys();
     }
 
     public function deselectAllEvents(): void
     {
         $this->selected_event_keys = [];
-    }
-
-    public function selectAllServers(): void
-    {
-        $org = Auth::user()->currentOrganization();
-        $this->selected_server_ids = $this->serversForCurrentOrg($org)->pluck('id')->map(fn ($id) => (string) $id)->values()->all();
-    }
-
-    public function deselectAllServers(): void
-    {
-        $this->selected_server_ids = [];
     }
 
     public function selectAllSites(): void
@@ -233,26 +210,7 @@ class BulkNotificationAssignments extends Component
             return false;
         }
 
-        $needsServers = false;
-        $needsSites = false;
-        foreach ($this->selected_event_keys as $event) {
-            $class = NotificationSubscriptionRules::subscribableClassForEvent($event);
-            if ($class === Server::class) {
-                $needsServers = true;
-            }
-            if ($class === Site::class) {
-                $needsSites = true;
-            }
-        }
-
-        if ($needsServers && $this->selected_server_ids === []) {
-            return false;
-        }
-        if ($needsSites && $this->selected_site_ids === []) {
-            return false;
-        }
-
-        return true;
+        return $this->selected_site_ids !== [];
     }
 
     public function assign(): void
@@ -263,8 +221,6 @@ class BulkNotificationAssignments extends Component
             'selected_channel_ids.*' => ['string', 'exists:notification_channels,id'],
             'selected_event_keys' => ['required', 'array', 'min:1'],
             'selected_event_keys.*' => ['string', 'max:80'],
-            'selected_server_ids' => ['array'],
-            'selected_server_ids.*' => ['string', 'exists:servers,id'],
             'selected_site_ids' => ['array'],
             'selected_site_ids.*' => ['string', 'exists:sites,id'],
         ], [], [
@@ -281,12 +237,7 @@ class BulkNotificationAssignments extends Component
             }
         }
 
-        $validEvents = [];
-        foreach (config('notification_events.categories', []) as $cat) {
-            foreach ($cat['events'] as $k => $_) {
-                $validEvents[] = $k;
-            }
-        }
+        $validEvents = self::eventKeys();
         foreach ($this->selected_event_keys as $ek) {
             if (! in_array($ek, $validEvents, true)) {
                 $this->addError('selected_event_keys', __('Invalid notification type.'));
@@ -295,32 +246,15 @@ class BulkNotificationAssignments extends Component
             }
         }
 
-        $needsServers = false;
-        $needsSites = false;
-        foreach ($this->selected_event_keys as $event) {
-            $class = NotificationSubscriptionRules::subscribableClassForEvent($event);
-            if ($class === Server::class) {
-                $needsServers = true;
-            }
-            if ($class === Site::class) {
-                $needsSites = true;
-            }
-        }
-
-        if ($needsServers && $this->selected_server_ids === []) {
-            $this->addError('selected_server_ids', __('Select at least one server for the chosen notification types.'));
-
-            return;
-        }
-        if ($needsSites && $this->selected_site_ids === []) {
-            $this->addError('selected_site_ids', __('Select at least one site for the chosen notification types.'));
+        if ($this->selected_site_ids === []) {
+            $this->addError('selected_site_ids', __('Select at least one app for the chosen notification types.'));
 
             return;
         }
 
         $org = Auth::user()->currentOrganization();
         if (! $org) {
-            $this->addError('selected_channel_ids', __('Choose a current organization (switch org in the header) to assign server or site targets.'));
+            $this->addError('selected_channel_ids', __('Choose a current organization (switch org in the header) to assign apps.'));
 
             return;
         }
@@ -333,34 +267,17 @@ class BulkNotificationAssignments extends Component
                 Gate::authorize('manageNotificationChannels', $channel->owner);
 
                 foreach ($this->selected_event_keys as $event) {
-                    $class = NotificationSubscriptionRules::subscribableClassForEvent($event);
-                    if ($class === Server::class) {
-                        foreach ($this->selected_server_ids as $sid) {
-                            $server = Server::query()->where('organization_id', $org->id)->findOrFail((string) $sid);
-                            Gate::authorize('view', $server);
-                            $row = NotificationSubscription::firstOrCreate([
-                                'notification_channel_id' => $channel->id,
-                                'subscribable_type' => Server::class,
-                                'subscribable_id' => $server->id,
-                                'event_key' => $event,
-                            ]);
-                            if ($row->wasRecentlyCreated) {
-                                $created++;
-                            }
-                        }
-                    } elseif ($class === Site::class) {
-                        foreach ($this->selected_site_ids as $siteId) {
-                            $site = Site::query()->where('organization_id', $org->id)->findOrFail((string) $siteId);
-                            Gate::authorize('view', $site);
-                            $row = NotificationSubscription::firstOrCreate([
-                                'notification_channel_id' => $channel->id,
-                                'subscribable_type' => Site::class,
-                                'subscribable_id' => $site->id,
-                                'event_key' => $event,
-                            ]);
-                            if ($row->wasRecentlyCreated) {
-                                $created++;
-                            }
+                    foreach ($this->selected_site_ids as $siteId) {
+                        $site = Site::query()->where('organization_id', $org->id)->findOrFail((string) $siteId);
+                        Gate::authorize('view', $site);
+                        $row = NotificationSubscription::firstOrCreate([
+                            'notification_channel_id' => $channel->id,
+                            'subscribable_type' => Site::class,
+                            'subscribable_id' => $site->id,
+                            'event_key' => $event,
+                        ]);
+                        if ($row->wasRecentlyCreated) {
+                            $created++;
                         }
                     }
                 }
@@ -588,11 +505,9 @@ class BulkNotificationAssignments extends Component
 
         return view('livewire.settings.bulk-notification-assignments', [
             'assignableChannels' => $this->channelsForUser(),
-            'eventCatalog' => config('notification_events.categories', []),
-            'servers' => $this->serversForCurrentOrg($org),
+            'eventCatalog' => self::eventCatalog(),
             'sites' => $this->sitesForCurrentOrg($org),
             'currentOrganization' => $org,
-            'contextServer' => $this->context_server_id ? Server::query()->find($this->context_server_id) : null,
             'contextSite' => $this->context_site_id ? Site::query()->find($this->context_site_id) : null,
             'quickAddTypes' => NotificationChannel::typesForUi(),
             'canManageOrganizationNotificationChannels' => $this->canManageOrganizationNotificationChannels(),

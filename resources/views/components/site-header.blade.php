@@ -76,6 +76,13 @@
                         <x-heroicon-o-credit-card class="{{ $hiGuest }}" />
                         {{ __('Pricing') }}
                     </a>
+                    <a
+                        href="{{ route('docs.index') }}"
+                        class="inline-flex items-center gap-1.5 text-brand-moss hover:text-brand-ink transition-colors"
+                    >
+                        <x-heroicon-o-book-open class="{{ $hiGuest }}" />
+                        {{ __('Docs') }}
+                    </a>
                     <a href="{{ route('login') }}" class="inline-flex items-center gap-1.5 text-brand-moss hover:text-brand-ink transition-colors">
                         <x-heroicon-o-arrow-right-end-on-rectangle class="{{ $hiGuest }}" />
                         {{ __('Log in') }}
@@ -172,6 +179,12 @@
                                             {{ __('Organization') }}
                                         </x-dropdown-link>
                                     @endif
+                                    <x-dropdown-link :href="route('docs.index')" :description="__('Guides, reference & API')">
+                                        <x-slot name="icon">
+                                            <x-heroicon-o-book-open class="{{ $hi }}" />
+                                        </x-slot>
+                                        {{ __('Docs') }}
+                                    </x-dropdown-link>
                                 </div>
 
                                 {{-- Sign out footer. --}}
@@ -254,6 +267,10 @@
                 <a href="{{ route('pricing') }}" class="flex items-center gap-2.5 border-l-4 {{ $pricingActive ? 'border-brand-gold bg-brand-sand/30 text-brand-ink' : 'border-transparent text-brand-moss hover:bg-brand-sand/30' }} py-2 ps-3 pe-4 text-base font-medium">
                     <x-heroicon-o-credit-card class="h-5 w-5 shrink-0 opacity-90" />
                     {{ __('Pricing') }}
+                </a>
+                <a href="{{ route('docs.index') }}" class="flex items-center gap-2.5 border-l-4 border-transparent text-brand-moss hover:bg-brand-sand/30 py-2 ps-3 pe-4 text-base font-medium">
+                    <x-heroicon-o-book-open class="h-5 w-5 shrink-0 opacity-90" />
+                    {{ __('Docs') }}
                 </a>
                 <div class="pt-4 mt-2 border-t border-brand-ink/10">
                     <p class="px-4 text-xs font-semibold uppercase tracking-wider text-brand-mist">{{ Auth::user()->name }}</p>

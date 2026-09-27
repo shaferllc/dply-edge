@@ -9,9 +9,9 @@ use App\Notifications\UsageThresholdNotice;
 use Illuminate\Support\Facades\Notification;
 
 /**
- * Emails a paying org's owners when this period's usage passes 50%, 80% and
- * 100% of its usage soft limit (organizations.usage_alert_cents, default twice
- * the plan price). Each threshold is sent once per billing period; nothing is
+ * Emails a paying org's owners when this period's usage charge — usage past
+ * the plan's included credit — passes 50%, 80% and 100% of its usage soft
+ * limit (organizations.usage_alert_cents, default twice the plan price). Each threshold is sent once per billing period; nothing is
  * stopped — it is a heads-up, the usage still bills.
  */
 final class UsageAlerts
@@ -27,11 +27,11 @@ final class UsageAlerts
     /** @return int|null the threshold emailed, if any */
     public function check(Organization $organization, DesiredBillingState $state): ?int
     {
-        if (! in_array($state->planKey, ['pro', 'team'], true) || $organization->isComped() || $organization->onTrialPlan()) {
+        if (! in_array($state->planKey, SubscriptionPlanResolver::PAID_TIERS, true) || $organization->isComped() || $organization->onTrialPlan()) {
             return null;
         }
         $limit = self::limitCents($organization, $state);
-        $used = $state->usageLineCents();
+        $used = $state->usageChargeCents();
         if ($limit <= 0 || $used <= 0) {
             return null;
         }

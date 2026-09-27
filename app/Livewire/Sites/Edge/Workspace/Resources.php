@@ -30,6 +30,7 @@ use App\Modules\Billing\Services\EdgeAppDatabaseCost;
 use App\Modules\Billing\Services\EdgeContainerComputeCost;
 use App\Modules\Billing\Services\EdgeDataUsageCost;
 use App\Modules\Billing\Services\EdgeKvCost;
+use App\Modules\Billing\Support\UsagePrice;
 use App\Modules\Edge\Console\ScaleEdgeQueueWorkersCommand;
 use App\Modules\Edge\Jobs\RestoreEdgeDplyPostgresJob;
 use App\Modules\Edge\Jobs\TransferEdgeDplyDatabaseJob;
@@ -45,6 +46,7 @@ use App\Modules\Edge\Support\EdgeDplyDatabase;
 use App\Modules\Edge\Support\EdgeDplyDatabaseStats;
 use App\Modules\Edge\Support\EdgeEffectiveBindings;
 use App\Modules\Edge\Support\EdgeQueueWorkers;
+use App\Modules\Edge\Support\EdgeSizeLadder;
 use App\Modules\Edge\Support\EdgeValkey;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use App\Modules\Providers\Valkey\ValkeyGatewayClient;
@@ -228,9 +230,10 @@ class Resources extends Component
             if ($connection['host'] !== $host || ! EdgeValkey::isTarget($connection['target']) || ! isset(EdgeValkey::offered()[$class])) {
                 continue;
             }
-            $url = (string) ($this->site->edgeEnvVars()->where('scope', 'production')->where('key', 'REDIS_URL')->first()?->value ?? '');
+            $url = $this->productionRedisUrl();
             try {
-                EdgeValkey::update($connection['target'], $url, $class, $sleep);
+                // An asleep store keeps its short sleep (update would send 0 for Pro).
+                EdgeValkey::setAsleep($connection['target'], $url, $class, $sleep, $connection['asleep']);
             } catch (\Throwable $e) {
                 $this->toastError($e->getMessage());
 
@@ -243,6 +246,11 @@ class Resources extends Component
 
             return;
         }
+    }
+
+    private function productionRedisUrl(): string
+    {
+        return (string) ($this->site->edgeEnvVars()->where('scope', 'production')->where('key', 'REDIS_URL')->first()?->value ?? '');
     }
 
     public string $deleteConnectionHost = '';
@@ -2033,6 +2041,17 @@ class Resources extends Component
             return;
         }
         $kind = collect($rows)->firstWhere('host', $host)['kind'] ?? '';
+        $valkey = collect($rows)->firstWhere('host', $host);
+        if ($kind === 'redis' && EdgeValkey::isTarget((string) $valkey['target'])) {
+            // The gateway, not the deploy, stops the billing: set it first.
+            try {
+                EdgeValkey::setAsleep($valkey['target'], $this->productionRedisUrl(), $valkey['plan'] !== '' ? $valkey['plan'] : EdgeValkey::DEFAULT_CLASS, (int) ($this->site->edgeMeta()['valkey_sleep'][$valkey['target']] ?? EdgeValkey::DEFAULT_SLEEP), $asleep);
+            } catch (\Throwable $e) {
+                $this->toastError(__('Could not reach the Valkey gateway: :error', ['error' => $e->getMessage()]));
+
+                return;
+            }
+        }
         if ($kind === 'realtime') {
             // Enforced by the relay, not the deploy: disable it in KV (and
             // close open sockets) before the card says asleep. The env stays.
@@ -2059,15 +2078,15 @@ class Resources extends Component
         }
         if ($kind === 'redis') {
             $this->toastSuccess($asleep
-                ? __('Asleep. The app stops receiving the Redis address on the next deploy. The database stays.')
+                ? __('Asleep. The app stops receiving the Redis address on the next deploy. The store keeps its keys and stops billing a minute after the app lets go of it.')
                 : __('Awake. The app gets the Redis address on the next deploy.'));
 
             return;
         }
         if ($kind === 'key_value') {
             $this->toastSuccess($asleep
-                ? __('Asleep. The app loses this address on the next deploy, so it cannot read or write. This store is not billed until you wake it.')
-                : __('Awake. The app gets the address on the next deploy, and this month’s usage is billed again.'));
+                ? __('Asleep. The app loses this address on the next deploy, so it cannot read or write. Its stored data is kept and still billed; delete the store to stop that.')
+                : __('Awake. The app gets the address on the next deploy.'));
 
             return;
         }
@@ -2143,6 +2162,7 @@ class Resources extends Component
         }
         $this->dispatch('close-modal', 'resources-delete-connection');
         $this->toastSuccess(match (true) {
+            $deferred && EdgeContainerConnections::boundElsewhere($this->site, $target['kind'], $target['target']) => __('Detached. Redeploy this app, and detach or delete it on the other app that still uses it too: it is kept, and billed, until no app does, then deleted after the next deploy.'),
             $deferred => __('Detached. The live app still uses it, so it is deleted after the next deploy — redeploy to finish.'),
             $deleted => __('Deleted.'),
             default => __('Detached. There was nothing this organization created to delete, so it was left in place.'),
@@ -2498,11 +2518,6 @@ class Resources extends Component
             if ($connection['kind'] !== 'key_value') {
                 continue;
             }
-            if ($connection['asleep']) {
-                $estimates[$connection['host']] = 0;
-
-                continue;
-            }
             $rows = $kvRows->get($connection['target'], collect());
             $estimates[$connection['host']] = $kvCost->cents(
                 (int) $rows->sum('reads'),
@@ -2518,8 +2533,8 @@ class Resources extends Component
             if ($connection['kind'] === 'redis' && EdgeValkey::isTarget($connection['target']) && $this->site->organization !== null) {
                 // Exact (fractional) cents for display: the bill rounds the
                 // month's total to a cent, but a few minutes is $0.0017, not $0.01.
-                $class = EdgeValkey::CLASSES[$connection['plan']] ?? EdgeValkey::CLASSES[EdgeValkey::DEFAULT_CLASS];
-                $estimates[$connection['host']] = min((float) $class['cap_cents'], $valkeySeconds * $class['per_second'] * 100);
+                $class = EdgeValkey::spec((string) $connection['plan']);
+                $estimates[$connection['host']] = min($class['cap_cents'], $valkeySeconds * $class['per_second'] * 100);
             }
         }
 
@@ -2633,6 +2648,7 @@ class Resources extends Component
         $postgres = $databaseCost->presentation();
         $postgresSizes = [];
         foreach (EdgeDplyDatabase::sizes() as $key => $size) {
+            $size['second'] = $databaseCost->perSecond($size['cu']);
             $size['hour'] = $databaseCost->hourly($size['cu']);
             $size['day'] = $databaseCost->daily($size['cu']);
             $size['month'] = $databaseCost->monthly($size['cu']);
@@ -2987,14 +3003,6 @@ class Resources extends Component
 
     private function sizes(EdgeContainerComputeCost $cost, int $instances): array
     {
-        $labels = [
-            'lite' => 'Lite',
-            'basic' => 'Flex',
-            'standard-1' => 'Small',
-            'standard-2' => 'Medium',
-            'standard-3' => 'Large',
-            'standard-4' => 'XL',
-        ];
         $instances = max(1, $instances);
         $sizes = [];
         foreach (EdgeContainerSettings::INSTANCE_TYPES as $key => [$vcpu, $memory, $disk]) {
@@ -3002,8 +3010,9 @@ class Resources extends Component
             $perMonth = $perMinute * 60 * 730 * $instances;
             $sizes[] = [
                 'key' => $key,
-                'label' => $labels[$key] ?? $key,
+                'label' => EdgeSizeLadder::containerLabel($key),
                 'vcpu' => self::vcpuLabel((float) $vcpu),
+                'second' => UsagePrice::dollars($perMinute * 100_000 / 60),
                 'memory' => $memory < 1 ? ((int) round($memory * 1024)).' MB' : $memory.' GiB',
                 'disk' => $disk.' GB',
                 'price' => $perMonth >= 10
@@ -3033,8 +3042,6 @@ class Resources extends Component
     {
         return match (true) {
             abs($vcpu - (1 / 16)) < 0.001 => '1/16 vCPU',
-            abs($vcpu - 0.25) < 0.001 => '1/4 vCPU',
-            abs($vcpu - 0.5) < 0.001 => '1/2 vCPU',
             default => rtrim(rtrim(number_format($vcpu, 1, '.', ''), '0'), '.').' vCPU',
         };
     }

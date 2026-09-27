@@ -17,6 +17,12 @@ use Laravel\Cashier\Subscription as CashierSubscription;
 class SubscriptionPlanResolver
 {
     /**
+     * Self-serve plans, cheapest first (ruling r-2zxevg4sj675qn1m). Each has
+     * a `tier_<key>` Stripe price. Enterprise is sales-led; `none` is no plan.
+     */
+    public const PAID_TIERS = ['starter', 'pro', 'team'];
+
+    /**
      * Configured yearly Edge site prices — static/hybrid and SSR. A
      * subscription carrying either is billed yearly.
      *
@@ -51,6 +57,17 @@ class SubscriptionPlanResolver
     public static function retiredPriceIds(): array
     {
         return self::configuredPrices((array) config('subscription.standard.stripe.retired', []));
+    }
+
+    /**
+     * Retired per-site fee prices (extra site, SSR site, load balancing),
+     * removed from subscriptions without proration or credit.
+     *
+     * @return list<string>
+     */
+    public static function retiredSiteFeePriceIds(): array
+    {
+        return self::configuredPrices((array) config('subscription.standard.stripe.retired_site_fees', []));
     }
 
     /**

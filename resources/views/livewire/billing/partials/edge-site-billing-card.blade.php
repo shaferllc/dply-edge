@@ -22,16 +22,6 @@
     <div class="grid gap-2.5 px-3 py-2.5 sm:grid-cols-2 sm:px-4">
         <dl class="space-y-2 text-sm">
             <div class="flex justify-between gap-2">
-                <dt class="text-brand-moss">{{ $site['platform_label'] ?? __('Site fee') }}</dt>
-                <dd class="tabular-nums font-medium text-brand-ink">
-                    @if (($site['platform_cents'] ?? 0) > 0)
-                        ${{ number_format(($site['platform_cents'] ?? 0) / 100, 2) }}
-                    @else
-                        {{ __('Included') }}
-                    @endif
-                </dd>
-            </div>
-            <div class="flex justify-between gap-2">
                 <dt class="text-brand-moss">{{ __('Delivery usage') }}</dt>
                 <dd class="tabular-nums font-medium text-brand-ink">${{ number_format(($site['usage_cents'] ?? 0) / 100, 2) }}</dd>
             </div>
@@ -43,14 +33,6 @@
                 <dt class="text-brand-moss">{{ __('Egress (MTD)') }}</dt>
                 <dd class="tabular-nums text-brand-ink">{{ number_format(($site['bytes_egress'] ?? 0) / (1024 ** 3), 2) }} GB</dd>
             </div>
-            @if (($site['usage_billing_enabled'] ?? false) && ! empty($usageDetail['included_requests']))
-                <p class="text-xs text-brand-moss/80 pt-1">
-                    {{ __('Includes :requests requests / :egress GB egress per site before overage.', [
-                        'requests' => number_format((int) ($usageDetail['included_requests'] ?? 0)),
-                        'egress' => number_format(((int) ($usageDetail['included_bytes_egress'] ?? 0)) / (1024 ** 3), 1),
-                    ]) }}
-                </p>
-            @endif
         </dl>
 
         @if (! $compact && ($site['daily'] ?? []) !== [])

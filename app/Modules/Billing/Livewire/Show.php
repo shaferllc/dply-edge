@@ -30,7 +30,6 @@ use Throwable;
  * magic, so the contract is stated here.
  *
  * @property-read Subscription|null $subscription
- * @property-read string|null $subscriptionInterval
  * @property-read DesiredBillingState $billingState
  * @property-read array<string, int|null|string> $costForecast
  * @property-read bool $standardPricingAvailable
@@ -246,15 +245,20 @@ class Show extends Component
     }
 
     /**
-     * Start a Stripe Checkout session for a paid tier. Line items are seeded
-     * from what the org runs today on that tier (extra sites, SSR, seats…).
+     * Start a Stripe Checkout session for a paid plan. Line items are the
+     * plan fee plus any extra seats the org already has.
      */
     public function subscribeTier(string $tier = 'pro'): mixed
     {
         $this->authorize('update', $this->organization);
 
-        if (! in_array($tier, ['pro', 'team'], true)) {
-            $this->addError('plan', __('Choose Pro or Team.'));
+        if (! in_array($tier, SubscriptionPlanResolver::PAID_TIERS, true)) {
+            $this->addError('plan', __('Choose Starter, Pro or Team.'));
+
+            return null;
+        }
+        if (($seatError = $this->seatCapError($tier)) !== null) {
+            $this->addError('plan', $seatError);
 
             return null;
         }
@@ -295,13 +299,11 @@ class Show extends Component
         if (! $subscription || ! $subscription->valid()) {
             return $this->billingRedirect('billing_error', __('No active subscription to change.'));
         }
-        if (! in_array($tier, ['pro', 'team'], true) || $tier === $this->organization->subscribedTier()) {
+        if (! in_array($tier, SubscriptionPlanResolver::PAID_TIERS, true) || $tier === $this->organization->subscribedTier()) {
             return $this->billingRedirect('billing_error', __('Choose a different plan.'));
         }
-
-        $proSeats = (int) config('subscription.standard.tiers.pro.seats');
-        if ($tier === 'pro' && $this->organization->users()->count() > $proSeats) {
-            return $this->billingRedirect('billing_error', __('Pro includes :count seats. Remove members before moving to Pro.', ['count' => $proSeats]));
+        if (($seatError = $this->seatCapError($tier)) !== null) {
+            return $this->billingRedirect('billing_error', $seatError);
         }
 
         $items = app(StandardSubscriptionCreator::class)->buildPriceList(
@@ -445,9 +447,28 @@ class Show extends Component
 
     public function getStandardPricingAvailableProperty(): bool
     {
-        // Checkout needs a tier price; everything else on the list is optional.
-        return (string) config('subscription.standard.stripe.tier_pro') !== ''
-            || (string) config('subscription.standard.stripe.tier_team') !== '';
+        // Checkout needs a plan price; everything else on the list is optional.
+        foreach (SubscriptionPlanResolver::PAID_TIERS as $tier) {
+            if ((string) config('subscription.standard.stripe.tier_'.$tier) !== '') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Why the org's members do not fit a plan with a hard seat cap, or null. */
+    private function seatCapError(string $tier): ?string
+    {
+        $plan = (array) config('subscription.standard.tiers.'.$tier);
+        if (($plan['extra_seat_cents'] ?? null) !== null || ($plan['seats'] ?? null) === null) {
+            return null;
+        }
+        $seats = (int) $plan['seats'];
+
+        return $this->organization->users()->count() > $seats
+            ? trans_choice(':plan includes :count seat. Remove members before moving to :plan.|:plan includes :count seats. Remove members before moving to :plan.', $seats, ['plan' => $plan['label'], 'count' => $seats])
+            : null;
     }
 
     /**
@@ -478,36 +499,13 @@ class Show extends Component
 
     /**
      * Structured line items for the "Your bill" hero — one per Edge site kind
-     * in use plus metered Edge usage. Cents preserved so the view can choose
-     * monthly/yearly presentation.
+     * in use plus metered Edge usage.
      *
      * @return list<array{label: string, quantity: int, unit_cents: int, line_cents: int, detail?: ?string}>
      */
     public function getTierLineItemsProperty(): array
     {
         return app(BillingAnalytics::class)->lineItems($this->billingState);
-    }
-
-    public function getYearlyTotalCentsProperty(): int
-    {
-        $pct = (int) config('subscription.standard.annual_discount_pct', 20);
-
-        return (int) round($this->billingState->monthlyTotalCents * 12 * (100 - $pct) / 100);
-    }
-
-    public function getSubscriptionIntervalProperty(): ?string
-    {
-        $sub = $this->subscription;
-        if (! $sub) {
-            return null;
-        }
-
-        return $this->subscriptionIsYearly($sub) ? 'year' : 'month';
-    }
-
-    private function subscriptionIsYearly(Subscription $sub): bool
-    {
-        return SubscriptionPlanResolver::isYearly($sub);
     }
 
     public function getNextInvoiceAtProperty(): ?CarbonInterface

@@ -120,7 +120,7 @@
                         <input
                             type="search"
                             wire:model.live.debounce.300ms="search"
-                            placeholder="{{ __('Search action or subject…') }}"
+                            placeholder="{{ __('Search action, subject, or values…') }}"
                             class="block h-7 w-full rounded-md border-brand-ink/15 bg-white py-1 ps-8 pe-2.5 text-xs shadow-sm focus:border-brand-sage focus:ring-brand-sage"
                         />
                     </div>

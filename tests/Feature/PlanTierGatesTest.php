@@ -69,16 +69,18 @@ test('custom domains follow the plan, and an org without one gets none', functio
     $provisioner->provision($trial->fresh(), 'one.example.com'); // re-provisioning is not a new domain
     $provisioner->provision($trial->fresh(), 'two.example.com');
 
-    config(['subscription.standard.tiers.pro.custom_domains_per_site' => 1]);
-    $capped = liveSite(Organization::factory()->create(['trial_ends_at' => now()->addDays(3)]));
-    $provisioner->provision($capped, 'one.capped.example.com');
-    expect(fn () => $provisioner->provision($capped->fresh(), 'two.capped.example.com'))
-        ->toThrow(\RuntimeException::class, 'Upgrade to Pro');
+    // One cap only: org-wide, across every app.
+    config(['subscription.standard.tiers.pro.custom_domains' => 3]);
+    $second = liveSite($trial->organization);
+    $provisioner->provision($second, 'three.example.com');
+    expect(fn () => $provisioner->provision($second->fresh(), 'four.example.com'))
+        ->toThrow(\RuntimeException::class, '3 custom domains across the organization');
 
-    config(['subscription.standard.tiers.pro.custom_domains_per_site' => 100]);
+    config(['subscription.standard.tiers.pro.custom_domains' => 20]);
     $pro = liveSite(onTier(Organization::factory()->create(), 'pro'));
     $provisioner->provision($pro, 'one.pro.example.com');
     $provisioner->provision($pro->fresh(), 'two.pro.example.com');
+    expect(config('subscription.standard.tiers.pro'))->not->toHaveKey('custom_domains_per_site');
 
     expect($pro->fresh()->edgeMeta()['routing']['custom_domains'])->toHaveCount(2);
 });

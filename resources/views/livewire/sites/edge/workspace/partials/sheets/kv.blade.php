@@ -28,7 +28,7 @@
                     <li>{{ __('The worker for this app receives those calls. No other app can.') }}</li>
                     <li>{{ __('This starts working after the next deploy.') }}</li>
                 </ol>
-                <x-sheet.note>{{ __('Reads are $1 per million. Writes, deletes, and lists are $10 per million. Storage is $1 per GB-month after the first 1 GB.') }}</x-sheet.note>
+                <x-sheet.note>{{ __('Reads are :reads per million. Writes, deletes, and lists are :writes per million. Storage is :storage per GB-month.', ['reads' => \App\Modules\Billing\Support\UsagePrice::dollars(\App\Modules\Billing\Support\UsagePrice::rate('kv_reads_millicents_per_million')), 'writes' => \App\Modules\Billing\Support\UsagePrice::dollars(\App\Modules\Billing\Support\UsagePrice::rate('kv_writes_millicents_per_million')), 'storage' => \App\Modules\Billing\Support\UsagePrice::dollars(\App\Modules\Billing\Support\UsagePrice::rate('kv_storage_millicents_per_gb_month'))]) }}</x-sheet.note>
             </div>
             <div x-show="tab === 'implementation'" x-cloak class="grid gap-5">
                 <x-sheet.section :title="__('Laravel')">
@@ -117,14 +117,13 @@
             </div>
             <div x-show="tab === 'costs'" x-cloak class="grid gap-3">
                 @if (is_array($kvConnection) && $kvConnection['asleep'])
-                    <x-sheet.note>{{ __('Asleep. Reads, writes, and storage are not billed until you wake this store.') }}</x-sheet.note>
-                @else
+                    <x-sheet.note>{{ __('Asleep. Once the next deploy drops it, there are no reads or writes, but its stored data is still billed.') }}</x-sheet.note>
+                @endif
                     <x-sheet.cost :label="__('This month')">${{ number_format($kvMonthCents / 100, 2) }}</x-sheet.cost>
-                    <p class="text-2xs leading-4 text-brand-mist">{{ __('Reads are $1 per million. Writes, deletes, and lists are $10 per million. Storage is $1 per GB-month after the first 1 GB.') }}</p>
+                    <p class="text-2xs leading-4 text-brand-mist">{{ __('Reads are :reads per million. Writes, deletes, and lists are :writes per million. Storage is :storage per GB-month.', ['reads' => \App\Modules\Billing\Support\UsagePrice::dollars(\App\Modules\Billing\Support\UsagePrice::rate('kv_reads_millicents_per_million')), 'writes' => \App\Modules\Billing\Support\UsagePrice::dollars(\App\Modules\Billing\Support\UsagePrice::rate('kv_writes_millicents_per_million')), 'storage' => \App\Modules\Billing\Support\UsagePrice::dollars(\App\Modules\Billing\Support\UsagePrice::rate('kv_storage_millicents_per_gb_month'))]) }}</p>
                     @unless ($cardOnFile)
                         <x-sheet.note tone="warn">{{ __('This counts against the usage credit until a card is on the account.') }}</x-sheet.note>
                     @endunless
-                @endif
             </div>
             <div x-show="tab === 'settings'" x-cloak class="grid gap-3">
                 <x-input-error :messages="$errors->get('kvSettings')" />

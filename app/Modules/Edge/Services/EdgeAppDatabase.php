@@ -49,14 +49,16 @@ final class EdgeAppDatabase
     ];
 
     /**
-     * Compute sizes and their compute units (1 CU = 4 GB), which the usage
-     * rates are priced in. EdgeDplyDatabase::OFFERED_SIZES is what fits today.
+     * Compute sizes and their compute units (1 CU = 1 vCPU, 4 GB), which the
+     * usage rates are priced in. The keys are the shared size ladder's rungs
+     * (EdgeSizeLadder::RUNGS); `cpu` is the rung's display name.
+     * EdgeDplyDatabase::OFFERED_SIZES is what fits today.
      *
      * @var array<string, array{cpu: string, memory: string, cu: float}>
      */
     public const POSTGRES_SIZES = [
-        '0.25' => ['cpu' => '1/4 vCPU', 'memory' => '1 GB', 'cu' => 0.25],
-        '0.5' => ['cpu' => '1/2 vCPU', 'memory' => '2 GB', 'cu' => 0.5],
+        '0.25' => ['cpu' => '0.25 vCPU', 'memory' => '1 GB', 'cu' => 0.25],
+        '0.5' => ['cpu' => '0.5 vCPU', 'memory' => '2 GB', 'cu' => 0.5],
         '1' => ['cpu' => '1 vCPU', 'memory' => '4 GB', 'cu' => 1.0],
         '2' => ['cpu' => '2 vCPU', 'memory' => '8 GB', 'cu' => 2.0],
         '4' => ['cpu' => '4 vCPU', 'memory' => '16 GB', 'cu' => 4.0],

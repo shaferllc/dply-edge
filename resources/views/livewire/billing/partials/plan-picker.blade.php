@@ -1,16 +1,18 @@
 {{--
   Callers: livewire.billing.show (@include), right after payment-method.
-  Actions: Show::subscribeTier (no subscription) and Show::changeTier.
+  Actions: Show::subscribeTier (no valid subscription: new, or ended and paused),
+  Show::changeTier, and Show::endTrial on the current card during a Stripe trial.
   Tiers come from config subscription.standard.tiers; no Free plan, a trial instead (ruling r-f17p5zgeh120cm5t).
 --}}
 @php
-    $tiers = collect(config('subscription.standard.tiers'))->only(['pro', 'team']);
+    $tiers = collect(config('subscription.standard.tiers'))->only(\App\Modules\Billing\Services\SubscriptionPlanResolver::PAID_TIERS);
     $trialDays = (int) config('subscription.standard.trial.days', 5);
     $trialOffered = $this->organization->eligibleForTrial();
     $current = $this->organization->billingTier();
-    $hasSubscription = (bool) $this->subscription;
-    $extraSite = '$'.number_format(((int) config('subscription.standard.edge_cents', 200)) / 100, 0);
-    $ssrSite = '$'.number_format(((int) config('subscription.standard.edge_ssr_cents', 700)) / 100, 0);
+    // An ended subscription can't be changed (changeTier needs valid()): a
+    // paused org resubscribes through Checkout.
+    $hasSubscription = (bool) $this->subscription?->valid();
+    $stripeTrial = (bool) $this->subscription?->onTrial();
     $num = fn (?int $n) => $n === null ? __('Unlimited') : number_format($n);
 @endphp
 <section id="plans" class="border-b border-brand-ink/10">
@@ -18,12 +20,12 @@
         dense
         icon="heroicon-o-squares-2x2"
         :title="__('Plan')"
-        :note="__('Billed monthly. Usage over your plan’s allowance is added to the same invoice.')"
+        :note="__('Billed monthly. Usage past your plan’s included credit is added to the next invoice.')"
     />
     @if ($trialOffered)
         <p class="px-3 pt-3 text-sm text-brand-ink sm:px-4">{{ __(':days days free, card required. It bills on day :next unless you cancel before then.', ['days' => $trialDays, 'next' => $trialDays + 1]) }}</p>
     @endif
-    <div class="grid gap-3 px-3 py-3 sm:px-4 md:grid-cols-2">
+    <div class="grid gap-3 px-3 py-3 sm:px-4 md:grid-cols-3">
         @foreach ($tiers as $key => $tier)
             @php $isCurrent = $key === $current; @endphp
             <div @class([
@@ -42,18 +44,14 @@
                     <span class="text-sm text-brand-moss">{{ __('/mo') }}</span>
                 </p>
                 <ul class="mt-3 flex-1 space-y-1.5 text-sm text-brand-moss">
-                    <li>{{ $tier['sites'] === null ? __('Unlimited sites') : trans_choice(':count site|:count sites', (int) $tier['sites'], ['count' => $num($tier['sites'])]) }}{{ __(', then :price each', ['price' => $extraSite]) }}</li>
-                    <li>{{ $tier['ssr'] ? __('SSR sites :price each', ['price' => $ssrSite]) : __('Static and hybrid sites only') }}</li>
+                    <li>{{ __('Unlimited sites') }}</li>
+                    <li>{{ __(':credit of usage included each month', ['credit' => '$'.number_format(((int) $tier['usage_credit_cents']) / 100, 0)]) }}</li>
                     <li>
                         {{ $tier['seats'] === null ? __('Unlimited seats') : trans_choice(':count seat|:count seats', (int) $tier['seats'], ['count' => $num($tier['seats'])]) }}@if ($tier['extra_seat_cents']){{ __(', then $:price each', ['price' => number_format($tier['extra_seat_cents'] / 100, 0)]) }}@endif
                     </li>
-                    <li>{{ __(':minutes build minutes · :concurrent concurrent · :timeout-min timeout', ['minutes' => $num($tier['build_minutes']), 'concurrent' => $tier['concurrent_builds'], 'timeout' => $tier['build_timeout_minutes']]) }}</li>
-                    <li>{{ __(':requests requests · :egress GB egress', ['requests' => $tier['requests'] !== null && $tier['requests'] >= 1_000_000 ? ($tier['requests'] / 1_000_000).'M' : $num($tier['requests']), 'egress' => $tier['egress_gb'] === null ? __('Unlimited') : $num($tier['egress_gb'])]) }}</li>
-                    <li>{{ __(':n custom domains · :queues managed queues', ['n' => $num($tier['custom_domains'] ?? $tier['custom_domains_per_site']), 'queues' => $num($tier['queues'] ?? null)]) }}</li>
-                    @if (($tier['spending_limit_cents'] ?? null) !== null)
-                        <li>{{ __('$ :amount usage credit, then apps pause', ['amount' => number_format(((int) $tier['spending_limit_cents']) / 100, 0)]) }}</li>
-                    @endif
-                    <li>{{ $tier['containers'] ? __('Container apps with :credit compute included. Sleeps when idle.', ['credit' => '$'.number_format(($tier['compute_credit_cents'] ?? 0) / 100, 0)]) : __('No container apps') }}</li>
+                    <li>{{ trans_choice(':concurrent build at a time|:concurrent builds at a time', (int) $tier['concurrent_builds'], ['concurrent' => $tier['concurrent_builds']]).__(' · :timeout-min timeout', ['timeout' => $tier['build_timeout_minutes']]) }}</li>
+                    <li>{{ __(':n custom domains · :databases databases · :queues queues', ['n' => $num($tier['custom_domains']), 'databases' => $num($tier['databases']), 'queues' => $num($tier['queues'])]) }}</li>
+                    <li>{{ $tier['containers'] ? ($tier['app_instances'] === 1 ? __('Container apps, one instance each') : __('Container apps with autoscaling')) : __('No container apps') }}</li>
                     @if ($tier['containers'] && array_key_exists('worker_instances', $tier))
                         <li>{{ ($tier['worker_instances'] === null ? __('Unlimited queue workers per app') : trans_choice(':count queue worker per app|:count queue workers per app', (int) $tier['worker_instances'])).(($tier['worker_autoscale'] ?? false) ? __(', autoscaling') : '').((int) ($tier['worker_groups'] ?? 0) > 0 ? __(', :g worker groups', ['g' => (int) $tier['worker_groups']]) : '') }}</li>
                     @endif
@@ -64,6 +62,16 @@
                 <div class="mt-4">
                     @if ($isCurrent)
                         <p class="text-xs text-brand-mist">{{ $this->organization->onTrialPlan() ? __('On trial until :date.', ['date' => $this->organization->planTrialEndsAt()?->toFormattedDayDateString()]) : __('Your current plan.') }}</p>
+                        @if ($stripeTrial)
+                            <x-primary-button type="button" class="mt-2 w-full justify-center" wire:click="endTrial" wire:confirm="{{ __('End the trial now? :plan is billed to your card today, and the trial’s $:limit usage cap is lifted.', ['plan' => $tier['label'], 'limit' => number_format(((int) config('subscription.standard.trial.spending_limit_cents', 500)) / 100, 0)]) }}" wire:loading.attr="disabled" wire:target="endTrial">
+                                {{ __('End trial now') }}
+                            </x-primary-button>
+                        @elseif (! $hasSubscription && $this->organization->onTrialPlan())
+                            {{-- Card-less trial: Checkout adds the card (keeping the trial's end), then End trial now. --}}
+                            <x-primary-button type="button" class="mt-2 w-full justify-center" wire:click="subscribeTier('{{ $key }}')" wire:loading.attr="disabled" wire:target="subscribeTier" @disabled(! $this->standardPricingAvailable)>
+                                {{ __('Add a card for :plan', ['plan' => $tier['label']]) }}
+                            </x-primary-button>
+                        @endif
                     @elseif (! $hasSubscription)
                         <x-primary-button type="button" class="w-full justify-center" wire:click="subscribeTier('{{ $key }}')" wire:loading.attr="disabled" wire:target="subscribeTier" @disabled(! $this->standardPricingAvailable)>
                             {{ $trialOffered ? __('Start :days-day :plan trial', ['days' => $trialDays, 'plan' => $tier['label']]) : __('Choose :plan', ['plan' => $tier['label']]) }}

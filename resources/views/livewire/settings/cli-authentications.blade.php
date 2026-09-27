@@ -21,7 +21,7 @@
     >
         <x-slot:actions>
             <x-docs-link
-                slug="account-cli"
+                slug="cli"
                 class="!h-6 !gap-1 !rounded-md !px-2 !py-0 !text-xs !font-semibold"
             >
                 <x-heroicon-o-book-open class="h-3.5 w-3.5 shrink-0 opacity-90" aria-hidden="true" />
@@ -82,8 +82,7 @@
                         <x-cli-snippet class="mt-1.5" size="10" open :commands="[
                             ['label' => __('Account'), 'command' => 'dply account show'],
                             ['label' => __('Menu'),    'command' => 'dply menu'],
-                            ['label' => __('Servers'), 'command' => 'dply server list'],
-                            ['label' => __('Sites'),   'command' => 'dply site list'],
+                            ['label' => __('Apps'),    'command' => 'dply sites'],
                         ]" />
                     </div>
                 </div>
@@ -93,12 +92,12 @@
                         <p class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('4. Deploy from a repo') }}</p>
                         <x-cli-snippet class="mt-1.5" size="10" :commands="[
                             ['label' => __('Link'),   'command' => 'dply link'],
-                            ['label' => __('Deploy'), 'command' => 'dply deploy --follow'],
-                            ['label' => __('Status'), 'command' => 'dply site status'],
-                            ['label' => __('Logs'),   'command' => 'dply site logs --follow'],
+                            ['label' => __('Deploy'), 'command' => 'dply deploy --wait'],
+                            ['label' => __('Status'), 'command' => 'dply edge status'],
+                            ['label' => __('Logs'),   'command' => 'dply edge logs'],
                         ]" />
                         <p class="mt-1 text-xs leading-relaxed text-brand-moss">
-                            {{ __('Edge: `dply edge status --wait`. SSH run needs `commands.run`; firewall needs `network.read`.') }}
+                            {{ __('Run `dply link` once in the repo; it writes `.dply/site.json`. `dply edge status --wait` blocks until the latest deploy settles.') }}
                         </p>
                     </div>
                     <div>
@@ -115,11 +114,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: curl -fsSL {{ $installUrl }} | bash -s -- --no-shell
-      - run: dply login --token "$@{{ secrets.DPLY_TOKEN }}" --no-shell
-      - run: dply deploy --sync --wait --idempotency-key "$@{{ github.sha }}"</code></pre>
+      - run: curl -fsSL {{ $installUrl }} | bash -s -- --no-login
+      - run: dply login --token "$@{{ secrets.DPLY_TOKEN }}" --base-url {{ $appUrl }} --no-shell
+      - run: dply deploy --wait --commit "$@{{ github.sha }}"</code></pre>
                         <p class="mt-1 text-xs leading-relaxed text-brand-moss">
-                            {{ __('Org API token with `sites.deploy`. Commit `.dply/site.json` or pass `--site` in CI.') }}
+                            {{ __('Org API token with `edge.read` and `edge.deploy`. Commit `.dply/site.json` or pass `--site` in CI.') }}
                         </p>
                     </div>
                 </div>

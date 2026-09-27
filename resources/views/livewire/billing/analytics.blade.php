@@ -3,8 +3,7 @@
         @php
             $interval = $summary['interval'] ?? 'month';
             $monthlyCents = (int) ($summary['monthly_total_cents'] ?? 0);
-            $yearlyCents = (int) ($summary['yearly_total_cents'] ?? 0);
-            $displayCents = $interval === 'year' ? $yearlyCents : $monthlyCents;
+            $displayCents = $monthlyCents;
             $forecastProjectedMonthEndCents = (int) ($forecast['projected_month_end_cents'] ?? 0);
             $forecastDeltaVsThirtyDays = $forecast['delta_vs_thirty_days_cents'] ?? null;
             $spendTrendThirty = is_array($spendTrend['series_30'] ?? null) ? $spendTrend['series_30'] : [];
@@ -38,11 +37,11 @@
                 $statusLabel = ucfirst((string) ($summary['stripe_status'] ?? __('Active')));
                 $statusSub = ! empty($summary['next_invoice_at'])
                     ? __('Next invoice :date', ['date' => \Illuminate\Support\Carbon::parse($summary['next_invoice_at'])->toFormattedDateString()])
-                    : ($interval === 'year' ? __('Billed annually') : __('Billed monthly'));
+                    : __('Billed monthly');
             } else {
                 $statusDot = 'bg-brand-ink/15';
-                $statusLabel = __('Pay as you go');
-                $statusSub = __('Estimate only until you add a card');
+                $statusLabel = __('No subscription');
+                $statusSub = __('Estimate only until you choose a plan');
             }
 
             // One cell of a hairline stat/metric strip. Every number on this page is
@@ -92,7 +91,7 @@
                         <dt class="{{ $cellLabel }}">{{ __('Estimated') }}</dt>
                         <dd class="mt-0.5 flex items-baseline gap-1">
                             <span class="font-mono text-lg font-semibold tabular-nums text-brand-ink">${{ number_format($displayCents / 100, 0) }}</span>
-                            <span class="text-xs text-brand-moss">{{ $interval === 'year' ? '/'.__('yr') : '/'.__('mo') }}</span>
+                            <span class="text-xs text-brand-moss">{{ '/'.__('mo') }}</span>
                         </dd>
                         <p class="{{ $cellNote }}">{{ __('Daily run rate $:n', ['n' => number_format(($summary['daily_run_rate_cents'] ?? 0) / 100, 2)]) }}</p>
                     </div>
@@ -287,7 +286,7 @@
                         icon="heroicon-o-bolt"
                         :title="__('Projects')"
                         :count="count($edgeSites) ?: null"
-                        :note="__('Delivery usage this month, plus any extra-site or SSR fee.')"
+                        :note="__('Delivery usage this month. Sites have no fee.')"
                     />
 
                     @if ($edgeSites === [])
@@ -329,7 +328,7 @@
                         class="border-b border-brand-ink/10"
                         icon="heroicon-o-cube"
                         :title="__('Managed products')"
-                        :note="__('Included sites are $0. Extra sites and SSR sites show their fee.')"
+                        :note="__('Every plan includes unlimited sites. Usage is billed on the organization.')"
                     />
 
                     <div class="bg-white px-3 py-2">

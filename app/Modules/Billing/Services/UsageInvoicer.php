@@ -6,6 +6,11 @@ namespace App\Modules\Billing\Services;
 
 use App\Models\Organization;
 use App\Modules\Billing\Models\Subscription;
+use App\Modules\Edge\Services\Containers\EdgeContainerUsageCollector;
+use App\Modules\Edge\Services\EdgeDataUsageCollector;
+use App\Modules\Edge\Services\EdgeKvUsageCollector;
+use App\Modules\Edge\Services\EdgePlatformUsageCollector;
+use App\Modules\Edge\Services\EdgeUsageCollector;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -13,30 +18,38 @@ use Laravel\Cashier\Cashier;
 use Stripe\StripeClient;
 
 /**
- * Usage over the plan's allowances is billed in arrears, once per Stripe
- * billing period, for exactly that period (rulings r-zdescb7y05vp1bxx,
- * r-f17p5zgeh120cm5t: "over-allowance usage billed monthly"):
+ * Usage is billed in arrears, once per Stripe billing period, for exactly
+ * that period (ruling r-2zxevg4sj675qn1m):
  *
  * - `invoice.created` for a renewal (billing_reason subscription_cycle, still
- *   a draft) gets one invoice item per usage kind for the period that just
- *   ended: days period_start .. period_end - 1.
+ *   a draft) gets one invoice item per usage category at customer price
+ *   (cost + margin, UsagePrice) for the period that just ended (days
+ *   period_start .. period_end - 1), then one negative "Included usage
+ *   credit" item = min(plan credit, usage). Usage never goes below $0.
  * - `customer.subscription.deleted` gets a final invoice for the days from
- *   the last period start to the day it ended.
+ *   the last period start to the day it ended. It gets the plan's full
+ *   credit too: that period's plan fee was paid in advance, in full, so its
+ *   credit is not prorated.
  *
  * A trial's usage is not billed ("5 day free trial"; its spending cap bounds
  * it). One billing_usage_charges row per org and period makes both paths
  * idempotent; each Stripe create also carries an idempotency key.
  *
- * ponytail: collectors run hourly, so usage from the last hour before the
- * renewal lands after the period is invoiced and is not billed. Add a short
- * delay (bill at invoice.created + 1h, before finalization) if that matters.
+ * Collectors run hourly, and the full-day "yesterday" re-runs land around
+ * 01:30–02:10 UTC, so the period's last day can still be short when the
+ * renewal arrives. Its date-based collectors are re-run for that day first
+ * ({@see collectLastDay}). Valkey and realtime collect increments, so a late
+ * increment is billed next period rather than lost.
  */
 class UsageInvoicer
 {
     public function __construct(private OrganizationBillingStateComputer $computer) {}
 
-    /** @param  array<string, mixed>  $invoice  a Stripe invoice (webhook payload object) */
-    public function onInvoiceCreated(array $invoice): void
+    /**
+     * @param  array<string, mixed>  $invoice  a Stripe invoice (webhook payload object)
+     * @param  bool  $collect  re-collect the period's last day first (a retry skips it)
+     */
+    public function onInvoiceCreated(array $invoice, bool $collect = true): void
     {
         if (($invoice['billing_reason'] ?? '') !== 'subscription_cycle' || ($invoice['status'] ?? '') !== 'draft') {
             return;
@@ -55,8 +68,33 @@ class UsageInvoicer
 
         $tier = $this->tierOf($organization, $subscription);
         if ($tier !== null) {
-            $this->bill($organization, Carbon::createFromTimestamp((int) $invoice['period_start']), Carbon::createFromTimestamp($periodEnd)->subDay(), $tier, (string) $invoice['id'], $subscription);
+            $lastDay = Carbon::createFromTimestamp($periodEnd)->subDay();
+            if ($collect) {
+                $this->collectLastDay($lastDay);
+            }
+            $this->bill($organization, Carbon::createFromTimestamp((int) $invoice['period_start']), $lastDay, $tier, (string) $invoice['id'], $subscription);
         }
+    }
+
+    /**
+     * Re-collect the period's last day across the account, so its final hour
+     * is on the renewal invoice. A collector that fails is reported and the
+     * period is billed with what is there.
+     *
+     * ponytail: account-wide, once per renewal; runs queued
+     * (BillRenewalUsageJob). Scope the collectors to one organization
+     * if many renewals a day make this slow.
+     */
+    private function collectLastDay(Carbon $day): void
+    {
+        foreach ([EdgeUsageCollector::class, EdgeContainerUsageCollector::class, EdgeDataUsageCollector::class, EdgeKvUsageCollector::class, EdgePlatformUsageCollector::class] as $collector) {
+            try {
+                app($collector)->collectForDate($day->copy()->startOfDay());
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
+        EdgeOrganizationUsageReader::flushMemo();
     }
 
     /** @param  array<string, mixed>  $subscription  a Stripe subscription (webhook payload object) */
@@ -85,7 +123,7 @@ class UsageInvoicer
      * @param  array<string, mixed>  $subscription  the Stripe subscription: its currency, and the
      *                                              card a standalone invoice charges (Checkout puts
      *                                              it on the subscription, not the customer)
-     * @return array<string, int> the lines charged, key => cents
+     * @return array<string, int> the lines charged, key => cents (`credit` is negative)
      */
     public function bill(Organization $organization, Carbon $from, Carbon $to, string $tier, ?string $invoiceId, array $subscription = []): array
     {
@@ -107,7 +145,11 @@ class UsageInvoicer
             return []; // already billed (a webhook retry)
         }
 
-        $lines = $this->computer->computeForPeriod($organization, $from, $to, $tier)->usageLines();
+        $state = $this->computer->computeForPeriod($organization, $from, $to, $tier);
+        $lines = $state->usageLines();
+        if ($state->creditAppliedCents() > 0) {
+            $lines['credit'] = -$state->creditAppliedCents();
+        }
         $record = static fn (string $status, array $extra = []) => DB::table('billing_usage_charges')->where('id', $charge->id)
             ->update(['status' => $status, 'cents' => array_sum($lines), 'lines' => json_encode($lines), 'updated_at' => now()] + $extra);
         if ($lines === []) {
@@ -196,7 +238,7 @@ class UsageInvoicer
         if ($enterprise !== '' && in_array($enterprise, $prices, true)) {
             return null;
         }
-        foreach (['team', 'pro'] as $tier) {
+        foreach (SubscriptionPlanResolver::PAID_TIERS as $tier) {
             $priceId = (string) config('subscription.standard.stripe.tier_'.$tier, '');
             if ($priceId !== '' && in_array($priceId, $prices, true)) {
                 return $tier;

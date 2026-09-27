@@ -17,8 +17,8 @@
 <div>
     <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
         @include('livewire.sites.edge.workspace.partials.feature-guide', [
-            'docSlug' => 'edge-forms',
-            'what' => __('Edge Forms turns a path on your live Edge hostname into a mail-backed endpoint. Visitors POST; the Edge Worker checks spam defenses, then Dply emails you the fields — no app server or serverless function.'),
+            'docSlug' => 'forms',
+            'what' => __('Edge Forms turns a path on your live Edge hostname into a mail-backed endpoint. Visitors POST; the Edge Worker checks spam defenses, then Dply emails you the fields and lists them below — no app server or serverless function.'),
             'steps' => [
                 __('Enable Edge forms and add an endpoint (path + inbox), or click an example below.'),
                 __('Save — delivery republishes so the Worker starts accepting POSTs on that path.'),
@@ -121,6 +121,30 @@
                 <x-primary-button type="button" wire:click="save" :disabled="! $managedDelivery">{{ __('Save') }}</x-primary-button>
             </div>
         </div>
+    </section>
+
+    <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
+        <p class="text-xs font-semibold uppercase tracking-[0.16em] text-brand-sage">{{ __('Recent submissions') }}</p>
+        @if ($submissions->isEmpty())
+            <p class="mt-2 text-sm text-brand-moss">{{ __('None yet. Each accepted submission is emailed to its endpoint\'s inbox and listed here.') }}</p>
+        @else
+            <ul class="mt-3 divide-y divide-brand-ink/10 rounded-xl border border-brand-ink/10">
+                @foreach ($submissions as $submission)
+                    <li class="px-3 py-2.5 text-sm" wire:key="submission-{{ $submission->id }}">
+                        <div class="flex flex-wrap items-baseline justify-between gap-2">
+                            <span class="font-mono text-xs text-brand-ink">{{ $submission->path }}</span>
+                            <time class="text-xs text-brand-mist" datetime="{{ $submission->created_at->toIso8601String() }}">{{ $submission->created_at->diffForHumans() }}</time>
+                        </div>
+                        <dl class="mt-1 grid grid-cols-1 gap-x-3 gap-y-0.5 text-xs sm:grid-cols-[8rem_1fr]">
+                            @foreach ($submission->fields as $name => $value)
+                                <dt class="truncate text-brand-mist">{{ $name }}</dt>
+                                <dd class="break-words text-brand-moss">{{ \Illuminate\Support\Str::limit($value, 500) }}</dd>
+                            @endforeach
+                        </dl>
+                    </li>
+                @endforeach
+            </ul>
+        @endif
     </section>
 
     <x-modal

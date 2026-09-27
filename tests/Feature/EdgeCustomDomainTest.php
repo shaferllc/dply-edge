@@ -12,10 +12,12 @@ use App\Models\ProviderCredential;
 use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
+use App\Modules\Edge\Jobs\VerifyEdgeCustomDomainsJob;
 use App\Modules\Edge\Services\EdgeCustomDomainProvisioner;
 use App\Modules\Edge\Services\EdgeDeliveryContextResolver;
 use App\Modules\Edge\Services\EdgeHostMapPublisher;
 use App\Modules\Edge\Services\EdgeRouter;
+use App\Modules\Notifications\Services\NotificationPublisher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -313,7 +315,7 @@ test('a cname to the shared fallback origin needs the site txt token to verify',
         'edge.custom_hostnames.fallback_origin' => 'fallback.on-dply.site',
     ]);
     $site = makeLiveEdgeSite();
-    $cname = [DNS_CNAME | DNS_A => [['type' => 'CNAME', 'target' => 'fallback.on-dply.site']]];
+    $cname = [DNS_CNAME | DNS_A | DNS_AAAA => [['type' => 'CNAME', 'target' => 'fallback.on-dply.site']]];
 
     $entry = provisionerWithDns(['www.victim.com' => $cname])->provision($site->fresh(), 'www.victim.com');
     $proof = $entry['dply_verification'];
@@ -399,4 +401,111 @@ test('the domains pages show the verification txt record until the domain is rea
     Livewire::actingAs($user)
         ->test(Domains::class, ['server' => $site->server, 'site' => $site->fresh()])
         ->assertSee($proof['value']);
+});
+
+test('a flattened apex verifies by address match plus the site txt token', function () {
+    config([
+        'edge.fake.enabled' => true,
+        'edge.custom_hostnames.enabled' => true,
+        'edge.custom_hostnames.fallback_origin' => 'fallback.on-dply.site',
+    ]);
+    $site = makeLiveEdgeSite();
+    $dns = [
+        'victim.com' => [DNS_CNAME | DNS_A | DNS_AAAA => [['type' => 'A', 'ip' => '104.18.1.1']]],
+        'fallback.on-dply.site' => [DNS_A | DNS_AAAA => [['type' => 'A', 'ip' => '104.18.1.1'], ['type' => 'AAAA', 'ipv6' => '2606:4700::1']]],
+    ];
+
+    $proof = provisionerWithDns($dns)->provision($site->fresh(), 'victim.com')['dply_verification'];
+
+    $entry = provisionerWithDns($dns)->verify($site->fresh(), 'victim.com');
+    expect($entry['dns_status'])->toBe('failed')->and($entry['error'])->toContain($proof['value']);
+
+    $dns['_dply-verify.victim.com'] = [DNS_TXT => [['type' => 'TXT', 'txt' => $proof['value']]]];
+    expect(provisionerWithDns($dns)->verify($site->fresh(), 'victim.com')['dns_status'])->toBe('ready');
+
+    // Addresses that aren't the edge's don't match.
+    $dns['other.com'] = [DNS_CNAME | DNS_A | DNS_AAAA => [['type' => 'A', 'ip' => '203.0.113.9']]];
+    provisionerWithDns($dns)->provision($site->fresh(), 'other.com');
+    expect(provisionerWithDns($dns)->verify($site->fresh(), 'other.com')['dns_status'])->toBe('failed');
+});
+
+test('a flattened apex needs the txt token even without the shared fallback origin', function () {
+    config(['edge.fake.enabled' => true, 'edge.custom_hostnames.enabled' => false]);
+    $site = makeLiveEdgeSite();
+    $dns = [
+        'apex.dev' => [DNS_CNAME | DNS_A | DNS_AAAA => [['type' => 'A', 'ip' => '104.18.2.2']]],
+        'edge-app.dply.host' => [DNS_A | DNS_AAAA => [['type' => 'A', 'ip' => '104.18.2.2']]],
+    ];
+
+    provisionerWithDns($dns)->provision($site->fresh(), 'apex.dev');
+
+    expect(provisionerWithDns($dns)->verify($site->fresh(), 'apex.dev')['error'])->toContain('_dply-verify.apex.dev');
+});
+
+test('auto dns finds an apex zone and writes the record at the zone root', function () {
+    config(['edge.fake.enabled' => false, 'edge.custom_hostnames.enabled' => false]);
+    $site = makeLiveEdgeSite();
+    ProviderCredential::factory()->create([
+        'organization_id' => $site->organization_id,
+        'provider' => 'cloudflare',
+        'credentials' => ['api_token' => 'cf-token'],
+    ]);
+    Http::fake([
+        'https://api.cloudflare.com/client/v4/zones?*' => fn ($request) => Http::response([
+            'success' => true,
+            'result' => ($request['name'] ?? null) === 'example.com' ? [['id' => 'zone_apex', 'name' => 'example.com', 'status' => 'active']] : [],
+        ]),
+        '*' => Http::response(['success' => true, 'result' => []]),
+    ]);
+
+    app(EdgeCustomDomainProvisioner::class)->provision($site->fresh(), 'example.com');
+
+    Http::assertSent(fn ($request) => $request->method() === 'POST'
+        && str_contains($request->url(), '/zones/zone_apex/dns_records')
+        && $request['name'] === 'example.com'
+        && $request['type'] === 'CNAME');
+    expect($site->fresh()->edgeMeta()['routing']['custom_domains']['example.com']['record_name'] ?? null)->toBe('@');
+});
+
+test('failed domains are re-checked with backoff for a bounded period', function () {
+    $at = fn (string $attached, ?string $checked = null): array => array_filter([
+        'attached_at' => now()->sub($attached)->toIso8601String(),
+        'verified_at' => $checked === null ? null : now()->sub($checked)->toIso8601String(),
+    ]);
+
+    expect(VerifyEdgeCustomDomainsJob::failedRecheckDue($at('30 minutes', '15 minutes')))->toBeTrue()
+        ->and(VerifyEdgeCustomDomainsJob::failedRecheckDue($at('3 hours', '20 minutes')))->toBeFalse()
+        ->and(VerifyEdgeCustomDomainsJob::failedRecheckDue($at('3 hours', '61 minutes')))->toBeTrue()
+        ->and(VerifyEdgeCustomDomainsJob::failedRecheckDue($at('2 days', '2 hours')))->toBeFalse()
+        ->and(VerifyEdgeCustomDomainsJob::failedRecheckDue($at('2 days', '7 hours')))->toBeTrue()
+        ->and(VerifyEdgeCustomDomainsJob::failedRecheckDue($at('4 days', '7 hours')))->toBeFalse()
+        ->and(VerifyEdgeCustomDomainsJob::failedRecheckDue(['verified_at' => now()->toIso8601String()]))->toBeFalse();
+
+    config(['edge.fake.enabled' => true, 'edge.custom_hostnames.enabled' => true]);
+    $site = makeLiveEdgeSite();
+    $meta = $site->edgeMeta();
+    $meta['routing']['custom_domains']['late.example.com'] = ['hostname' => 'late.example.com', 'dns_status' => 'failed']
+        + $at('2 hours', '2 hours');
+    $meta['routing']['custom_domains']['stale.example.com'] = ['hostname' => 'stale.example.com', 'dns_status' => 'failed']
+        + $at('5 days', '2 hours');
+    $site->update(['meta' => array_merge($site->meta, ['edge' => $meta])]);
+
+    (new VerifyEdgeCustomDomainsJob)->handle(provisionerWithDns([]));
+
+    $domains = $site->fresh()->edgeMeta()['routing']['custom_domains'];
+    expect(now()->diffInMinutes($domains['late.example.com']['verified_at'], true))->toBeLessThan(1)
+        ->and(now()->diffInMinutes($domains['stale.example.com']['verified_at'], true))->toBeGreaterThan(100);
+});
+
+test('a repeat verification failure does not notify again', function () {
+    config(['edge.fake.enabled' => true, 'edge.custom_hostnames.enabled' => true]);
+    $site = makeLiveEdgeSite();
+    $publisher = \Mockery::mock(NotificationPublisher::class);
+    $publisher->shouldReceive('publish')->once();
+    app()->instance(NotificationPublisher::class, $publisher);
+
+    $provisioner = provisionerWithDns(['quiet.example.com' => [DNS_CNAME | DNS_A | DNS_AAAA => [['type' => 'CNAME', 'target' => 'elsewhere.example.net']]]]);
+    $provisioner->provision($site->fresh(), 'quiet.example.com');
+    $provisioner->verify($site->fresh(), 'quiet.example.com');
+    $provisioner->verify($site->fresh(), 'quiet.example.com');
 });

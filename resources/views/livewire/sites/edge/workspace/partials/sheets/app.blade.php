@@ -17,7 +17,7 @@
                             wire:click="$set('draftInstanceType', '{{ $size['key'] }}')"
                             :selected="$draftInstanceType === $size['key']"
                             :title="$size['label']"
-                            :description="$size['vcpu'].' · '.$size['memory']"
+                            :description="$size['memory'].' · '.__(':second/s awake', ['second' => $size['second']])"
                             :meta="__('up to :price', ['price' => $size['price']])"
                         />
                     @endforeach
@@ -53,7 +53,7 @@
 
             @if ($smaller && $draftInstanceType !== $smaller['type'])
                 <x-sheet.note tone="ok">
-                    {{ __('Peak memory this week: :peak MB. :size fits with room to spare and saves $:save an hour while awake.', ['peak' => round($smaller['peak_mb']), 'size' => __(ucfirst(str_replace('-', ' ', $smaller['type']))), 'save' => rtrim(rtrim(number_format($smaller['save_per_hour'], 4), '0'), '.')]) }}
+                    {{ __('Peak memory this week: :peak MB. :size fits with room to spare and saves $:save an hour while awake.', ['peak' => round($smaller['peak_mb']), 'size' => \App\Modules\Edge\Support\EdgeSizeLadder::containerLabel($smaller['type']), 'save' => rtrim(rtrim(number_format($smaller['save_per_hour'], 4), '0'), '.')]) }}
                     <button type="button" wire:click="selectSize('{{ $smaller['type'] }}')" class="font-semibold underline">{{ __('Use it') }}</button>
                 </x-sheet.note>
             @endif

@@ -154,7 +154,7 @@ final class SiteSettingsViewData
     public static function edgeOverviewObservability(Site $site): array
     {
         $edgeUsageBillingEnabled = (bool) config('dply.edge.usage_billing.enabled', false);
-        $edgeManagedFee = ((int) config('subscription.standard.edge_cents', 0)) / 100;
+        $edgeManagedFee = 0; // no site fees (ruling r-2zxevg4sj675qn1m)
         $edgeUsageRates = app(ManagedProductCostEstimator::class)->edgeUsageRates();
         $edgeSiteBilling = app(EdgeSiteBillingAnalytics::class)->forSite($site);
         $edgeSiteTraffic = app(EdgeSiteTrafficAnalytics::class)->forSite($site, billing: $edgeSiteBilling);
@@ -293,7 +293,7 @@ final class SiteSettingsViewData
     {
         return [
             'edgeUsageBillingEnabled' => (bool) config('dply.edge.usage_billing.enabled', false),
-            'edgeManagedFee' => ((int) config('subscription.standard.edge_cents', 0)) / 100,
+            'edgeManagedFee' => 0,
             'edgeUsageRates' => [],
             'edgeSiteBilling' => null,
             'edgeSiteTraffic' => null,

@@ -11,31 +11,28 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
 
-test('forecast normalizes yearly subscriptions and projects month end', function () {
-    config(['subscription.standard.annual_discount_pct' => 20]);
-
-    // Plan-fee portion of $15 plus $4.50 of Edge usage → $19.50 monthly.
+test('forecast shows usage, the credit it uses and the estimated charge, and projects month end', function () {
+    // $15 plan, $4.50 of usage against a $2 credit → $17.50 estimated.
     $state = DesiredBillingState::fromPlanAndUsage(
-        plan: ['key' => 'custom', 'label' => 'Custom', 'price_cents' => 1500, 'max_servers' => null],
-        edgeUsageSubtotalCents: 450,
+        plan: ['key' => 'custom', 'label' => 'Custom', 'price_cents' => 1500],
+        usage: ['delivery' => 450],
+        usageCreditCents: 200,
     );
-
-    $baseline = new OrganizationBillingSnapshot([
-        'monthly_total_cents' => 1700,
-    ]);
 
     $forecast = app(BillingForecastCalculator::class)->calculate(
         state: $state,
-        subscriptionInterval: 'year',
-        snapshotThirtyDaysAgo: $baseline,
+        subscriptionInterval: 'month',
+        snapshotThirtyDaysAgo: new OrganizationBillingSnapshot(['monthly_total_cents' => 1500]),
         asOf: now()->setDate(2026, 5, 10),
     );
 
-    expect($forecast['mrr_cents'])->toBe(1560)
-        ->and($forecast['arr_cents'])->toBe(18_720)
+    expect($forecast['usage_cents'])->toBe(450)
+        ->and($forecast['credit_cents'])->toBe(200)
+        ->and($forecast['estimated_charge_cents'])->toBe(1750)
+        ->and($forecast['mrr_cents'])->toBe(1750)
         ->and($forecast['fixed_cents'])->toBe(1500)
-        ->and($forecast['projected_edge_usage_cents'])->toBeGreaterThan(0)
-        ->and($forecast['projected_month_end_cents'])->toBeGreaterThan(1500)
+        ->and($forecast['projected_edge_usage_cents'])->toBeGreaterThan(450)
+        ->and($forecast['projected_month_end_cents'])->toBe(1500 + $forecast['projected_edge_usage_cents'] - 200)
         ->and($forecast['delta_vs_thirty_days_cents'])->toBe(250);
 });
 

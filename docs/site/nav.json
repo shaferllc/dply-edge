@@ -1,0 +1,159 @@
+{
+  "_comment": "Public documentation navigation (rendered at /docs). Each page is docs/site/<slug>.md. Order here is the sidebar order. Writers own the pages; the renderer reads this file.",
+  "sections": [
+    {
+      "title": "Getting started",
+      "pages": [
+        { "slug": "introduction", "title": "Introduction" },
+        { "slug": "quickstart", "title": "Quickstart" },
+        { "slug": "frameworks", "title": "Frameworks & runtimes" },
+        { "slug": "how-dply-works", "title": "How dply works" },
+        { "slug": "local-development", "title": "Local development" },
+        { "slug": "private-beta", "title": "Private beta" }
+      ]
+    },
+    {
+      "title": "Apps & deployments",
+      "pages": [
+        { "slug": "apps", "title": "Apps" },
+        { "slug": "source-control", "title": "Source control" },
+        { "slug": "builds", "title": "Builds" },
+        { "slug": "configuration-files", "title": "Configuration files" },
+        { "slug": "deployments", "title": "Deployments" },
+        { "slug": "deploy-triggers", "title": "Deploy triggers & hooks" },
+        { "slug": "preview-deployments", "title": "Preview deployments" },
+        { "slug": "environment-variables", "title": "Environment variables" },
+        { "slug": "secrets", "title": "Secrets" },
+        { "slug": "monorepos", "title": "Monorepos" }
+      ]
+    },
+    {
+      "title": "Runtime & compute",
+      "pages": [
+        { "slug": "static-and-hybrid", "title": "Static & hybrid sites" },
+        { "slug": "server-rendering", "title": "Server rendering (SSR)" },
+        { "slug": "edge-middleware", "title": "Edge middleware" },
+        { "slug": "containers", "title": "Container apps" },
+        { "slug": "scaling-and-sleep", "title": "Scaling & sleep" },
+        { "slug": "queue-workers", "title": "Queue workers" },
+        { "slug": "scheduled-tasks", "title": "Scheduled tasks" },
+        { "slug": "data-regions", "title": "Data regions" }
+      ]
+    },
+    {
+      "title": "Resources",
+      "pages": [
+        { "slug": "resources", "title": "Resources overview" },
+        { "slug": "resources/key-value", "title": "Key-value (KV)" },
+        { "slug": "resources/object-storage", "title": "Object storage" },
+        { "slug": "resources/sql", "title": "Edge SQL (D1)" },
+        { "slug": "resources/databases", "title": "Postgres, MySQL & MongoDB" },
+        { "slug": "resources/valkey", "title": "Valkey (Redis)" },
+        { "slug": "resources/external-redis", "title": "External Redis" },
+        { "slug": "resources/queues", "title": "Queues" },
+        { "slug": "resources/state", "title": "State (Durable Objects)" },
+        { "slug": "resources/realtime", "title": "Realtime (WebSockets)" },
+        { "slug": "resources/database-pools", "title": "Database pools" },
+        { "slug": "resources/vector-search", "title": "Vector search" },
+        { "slug": "resources/ai", "title": "Workers AI" },
+        { "slug": "resources/browser-rendering", "title": "Browser rendering" },
+        { "slug": "resources/images", "title": "Images" },
+        { "slug": "resources/workflows", "title": "Workflows" }
+      ]
+    },
+    {
+      "title": "Networking",
+      "pages": [
+        { "slug": "domains", "title": "Domains" },
+        { "slug": "domain-verification", "title": "Domain verification" },
+        { "slug": "routing", "title": "Routing, redirects & headers" },
+        { "slug": "caching", "title": "Caching" },
+        { "slug": "edge-network", "title": "Edge network" }
+      ]
+    },
+    {
+      "title": "Security",
+      "pages": [
+        { "slug": "firewall", "title": "Firewall" },
+        { "slug": "rate-limits", "title": "Rate limits" },
+        { "slug": "bot-protection", "title": "Bot protection" },
+        { "slug": "access-control", "title": "Access control" },
+        { "slug": "waiting-room", "title": "Waiting room" },
+        { "slug": "platform-security", "title": "Platform security & isolation" }
+      ]
+    },
+    {
+      "title": "Site features",
+      "pages": [
+        { "slug": "forms", "title": "Forms" },
+        { "slug": "error-pages", "title": "Error pages" },
+        { "slug": "snippets", "title": "Snippets & tags" },
+        { "slug": "status-pages", "title": "Status pages & uptime" }
+      ]
+    },
+    {
+      "title": "Observability",
+      "pages": [
+        { "slug": "traffic", "title": "Traffic & analytics" },
+        { "slug": "logs", "title": "Logs" },
+        { "slug": "alerts", "title": "Alerts" },
+        { "slug": "notifications", "title": "Notification channels" },
+        { "slug": "deploy-badge", "title": "Deploy badge" }
+      ]
+    },
+    {
+      "title": "Organizations & access",
+      "pages": [
+        { "slug": "organizations", "title": "Organizations" },
+        { "slug": "teams", "title": "Teams" },
+        { "slug": "roles-and-permissions", "title": "Roles & permissions" },
+        { "slug": "app-members", "title": "App members" },
+        { "slug": "account-security", "title": "Account security" },
+        { "slug": "activity-log", "title": "Activity log" }
+      ]
+    },
+    {
+      "title": "Billing",
+      "pages": [
+        { "slug": "pricing", "title": "Plans & pricing" },
+        { "slug": "free-trial", "title": "Free trial" },
+        { "slug": "usage", "title": "Usage & metering" },
+        { "slug": "spending-alerts", "title": "Spending caps & alerts" },
+        { "slug": "invoices", "title": "Invoices & taxes" },
+        { "slug": "paused-accounts", "title": "Paused accounts" }
+      ]
+    },
+    {
+      "title": "Tools",
+      "pages": [
+        { "slug": "cli", "title": "CLI" },
+        { "slug": "api", "title": "HTTP API" },
+        { "slug": "api/reference", "title": "API reference" },
+        { "slug": "mcp", "title": "MCP server" }
+      ]
+    },
+    {
+      "title": "Guides",
+      "pages": [
+        { "slug": "guides/laravel", "title": "Deploy a Laravel app" },
+        { "slug": "guides/nextjs", "title": "Deploy a Next.js app" },
+        { "slug": "guides/astro", "title": "Deploy an Astro site" },
+        { "slug": "guides/rails", "title": "Deploy a Rails app" },
+        { "slug": "guides/laravel-broadcasting", "title": "Laravel broadcasting with Realtime" },
+        { "slug": "guides/migrate-from-vercel-netlify", "title": "Migrate from Vercel or Netlify" },
+        { "slug": "guides/migrate-from-forge-cloud", "title": "Migrate from Forge or Laravel Cloud" },
+        { "slug": "guides/troubleshooting-builds", "title": "Troubleshooting builds" },
+        { "slug": "guides/troubleshooting-runtime", "title": "Troubleshooting errors & 5xx" }
+      ]
+    },
+    {
+      "title": "Support",
+      "pages": [
+        { "slug": "support", "title": "Support" },
+        { "slug": "compliance", "title": "Compliance & security" },
+        { "slug": "abuse", "title": "Report abuse" },
+        { "slug": "changelog", "title": "Changelog" }
+      ]
+    }
+  ]
+}

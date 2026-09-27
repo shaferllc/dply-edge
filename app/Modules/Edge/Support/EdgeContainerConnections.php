@@ -31,7 +31,7 @@ final class EdgeContainerConnections
      * @var array<string, array{label: string, needs_target: bool, hint: string}>
      */
     public const KINDS = [
-        'key_value' => ['label' => 'Key-value store', 'needs_target' => true, 'hint' => 'GET or PUT http://host/key. GET http://host/ lists keys. Reads are $1 per million. Writes, deletes, and lists are $10 per million. Storage is $1 per GB-month after the first 1 GB.'],
+        'key_value' => ['label' => 'Key-value store', 'needs_target' => true, 'hint' => 'GET or PUT http://host/key. GET http://host/ lists keys. Billed per read, write and GB stored.'],
         'durable_object' => ['label' => 'State', 'needs_target' => false, 'hint' => 'GET or PUT http://host/key. POST http://host/incr/key adds one. Use this for a counter or a lock.'],
         'redis' => ['label' => 'dply Valkey', 'needs_target' => false, 'hint' => 'Redis-compatible: your Redis client and REDIS_URL work unchanged. Start one here, or paste an address. The app connects directly. Commands and storage are billed with usage.'],
         'object_storage' => ['label' => 'Object storage', 'needs_target' => true, 'hint' => 'GET http://host/ lists objects. GET, PUT, or DELETE http://host/path'],
@@ -1227,40 +1227,76 @@ final class EdgeContainerConnections
     }
 
     /**
-     * After a deploy goes live: delete what deleteAfterDeploy queued. One
-     * another app of the organization still binds is kept (it is in use).
-     * A failure stays queued for the next deploy.
+     * After a deploy goes live: delete what deleteAfterDeploy queued. The app
+     * that queued it binding it again cancels the delete. Another app still
+     * binding it keeps it queued until none does (never dropped, or it would
+     * stay and bill), marked after_own_deploy: the queuing app's live deploy
+     * has let go of it, so any later deploy of the organization may finish
+     * it. An unmarked item waits for its own app's deploy. A failure stays
+     * queued too.
      */
     public static function deletePending(Site $site): void
     {
-        $meta = $site->edgeMeta();
-        $pending = (array) ($meta['pending_deletes'] ?? []);
-        // Before pending_deletes, only queues were deferred.
-        foreach ((array) ($meta['pending_queue_deletes'] ?? []) as $name) {
-            $pending[] = ['kind' => 'queue', 'target' => (string) $name];
-        }
-        if ($pending === [] || $site->organization === null) {
+        if ($site->organization === null) {
             return;
         }
-        $others = Site::query()->where('organization_id', $site->organization_id)->whereKeyNot($site->id)->get();
-        $left = [];
-        foreach ($pending as $item) {
-            $kind = (string) ($item['kind'] ?? '');
-            $target = (string) ($item['target'] ?? '');
-            $boundElsewhere = $others->contains(fn (Site $other): bool => collect(self::for($other))->contains(fn (array $c): bool => $c['kind'] === $kind && $c['target'] === $target));
-            if ($boundElsewhere || collect(self::for($site))->contains(fn (array $c): bool => $c['kind'] === $kind && $c['target'] === $target)) {
+        $sites = Site::query()->where('organization_id', $site->organization_id)->get();
+        $binds = static fn (Site $app, string $kind, string $target): bool => collect(self::for($app))->contains(fn (array $c): bool => $c['kind'] === $kind && $c['target'] === $target);
+        $destroyed = []; // two apps can queue the same resource
+        foreach ($sites as $owner) {
+            $meta = $owner->edgeMeta();
+            $pending = (array) ($meta['pending_deletes'] ?? []);
+            // Before pending_deletes, only queues were deferred.
+            foreach ((array) ($meta['pending_queue_deletes'] ?? []) as $name) {
+                $pending[] = ['kind' => 'queue', 'target' => (string) $name];
+            }
+            if ($pending === []) {
                 continue;
             }
-            try {
-                self::destroy($kind, $target, $site->organization);
-            } catch (\Throwable $e) {
-                // Still bound somewhere (e.g. a preview): try again after the next deploy.
-                $left[] = ['kind' => $kind, 'target' => $target];
-                report($e);
+            $left = [];
+            foreach ($pending as $item) {
+                if ($owner->isNot($site) && empty($item['after_own_deploy'])) {
+                    $left[] = $item; // its app's live deploy may still bind it
+
+                    continue;
+                }
+                $kind = (string) ($item['kind'] ?? '');
+                $target = (string) ($item['target'] ?? '');
+                if ($binds($owner, $kind, $target)) {
+                    continue; // added back to this app: not deleted
+                }
+                $waiting = ['kind' => $kind, 'target' => $target, 'after_own_deploy' => true];
+                if ($sites->contains(fn (Site $other): bool => $other->isNot($owner) && $binds($other, $kind, $target))) {
+                    $left[] = $waiting;
+
+                    continue;
+                }
+                if (isset($destroyed[$kind.'|'.$target])) {
+                    continue;
+                }
+                try {
+                    self::destroy($kind, $target, $site->organization);
+                    $destroyed[$kind.'|'.$target] = true;
+                } catch (\Throwable $e) {
+                    // Still bound somewhere (e.g. a preview): try again after the next deploy.
+                    $left[] = $waiting;
+                    report($e);
+                }
             }
+            if ($left === ($meta['pending_deletes'] ?? []) && ! isset($meta['pending_queue_deletes'])) {
+                continue;
+            }
+            $fresh = $owner->fresh();
+            $fresh?->mergeEdgeMeta(['pending_deletes' => $left, 'pending_queue_deletes' => null]);
+            $fresh?->save();
         }
-        $site->mergeEdgeMeta(['pending_deletes' => $left, 'pending_queue_deletes' => null]);
-        $site->save();
+    }
+
+    /** Another app of the organization binds this resource. */
+    public static function boundElsewhere(Site $site, string $kind, string $target): bool
+    {
+        return Site::query()->where('organization_id', $site->organization_id)->whereKeyNot($site->id)->get()
+            ->contains(fn (Site $other): bool => collect(self::for($other))->contains(fn (array $c): bool => $c['kind'] === $kind && $c['target'] === $target));
     }
 
     /** Cloudflare's id for a queue this app binds by name. */

@@ -1,7 +1,7 @@
 <div>
     <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
         @include('livewire.sites.edge.workspace.partials.feature-guide', [
-            'docSlug' => 'edge-members',
+            'docSlug' => 'app-members',
             'what' => __('Grant site-scoped access on this Edge site without making someone an org admin. Org owners and admins already have full access.'),
             'steps' => [
                 __('Pick an org user who is not already a site member.'),

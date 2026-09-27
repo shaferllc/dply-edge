@@ -58,7 +58,7 @@
             </div>
         </dl>
         <div class="border-t border-brand-ink/8 px-5 py-2.5 dark:border-brand-mist/15">
-            <x-docs-link doc-route="docs.markdown" doc-slug="edge-create" class="!border-0 !bg-transparent !px-0 !py-0 !shadow-none text-xs font-semibold text-brand-sage transition-colors hover:text-brand-forest dark:hover:text-brand-gold">
+            <x-docs-link doc-route="docs.markdown" doc-slug="apps" class="!border-0 !bg-transparent !px-0 !py-0 !shadow-none text-xs font-semibold text-brand-sage transition-colors hover:text-brand-forest dark:hover:text-brand-gold">
                 {{ __('Docs') }}
                 <x-heroicon-m-arrow-top-right-on-square class="h-4 w-4" aria-hidden="true" />
             </x-docs-link>

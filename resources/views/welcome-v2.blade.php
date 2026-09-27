@@ -196,23 +196,30 @@
                 <div class="lg:col-span-5">
                     <p class="reveal font-terminal text-xs tracking-[0.12em] text-edge-lime">PRICING</p>
                     <h2 class="reveal mt-4 text-3xl font-bold tracking-[-0.035em] sm:text-[2.5rem] sm:leading-[1.1]" style="transition-delay:.06s">
-                        Two plans. Usage past them is metered.
+                        Three plans. Unlimited sites. Usage included.
                     </h2>
                     <p class="reveal mt-4 text-base leading-7 text-edge-dim" style="transition-delay:.1s">
-                        Try Pro free for 5 days. Past a plan’s allowance, extra sites are $2/mo, Worker SSR sites $7/mo, and compute is billed by the second it runs — nothing is throttled.
+                        Try Pro free for 5 days. Every plan includes usage credit. Past it, apps, databases and Valkey bill by the second they run, and requests and bandwidth by the unit — nothing is throttled.
                     </p>
                     <a href="{{ route('pricing') }}" class="reveal mt-6 inline-block text-sm text-edge-mute transition-colors hover:text-edge-text" style="transition-delay:.14s">See full pricing →</a>
                 </div>
-
-                <div class="mt-12 grid gap-px bg-edge-line sm:grid-cols-2 lg:col-span-7 lg:mt-0">
-                    @foreach ([
-                        ['Pro', '$20', 'For real projects', ['10 sites · 3 seats', '1,000 build minutes', '10 databases · 10 queues', '$5 compute included', 'Autoscaling workers']],
-                        ['Team', '$49', 'For your whole company', ['50 sites · 5 seats', '3,000 build minutes', '50 databases · 50 queues', '$20 compute included', 'Audit log']],
-                    ] as $i => [$name, $price, $tagline, $points])
+                <div class="mt-12 grid gap-px bg-edge-line sm:grid-cols-3 lg:col-span-7 lg:mt-0">
+                    @foreach (['starter' => 'For side projects', 'pro' => 'For real projects', 'team' => 'For your whole company'] as $key => $tagline)
+                        @php
+                            $plan = config('subscription.standard.tiers.'.$key);
+                            $i = $loop->index;
+                            $points = [
+                                'Unlimited sites',
+                                trans_choice('{1} 1 seat|[2,*] :count seats', (int) $plan['seats'], ['count' => (int) $plan['seats']]).($plan['extra_seat_cents'] ? ' · $'.number_format($plan['extra_seat_cents'] / 100, 0).'/extra' : ''),
+                                '$'.number_format($plan['usage_credit_cents'] / 100, 0).' usage included',
+                                $plan['databases'].' databases · '.$plan['queues'].' queues',
+                                $plan['audit_log'] ? 'Audit log' : ($plan['worker_autoscale'] ? 'Autoscaling workers' : $plan['concurrent_builds'].' build at a time'),
+                            ];
+                        @endphp
                         <div class="reveal flex flex-col bg-edge-void p-7" style="transition-delay:{{ .06 * $i + .14 }}s">
-                            <p class="text-lg font-bold tracking-[-0.02em]">{{ $name }}</p>
+                            <p class="text-lg font-bold tracking-[-0.02em]">{{ $plan['label'] }}</p>
                             <p class="mt-1 text-sm text-edge-mute">{{ $tagline }}</p>
-                            <p class="mt-5"><span class="text-4xl font-bold tracking-[-0.04em]">{{ $price }}</span><span class="font-terminal text-[13px] text-edge-mute"> /mo</span></p>
+                            <p class="mt-5"><span class="text-4xl font-bold tracking-[-0.04em]">${{ number_format($plan['price_cents'] / 100, 0) }}</span><span class="font-terminal text-[13px] text-edge-mute"> /mo</span></p>
                             <ul class="font-terminal mt-6 space-y-1.5 text-xs text-edge-dim">
                                 @foreach ($points as $point)
                                     <li><span class="text-edge-lime">+</span> {{ $point }}</li>

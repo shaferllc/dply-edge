@@ -93,7 +93,7 @@
                     <div class="rounded-md border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs text-sky-950">
                         <span class="inline-flex items-center gap-1.5 font-semibold">
                             <x-heroicon-m-information-circle class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                            {{ __('Pro plan required to create tokens') }}
+                            {{ __('A plan is required to create tokens') }}
                         </span>
                         <p class="mt-1 leading-relaxed">{{ __('Token creation needs an active Pro subscription on the selected organization. Existing tokens can still be revoked.') }}</p>
                     </div>

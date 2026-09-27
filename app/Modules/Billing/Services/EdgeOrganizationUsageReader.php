@@ -37,14 +37,20 @@ class EdgeOrganizationUsageReader
             return self::$totalsMemo[$key];
         }
 
-        $row = EdgeUsageSnapshot::query()
+        $rows = EdgeUsageSnapshot::query()
             ->where('organization_id', $organization->id)
             ->where('period_start', '>=', $periodStart->toDateString())
-            ->where('period_start', '<=', $periodEnd->toDateString())
+            ->where('period_start', '<=', $periodEnd->toDateString());
+        // Storage is a level, not a flow: each site's peak in the window,
+        // summed across sites (one row per site per day, so a plain MAX was
+        // the single largest site and never passed 5 GB x site count).
+        $storage = (int) DB::query()
+            ->fromSub((clone $rows)->groupBy('site_id')->selectRaw('MAX(r2_storage_bytes) AS peak'), 'per_site')
+            ->sum('peak');
+        $row = $rows
             ->select([
                 DB::raw('COALESCE(SUM(requests), 0) as requests'),
                 DB::raw('COALESCE(SUM(bytes_egress), 0) as bytes_egress'),
-                DB::raw('COALESCE(MAX(r2_storage_bytes), 0) as r2_storage_bytes'),
                 DB::raw('COALESCE(SUM(r2_class_a_ops), 0) as r2_class_a_ops'),
                 DB::raw('COALESCE(SUM(r2_class_b_ops), 0) as r2_class_b_ops'),
             ])
@@ -57,7 +63,7 @@ class EdgeOrganizationUsageReader
         return self::$totalsMemo[$key] = new EdgeUsageTotals(
             requests: (int) $row->requests,
             bytesEgress: (int) $row->bytes_egress,
-            r2StorageBytes: (int) $row->r2_storage_bytes,
+            r2StorageBytes: $storage,
             r2ClassAOps: (int) $row->r2_class_a_ops,
             r2ClassBOps: (int) $row->r2_class_b_ops,
         );

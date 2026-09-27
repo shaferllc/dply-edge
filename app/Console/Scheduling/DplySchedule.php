@@ -90,6 +90,10 @@ final class DplySchedule
         $schedule->command(CollectEdgeUsageCommand::class, ['--today'])
             ->hourly()
             ->name('edge-usage-today');
+        // The hourly run never sees a day's last hour: collect yesterday in full.
+        $schedule->command(CollectEdgeUsageCommand::class)
+            ->dailyAt('01:30')
+            ->name('edge-usage-yesterday');
 
         // Container compute: today so far every hour, and yesterday once more
         // after Cloudflare's late samples land (per-minute billing reads both).

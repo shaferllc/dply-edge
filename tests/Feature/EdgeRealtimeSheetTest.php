@@ -221,5 +221,6 @@ test('the overview shows this month’s collected messages and cost', function (
 
     rtSheetOpen($site, $user)
         ->assertSee('4.2K')
-        ->assertSee('This month, after the allowance');
+        ->assertSee('This month so far')
+        ->assertSee('paid from your plan’s included usage credit first');
 });

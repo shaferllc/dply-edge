@@ -76,9 +76,9 @@
                     </x-sheet.field>
                 @endif
 
-                <x-sheet.cost :label="__('Compute $:compute · disk $:disk', ['compute' => $postgresSizes[$postgresSize]['month'], 'disk' => number_format((float) $postgresGigabyte * $postgresDisk, 2)])" :sub="__('$:hour/hour awake · disk $:gigabyte/GB', ['hour' => $postgresSizes[$postgresSize]['hour'], 'gigabyte' => $postgresGigabyte])">{{ __('About $:total/mo', ['total' => number_format((float) str_replace(',', '', $postgresSizes[$postgresSize]['month']) + (float) $postgresGigabyte * $postgresDisk, 2)]) }}</x-sheet.cost>
+                <x-sheet.cost :label="__('Compute $:compute · disk $:disk', ['compute' => $postgresSizes[$postgresSize]['month'], 'disk' => number_format((float) $postgresGigabyte * $postgresDisk, 2)])" :sub="__(':second/s ($:hour/hour) awake · disk $:gigabyte/GB-month', ['second' => $postgresSizes[$postgresSize]['second'], 'hour' => $postgresSizes[$postgresSize]['hour'], 'gigabyte' => $postgresGigabyte])">{{ __('About $:total/mo', ['total' => number_format((float) str_replace(',', '', $postgresSizes[$postgresSize]['month']) + (float) $postgresGigabyte * $postgresDisk, 2)]) }}</x-sheet.cost>
                 @if ($databaseEngine === 'postgres' && $postgresSuspend !== -1 && $postgresSize !== '0.25')
-                    <p class="-mt-3 text-2xs text-brand-mist">{{ __('Scales from 1/4 vCPU · 1 GB; priced at full size.') }}</p>
+                    <p class="-mt-3 text-2xs text-brand-mist">{{ __('Scales from 0.25 vCPU · 1 GB; priced at full size.') }}</p>
                 @endif
             @endif
 
@@ -114,11 +114,17 @@
                             {{ __('Switch to :engine?', ['engine' => ['postgres' => 'Postgres', 'mongodb' => 'MongoDB', 'mysql' => 'MySQL', 'sql' => 'SQLite'][$databaseEngine] ?? $databaseEngine]) }}
                         @endif
                     </p>
-                    <p>{{ __('The app uses it from the next deploy.') }}</p>
+                    @php($dropsDply = in_array($savedDatabase, ['postgres', 'mysql', 'mongodb'], true))
+                    @if ($dropsDply)
+                        {{-- The gateway deletes the database and its backups on removal (packages/valkey-gateway/database.go). --}}
+                        <p class="font-semibold text-rose-700 dark:text-rose-300">{{ __('This deletes the :engine database and all of its backups right away. Export it first if you need the data.', ['engine' => ['postgres' => 'Postgres', 'mongodb' => 'MongoDB', 'mysql' => 'MySQL'][$savedDatabase]]) }}</p>
+                    @else
+                        <p>{{ __('The app uses it from the next deploy.') }}</p>
+                    @endif
                 </div>
                 <div class="flex gap-2">
                     <x-sheet.button wire:click="discardPending">{{ __('Keep :engine', ['engine' => ['postgres' => 'Postgres', 'mongodb' => 'MongoDB', 'mysql' => 'MySQL', 'sql' => 'SQLite'][$savedDatabase] ?? __('none')]) }}</x-sheet.button>
-                    <x-sheet.button :variant="$databaseEngine === 'none' ? 'danger' : 'primary'" wire:click="saveSettings" wire:loading.attr="disabled" wire:target="saveSettings">{{ $databaseEngine === 'none' ? __('Remove') : __('Confirm') }}</x-sheet.button>
+                    <x-sheet.button :variant="$databaseEngine === 'none' || $dropsDply ? 'danger' : 'primary'" wire:click="saveSettings" wire:loading.attr="disabled" wire:target="saveSettings">{{ $databaseEngine === 'none' ? __('Remove') : __('Confirm') }}</x-sheet.button>
                 </div>
             </x-sheet.footer>
         @endif

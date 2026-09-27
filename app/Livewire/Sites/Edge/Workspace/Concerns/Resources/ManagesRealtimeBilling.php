@@ -16,10 +16,6 @@ use App\Modules\Billing\Services\EdgeRealtimeCost;
 trait ManagesRealtimeBilling
 {
     /**
-     * ponytail: the org's monthly allowance is applied to this one app, so
-     * with several Realtime apps each card can read low; the invoice
-     * (EdgeRealtimeCost::forOrganization) applies it once.
-     *
      * @param  array{target: string}  $connection
      */
     public function realtimeCostCents(array $connection): ?int
@@ -34,8 +30,6 @@ trait ManagesRealtimeBilling
             ->selectRaw('COALESCE(SUM(connection_seconds), 0) AS seconds, COALESCE(SUM(messages), 0) AS messages')
             ->first();
 
-        $cost = app(EdgeRealtimeCost::class);
-
-        return $cost->cents((int) ($usage->seconds ?? 0), (int) ($usage->messages ?? 0), $cost->allowance($this->site->organization));
+        return app(EdgeRealtimeCost::class)->cents((int) ($usage->seconds ?? 0), (int) ($usage->messages ?? 0));
     }
 }

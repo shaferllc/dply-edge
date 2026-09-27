@@ -368,6 +368,36 @@ test('redis stores an encrypted address and does not ride the worker', function 
         ->and(EdgeContainerConnections::omitAsleepRedis($site, ['REDIS_URL' => $url, 'APP_NAME' => 'book']))->toBe(['APP_NAME' => 'book']);
 });
 
+test('sleeping a Pro Valkey tells the gateway, so it stops billing once the app lets go', function () {
+    config(['edge.valkey.api_url' => 'http://gateway.test', 'edge.valkey.token' => 'tok']);
+    [$user, $server, $site] = containerSite();
+    $site->mergeEdgeMeta(['connections' => [['kind' => 'redis', 'name' => 'REDIS', 'host' => 'redis.internal', 'target' => 'valkey:app-cache', 'plan' => 'pro_5g']]]);
+    $site->save();
+    $site->edgeEnvVars()->create(['key' => 'REDIS_URL', 'value' => 'rediss://default:pw-0123456789abcdef@app-cache.cache.dply.test:6380', 'scope' => EdgeSiteEnvVar::SCOPE_PRODUCTION]);
+    $asleep = fn (): bool => collect(EdgeContainerConnections::for($site->fresh()))->firstWhere('kind', 'redis')['asleep'];
+
+    // Gateway down: nothing changes, so the card never claims a sleep that did not happen.
+    $down = true;
+    Http::fake(function () use (&$down) {
+        return $down ? Http::response('down', 500) : Http::response([]);
+    });
+    $page = Livewire::actingAs($user)->test(Resources::class, ['server' => $server, 'site' => $site]);
+    $host = collect(EdgeContainerConnections::for($site->fresh()))->firstWhere('kind', 'redis')['host']; // mount moves it to the app's host
+    $page->call('sleepConnection', $host, true);
+    expect($asleep())->toBeFalse();
+
+    $down = false;
+    $page->call('sleepConnection', $host, true);
+    // Was: only the meta flag flipped, and a Pro size (sleep_after 0) billed to its cap.
+    Http::assertSent(fn ($request): bool => $request->method() === 'PUT' && $request->url() === 'http://gateway.test/tenants/app-cache'
+        && $request['sleep_after'] === 60 && $request['persistent'] === true && $request['password'] === 'pw-0123456789abcdef');
+    expect($asleep())->toBeTrue();
+
+    $page->call('sleepConnection', $host, false);
+    Http::assertSent(fn ($request): bool => $request->method() === 'PUT' && $request['sleep_after'] === 0 && $request['persistent'] === true);
+    expect($asleep())->toBeFalse();
+});
+
 test('starting redis requires a card', function () {
     config(['edge.valkey.api_url' => 'http://gateway.test', 'edge.valkey.token' => 'tok']);
     Http::fake();
@@ -419,6 +449,7 @@ test('key value requires a card and bills reads writes and storage', function ()
     config([
         'edge.cloudflare.account_id' => 'acct',
         'edge.cloudflare.api_token' => 'token',
+        'dply.edge.usage_billing.margin_percent' => 0,
         'dply.edge.usage_billing.kv_reads_millicents_per_million' => 100_000,
         'dply.edge.usage_billing.kv_writes_millicents_per_million' => 1_000_000,
         'dply.edge.usage_billing.kv_storage_millicents_per_gb_month' => 100_000,
@@ -439,8 +470,9 @@ test('key value requires a card and bills reads writes and storage', function ()
     $cost = app(EdgeKvCost::class);
     expect($cost->cents(1_000_000, 0, 0, 0, 0))->toBe(100)
         ->and($cost->cents(0, 1_000_000, 0, 0, 0))->toBe(1000)
-        ->and($cost->cents(0, 0, 0, 0, 2 * 1024 ** 3))->toBe(100)
-        ->and($cost->cents(0, 0, 0, 0, 1024 ** 3))->toBe(0);
+        // No free GB any more: every GB-month bills.
+        ->and($cost->cents(0, 0, 0, 0, 2 * 1024 ** 3))->toBe(200)
+        ->and($cost->cents(0, 0, 0, 0, 1024 ** 3))->toBe(100);
 
     $site->mergeEdgeMeta(['connections' => [[
         'kind' => 'key_value',
@@ -467,13 +499,14 @@ test('key value requires a card and bills reads writes and storage', function ()
 
     expect(app(EdgeKvUsageCollector::class)->collectForDate(now())['sites'])->toBe(1)
         ->and((int) EdgeKvUsage::query()->where('namespace_id', 'ns-1')->value('reads'))->toBe(1_000_000)
-        ->and($cost->forOrganization($site->organization, now()->startOfMonth(), now()->endOfMonth())['cents'])->toBe(200);
+        ->and($cost->forOrganization($site->organization, now()->startOfMonth(), now()->endOfMonth())['cents'])->toBe(300); // $1 of reads + 2 GB
 });
 
 test('key value settings show how it works and rename the store', function () {
     config([
         'edge.cloudflare.account_id' => 'acct',
         'edge.cloudflare.api_token' => 'token',
+        'dply.edge.usage_billing.margin_percent' => 0,
         'dply.edge.usage_billing.kv_reads_millicents_per_million' => 100_000,
         'dply.edge.usage_billing.kv_writes_millicents_per_million' => 1_000_000,
         'dply.edge.usage_billing.kv_storage_millicents_per_gb_month' => 100_000,
@@ -511,7 +544,7 @@ test('key value settings show how it works and rename the store', function () {
         ->test(Resources::class, ['server' => $server, 'site' => $site->fresh()])
         ->call('openKv', $host)
         ->assertSee('GET http://'.$host.'/ lists up to 100 keys.')
-        ->assertSee('Reads are $1 per million')
+        ->assertSee('Reads are $1.00 per million')
         ->assertSee('Implementation')
         ->assertSee('The next deploy adds dply/laravel')
         ->assertSee('dply-rails')
@@ -531,10 +564,11 @@ test('key value settings show how it works and rename the store', function () {
         ->and(EdgeContainerConnections::kvDriverEnv($fresh)['DPLY_KV_STORE'])->toBe('notes');
 });
 
-test('an asleep key value store drops its env and is not billed', function () {
+test('an asleep key value store drops its env but is still billed for what it used and stores', function () {
     config([
         'edge.cloudflare.account_id' => 'acct',
         'edge.cloudflare.api_token' => 'token',
+        'dply.edge.usage_billing.margin_percent' => 0,
         'dply.edge.usage_billing.kv_reads_millicents_per_million' => 100_000,
     ]);
     Http::fake(['*' => Http::response(['success' => true, 'result' => []])]);
@@ -561,14 +595,14 @@ test('an asleep key value store drops its env and is not billed', function () {
 
     $fresh = $site->fresh();
     expect(EdgeContainerConnections::kvDriverEnv($fresh))->toBe([])
-        ->and(app(EdgeKvCost::class)->forOrganization($fresh->organization, now()->startOfMonth(), now()->endOfMonth())['cents'])->toBe(0);
+        ->and(app(EdgeKvCost::class)->forOrganization($fresh->organization, now()->startOfMonth(), now()->endOfMonth())['cents'])->toBe(200); // $1 of reads + 2 GB of storage at $0.50
 
     Livewire::actingAs($user)
         ->test(Resources::class, ['server' => $server, 'site' => $fresh])
         ->call('openKv', EdgeContainerConnections::resourceHost($fresh, 'flags'))
         ->call('runKvDemo', 'write')
         ->assertSee('This store is asleep')
-        ->assertSee('Cost estimate · $0.00');
+        ->assertSee('Cost estimate · $2.00');
 
     Http::assertNotSent(fn ($request): bool => $request->method() === 'PUT');
 });

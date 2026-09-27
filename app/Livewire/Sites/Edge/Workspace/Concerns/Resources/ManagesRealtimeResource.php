@@ -173,7 +173,7 @@ trait ManagesRealtimeResource
      * This month's collected usage for one app, priced as if it had the
      * organization's allowance to itself (the bill applies it once per org).
      *
-     * @return array{messages: int, cents: int, org_minutes: int, org_messages: int, allowance: array{connection_minutes: ?int, messages: ?int}}
+     * @return array{messages: int, cents: int, org_minutes: int, org_messages: int}
      */
     public function realtimeMonth(string $appId): array
     {
@@ -183,15 +183,12 @@ trait ManagesRealtimeResource
         $org = $this->site->organization;
         $app = $month(EdgeRealtimeUsage::query()->where('organization_id', $org->id)->where('realtime_app_id', $appId));
         $all = $month(EdgeRealtimeUsage::query()->where('organization_id', $org->id));
-        $cost = app(EdgeRealtimeCost::class);
-        $allowance = $cost->allowance($org);
 
         return [
             'messages' => (int) ($app->messages ?? 0),
-            'cents' => $cost->cents((int) ($app->seconds ?? 0), (int) ($app->messages ?? 0), $allowance),
+            'cents' => app(EdgeRealtimeCost::class)->cents((int) ($app->seconds ?? 0), (int) ($app->messages ?? 0)),
             'org_minutes' => intdiv((int) ($all->seconds ?? 0), 60),
             'org_messages' => (int) ($all->messages ?? 0),
-            'allowance' => $allowance,
         ];
     }
 

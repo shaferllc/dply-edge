@@ -129,7 +129,7 @@ class Activity extends Component
 
     /**
      * Per-family totals scoped to this org. Drives the count chips on
-     * each filter pill — they show "Servers · 42" so an admin can spot
+     * each filter pill — they show "Apps · 42" so an admin can spot
      * spikes at a glance. Excludes the search box so the totals don't
      * jump around as you type.
      *
@@ -192,27 +192,21 @@ class Activity extends Component
      */
     private static function familyConditions(): array
     {
-        return [
-            'server' => "action LIKE 'server.%'",
+        $families = [
             'site' => "action LIKE 'site.%' AND action NOT LIKE 'site.edge.%'",
             'edge' => "action LIKE 'site.edge.%'",
-            'project' => "action LIKE 'project.%'",
+            'resources' => "(action LIKE 'database.%' OR action LIKE 'queue.%')",
             'team' => "action LIKE 'team.%'",
             'billing' => "action LIKE 'billing.%'",
-            'security' => "(action LIKE 'api_token.%' OR action LIKE 'invitation.%' OR action LIKE 'notification_channel.%')",
+            'security' => "(action LIKE 'api_token.%' OR action LIKE 'invitation.%' OR action LIKE 'notification_channel.%' "
+                ."OR action LIKE 'user.%' OR action LIKE 'credential.%' OR action LIKE 'impersonation.%')",
             'org' => "action LIKE 'organization.%'",
-            'backup' => "action LIKE 'backup.%'",
-            'insight' => "action LIKE 'insight.%'",
-            'import' => "action LIKE 'import.%'",
-            'background' => "action LIKE 'queue_worker.%'",
-            'other' => "action NOT LIKE 'server.%' AND action NOT LIKE 'site.%' "
-                ."AND action NOT LIKE 'project.%' AND action NOT LIKE 'team.%' "
-                ."AND action NOT LIKE 'billing.%' AND action NOT LIKE 'api_token.%' "
-                ."AND action NOT LIKE 'invitation.%' AND action NOT LIKE 'notification_channel.%' "
-                ."AND action NOT LIKE 'organization.%' AND action NOT LIKE 'backup.%' "
-                ."AND action NOT LIKE 'insight.%' AND action NOT LIKE 'import.%' "
-                ."AND action NOT LIKE 'queue_worker.%'",
         ];
+
+        // Everything else, including rows from the removed VM products.
+        $families['other'] = 'NOT ('.implode(' OR ', array_map(fn (string $sql): string => "({$sql})", $families)).')';
+
+        return $families;
     }
 
     public function render(): View

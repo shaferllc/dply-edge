@@ -30,6 +30,7 @@ final class ConfigDirectoryAliases
         'cli' => 'product.cli',
         'console_actions' => 'product.console_actions',
         'dply' => 'product.dply',
+        'docs' => 'product.docs',
         'edge' => 'product.edge',
         'passkeys' => 'product.passkeys',
         'preview' => 'product.preview',

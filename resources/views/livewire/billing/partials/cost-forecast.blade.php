@@ -26,7 +26,7 @@
         <div class="bg-white px-3 py-2.5 sm:px-4">
             <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Projected this period') }}</dt>
             <dd class="mt-0.5 font-mono text-base font-semibold tabular-nums text-brand-ink">${{ number_format($projectedMonthEndCents / 100, 2) }}</dd>
-            <p class="mt-0.5 text-xs text-brand-moss">{{ __('Plan and site fees, plus usage so far run out to the period end') }}</p>
+            <p class="mt-0.5 text-xs text-brand-moss">{{ __('Plan fee, plus usage so far run out to the period end, less the included credit') }}</p>
         </div>
         <div class="bg-white px-3 py-2.5 sm:px-4">
             <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Δ vs 30 days') }}</dt>
@@ -49,10 +49,15 @@
         <div class="bg-white px-3 py-2.5 sm:px-4">
             <p class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Usage so far this period') }}</p>
             <p class="mt-0.5 font-mono text-base font-semibold tabular-nums text-brand-ink">${{ number_format(array_sum($usageLines) / 100, 2) }}</p>
+            <p class="text-xs text-brand-ink tabular-nums">{{ __('Usage this period :usage · included credit :credit · estimated charge :charge', [
+                'usage' => '$'.number_format(($forecast['usage_cents'] ?? 0) / 100, 2),
+                'credit' => '$'.number_format(($forecast['credit_cents'] ?? 0) / 100, 2),
+                'charge' => '$'.number_format(($forecast['estimated_charge_cents'] ?? 0) / 100, 2),
+            ]) }}</p>
             @foreach ($usageLines as $key => $cents)
                 <p class="text-xs text-brand-moss">{{ \App\Modules\Billing\Services\DesiredBillingState::usageLineLabel($key) }} · ${{ number_format($cents / 100, 2) }}</p>
             @endforeach
-            <p class="mt-0.5 text-xs text-brand-moss">{{ __('Billed on the invoice after the period ends, for exactly this period.') }}</p>
+            <p class="mt-0.5 text-xs text-brand-moss">{{ __('Billed on the invoice after the period ends, for exactly this period, less your plan’s included credit.') }}</p>
         </div>
         @if ($this->canManageBilling)
             <form wire:submit="saveUsageAlert" class="bg-white px-3 py-2.5 sm:px-4">
@@ -65,7 +70,7 @@
                     <button type="submit" class="text-sm font-semibold text-brand-sage hover:text-brand-ink">{{ __('Save') }}</button>
                 </div>
                 @error('usage_alert_dollars') <p class="mt-1 text-xs text-brand-rust">{{ $message }}</p> @enderror
-                <p class="mt-0.5 text-xs text-brand-moss">{{ __('Owners are emailed at 50%, 80% and 100% of this each period. Leave empty for twice the plan price. Nothing is paused.') }}</p>
+                <p class="mt-0.5 text-xs text-brand-moss">{{ __('Owners are emailed when usage past the included credit reaches 50%, 80% and 100% of this each period. Leave empty for twice the plan price. Nothing is paused.') }}</p>
             </form>
         @endif
     </div>

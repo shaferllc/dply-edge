@@ -14,10 +14,12 @@ test('recommends the delivery mode from the detection plan', function (array $pl
     'express' => [['runtime' => 'node', 'framework' => 'express'], false, 'container'],
     'vite' => [['runtime' => 'node', 'framework' => 'vite', 'build_command' => 'vite build'], false, 'static'],
     'astro static' => [['runtime' => 'node', 'framework' => 'astro'], true, 'static'],
-    'next ssr, worker ssr available' => [['runtime' => 'node', 'framework' => 'next', 'start_command' => 'next start', 'build_command' => 'next build'], true, 'hybrid'],
+    'next ssr, worker ssr available' => [['runtime' => 'node', 'framework' => 'next', 'start_command' => 'next start', 'build_command' => 'next build'], true, 'ssr'],
     'next ssr, no worker ssr' => [['runtime' => 'node', 'framework' => 'next', 'start_command' => 'next start', 'build_command' => 'next build'], false, 'hybrid'],
     'next export' => [['runtime' => 'node', 'framework' => 'next', 'start_command' => '', 'build_command' => 'next build && next export'], true, 'static'],
     'keel' => [['runtime' => 'node', 'framework' => 'keel'], false, 'hybrid'],
+    'keel, worker ssr available' => [['runtime' => 'node', 'framework' => 'keel'], true, 'ssr'],
+    'sveltekit server stays hybrid' => [['runtime' => 'node', 'framework' => 'sveltekit', 'start_command' => 'npm start'], true, 'hybrid'],
 ]);
 
 test('no recommendation without a detected runtime', function () {

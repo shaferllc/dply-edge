@@ -87,6 +87,16 @@ class OAuthController extends Controller
                 ->with('error', $e->getMessage());
         }
 
+        // Two-factor applies to every sign-in, not just passwords: hand off to
+        // the challenge exactly as Login does. (A brand-new account can't
+        // have 2FA yet, so its workspace setup below is unaffected.)
+        if ($user->hasTwoFactorEnabled()) {
+            session()->put('login.id', $user->id);
+            session()->put('login.remember', true);
+
+            return redirect()->route('two-factor.login');
+        }
+
         Auth::login($user, true);
         // A new OAuth account gets its workspace here, as a registered one
         // does; without it the user has nowhere to start the trial.

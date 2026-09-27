@@ -1,0 +1,17 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-27",
+  "id": "r-bc0k0cta8e50x8vr",
+  "recordedBy": {
+    "client": "claude",
+    "id": "7287ab43-961f-4f49-a652-045813268214"
+  },
+  "scopeTags": [
+    "billing",
+    "pricing",
+    "plans",
+    "fair-use"
+  ],
+  "supersedes": null,
+  "text": "\"Yes\" — approving a hidden fair-use app limit on top of unlimited sites: Starter 25, Pro 250, Team 1,000, Enterprise unlimited (one config value per plan). At the limit, creating an app says to contact us; no charge or upgrade push. Pricing page says \"Unlimited sites\"; docs say \"subject to fair use\"."
+}

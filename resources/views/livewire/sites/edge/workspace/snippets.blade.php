@@ -1,7 +1,7 @@
 <div>
     <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
         @include('livewire.sites.edge.workspace.partials.feature-guide', [
-            'docSlug' => 'edge-snippets',
+            'docSlug' => 'snippets',
             'what' => __('Snippets inject small HTML into matching pages at the Edge — banners, pixels, or support widgets — without rebuilding or redeploying your app.'),
             'steps' => [
                 __('Add a snippet: name it, choose head or body injection, and set a path pattern (/* for all pages).'),

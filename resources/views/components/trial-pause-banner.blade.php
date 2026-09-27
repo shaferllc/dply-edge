@@ -38,7 +38,7 @@
             $banner = [
                 'tone' => 'danger',
                 'title' => __('Your sites are paused.'),
-                'body' => __('The trial’s $:limit usage credit is used up. End the trial early on the billing page to start your plan and bring them back.', ['limit' => number_format(((int) config('subscription.standard.trial.spending_limit_cents')) / 100, 0)]),
+                'body' => __('The trial’s $:limit usage cap is used up. End the trial early on the billing page to start your plan and bring them back.', ['limit' => number_format(((int) config('subscription.standard.trial.spending_limit_cents')) / 100, 0)]),
                 'action' => __('Billing'),
             ];
         } elseif ($organization->onTrialPlan()) {

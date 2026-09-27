@@ -8,7 +8,10 @@
                 {{ __('You’re invited to the dply beta') }}
             </p>
             <p class="mt-1 text-sm text-edge-mute">
-                {{ __('Connect your own cloud servers free during the beta, plus one dply-managed server on us. Finish creating your account below.') }}
+                {{ __('Every organization starts with a :days-day :tier trial. You add a card up front and can cancel before it ends. Finish creating your account below.', [
+                    'days' => (int) config('subscription.standard.trial.days'),
+                    'tier' => (string) config('subscription.standard.tiers.'.config('subscription.standard.trial.tier').'.label'),
+                ]) }}
             </p>
         </div>
     @endif

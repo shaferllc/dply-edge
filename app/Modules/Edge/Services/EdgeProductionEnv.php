@@ -10,7 +10,8 @@ use App\Support\Sites\LinkedOrganizationSecrets;
 
 /**
  * Production env for Edge build + Worker bundles: linked org vault secrets
- * under per-site EdgeSiteEnvVar rows (site keys win). Reserved names stay
+ * under per-site EdgeSiteEnvVar rows (site keys win). A preview starts from
+ * its parent's env. Reserved names stay
  * filtered by {@see EdgeSiteEnvVar::keyIsValid()}.
  */
 final class EdgeProductionEnv
@@ -24,7 +25,25 @@ final class EdgeProductionEnv
      */
     public function forSite(Site $site): array
     {
+        // Previews inherit the parent's env + linked secrets at build and
+        // runtime; the preview's own rows (API/CLI) override per key.
         $env = [];
+        if ($site->isEdgePreview()) {
+            $parent = Site::query()
+                ->where('organization_id', $site->organization_id)
+                ->find($site->edgeMeta()['preview_parent_site_id']);
+            if ($parent !== null && ! $parent->isEdgePreview()) {
+                // Never production's database or Redis: a pull request's
+                // code (and its migrations) must not touch live data. The
+                // preview's own rows below can still set them explicitly.
+                $env = array_filter(
+                    $this->forSite($parent),
+                    static fn (string $key): bool => ! self::isDataConnectionKey($key),
+                    ARRAY_FILTER_USE_KEY,
+                );
+            }
+        }
+
         foreach ($this->linkedSecrets->valuesForSite($site) as $key => $value) {
             if (! EdgeSiteEnvVar::keyIsValid($key)) {
                 continue;
@@ -40,5 +59,13 @@ final class EdgeProductionEnv
         }
 
         return $env;
+    }
+
+    /** Keys that point an app at a database or Redis (Laravel, Rails, Node conventions). */
+    public static function isDataConnectionKey(string $key): bool
+    {
+        return in_array($key, ['DATABASE_URL', 'DB_URL', 'REDIS_URL', 'MONGODB_URI', 'MONGO_URL'], true)
+            || str_starts_with($key, 'DB_')
+            || str_starts_with($key, 'REDIS_');
     }
 }

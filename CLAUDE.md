@@ -109,19 +109,27 @@ unrelated WIP commit three days earlier, so the boundary was silently unchecked.
 >   `Organizations/DeleteOrganizationAction`, `DeployContract/WaiveDeployContractRun`.
 >   The generic Actions framework (~375 files) was deleted 2026-09-11; Login,
 >   Register, Security, SourceControl and org settings use the five survivors.
-> - **Billing is plan tiers plus usage (2026-09-16, ruling r-zdescb7y05vp1bxx).**
->   Free / Pro $20 / Team $49, monthly only, defined in
->   `subscription.standard.tiers`. The tier comes from the Stripe tier price on
->   the subscription (`Organization::billingTier()`); a pre-tier per-site
->   subscription is swapped onto its cheapest tier by the next billing sync.
->   Allowances (sites, seats, build minutes, concurrency, timeout, requests,
->   egress, custom domains, add-ons, audit log) are enforced where each thing
->   happens, not centrally. Bundled products are gone.
+> - **Billing is three plans + included usage credit + one margin (2026-09-27,
+>   ruling r-2zxevg4sj675qn1m, spec `docs/adr/pricing-model-2026-09.md`).**
+>   Starter $5 / Pro $20 / Team $49 (+$5 per seat past 10), monthly only, in
+>   `subscription.standard.tiers` (`price_cents`, `seats`, `extra_seat_cents`,
+>   `usage_credit_cents`, `fair_use_apps`, non-price limits). Sites are
+>   unlimited: no per-site fees, no per-meter allowances. Every meter's config
+>   value in `dply.edge.usage_billing` is provider **cost** (millicents); the
+>   customer price is cost × (1 + `margin_percent`/100, env
+>   `DPLY_USAGE_MARGIN_PERCENT`, default 20), applied only in
+>   `App\Modules\Billing\Support\UsagePrice` — cost classes, invoices, the
+>   pricing page and docs all go through it (`dply:billing:price-table` prints
+>   the docs tables). Apps, workers, databases and Valkey bill per second
+>   awake. `UsageInvoicer` bills each closed period's usage per category plus
+>   a negative "Included usage credit" line = min(credit, usage). The syncer
+>   removes the retired per-site Stripe lines without proration. A hidden
+>   fair-use app cap is enforced in `CreateEdgeSite` (ruling r-bc0k0cta8e50x8vr).
 > - **No Free plan: a 5-day Pro trial, card up front (2026-09-26, ruling
 >   r-f17p5zgeh120cm5t).** `subscription.standard.trial` holds the length,
 >   tier, $5 trial spending cap and the 7-day keep period. `billingTier()` is
 >   `team` for a comped org (`organizations.comped_until`, `dply:billing:comp`),
->   the subscription's tier (a trialing Stripe sub counts), the trial tier on a
+>   the subscription's plan (a trialing Stripe sub counts), the trial tier on a
 >   card-less trial (`trial_ends_at`, given to orgs that were on Free), else
 >   `none`: no plan. `dply:billing:enforce` (hourly and after each billing
 >   webhook) sends the trial emails, pauses a no-plan org (paused page through

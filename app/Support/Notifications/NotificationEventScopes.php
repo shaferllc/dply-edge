@@ -18,12 +18,10 @@ use App\Support\SiteUptimeNotificationKeys;
  * it from `config('notification_events')` and the subject itself.
  *
  * Grouping is by event-key prefix, which the config already partitions cleanly:
- * `site.*` categories belong to a site, `server.*` and `backup.*` to a server.
- * Edge and serverless categories attach to the sites that are those products.
+ * `site.*` categories belong to an app, and the `edge` category to Edge apps.
  *
- * Deliberately unattached: `queue.*`, `project.*`, `import.*`, `account.*` and
- * `worker_pool.*` are org- or flow-level surfaces subscribed elsewhere, not per
- * site/server — {@see all()} still lists them so `dply notifications events`
+ * Deliberately unattached: `account.*` events go to their owner directly, not
+ * per app — {@see all()} still lists them so `dply notifications events`
  * shows the full catalog.
  */
 final class NotificationEventScopes
@@ -41,10 +39,6 @@ final class NotificationEventScopes
             $groups += self::group('edge');
         }
 
-        if ($kind === 'serverless') {
-            $groups += self::group('serverless');
-        }
-
         return $groups;
     }
 
@@ -53,6 +47,8 @@ final class NotificationEventScopes
      */
     public static function forServer(Server $server): array
     {
+        // Servers are vestigial owner rows since the Edge-only cut; nothing
+        // publishes server.* or backup.* events any more.
         return self::groupsWithPrefix('server.') + self::groupsWithPrefix('backup.');
     }
 

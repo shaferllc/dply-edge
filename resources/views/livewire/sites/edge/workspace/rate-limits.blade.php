@@ -8,7 +8,7 @@
 <div>
     <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
         @include('livewire.sites.edge.workspace.partials.feature-guide', [
-            'docSlug' => 'edge-rate-limits',
+            'docSlug' => 'rate-limits',
             'what' => __('Rate limits count requests per visitor IP on matching paths. When someone exceeds the limit in the window, Edge stops them before your site or origin does the work — unlike Waiting room, this is about abusive volume from one client, not total concurrent humans.'),
             'steps' => [
                 __('Add a rule: path pattern (e.g. /api/* or /forms/*), max requests, and window in seconds.'),
@@ -84,7 +84,7 @@
 
             <div>
                 <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Rules') }}</p>
-                <p class="mt-1 text-xs text-brand-moss">{{ __('First matching path wins for that request. Example: 60 requests / 60 seconds on /api/* ≈ one request per second average per IP.') }}</p>
+                <p class="mt-1 text-xs text-brand-moss">{{ __('Every matching rule counts, per app and per IP. Example: 60 requests / 60 seconds on /api/* ≈ one request per second average per IP.') }}</p>
             </div>
 
             @foreach ($rules as $i => $rule)

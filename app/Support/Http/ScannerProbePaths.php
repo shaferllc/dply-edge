@@ -86,8 +86,8 @@ final class ScannerProbePaths
         'storage/logs/*',
 
         // Crawler/scanner conventions we don't serve.
-        // (robots.txt, sitemap.xml, ads.txt and security.txt ARE served as
-        // static files under public/, so they're intentionally NOT listed here.)
+        // (robots.txt, ads.txt and security.txt ARE served as static files
+        // under public/, and sitemap.xml is a route, so they're NOT listed here.)
         'version',
     ];
 

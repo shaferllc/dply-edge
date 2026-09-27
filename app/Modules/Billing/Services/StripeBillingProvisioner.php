@@ -7,43 +7,25 @@ use Stripe\Product;
 use Stripe\StripeClient;
 
 /**
- * Idempotently creates the Stripe products and prices that back Edge billing
- * (docs/BILLING_AND_PLANS.md). Looks objects up by `metadata.dply_role` before
- * creating; re-running is a no-op once all roles are present, and rotates
- * anything that's drifted (price amounts, product names/descriptions, the
- * parent product an existing price points at).
+ * Idempotently creates the Stripe products and prices that back billing
+ * (docs/adr/pricing-model-2026-09.md). Looks objects up by
+ * `metadata.dply_role` before creating; re-running is a no-op once all roles
+ * are present, and rotates anything that's drifted (price amounts, product
+ * names/descriptions, the parent product an existing price points at).
  *
- * Each Stripe Checkout line item displays its Product's name, so to keep the
- * invoice readable we use *separate Products* for each kind of line item:
+ * One product per plan (Starter, Pro, Team), Team's extra seat, and
+ * Enterprise (sales-led, no price). Usage is not a price: UsageInvoicer adds
+ * it to each renewal invoice as plain invoice items.
  *
- *   - `dply Edge site` / `dply Edge SSR site` — extra sites and SSR sites
- *   - `dply Edge delivery usage` — metered usage (per-cent units)
- *   - `dply Enterprise` — sales-led
- *
- * Products and prices for retired product lines are not managed here any
- * more; re-running this command leaves them exactly as they are in Stripe.
+ * The retired per-site prices (extra site, SSR site, delivery usage, load
+ * balancing) are not managed here any more; re-running leaves them exactly as
+ * they are in Stripe, and the syncer removes them from subscriptions.
  */
 class StripeBillingProvisioner
 {
-    public const ROLE_EDGE_PRODUCT = 'standard_edge_product';
+    public const ROLE_TIER_STARTER_PRODUCT = 'tier_starter_product';
 
-    public const ROLE_EDGE_MONTHLY = 'standard_edge';
-
-    public const ROLE_EDGE_YEARLY = 'standard_edge_yearly';
-
-    public const ROLE_EDGE_SSR_PRODUCT = 'standard_edge_ssr_product';
-
-    public const ROLE_EDGE_SSR_MONTHLY = 'standard_edge_ssr';
-
-    public const ROLE_EDGE_SSR_YEARLY = 'standard_edge_ssr_yearly';
-
-    public const ROLE_EDGE_USAGE_PRODUCT = 'standard_edge_usage_product';
-
-    public const ROLE_EDGE_USAGE_MONTHLY = 'standard_edge_usage';
-
-    public const ROLE_EDGE_LB_PRODUCT = 'standard_edge_lb_product';
-
-    public const ROLE_EDGE_LB_MONTHLY = 'standard_edge_lb_endpoint';
+    public const ROLE_TIER_STARTER_MONTHLY = 'tier_starter';
 
     public const ROLE_TIER_PRO_PRODUCT = 'tier_pro_product';
 
@@ -69,80 +51,10 @@ class StripeBillingProvisioner
         $result = [];
 
         $standardConfig = (array) config('subscription.standard', []);
-        $annualPct = (int) ($standardConfig['annual_discount_pct'] ?? 20);
 
-        $edgeCents = (int) ($standardConfig['edge_cents'] ?? 200);
-        if ($edgeCents > 0) {
-            $edgeProduct = $this->upsertProduct(
-                name: 'dply Edge site',
-                description: 'Extra static, SSG, and hybrid sites beyond the sites a Pro or Team plan includes. Billed monthly per extra live site. Worker-native SSR uses a separate line.',
-                role: self::ROLE_EDGE_PRODUCT,
-            );
-            $result[self::ROLE_EDGE_PRODUCT] = $edgeProduct->id;
-
-            $result[self::ROLE_EDGE_MONTHLY] = $this->upsertRecurringPrice(
-                productId: $edgeProduct->id,
-                amount: $edgeCents,
-                interval: 'month',
-                nickname: 'Edge site — Monthly',
-                role: self::ROLE_EDGE_MONTHLY,
-            )->id;
-
-            $result[self::ROLE_EDGE_YEARLY] = $this->upsertRecurringPrice(
-                productId: $edgeProduct->id,
-                amount: $this->annualAmount($edgeCents, $annualPct),
-                interval: 'year',
-                nickname: 'Edge site — Yearly',
-                role: self::ROLE_EDGE_YEARLY,
-            )->id;
-        }
-
-        $edgeSsrCents = (int) ($standardConfig['edge_ssr_cents'] ?? 700);
-        if ($edgeSsrCents > 0) {
-            $edgeSsrProduct = $this->upsertProduct(
-                name: 'dply Edge SSR site',
-                description: 'Per-site fee for Worker-native SSR on dply Edge. Covers SSR dispatch, builds, deploys, and global delivery. Billed per live production SSR site.',
-                role: self::ROLE_EDGE_SSR_PRODUCT,
-            );
-            $result[self::ROLE_EDGE_SSR_PRODUCT] = $edgeSsrProduct->id;
-
-            $result[self::ROLE_EDGE_SSR_MONTHLY] = $this->upsertRecurringPrice(
-                productId: $edgeSsrProduct->id,
-                amount: $edgeSsrCents,
-                interval: 'month',
-                nickname: 'Edge SSR site — Monthly',
-                role: self::ROLE_EDGE_SSR_MONTHLY,
-            )->id;
-
-            $result[self::ROLE_EDGE_SSR_YEARLY] = $this->upsertRecurringPrice(
-                productId: $edgeSsrProduct->id,
-                amount: $this->annualAmount($edgeSsrCents, $annualPct),
-                interval: 'year',
-                nickname: 'Edge SSR site — Yearly',
-                role: self::ROLE_EDGE_SSR_YEARLY,
-            )->id;
-        }
-
-        $edgeUsageUnitCents = (int) ($standardConfig['edge_usage_unit_cents'] ?? 1);
-        if ($edgeUsageUnitCents > 0) {
-            $edgeUsageProduct = $this->upsertProduct(
-                name: 'dply Edge delivery usage',
-                description: 'Metered Edge CDN delivery — HTTP requests, bandwidth, and R2 storage beyond per-site included allowances. Billed monthly in pass-through units.',
-                role: self::ROLE_EDGE_USAGE_PRODUCT,
-            );
-            $result[self::ROLE_EDGE_USAGE_PRODUCT] = $edgeUsageProduct->id;
-
-            $result[self::ROLE_EDGE_USAGE_MONTHLY] = $this->upsertRecurringPrice(
-                productId: $edgeUsageProduct->id,
-                amount: $edgeUsageUnitCents,
-                interval: 'month',
-                nickname: 'Edge delivery usage — Monthly (per cent)',
-                role: self::ROLE_EDGE_USAGE_MONTHLY,
-            )->id;
-        }
-
-        // Plan tiers (monthly only) and Team's per-seat price.
+        // Plans (monthly only) and Team's per-seat price.
         foreach ([
+            'starter' => [self::ROLE_TIER_STARTER_PRODUCT, self::ROLE_TIER_STARTER_MONTHLY],
             'pro' => [self::ROLE_TIER_PRO_PRODUCT, self::ROLE_TIER_PRO_MONTHLY],
             'team' => [self::ROLE_TIER_TEAM_PRODUCT, self::ROLE_TIER_TEAM_MONTHLY],
         ] as $key => [$productRole, $priceRole]) {
@@ -152,7 +64,12 @@ class StripeBillingProvisioner
             }
             $product = $this->upsertProduct(
                 name: 'dply '.$tier['label'],
-                description: sprintf('dply Edge %s plan — %d sites, %d seats, %s build minutes and delivery allowances included each month.', $tier['label'], $tier['sites'], $tier['seats'], number_format((int) $tier['build_minutes'])),
+                description: sprintf(
+                    'dply %s plan — unlimited sites, %s, and $%s of usage included each month. Usage past that is billed monthly.',
+                    $tier['label'],
+                    trans_choice('{1} 1 seat|[2,*] :count seats', (int) $tier['seats'], ['count' => (int) $tier['seats']]),
+                    number_format((int) ($tier['usage_credit_cents'] ?? 0) / 100, 0),
+                ),
                 role: $productRole,
             );
             $result[$productRole] = $product->id;
@@ -182,27 +99,9 @@ class StripeBillingProvisioner
             )->id;
         }
 
-        $edgeLbCents = (int) ($standardConfig['edge_lb_endpoint_cents'] ?? 800);
-        if ($edgeLbCents > 0) {
-            $edgeLbProduct = $this->upsertProduct(
-                name: 'dply Edge load balancing endpoint',
-                description: 'Load balancing for dply Edge hybrid sites — health-checked origin pools with automatic failover. Billed per origin endpoint.',
-                role: self::ROLE_EDGE_LB_PRODUCT,
-            );
-            $result[self::ROLE_EDGE_LB_PRODUCT] = $edgeLbProduct->id;
-
-            $result[self::ROLE_EDGE_LB_MONTHLY] = $this->upsertRecurringPrice(
-                productId: $edgeLbProduct->id,
-                amount: $edgeLbCents,
-                interval: 'month',
-                nickname: 'Edge load balancing endpoint — Monthly',
-                role: self::ROLE_EDGE_LB_MONTHLY,
-            )->id;
-        }
-
         $enterpriseProduct = $this->upsertProduct(
             name: 'dply Enterprise',
-            description: 'dply Edge for larger teams and procurement-led rollouts. Includes everything in Standard, plus volume pricing on per-site fees, SSO, audit log access, a custom MSA, dedicated support, and rollout planning. Pricing is negotiated per deal.',
+            description: 'dply for larger teams and procurement-led rollouts: volume usage pricing, SSO, audit log access, a custom MSA, dedicated support, and rollout planning. Pricing is negotiated per deal.',
             role: self::ROLE_ENTERPRISE_PRODUCT,
         );
         $result[self::ROLE_ENTERPRISE_PRODUCT] = $enterpriseProduct->id;
@@ -218,12 +117,7 @@ class StripeBillingProvisioner
     public static function formatEnv(array $result): string
     {
         $static = [
-            self::ROLE_EDGE_MONTHLY => 'STRIPE_PRICE_STANDARD_EDGE',
-            self::ROLE_EDGE_YEARLY => 'STRIPE_PRICE_STANDARD_EDGE_YEARLY',
-            self::ROLE_EDGE_SSR_MONTHLY => 'STRIPE_PRICE_STANDARD_EDGE_SSR',
-            self::ROLE_EDGE_SSR_YEARLY => 'STRIPE_PRICE_STANDARD_EDGE_SSR_YEARLY',
-            self::ROLE_EDGE_USAGE_MONTHLY => 'STRIPE_PRICE_STANDARD_EDGE_USAGE',
-            self::ROLE_EDGE_LB_MONTHLY => 'STRIPE_PRICE_STANDARD_EDGE_LB_ENDPOINT',
+            self::ROLE_TIER_STARTER_MONTHLY => 'STRIPE_PRICE_STARTER',
             self::ROLE_TIER_PRO_MONTHLY => 'STRIPE_PRICE_TIER_PRO',
             self::ROLE_TIER_TEAM_MONTHLY => 'STRIPE_PRICE_TIER_TEAM',
             self::ROLE_TEAM_SEAT_MONTHLY => 'STRIPE_PRICE_TEAM_SEAT',
@@ -238,11 +132,6 @@ class StripeBillingProvisioner
         }
 
         return implode("\n", $lines);
-    }
-
-    private function annualAmount(int $monthlyCents, int $annualDiscountPct): int
-    {
-        return (int) round($monthlyCents * 12 * (100 - $annualDiscountPct) / 100);
     }
 
     /**

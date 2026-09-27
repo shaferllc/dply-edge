@@ -9,11 +9,20 @@
     $accountLabel = is_array($matchedAccount)
         ? (string) ($matchedAccount['label'] ?? '')
         : (string) ($linkedSourceControlAccounts[0]['label'] ?? '');
-    $runtimeLabel = match ($form->runtime_mode) {
+    $hostingChoice = match ($form->runtime_mode) {
+        'ssr', 'container' => 'app',
+        'hybrid' => 'hybrid',
+        default => 'site',
+    };
+    $recommendedChoice = match ($recommendation['mode'] ?? null) {
+        'ssr', 'container' => 'app',
+        'static' => 'site',
+        default => null,
+    };
+    $runtimeLabel = match ($hostingChoice) {
+        'app' => __('App'),
         'hybrid' => __('Hybrid'),
-        'ssr' => __('Worker SSR'),
-        'container' => __('Container'),
-        default => __('Static'),
+        default => __('Site'),
     };
     $frameworkSummary = trim((string) ($detectedPlan['framework'] ?? $detectedPlan['runtime'] ?? ''));
     $deployBlocked = ! $edgeEligible
@@ -242,11 +251,101 @@
                             </fieldset>
                         @endif
 
+                        {{-- Site = static files; App = dply runs the code (Worker SSR or a container, picked from detection). Hybrid lives under Advanced. --}}
+                        <fieldset class="space-y-2">
+                            <legend class="text-sm font-semibold text-brand-ink">{{ __('What are you deploying?') }}</legend>
+                            <div class="grid grid-cols-2 gap-2">
+                                @foreach ([
+                                    'site' => [__('Site'), __('Static files built from your repo, served from the edge.')],
+                                    'app' => [__('App'), $needsContainer ? __('Runs your server in a container.') : __('Renders on the server, on the edge.')],
+                                ] as $choice => [$choiceLabel, $choiceHint])
+                                    @php
+                                        $choiceSelected = $hostingChoice === $choice;
+                                        $choiceDisabled = $choice === 'app' && ! $appAvailable;
+                                    @endphp
+                                    <button
+                                        type="button"
+                                        wire:click="chooseHosting('{{ $choice }}')"
+                                        aria-pressed="{{ $choiceSelected ? 'true' : 'false' }}"
+                                        @disabled($choiceDisabled)
+                                        @class([
+                                            'rounded-xl border px-3 py-2 text-left text-sm transition-colors',
+                                            'border-brand-ink bg-brand-sand/40' => $choiceSelected,
+                                            'border-brand-ink/10 hover:bg-brand-sand/30 dark:border-brand-mist/20' => ! $choiceSelected,
+                                            'cursor-not-allowed opacity-50' => $choiceDisabled,
+                                        ])
+                                    >
+                                        <span class="flex items-center justify-between gap-2 font-semibold text-brand-ink">
+                                            {{ $choiceLabel }}
+                                            @if (($recommendation['mode'] ?? null) !== null && $recommendedChoice === $choice)
+                                                <span class="text-xs font-medium text-brand-sage">{{ __('Recommended') }}</span>
+                                            @endif
+                                        </span>
+                                        <span class="mt-0.5 block text-xs text-brand-moss">{{ $choiceHint }}</span>
+                                    </button>
+                                @endforeach
+                            </div>
+                            @if (! $appAvailable)
+                                <p class="text-xs text-brand-moss">{{ __('Apps aren’t available on this install yet, so only sites can be deployed.') }}</p>
+                            @elseif (is_array($recommendation))
+                                <p class="text-xs text-brand-moss">
+                                    {{ $recommendation['reason'] }}
+                                    @if ($runtimeModeTouched && $recommendation['mode'] !== $form->runtime_mode)
+                                        <button type="button" wire:click="useRecommendedRuntimeMode" class="font-semibold text-brand-forest underline hover:text-brand-ink dark:text-brand-sage">{{ __('Use recommended') }}</button>
+                                    @endif
+                                </p>
+                            @endif
+                        </fieldset>
+
+                        <details class="group rounded-xl border border-brand-ink/10 px-4 py-3 dark:border-brand-mist/20" wire:ignore.self @if ($form->runtime_mode === 'hybrid') open @endif>
+                            <summary class="cursor-pointer text-sm font-semibold text-brand-ink">{{ __('Advanced') }}</summary>
+                            <div class="mt-3 space-y-4">
+                                @if ($form->runtime_mode !== 'container')
+                                    <div>
+                                        <x-input-label for="build_command" :value="__('Build command')" />
+                                        <x-text-input id="build_command" wire:model.live.blur="form.build_command" type="text" class="mt-1 block w-full font-mono text-sm" placeholder="npm run build" />
+                                        <p class="mt-1 text-xs text-brand-moss">{{ __('Filled in from detection. Runs after dependencies install.') }}</p>
+                                        <x-input-error :messages="$errors->get('form.build_command')" class="mt-2" />
+                                    </div>
+                                    @if ($form->runtime_mode !== 'ssr')
+                                        <div>
+                                            <x-input-label for="output_dir" :value="__('Output directory')" />
+                                            <x-text-input id="output_dir" wire:model.live.blur="form.output_dir" type="text" class="mt-1 block w-full font-mono text-sm" placeholder="dist" />
+                                            <p class="mt-1 text-xs text-brand-moss">{{ __('The folder the build writes your site to.') }}</p>
+                                            <x-input-error :messages="$errors->get('form.output_dir')" class="mt-2" />
+                                        </div>
+                                    @endif
+                                @else
+                                    <p class="text-xs text-brand-moss">{{ __('Containers build from your Dockerfile, or one dply generates for the detected stack.') }}</p>
+                                @endif
+
+                                @if (! $needsContainer)
+                                    <label class="flex items-start gap-3 text-sm">
+                                        <input
+                                            type="checkbox"
+                                            @checked($form->runtime_mode === 'hybrid')
+                                            wire:click="chooseHosting('{{ $form->runtime_mode === 'hybrid' ? 'site' : 'hybrid' }}')"
+                                            class="mt-0.5 rounded text-brand-sage focus:ring-brand-sage/40"
+                                        />
+                                        <span>
+                                            <span class="font-medium text-brand-ink">{{ __('Send server routes to my own server (hybrid)') }}</span>
+                                            <span class="mt-0.5 block text-xs text-brand-moss">{{ __('Static files come from the edge; everything else is proxied to a server you already run.') }}</span>
+                                        </span>
+                                    </label>
+                                @endif
+
+                            </div>
+                        </details>
+
+                        {{-- Outside Advanced: detection can pick hybrid after the section rendered closed, and Deploy needs this. --}}
                         @if ($form->runtime_mode === 'hybrid')
                             <div>
                                 <x-input-label for="origin_url" :value="__('Origin URL')" />
                                 <x-text-input id="origin_url" wire:model.live="form.origin_url" type="url" class="mt-1 block w-full font-mono text-sm" placeholder="https://my-app.example.com" required />
-                                <p class="mt-1 text-xs text-brand-moss">{{ __('This app renders on a server. Paste the URL it already runs at.') }}</p>
+                                <p class="mt-1 text-xs text-brand-moss">
+                                    {{ __('Hybrid sends server routes to a server you already run. Paste its URL, or') }}
+                                    <button type="button" wire:click="chooseHosting('site')" class="font-semibold text-brand-forest underline hover:text-brand-ink dark:text-brand-sage">{{ __('deploy it as a site') }}</button>.
+                                </p>
                                 <x-input-error :messages="$errors->get('form.origin_url')" class="mt-2" />
                             </div>
                         @endif

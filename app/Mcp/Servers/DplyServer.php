@@ -6,9 +6,7 @@ namespace App\Mcp\Servers;
 
 use App\Mcp\Resources\SiteConfigResource;
 use App\Mcp\Resources\SiteListResource;
-use App\Mcp\Tools\Diagnostics\GetOperationStatus;
 use App\Mcp\Tools\Sites\GetSite;
-use App\Mcp\Tools\Sites\ListServers;
 use App\Mcp\Tools\Sites\ListSites;
 use Laravel\Mcp\Server;
 use Laravel\Mcp\Server\Tool;
@@ -20,39 +18,25 @@ class DplyServer extends Server
     protected string $version = '1.0.0';
 
     protected string $instructions = <<<'MARKDOWN'
-        This server manages and operates sites hosted on dply (a deployment and
-        server-management platform).
+        This server gives read-only access to the apps an organization hosts on
+        dply Edge (static sites, SSR apps and containers on Cloudflare).
 
-        Scope & auth: every operation is scoped to the organization of the API
-        token you connected with and is gated by that token's abilities — you can
-        only see and act on that organization's sites. Start with `list_sites`
-        (or the `dply://sites` resource) to discover sites and their ids, then
-        `get_site` for details.
+        Scope & auth: every call is scoped to the organization of the API token
+        you connected with and gated by that token's abilities (`sites.read`).
+        Start with `list_sites` (or the `dply://sites` resource) to find app ids,
+        then `get_site` for one app's details: live URL, repository and branch,
+        runtime mode, and custom domains with their DNS and TLS status.
 
-        Asynchronous work: mutating operations are queued, not instant.
-        `deploy_site` returns immediately — poll `list_deployments` / `get_deployment`
-        until the deployment status is `success` or `failed`. Other async
-        operations return an `operation_id`; poll `get_operation_status` with it.
-
-        Site types: OPcache flush, environment pushes, and similar host-level
-        operations apply only to VM/host sites, not to container, serverless, or
-        edge sites; those calls are rejected with a clear message.
+        There are no write tools. To deploy, roll back, change environment
+        variables or manage domains, use the dply CLI or the REST API.
         MARKDOWN;
 
     /**
      * @var array<int, class-string<Tool>>
      */
     protected array $tools = [
-        // Discovery / read
         ListSites::class,
         GetSite::class,
-        ListServers::class,
-        // Deploy + poll
-        // Environment
-        // Database
-        // Logs add-on (per-server edge Vector agent)
-        // Async operation polling
-        GetOperationStatus::class,
     ];
 
     /**

@@ -44,7 +44,7 @@
                             @endif
                         @elseif ($connection['kind'] === 'key_value' && $connection['asleep'])
                             <p class="mt-1 font-mono text-xs text-brand-moss">{{ $connection['host'] }}</p>
-                            <p class="mt-1 text-xs text-brand-moss">{{ __('Asleep. The address comes off the app on the next deploy. Not billed until you wake it.') }}</p>
+                            <p class="mt-1 text-xs text-brand-moss">{{ __('Asleep. The address comes off the app on the next deploy. Stored data is still billed.') }}</p>
                         @elseif ($connection['kind'] === 'redis' && ! \App\Modules\Edge\Support\EdgeValkey::isTarget($connection['target']))
                             {{-- A pasted Redis: show where it points (host only; the password never reaches the page). --}}
                             @php $externalRedisHost = collect(\App\Modules\Edge\Support\EdgeContainerConnections::redisInjectionPreview($site))->firstWhere('key', 'REDIS_HOST')['value'] ?? ''; @endphp
@@ -66,7 +66,7 @@
                         @endif
                         @if ($connection['kind'] === 'redis' && \App\Modules\Edge\Support\EdgeValkey::isTarget($connection['target']))
                             @php
-                                $valkeyClass = \App\Modules\Edge\Support\EdgeValkey::CLASSES[$connection['plan']] ?? \App\Modules\Edge\Support\EdgeValkey::CLASSES[\App\Modules\Edge\Support\EdgeValkey::DEFAULT_CLASS];
+                                $valkeyClass = \App\Modules\Edge\Support\EdgeValkey::spec((string) $connection['plan']);
                                 $valkeySleepNow = (int) ($site->edgeMeta()['valkey_sleep'][$connection['target']] ?? ($valkeyClass['sleeps'] ? \App\Modules\Edge\Support\EdgeValkey::DEFAULT_SLEEP : 0));
                             @endphp
                             {{-- Size and sleep are edited in the Valkey sheet; the map box only shows them. --}}

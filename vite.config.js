@@ -37,7 +37,9 @@ export default defineConfig(({ mode }) => {
                 input: [
                     'resources/css/app.css',
                     'resources/css/deploy-pipeline.css',
+                    'resources/css/docs.css',
                     'resources/js/app.js',
+                    'resources/js/docs.js',
                     'resources/js/dply-passkeys-lazy.js',
                     'resources/js/file-browser-editor-lazy.js',
                     'resources/js/roadmap-admin-dnd.js',

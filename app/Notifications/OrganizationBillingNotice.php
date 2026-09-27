@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace App\Notifications;
 
 use App\Models\Organization;
+use Carbon\CarbonInterface;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
-use Illuminate\Support\Carbon;
 
 /**
  * Trial and pause emails to an org's owners (ruling r-f17p5zgeh120cm5t),
@@ -18,6 +18,7 @@ use Illuminate\Support\Carbon;
  *   trial_started   the trial began (or an existing Free org got one)
  *   trial_ending_soon  3 days before the trial ends
  *   trial_ending    about a day before the trial ends
+ *   capped          the trial hit its spending cap; sites are paused
  *   paused          the trial ended unpaid; sites are paused
  *   deleting        the paused org's data is deleted on $date
  */
@@ -25,12 +26,12 @@ class OrganizationBillingNotice extends Notification implements ShouldQueue
 {
     use Queueable;
 
-    public const KINDS = ['trial_started', 'trial_ending_soon', 'trial_ending', 'paused', 'deleting'];
+    public const KINDS = ['trial_started', 'trial_ending_soon', 'trial_ending', 'capped', 'paused', 'deleting'];
 
     public function __construct(
         public Organization $organization,
         public string $kind,
-        public ?Carbon $date = null,
+        public ?CarbonInterface $date = null,
     ) {}
 
     /** @return list<string> */
@@ -67,6 +68,13 @@ class OrganizationBillingNotice extends Notification implements ShouldQueue
                 ->line($this->organization->subscription('default')?->onTrial()
                     ? __('The trial for :org ends :when, and Pro starts billing then. Cancel before then if you don’t want to continue.', ['org' => $name, 'when' => $when])
                     : __('The trial for :org ends :when. Choose a plan before then, or its sites will be paused.', ['org' => $name, 'when' => $when]))
+                ->action(__('Billing'), $billing),
+            'capped' => $mail
+                ->subject(__(':org is paused: trial usage cap reached', ['org' => $name]))
+                ->line(__('The trial for :org has used its $:limit usage cap, so its sites are paused and their visitors see a “paused” page.', ['org' => $name, 'limit' => number_format(((int) config('subscription.standard.trial.spending_limit_cents', 500)) / 100, 0)]))
+                ->line($this->organization->subscription('default')?->onTrial()
+                    ? __('Choose End trial now on the billing page to start paying today and resume, or wait for the plan to start on :when.', ['when' => $when])
+                    : __('To resume today, add a card for your plan on the billing page, then choose End trial now. Otherwise its sites stay paused until the trial ends on :when.', ['when' => $when]))
                 ->action(__('Billing'), $billing),
             'paused' => $mail
                 ->subject(__(':org is paused', ['org' => $name]))

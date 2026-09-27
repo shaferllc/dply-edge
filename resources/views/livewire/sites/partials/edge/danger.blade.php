@@ -2,7 +2,7 @@
 <div class="min-w-0">
     <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
         @include('livewire.sites.edge.workspace.partials.feature-guide', [
-            'docSlug' => 'edge-danger',
+            'docSlug' => 'apps',
             'what' => __('Permanently remove this site from dply Edge. Teardown stops live traffic and deletes deployments, CDN entries, and custom domain routing.'),
             'steps' => [
                 __('Confirm you no longer need the live URL, previews, or build logs for this site.'),
@@ -39,7 +39,7 @@
                         <p class="text-xs font-semibold uppercase tracking-[0.16em] text-rose-700 dark:text-rose-300">{{ __('Destructive') }}</p>
                         <h3 class="mt-0.5 text-base font-semibold text-rose-900 dark:text-raw-rose-100">{{ __('Delete Edge site') }}</h3>
                         <p class="mt-1 max-w-2xl text-sm leading-relaxed text-brand-moss">
-                            {{ __('Removes the site from dply Edge. A background job tears down deployments, CDN/storage artifacts, custom domain routing, and preview child sites. Live traffic stops when teardown completes.') }}
+                            {{ __('Removes the site from dply Edge. A background job tears down deployments, CDN/storage artifacts, custom domains, the GitHub webhook, the default KV store and preview child sites. Organization databases, queues and buckets are kept. Live traffic stops when teardown completes.') }}
                         </p>
                     </div>
                 </div>

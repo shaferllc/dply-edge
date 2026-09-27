@@ -33,7 +33,7 @@ class OverviewObservability extends Component
             ? SiteSettingsViewData::edgeOverviewObservability($this->site)
             : [
                 'edgeUsageBillingEnabled' => (bool) config('dply.edge.usage_billing.enabled', false),
-                'edgeManagedFee' => ((int) config('subscription.standard.edge_cents', 0)) / 100,
+                'edgeManagedFee' => 0,
                 'edgeSiteBilling' => null,
                 'edgeSiteTraffic' => null,
             ];

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildObjectKey,
   cacheControlForPath,
@@ -1097,5 +1097,71 @@ describe('container kv reads', () => {
 
     expect(await response.text()).toBe('ok');
     expect(overlap).toBe(true);
+  });
+});
+
+describe('waiting room cookie and edge errors', () => {
+  const room = { enabled: true, total_active_users: 50, new_users_per_minute: 50, session_duration_minutes: 30, paths: [] as string[] };
+
+  it('stamps the waiting room cookie on container responses', async () => {
+    const env: Env = {
+      HOST_MAP: createMockKv({
+        'app.test': {
+          site_id: 'site-1',
+          deployment_id: 'deploy-9',
+          storage_prefix: 'edge/site-1/deploy-9',
+          runtime_mode: 'container',
+          ssr_worker_script: 'dply-ctr-site-1',
+          waiting_room: room,
+        } as HostMapEntry,
+      }),
+      ARTIFACTS: createMockR2({}),
+      DISPATCHER: {
+        get: () => ({ fetch: async () => new Response('ok', { status: 200 }) }),
+      } as unknown as DispatchNamespace,
+    };
+
+    const response = await handleRequest(new Request('https://app.test/checkout'), env);
+
+    expect(await response.text()).toBe('ok');
+    expect(response.headers.get('Set-Cookie')).toContain('dply_wr=1');
+  });
+
+  it('does not stamp the cookie on a visitor who already has it', async () => {
+    const env: Env = {
+      HOST_MAP: createMockKv({
+        'app.test': { site_id: 'site-1', deployment_id: 'deploy-9', storage_prefix: 'edge/site-1/deploy-9', waiting_room: room } as HostMapEntry,
+      }),
+      ARTIFACTS: createMockR2({ 'edge/site-1/deploy-9/index.html': { body: 'hi', contentType: 'text/html' } }),
+    };
+
+    const response = await handleRequest(new Request('https://app.test/', { headers: { cookie: 'dply_wr=1' } }), env);
+
+    expect(response.headers.get('Set-Cookie')).toBeNull();
+  });
+
+  it('never shows visitors the internal error when the edge itself fails', async () => {
+    const errors: unknown[] = [];
+    const spy = vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(args));
+    const env: Env = {
+      HOST_MAP: createMockKv({
+        'app.test': { site_id: 'site-1', deployment_id: 'deploy-9', storage_prefix: 'edge/site-1/deploy-9' } as HostMapEntry,
+      }),
+      ARTIFACTS: {
+        get: async () => {
+          throw new Error('R2 bucket dply-artifacts-internal unreachable');
+        },
+      } as unknown as R2Bucket,
+    };
+
+    const response = await handleRequest(new Request('https://app.test/'), env);
+    spy.mockRestore();
+
+    expect(response.status).toBe(500);
+    expect(response.headers.get('Content-Type')).toContain('text/html');
+    const body = await response.text();
+    expect(body).toContain('Something went wrong');
+    expect(body).not.toContain('dply-artifacts-internal');
+    expect(JSON.stringify(errors)).toContain('dply-artifacts-internal');
   });
 });

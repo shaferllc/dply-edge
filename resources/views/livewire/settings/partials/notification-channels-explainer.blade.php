@@ -40,7 +40,7 @@
                 <div class="min-w-0">
                     <p class="text-xs font-semibold text-brand-ink">{{ __('Subscribe it to events') }}</p>
                     <p class="mt-0.5 text-xs leading-relaxed text-brand-moss">
-                        {{ __('From a server or site Notifications tab, or in bulk.') }}
+                        {{ __('From an app’s Alerts page, or in bulk.') }}
                         @if ($canManage && ! empty($bulkAssignUrl))
                             <a href="{{ $bulkAssignUrl }}" wire:navigate class="font-semibold text-brand-sage hover:text-brand-ink">{{ __('Bulk assign') }} →</a>
                         @endif
@@ -50,7 +50,7 @@
         </ol>
 
         {{-- Scoping is the other thing people get wrong: they add a personal
-             channel and wonder why a teammate's server never alerts them. --}}
+             channel and wonder why a teammate's app never alerts them. --}}
         <p class="mt-2.5 text-xs leading-relaxed text-brand-mist">
             <span class="font-semibold text-brand-moss">{{ __('Scope:') }}</span>
             {{ __('Organization channels can be assigned by any admin here and survive people leaving. Personal channels belong to one account; team channels to one team.') }}

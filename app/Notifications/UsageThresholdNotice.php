@@ -34,7 +34,7 @@ class UsageThresholdNotice extends Notification implements ShouldQueue
 
         return (new MailMessage)
             ->subject(__(':org has used :pct% of its usage alert', ['org' => $this->organization->name, 'pct' => $this->percent]))
-            ->line(__('Usage beyond the plan for :org is :used so far this billing period — :pct% of its :limit usage alert.', [
+            ->line(__('Usage beyond the plan’s included credit for :org is :used so far this billing period — :pct% of its :limit usage alert.', [
                 'org' => $this->organization->name,
                 'used' => $money($this->usedCents),
                 'pct' => $this->percent,

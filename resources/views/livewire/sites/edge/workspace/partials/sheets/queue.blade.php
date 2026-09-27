@@ -149,7 +149,7 @@
                 </div>
 
                 <x-sheet.danger :title="__('Delete this queue')">
-                    <p class="text-xs text-brand-moss">{{ __('Removes the queue and every message waiting in it, for every app attached to it. This cannot be undone.') }}</p>
+                    <p class="text-xs text-brand-moss">{{ __('Detaches the queue from this app. It’s deleted, with every message waiting in it, once no app uses it (after this app’s next deploy). This cannot be undone.') }}</p>
                     <div><x-sheet.button variant="danger" wire:click="askDeleteConnection({{ \Illuminate\Support\Js::from($queueHost) }})" wire:island="resources-delete-connection" x-on:click="$dispatch('open-modal', 'resources-delete-connection')">{{ __('Delete queue') }}</x-sheet.button></div>
                 </x-sheet.danger>
             </div>

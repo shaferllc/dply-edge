@@ -1,7 +1,7 @@
 @php
-    $minAgeDays = (int) config('subscription.standard.min_billable_age_days', 1);
-    $extraSite = '$'.number_format(((int) config('subscription.standard.edge_cents', 200)) / 100, 0);
-    $ssrSite = '$'.number_format(((int) config('subscription.standard.edge_ssr_cents', 700)) / 100, 0);
+    $credits = collect(\App\Modules\Billing\Services\SubscriptionPlanResolver::PAID_TIERS)
+        ->map(fn (string $key) => config('subscription.standard.tiers.'.$key.'.label').' $'.number_format((int) config('subscription.standard.tiers.'.$key.'.usage_credit_cents') / 100, 0))
+        ->implode(', ');
 @endphp
 <section class="border-b border-brand-ink/10 last:border-b-0">
     <x-workspace-panel-head
@@ -14,25 +14,19 @@
         <dl class="space-y-2.5 text-sm">
             <div>
                 <dt class="font-semibold text-brand-ink">{{ __('A monthly plan') }}</dt>
-                <dd class="mt-1 text-brand-moss">{{ __('Pro or Team, starting with a :days-day Pro trial (card required). Each plan includes sites, seats, build minutes, requests and egress for the month. Preview deployments don’t take a site slot, but their builds, traffic and compute count toward your usage.', ['days' => (int) config('subscription.standard.trial.days', 5)]) }}</dd>
+                <dd class="mt-1 text-brand-moss">{{ __('Starter, Pro or Team, starting with a :days-day Pro trial (card required). Every plan includes unlimited sites; plans differ in seats, limits and included usage.', ['days' => (int) config('subscription.standard.trial.days', 5)]) }}</dd>
             </div>
             <div>
-                <dt class="font-semibold text-brand-ink">{{ __('Extra sites and SSR') }}</dt>
-                <dd class="mt-1 text-brand-moss">{{ __('On Pro and Team, static or hybrid sites beyond your plan cost :extra/mo each. Worker SSR sites cost :ssr/mo each.', ['extra' => $extraSite, 'ssr' => $ssrSite]) }}</dd>
+                <dt class="font-semibold text-brand-ink">{{ __('Included usage credit') }}</dt>
+                <dd class="mt-1 text-brand-moss">{{ __('Each plan includes usage every period (:credits). Usage up to that amount costs nothing extra; the rest is added to your invoice after the period ends.', ['credits' => $credits]) }}</dd>
             </div>
             <div>
-                <dt class="font-semibold text-brand-ink">{{ __('Usage over the allowance') }}</dt>
-                <dd class="mt-1 text-brand-moss">{{ __('Requests, egress, storage and build minutes beyond your plan are metered and added to your monthly invoice. During the trial nothing is charged yet, so usage is capped at $:limit: past it, sites pause until the trial ends or you end it early.', ['limit' => number_format(((int) config('subscription.standard.trial.spending_limit_cents', 500)) / 100, 0)]) }}</dd>
+                <dt class="font-semibold text-brand-ink">{{ __('Usage') }}</dt>
+                <dd class="mt-1 text-brand-moss">{{ __('Apps, workers, databases and Valkey bill by the second while awake. Requests, bandwidth, storage, operations and messages bill by the unit. During the trial nothing is charged yet, so usage is capped at $:limit: past it, sites pause until the trial ends or you end it early.', ['limit' => number_format(((int) config('subscription.standard.trial.spending_limit_cents', 500)) / 100, 0)]) }}</dd>
             </div>
             <div>
-                <dt class="font-semibold text-brand-ink">
-                    {{ trans_choice('{0} No grace window|{1} :days-day grace window for new sites|[2,*] :days-day grace window for new sites', $minAgeDays, ['days' => $minAgeDays]) }}
-                </dt>
-                <dd class="mt-1 text-brand-moss">{{ __('A site added past your plan isn\'t billed as an extra site until it\'s been live past the grace window. Spin up, test, tear down — no charge.') }}</dd>
-            </div>
-            <div>
-                <dt class="font-semibold text-brand-ink">{{ __('Changes are billed immediately') }}</dt>
-                <dd class="mt-1 text-brand-moss">{{ __('Switching plans, or adding a site or seat past your plan, invoices the prorated amount now. Removing one credits the unused portion to your next invoice.') }}</dd>
+                <dt class="font-semibold text-brand-ink">{{ __('Plan changes') }}</dt>
+                <dd class="mt-1 text-brand-moss">{{ __('Switching plans, or adding a seat on Team, invoices the prorated amount now. Removing one credits the unused portion to your next invoice.') }}</dd>
             </div>
         </dl>
     </div>

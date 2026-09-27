@@ -8,23 +8,20 @@ use Illuminate\Support\Facades\Config;
 
 uses(RefreshDatabase::class);
 
-test('dry run lists only edge and enterprise objects without calling stripe', function () {
+test('dry run lists the plans, the team seat and enterprise without calling stripe', function () {
     Config::set('cashier.secret', 'sk_test_dummy');
-    Config::set('subscription.standard.annual_discount_pct', 20);
 
     // Each expectsOutputToContain is matched against a single write call, so
     // assert at most one substring per emitted line.
     $this->artisan('dply:billing:provision-stripe', ['--dry-run' => true])
         ->expectsOutputToContain('Dry-run')
-        ->expectsOutputToContain('dply Edge site (static / hybrid)')
-        ->expectsOutputToContain('Per site $2.00/mo   $19.20/yr')
-        ->expectsOutputToContain('dply Edge SSR site')
-        ->expectsOutputToContain('Per site $7.00/mo   $67.20/yr')
-        ->expectsOutputToContain('dply Edge delivery usage')
+        ->expectsOutputToContain('dply Starter — $5.00/mo')
+        ->expectsOutputToContain('dply Pro — $20.00/mo')
+        ->expectsOutputToContain('dply Team — $49.00/mo')
+        ->expectsOutputToContain('dply Team seat — $5.00/mo')
         ->expectsOutputToContain('dply Enterprise')
-        ->doesntExpectOutputToContain('Plans (metered by BYO server count)')
-        ->doesntExpectOutputToContain('dply serverless function')
-        ->doesntExpectOutputToContain('dply Cloud app')
+        ->doesntExpectOutputToContain('dply Edge site')
+        ->doesntExpectOutputToContain('dply Edge SSR site')
         ->assertOk();
 });
 
@@ -36,24 +33,20 @@ test('fails loudly when stripe secret is missing', function () {
         ->assertFailed();
 });
 
-test('format env emits the edge price lines and skips product roles', function () {
+test('format env emits the plan price lines and skips product roles', function () {
     $env = StripeBillingProvisioner::formatEnv([
-        StripeBillingProvisioner::ROLE_EDGE_PRODUCT => 'prod_edge',
-        StripeBillingProvisioner::ROLE_EDGE_MONTHLY => 'price_edge',
-        StripeBillingProvisioner::ROLE_EDGE_YEARLY => 'price_edge_y',
-        StripeBillingProvisioner::ROLE_EDGE_SSR_PRODUCT => 'prod_edge_ssr',
-        StripeBillingProvisioner::ROLE_EDGE_SSR_MONTHLY => 'price_edge_ssr',
-        StripeBillingProvisioner::ROLE_EDGE_SSR_YEARLY => 'price_edge_ssr_y',
-        StripeBillingProvisioner::ROLE_EDGE_USAGE_PRODUCT => 'prod_edge_usage',
-        StripeBillingProvisioner::ROLE_EDGE_USAGE_MONTHLY => 'price_edge_usage',
+        StripeBillingProvisioner::ROLE_TIER_STARTER_PRODUCT => 'prod_starter',
+        StripeBillingProvisioner::ROLE_TIER_STARTER_MONTHLY => 'price_starter',
+        StripeBillingProvisioner::ROLE_TIER_PRO_MONTHLY => 'price_pro',
+        StripeBillingProvisioner::ROLE_TIER_TEAM_MONTHLY => 'price_team',
+        StripeBillingProvisioner::ROLE_TEAM_SEAT_MONTHLY => 'price_seat',
         StripeBillingProvisioner::ROLE_ENTERPRISE_PRODUCT => 'prod_ent',
     ]);
 
     expect($env)->toBe(implode("\n", [
-        'STRIPE_PRICE_STANDARD_EDGE=price_edge',
-        'STRIPE_PRICE_STANDARD_EDGE_YEARLY=price_edge_y',
-        'STRIPE_PRICE_STANDARD_EDGE_SSR=price_edge_ssr',
-        'STRIPE_PRICE_STANDARD_EDGE_SSR_YEARLY=price_edge_ssr_y',
-        'STRIPE_PRICE_STANDARD_EDGE_USAGE=price_edge_usage',
+        'STRIPE_PRICE_STARTER=price_starter',
+        'STRIPE_PRICE_TIER_PRO=price_pro',
+        'STRIPE_PRICE_TIER_TEAM=price_team',
+        'STRIPE_PRICE_TEAM_SEAT=price_seat',
     ]));
 });

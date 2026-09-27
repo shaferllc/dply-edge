@@ -38,34 +38,16 @@ function neverRuns(): EdgeBuildRunner
     return \Mockery::mock(EdgeBuildRunner::class)->shouldNotReceive('build')->getMock();
 }
 
-test('build minutes round each build up and bill overage in millicents', function () {
+test('build time bills per second, with no allowance and no rounding up per build', function () {
+    config(['dply.edge.usage_billing.build_millicents_per_minute' => 500]);
     [$org, , $deployment] = edgeSite();
     $deployment->update(['build_seconds' => 61]);
     EdgeDeployment::query()->create(['site_id' => $deployment->site_id, 'organization_id' => $org->id, 'build_seconds' => 120]);
 
-    $pro = config('subscription.standard.tiers.pro');
+    $seconds = EdgeBuildMinutes::secondsBetween($org, now()->startOfMonth(), now());
 
-    expect(EdgeBuildMinutes::usedThisMonth($org))->toBe(4)
-        ->and(EdgeBuildMinutes::overageCents(1_001, $pro))->toBe(1)   // 0.6¢ rounds up
-        ->and(EdgeBuildMinutes::overageCents(1_500, $pro))->toBe(300)
-        ->and(EdgeBuildMinutes::exhausted(300, ['build_minutes' => 300, 'build_minute_overage_millicents' => null]))->toBeTrue()
-        ->and(EdgeBuildMinutes::exhausted(300, config('subscription.standard.tiers.pro')))->toBeFalse()
-        ->and(EdgeBuildMinutes::exhausted(5_000, $pro))->toBeFalse();
-});
-
-test('an org out of build minutes fails the deploy but keeps the live site', function () {
-    config([
-        'subscription.standard.tiers.pro.build_minutes' => 300,
-        'subscription.standard.tiers.pro.build_minute_overage_millicents' => null,
-    ]);
-    [$org, $site, $deployment] = edgeSite([]);
-    EdgeDeployment::query()->create(['site_id' => $site->id, 'organization_id' => $org->id, 'build_seconds' => 300 * 60]);
-
-    (new BuildEdgeSiteJob($deployment->id))->handle(neverRuns());
-
-    expect($deployment->fresh()->status)->toBe(EdgeDeployment::STATUS_FAILED)
-        ->and($deployment->fresh()->failure_reason)->toContain('build minutes are used up')
-        ->and($site->fresh()->status)->toBe(Site::STATUS_EDGE_ACTIVE);
+    expect($seconds)->toBe(181)
+        ->and(EdgeBuildMinutes::costMillicents($seconds))->toEqualWithDelta(181 / 60 * 500, 1e-9);
 });
 
 test('a trial at its usage credit fails the deploy but keeps the live site', function () {
@@ -75,7 +57,7 @@ test('a trial at its usage credit fails the deploy but keeps the live site', fun
     (new BuildEdgeSiteJob($deployment->id))->handle(neverRuns());
 
     expect($deployment->fresh()->status)->toBe(EdgeDeployment::STATUS_FAILED)
-        ->and($deployment->fresh()->failure_reason)->toContain('usage credit is used up')
+        ->and($deployment->fresh()->failure_reason)->toContain('usage cap is used up')
         ->and($site->fresh()->status)->toBe(Site::STATUS_EDGE_ACTIVE);
 });
 

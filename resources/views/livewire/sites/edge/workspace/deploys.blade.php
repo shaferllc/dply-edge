@@ -1,7 +1,7 @@
 <div @if ($isInProgress ?? false) wire:poll.2s @endif>
     <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
         @include('livewire.sites.edge.workspace.partials.feature-guide', [
-            'docSlug' => 'edge-deploys',
+            'docSlug' => 'deployments',
             'what' => __('Ship a new Edge version, watch the build, roll back to a previous artifact, or deploy a specific Git ref — without leaving this page.'),
             'steps' => [
                 __('Click Deploy (sidebar) or Redeploy now to build the current production branch at its latest commit.'),

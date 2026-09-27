@@ -15,6 +15,7 @@ use App\Modules\Edge\Support\EdgeLiveBuildLog;
 use App\Modules\Edge\Support\EdgeLogCopy;
 use App\Modules\Edge\Support\EdgeRepoRoot;
 use App\Modules\Edge\Support\FakeEdgeProvision;
+use App\Modules\SourceControl\Services\GitCloneAuth;
 use App\Services\DeployContract\DeployContractPolicyLoader;
 use Illuminate\Contracts\Process\ProcessResult;
 use Illuminate\Support\Facades\File;
@@ -165,6 +166,10 @@ class EdgeBuildRunner
             // Streamed, not collected: a first-time mirror population can run
             // for minutes, and the operator needs to see it working.
             $streamed = [];
+            // Private repos: clone with the site's linked Git account. The
+            // token rides in git's env only (see GitCloneAuth).
+            $site = $deployment->site;
+            $gitEnv = $site !== null ? app(GitCloneAuth::class)->envForSite($site, $repoUrl) : [];
             $cloneLog = app(EdgeRepoCloner::class)->clone(
                 $repoUrl,
                 $branch,
@@ -175,6 +180,7 @@ class EdgeBuildRunner
                     $this->appendBuildLog($buildLog, $line."\n");
                     $streamed[$line] = true;
                 },
+                $gitEnv,
             );
             // Whatever the cloner recorded without streaming (fallback path).
             foreach ($cloneLog as $line) {

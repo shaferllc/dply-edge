@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Mcp\Resources;
 
 use App\Mcp\Concerns\ResolvesDplyContext;
+use App\Mcp\Support\SitePayload;
 use App\Models\Site;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
@@ -19,7 +20,7 @@ use Laravel\Mcp\Server\Resource;
  */
 #[Uri('dply://sites')]
 #[MimeType('application/json')]
-#[Description('The list of sites in the authenticated dply organization (id, name, server, runtime, status).')]
+#[Description('The apps in the authenticated dply organization (id, name, runtime mode, status, live URL).')]
 class SiteListResource extends Resource
 {
     use ResolvesDplyContext;
@@ -28,26 +29,15 @@ class SiteListResource extends Resource
 
     public function handle(Request $request): Response
     {
+        $this->requireAbility('sites.read');
+
         $organization = $this->organization();
 
         $sites = Site::query()
             ->whereHas('server', fn ($q) => $q->where('organization_id', $organization->id))
-            ->with(['server:id,name'])
             ->orderBy('name')
-            ->get(['id', 'server_id', 'name', 'slug', 'type', 'runtime', 'status', 'last_deploy_at']);
+            ->get(['id', 'server_id', 'name', 'slug', 'status', 'meta', 'last_deploy_at', 'created_at']);
 
-        return Response::json([
-            'data' => $sites->map(fn (Site $s) => [
-                'id' => $s->id,
-                'slug' => $s->slug,
-                'name' => $s->name,
-                'server_id' => $s->server_id,
-                'server_name' => $s->server?->name,
-                'type' => $s->type,
-                'runtime' => $s->runtime,
-                'status' => $s->status,
-                'last_deploy_at' => $s->last_deploy_at?->toIso8601String(),
-            ])->all(),
-        ]);
+        return Response::json(['data' => $sites->reject(fn (Site $s): bool => $s->isEdgePreview())->map(SitePayload::summary(...))->values()->all()]);
     }
 }

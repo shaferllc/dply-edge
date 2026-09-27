@@ -12,7 +12,7 @@
 <div>
     <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
         @include('livewire.sites.edge.workspace.partials.feature-guide', [
-            'docSlug' => 'edge-firewall',
+            'docSlug' => 'firewall',
             'what' => __('Geo firewall allows or blocks visitors by country at the Edge — using the request’s country code — before your pages, forms, or origin see the traffic. Blocked visitors get a plain HTTP 403 on the same URL.'),
             'steps' => [
                 __('Pick a mode: Off (everyone), Allow listed only (hard allowlist), or Block listed (deny these countries).'),

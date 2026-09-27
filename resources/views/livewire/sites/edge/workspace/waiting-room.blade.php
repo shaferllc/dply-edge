@@ -1,7 +1,7 @@
 <div>
     <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
         @include('livewire.sites.edge.workspace.partials.feature-guide', [
-            'docSlug' => 'edge-waiting-room',
+            'docSlug' => 'waiting-room',
             'what' => __('When too many people hit a protected path at once, Edge holds the extras in a queue so the live site stays within your capacity. No separate queue domain — people wait on the URL they opened.'),
             'steps' => [
                 __('Visitor opens a matching path on your Edge hostname (e.g. /checkout).'),

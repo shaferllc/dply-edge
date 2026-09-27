@@ -6,7 +6,7 @@
     @unless ($edgeIsPreviewChild)
         <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
             @include('livewire.sites.edge.workspace.partials.feature-guide', [
-                'docSlug' => 'edge-previews',
+                'docSlug' => 'preview-deployments',
                 'what' => __('Spin up PR and ad-hoc preview URLs for this production site — review, promote to prod, or split traffic without changing main.'),
                 'steps' => [
                     __('Create an ad-hoc preview from a commit above, or open a PR so the GitHub webhook builds one.'),
@@ -22,6 +22,8 @@
                 'tips' => [
                     __('Same commit SHA reuses the preview; a new SHA gets its own URL.'),
                     __('Protection locks preview URLs and the live site. The comment widget stays on preview URLs only.'),
+                    __('Previews build with this app’s environment variables and linked secrets. PRs from forks don’t get a preview.'),
+                    __('Run checks before promoting. Shadow replay needs production traffic from the last hour; with none, the check passes.'),
                 ],
             ])
         </section>

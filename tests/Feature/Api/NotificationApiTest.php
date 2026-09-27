@@ -70,19 +70,19 @@ it('scopes the event catalog to the subject', function () {
         ->and($all->count())->toBeGreaterThan($siteGroups->count());
 });
 
-it('offers edge and serverless events only to those kinds of site', function () {
+it('offers edge events only to edge apps', function () {
     [, $site, , $token] = notificationFixture();
 
     $keys = fn (Site $subject) => collect(
         $this->withToken($token)->getJson("/api/v1/sites/{$subject->slug}/notifications")->json('data.groups')
     )->flatMap(fn ($group) => collect($group['events'])->pluck('key'));
 
-    expect($keys($site))->not->toContain('serverless.assets.over_budget');
+    $site->forceFill(['edge_backend' => null])->save();
+    expect($keys($site->fresh()))->not->toContain('edge.deploy.failed');
 
-    $site->meta = ['runtime_profile' => 'digitalocean_functions_web'];
-    $site->save();
-
-    expect($keys($site->fresh()))->toContain('serverless.assets.over_budget');
+    $site->forceFill(['edge_backend' => 'dply_edge'])->save();
+    expect($keys($site->fresh()))->toContain('edge.deploy.failed')
+        ->not->toContain('serverless.assets.over_budget');
 });
 
 it('routes an event to a channel and back off again', function () {

@@ -168,7 +168,7 @@ test('edge billing section shows usage stats and org analytics link', function (
         ->test(EdgeSettings::class, ['server' => $server, 'site' => $site, 'section' => 'billing'])
         ->assertSee('Billing & usage')
         ->assertSee('Site fee')
-        ->assertSee('Included')
+        ->assertSee('None')
         ->assertDontSee('month per live site')
         ->assertSee('42,000')
         ->assertSee('Open org billing');
@@ -242,6 +242,19 @@ test('edge build settings can be updated on build settings section', function ()
         ->and($edge['build']['output_dir'] ?? null)->toBe('out')
         ->and($edge['routing']['spa_fallback'] ?? null)->toBeFalse()
         ->and($edge['source']['deploy_on_push'] ?? null)->toBeFalse();
+});
+
+test('turning deploy on push on connects the GitHub webhook', function () {
+    Http::fake(['api.github.com/repos/acme/web/hooks' => Http::response(['id' => 991], 201)]);
+    [$user, $server, $site] = makeEdgeSiteForSettings(withGithub: true);
+
+    Livewire::actingAs($user)
+        ->test(Build::class, ['server' => $server, 'site' => $site])
+        ->set('buildForm.edge_deploy_on_push', true)
+        ->call('saveEdgeBuildSettings')
+        ->assertHasNoErrors();
+
+    expect($site->fresh()->edgeMeta()['webhook']['hook_id'] ?? null)->toBe(991);
 });
 
 test('edge deploy ref picker loads branches tags and commits from git provider', function () {

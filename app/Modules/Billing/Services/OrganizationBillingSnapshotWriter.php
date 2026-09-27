@@ -30,7 +30,7 @@ final class OrganizationBillingSnapshotWriter
                 'fleet_counts' => [
                     'edge' => $state->edgeCount,
                 ],
-                'edge_usage_cents' => $state->edgeUsageSubtotalCents,
+                'edge_usage_cents' => $state->usageLineCents(),
                 'subscription_interval' => $this->subscriptionInterval($organization),
             ],
         );
@@ -43,8 +43,9 @@ final class OrganizationBillingSnapshotWriter
     {
         return [
             'plan_cents' => $state->planPriceCents,
-            'edge_cents' => $state->edgeSubtotalCents,
-            'edge_usage_cents' => $state->edgeUsageSubtotalCents,
+            'seat_cents' => $state->extraSeatSubtotalCents,
+            'usage_cents' => $state->usageLineCents(),
+            'credit_cents' => -$state->creditAppliedCents(),
         ];
     }
 

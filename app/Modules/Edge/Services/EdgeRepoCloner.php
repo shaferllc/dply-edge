@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Modules\Edge\Services;
 
 use App\Modules\Edge\Support\EdgeRepoRoot;
+use App\Modules\SourceControl\Services\GitCloneAuth;
+use Illuminate\Process\PendingProcess;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
@@ -46,6 +48,19 @@ final class EdgeRepoCloner
     private $onLine = null;
 
     /**
+     * Private-repo credentials ({@see GitCloneAuth::envFor()}) for the current
+     * clone. Env only: the remote URL, argv and .git/config stay token-free.
+     *
+     * @var array<string, string>
+     */
+    private array $gitEnv = [];
+
+    private function git(int $timeoutSeconds): PendingProcess
+    {
+        return Process::timeout($timeoutSeconds)->env($this->gitEnv);
+    }
+
+    /**
      * Record a line and push it to the live build log immediately.
      *
      * @param  list<string>  $log
@@ -54,6 +69,7 @@ final class EdgeRepoCloner
      */
     private function note(array &$log, string $line): void
     {
+        $line = GitCloneAuth::redact($line, $this->gitEnv);
         $log[] = $line;
         if ($this->onLine !== null && trim($line) !== '') {
             ($this->onLine)($line);
@@ -75,11 +91,13 @@ final class EdgeRepoCloner
         ?string $commitOverride = null,
         ?string $sparseRoot = null,
         ?callable $onLine = null,
+        array $gitEnv = [],
     ): array {
         // Streamed as it happens: buffering the whole clone means a
         // multi-minute mirror population shows the operator nothing but
         // "[dply:step] clone", which reads as a hang.
         $this->onLine = $onLine;
+        $this->gitEnv = $gitEnv;
         $log = [];
         $sparseRoot = EdgeRepoRoot::normalize($sparseRoot);
 
@@ -89,14 +107,23 @@ final class EdgeRepoCloner
 
         if ($this->cacheEnabled()) {
             try {
-                return $this->cloneViaMirror($repoUrl, $branch, $checkout, $commitOverride, $sparseRoot, $log);
+                return $this->redactAll($this->cloneViaMirror($repoUrl, $branch, $checkout, $commitOverride, $sparseRoot, $log));
             } catch (\Throwable $e) {
-                $log[] = '[git-cache] mirror path failed, falling back to direct clone: '.$e->getMessage();
+                $log[] = GitCloneAuth::redact('[git-cache] mirror path failed, falling back to direct clone: '.$e->getMessage(), $this->gitEnv);
                 $this->ensureEmptyCheckout($checkout);
             }
         }
 
-        return $this->cloneDirect($repoUrl, $branch, $checkout, $commitOverride, $sparseRoot, $log);
+        return $this->redactAll($this->cloneDirect($repoUrl, $branch, $checkout, $commitOverride, $sparseRoot, $log));
+    }
+
+    /**
+     * @param  list<string>  $log
+     * @return list<string>
+     */
+    private function redactAll(array $log): array
+    {
+        return array_map(fn (string $line): string => GitCloneAuth::redact($line, $this->gitEnv), $log);
     }
 
     /**
@@ -165,7 +192,7 @@ final class EdgeRepoCloner
             }
 
             if ($commitOverride !== null) {
-                $checkoutResult = Process::timeout(60)->path($checkout)->run(['git', 'checkout', $commitOverride]);
+                $checkoutResult = $this->git(60)->path($checkout)->run(['git', 'checkout', $commitOverride]);
                 $log[] = trim($checkoutResult->output().$checkoutResult->errorOutput());
                 if (! $checkoutResult->successful()) {
                     throw new RuntimeException('Build failed: commit "'.$commitOverride.'" not found in repository.');
@@ -210,19 +237,19 @@ final class EdgeRepoCloner
             ['git', 'init', '-q', $checkout],
             ['git', '-C', $checkout, 'remote', 'add', 'origin', $repoUrl],
         ] as $command) {
-            if (! Process::timeout(60)->run($command)->successful()) {
+            if (! $this->git(60)->run($command)->successful()) {
                 return false;
             }
         }
 
-        $fetch = Process::timeout(self::NETWORK_TIMEOUT_SECONDS)
+        $fetch = $this->git(self::NETWORK_TIMEOUT_SECONDS)
             ->run(['git', '-C', $checkout, 'fetch', '--depth', '1', 'origin', $sha]);
         $this->note($log, trim($fetch->output().$fetch->errorOutput()));
         if (! $fetch->successful()) {
             return false;
         }
 
-        $checkoutResult = Process::timeout(60)->run(['git', '-C', $checkout, 'checkout', '-q', 'FETCH_HEAD']);
+        $checkoutResult = $this->git(60)->run(['git', '-C', $checkout, 'checkout', '-q', 'FETCH_HEAD']);
         $this->note($log, trim($checkoutResult->output().$checkoutResult->errorOutput()));
 
         return $checkoutResult->successful();
@@ -239,7 +266,7 @@ final class EdgeRepoCloner
             return false;
         }
 
-        $configured = Process::timeout(15)->run(
+        $configured = $this->git(15)->run(
             ['git', '--git-dir='.$mirror, 'config', '--get', 'remote.origin.url'],
         );
 
@@ -271,7 +298,7 @@ final class EdgeRepoCloner
                 $this->note($log, 'Shallow commit fetch unavailable — falling back to full clone');
                 $this->ensureEmptyCheckout($checkout);
                 $this->runWithRetry(['git', 'clone', $repoUrl, $checkout], $log, $checkout);
-                $result = Process::timeout(60)->path($checkout)->run(['git', 'checkout', $commitOverride]);
+                $result = $this->git(60)->path($checkout)->run(['git', 'checkout', $commitOverride]);
                 $this->note($log, trim($result->output().$result->errorOutput()));
                 if (! $result->successful()) {
                     throw new RuntimeException('Build failed: commit "'.$commitOverride.'" not found in repository.');
@@ -316,13 +343,13 @@ final class EdgeRepoCloner
 
         $paths = $this->sparseCheckoutPaths($checkout, $sparseRoot);
         $log[] = '[git] Sparse-checkout cone: '.implode(' ', $paths);
-        $init = Process::timeout(60)->path($checkout)->run(['git', 'sparse-checkout', 'init', '--cone']);
+        $init = $this->git(60)->path($checkout)->run(['git', 'sparse-checkout', 'init', '--cone']);
         $log[] = trim($init->output().$init->errorOutput());
         if (! $init->successful()) {
             throw new RuntimeException('git sparse-checkout init failed: '.$init->errorOutput());
         }
 
-        $set = Process::timeout(120)->path($checkout)->run(['git', 'sparse-checkout', 'set', ...$paths]);
+        $set = $this->git(120)->path($checkout)->run(['git', 'sparse-checkout', 'set', ...$paths]);
         $log[] = trim($set->output().$set->errorOutput());
         if (! $set->successful()) {
             throw new RuntimeException('git sparse-checkout set failed: '.$set->errorOutput());
@@ -451,7 +478,7 @@ final class EdgeRepoCloner
 
         while ($attempt < self::NETWORK_RETRIES) {
             $attempt++;
-            $result = Process::timeout($timeoutSeconds ?? self::NETWORK_TIMEOUT_SECONDS)->run($command);
+            $result = $this->git($timeoutSeconds ?? self::NETWORK_TIMEOUT_SECONDS)->run($command);
             $this->note($log, trim($result->output().$result->errorOutput()));
             if ($result->successful()) {
                 return;
@@ -467,7 +494,13 @@ final class EdgeRepoCloner
             }
         }
 
-        throw new RuntimeException('Git clone failed after '.self::NETWORK_RETRIES.' attempts: '.$lastError);
+        if (preg_match('/Authentication failed|could not read Username|Repository not found|terminal prompts disabled|returned error: 40[13]/i', $lastError) === 1) {
+            throw new RuntimeException($this->gitEnv === []
+                ? 'Git clone failed: the repository is private or does not exist. Connect the GitHub, GitLab or Bitbucket account that can read it under Source control, then redeploy.'
+                : 'Git clone failed: the linked source control account could not read this repository. Reconnect it under Source control (or check it still has access), then redeploy.');
+        }
+
+        throw new RuntimeException('Git clone failed after '.self::NETWORK_RETRIES.' attempts: '.GitCloneAuth::redact($lastError, $this->gitEnv));
     }
 
     /**

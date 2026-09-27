@@ -6,6 +6,7 @@ namespace Tests\Feature\CreateEdgeSiteTest;
 
 use App\Enums\SiteType;
 use App\Models\EdgeDeployment;
+use App\Models\GitProviderToken;
 use App\Models\Organization;
 use App\Models\ProviderCredential;
 use App\Models\Server;
@@ -15,6 +16,7 @@ use App\Modules\Edge\Actions\CreateEdgeSite;
 use App\Modules\Edge\Jobs\BuildEdgeSiteJob;
 use App\Modules\Edge\Support\EdgeOrgCredentialConfig;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 
 uses(RefreshDatabase::class);
@@ -188,6 +190,47 @@ test('rejects cloud site id from another organization', function () {
 /**
  * @return array{0: User, 1: Organization}
  */
+test('create registers the GitHub webhook so deploy on push works', function () {
+    Queue::fake();
+    Http::fake(['api.github.com/repos/acme/marketing/hooks' => Http::response(['id' => 777], 201)]);
+    [$user, $org] = scaffold();
+    $pat = GitProviderToken::query()->create([
+        'user_id' => $user->id,
+        'provider' => 'github',
+        'access_token' => 'ghp_test',
+    ]);
+
+    $site = (new CreateEdgeSite)->handle($user, $org, [
+        'name' => 'Hooked',
+        'repo' => 'acme/marketing',
+        'git_source_control_account_id' => (string) $pat->getKey(),
+    ]);
+
+    expect($site->fresh()->edgeMeta()['webhook']['hook_id'] ?? null)->toBe(777)
+        ->and($site->fresh()->edgeMeta()['source']['deploy_on_push'])->toBeTrue();
+    Http::assertSent(fn ($request) => str_ends_with($request->url(), '/repos/acme/marketing/hooks'));
+});
+
+test('create skips the webhook when deploy on push is off', function () {
+    Queue::fake();
+    Http::fake();
+    [$user, $org] = scaffold();
+    $pat = GitProviderToken::query()->create([
+        'user_id' => $user->id,
+        'provider' => 'github',
+        'access_token' => 'ghp_test',
+    ]);
+
+    (new CreateEdgeSite)->handle($user, $org, [
+        'name' => 'Manual',
+        'repo' => 'acme/marketing',
+        'deploy_on_push' => false,
+        'git_source_control_account_id' => (string) $pat->getKey(),
+    ]);
+
+    Http::assertNothingSent();
+});
+
 function scaffold(): array
 {
     $user = User::factory()->create();

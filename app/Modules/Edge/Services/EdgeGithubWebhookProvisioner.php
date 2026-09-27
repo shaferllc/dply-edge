@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Edge\Services;
 
 use App\Models\Site;
+use App\Models\User;
 use App\Modules\SourceControl\Contracts\GitIdentity;
 use App\Modules\SourceControl\Services\GitIdentityResolver;
 use App\Modules\SourceControl\Support\GitHubWebhookFailure;
@@ -106,6 +107,22 @@ class EdgeGithubWebhookProvisioner
         return ['ok' => true, 'message' => __('GitHub webhook connected. Push and pull request events will trigger deploys and previews.')];
     }
 
+    /**
+     * Connect with the account the repo was picked from, else the user's
+     * GitHub login. Null when there is no GitHub identity to use.
+     *
+     * @return array{ok: bool, message: string}|null
+     */
+    public function enableWithDefaultAccount(Site $site, User $user): ?array
+    {
+        if (str_contains((string) ($site->edgeMeta()['source']['repo'] ?? ''), '://')) {
+            return null; // not a GitHub owner/name repo
+        }
+        $account = $this->resolver->forSite($site, $user, 'github');
+
+        return $account === null ? null : $this->enable($site, $account);
+    }
+
     public function disable(Site $site, ?GitIdentity $account = null): void
     {
         $webhook = is_array($site->edgeMeta()['webhook'] ?? null) ? $site->edgeMeta()['webhook'] : null;
@@ -124,13 +141,15 @@ class EdgeGithubWebhookProvisioner
             $account = $this->resolver->forId($site->user, $accountId);
         }
 
+        $removed = false;
         if ($account !== null && $hookId !== null && str_contains($repo, '/')) {
             [$owner, $name] = array_pad(explode('/', $repo, 2), 2, '');
             $token = $account->accessToken();
             if ($token !== '' && trim($owner) !== '' && trim($name) !== '') {
                 try {
-                    Http::withToken($token)
+                    $response = Http::withToken($token)
                         ->delete($account->apiBaseUrl().'/repos/'.$owner.'/'.$name.'/hooks/'.$hookId);
+                    $removed = $response->successful() || $response->status() === 404;
                 } catch (\Throwable $e) {
                     Log::warning('Edge GitHub webhook delete failed', [
                         'site_id' => $site->id,
@@ -138,6 +157,13 @@ class EdgeGithubWebhookProvisioner
                     ]);
                 }
             }
+        }
+        if ($hookId !== null && ! $removed) {
+            Log::warning('Edge GitHub webhook left on the repository', [
+                'site_id' => $site->id,
+                'repo' => $repo,
+                'hook_id' => $hookId,
+            ]);
         }
 
         $source = is_array($site->edgeMeta()['source'] ?? null) ? $site->edgeMeta()['source'] : [];

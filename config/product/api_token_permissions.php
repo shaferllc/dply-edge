@@ -17,8 +17,8 @@ use App\Models\ApiToken;
  * The MCP server (routes/ai.php → App\Mcp) reuses these abilities — each tool
  * declares the one it requires and AbstractDplyTool enforces it via
  * $token->allows():
- *   list_sites / get_site / get_operation_status ...................... sites.read
- *   list_servers ...................................................... servers.read
+ *   list_sites / get_site, dply://sites resources ..................... sites.read
+ * (`servers.read` no longer gates anything: list_servers was removed 2026-09-26.)
  *
  * @see ApiToken::allows()
  * @see AbstractDplyTool

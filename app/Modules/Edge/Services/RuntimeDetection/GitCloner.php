@@ -18,9 +18,13 @@ interface GitCloner
      * Shallow-clone $url at $branch into $destination (which must not yet
      * exist as a directory — git creates it).
      *
+     *
+     * @param  array<string, string>  $env  private-repo credentials from
+     *                                      GitCloneAuth (env only, never argv)
+     *
      * @throws GitCloneException on any failure (network, auth, missing branch,
      *                           invalid URL, etc.). Callers translate this into
      *                           UI-friendly messages.
      */
-    public function shallowClone(string $url, string $branch, string $destination): void;
+    public function shallowClone(string $url, string $branch, string $destination, array $env = []): void;
 }

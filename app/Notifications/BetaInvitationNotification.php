@@ -46,7 +46,10 @@ class BetaInvitationNotification extends Notification implements ShouldQueue
             ->subject(__('You’re invited to the :app beta', ['app' => $app]))
             ->greeting(__('You’re in.'))
             ->line(__('You’ve been invited to the :app private beta.', ['app' => $app]))
-            ->line(__('Connect your own cloud servers free during the beta — and spin up one dply-managed server on us, no card required.'))
+            ->line(__('Deploy static sites, SSR apps and containers to the edge. Your organization starts with a :days-day :tier trial (card required, cancel any time before it ends).', [
+                'days' => (int) config('subscription.standard.trial.days'),
+                'tier' => (string) config('subscription.standard.tiers.'.config('subscription.standard.trial.tier').'.label'),
+            ]))
             ->action(__('Create your account'), $url)
             ->line(__('This invite is tied to this email address and expires in :days days.', ['days' => (int) $days]))
             ->line(__('If you weren’t expecting this, you can ignore this email.'));

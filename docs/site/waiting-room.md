@@ -1,0 +1,63 @@
+---
+title: "Waiting room"
+description: "Queue visitors at the edge during launches and traffic spikes, so your app only admits as many people as it can handle."
+---
+
+A waiting room holds extra visitors in a queue when too many arrive at once, and lets them in at a steady rate. People wait on the URL they opened. There's no separate queue domain and no redirect. Use it for launches, ticket drops and sales, where a spike could overwhelm your app or its database.
+
+> [!NOTE]
+> The waiting room needs dply-hosted delivery, which is the default.
+
+## Set up a waiting room
+
+1. Open your app and choose **Waiting room**.
+2. Turn **Enable waiting room** on.
+3. Set:
+   - **Max active visitors**: how many admitted visitors can use the app at once.
+   - **New admits / minute**: how fast the queue lets people in.
+   - **Session (minutes)**: how long an admitted visitor stays admitted.
+   - **Protected paths (one per line)**: the paths that use the room, such as `/checkout/*`. Leave it empty to protect the whole app (`/*`).
+4. Choose **Save**.
+
+The room is live within about a minute. New apps start with 200 active visitors, 20 admits per minute, 30-minute sessions and `/*`.
+
+| Setting | Allowed range |
+|---------|---------------|
+| **Max active visitors** | 1 to 100,000 |
+| **New admits / minute** | 1 to 10,000 |
+| **Session (minutes)** | 1 to 1,440 |
+
+## What visitors experience
+
+1. **Arrive.** A visitor requests a protected path.
+2. **Admit or wait.** If there's room under both **Max active visitors** and **New admits / minute**, they're let through and get a session cookie. Otherwise they see a **You're in line** page (HTTP 503 with `Retry-After`), which refreshes itself every few seconds.
+3. **Enter.** Once admitted, the visitor uses the app normally until the session ends. After that they may queue again on their next protected request.
+
+The waiting page is served by dply and can't be branded yet:
+
+> **You're in line**
+> This site is at capacity. We'll refresh automatically.
+
+## Choosing values
+
+- Protect only the paths that are expensive or limited, such as `/checkout/*` or `/tickets/*`. Leave marketing and content pages out so people can keep reading.
+- Set **New admits / minute** to what your app can absorb: a surge of new sessions is usually harder on an app than steady browsing.
+- Start with a low **Max active visitors** and raise it once you've seen the queue drain cleanly.
+
+## How it works and its limits
+
+- Admitted visitors carry a `dply_wr` cookie (`HttpOnly`, `Secure`, `SameSite=Lax`) for the session length. Requests with the cookie skip the queue.
+- Each admission counts toward **Max active visitors** for one session length, whether or not the visitor is still browsing. There's no sign-out: a visitor who leaves early keeps their place until the session ends.
+- Counts are kept per app, so one app's traffic never fills another app's room.
+- Counts are kept per Cloudflare location, not globally, so capacity is approximate when visitors arrive through many data centers.
+- The session cookie is set on the response to the admitted request, for every kind of app: static, SSR and container.
+- Paths use the same patterns as [rate limits](/docs/rate-limits#path-patterns): `/checkout` exactly, `/checkout/*` for everything under it, `/*` for every path.
+
+> [!WARNING]
+> Test the waiting room on a separate staging app before a launch. Because counts are per location and approximate, check that the capacity you set behaves the way you expect under real traffic.
+
+## Related
+
+- [Rate limits](/docs/rate-limits)
+- [Scaling & sleep](/docs/scaling-and-sleep)
+- [Error pages](/docs/error-pages): maintenance mode for a full stop

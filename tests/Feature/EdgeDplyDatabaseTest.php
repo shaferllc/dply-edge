@@ -138,7 +138,7 @@ test('the resources tab offers disk sizes for dply postgres', function () {
         ->assertSeeHtml('id="postgres-disk"')
         ->assertDontSeeHtml('id="postgres-location"')
         ->assertDontSeeHtml('id="postgres-history"')
-        ->assertSee('1/4 vCPU')
+        ->assertSee('0.25 vCPU')
         ->assertDontSee('4 vCPU · 16 GB')
         ->call('selectPostgresDisk', 10)
         ->assertSet('draftPostgresDisk', 10)

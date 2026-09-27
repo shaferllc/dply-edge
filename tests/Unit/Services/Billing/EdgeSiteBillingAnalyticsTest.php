@@ -65,45 +65,20 @@ test('sites for organization lists all billable edge sites', function () {
         ->and($sites[0]['platform_kind'])->toBe('included');
 });
 
-test('sites past the plan count and every ssr site carry a fee on pro', function () {
-    config([
-        'subscription.standard.stripe.tier_pro' => 'price_test_tier_pro',
-        'subscription.standard.tiers.pro.sites' => 1,
-    ]);
+test('no site carries a fee on any plan, SSR included', function () {
+    config(['subscription.standard.stripe.tier_pro' => 'price_test_tier_pro']);
 
     $org = Organization::factory()->create();
     Subscription::factory()->withPrice('price_test_tier_pro')->active()->create(['organization_id' => $org->id]);
     $server = Server::factory()->for($org)->create();
-
-    $included = Site::factory()->for($org)->for($server)->create([
-        'name' => 'Included',
-        'status' => Site::STATUS_EDGE_ACTIVE,
-        'edge_backend' => 'dply_edge',
-        'created_at' => now()->subDays(10),
-    ]);
-    $extra = Site::factory()->for($org)->for($server)->create([
-        'name' => 'Extra',
-        'status' => Site::STATUS_EDGE_ACTIVE,
-        'edge_backend' => 'dply_edge',
-        'created_at' => now()->subDays(4),
-    ]);
-    $ssr = Site::factory()->for($org)->for($server)->create([
-        'name' => 'Ssr',
-        'status' => Site::STATUS_EDGE_ACTIVE,
-        'edge_backend' => 'dply_edge',
-        'meta' => ['edge' => ['runtime_mode' => 'ssr']],
-        'created_at' => now()->subDays(3),
-    ]);
+    foreach (['Static' => [], 'Ssr' => ['edge' => ['runtime_mode' => 'ssr']]] as $name => $meta) {
+        Site::factory()->for($org)->for($server)->create(['name' => $name, 'status' => Site::STATUS_EDGE_ACTIVE, 'edge_backend' => 'dply_edge', 'meta' => $meta]);
+    }
 
     $rows = collect(app(EdgeSiteBillingAnalytics::class)->sitesForOrganization($org))->keyBy('site_name');
 
-    expect($rows['Included']['platform_cents'])->toBe(0)
-        ->and($rows['Included']['platform_kind'])->toBe('included')
-        ->and($rows['Extra']['platform_cents'])->toBe(200)
-        ->and($rows['Extra']['platform_kind'])->toBe('extra')
-        ->and($rows['Ssr']['platform_cents'])->toBe(700)
-        ->and($rows['Ssr']['platform_kind'])->toBe('ssr')
-        ->and(app(EdgeSiteBillingAnalytics::class)->forSite($included->fresh())['platform_cents'])->toBe(0)
-        ->and(app(EdgeSiteBillingAnalytics::class)->forSite($extra->fresh())['platform_cents'])->toBe(200)
-        ->and(app(EdgeSiteBillingAnalytics::class)->forSite($ssr->fresh())['platform_cents'])->toBe(700);
+    expect($rows)->toHaveCount(2)
+        ->and($rows['Static']['platform_cents'])->toBe(0)
+        ->and($rows['Ssr']['platform_cents'])->toBe(0)
+        ->and($rows['Ssr']['platform_kind'])->toBe('included');
 });

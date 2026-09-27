@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Models\Concerns;
 
 use App\Modules\Billing\Services\SubscriptionPlanResolver;
+use Carbon\CarbonInterface;
+use Laravel\Cashier\Subscription;
 
 /**
  * Concern extracted from the host Livewire component to keep it under control.
@@ -31,7 +33,7 @@ trait ManagesOrganizationSubscription
     }
 
     /**
-     * The tier whose price is on the subscription: `pro`, `team`,
+     * The tier whose price is on the subscription: `starter`, `pro`, `team`,
      * `enterprise`, or null (no subscription, or a pre-tier per-site one the
      * next billing sync moves onto a tier).
      */
@@ -40,7 +42,7 @@ trait ManagesOrganizationSubscription
         if ($this->onEnterpriseSubscription()) {
             return 'enterprise';
         }
-        foreach (['team', 'pro'] as $tier) {
+        foreach (SubscriptionPlanResolver::PAID_TIERS as $tier) {
             if ($this->subscriptionMatchesAnyPrice([config('subscription.standard.stripe.tier_'.$tier)])) {
                 return $tier;
             }
@@ -100,7 +102,7 @@ trait ManagesOrganizationSubscription
     }
 
     /** When the trial ends (Stripe's or the card-less one), or null. */
-    public function planTrialEndsAt(): ?\Carbon\CarbonInterface
+    public function planTrialEndsAt(): ?CarbonInterface
     {
         $subscription = $this->subscription('default');
         if ($subscription !== null && $subscription->onTrial()) {
@@ -175,6 +177,7 @@ trait ManagesOrganizationSubscription
             $stripe['edge_ssr_yearly'] ?? null,
             $stripe['edge_usage'] ?? null,
             $stripe['edge_lb_endpoint'] ?? null,
+            $stripe['tier_starter'] ?? null,
             $stripe['tier_pro'] ?? null,
             $stripe['tier_team'] ?? null,
             $stripe['team_seat'] ?? null,
@@ -202,7 +205,7 @@ trait ManagesOrganizationSubscription
      * card. The first charge after a trial failing is not a paying customer
      * yet, so that one does not count (ruling r-f17p5zgeh120cm5t).
      */
-    public function liveSubscription(): ?\Laravel\Cashier\Subscription
+    public function liveSubscription(): ?Subscription
     {
         $subscription = $this->subscription('default');
         if ($subscription === null) {
@@ -236,7 +239,7 @@ trait ManagesOrganizationSubscription
     }
 
     /**
-     * Tier seat cap: hard on tiers without a per-seat price (Free, Pro), none
+     * Tier seat cap: hard on tiers without a per-seat price (Starter, Pro), none
      * where extra seats are billed (Team) or unlimited (Enterprise). Beta orgs
      * without a subscription aren't seat-capped.
      */

@@ -1002,7 +1002,7 @@ test('the app card offers the smaller size', function () {
 
     Livewire::actingAs($user)->test(Resources::class, ['server' => $app->server, 'site' => $app])
         ->openSheet('resources-app')
-        ->assertSee('Peak memory this week: 140 MB. Lite fits with room to spare')
+        ->assertSee('Peak memory this week: 140 MB. 1/16 vCPU fits with room to spare')
         ->call('selectSize', 'lite')
         ->assertSet('draftInstanceType', 'lite')
         ->assertDontSee('Peak memory this week');

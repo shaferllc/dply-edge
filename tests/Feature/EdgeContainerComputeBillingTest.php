@@ -17,34 +17,32 @@ use Illuminate\Support\Facades\Http;
 
 uses(RefreshDatabase::class);
 
-beforeEach(fn () => config(['dply.edge.usage_billing.markup_percent' => 0]));
+beforeEach(fn () => config(['dply.edge.usage_billing.margin_percent' => 0]));
 
 test('compute is priced per second of vcpu, memory, disk and egress', function () {
     $cost = app(EdgeContainerComputeCost::class);
 
     // 1 vCPU-hour (7.2¢) + 1 GiB-hour (0.9¢) + 4 GB-hours disk (0.1¢) + 1 GiB egress (2.5¢) = 10.7¢ → 11¢
     expect($cost->cents(3600, 3600, 4 * 3600, 1024 ** 3))->toBe(11)
-        ->and(round($cost->perMinuteMillicents(0.25, 1, 4), 2))->toBe(46.67); // basic, all vCPU busy
+        ->and(round($cost->perMinuteMillicents(0.25, 1, 4), 2))->toBe(46.68); // basic, all vCPU busy
 });
 
-test('larger containers keep a smaller share of the markup', function () {
-    config(['dply.edge.usage_billing.markup_percent' => 25]);
+test('every size gets the same margin: price scales linearly with the shape', function () {
+    config(['dply.edge.usage_billing.margin_percent' => 20]);
     $cost = app(EdgeContainerComputeCost::class);
 
-    expect($cost->sizeMarkup(1))->toBe(25)
-        ->and($cost->sizeMarkup(4))->toBe(16)
-        ->and($cost->sizeMarkup(6))->toBe(12)
-        ->and($cost->sizeMarkup(12))->toBe(8);
+    expect($cost->perMinuteMillicents(4, 12, 20))->toEqualWithDelta((4 * 2 + 12 * 0.25 + 20 * 0.007) * 60 * 1.2, 1e-9)
+        ->and($cost->perMinuteMillicents(0.25, 1, 4))->toEqualWithDelta((0.25 * 2 + 0.25 + 4 * 0.007) * 60 * 1.2, 1e-9);
 });
 
-test('the tier credit covers compute first, and enterprise never pays through sync', function () {
-    $pro = DesiredBillingState::fromPlanAndUsage(plan: ['key' => 'pro', 'label' => 'Pro', 'price_cents' => 2000], containerComputeCents: 730, computeCreditCents: 500);
-    $enterprise = DesiredBillingState::fromPlanAndUsage(plan: ['key' => 'enterprise', 'label' => 'Enterprise', 'price_cents' => 0], containerComputeCents: 99_999, computeCreditCents: null);
+test('compute is a usage line the plan credit covers, and enterprise never pays through sync', function () {
+    $pro = DesiredBillingState::fromPlanAndUsage(plan: ['key' => 'pro', 'label' => 'Pro', 'price_cents' => 2000], usage: ['compute' => 2730], usageCreditCents: 2000);
+    $enterprise = DesiredBillingState::fromPlanAndUsage(plan: ['key' => 'enterprise', 'label' => 'Enterprise', 'price_cents' => 0]);
 
-    expect($pro->containerComputeCents)->toBe(230)
-        ->and($pro->usageLineCents())->toBe(230)
-        ->and($pro->monthlyTotalCents)->toBe(2230)
-        ->and($enterprise->containerComputeCents)->toBe(0);
+    expect($pro->usageLines())->toBe(['compute' => 2730])
+        ->and($pro->usageChargeCents())->toBe(730)
+        ->and($pro->monthlyTotalCents)->toBe(2730)
+        ->and($enterprise->monthlyTotalCents)->toBe(0);
 });
 
 test('the collector matches container applications to sites by script name', function () {
@@ -71,5 +69,5 @@ test('the collector matches container applications to sites by script name', fun
         ->and($row->cpu_seconds)->toBe(120.0)
         ->and($row->memory_gib_seconds)->toBe(3600.0)
         ->and($row->tx_bytes)->toBe(5)
-        ->and(app(EdgeContainerComputeCost::class)->forOrganization($org, now()->startOfMonth(), now())['cents'])->toBe(2); // 0.24¢ cpu + 0.9¢ mem
+        ->and(app(EdgeContainerComputeCost::class)->forOrganization($org, now()->startOfMonth(), now())['cents'])->toBe(1); // 0.24¢ cpu + 0.9¢ mem = 1.14¢, rounded once
 });

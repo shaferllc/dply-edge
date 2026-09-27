@@ -5,7 +5,7 @@
 <div>
     <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
         @include('livewire.sites.edge.workspace.partials.feature-guide', [
-            'docSlug' => 'edge-alerts',
+            'docSlug' => 'alerts',
             'what' => __('Route Edge events to notification channels, and set RUM / error thresholds that publish edge.rum.breach when crossed.'),
             'steps' => [
                 __('Subscribe channels to Edge events (deploys, domains, usage, RUM), then Save subscriptions.'),

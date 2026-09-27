@@ -8,10 +8,10 @@ use InvalidArgumentException;
 use RuntimeException;
 
 /**
- * Builds the Stripe line items for a plan tier (tier fee, extra sites, SSR
- * sites, extra seats, load balancer endpoints) and provisions a fresh
- * subscription from them. Tiers are monthly only. Usage is not a line: it is
- * invoiced in arrears (UsageInvoicer).
+ * Builds the Stripe line items for a plan (plan fee, extra seats) and
+ * provisions a fresh subscription from them. Plans are monthly only. Usage is
+ * not a line: it is invoiced in arrears, less the plan's included credit
+ * (UsageInvoicer).
  */
 class StandardSubscriptionCreator
 {
@@ -36,21 +36,14 @@ class StandardSubscriptionCreator
         }
 
         $tierPriceId = (string) (config('subscription.standard.stripe.tier_'.$desired->planKey) ?? '');
-        if (! in_array($desired->planKey, ['pro', 'team'], true) || $tierPriceId === '') {
+        if (! in_array($desired->planKey, SubscriptionPlanResolver::PAID_TIERS, true) || $tierPriceId === '') {
             return [];
         }
 
         $items = [['price' => $tierPriceId, 'quantity' => 1]];
-        foreach ([
-            'edge' => $desired->extraSiteCount,
-            'edge_ssr' => $desired->edgeSsrCount,
-            'team_seat' => $desired->extraSeatCount,
-            'edge_lb_endpoint' => $desired->edgeLbEndpointCount,
-        ] as $product => $quantity) {
-            $priceId = (string) (config('subscription.standard.stripe.'.$product) ?? '');
-            if ($quantity > 0 && $priceId !== '') {
-                $items[] = ['price' => $priceId, 'quantity' => $quantity];
-            }
+        $seatPriceId = (string) (config('subscription.standard.stripe.team_seat') ?? '');
+        if ($desired->extraSeatCount > 0 && $seatPriceId !== '') {
+            $items[] = ['price' => $seatPriceId, 'quantity' => $desired->extraSeatCount];
         }
 
         return $items;

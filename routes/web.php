@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\ImpersonationController;
 use App\Http\Controllers\CliInstallController;
 use App\Http\Controllers\Credentials\ProviderOAuthController;
+use App\Http\Controllers\DocsController;
 use App\Http\Controllers\Notifications\DiscordOAuthController;
 use App\Http\Controllers\Notifications\SlackOAuthController;
 use App\Http\Controllers\Notifications\TelegramWebhookController;
@@ -48,6 +49,7 @@ use App\Livewire\TwoFactor\Page as TwoFactorPage;
 use App\Modules\Billing\Livewire\Show as BillingShow;
 use App\Modules\Edge\Http\Controllers\EdgeAuditLogExportController;
 use App\Modules\Edge\Http\Controllers\EdgeDeployHookController;
+use App\Modules\Edge\Http\Controllers\EdgeFormIngestController;
 use App\Modules\Edge\Http\Controllers\EdgeLiveAccessLogPollController;
 use App\Modules\Edge\Http\Controllers\EdgeLogCsvDownloadController;
 use App\Modules\Edge\Http\Controllers\EdgePreviewAccessController;
@@ -62,6 +64,7 @@ use App\Modules\Edge\Livewire\Queues;
 use App\Modules\Edge\Livewire\Templates;
 use App\Modules\Edge\Livewire\Usage;
 use App\Modules\Secrets\Livewire\Secrets as OrganizationsSecrets;
+use App\Support\Docs\DocsSite;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Route;
@@ -95,6 +98,12 @@ Route::post('/hooks/telegram', TelegramWebhookController::class)
     ->middleware(['throttle:site-webhook'])
     ->name('hooks.telegram');
 
+// Edge Forms: the Worker forwards screened submissions here, HMAC-signed with
+// a per-app key (EdgeFormIngestController::keyFor).
+Route::post('/hooks/edge/{site}/forms', EdgeFormIngestController::class)
+    ->middleware(['throttle:function-log-ingest'])
+    ->name('hooks.edge.forms');
+
 // Per-site deploy hooks (P10b). Match POST + GET so CMSes that only
 // emit GET pings (Sanity, some Webflow integrations) still work.
 // Rate-limit by IP via the cheap default throttle to slow brute-force.
@@ -126,6 +135,23 @@ Route::get('/pricing', function () {
 Route::get('/features', function () {
     return view('features');
 })->name('features');
+
+// Public docs, rendered from docs/site/*.md (nav.json is the allow-list).
+// Slugs are [a-z0-9/-] only, so `..`, `.md` and `.txt` never reach `show`.
+Route::redirect('/docs', '/docs/introduction')->name('docs.index');
+Route::get('/docs/llms.txt', [DocsController::class, 'llms'])->name('docs.llms');
+Route::get('/docs/search.json', [DocsController::class, 'search'])->name('docs.search');
+Route::get('/docs/{slug}.md', [DocsController::class, 'markdown'])
+    ->where('slug', '[a-z0-9/-]+')
+    ->name('docs.markdown');
+Route::get('/docs/{slug}', [DocsController::class, 'show'])
+    ->where('slug', '[a-z0-9/-]+')
+    ->name('docs.show');
+
+Route::get('/sitemap.xml', function (DocsSite $docs) {
+    return response()->view('sitemap', ['docs' => array_filter($docs->pages(), fn ($p) => $p['exists'])])
+        ->header('Content-Type', 'application/xml');
+})->name('sitemap');
 
 Route::get('/deploy', function (Request $request) {
     $allowed = ['repo', 'branch', 'name', 'runtime_mode', 'build_command', 'output_dir'];

@@ -1,6 +1,6 @@
 {{-- Valkey size and sleep, edited in the resources-valkey sheet. Needs $connection. --}}
 @php
-    $vkClass = \App\Modules\Edge\Support\EdgeValkey::CLASSES[$connection['plan']] ?? \App\Modules\Edge\Support\EdgeValkey::CLASSES[\App\Modules\Edge\Support\EdgeValkey::DEFAULT_CLASS];
+    $vkClass = \App\Modules\Edge\Support\EdgeValkey::spec((string) $connection['plan']);
     $vkSleep = (int) ($site->edgeMeta()['valkey_sleep'][$connection['target']] ?? ($vkClass['sleeps'] ? \App\Modules\Edge\Support\EdgeValkey::DEFAULT_SLEEP : 0));
 @endphp
 @php
@@ -16,7 +16,7 @@
                     wire:target="saveValkey"
                     :selected="$vkPlan === $classId"
                     :title="__($class['label'])"
-                    :meta="__('up to $:price/mo', ['price' => number_format($class['cap_cents'] / 100, 0)])"
+                    :meta="__(':memory · :second/s awake · up to $:price/mo', ['memory' => $class['memory_mb'] >= 1024 ? rtrim(rtrim(number_format($class['memory_mb'] / 1024, 1), '0'), '.').' GB' : $class['memory_mb'].' MB', 'second' => \App\Modules\Billing\Support\UsagePrice::dollars($class['per_second'] * 100_000), 'price' => number_format($class['cap_cents'] / 100, 0)])"
                 />
             @endforeach
         </x-sheet.options>

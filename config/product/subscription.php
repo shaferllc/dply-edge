@@ -12,27 +12,21 @@ return [
     |   STRIPE_SECRET=sk_...
     |   STRIPE_WEBHOOK_SECRET=whsec_...
     |
-    | Pricing — plan tiers plus usage (docs/BILLING_AND_PLANS.md, ruling
-    | r-zdescb7y05vp1bxx). Free / Pro / Team include a site count. Static and
-    | hybrid sites past that count use the `edge` price. Every Worker-native
-    | SSR site uses the `edge_ssr` price. Delivery past the plan is metered.
-    | Stripe Checkout requires every line item to share a billing interval.
+    | Pricing — three plans + included usage credit + one margin
+    | (docs/adr/pricing-model-2026-09.md, ruling r-2zxevg4sj675qn1m). Each plan
+    | is one Stripe price; Team adds a per-seat price. Usage is billed in
+    | arrears per Stripe period at provider cost + dply.edge.usage_billing.
+    | margin_percent (App\Modules\Billing\Support\UsagePrice), less the
+    | plan's usage_credit_cents. Sites are unlimited (fair use). Monthly only.
     |
-    |   STRIPE_PRICE_STANDARD_EDGE=price_...               (extra static/hybrid site, monthly)
-    |   STRIPE_PRICE_STANDARD_EDGE_YEARLY=price_...
-    |   STRIPE_PRICE_STANDARD_EDGE_SSR=price_...           (Worker-native SSR Edge site, monthly)
-    |   STRIPE_PRICE_STANDARD_EDGE_SSR_YEARLY=price_...
-    |   STRIPE_PRICE_STANDARD_EDGE_USAGE=price_...         (metered Edge delivery, per-cent unit)
-    |
-    |   STRIPE_PRICE_ENTERPRISE=price_...              (manual Stripe sub for sales-led deals)
+    |   STRIPE_PRICE_STARTER=price_...     (Starter plan, monthly)
+    |   STRIPE_PRICE_TIER_PRO=price_...    (Pro plan, monthly)
+    |   STRIPE_PRICE_TIER_TEAM=price_...   (Team plan, monthly)
+    |   STRIPE_PRICE_TEAM_SEAT=price_...   (Team extra seat, monthly)
+    |   STRIPE_PRICE_ENTERPRISE=price_...  (manual Stripe sub for sales-led deals)
     */
 
     'standard' => [
-        'annual_discount_pct' => 20,
-        // Edge sites younger than this are excluded from the bill. Absorbs the
-        // "spin up + test + kill in five minutes" case so customers aren't
-        // nickel-and-dimed for transient sites.
-        'min_billable_age_days' => (int) env('SUBSCRIPTION_MIN_BILLABLE_AGE_DAYS', 1),
         // No paid plan tiers. The one record is `free`: its per-surface
         // ceilings (App\Enums\QuotaSurface). Null means unlimited. Any paid
         // subscription also lifts the cap (ManagesOrganizationQuotas::quotaLimit()).
@@ -57,18 +51,6 @@ return [
             'invite_expiry_days' => (int) env('SUBSCRIPTION_BETA_INVITE_EXPIRY_DAYS', 30),
         ],
         /*
-        | Plan tiers (ruling r-zdescb7y05vp1bxx, 2026-09-16). Monthly only.
-        | Allowances are org-wide per month. Over them:
-        |   sites          extra static/hybrid sites at edge_cents each
-        |   SSR sites      every SSR site at edge_ssr_cents (never included)
-        |   seats          extra_seat_cents each, or a hard cap when null
-        |   build minutes  build_minute_overage_millicents (1/1000 ¢) each, or builds stop when null
-        |   requests/egress  billed at dply.edge.usage_billing rates
-        |   container compute  per second of vCPU / memory / disk after the
-        |                  tier's compute_credit_cents
-        | The audit log is a tier feature.
-        */
-        /*
         | No Free plan (ruling r-f17p5zgeh120cm5t, 2026-09-26). A new org gets
         | a trial of `tier` for `days`, card required (Stripe trial; it bills
         | on the next day unless canceled). While on trial, usage past
@@ -84,73 +66,77 @@ return [
             'keep_data_days' => 7,
             'purge_enabled' => (bool) env('DPLY_BILLING_PURGE_ENABLED', false),
         ],
+        /*
+        | Plans (ruling r-2zxevg4sj675qn1m). Prices, seats and the included
+        | usage credit are per-plan values the owner can change here:
+        |   seats / extra_seat_cents   extra seats bill on Team; null = hard cap
+        |   usage_credit_cents         usage at customer price up to this is
+        |                              covered each period (min(credit, usage))
+        |   fair_use_apps              hidden anti-abuse cap on non-preview apps
+        |                              (ruling r-bc0k0cta8e50x8vr); null = none
+        | The rest are non-price limits, enforced where each thing happens.
+        | custom_domains is org-wide (the only domain cap).
+        */
         'tiers' => [
             // No plan: the trial ended or the subscription lapsed. Nothing
             // runs (EnforceOrganizationBillingCommand pauses the org), so every
             // allowance is zero. Not offered; never shown as a plan.
             'none' => [
-                'label' => 'No plan', 'price_cents' => 0,
-                'sites' => 0, 'ssr' => false, 'seats' => null, 'extra_seat_cents' => null,
-                'build_minutes' => 0, 'build_minute_overage_millicents' => null,
-                'concurrent_builds' => 0, 'build_timeout_minutes' => 0,
-                'requests' => 0, 'egress_gb' => 0,
-                'custom_domains' => 0, 'custom_domains_per_site' => 0, 'addons' => false, 'audit_log' => false, 'containers' => false, 'compute_credit_cents' => 0, 'spending_limit_cents' => 0, 'build_minute_credit_millicents' => 0, 'databases' => 0, 'queues' => 0, 'queue_concurrency' => 1, 'queue_batch_wait_seconds' => 5,
-                'worker_instances' => 0, 'worker_autoscale' => false, 'worker_groups' => 0,
-                'realtime_max_connections' => 0, 'realtime_connection_minutes' => 0, 'realtime_messages' => 0,
+                'label' => 'No plan', 'price_cents' => 0, 'seats' => null, 'extra_seat_cents' => null,
+                'usage_credit_cents' => 0, 'fair_use_apps' => 0, 'spending_limit_cents' => 0,
+                'ssr' => false, 'containers' => false, 'addons' => false, 'audit_log' => false,
+                'concurrent_builds' => 0, 'build_timeout_minutes' => 0, 'custom_domains' => 0,
+                'databases' => 0, 'queues' => 0, 'queue_concurrency' => 1, 'queue_batch_wait_seconds' => 5,
+                'app_instances' => 1, 'worker_instances' => 0, 'worker_autoscale' => false, 'worker_groups' => 0,
+                'realtime_max_connections' => 0,
+            ],
+            'starter' => [
+                'label' => 'Starter', 'price_cents' => 500, 'seats' => 1, 'extra_seat_cents' => null,
+                'usage_credit_cents' => 500, 'fair_use_apps' => 25,
+                'ssr' => true, 'containers' => true, 'addons' => true, 'audit_log' => false,
+                'concurrent_builds' => 1, 'build_timeout_minutes' => 20, 'custom_domains' => 3,
+                'databases' => 2, 'queues' => 2, 'queue_concurrency' => 5, 'queue_batch_wait_seconds' => 2,
+                // Container apps: one instance per app; queue workers: one, no autoscaling.
+                'app_instances' => 1, 'worker_instances' => 1, 'worker_autoscale' => false, 'worker_groups' => 0,
+                'realtime_max_connections' => 200,
             ],
             'pro' => [
-                'label' => 'Pro', 'price_cents' => 2000,
-                'sites' => 10, 'ssr' => true, 'seats' => 3, 'extra_seat_cents' => null,
-                'build_minutes' => 1_000, 'build_minute_overage_millicents' => 600,
-                'concurrent_builds' => 2, 'build_timeout_minutes' => 45,
-                'requests' => 10_000_000, 'egress_gb' => 500,
-                'custom_domains' => 20, 'custom_domains_per_site' => 100, 'addons' => true, 'audit_log' => false, 'containers' => true, 'compute_credit_cents' => 500, 'databases' => 10, 'queues' => 10, 'queue_concurrency' => 10, 'queue_batch_wait_seconds' => 2,
+                'label' => 'Pro', 'price_cents' => 2000, 'seats' => 3, 'extra_seat_cents' => null,
+                'usage_credit_cents' => 2000, 'fair_use_apps' => 250,
+                'ssr' => true, 'containers' => true, 'addons' => true, 'audit_log' => false,
+                'concurrent_builds' => 2, 'build_timeout_minutes' => 45, 'custom_domains' => 20,
+                'databases' => 10, 'queues' => 10, 'queue_concurrency' => 10, 'queue_batch_wait_seconds' => 2,
                 // Queue workers per app: instances across all groups (null = no cap), autoscaling, extra groups.
-                'worker_instances' => 5, 'worker_autoscale' => true, 'worker_groups' => 2,
-                // Realtime: the largest concurrent-socket size one app may have, and the
-                // org's monthly allowance before EdgeRealtimeCost bills (ruling r-p3dsj9znvtnyhphr).
-                // 5M connection-minutes is ~115 sockets open all month.
-                'realtime_max_connections' => 1_000, 'realtime_connection_minutes' => 5_000_000, 'realtime_messages' => 10_000_000,
+                'app_instances' => null, 'worker_instances' => 5, 'worker_autoscale' => true, 'worker_groups' => 2,
+                // The largest concurrent-socket size one Realtime app may have.
+                'realtime_max_connections' => 1_000,
             ],
             'team' => [
-                'label' => 'Team', 'price_cents' => 4900,
-                'sites' => 50, 'ssr' => true, 'seats' => 5, 'extra_seat_cents' => 500,
-                'build_minutes' => 3_000, 'build_minute_overage_millicents' => 500,
-                'concurrent_builds' => 5, 'build_timeout_minutes' => 60,
-                'requests' => 50_000_000, 'egress_gb' => 2_000,
-                'custom_domains' => 100, 'custom_domains_per_site' => 100, 'addons' => true, 'audit_log' => true, 'containers' => true, 'compute_credit_cents' => 2000, 'databases' => 50, 'queues' => 50, 'queue_concurrency' => 50, 'queue_batch_wait_seconds' => 1,
-                // Queue workers per app: instances across all groups (null = no cap), autoscaling, extra groups.
-                'worker_instances' => 10, 'worker_autoscale' => true, 'worker_groups' => 4,
-                // Realtime: per-app socket cap and monthly allowance (~570 sockets all month).
-                'realtime_max_connections' => 5_000, 'realtime_connection_minutes' => 25_000_000, 'realtime_messages' => 50_000_000,
+                'label' => 'Team', 'price_cents' => 4900, 'seats' => 10, 'extra_seat_cents' => 500,
+                'usage_credit_cents' => 5000, 'fair_use_apps' => 1_000,
+                'ssr' => true, 'containers' => true, 'addons' => true, 'audit_log' => true,
+                'concurrent_builds' => 5, 'build_timeout_minutes' => 60, 'custom_domains' => 100,
+                'databases' => 50, 'queues' => 50, 'queue_concurrency' => 50, 'queue_batch_wait_seconds' => 1,
+                'app_instances' => null, 'worker_instances' => 10, 'worker_autoscale' => true, 'worker_groups' => 4,
+                'realtime_max_connections' => 5_000,
             ],
             // Sales-led: billed by hand in Stripe (subscription.enterprise), so
-            // no fee or overage here — null allowances mean unlimited.
+            // no fee, credit or usage here — null limits mean unlimited.
             'enterprise' => [
-                'label' => 'Enterprise', 'price_cents' => 0,
-                'sites' => null, 'ssr' => true, 'seats' => null, 'extra_seat_cents' => null,
-                'build_minutes' => null, 'build_minute_overage_millicents' => null,
-                'concurrent_builds' => 10, 'build_timeout_minutes' => 120,
-                'requests' => null, 'egress_gb' => null,
-                'custom_domains' => null, 'custom_domains_per_site' => null, 'addons' => true, 'audit_log' => true, 'containers' => true, 'compute_credit_cents' => null, 'databases' => null, 'queues' => null, 'queue_concurrency' => null, 'queue_batch_wait_seconds' => 0,
-                // Queue workers per app: instances across all groups (null = no cap), autoscaling, extra groups.
-                'worker_instances' => null, 'worker_autoscale' => true, 'worker_groups' => 4,
+                'label' => 'Enterprise', 'price_cents' => 0, 'seats' => null, 'extra_seat_cents' => null,
+                'usage_credit_cents' => null, 'fair_use_apps' => null,
+                'ssr' => true, 'containers' => true, 'addons' => true, 'audit_log' => true,
+                'concurrent_builds' => 10, 'build_timeout_minutes' => 120, 'custom_domains' => null,
+                'databases' => null, 'queues' => null, 'queue_concurrency' => null, 'queue_batch_wait_seconds' => 0,
+                'app_instances' => null, 'worker_instances' => null, 'worker_autoscale' => true, 'worker_groups' => 4,
                 // One app is one Durable Object, which tops out in the tens of
                 // thousands of sockets — so Enterprise is capped, not unlimited.
-                'realtime_max_connections' => 20_000, 'realtime_connection_minutes' => null, 'realtime_messages' => null,
+                'realtime_max_connections' => 20_000,
             ],
         ],
-        // Extra static/hybrid site past the plan's included count.
-        // Edge static is genuinely flat-eligible: Cloudflare Workers Paid is
-        // $5/mo per *account* (amortized across the whole fleet) and R2/Pages
-        // egress is free, so the marginal cost of another static site is ~$0.
-        'edge_cents' => 200,
-        // Worker-native SSR Edge sites (dispatch namespace / Workers for
-        // Platforms). Higher platform fee than static/hybrid.
-        'edge_ssr_cents' => 700,
-        // Retired. Kept so an existing Stripe price id still resolves; quantity is always 0.
-        'edge_lb_endpoint_cents' => 800,
-        // Edge delivery usage is billed in 1-cent Stripe units (quantity = cents).
+        // Retired per-site fees: their Stripe prices are removed from
+        // subscriptions by the syncer (no proration, no credit).
+        // Edge delivery usage was billed in 1-cent Stripe units (legacy line).
         'edge_usage_unit_cents' => 1,
         /*
         | Cost observatory — reference rates for billing analytics.
@@ -186,9 +172,17 @@ return [
             'edge_ssr_yearly' => env('STRIPE_PRICE_STANDARD_EDGE_SSR_YEARLY', ''),
             'edge_usage' => env('STRIPE_PRICE_STANDARD_EDGE_USAGE', ''),
             'edge_lb_endpoint' => env('STRIPE_PRICE_STANDARD_EDGE_LB_ENDPOINT', ''),
+            'tier_starter' => env('STRIPE_PRICE_STARTER', ''),
             'tier_pro' => env('STRIPE_PRICE_TIER_PRO', ''),
             'tier_team' => env('STRIPE_PRICE_TIER_TEAM', ''),
             'team_seat' => env('STRIPE_PRICE_TEAM_SEAT', ''),
+            // Retired per-site prices (extra site, SSR site, load balancing).
+            // The syncer removes them without proration or credit.
+            'retired_site_fees' => [
+                env('STRIPE_PRICE_STANDARD_EDGE'), env('STRIPE_PRICE_STANDARD_EDGE_YEARLY'),
+                env('STRIPE_PRICE_STANDARD_EDGE_SSR'), env('STRIPE_PRICE_STANDARD_EDGE_SSR_YEARLY'),
+                env('STRIPE_PRICE_STANDARD_EDGE_LB_ENDPOINT'),
+            ],
             // Prices of retired product lines (plan tiers, serverless, Cloud,
             // managed servers, Realtime, Lookout, Queue, server logs). Nothing
             // bills them any more; StripeSubscriptionSyncer removes any it

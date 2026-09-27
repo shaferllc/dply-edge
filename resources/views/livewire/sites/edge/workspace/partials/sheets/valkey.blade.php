@@ -1,7 +1,7 @@
 @php
     $valkeyConnection = collect($connections)->firstWhere('host', $valkeyHost);
     $valkeySpec = is_array($valkeyConnection)
-        ? (\App\Modules\Edge\Support\EdgeValkey::CLASSES[$valkeyConnection['plan']] ?? \App\Modules\Edge\Support\EdgeValkey::CLASSES[\App\Modules\Edge\Support\EdgeValkey::DEFAULT_CLASS])
+        ? (\App\Modules\Edge\Support\EdgeValkey::spec((string) $valkeyConnection['plan']))
         : null;
     $valkeyModalSleep = is_array($valkeyConnection)
         ? (int) ($site->edgeMeta()['valkey_sleep'][$valkeyConnection['target']] ?? ($valkeySpec['sleeps'] ? \App\Modules\Edge\Support\EdgeValkey::DEFAULT_SLEEP : 0))

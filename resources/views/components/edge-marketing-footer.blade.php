@@ -17,6 +17,7 @@
                     <ul class="mt-3 space-y-2">
                         <li><a href="{{ route('pricing') }}" class="text-sm text-edge-mute transition-colors hover:text-edge-text">{{ __('Pricing') }}</a></li>
                         <li><a href="{{ route('features') }}" class="text-sm text-edge-mute transition-colors hover:text-edge-text">{{ __('Features') }}</a></li>
+                        <li><a href="{{ route('docs.index') }}" class="text-sm text-edge-mute transition-colors hover:text-edge-text">{{ __('Docs') }}</a></li>
                     </ul>
                 </div>
                 <div>

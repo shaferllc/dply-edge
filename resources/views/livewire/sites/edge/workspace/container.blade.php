@@ -1,7 +1,7 @@
 <div>
     <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
         @include('livewire.sites.edge.workspace.partials.feature-guide', [
-            'docSlug' => 'edge-containers',
+            'docSlug' => 'containers',
             'what' => __('Your app runs on Dply Edge. Pick how big each container is, how many can run at once, and how long an idle one stays warm.'),
             'steps' => [
                 __('Choose an instance size that fits your app’s memory.'),

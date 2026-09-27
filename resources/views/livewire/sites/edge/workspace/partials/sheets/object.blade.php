@@ -106,20 +106,16 @@
         </div>
 
         <div x-show="tab === 'costs'" x-cloak class="grid gap-3">
-            @php $objectRate = fn (string $key): int => (int) config('dply.edge.usage_billing.'.$key, 0); @endphp
+            @php $objectRate = fn (string $key): string => \App\Modules\Billing\Support\UsagePrice::dollars(\App\Modules\Billing\Support\UsagePrice::rate($key)); @endphp
             @if ($objectUsage === null)
                 <x-sheet.note>{{ __('The estimate is not available right now. Try again in a few minutes.') }}</x-sheet.note>
             @else
                 <x-sheet.cost :label="__('This month')">${{ number_format($objectUsage['cents'] / 100, 2) }}</x-sheet.cost>
             @endif
-            <p class="text-2xs leading-4 text-brand-mist">{{ __('Storage is $:storage per GB-month after the first :gb GB. Writes are $:a per million after :freeA. Reads are $:b per million after :freeB. Plus :markup% platform fee.', [
-                'storage' => number_format($objectRate('r2_storage_cents_per_gb_month') / 100, 2),
-                'gb' => number_format($objectRate('included_r2_storage_gb_per_site')),
-                'a' => number_format($objectRate('r2_class_a_cents_per_million') / 100, 2),
-                'freeA' => number_format($objectRate('included_r2_class_a_ops_per_site')),
-                'b' => number_format($objectRate('r2_class_b_cents_per_million') / 100, 2),
-                'freeB' => number_format($objectRate('included_r2_class_b_ops_per_site')),
-                'markup' => $objectRate('markup_percent'),
+            <p class="text-2xs leading-4 text-brand-mist">{{ __('Storage is :storage per GB-month. Writes are :a per million. Reads are :b per million. Paid from your plan’s included usage credit first.', [
+                'storage' => $objectRate('r2_bucket_storage_millicents_per_gb_month'),
+                'a' => $objectRate('r2_bucket_class_a_millicents_per_million'),
+                'b' => $objectRate('r2_bucket_class_b_millicents_per_million'),
             ]) }}</p>
         </div>
         </div>

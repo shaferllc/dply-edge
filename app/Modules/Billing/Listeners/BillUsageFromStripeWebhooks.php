@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Billing\Listeners;
 
+use App\Modules\Billing\Jobs\BillRenewalUsageJob;
 use App\Modules\Billing\Models\Subscription;
 use App\Modules\Billing\Services\UsageInvoicer;
 use Laravel\Cashier\Events\WebhookHandled;
@@ -13,8 +14,8 @@ use Laravel\Cashier\Events\WebhookReceived;
  * Stripe webhooks that drive usage billing ({@see UsageInvoicer}). The Stripe
  * webhook endpoint must send `invoice.created` (not in Cashier's default list).
  *
- * - invoice.created: handled inline, so a failure returns 500 and Stripe
- *   retries while the renewal invoice is still a draft (about an hour).
+ * - invoice.created: {@see BillRenewalUsageJob}, because it first re-collects
+ *   the period's last day account-wide (too slow for the webhook request).
  * - customer.subscription.deleted: queued, so a Stripe error can never stop
  *   Cashier from ending the local subscription.
  * - customer.subscription.created/updated: after Cashier has written the row,
@@ -27,7 +28,7 @@ class BillUsageFromStripeWebhooks
         $object = (array) ($event->payload['data']['object'] ?? []);
         $type = $event->payload['type'] ?? '';
         if ($type === 'invoice.created') {
-            app(UsageInvoicer::class)->onInvoiceCreated($object);
+            BillRenewalUsageJob::dispatch($object);
         } elseif ($type === 'customer.subscription.deleted') {
             dispatch(function () use ($object): void {
                 app(UsageInvoicer::class)->onSubscriptionDeleted($object);

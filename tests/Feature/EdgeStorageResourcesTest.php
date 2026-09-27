@@ -30,7 +30,7 @@ beforeEach(function () {
         'dply.edge.usage_billing.included_r2_storage_gb_per_site' => 0,
         'dply.edge.usage_billing.included_r2_class_a_ops_per_site' => 0,
         'dply.edge.usage_billing.included_r2_class_b_ops_per_site' => 0,
-        'dply.edge.usage_billing.markup_percent' => 0,
+        'dply.edge.usage_billing.margin_percent' => 0,
     ]);
 });
 

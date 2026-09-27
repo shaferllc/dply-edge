@@ -21,9 +21,10 @@ final class BillingForecastCalculator
     ): array {
         $asOfDate = $asOf ?? now();
         $monthlyTotalCents = $state->monthlyTotalCents;
-        // Every usage kind (delivery, builds, compute, data), not just delivery.
-        $edgeUsageCents = $state->usageLineCents();
-        $fixedCents = max(0, $monthlyTotalCents - $edgeUsageCents);
+        // Usage so far at customer price (before the credit), and what the
+        // plan's included credit takes off it.
+        $usageCents = $state->usageLineCents();
+        $fixedCents = $state->managedSubtotalCents();
 
         // Usage so far this billing period (the Stripe period, else the
         // calendar month), run out to the period's end.
@@ -32,11 +33,9 @@ final class BillingForecastCalculator
             : Carbon::instance($asOfDate)->startOfMonth();
         $periodDays = max(1, (int) $periodStart->diffInDays($periodStart->copy()->addMonthNoOverflow()));
         $daysElapsed = (int) min($periodDays, max(1, (int) $periodStart->copy()->startOfDay()->diffInDays(Carbon::instance($asOfDate)->startOfDay()) + 1));
-        $projectedEdgeUsageCents = (int) round(($edgeUsageCents / $daysElapsed) * $periodDays);
-        $projectedMonthEndCents = $fixedCents + $projectedEdgeUsageCents;
-
-        $normalizedMrrCents = $this->normalizedMrr($monthlyTotalCents, $subscriptionInterval);
-        $arrCents = $normalizedMrrCents * 12;
+        $projectedUsageCents = (int) round(($usageCents / $daysElapsed) * $periodDays);
+        $projectedCreditCents = min($state->usageCreditCents, $projectedUsageCents);
+        $projectedMonthEndCents = $fixedCents + $projectedUsageCents - $projectedCreditCents;
 
         $baselineCents = $snapshotThirtyDaysAgo?->monthly_total_cents;
         $deltaVsThirtyDaysCents = is_int($baselineCents)
@@ -45,28 +44,22 @@ final class BillingForecastCalculator
 
         return [
             'subscription_interval' => $subscriptionInterval,
-            'mrr_cents' => $normalizedMrrCents,
-            'arr_cents' => $arrCents,
+            'mrr_cents' => $monthlyTotalCents,
+            'arr_cents' => $monthlyTotalCents * 12,
             'fixed_cents' => $fixedCents,
-            'edge_usage_mtd_cents' => $edgeUsageCents,
-            'projected_edge_usage_cents' => $projectedEdgeUsageCents,
+            // "Usage this period $X · included credit $Y · estimated charge $Z"
+            'usage_cents' => $usageCents,
+            'credit_cents' => $state->creditAppliedCents(),
+            'usage_credit_cents' => $state->usageCreditCents,
+            'estimated_charge_cents' => $monthlyTotalCents,
+            'edge_usage_mtd_cents' => $usageCents,
+            'projected_edge_usage_cents' => $projectedUsageCents,
+            'projected_credit_cents' => $projectedCreditCents,
             'projected_month_end_cents' => $projectedMonthEndCents,
             'period_start' => $periodStart->toDateString(),
             'period_end' => $periodStart->copy()->addMonthNoOverflow()->toDateString(),
             'thirty_day_baseline_cents' => $baselineCents,
             'delta_vs_thirty_days_cents' => $deltaVsThirtyDaysCents,
         ];
-    }
-
-    private function normalizedMrr(int $monthlyTotalCents, ?string $subscriptionInterval): int
-    {
-        if ($subscriptionInterval !== 'year') {
-            return $monthlyTotalCents;
-        }
-
-        $annualDiscountPct = (int) config('subscription.standard.annual_discount_pct', 20);
-        $annualCents = (int) round($monthlyTotalCents * 12 * (100 - $annualDiscountPct) / 100);
-
-        return (int) round($annualCents / 12);
     }
 }

@@ -49,7 +49,7 @@
             ]"
         >
             <x-slot:actions>
-                <x-docs-link slug="org-roles-and-limits" class="!h-6 !gap-1 !rounded-md !px-2 !py-0 !text-xs !font-semibold">
+                <x-docs-link slug="roles-and-permissions" class="!h-6 !gap-1 !rounded-md !px-2 !py-0 !text-xs !font-semibold">
                     <x-heroicon-o-queue-list class="h-3.5 w-3.5 shrink-0 opacity-90" aria-hidden="true" />
                     {{ __('Roles & limits') }}
                 </x-docs-link>

@@ -84,15 +84,15 @@ final class EdgeContainerSettings
         $sleep = (string) ($raw['sleep_after'] ?? config('edge.build.containers.sleep_after', '5m'));
         $jurisdiction = (string) ($raw['jurisdiction'] ?? '');
         $mode = (string) ($raw['rollout_mode'] ?? 'gradual');
+        // The plan's app-instance cap (subscription.standard.tiers.*.app_instances; Starter 1).
+        $planCap = $site->organization?->tierAllowances()['app_instances'] ?? null;
+        $max = max(1, min(self::MAX_INSTANCES, $planCap === null ? self::MAX_INSTANCES : (int) $planCap, (int) ($raw['max_instances'] ?? config('edge.build.containers.max_instances', 5))));
 
         return [
             'instance_type' => $type === 'custom' || array_key_exists($type, self::INSTANCE_TYPES) ? $type : 'basic',
-            'max_instances' => max(1, min(self::MAX_INSTANCES, (int) ($raw['max_instances'] ?? config('edge.build.containers.max_instances', 5)))),
+            'max_instances' => $max,
             // Instances kept awake. 0 = scale to zero. Never above max.
-            'min_instances' => max(0, min(
-                max(1, min(self::MAX_INSTANCES, (int) ($raw['max_instances'] ?? config('edge.build.containers.max_instances', 5)))),
-                (int) ($raw['min_instances'] ?? 0),
-            )),
+            'min_instances' => max(0, min($max, (int) ($raw['min_instances'] ?? 0))),
             'sleep_after' => in_array($sleep, self::SLEEP_AFTER, true) ? $sleep : '5m',
             // Off by default: this runs a second full framework boot at the
             // moment a cold-starting container has the least memory, and it
@@ -108,7 +108,11 @@ final class EdgeContainerSettings
             'jobs_always_on' => (bool) ($raw['jobs_always_on'] ?? false),
             // Always-on queue:work instances (EdgeQueueWorkers); 0 when off.
             'worker_instances' => EdgeQueueWorkers::runningInstances($site),
-            'schedules' => self::normalizeSchedules(is_array($raw['schedules'] ?? null) ? $raw['schedules'] : []),
+            // Scaling windows can raise max past the default, never past the plan's cap.
+            'schedules' => array_map(
+                static fn (array $row): array => $planCap === null ? $row : ['max' => max(1, min($row['max'], (int) $planCap)), 'min' => min($row['min'], max(1, (int) $planCap))] + $row,
+                self::normalizeSchedules(is_array($raw['schedules'] ?? null) ? $raw['schedules'] : []),
+            ),
             'rollout_mode' => in_array($mode, self::ROLLOUT_MODES, true) ? $mode : 'gradual',
             'rollout_step_percentage' => self::validRolloutSteps($raw['rollout_step_percentage'] ?? []),
             'rollout_active_grace_period' => max(0, min(self::ROLLOUT_GRACE_MAX, (int) ($raw['rollout_active_grace_period'] ?? 0))),

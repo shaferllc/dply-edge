@@ -1,7 +1,7 @@
 <div>
     <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
         @include('livewire.sites.edge.workspace.partials.feature-guide', [
-            'docSlug' => 'edge-jobs',
+            'docSlug' => 'queue-workers',
             'what' => __('Edge Jobs wire a default queue binding so middleware or SSR workers can enqueue background work without a separate Cloud app.'),
             'steps' => [
                 __('Add a queue binding (name it something like JOBS) — use Manage bindings below, no need to leave this page.'),

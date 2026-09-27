@@ -130,7 +130,7 @@ trait ManagesEdgeDeploy
         }
 
         if ($this->form->runtime_mode === 'container' && ! EdgeSsrAvailability::isAvailable()) {
-            $this->toastError(__('Container delivery isn’t set up on this install yet: it needs the Edge platform API token (with container access) and a dispatch namespace.'));
+            $this->toastError(__('Apps aren’t set up on this install yet: they need the Edge platform API token (with container access) and a dispatch namespace.'));
 
             return;
         }
@@ -142,13 +142,19 @@ trait ManagesEdgeDeploy
         }
 
         if ($this->detectedPlan !== [] && EdgeEligibility::needsContainer($this->detectedPlan) && $this->form->runtime_mode !== 'container') {
-            $this->toastError(__('This looks like a PHP or Rails app. Choose "Container" delivery to run it on Edge.'));
+            $this->toastError(__('This is a server app (PHP, Ruby or Node.js). Choose "App" so dply runs it.'));
+
+            return;
+        }
+
+        if ($this->form->runtime_mode === 'ssr' && ! EdgeSsrAvailability::isAvailable()) {
+            $this->toastError(__('Apps aren’t set up on this install yet. Deploy it as a site, or send server routes to your own server under Advanced.'));
 
             return;
         }
 
         if ($this->form->runtime_mode === 'ssr' && ! ($org->tierAllowances()['ssr'] ?? false)) {
-            $this->toastError(__('Worker-native SSR sites are on Pro and Team. Choose a plan on the billing page, or deploy as static or hybrid.'));
+            $this->toastError(__('Apps that render on the server are on Pro and Team. Choose a plan on the billing page, or deploy it as a site.'));
 
             return;
         }
@@ -162,7 +168,7 @@ trait ManagesEdgeDeploy
 
         if ($this->detectedPlan !== [] && EdgeSsrDetection::planLooksLikeSsr($this->detectedPlan)
             && ! in_array($this->form->runtime_mode, ['hybrid', 'ssr'], true)) {
-            $this->toastError(__('This repository looks like an SSR app. Pick "Worker-native SSR" (Next.js via OpenNext), hybrid mode with an origin URL, or run it on a server.'));
+            $this->toastError(__('This app renders on the server, so a static site won’t work. Choose "App", or send server routes to your own server under Advanced.'));
 
             return;
         }

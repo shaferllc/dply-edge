@@ -22,22 +22,31 @@ test('allows node static and ssg frameworks', function (array $plan) {
     'next static alias' => [['runtime' => 'node', 'framework' => 'nextjs']],
     'next' => [['runtime' => 'node', 'framework' => 'next']],
     'node generic' => [['runtime' => 'node', 'framework' => 'node_generic']],
-    'hugo' => [['runtime' => 'static', 'framework' => 'hugo']],
-    'jekyll' => [['runtime' => 'static', 'framework' => 'jekyll']],
     'plain static' => [['runtime' => 'static', 'framework' => 'static']],
     'node runtime only' => [['runtime' => 'node', 'framework' => '']],
 ]);
 
-test('blocks long-running backend frameworks', function (array $plan, string $route) {
+test('blocks long-running backend frameworks without pointing at servers that no longer exist', function (array $plan) {
     $result = EdgeEligibility::evaluate($plan);
 
     expect($result['eligible'])->toBeFalse()
-        ->and($result['alternative_route'])->toBe($route)
-        ->and($result['message'])->not->toBeNull();
+        ->and($result['alternative_route'])->toBeNull()
+        ->and($result['message'])->toContain('dply doesn’t run')
+        ->and($result['message'])->not->toContain('BYO');
 })->with([
-    'wordpress' => [['runtime' => 'php', 'framework' => 'wordpress'], 'servers.create'],
-    'django' => [['runtime' => 'python', 'framework' => 'django'], 'servers.create'],
-    'go runtime' => [['runtime' => 'go', 'framework' => ''], 'servers.create'],
+    'wordpress' => [['runtime' => 'php', 'framework' => 'wordpress']],
+    'django' => [['runtime' => 'python', 'framework' => 'django']],
+    'go runtime' => [['runtime' => 'go', 'framework' => '']],
+]);
+
+test('hugo and jekyll are blocked with a clear message: the node build image has neither', function (string $framework, string $label) {
+    $result = EdgeEligibility::evaluate(['runtime' => 'static', 'framework' => $framework]);
+
+    expect($result['eligible'])->toBeFalse()
+        ->and($result['message'])->toContain("can’t build {$label} sites yet");
+})->with([
+    'hugo' => ['hugo', 'Hugo'],
+    'jekyll' => ['jekyll', 'Jekyll'],
 ]);
 
 test('blocks framework monorepo package roots flagged not_a_site', function () {

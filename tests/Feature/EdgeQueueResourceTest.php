@@ -29,7 +29,7 @@ beforeEach(function () {
         'edge.cloudflare.account_id' => 'acct',
         'edge.cloudflare.api_token' => 'tok',
         'dply.edge.usage_billing.queue_operations_millicents_per_million' => 40_000,
-        'dply.edge.usage_billing.markup_percent' => 0,
+        'dply.edge.usage_billing.margin_percent' => 0,
     ]);
 });
 

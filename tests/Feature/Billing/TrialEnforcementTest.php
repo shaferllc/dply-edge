@@ -46,7 +46,7 @@ function edgeSite(Organization $org): Site
 test('D1 and Queues usage draws the trial credit', function () {
     config(['subscription.standard.trial.spending_limit_cents' => 1]);
     $org = org(['trial_ends_at' => now()->addDays(3)]);
-    EdgeDataUsage::query()->create(['organization_id' => $org->id, 'date' => now()->toDateString(), 'd1_rows_read' => 1_000_000]);
+    EdgeDataUsage::query()->create(['organization_id' => $org->id, 'date' => now()->toDateString(), 'd1_rows_written' => 10_000]);
 
     expect(app(StarterUsageBudget::class)->status($org)['exhausted'])->toBeTrue();
 });
@@ -55,8 +55,8 @@ test('the trial credit counts from the trial start, not the 1st of the month', f
     config(['subscription.standard.trial.spending_limit_cents' => 1]);
     $this->travelTo('2026-10-02 12:00:00');
     $org = org(['trial_ends_at' => now()->addDays(2)]); // started Sep 29
-    EdgeDataUsage::query()->create(['organization_id' => $org->id, 'date' => '2026-09-30', 'd1_rows_read' => 1_000_000]);
-    EdgeDataUsage::query()->create(['organization_id' => $org->id, 'date' => '2026-09-20', 'd1_rows_read' => 1_000_000]);
+    EdgeDataUsage::query()->create(['organization_id' => $org->id, 'date' => '2026-09-30', 'd1_rows_written' => 10_000]);
+    EdgeDataUsage::query()->create(['organization_id' => $org->id, 'date' => '2026-09-20', 'd1_rows_written' => 10_000]);
 
     expect(app(StarterUsageBudget::class)->status($org)['used_cents'])->toBe(1);
 });
@@ -66,7 +66,7 @@ test('a trial over its cap is paused hourly (paused page too) and resumes once i
     Notification::fake();
     $org = org(['trial_ends_at' => now()->addDays(4)]);
     edgeSite($org);
-    EdgeDataUsage::query()->create(['organization_id' => $org->id, 'date' => now()->toDateString(), 'd1_rows_read' => 1_000_000]);
+    EdgeDataUsage::query()->create(['organization_id' => $org->id, 'date' => now()->toDateString(), 'd1_rows_written' => 10_000]);
 
     $this->artisan('dply:billing:enforce')->assertSuccessful();
     $org = $org->fresh();
@@ -78,7 +78,10 @@ test('a trial over its cap is paused hourly (paused page too) and resumes once i
     $this->travel(5)->days();
     $this->artisan('dply:billing:enforce')->assertSuccessful();
     expect($org->fresh()->billing_notices)->toHaveKey('paused');
-    Notification::assertSentTimes(OrganizationBillingNotice::class, 2); // started, paused
+    Notification::assertSentTimes(OrganizationBillingNotice::class, 3); // started, capped, paused
+    // Hitting the cap emails the owners, not only notification channels.
+    Notification::assertSentTo($org->users()->wherePivot('role', 'owner')->first(), OrganizationBillingNotice::class, fn (OrganizationBillingNotice $n) => $n->kind === 'capped'
+        && str_contains(implode(' ', $n->toMail($org)->introLines), 'add a card for your plan on the billing page, then choose End trial now'));
 
     $org->forceFill(['comped_until' => now()->addMonth()])->save();
     $this->artisan('dply:billing:enforce')->assertSuccessful();

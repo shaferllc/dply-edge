@@ -34,6 +34,21 @@ class SiteUptimeCheckUrlResolver
      */
     public function resolveBaseUrl(Site $site, ?SiteUptimeMonitor $monitor = null): ?string
     {
+        // Edge apps keep their hostnames in meta, not the domains table:
+        // a verified custom domain, else the live dply hostname.
+        if ($site->usesEdgeRuntime()) {
+            $domains = $site->edgeMeta()['routing']['custom_domains'] ?? [];
+            foreach (is_array($domains) ? $domains : [] as $hostname => $info) {
+                if (is_string($hostname) && $hostname !== '' && ($info['dns_status'] ?? null) === 'ready') {
+                    return $this->applyScheme('https://'.$hostname, $monitor);
+                }
+            }
+
+            $live = $site->edgeLiveUrl();
+
+            return $live !== null ? $this->applyScheme($live, $monitor) : null;
+        }
+
         $site->loadMissing('domains', 'previewDomains');
 
         $primary = $site->primaryDomain();

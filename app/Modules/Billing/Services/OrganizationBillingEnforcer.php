@@ -17,8 +17,8 @@ use App\Modules\Edge\Support\EdgeValkey;
 use App\Modules\Notifications\Services\NotificationPublisher;
 use App\Modules\Providers\Valkey\ValkeyGatewayClient;
 use App\Notifications\OrganizationBillingNotice;
+use Carbon\CarbonInterface;
 use Closure;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Notification;
 use Throwable;
@@ -30,8 +30,8 @@ use Throwable;
  *   on a trial      email "started" once, "ending_soon" 3 days before,
  *                   "ending" about a day before
  *   trial past cap  usage passed the trial's spending cap (StarterUsageBudget):
- *                   pause as below until the trial converts; the
- *                   edge.usage.over_budget notification goes out
+ *                   pause as below until the trial converts; email
+ *                   "capped" and the edge.usage.over_budget notification
  *   no plan         pause: queue workers stop, sites serve a paused page,
  *                   container traffic is gated, dply Valkey and database
  *                   tenants are put to sleep; email "paused"
@@ -106,7 +106,7 @@ final class OrganizationBillingEnforcer
                 ($this->say)($org->name.': pause (trial spending cap)');
                 if (! $dry) {
                     $this->pause($org);
-                    $org->forceFill(['billing_notices' => ['capped' => now()->toIso8601String()] + (array) $org->billing_notices])->save();
+                    $this->notice($org, 'capped', false, $org->planTrialEndsAt());
                     $this->overBudget($org);
                 }
             }
@@ -165,7 +165,7 @@ final class OrganizationBillingEnforcer
     }
 
     /** Emails each owner once per kind (billing_notices records it). */
-    private function notice(Organization $org, string $kind, bool $dry, ?Carbon $date = null): void
+    private function notice(Organization $org, string $kind, bool $dry, ?CarbonInterface $date = null): void
     {
         $sent = (array) $org->billing_notices;
         if (isset($sent[$kind])) {
@@ -263,7 +263,8 @@ final class OrganizationBillingEnforcer
                         return;
                     }
                     if (! $pause) {
-                        EdgeValkey::update($target, $url, $class, (int) ($sleeps[$target] ?? $sleeps[$id] ?? EdgeValkey::DEFAULT_SLEEP));
+                        // Keep a store the user put to sleep asleep; only restore its own sleep setting otherwise.
+                        EdgeValkey::setAsleep($target, $url, $class, (int) ($sleeps[$target] ?? $sleeps[$id] ?? EdgeValkey::DEFAULT_SLEEP), (bool) ($connection['asleep'] ?? false));
 
                         return;
                     }
