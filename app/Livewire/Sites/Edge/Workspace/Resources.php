@@ -2180,6 +2180,10 @@ class Resources extends Component
             $this->objectHost = '';
             $this->dispatch('close-modal', 'resources-object');
         }
+        if ($host === $this->valkeyHost) {
+            $this->valkeyHost = '';
+            $this->dispatch('close-modal', 'resources-valkey');
+        }
         $this->dispatch('close-modal', 'resources-delete-connection');
         $this->toastSuccess(match (true) {
             $deferred && EdgeContainerConnections::boundElsewhere($this->site, $target['kind'], $target['target']) => __('Detached. Redeploy this app, and detach or delete it on the other app that still uses it too: it is kept, and billed, until no app does, then deleted after the next deploy.'),

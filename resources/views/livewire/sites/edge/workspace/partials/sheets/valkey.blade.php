@@ -279,6 +279,25 @@
                 </div>
 
             </div>
+
+            @php $valkeyHostJs = \Illuminate\Support\Js::from($valkeyConnection['host']); @endphp
+            <x-sheet.section :title="$valkeyConnection['asleep'] ? __('Asleep') : __('Sleep')">
+                <p class="text-xs leading-5 text-brand-moss">
+                    {{ $valkeyConnection['asleep']
+                        ? __('Not billed while asleep. Waking gives the app its Redis address again on the next deploy.')
+                        : __('Takes the Redis address off the app on the next deploy. Keys are kept and billing stops a minute after the app lets go.') }}
+                </p>
+                <div>
+                    <x-sheet.button wire:click="sleepConnection({{ $valkeyHostJs }}, {{ $valkeyConnection['asleep'] ? 'false' : 'true' }})" wire:loading.attr="disabled" wire:target="sleepConnection">
+                        {{ $valkeyConnection['asleep'] ? __('Wake') : __('Put to sleep') }}
+                    </x-sheet.button>
+                </div>
+            </x-sheet.section>
+
+            <x-sheet.danger :title="__('Delete')">
+                <p class="text-xs leading-5 text-brand-moss">{{ __('Deletes this Valkey and every key in it, and takes REDIS_URL off the app on the next deploy.') }}</p>
+                <div><x-sheet.button variant="danger" wire:click="askDeleteConnection({{ $valkeyHostJs }})" wire:island="resources-delete-connection" x-on:click="$dispatch('open-modal', 'resources-delete-connection')">{{ __('Delete Valkey') }}</x-sheet.button></div>
+            </x-sheet.danger>
             </div>
         @endif
     </x-sheet.body>

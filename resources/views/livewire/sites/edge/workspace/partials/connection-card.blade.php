@@ -1,3 +1,27 @@
+@if ($connection['kind'] === 'redis' && \App\Modules\Edge\Support\EdgeValkey::isTarget($connection['target']) && $cardOnFile)
+    @php
+        $valkeyClass = \App\Modules\Edge\Support\EdgeValkey::spec((string) $connection['plan']);
+        $valkeySleepNow = (int) ($site->edgeMeta()['valkey_sleep'][$connection['target']] ?? ($valkeyClass['sleeps'] ? \App\Modules\Edge\Support\EdgeValkey::DEFAULT_SLEEP : 0));
+    @endphp
+    {{-- dply Valkey opens its sheet like the Edge, App and Database boxes; Sleep and Delete live there. --}}
+    <button type="button" wire:click="$set('valkeyHost', '{{ $connection['host'] }}')" wire:island="resources-valkey" x-on:click="$dispatch('open-modal', 'resources-valkey')" @class([$node, 'resource-asleep border-dashed' => $connection['asleep']])>
+        <span class="flex items-center justify-between gap-2">
+            <span class="flex items-center gap-1.5 {{ $eyebrow }}"><x-resource-kind-icon kind="redis" class="h-3.5 w-3.5 shrink-0" />{{ __($connectionKinds['redis']['label']) }}</span>
+            {!! $connection['asleep'] ? $pill(__('Asleep'), 'sleep') : $pill(__('On'), 'ok') !!}
+        </span>
+        <span class="mt-1.5 block text-sm font-bold text-brand-ink">{{ __($valkeyClass['label']) }}</span>
+        @if (isset($connectionEstimates[$connection['host']]))
+            <span class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-2xs text-brand-mist">
+                <span><b class="text-brand-ink">${{ \App\Modules\Edge\Support\EdgeValkey::money($connectionEstimates[$connection['host']]) }}</b> {{ __('this month') }}</span>
+                <span>{{ __('cap') }} <b class="text-brand-ink">${{ number_format($valkeyClass['cap_cents'] / 100, 0) }}</b>/mo</span>
+            </span>
+        @endif
+        @if (! $connection['asleep'])
+            {!! $sleepNote($valkeyClass['sleeps'] && $valkeySleepNow > 0 ? __('Sleeps after :time idle', ['time' => __(\App\Modules\Edge\Support\EdgeValkey::SLEEPS[$valkeySleepNow] ?? '5 minutes')]) : __('Stays on')) !!}
+        @endif
+        {!! $more !!}
+    </button>
+@else
                     <div @class([
                         'rounded-2xl border p-3.5',
                         'resource-asleep border-dashed border-brand-ink/20 bg-white/70 dark:border-brand-mist/25 dark:bg-zinc-900/70' => $connection['asleep'],
@@ -84,3 +108,4 @@
                             <p class="mt-1 text-xs font-semibold tabular-nums text-brand-ink">{{ __('Cost estimate · $:price', ['price' => number_format($connectionEstimates[$connection['host']] / 100, 2)]) }}</p>
                         @endif
                     </div>
+@endif
