@@ -11,7 +11,7 @@ its $5 cap (r-f17p5zgeh120cm5t) stay. Realtime's separate allowances
 |---|---|---|---|---|---|
 | starter | Starter | $5 | 1 | $5 | — (hard 1) |
 | pro | Pro | $20 | 3 | $20 | — (hard 3) |
-| team | Team | $49 | 10 | $50 | $5 each |
+| team | Team | $49 | 10 | $49 (was $50; a credit never exceeds the fee) | $5 each |
 | enterprise | Enterprise | contract | — | — | — (sales-led, as today) |
 | none | (no plan) | — | — | $0 | — |
 
@@ -33,11 +33,15 @@ its $5 cap (r-f17p5zgeh120cm5t) stay. Realtime's separate allowances
 
 - `margin_percent` default **30** (owner, ruling r-jnv0r3qf1xk49kmc; was 20), env `DPLY_USAGE_MARGIN_PERCENT`. The
   single knob. Replaces `markup_percent` (25) and every hard-coded markup.
-- Every meter's config value is the **provider cost** (Cloudflare list /
-  our infra cost for databases & Valkey), except the meters listed in
+- Every meter's config value is the **provider cost** (Cloudflare
+  list price), except the meters listed in
   `fixed_price_meters`: their value is the customer price and the margin is
-  not added. Bandwidth is the one such meter ($0.06/GB, ruling
-  r-jnv0r3qf1xk49kmc). Customer price =
+  not added. Bandwidth ($0.06/GB, ruling r-jnv0r3qf1xk49kmc) and, since
+  2026-09-27, build time, database compute/storage and realtime (plus
+  Valkey in `EdgeValkey::CLASSES`): they run on dply's own hosts or have no
+  provider unit price, so their prices are set from the real-cost
+  estimates in `dply.unit_costs` (`dply:billing:unit-costs`,
+  docs/pricing-review.md §9, §10). Customer price =
   `cost × (1 + margin/100)`, applied in ONE helper
   (e.g. `App\Modules\Billing\Support\UsagePrice::customer(int|float $costMillicents)`).
   No cost class applies its own markup.

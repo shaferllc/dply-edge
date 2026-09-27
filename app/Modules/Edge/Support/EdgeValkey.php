@@ -26,29 +26,34 @@ final class EdgeValkey
      * sleeps when idle; pro stays on and keeps an append-only file. Billed
      * per second awake, up to the monthly cap.
      *
-     * cost_per_second (dollars) and cap_cost_cents are dply's COST. They were
-     * backed out of the owner's 2026-09-24 customer price table at the
-     * then-default 20% margin (price / 1.2), so they are NOT a measured
-     * cluster cost, and at today's 30% default every Valkey price is about
-     * 8% above that table (docs/pricing-review.md §3). The customer price
-     * comes from {@see spec()} (UsagePrice).
+     * price_cap_cents and price_per_second (dollars) are CUSTOMER PRICES,
+     * fixed like the meters in dply.edge.usage_billing.fixed_price_meters:
+     * the margin is not added. They were set 2026-09-27 from the DigitalOcean
+     * node estimate in dply.unit_costs (dply:billing:unit-costs,
+     * docs/pricing-review.md §9): flex at $18 per GiB-month (the cache pool's
+     * $9.60 per allocatable GiB at 70% packing, x1.3); pro_5g and pro_12g
+     * cover the whole m-2vcpu-16gb node the first one brings up ($84), x1.3.
+     * The cap is reached after 672 h awake (28 days).
      *
-     * @var array<string, array{label: string, memory_mb: int, sleeps: bool, cost_per_second: float, cap_cost_cents: float}>
+     * @var array<string, array{label: string, memory_mb: int, sleeps: bool, price_per_second: float, price_cap_cents: float}>
      */
     public const CLASSES = [
-        'flex_250m' => ['label' => '0.25 vCPU', 'memory_mb' => 250, 'sleeps' => true, 'cost_per_second' => 0.00000248 / 1.2, 'cap_cost_cents' => 600 / 1.2],
-        'flex_1g' => ['label' => '0.5 vCPU', 'memory_mb' => 1024, 'sleeps' => true, 'cost_per_second' => 0.00000992 / 1.2, 'cap_cost_cents' => 2400 / 1.2],
-        'flex_2_5g' => ['label' => '1 vCPU', 'memory_mb' => 2560, 'sleeps' => true, 'cost_per_second' => 0.0000198 / 1.2, 'cap_cost_cents' => 4800 / 1.2],
-        'pro_5g' => ['label' => '2 vCPU', 'memory_mb' => 5120, 'sleeps' => false, 'cost_per_second' => 0.0000318 / 1.2, 'cap_cost_cents' => 7700 / 1.2],
-        'pro_12g' => ['label' => '4 vCPU', 'memory_mb' => 12288, 'sleeps' => false, 'cost_per_second' => 0.0000744 / 1.2, 'cap_cost_cents' => 18000 / 1.2],
-        'pro_25g' => ['label' => 'Large 25 GB', 'memory_mb' => 25600, 'sleeps' => false, 'cost_per_second' => 0.000103 / 1.2, 'cap_cost_cents' => 25000 / 1.2],
-        'pro_50g' => ['label' => 'Large 50 GB', 'memory_mb' => 51200, 'sleeps' => false, 'cost_per_second' => 0.000207 / 1.2, 'cap_cost_cents' => 50000 / 1.2],
+        'flex_250m' => ['label' => '0.25 vCPU', 'memory_mb' => 250, 'sleeps' => true, 'price_per_second' => 4.50 / self::CAP_SECONDS, 'price_cap_cents' => 450],
+        'flex_1g' => ['label' => '0.5 vCPU', 'memory_mb' => 1024, 'sleeps' => true, 'price_per_second' => 18 / self::CAP_SECONDS, 'price_cap_cents' => 1800],
+        'flex_2_5g' => ['label' => '1 vCPU', 'memory_mb' => 2560, 'sleeps' => true, 'price_per_second' => 45 / self::CAP_SECONDS, 'price_cap_cents' => 4500],
+        'pro_5g' => ['label' => '2 vCPU', 'memory_mb' => 5120, 'sleeps' => false, 'price_per_second' => 115 / self::CAP_SECONDS, 'price_cap_cents' => 11500],
+        'pro_12g' => ['label' => '4 vCPU', 'memory_mb' => 12288, 'sleeps' => false, 'price_per_second' => 150 / self::CAP_SECONDS, 'price_cap_cents' => 15000],
+        'pro_25g' => ['label' => 'Large 25 GB', 'memory_mb' => 25600, 'sleeps' => false, 'price_per_second' => 450 / self::CAP_SECONDS, 'price_cap_cents' => 45000],
+        'pro_50g' => ['label' => 'Large 50 GB', 'memory_mb' => 51200, 'sleeps' => false, 'price_per_second' => 600 / self::CAP_SECONDS, 'price_cap_cents' => 60000],
     ];
+
+    /** Seconds awake after which a class reaches its monthly cap (672 h). */
+    public const CAP_SECONDS = 672 * 3600;
 
     /**
      * A class with its customer prices: per_second (dollars) and cap_cents.
      *
-     * @return array{label: string, memory_mb: int, sleeps: bool, cost_per_second: float, cap_cost_cents: float, per_second: float, cap_cents: float}
+     * @return array{label: string, memory_mb: int, sleeps: bool, price_per_second: float, price_cap_cents: float, per_second: float, cap_cents: float}
      */
     public static function spec(string $class): array
     {
@@ -69,7 +74,7 @@ final class EdgeValkey
      */
     public const NOT_OFFERED = ['pro_25g', 'pro_50g'];
 
-    /** @return array<string, array{label: string, memory_mb: int, sleeps: bool, cost_per_second: float, cap_cost_cents: float, per_second: float, cap_cents: float}> */
+    /** @return array<string, array{label: string, memory_mb: int, sleeps: bool, price_per_second: float, price_cap_cents: float, per_second: float, cap_cents: float}> */
     public static function offered(): array
     {
         $offered = [];

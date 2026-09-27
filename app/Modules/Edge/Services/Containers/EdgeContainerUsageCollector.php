@@ -42,19 +42,30 @@ class EdgeContainerUsageCollector
             ->get(['id', 'organization_id'])
             ->keyBy(fn (Site $site) => strtolower((string) $site->id));
 
-        $written = 0;
+        // A site can run several container applications (the web app plus
+        // queue-worker groups); add them up so none overwrites another.
+        $bySite = [];
         foreach ($usage as $appId => $totals) {
             $site = $sites[$siteByApp[$appId] ?? ''] ?? null;
             if ($site === null || $site->organization_id === null) {
                 continue;
             }
+            $key = (string) $site->id;
+            $bySite[$key] ??= ['site' => $site, 'application_id' => $appId, 'totals' => []];
+            foreach ($totals as $field => $value) {
+                $bySite[$key]['totals'][$field] = ($bySite[$key]['totals'][$field] ?? 0) + $value;
+            }
+        }
+
+        $written = 0;
+        foreach ($bySite as $row) {
             $written++;
             if ($dryRun) {
                 continue;
             }
             EdgeContainerUsage::query()->updateOrCreate(
-                ['site_id' => $site->id, 'date' => $date->toDateString()],
-                ['organization_id' => $site->organization_id, 'application_id' => $appId] + $totals,
+                ['site_id' => $row['site']->id, 'date' => $date->toDateString()],
+                ['organization_id' => $row['site']->organization_id, 'application_id' => $row['application_id']] + $row['totals'],
             );
         }
 

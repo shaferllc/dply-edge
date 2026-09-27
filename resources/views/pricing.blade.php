@@ -233,7 +233,7 @@
             <div class="mx-auto max-w-6xl px-6 py-14 lg:px-10">
                 <h2 class="text-2xl font-bold tracking-[-0.02em]">{{ __('Sizes, by the second') }}</h2>
                 <p class="mt-2 max-w-2xl text-sm leading-6 text-edge-mute">
-                    {{ __('One size ladder for apps, databases and Valkey. You pay for each second a size is awake; asleep is free. App prices assume every vCPU is busy — idle CPU costs less.') }}
+                    {{ __('One size ladder for apps, databases and Valkey. You pay for each second a size is awake; asleep is free. App per-second prices assume every vCPU is busy; you are billed for the CPU you use. An always-on app at a typical 25% CPU costs the ~monthly figure, and never more than its monthly cap.') }}
                 </p>
 
                 <div class="mt-8 overflow-x-auto border border-edge-line">
@@ -254,7 +254,7 @@
                                         <td class="px-5 py-3.5 text-edge-mute">
                                             @if ($size[$product])
                                                 <span class="font-terminal text-edge-lime">{{ $size[$product]['second'] }}</span>/s
-                                                <span class="block text-xs">{{ $size[$product]['memory'] }} · {{ $size[$product]['hour'] }}/hr @if ($product === 'valkey') · {{ __('max :cap/mo', ['cap' => $size[$product]['cap']]) }}@if (! $size[$product]['sleeps']) · {{ __('stays on') }}@endif @endif</span>
+                                                <span class="block text-xs">{{ $size[$product]['memory'] }} · {{ $size[$product]['hour'] }}/hr @if ($product === 'app') <span class="block">{{ __('~:typical/mo typical · max :cap/mo', ['typical' => $size[$product]['typical'], 'cap' => $size[$product]['cap']]) }}</span>@endif @if ($product === 'valkey') · {{ __('max :cap/mo', ['cap' => $size[$product]['cap']]) }}@if (! $size[$product]['sleeps']) · {{ __('stays on') }}@endif @endif</span>
                                             @else
                                                 —
                                             @endif

@@ -23,16 +23,16 @@ Each request goes to the first instance with room. When every running instance i
 
 An instance's capacity depends on the stack and size:
 
-| Size | PHP requests at once | Node or Ruby requests at once |
-|---|---|---|
-| 1/16 vCPU | 1 | 50 |
-| 0.25 vCPU | 2 | 50 |
-| 0.5 vCPU | 4 | 50 |
-| 1 vCPU | 8 | 50 |
-| 2 vCPU | 12 | 50 |
-| 4 vCPU | 12 | 50 |
+| Size | PHP requests at once (php-fpm) | Octane (Swoole, RoadRunner) | Node or Ruby requests at once |
+|---|---|---|---|
+| 1/16 vCPU | 1 | — | 50 |
+| 0.25 vCPU, 1 GB | 12 | 8 | 50 |
+| 0.5 vCPU, 4 GB | 16 | 16 | 50 |
+| 1 vCPU, 3 GB | 32 | 30 | 50 |
+| 2 vCPU, 6 GB | 64 | 62 | 50 |
+| 4 vCPU, 12 GB | 128 | 126 | 50 |
 
-A PHP instance runs one request per PHP worker process. The number of workers is the smaller of what memory allows (each worker is capped at 128 MB) and eight per vCPU, up to 12. A custom size follows the same rule. Open WebSockets count as in-flight requests for as long as they are open.
+A PHP instance runs one request per PHP worker process. The number of workers comes from memory: what is left after 192 MB for nginx, the PHP master and opcache, divided by 56 MB per php-fpm worker (96 MB per Octane worker, which keeps the app booted), at most 32 per vCPU (at least 12) and 128 in all. A request can still use up to 128 MB; if the instance runs out of memory, the next deploy moves it up a size. Inertia SSR takes two workers' memory. A custom size follows the same rule. Open WebSockets count as in-flight requests for as long as they are open.
 
 **Keep a visitor on the same instance** (in **Sleep, region, scheduler**, on by default) sets a `dply_instance` cookie so a visitor's session and sockets stay on one container. Turn it off to spread every request at random.
 

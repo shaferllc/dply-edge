@@ -49,8 +49,11 @@ An app has one database. Databases are available to apps with server code: conta
 |---|---|---|
 | 0.25 vCPU | 1 GB | 0.25 |
 | 0.5 vCPU | 2 GB | 0.5 |
+| 1 vCPU | 4 GB | 1 |
+| 2 vCPU | 8 GB | 2 |
+| 4 vCPU | 16 GB | 4 |
 
-The larger rungs of the size ladder (1, 2 and 4 vCPU) are not offered for databases yet.
+The 1, 2 and 4 vCPU sizes appear in the size list once dply enables the larger database nodes. Until then only 0.25 and 0.5 vCPU can be picked. The first large database in a region can take a few minutes to start the first time, while a node is added for it.
 
 Disks come in `1 GB`, `5 GB`, `10 GB`, and `25 GB`. You can change the size and the disk later from the same sheet. A new size applies the next time the database wakes. A disk only grows: picking a smaller one is refused.
 
@@ -161,21 +164,20 @@ Compute is billed per second while awake. Storage is billed per GB-month on the 
 <!-- generated: php artisan dply:billing:price-table sizes --product=database -->
 | Size | Memory | Per second awake | Per hour awake |
 | --- | --- | --- | --- |
-| 0.25 vCPU | 1 GB | $0.00000957 | $0.0345 |
-| 0.5 vCPU | 2 GB | $0.0000191 | $0.0689 |
-| 1 vCPU | 4 GB | $0.0000383 | $0.138 |
-| 2 vCPU | 8 GB | $0.0000766 | $0.276 |
-| 4 vCPU | 16 GB | $0.000153 | $0.551 |
+| 0.25 vCPU | 1 GB | $0.00000833 | $0.03 |
+| 0.5 vCPU | 2 GB | $0.0000167 | $0.06 |
+
+The larger sizes, once enabled, bill at the same rate per compute unit: 1 vCPU $0.12, 2 vCPU $0.24 and 4 vCPU $0.48 per hour awake.
 
 Storage, and compute per compute unit (the 0.25 vCPU size is a quarter of one):
 
 <!-- generated: php artisan dply:billing:price-table rates --group="Databases" -->
 | Meter | Price | Unit |
 | --- | --- | --- |
-| Compute | $0.0000383 | per compute-unit-second (1 vCPU, 4 GB) |
-| Storage | $0.455 | per GB-month |
+| Compute | $0.0000333 | per compute-unit-second (1 vCPU, 4 GB) |
+| Storage | $0.20 | per GB-month |
 
-A 0.25 vCPU database that stays on all month (720 hours) with a 1 GB disk is about $25.26. The same database awake 8 hours a day is about $8.72. This bills at the invoice line **Databases**, less your plan's included usage credit. Usage shows on the app's bill and in [Usage & metering](/docs/usage).
+A 0.25 vCPU database that stays on all month (720 hours) with a 1 GB disk is about $21.80. The same database awake 8 hours a day is about $7.40. This bills at the invoice line **Databases**, less your plan's included usage credit. Usage shows on the app's bill and in [Usage & metering](/docs/usage).
 
 ## Remove or switch a database
 

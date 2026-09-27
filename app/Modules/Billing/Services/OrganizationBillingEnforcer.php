@@ -8,6 +8,7 @@ use App\Models\EdgeDeployment;
 use App\Models\EdgeSiteEnvVar;
 use App\Models\Organization;
 use App\Models\Site;
+use App\Modules\Edge\Actions\CancelStuckEdgeDeployment;
 use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Edge\Services\EdgeHostMapPublisher;
 use App\Modules\Edge\Support\EdgeContainerConnections;
@@ -26,14 +27,15 @@ use Throwable;
 
 /**
  * The trial lifecycle for one org (ruling r-f17p5zgeh120cm5t). Run hourly by
- * dply:billing:enforce and after every billing webhook (SyncOrganizationBillingJob):
+ * dply:billing:enforce, every 5 minutes for a running trial (--trialing), and
+ * after every billing webhook (SyncOrganizationBillingJob):
  *
  *   on a trial      email "started" once, "ending_soon" 3 days before,
  *                   "ending" about a day before
  *   trial past cap  usage passed the trial's spending cap (StarterUsageBudget):
  *                   pause as below until the trial converts; email
  *                   "capped" and the edge.usage.over_budget notification
- *   no plan         pause: queue workers stop, sites serve a paused page,
+ *   no plan         pause: builds in flight stop, queue workers stop, sites serve a paused page,
  *                   container traffic is gated, dply Valkey and database
  *                   tenants are put to sleep; email "paused"
  *   plan again      resume everything the pause stopped
@@ -232,6 +234,23 @@ final class OrganizationBillingEnforcer
         $this->republish($org);
         $this->gate->syncOrganization($org);
         $this->dataStores($org, true);
+        $this->stopBuilds($org);
+    }
+
+    /** Builds bill by the second, so a pause stops the ones in flight. */
+    private function stopBuilds(Organization $org): void
+    {
+        $inFlight = EdgeDeployment::query()
+            ->where('organization_id', $org->id)
+            ->whereIn('status', [EdgeDeployment::STATUS_BUILDING, EdgeDeployment::STATUS_PUBLISHING])
+            ->with('site')
+            ->get();
+        foreach ($inFlight as $deployment) {
+            if ($deployment->site === null) {
+                continue;
+            }
+            $this->attempt(fn () => app(CancelStuckEdgeDeployment::class)->abandon($deployment->site, $deployment, __('Stopped: this organization is paused (billing).')));
+        }
     }
 
     /** The same notification a build past the cap sends (BuildEdgeSiteJob), once a month. */
@@ -296,7 +315,7 @@ final class OrganizationBillingEnforcer
                 $class = $connection['plan'] !== '' ? $connection['plan'] : EdgeValkey::DEFAULT_CLASS;
                 $url = $env('REDIS_URL');
                 $password = rawurldecode((string) (parse_url($url, PHP_URL_PASS) ?? ''));
-                $this->attempt(function () use ($target, $id, $class, $url, $password, $sleeps, $pause): void {
+                $this->attempt(function () use ($target, $id, $class, $url, $password, $sleeps, $pause, $connection): void {
                     $client = ValkeyGatewayClient::fromConfig(EdgeValkey::region($target));
                     if ($password === '') {
                         $pause && $client->sleep($id);
@@ -305,7 +324,7 @@ final class OrganizationBillingEnforcer
                     }
                     if (! $pause) {
                         // Keep a store the user put to sleep asleep; only restore its own sleep setting otherwise.
-                        EdgeValkey::setAsleep($target, $url, $class, (int) ($sleeps[$target] ?? $sleeps[$id] ?? EdgeValkey::DEFAULT_SLEEP), (bool) ($connection['asleep'] ?? false));
+                        EdgeValkey::setAsleep($target, $url, $class, (int) ($sleeps[$target] ?? $sleeps[$id] ?? EdgeValkey::DEFAULT_SLEEP), $connection['asleep']);
 
                         return;
                     }

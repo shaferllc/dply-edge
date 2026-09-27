@@ -72,6 +72,23 @@
                 @error('usage_alert_dollars') <p class="mt-1 text-xs text-brand-rust">{{ $message }}</p> @enderror
                 <p class="mt-0.5 text-xs text-brand-moss">{{ __('Owners are emailed when usage past the included credit reaches 50%, 80% and 100% of this each period. Leave empty for twice the plan price. Nothing is paused.') }}</p>
             </form>
+            @php($metered = \App\Modules\Edge\Support\EdgeMeter::spent($this->organization))
+            <form wire:submit="saveMeteredCap" class="bg-white px-3 py-2.5 sm:px-4">
+                <label for="metered_cap_dollars" class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('AI, browser and vector search limit') }}</label>
+                <div class="mt-1 flex items-center gap-2">
+                    <span class="text-sm text-brand-moss">$</span>
+                    <input id="metered_cap_dollars" type="number" min="0" step="1" inputmode="decimal" wire:model="metered_cap_dollars"
+                           placeholder="{{ number_format(config('edge.metered_services.default_cap_cents', 2500) / 100, 0, '.', '') }}"
+                           class="w-28 rounded-md border border-brand-ink/15 px-2 py-1 text-sm tabular-nums" />
+                    <button type="submit" class="text-sm font-semibold text-brand-sage hover:text-brand-ink">{{ __('Save') }}</button>
+                </div>
+                @error('metered_cap_dollars') <p class="mt-1 text-xs text-brand-rust">{{ $message }}</p> @enderror
+                <p class="mt-0.5 text-xs text-brand-moss">{{ __(':used used this period. Past the limit, calls to AI, browser rendering and vector search are refused until the next period. Owners are emailed at 80% and 100%. Leave empty for :default; 0 removes the limit (up to :ceiling).', [
+                    'used' => '$'.number_format($metered['cents'] / 100, 2),
+                    'default' => '$'.number_format(config('edge.metered_services.default_cap_cents', 2500) / 100, 0),
+                    'ceiling' => '$'.number_format(config('edge.metered_services.ceiling_cents', 100000) / 100, 0),
+                ]) }}</p>
+            </form>
         @endif
     </div>
 </section>

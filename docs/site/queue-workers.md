@@ -23,7 +23,7 @@ If a requirement is missing, the **Queue workers** sheet says which one.
 2. Choose **Queue workers**.
 3. Adjust the settings below, then select **Redeploy** in the banner to start them.
 
-The first time, **Processes** is set to about three per GiB of the app's memory (1 to 8).
+The first time, **Processes** is set from the app's memory: one per 96 MB after a 192 MB reserve (1 to 8; 8 on 1 GB).
 
 When workers are running, dply sets `QUEUE_CONNECTION` to the connection they pull from, unless you set it yourself under **Environment**, so the jobs your app dispatches reach the workers.
 
@@ -32,7 +32,7 @@ When workers are running, dply sets `QUEUE_CONNECTION` to the connection they pu
 | Setting | Range | Default | What it does |
 |---|---|---|---|
 | **Instances** | 1–10 (0–10 with autoscaling, labeled **Always on**) | 1 | Worker instances that always run. |
-| **Processes** | 1–8 per instance | about 3 per GiB | `queue:work` loops in each instance. Jobs mostly wait on a database or an API, so one instance runs several. |
+| **Processes** | 1–8 per instance | one per 96 MB of memory (8 on 1 GB) | `queue:work` loops in each instance. Jobs mostly wait on a database or an API, so one instance runs several. |
 | **Connection** | **Automatic**, `redis`, `database` | **Automatic** | Automatic uses Redis when the app has dply Valkey it can reach, otherwise its database. |
 | **Queues** | comma-separated | `default` | Passed as `--queue`, in priority order, for example `high,default`. |
 

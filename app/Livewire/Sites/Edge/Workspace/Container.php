@@ -11,6 +11,7 @@ use App\Models\EdgeDeployment;
 use App\Models\Server;
 use App\Models\Site;
 use App\Modules\Billing\Services\EdgeContainerComputeCost;
+use App\Modules\Billing\Support\UsagePrice;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Support\EdgeContainerSettings;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
@@ -201,17 +202,17 @@ class Container extends Component
             [
                 'server' => $this->server,
                 'site' => $this->site,
-                'instanceTypes' => EdgeContainerSettings::INSTANCE_TYPES,
+                'instanceTypes' => EdgeContainerSettings::offeredTypes($this->instance_type),
                 'sleepOptions' => EdgeContainerSettings::SLEEP_AFTER,
                 'scriptName' => EdgeContainerDeployer::scriptName($this->site),
-                'monthCents' => $cost->cents((float) ($usage->cpu ?? 0), (float) ($usage->mem ?? 0), (float) ($usage->disk ?? 0), (int) ($usage->tx ?? 0)),
+                'monthCents' => $cost->siteCents($this->site, (float) ($usage->cpu ?? 0), (float) ($usage->mem ?? 0), (float) ($usage->disk ?? 0)),
                 'cpuHours' => (float) ($usage->cpu ?? 0) / 3600,
                 'memoryGibHours' => (float) ($usage->mem ?? 0) / 3600,
                 'perMinute' => $cost->perMinuteMillicents($vcpu, $memory, $disk) / 100_000,
                 'health' => EdgeDeployment::query()->where('site_id', $this->site->id)->where('status', EdgeDeployment::STATUS_LIVE)->latest('published_at')->first()?->meta['container']['health'] ?? null,
-                'minPerMonth' => $cost->perMinuteMillicents($vcpu, $memory, $disk) * 60 * 730 * $this->min_instances / 100_000,
+                'minPerMonth' => UsagePrice::containerMonthly($vcpu, $memory, $disk)['typical'] * $this->min_instances / 100_000,
                 'requestsPerInstance' => EdgeContainerSettings::requestsPerInstance($this->site),
-                'maxPerMonth' => $cost->perMinuteMillicents($vcpu, $memory, $disk) * 60 * 730 * $this->peakInstances() / 100_000,
+                'maxPerMonth' => UsagePrice::containerCapMillicents($vcpu, $memory, $disk) * $this->peakInstances() / 100_000,
             ],
         ));
     }

@@ -645,16 +645,20 @@ final class EdgeContainerDockerfile
         // checks (the Worker's port probe, Knative's) treat an open 8080 as
         // ready, and before this every cold start's first request got a 502.
         $start = match ($server) {
-            'swoole' => 'exec php artisan octane:start --server=swoole --host=0.0.0.0 --port=8080',
+            // Worker counts come from the instance's memory (EdgeContainerSettings::phpFpmPool,
+            // injected as DPLY_PHP_FPM_MAX_CHILDREN). Octane's own default reads the host's CPUs.
+            'swoole' => 'exec php artisan octane:start --server=swoole --host=0.0.0.0 --port=8080 --workers="${DPLY_PHP_FPM_MAX_CHILDREN:-2}"',
             // No --rr-config: Octane then uses the repo's .rr.yaml, or touches an
             // empty one. With the flag, a repo without the file exits on boot.
-            'roadrunner' => 'exec php artisan octane:start --server=roadrunner --host=0.0.0.0 --port=8080',
+            'roadrunner' => 'exec php artisan octane:start --server=roadrunner --host=0.0.0.0 --port=8080 --workers="${DPLY_PHP_FPM_MAX_CHILDREN:-2}"',
             'fpm' => 'children="${DPLY_PHP_FPM_MAX_CHILDREN:-2}"; limit="${DPLY_PHP_MEMORY_LIMIT:-128M}"; mkdir -p /tmp/views /tmp/client_body /tmp/fastcgi; chmod 1777 /tmp/views /tmp/client_body /tmp/fastcgi; export VIEW_COMPILED_PATH=/tmp/views; printf "[global]\npid = /tmp/php-fpm.pid\nerror_log = /tmp/php-fpm.log\ndaemonize = no\n[www]\nuser = www-data\ngroup = www-data\nlisten = 127.0.0.1:9000\npm = ondemand\npm.max_children = %s\npm.process_idle_timeout = 10s\npm.max_requests = 500\nclear_env = no\n" "$children" > /tmp/php-fpm.conf; php-fpm -F -y /tmp/php-fpm.conf -d "memory_limit=$limit" -d opcache.enable=1 -d opcache.memory_consumption=64 -d opcache.max_accelerated_files=10000 & until php -r \'exit(@fsockopen("127.0.0.1", 9000) ? 0 : 1);\'; do sleep 0.1; done; exec nginx -g "daemon off;"',
-            default => 'exec frankenphp run --config /etc/frankenphp/Caddyfile',
+            // The image's Caddyfile reads FRANKENPHP_CONFIG inside `frankenphp {}`; an app's own value wins.
+            default => 'export FRANKENPHP_CONFIG="${FRANKENPHP_CONFIG:-num_threads ${DPLY_PHP_FPM_MAX_CHILDREN:-2}}"; exec frankenphp run --config /etc/frankenphp/Caddyfile',
         };
         if ($ssr !== null) {
             // Inertia's default SSR URL is http://127.0.0.1:13714, which this serves.
-            $start = 'php artisan inertia:start-ssr & '.$start;
+            // The SSR Node process takes about two PHP workers' memory.
+            $start = 'c="${DPLY_PHP_FPM_MAX_CHILDREN:-2}"; [ "$c" -gt 3 ] && export DPLY_PHP_FPM_MAX_CHILDREN=$((c - 2)); php artisan inertia:start-ssr & '.$start;
         }
         $sqlite = 'if [ "$DB_CONNECTION" = "sqlite" ] && [ -n "$DB_DATABASE" ]; then mkdir -p "$(dirname "$DB_DATABASE")"; if [ "$DPLY_SQLITE_SYNC" = "1" ]; then php -r \'@copy("http://sqlite.dply/db", getenv("DB_DATABASE"));\'; fi; [ -f "$DB_DATABASE" ] || touch "$DB_DATABASE"; chmod 666 "$DB_DATABASE"; if [ "$DPLY_SQLITE_SYNC" = "1" ]; then ( while true; do php -r \'$p=getenv("DB_DATABASE"); if(!is_file($p)) exit; $b=file_get_contents($p); $c=stream_context_create(["http"=>["method"=>"PUT","header"=>"Content-Type: application/octet-stream\r\n","content"=>$b,"timeout"=>60]]); @file_get_contents("http://sqlite.dply/db", false, $c);\' ; sleep 20; done ) & fi; fi; ';
         // --isolated takes a cache lock. With CACHE_STORE=database on a new

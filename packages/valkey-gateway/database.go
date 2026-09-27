@@ -370,10 +370,20 @@ func (g *gateway) databasePod(ctx context.Context, id string) (*corev1.Pod, bool
 }
 
 // ensureDatabasePod creates the tenant's pod and volume the first time, then
-// waits for dbagent to answer.
+// waits for dbagent to answer. A pod on the wrong pool for the database's
+// size (resized across 0.5 CU) is recreated: a nodeSelector cannot change in
+// place, and the old node may not have room for the new size. The first
+// database on an empty db-large / db-xl pool waits for a node (minutes), so
+// that wake times out and the next one finds the pod running.
 func (g *gateway) ensureDatabasePod(ctx context.Context, t tenant) (*corev1.Pod, error) {
 	if p, ok := g.databasePod(ctx, t.ID); ok {
-		return p, nil
+		if !wrongDatabasePool(p, databasePool(g.cfg.dbNodePool, t.MemoryMB)) {
+			return p, nil
+		}
+		log.Printf("tenant %s: moving to node pool %s", t.ID, databasePool(g.cfg.dbNodePool, t.MemoryMB))
+		if err := g.deleteDatabasePodAndWait(ctx, p.Name); err != nil {
+			return nil, err
+		}
 	}
 	pvcs := g.kube.CoreV1().PersistentVolumeClaims(g.cfg.dbNamespace)
 	pvc := &corev1.PersistentVolumeClaim{
@@ -404,6 +414,26 @@ func (g *gateway) ensureDatabasePod(ctx context.Context, t tenant) (*corev1.Pod,
 	return nil, fmt.Errorf("database pod did not start in time")
 }
 
+// wrongDatabasePool: the pod is pinned to a different pool than want.
+func wrongDatabasePool(p *corev1.Pod, want string) bool {
+	return p.Spec.NodeSelector[nodePoolKey] != want
+}
+
+// deleteDatabasePodAndWait deletes a (parked) database pod and waits up to 2
+// minutes for it to be gone, so a pod with a new spec can take its name.
+func (g *gateway) deleteDatabasePodAndWait(ctx context.Context, name string) error {
+	pods := g.kube.CoreV1().Pods(g.cfg.dbNamespace)
+	if err := pods.Delete(ctx, name, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	for deadline := time.Now().Add(2 * time.Minute); time.Now().Before(deadline); time.Sleep(time.Second) {
+		if _, err := pods.Get(ctx, name, metav1.GetOptions{}); err != nil {
+			break
+		}
+	}
+	return nil
+}
+
 // clearStuckDatabasePod force-deletes a pod left behind by a dead node. The
 // node never confirms the delete, so the pod stays Terminating and holds the
 // fixed name: without this every wake fails "already exists" until someone
@@ -426,10 +456,11 @@ func (g *gateway) clearStuckDatabasePod(ctx context.Context, id string) {
 	_ = pods.Delete(ctx, p.Name, metav1.DeleteOptions{GracePeriodSeconds: &zero})
 }
 
-// databasePlacement keeps databases on their own pool (DB_NODE_POOL, tainted
-// dply.dev/db), off the cache nodes. Evicting 30 s after its node stops
-// answering (default 300 s) starts recovery elsewhere sooner.
-func (g *gateway) databasePlacement() (map[string]string, []corev1.Toleration) {
+// databasePlacement keeps databases on their own pools (DB_NODE_POOL and the
+// bigger db-large / db-xl, all tainted dply.dev/db), off the cache nodes.
+// Evicting 30 s after its node stops answering (default 300 s) starts
+// recovery elsewhere sooner.
+func (g *gateway) databasePlacement(memoryMB int) (map[string]string, []corev1.Toleration) {
 	gone := int64(30)
 	tolerations := []corev1.Toleration{
 		{Key: "node.kubernetes.io/not-ready", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoExecute, TolerationSeconds: &gone},
@@ -438,14 +469,14 @@ func (g *gateway) databasePlacement() (map[string]string, []corev1.Toleration) {
 	if g.cfg.dbNodePool == "" {
 		return nil, tolerations
 	}
-	return map[string]string{nodePoolKey: g.cfg.dbNodePool},
+	return map[string]string{nodePoolKey: databasePool(g.cfg.dbNodePool, memoryMB)},
 		append(tolerations, corev1.Toleration{Key: dbTaintKey, Operator: corev1.TolerationOpEqual, Value: "true", Effect: corev1.TaintEffectNoSchedule})
 }
 
 func (g *gateway) databasePodSpec(t tenant) *corev1.Pod {
 	uid := int64(999) // postgres in the Debian image (dbagent/Dockerfile.postgres)
 	grace := int64(30)
-	nodeSelector, tolerations := g.databasePlacement()
+	nodeSelector, tolerations := g.databasePlacement(t.MemoryMB)
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   dbPodName(t.ID),

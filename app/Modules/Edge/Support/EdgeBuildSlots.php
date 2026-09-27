@@ -26,6 +26,10 @@ final class EdgeBuildSlots
 
     public static function count(Organization $organization): int
     {
+        if (EdgeTrialLimits::applies($organization)) {
+            return 1; // a trial builds one at a time (EdgeTrialLimits)
+        }
+
         return max(1, (int) ($organization->tierAllowances()['concurrent_builds'] ?? 1));
     }
 

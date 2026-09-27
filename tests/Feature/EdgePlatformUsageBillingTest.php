@@ -31,6 +31,20 @@ beforeEach(function () {
 function fakeAnalytics(array $datasets): void
 {
     Http::fake(function (Request $request) use ($datasets) {
+        // Vectorize is REST, not GraphQL: 'vectorize' => [index name => [vectorCount, dimensions]].
+        if (str_contains($request->url(), '/vectorize/v2/indexes')) {
+            $indexes = (array) ($datasets['vectorize'] ?? []);
+            if (preg_match('#/indexes/([^/]+)/info$#', $request->url(), $m) === 1) {
+                [$count, $dims] = $indexes[urldecode($m[1])];
+
+                return Http::response(['success' => true, 'result' => ['vectorCount' => $count, 'dimensions' => $dims]]);
+            }
+            if (preg_match('#/indexes/([^/]+)$#', $request->url(), $m) === 1) {
+                return Http::response(['success' => true, 'result' => ['name' => urldecode($m[1])]]);
+            }
+
+            return Http::response(['success' => true, 'result' => array_map(static fn (string $name): array => ['name' => $name], array_keys($indexes))]);
+        }
         $query = (string) $request['query'];
         $account = [];
         foreach ($datasets as $name => $groups) {

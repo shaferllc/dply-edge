@@ -6,6 +6,7 @@ namespace App\Modules\Billing\Support;
 
 use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Edge\Support\EdgeContainerSettings;
+use App\Modules\Edge\Support\EdgeDplyDatabase;
 use App\Modules\Edge\Support\EdgeSizeLadder;
 use App\Modules\Edge\Support\EdgeValkey;
 
@@ -127,6 +128,10 @@ final class UsagePrice
             ['Object storage', 'Writes (Class A)', 'per million', 'r2_bucket_class_a_millicents_per_million', 1],
             ['Object storage', 'Reads (Class B)', 'per million', 'r2_bucket_class_b_millicents_per_million', 1],
             ['Images', 'Transformations', 'per 1,000', 'images_transformations_millicents_per_million', 0.001],
+            ['AI', 'Neurons', 'per 1,000', 'ai_neurons_millicents_per_thousand', 1],
+            ['Browser rendering', 'Browser time', 'per browser-hour', 'browser_millicents_per_hour', 1],
+            ['Vector search', 'Queried dimensions', 'per million', 'vector_queried_millicents_per_million_dims', 1],
+            ['Vector search', 'Stored dimensions', 'per 100 million, per month', 'vector_stored_millicents_per_hundred_million_dims', 1],
         ];
 
         return array_map(static function (array $row): array {
@@ -141,7 +146,7 @@ final class UsagePrice
      * container apps (vCPU + memory + disk), dply databases (compute units)
      * and Valkey. Null where a product has no size on that rung.
      *
-     * @return list<array{key: string, label: string, app: ?array{memory: string, second: string, hour: string}, database: array{memory: string, second: string, hour: string}, valkey: ?array{memory: string, second: string, hour: string, cap: string, sleeps: bool}}>
+     * @return list<array{key: string, label: string, app: ?array{memory: string, second: string, hour: string, typical: string, cap: string}, database: ?array{memory: string, second: string, hour: string}, valkey: ?array{memory: string, second: string, hour: string, cap: string, sleeps: bool}}>
      */
     public static function sizes(): array
     {
@@ -159,8 +164,14 @@ final class UsagePrice
             $ladder[] = [
                 'key' => $key,
                 'label' => $label,
-                'app' => is_string($type) ? $row(self::memoryLabel(EdgeContainerSettings::INSTANCE_TYPES[$type][1]), self::containerPerSecond(...EdgeContainerSettings::INSTANCE_TYPES[$type])) : null,
-                'database' => $row($database['memory'], self::rate('database_compute_millicents_per_cu_second') * $database['cu']),
+                'app' => is_string($type) ? $row(self::memoryLabel(EdgeContainerSettings::INSTANCE_TYPES[$type][1]), self::containerPerSecond(...EdgeContainerSettings::INSTANCE_TYPES[$type])) + array_map(
+                    static fn (float $millicents): string => '$'.number_format($millicents / 100_000, 2),
+                    self::containerMonthly(...EdgeContainerSettings::INSTANCE_TYPES[$type]),
+                ) : null,
+                // Only sizes the database nodes can schedule are sold (EdgeDplyDatabase::offeredSizes()).
+                'database' => in_array($key, EdgeDplyDatabase::offeredSizes(), true)
+                    ? $row($database['memory'], self::rate('database_compute_millicents_per_cu_second') * $database['cu'])
+                    : null,
                 'valkey' => is_string($valkey) ? $row(self::memoryLabel(EdgeValkey::CLASSES[$valkey]['memory_mb'] / 1024), self::valkeyPerSecond($valkey)) + [
                     'cap' => '$'.number_format(self::valkeyCapCents($valkey) / 100, 2),
                     'sleeps' => EdgeValkey::CLASSES[$valkey]['sleeps'],
@@ -179,12 +190,57 @@ final class UsagePrice
             + $diskGb * self::rate('container_disk_millicents_per_gb_second');
     }
 
-    /** Customer millicents for a Valkey class awake for a second. */
+    /** vCPU share a typical web app keeps busy. Cloudflare bills vCPU on active use. */
+    public const TYPICAL_CPU = 0.25;
+
+    /** A month, as EdgeAppDatabaseCost::monthly() counts it. */
+    public const MONTH_HOURS = 720;
+
+    /**
+     * Hours of a size's 100%-CPU price that one instance is billed at most
+     * in a month. Break-even is MONTH_HOURS / (1 + margin): below it, an
+     * always-on instance at 100% CPU would bill under cost. So whatever the
+     * config says, the cap stays at least 5% over that cost.
+     */
+    public static function containerCapHours(): float
+    {
+        $floor = self::MONTH_HOURS * 1.05 / (1 + self::marginPercent() / 100);
+
+        return min((float) self::MONTH_HOURS, max($floor, (float) config('dply.edge.usage_billing.container_monthly_cap_hours', 600)));
+    }
+
+    /** Customer millicents one instance of a size is billed at most in a month. */
+    public static function containerCapMillicents(float $vcpu, float $memoryGib, float $diskGb): float
+    {
+        return self::containerCapHours() * 3600 * self::containerPerSecond($vcpu, $memoryGib, $diskGb);
+    }
+
+    /**
+     * One instance always on for a month, in millicents: `typical` at
+     * TYPICAL_CPU busy, `cap` the most it can be billed.
+     *
+     * @return array{typical: float, cap: float}
+     */
+    public static function containerMonthly(float $vcpu, float $memoryGib, float $diskGb): array
+    {
+        $cap = self::containerCapMillicents($vcpu, $memoryGib, $diskGb);
+
+        return [
+            'typical' => min($cap, self::MONTH_HOURS * 3600 * self::containerPerSecond($vcpu * self::TYPICAL_CPU, $memoryGib, $diskGb)),
+            'cap' => $cap,
+        ];
+    }
+
+    /**
+     * Customer millicents for a Valkey class awake for a second. Valkey is
+     * fixed-price like the meters in `fixed_price_meters`: EdgeValkey::CLASSES
+     * holds customer prices, so the margin is not added.
+     */
     public static function valkeyPerSecond(string $class): float
     {
         $spec = EdgeValkey::CLASSES[$class] ?? EdgeValkey::CLASSES[EdgeValkey::DEFAULT_CLASS];
 
-        return self::customer($spec['cost_per_second'] * 100_000);
+        return $spec['price_per_second'] * 100_000;
     }
 
     /** Customer cents a Valkey class costs at most in a month. */
@@ -192,7 +248,7 @@ final class UsagePrice
     {
         $spec = EdgeValkey::CLASSES[$class] ?? EdgeValkey::CLASSES[EdgeValkey::DEFAULT_CLASS];
 
-        return self::customer((float) $spec['cap_cost_cents']);
+        return (float) $spec['price_cap_cents'];
     }
 
     private static function memoryLabel(float $gib): string

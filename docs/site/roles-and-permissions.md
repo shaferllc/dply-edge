@@ -116,7 +116,7 @@ A seat is one person in the organization who can do more than view. View-only me
 | --- | --- | --- | --- | --- |
 | Starter | $5/mo | 1 | — | $5/mo |
 | Pro | $20/mo | 3 | — | $20/mo |
-| Team | $49/mo | 10 | $5/mo each | $50/mo |
+| Team | $49/mo | 10 | $5/mo each | $49/mo |
 | Enterprise | Contact us | Custom | Custom | Custom |
 
 When an invitation would go past a hard limit, dply refuses it with a message that points you to **Billing**. See [Plans & pricing](/docs/pricing).

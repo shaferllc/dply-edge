@@ -208,8 +208,8 @@ Realtime is billed on connection-minutes (one socket open for one minute) and me
 <!-- generated: php artisan dply:billing:price-table rates --group="Realtime" -->
 | Meter | Price | Unit |
 | --- | --- | --- |
-| Connection-minutes | $0.542 | per million |
-| Messages | $0.585 | per million |
+| Connection-minutes | $0.25 | per million |
+| Messages | $0.62 | per million |
 
 This bills at the invoice line **Realtime**. Connections per app are capped by plan:
 

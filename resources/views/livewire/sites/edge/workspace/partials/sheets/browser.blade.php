@@ -22,6 +22,9 @@
         </x-sheet.header>
 
         <x-sheet.body>
+            @if ($browserOn)
+                @include('livewire.sites.edge.workspace.partials.sheets.metered-usage', ['service' => 'browser'])
+            @endif
             @if ($browserOn && $isWorker)
                 <x-sheet.note>{{ __('Your code reads it as env.BROWSER. Use it with @cloudflare/puppeteer: puppeteer.launch(env.BROWSER). It is added on the next deploy.') }}</x-sheet.note>
             @elseif ($browserOn)

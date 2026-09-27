@@ -193,8 +193,10 @@ test('translator emits worker-capable resources as upload-API bindings', functio
 
     $out = collect(translator()->bindingsFor($deployment))->keyBy('name');
 
-    expect($out['AI'])->toBe(['name' => 'AI', 'type' => 'ai'])
-        ->and($out['SEARCH'])->toBe(['name' => 'SEARCH', 'type' => 'vectorize', 'index_name' => 'docs-index'])
+    // AI and vectors are uploaded under a raw name; the entry wrapper's meter is env.AI (EdgeMeter).
+    expect($out['DPLY_RAW_AI'])->toBe(['name' => 'DPLY_RAW_AI', 'type' => 'ai'])
+        ->and($out['DPLY_RAW_SEARCH'])->toBe(['name' => 'DPLY_RAW_SEARCH', 'type' => 'vectorize', 'index_name' => 'docs-index'])
+        ->and($out->has('DPLY_METER_URL') && $out->has('DPLY_METER_KEY'))->toBeTrue()
         ->and($out['IMAGES'])->toBe(['name' => 'IMAGES', 'type' => 'images'])
         ->and($out['POOL'])->toBe(['name' => 'POOL', 'type' => 'hyperdrive', 'id' => 'hd-1'])
         ->and($out->has('STATE'))->toBeFalse();

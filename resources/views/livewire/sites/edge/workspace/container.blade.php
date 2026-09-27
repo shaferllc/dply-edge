@@ -42,14 +42,17 @@
             <div class="rounded-xl border border-brand-ink/10 bg-white px-3 py-2.5 dark:bg-zinc-900">
                 <p class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Worst case, per month') }}</p>
                 <p class="mt-1 font-mono text-lg font-semibold text-brand-ink">${{ number_format($maxPerMonth, 2) }}</p>
-                <p class="text-xs text-brand-moss">{{ trans_choice(':count instance always on|:count instances always on', $max_instances) }}</p>
+                <p class="text-xs text-brand-moss">{{ trans_choice(':count instance always on, at the monthly cap|:count instances always on, at the monthly cap', $max_instances) }}</p>
                 @if ($min_instances > 0)
-                    <p class="text-xs text-brand-moss">{{ __('Always-on floor: $:amount/mo', ['amount' => number_format($minPerMonth, 2)]) }}</p>
+                    <p class="text-xs text-brand-moss">{{ __('Always-on floor: about $:amount/mo at typical CPU', ['amount' => number_format($minPerMonth, 2)]) }}</p>
                 @endif
             </div>
         </div>
 
         <fieldset @disabled(! auth()->user()?->can('update', $site)) class="mt-4 min-w-0 space-y-4">
+            @if (\App\Modules\Edge\Support\EdgeTrialLimits::applies($site->organization))
+                <p class="rounded-lg bg-brand-sand/40 px-3 py-2 text-xs text-brand-moss">{{ __('During the trial this app runs the smallest size (0.25 vCPU), one instance, and sleeps after 5 minutes idle. Larger sizes, more instances and longer sleep: available after your trial.') }}</p>
+            @endif
             <div>
                 <x-input-label :value="__('Instance size')" />
                 <div class="mt-2 grid gap-2 sm:grid-cols-3" role="radiogroup">
@@ -61,7 +64,7 @@
                         ])>
                             <span class="flex items-center gap-2">
                                 <input type="radio" wire:model.live="instance_type" value="{{ $type }}" class="text-brand-sage" />
-                                <span class="font-mono font-semibold text-brand-ink">{{ $type }}</span>
+                                <span class="font-mono font-semibold text-brand-ink">{{ \App\Modules\Edge\Support\EdgeSizeLadder::containerLabel($type) }}</span>
                             </span>
                             <span class="mt-0.5 text-xs text-brand-moss">{{ $vcpu < 1 ? '1/'.(int) round(1 / $vcpu) : $vcpu }} vCPU · {{ $memory }} GiB · {{ $disk }} GB</span>
                         </label>

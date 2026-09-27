@@ -6,12 +6,14 @@ namespace App\Modules\Edge\Support;
 
 use App\Models\EdgeDeployment;
 use App\Models\Organization;
+use App\Modules\Billing\Support\UsagePrice;
 use Carbon\CarbonInterface;
 
 /**
  * Build time an org used, for usage billing: every second of every build,
- * at dply.edge.usage_billing.build_millicents_per_minute (cost), priced by
- * UsagePrice. No per-plan allowance; the plan's usage credit covers it.
+ * at dply.edge.usage_billing.build_millicents_per_minute (a fixed customer
+ * price, fixed_price_meters), priced by UsagePrice. No per-plan allowance;
+ * the plan's usage credit covers it.
  */
 final class EdgeBuildMinutes
 {
@@ -28,9 +30,9 @@ final class EdgeBuildMinutes
             ->sum('build_seconds');
     }
 
-    /** Cost of build seconds, in millicents. */
+    /** Cost of build seconds, in millicents (UsagePrice adds the margin back). */
     public static function costMillicents(int $seconds): float
     {
-        return $seconds / 60 * max(0.0, (float) config('dply.edge.usage_billing.build_millicents_per_minute', 0));
+        return $seconds / 60 * UsagePrice::cost('build_millicents_per_minute');
     }
 }

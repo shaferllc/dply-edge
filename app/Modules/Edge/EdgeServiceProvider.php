@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge;
 
+use App\Models\Site;
 use App\Modules\Edge\Console\CheckEdgeQueueWorkersCommand;
 use App\Modules\Edge\Console\CheckEdgeRealtimeCommand;
 use App\Modules\Edge\Console\CheckEdgeRumAlertsCommand;
@@ -43,6 +44,9 @@ use App\Modules\Edge\Livewire\Import;
 use App\Modules\Edge\Livewire\Index;
 use App\Modules\Edge\Livewire\Templates;
 use App\Modules\Edge\Livewire\Usage;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Livewire\Livewire;
 
@@ -107,5 +111,13 @@ class EdgeServiceProvider extends ServiceProvider
         Livewire::component('edge.usage', Usage::class);
         Livewire::component('edge.build-journey', BuildJourney::class);
         Livewire::component('edge.build-log-stream', BuildLogStream::class);
+
+        // One report per AI / browser / vector call (EdgeMeter), per app.
+        // Workers share egress IPs, so never by IP.
+        RateLimiter::for('edge-meter', function (Request $request) {
+            $site = $request->route('site');
+
+            return Limit::perMinute(20_000)->by('edge-meter:'.($site instanceof Site ? $site->id : $request->ip()));
+        });
     }
 }

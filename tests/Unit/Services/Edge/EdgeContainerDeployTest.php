@@ -352,7 +352,7 @@ test('a browser resource imports puppeteer and a site without one does not', fun
     File::deleteDirectory($dir);
 
     expect($worker)->toContain("import puppeteer from '@cloudflare/puppeteer';")
-        ->and($worker)->toContain('puppeteer.launch(env.BROWSER)')
+        ->and($worker)->toContain("puppeteer.launch(dplyMetered('browser', env.BROWSER, env, ctx, 'BROWSER'))")
         ->and($package['dependencies'])->toHaveKey('@cloudflare/puppeteer');
 });
 
@@ -397,7 +397,7 @@ test('a laravel site keeps the size the operator picked and the fpm pool fits th
     $site = new Site(['meta' => ['edge' => ['build' => ['framework' => 'laravel'], 'container' => ['instance_type' => 'lite']]]]);
 
     expect(EdgeContainerSettings::for($site)['instance_type'])->toBe('lite')
-        ->and(EdgeContainerSettings::phpFpmPool('basic'))->toBe(['max_children' => 2, 'memory_limit' => '128M'])
+        ->and(EdgeContainerSettings::phpFpmPool('basic'))->toBe(['max_children' => 12, 'memory_limit' => '128M'])
         ->and(EdgeContainerSettings::phpFpmPool('lite'))->toBe(['max_children' => 1, 'memory_limit' => '128M'])
         ->and(EdgeContainerSettings::looksLikeMemoryCrash('php-fpm: Killed process'))->toBeTrue()
         ->and(EdgeContainerSettings::looksLikeMemoryCrash('SQLSTATE connection refused'))->toBeFalse();

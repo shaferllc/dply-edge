@@ -50,13 +50,36 @@ func TestTenantFromName(t *testing.T) {
 
 func TestDatabasePlacement(t *testing.T) {
 	anywhere := &gateway{cfg: config{}}
-	if sel, tol := anywhere.databasePlacement(); sel != nil || len(tol) != 2 {
+	if sel, tol := anywhere.databasePlacement(16384); sel != nil || len(tol) != 2 {
 		t.Fatalf("no DB_NODE_POOL: got selector %v and %d tolerations, want none and the 2 fast-eviction ones", sel, len(tol))
 	}
 	pooled := &gateway{cfg: config{dbNodePool: "db"}}
-	sel, tol := pooled.databasePlacement()
-	if sel[nodePoolKey] != "db" || len(tol) != 3 || tol[2].Key != dbTaintKey || *tol[0].TolerationSeconds != 30 {
-		t.Fatalf("DB_NODE_POOL=db: got selector %v, tolerations %+v", sel, tol)
+	// 0.25 and 0.5 CU on the db pool; 1 and 2 CU on db-large; 4 CU on db-xl.
+	for mb, want := range map[int]string{1024: "db", 2048: "db", 4096: dbLargePool, 8192: dbLargePool, 16384: dbXLPool} {
+		sel, tol := pooled.databasePlacement(mb)
+		if sel[nodePoolKey] != want || len(tol) != 3 || tol[2].Key != dbTaintKey || *tol[0].TolerationSeconds != 30 {
+			t.Fatalf("DB_NODE_POOL=db, %d MB: got selector %v, tolerations %+v, want pool %s", mb, sel, tol, want)
+		}
+		if pod := pooled.databasePodSpec(tenant{ID: "pg-x", Engine: "postgres", MemoryMB: mb}); pod.Spec.NodeSelector[nodePoolKey] != want {
+			t.Fatalf("%d MB pod lands on %v, want %s", mb, pod.Spec.NodeSelector, want)
+		}
+	}
+}
+
+func TestDatabaseResizedAcrossPoolsIsRecreated(t *testing.T) {
+	onDB := &corev1.Pod{Spec: corev1.PodSpec{NodeSelector: map[string]string{nodePoolKey: "db"}}}
+	if wrongDatabasePool(onDB, databasePool("db", 2048)) {
+		t.Fatal("a 0.5 CU database on the db pool must stay")
+	}
+	if !wrongDatabasePool(onDB, databasePool("db", 4096)) {
+		t.Fatal("a database grown to 1 CU must leave the db pool")
+	}
+	onLarge := &corev1.Pod{Spec: corev1.PodSpec{NodeSelector: map[string]string{nodePoolKey: dbLargePool}}}
+	if !wrongDatabasePool(onLarge, databasePool("db", 1024)) || !wrongDatabasePool(onLarge, databasePool("db", 16384)) {
+		t.Fatal("a database shrunk to 0.25 CU or grown to 4 CU must leave db-large")
+	}
+	if wrongDatabasePool(&corev1.Pod{}, databasePool("", 16384)) {
+		t.Fatal("without DB_NODE_POOL no pod is ever on the wrong pool")
 	}
 }
 

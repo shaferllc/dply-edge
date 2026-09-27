@@ -18,7 +18,28 @@ const (
 	proSmallPool = "pro-16" // m-2vcpu-16gb: Pro 5 GB and 12 GB
 	proLargePool = "pro-64" // m-8vcpu-64gb: Pro 25 GB and 50 GB
 	proSmallMax  = 12288
+
+	// Databases over 0.5 CU (2 GiB) do not fit the db pool's 4 GB nodes
+	// (2.5 GiB allocatable). With DB_NODE_POOL set they go to these pools,
+	// which scale from zero and carry the same dply.dev/db taint.
+	dbPoolMaxMB  = 2048
+	dbLargePool  = "db-large" // s-8vcpu-16gb, 13 GiB allocatable: 1 and 2 CU
+	dbLargeMaxMB = 8192
+	dbXLPool     = "db-xl" // m-4vcpu-32gb, 28 GiB allocatable: 4 CU
 )
+
+// databasePool is the node pool a database of this size runs on, or "" for
+// anywhere (no DB_NODE_POOL: local clusters have no pools).
+func databasePool(dbNodePool string, memoryMB int) string {
+	switch {
+	case dbNodePool == "" || memoryMB <= dbPoolMaxMB:
+		return dbNodePool
+	case memoryMB <= dbLargeMaxMB:
+		return dbLargePool
+	default:
+		return dbXLPool
+	}
+}
 
 // proPlacement returns the nodeSelector and tolerations for a pod, or nil for
 // a flex tenant.

@@ -135,8 +135,8 @@ Realtime is metered by connection-minutes (each open socket, each minute) and me
 <!-- generated: php artisan dply:billing:price-table rates --group="Realtime" -->
 | Meter | Price | Unit |
 | --- | --- | --- |
-| Connection-minutes | $0.542 | per million |
-| Messages | $0.585 | per million |
+| Connection-minutes | $0.25 | per million |
+| Messages | $0.62 | per million |
 
 See [Usage & metering](/docs/usage) and [Realtime (WebSockets)](/docs/resources/realtime).
 

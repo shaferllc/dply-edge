@@ -34,6 +34,7 @@
                         </x-sheet.metrics>
                     @endif
                     <div><x-sheet.button wire:click="loadVectors">{{ __('Refresh') }}</x-sheet.button></div>
+                    @include('livewire.sites.edge.workspace.partials.sheets.metered-usage', ['service' => 'vectors'])
                     @if ($vectorsConnection['asleep'])
                         <x-sheet.note>{{ __('Asleep. The app does not get this index until you wake it.') }}</x-sheet.note>
                     @endif

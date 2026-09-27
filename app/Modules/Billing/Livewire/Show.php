@@ -57,6 +57,9 @@ class Show extends Component
     /** Usage soft limit in dollars ('' = the default, twice the plan price). */
     public string $usage_alert_dollars = '';
 
+    /** Monthly cap on AI, browser rendering and vector search (EdgeMeter); '' = the default, 0 = off. */
+    public string $metered_cap_dollars = '';
+
     /** Flipped by wire:init so the Stripe invoice list never blocks first paint. */
     public bool $invoicesLoaded = false;
 
@@ -79,6 +82,7 @@ class Show extends Component
         $this->billing_currency = (string) ($organization->billing_currency ?? '');
         $this->billing_details = (string) ($organization->billing_details ?? '');
         $this->usage_alert_dollars = $organization->usage_alert_cents === null ? '' : (string) ($organization->usage_alert_cents / 100);
+        $this->metered_cap_dollars = $organization->metered_cap_cents === null ? '' : (string) ($organization->metered_cap_cents / 100);
     }
 
     /** Owners are emailed at 50/80/100% of this each billing period (UsageAlerts). */
@@ -90,6 +94,19 @@ class Show extends Component
             'usage_alert_cents' => $this->usage_alert_dollars === '' ? null : (int) round((float) $this->usage_alert_dollars * 100),
         ])->save();
         $this->toastSuccess(__('Usage alert saved.'));
+    }
+
+    /** AI, browser rendering and vector search are refused past this each period (EdgeMeter). */
+    public function saveMeteredCap(): void
+    {
+        $this->authorize('update', $this->organization);
+        $ceiling = (int) config('edge.metered_services.ceiling_cents', 100000) / 100;
+        $this->validate(['metered_cap_dollars' => ['nullable', 'numeric', 'min:0', 'max:'.$ceiling]]);
+        $this->organization->forceFill([
+            'metered_cap_cents' => $this->metered_cap_dollars === '' ? null : (int) round((float) $this->metered_cap_dollars * 100),
+        ])->save();
+        Cache::forget('edge-meter:spent:'.$this->organization->id);
+        $this->toastSuccess(__('Limit saved. Apps pick it up within a minute.'));
     }
 
     public function saveBillingDetails(VatInsightService $vatInsights): void

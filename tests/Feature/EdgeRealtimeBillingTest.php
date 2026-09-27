@@ -147,14 +147,14 @@ test('the command is registered', function () {
     $this->artisan('dply:edge:collect-realtime-usage', ['--dry-run' => true])->assertSuccessful();
 });
 
-test('every connection-minute and message bills at cost plus the margin: no allowance', function () {
+test('every connection-minute and message bills at its fixed price: no allowance, no margin on top', function () {
     config(['dply.edge.usage_billing.margin_percent' => 20]);
     $cost = app(EdgeRealtimeCost::class);
 
-    // 1M connection-minutes: 0.05/1.2 millicents each at cost → $0.50 at 20%.
-    expect($cost->cents(1_000_000 * 60, 0))->toBe(50)
-        // 1M messages: $0.45 at cost → $0.54.
-        ->and($cost->cents(0, 1_000_000))->toBe(54)
+    // 1M connection-minutes: $0.25 whatever the margin (fixed_price_meters).
+    expect($cost->cents(1_000_000 * 60, 0))->toBe(25)
+        // 1M messages: $0.62.
+        ->and($cost->cents(0, 1_000_000))->toBe(62)
         ->and($cost->cents(0, 0))->toBe(0);
 });
 
@@ -165,7 +165,7 @@ test('forOrganization sums the month, including a deleted app', function () {
     EdgeRealtimeUsage::query()->create(['organization_id' => $org->id, 'realtime_app_id' => '01OLDOLDOLDOLDOLDOLDOLDOLD', 'date' => now()->subMonths(2)->toDateString(), 'connection_seconds' => 9_000_000 * 60, 'messages' => 0]);
 
     expect(app(EdgeRealtimeCost::class)->forOrganization($org, now()->startOfMonth(), now()->endOfMonth()))
-        ->toBe(['connection_seconds' => 1_000_000 * 60, 'messages' => 0, 'cents' => 50]);
+        ->toBe(['connection_seconds' => 1_000_000 * 60, 'messages' => 0, 'cents' => 25]);
 });
 
 test('the billing computer includes realtime in usage', function () {
@@ -173,7 +173,7 @@ test('the billing computer includes realtime in usage', function () {
     [$org] = site(false);
     EdgeRealtimeUsage::query()->create(['organization_id' => $org->id, 'realtime_app_id' => '01APPAPPAPPAPPAPPAPPAPPAPP', 'date' => now()->toDateString(), 'connection_seconds' => 0, 'messages' => 1_000_000]);
 
-    expect(app(OrganizationBillingStateComputer::class)->computeForTier($org, 'pro')->usageLines()['realtime'] ?? 0)->toBe(54);
+    expect(app(OrganizationBillingStateComputer::class)->computeForTier($org, 'pro')->usageLines()['realtime'] ?? 0)->toBe(62);
 });
 
 test('the card shows this app\'s cost this month', function () {
@@ -184,7 +184,7 @@ test('the card shows this app\'s cost this month', function () {
 
     $component = Livewire::actingAs($user)->test(Resources::class, ['server' => $site->server, 'site' => $site])->instance();
 
-    expect($component->realtimeCostCents(['target' => $app->id]))->toBe(54)
+    expect($component->realtimeCostCents(['target' => $app->id]))->toBe(62)
         ->and($component->realtimeCostCents(['target' => '']))->toBeNull();
 });
 

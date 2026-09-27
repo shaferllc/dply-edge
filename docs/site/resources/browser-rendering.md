@@ -80,9 +80,28 @@ The **Demo** section on the browser sheet opens a public **Page address** from t
 
 ## Pricing
 
-dply does not meter or bill browser rendering per organization today. It is included with paid plans.
+Browser rendering is billed per browser-hour, counted per second from opening a browser session to closing it, at the invoice line **AI, browser rendering and vector search**, less your plan's included usage credit.
+
+<!-- generated: php artisan dply:billing:price-table rates --group="Browser rendering" -->
+| Meter | Price | Unit |
+| --- | --- | --- |
+| Browser time | $0.117 | per browser-hour |
+
+Close the browser when you are done (`await browser.close()`). A session your code leaves open is still running, but dply counts only the time until your request ends.
+
+### Monthly limit
+
+AI, browser rendering and vector search share one monthly limit per organization, **$25** unless an owner changes it on the **Billing** page. It counts every app in the organization, and the **Try it** and **Query** tabs in the dashboard. Owners are emailed at 80% and 100%. At the limit, calls are refused until the next billing period or until an owner raises it:
+
+- A Worker app's call rejects with an error whose message says the limit is reached (`error.status` is `429`).
+- A container app gets HTTP `429` with `{"error": "..."}`.
+
+Setting the limit to `0` removes it, up to a platform maximum. dply can also turn one of these services off for everyone for a while; calls then fail with status `503` and say so. The AI, browser and vector search cards show this period's usage and the limit.
 
 On a trial, or if the organization leaves its paid plan, the browser is left out of the app's next deploy.
+
+> [!NOTE]
+> In a Worker app, only your fetch, scheduled and queue handlers (and a `WorkerEntrypoint` class entry) see `env.BROWSER`. Your own Durable Object classes do not: call it from a handler instead.
 
 ## Remove the browser
 

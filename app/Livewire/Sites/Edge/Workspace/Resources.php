@@ -47,6 +47,7 @@ use App\Modules\Edge\Support\EdgeDplyDatabaseStats;
 use App\Modules\Edge\Support\EdgeEffectiveBindings;
 use App\Modules\Edge\Support\EdgeQueueWorkers;
 use App\Modules\Edge\Support\EdgeSizeLadder;
+use App\Modules\Edge\Support\EdgeTrialLimits;
 use App\Modules\Edge\Support\EdgeValkey;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use App\Modules\Providers\Valkey\ValkeyGatewayClient;
@@ -238,6 +239,7 @@ class Resources extends Component
                 continue;
             }
             $url = $this->productionRedisUrl();
+            [$class, $sleep] = EdgeTrialLimits::valkey($this->site, $class, $sleep);
             try {
                 // An asleep store keeps its short sleep (update would send 0 for Pro).
                 EdgeValkey::setAsleep($connection['target'], $url, $class, $sleep, $connection['asleep']);
@@ -1913,6 +1915,7 @@ class Resources extends Component
                 try {
                     // dply's own Valkey (T-021).
                     $this->redisPlan = isset(EdgeValkey::CLASSES[$this->valkeyClass]) ? $this->valkeyClass : EdgeValkey::DEFAULT_CLASS;
+                    [$this->redisPlan, $this->valkeySleep] = EdgeTrialLimits::valkey($this->site, $this->redisPlan, $this->valkeySleep);
                     $valkey = EdgeValkey::provision($this->site, $identity['resource'], $this->redisPlan, $this->valkeySleep);
                     $started = ['id' => $valkey['target'], 'url' => $valkey['url']];
                 } catch (\Throwable $e) {
@@ -2399,7 +2402,7 @@ class Resources extends Component
         if (! array_key_exists($size, EdgeAppDatabase::POSTGRES_SIZES)) {
             return;
         }
-        if (! in_array($size, EdgeDplyDatabase::OFFERED_SIZES, true)) {
+        if (! in_array($size, EdgeDplyDatabase::offeredSizes(), true)) {
             return;
         }
 
@@ -2645,6 +2648,7 @@ class Resources extends Component
                     'memory' => $this->customMemoryGib.' GiB',
                     'disk' => $this->customDiskGb.' GB',
                     'price' => $quote['month'],
+                    'cap' => $quote['cap'],
                 ];
             } elseif (isset(EdgeContainerSettings::INSTANCE_TYPES[$this->draftInstanceType])) {
                 [$vcpu, $memory, $disk] = EdgeContainerSettings::INSTANCE_TYPES[$this->draftInstanceType];
@@ -2673,7 +2677,7 @@ class Resources extends Component
         }
         $postgresSuspend = EdgeAppDatabase::postgresSuspend($this->draftPostgresSuspend, $this->draftPostgresPlan);
         $postgresPlan = $postgresSuspend === -1 ? 'awake' : 'sleep';
-        $postgresSize = EdgeDplyDatabase::size($this->draftPostgresSize);
+        $postgresSize = EdgeDplyDatabase::size($this->draftPostgresSize, (string) ($storedDatabase['size'] ?? ''));
         $awakeHours = max(0, min(24, $this->awakeHours));
         foreach ($postgresSizes as $key => $size) {
             $hours = $postgresSuspend === -1 ? 24 : $awakeHours;
@@ -2792,10 +2796,36 @@ class Resources extends Component
      */
     private function refreshPending(): void
     {
+        $this->holdDraftsToTrial();
         $saved = $this->persistedState();
         $this->pending = $this->draftState() != $saved;
         if ($this->pending && $this->draftDatabase === $saved['database']) {
             $this->persistPending(true);
+        }
+    }
+
+    /**
+     * A trial's capped choices snap back (EdgeTrialLimits), so the draft
+     * matches what the trial runs and nothing is left pending. The sheets
+     * show them disabled; this catches a direct call.
+     */
+    private function holdDraftsToTrial(): void
+    {
+        if (! EdgeTrialLimits::applies($this->site->organization)) {
+            return;
+        }
+        $before = [$this->draftInstanceType, $this->draftMaxInstances, $this->sleepAfter, $this->draftPostgresSize, $this->draftPostgresSuspend];
+        if (! EdgeTrialLimits::allowsContainerType($this->draftInstanceType)) {
+            $this->draftInstanceType = EdgeContainerSettings::for($this->site)['instance_type'];
+        }
+        $this->draftMaxInstances = 1;
+        $this->sleepAfter = EdgeTrialLimits::SLEEP_AFTER;
+        if (in_array($this->draftDatabase, EdgeAppDatabase::DPLY_ENGINES, true)) {
+            [$this->draftPostgresSize, $this->draftPostgresSuspend] = EdgeTrialLimits::database($this->site, $this->draftPostgresSize, EdgeAppDatabase::postgresSuspend($this->draftPostgresSuspend, $this->draftPostgresPlan));
+            $this->draftPostgresPlan = 'sleep';
+        }
+        if ($before !== [$this->draftInstanceType, $this->draftMaxInstances, $this->sleepAfter, $this->draftPostgresSize, $this->draftPostgresSuspend]) {
+            $this->toastError(__('Available after your trial.'));
         }
     }
 
@@ -2984,15 +3014,16 @@ class Resources extends Component
     }
 
     /**
-     * @return list<array{key: string, label: string, vcpu: string, memory: string, disk: string, price: string}>
-     */
-    /**
-     * @return array{second: string, minute: string, hour: string, day: string, month: string, awakeMonth: string, saved: string}
+     * The per-second rate is every vCPU busy. The monthly figures are at
+     * typical CPU (UsagePrice::containerMonthly), never above the cap.
+     *
+     * @return array{second: string, minute: string, hour: string, day: string, month: string, cap: string, awakeMonth: string, saved: string}
      */
     private function runningQuote(EdgeContainerComputeCost $cost, float $vcpu, float $memoryGib, float $diskGb, int $instances): array
     {
         $perMinute = $cost->perMinuteMillicents($vcpu, $memoryGib, $diskGb) / 100_000 * $instances;
-        $month = $perMinute * 60 * 730;
+        $monthly = UsagePrice::containerMonthly($vcpu, $memoryGib, $diskGb);
+        $month = $monthly['typical'] / 100_000 * $instances;
         $awake = max(0, min(24, $this->awakeHours));
         $used = $month * ($awake / 24);
 
@@ -3002,6 +3033,7 @@ class Resources extends Component
             'hour' => self::money($perMinute * 60),
             'day' => self::money($perMinute * 60 * 24),
             'month' => self::money($month),
+            'cap' => self::money($monthly['cap'] / 100_000 * $instances),
             'awakeMonth' => self::money($used),
             'saved' => self::money(max(0, $month - $used)),
         ];
@@ -3018,13 +3050,22 @@ class Resources extends Component
         return '$'.number_format($dollars, $places);
     }
 
+    /**
+     * Offered sizes (plus the app's legacy size, if it is on one). `price` is
+     * a month always on at typical CPU; `cap` the most it can bill.
+     *
+     * @return list<array{key: string, label: string, vcpu: string, second: string, memory: string, disk: string, price: string, cap: string}>
+     */
     private function sizes(EdgeContainerComputeCost $cost, int $instances): array
     {
         $instances = max(1, $instances);
+        $format = static fn (float $millicents): string => ($dollars = $millicents / 100_000 * $instances) >= 10
+            ? '$'.number_format($dollars, 0).'/mo'
+            : '$'.number_format($dollars, 2).'/mo';
         $sizes = [];
-        foreach (EdgeContainerSettings::INSTANCE_TYPES as $key => [$vcpu, $memory, $disk]) {
+        foreach (EdgeContainerSettings::offeredTypes($this->persistedState()['instance_type']) as $key => [$vcpu, $memory, $disk]) {
             $perMinute = $cost->perMinuteMillicents((float) $vcpu, (float) $memory, (float) $disk) / 100_000;
-            $perMonth = $perMinute * 60 * 730 * $instances;
+            $monthly = UsagePrice::containerMonthly((float) $vcpu, (float) $memory, (float) $disk);
             $sizes[] = [
                 'key' => $key,
                 'label' => EdgeSizeLadder::containerLabel($key),
@@ -3032,9 +3073,8 @@ class Resources extends Component
                 'second' => UsagePrice::dollars($perMinute * 100_000 / 60),
                 'memory' => $memory < 1 ? ((int) round($memory * 1024)).' MB' : $memory.' GiB',
                 'disk' => $disk.' GB',
-                'price' => $perMonth >= 10
-                    ? '$'.number_format($perMonth, 0).'/mo'
-                    : '$'.number_format($perMonth, 2).'/mo',
+                'price' => $format($monthly['typical']),
+                'cap' => $format($monthly['cap']),
             ];
         }
 

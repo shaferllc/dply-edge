@@ -29,8 +29,14 @@ final class EdgeDplyDatabase
         'mysql' => ['my', '3306'],
     ];
 
-    /** Sizes that fit the shared flex nodes (4 GB). Bigger ones need a pool. */
+    /** Sizes that fit the db pool's 4 GB nodes. Always sold. */
     public const OFFERED_SIZES = ['0.25', '0.5'];
+
+    /**
+     * Sizes that run on the db-large / db-xl pools (deploy/valkey/terraform),
+     * sold once dply.databases.large_sizes_enabled is on.
+     */
+    public const LARGE_SIZES = ['1', '2', '4'];
 
     /**
      * Volume sizes. A volume only grows, so a smaller pick is refused.
@@ -46,15 +52,29 @@ final class EdgeDplyDatabase
         return ValkeyGatewayClient::configured();
     }
 
+    /** @return list<string> Sizes a customer can pick now. */
+    public static function offeredSizes(): array
+    {
+        return config('dply.databases.large_sizes_enabled')
+            ? [...self::OFFERED_SIZES, ...self::LARGE_SIZES]
+            : self::OFFERED_SIZES;
+    }
+
     /** @return array<string, array{cpu: string, memory: string, cu: float}> */
     public static function sizes(): array
     {
-        return array_intersect_key(EdgeAppDatabase::POSTGRES_SIZES, array_flip(self::OFFERED_SIZES));
+        return array_intersect_key(EdgeAppDatabase::POSTGRES_SIZES, array_flip(self::offeredSizes()));
     }
 
-    public static function size(string $size): string
+    /**
+     * An offered size, or the database's current one: a database keeps its
+     * size if the large sizes are switched off after it was made.
+     */
+    public static function size(string $size, string $current = ''): string
     {
-        return in_array($size, self::OFFERED_SIZES, true) ? $size : self::OFFERED_SIZES[0];
+        return in_array($size, self::offeredSizes(), true) || ($size === $current && array_key_exists($size, EdgeAppDatabase::POSTGRES_SIZES))
+            ? $size
+            : self::OFFERED_SIZES[0];
     }
 
     public static function disk(int $gb): int
@@ -75,7 +95,8 @@ final class EdgeDplyDatabase
 
     public static function memoryMb(string $size): int
     {
-        return (int) round(EdgeAppDatabase::POSTGRES_SIZES[self::size($size)]['cu'] * 4096);
+        // $size was checked by size() when picked; a stored size is kept as is.
+        return (int) round((EdgeAppDatabase::POSTGRES_SIZES[$size] ?? EdgeAppDatabase::POSTGRES_SIZES[self::OFFERED_SIZES[0]])['cu'] * 4096);
     }
 
     /** POSTGRES_SLEEPS uses -1 for "stays on"; the gateway uses 0. */

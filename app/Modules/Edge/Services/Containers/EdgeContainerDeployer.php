@@ -15,6 +15,7 @@ use App\Modules\Edge\Support\EdgeContainerSettings;
 use App\Modules\Edge\Support\EdgeEffectiveBindings;
 use App\Modules\Edge\Support\EdgeEffectiveCrons;
 use App\Modules\Edge\Support\EdgeLogCopy;
+use App\Modules\Edge\Support\EdgeMeter;
 use App\Modules\Edge\Support\EdgeQueueWorkers;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Contracts\Process\ProcessResult;
@@ -372,7 +373,7 @@ class EdgeContainerDeployer
 
         $project = $workRoot.'/container-worker';
         $queues = $this->queueBindings($site, $deployment);
-        $this->scaffold($project, $site, $image['path'], $image['port'], $queues, self::cronHandlers($site, $deployment), $this->billingKvNamespaceId($site), $sqliteSync);
+        $this->scaffold($project, $site, $image['path'], $image['port'], $queues, self::cronHandlers($site, $deployment), $this->billingKvNamespaceId($site), $sqliteSync, (string) ($image['server'] ?? '') ?: 'fpm');
         if ($this->attachStaticAssets($project, $checkout, $site)) {
             $log("CSS, JavaScript, and images from public/ are served automatically.\n");
         }
@@ -398,7 +399,7 @@ class EdgeContainerDeployer
             // Never on a preview: its migrations would run against whatever database it reaches.
             'DPLY_MIGRATE_ON_BOOT' => $migrateOnBoot && ! $site->isEdgePreview() ? '1' : '0',
             'DPLY_SQLITE_SYNC' => $sqliteSync ? '1' : '0',
-        ]), JSON_THROW_ON_ERROR));
+        ], EdgeMeter::workerNames($site) !== [] ? EdgeMeter::env($site) : []), JSON_THROW_ON_ERROR));
 
         $gitCommit = $this->checkoutCommit($checkout);
         $fingerprint = self::deployFingerprint(
@@ -603,7 +604,7 @@ class EdgeContainerDeployer
      * @param  array<string, string>  $queues  binding name => queue name
      * @param  array<string, list<?string>>  $crons  schedule => handlers (artisan command / rake task)
      */
-    public function scaffold(string $dir, Site $site, string $dockerfile, int $port, array $queues, array $crons = [], string $kvNamespaceId = '', bool $sqliteSync = false): void
+    public function scaffold(string $dir, Site $site, string $dockerfile, int $port, array $queues, array $crons = [], string $kvNamespaceId = '', bool $sqliteSync = false, string $phpServer = 'fpm'): void
     {
         File::ensureDirectoryExists($dir.'/src');
         $settings = EdgeContainerSettings::for($site);
@@ -681,7 +682,7 @@ class EdgeContainerDeployer
                 // Pinned: autoscaling reads the SDK's inflightRequests.
                 : ['@cloudflare/containers' => '~0.3.7'],
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-        File::put($dir.'/src/index.js', $this->workerSource($port, array_flip($queues), $settings, $crons, $site, $sqliteSync && $bucket !== ''));
+        File::put($dir.'/src/index.js', $this->workerSource($port, array_flip($queues), $settings, $crons, $site, $sqliteSync && $bucket !== '', $phpServer));
     }
 
     /**
@@ -689,14 +690,14 @@ class EdgeContainerDeployer
      * @param  array{instance_type: string, max_instances: int, sleep_after: string, migrate_on_boot: bool, jurisdiction: string, scheduler: bool}  $settings
      * @param  array<string, list<?string>>  $crons
      */
-    private function workerSource(int $port, array $queueBindings, array $settings, array $crons, Site $site, bool $sqliteSync = false): string
+    private function workerSource(int $port, array $queueBindings, array $settings, array $crons, Site $site, bool $sqliteSync = false, string $phpServer = 'fpm'): string
     {
         $replace = [
             '__PORT__' => (string) $port,
             '__SLEEP__' => json_encode($settings['sleep_after']),
             '__INSTANCES__' => $sqliteSync ? '1' : (string) $settings['max_instances'],
             '__MIN_INSTANCES__' => (string) ($sqliteSync ? min(1, $settings['min_instances']) : $settings['min_instances']),
-            '__CAPACITY__' => (string) EdgeContainerSettings::requestsPerInstance($site),
+            '__CAPACITY__' => (string) EdgeContainerSettings::requestsPerInstance($site, $phpServer),
             '__SCHEDULES__' => json_encode($sqliteSync ? [] : $settings['schedules'], JSON_UNESCAPED_SLASHES),
             '__JOBS_ALWAYS_ON__' => $settings['dedicated_jobs'] && $settings['jobs_always_on'] ? 'true' : 'false',
             '__STICKY__' => $settings['sticky_sessions'] ? 'true' : 'false',
@@ -710,7 +711,7 @@ class EdgeContainerDeployer
                 'autoscale' => $g['autoscale'],
                 'env' => (object) EdgeQueueWorkers::env($site, $g['key']),
             ], EdgeQueueWorkers::groups($site)) : [], JSON_UNESCAPED_SLASHES),
-            '__FPM_CHILDREN__' => (string) EdgeContainerSettings::phpFpmPool($settings['instance_type'], $site)['max_children'],
+            '__FPM_CHILDREN__' => (string) EdgeContainerSettings::phpFpmPool($settings['instance_type'], $site, $phpServer)['max_children'],
             '__FPM_LIMIT__' => json_encode(EdgeContainerSettings::phpFpmPool($settings['instance_type'], $site)['memory_limit']),
             '__QUEUE_PATH__' => json_encode(self::QUEUE_PATH, JSON_UNESCAPED_SLASHES),
             '__QUEUE_SEND_PATH__' => json_encode(self::QUEUE_SEND_PATH, JSON_UNESCAPED_SLASHES),
@@ -721,6 +722,7 @@ class EdgeContainerDeployer
             '__CRON_HANDLERS__' => json_encode((object) $crons, JSON_UNESCAPED_SLASHES),
             '__PAUSE_KEY__' => json_encode(StarterTrafficGate::KEY_PREFIX.$site->id),
             '__CONNECTIONS__' => json_encode($this->workerConnections($site), JSON_UNESCAPED_SLASHES),
+            '__DPLY_METER__' => EdgeMeter::JS,
             '__CLIENT_CERT__' => json_encode(EdgeContainerConnections::clientCertificateId($site) !== '' ? 'CLIENT_CERT' : ''),
             '__BROWSER__' => EdgeContainerConnections::browserEnabled($site) ? 'true' : 'false',
             '__SQLITE_SYNC__' => $sqliteSync ? 'true' : 'false',
@@ -731,11 +733,13 @@ class EdgeContainerDeployer
                 : '',
             '__BROWSER_FETCH__' => EdgeContainerConnections::browserEnabled($site)
                 ? <<<'JS'
-async function browserFetch(request, env) {
+async function browserFetch(request, env, ctx) {
   if (request.method !== 'POST') return new Response('Send {"url"} as JSON.', { status: 405 });
+  const denied = await dplyMeterGate(env, 'browser');
+  if (denied) return Response.json({ error: denied.message }, { status: denied.status });
   const body = await request.json();
   if (!body.url) return new Response('Missing url.', { status: 400 });
-  const browser = await puppeteer.launch(env.BROWSER);
+  const browser = await puppeteer.launch(dplyMetered('browser', env.BROWSER, env, ctx, 'BROWSER'));
   const page = await browser.newPage();
   await page.goto(body.url, { waitUntil: 'networkidle0' });
   const path = new URL(request.url).pathname;
@@ -766,6 +770,8 @@ const QUEUE_BINDINGS = __QUEUE_BINDINGS__; // queue name -> binding name
 const CRON_HANDLERS = __CRON_HANDLERS__; // schedule -> [artisan command / rake task]
 
 const CONNECTIONS = __CONNECTIONS__;
+
+__DPLY_METER__
 
 const BUILD_ID = __BUILD_ID__;
 
@@ -996,8 +1002,8 @@ const BROWSER = __BROWSER__;
 const SQLITE_SYNC = __SQLITE_SYNC__;
 const SQLITE_KEY = __SQLITE_KEY__;
 App.outboundByHost = Object.fromEntries([
-  ...CONNECTIONS.map((c) => [c.host, (request, env) => connectionFetch(c, request, env)]),
-  ...(BROWSER ? [[__BROWSER_HOST__, (request, env) => browserFetch(request, env)]] : []),
+  ...CONNECTIONS.map((c) => [c.host, (request, env, ctx) => connectionFetch(c, request, env, ctx).catch(dplyRefusal)]),
+  ...(BROWSER ? [[__BROWSER_HOST__, (request, env, ctx) => browserFetch(request, env, ctx)]] : []),
   ...(SQLITE_SYNC ? [['sqlite.dply', (request, env) => sqliteFetch(request, env)]] : []),
 ]);
 
@@ -1019,9 +1025,10 @@ App.outbound = async (request, env) => {
   return presented.status === 520 ? fetch(request) : presented;
 };
 
-async function connectionFetch(c, request, env) {
+async function connectionFetch(c, request, env, ctx) {
   if (c.asleep) return new Response('This resource is asleep.', { status: 503 });
-  const binding = env[c.name];
+  // AI and vector search go through dply's meter (EdgeMeter): cap, kill switch, usage.
+  const binding = c.kind === 'ai' || c.kind === 'vectors' ? dplyMetered(c.kind, env[c.name], env, ctx, c.name) : env[c.name];
   const url = new URL(request.url);
   const path = decodeURIComponent(url.pathname.replace(/^\//, ''));
   const json = async () => request.headers.get('content-type')?.includes('json') ? request.json() : {};

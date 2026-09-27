@@ -16,7 +16,7 @@ If you received an invitation email, its link opens the sign-up form with your a
 Beta organizations use the same plans and trial as everyone else. There is no free beta tier.
 
 - A new organization starts with a 5-day trial of the plan it chooses. Checkout asks for a card before the trial begins.
-- During the trial, usage is capped at $5. Past that, builds and container traffic pause until you pay.
+- During the trial, usage is capped at $2. Past that, builds and container traffic pause until you pay.
 - After the trial, the plan bills monthly unless you cancel first.
 
 <!-- generated: php artisan dply:billing:price-table plans -->
@@ -24,7 +24,7 @@ Beta organizations use the same plans and trial as everyone else. There is no fr
 | --- | --- | --- | --- | --- |
 | Starter | $5/mo | 1 | — | $5/mo |
 | Pro | $20/mo | 3 | — | $20/mo |
-| Team | $49/mo | 10 | $5/mo each | $50/mo |
+| Team | $49/mo | 10 | $5/mo each | $49/mo |
 | Enterprise | Contact us | Custom | Custom | Custom |
 
 There's no per-app or per-site fee on any plan. Usage past the included credit bills at the rates on [Plans & pricing](/docs/pricing). See [Free trial](/docs/free-trial) and [Usage & metering](/docs/usage) for the full limits and rates.

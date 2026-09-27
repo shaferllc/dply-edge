@@ -129,10 +129,11 @@
                     <x-sheet.field :label="__('Name')" for="connection-label">
                         <input id="connection-label" type="text" wire:model="connectionLabel" placeholder="{{ __('Cache') }}" class="dply-input mt-0" />
                     </x-sheet.field>
-                    <x-sheet.field :label="__('Size')" for="connection-valkey-class">
+                    @php $vkTrial = \App\Modules\Edge\Support\EdgeTrialLimits::applies($site->organization); @endphp
+                    <x-sheet.field :label="__('Size')" for="connection-valkey-class" :help="$vkTrial ? __('During the trial Valkey runs the smallest size and sleeps when idle.') : null">
                         <select id="connection-valkey-class" wire:model.live="valkeyClass" class="dply-input mt-0">
                             @foreach (\App\Modules\Edge\Support\EdgeValkey::offered() as $id => $class)
-                                <option value="{{ $id }}">{{ __($class['label']) }} · {{ __('up to $:price/mo', ['price' => number_format($class['cap_cents'] / 100, 0)]) }}</option>
+                                <option value="{{ $id }}" @disabled($vkTrial && $id !== \App\Modules\Edge\Support\EdgeTrialLimits::valkeyClass())>@if ($vkTrial && $id !== \App\Modules\Edge\Support\EdgeTrialLimits::valkeyClass()){{ __('Available after your trial') }} · @endif{{ __($class['label']) }} · {{ __('up to $:price/mo', ['price' => number_format($class['cap_cents'] / 100, 0)]) }}</option>
                             @endforeach
                         </select>
                     </x-sheet.field>
@@ -140,7 +141,7 @@
                         <x-sheet.field :label="__('Sleep when idle for')" for="connection-valkey-sleep" :help="__('Billed per second while awake, up to the monthly price. Asleep, it is not billed. Its data is saved and comes back on the next connection, which takes a few seconds.')">
                             <select id="connection-valkey-sleep" wire:model="valkeySleep" class="dply-input mt-0">
                                 @foreach (\App\Modules\Edge\Support\EdgeValkey::SLEEPS as $seconds => $label)
-                                    <option value="{{ $seconds }}">{{ __($label) }}</option>
+                                    <option value="{{ $seconds }}" @disabled($vkTrial && $seconds === 0)>{{ __($label) }}@if ($vkTrial && $seconds === 0) · {{ __('Available after your trial') }}@endif</option>
                                 @endforeach
                             </select>
                         </x-sheet.field>

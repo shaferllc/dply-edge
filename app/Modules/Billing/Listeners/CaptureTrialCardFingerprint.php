@@ -41,7 +41,12 @@ final class CaptureTrialCardFingerprint
             $stripe = Cashier::stripe();
             $subscription = $stripe->subscriptions->retrieve($subscriptionId, ['expand' => ['default_payment_method']]);
             $fingerprint = $subscription->default_payment_method->card->fingerprint ?? null;
-            if (is_string($fingerprint) && $fingerprint !== '' && self::refuseTrial($organization, $fingerprint, $subscription->status === 'trialing')) {
+            if (! is_string($fingerprint) || $fingerprint === '') {
+                // Checkout can leave the card on the customer instead.
+                $customerRecord = $stripe->customers->retrieve($customer, ['expand' => ['invoice_settings.default_payment_method']]);
+                $fingerprint = $customerRecord->invoice_settings->default_payment_method->card->fingerprint ?? null;
+            }
+            if (self::refuseTrial($organization, is_string($fingerprint) ? $fingerprint : '', $subscription->status === 'trialing')) {
                 $stripe->subscriptions->update($subscriptionId, ['trial_end' => 'now']);
                 audit_log($organization, null, 'billing.trial_refused_card_reused');
             }
@@ -50,11 +55,18 @@ final class CaptureTrialCardFingerprint
         }
     }
 
-    /** True when this trialing org's card already had a trial on another org; records the card otherwise. */
+    /**
+     * True when this trialing org's card already had a trial on another org,
+     * or no card can be read (one trial per card cannot be checked, so none);
+     * records the card otherwise.
+     */
     public static function refuseTrial(Organization $organization, string $fingerprint, bool $trialing): bool
     {
         if (! $trialing) {
             return false;
+        }
+        if ($fingerprint === '') {
+            return true;
         }
         if (Organization::query()->whereKeyNot($organization->getKey())->where('trial_card_fingerprint', $fingerprint)->exists()) {
             return true;

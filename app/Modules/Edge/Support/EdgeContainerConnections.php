@@ -65,11 +65,10 @@ final class EdgeContainerConnections
     public const ENABLE = ['ai', 'images'];
 
     /**
-     * Billed to our shared account with no per-org cap: AI, Browser
-     * Rendering and Vectorize are unmetered, and Images is metered
-     * (EdgePlatformUsageCollector) but still runs on our account. So only a
-     * paid plan past its trial gets them: attach, provision, and every
-     * deploy check {@see paidFeatures}.
+     * Run on our shared account: AI, Browser Rendering and Vectorize are
+     * metered and capped per org through dply's proxy (EdgeMeter), Images by
+     * the collector. Only a paid plan past its trial gets them: attach,
+     * provision, and every deploy check {@see paidFeatures}.
      */
     public const PAID_ONLY = ['ai', 'browser', 'images', 'vectors'];
 
@@ -124,11 +123,19 @@ final class EdgeContainerConnections
                 default => null,
             };
             if ($binding !== null) {
-                $out[] = ['name' => $name] + $binding;
+                // AI and vector search reach the app only through the
+                // entry wrapper's metering proxy (EdgeMeter), as env.NAME.
+                $bound = in_array($connection['kind'], ['ai', 'vectors'], true) ? EdgeMeter::RAW_PREFIX.$name : $name;
+                $out[] = ['name' => $bound] + $binding;
             }
         }
         if (self::browserEnabled($site)) {
-            $out[] = ['name' => 'BROWSER', 'type' => 'browser'];
+            $out[] = ['name' => EdgeMeter::RAW_PREFIX.'BROWSER', 'type' => 'browser'];
+        }
+        if (EdgeMeter::workerNames($site) !== []) {
+            $meter = EdgeMeter::env($site);
+            $out[] = ['name' => 'DPLY_METER_URL', 'type' => 'plain_text', 'text' => $meter['DPLY_METER_URL']];
+            $out[] = ['name' => 'DPLY_METER_KEY', 'type' => 'secret_text', 'text' => $meter['DPLY_METER_KEY']];
         }
 
         return $out;
