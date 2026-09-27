@@ -1,5 +1,7 @@
 @php
-    $isAdmin = $organization->hasAdminAccess(auth()->user());
+    $me = auth()->user();
+    $isAdmin = $organization->hasAdminAccess($me);
+    $isOwner = $organization->memberRole($me) === 'owner';
     $memberCount = $organization->users->count();
     $invitationCount = $organization->invitations->count();
     $teamCount = $organization->teams->count();
@@ -125,7 +127,7 @@
                 <div x-show="! collapsed" x-collapse>
                     <dl class="grid gap-px bg-brand-ink/5 sm:grid-cols-2 lg:grid-cols-5">
                         @foreach ([
-                            ['role' => 'owner', 'blurb' => __('Owns billing and the organization itself. Can\'t be assigned by invite.')],
+                            ['role' => 'owner', 'blurb' => __('Owns billing and the organization itself. Granted by an owner with Make owner, not by invite.')],
                             ['role' => 'admin', 'blurb' => __('Full control of apps, billing, and members — everything but ownership.')],
                             ['role' => 'member', 'blurb' => __('Creates, configures, and deploys apps.')],
                             ['role' => 'deployer', 'blurb' => __('Views apps and ships code: deploy, roll back, promote previews. Changes no settings.')],
@@ -223,7 +225,12 @@
                                 $role = strtolower((string) $user->pivot->role);
                                 $teamNames = $organization->teams->filter(fn ($t) => $t->users->contains('id', $user->id))->pluck('name');
                             @endphp
-                            <li class="group flex items-center gap-3 px-5 py-2 transition-colors hover:bg-brand-sand/15 sm:px-6">
+                            @php
+                                $isSelf = (string) $user->id === (string) $me->id;
+                                // Admins manage everyone but owners; owners manage everyone. Your own row offers Leave.
+                                $canManageRow = $isAdmin && ! $isSelf && ($role !== 'owner' || $isOwner);
+                            @endphp
+                            <li wire:key="org-member-{{ $user->id }}" class="group flex flex-wrap items-center gap-3 px-5 py-2 transition-colors hover:bg-brand-sand/15 sm:flex-nowrap sm:px-6">
                                 <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-2xs font-semibold ring-1 {{ $avatarClasses($role) }}">
                                     {{ $initialsOf($user) }}
                                 </span>
@@ -239,7 +246,51 @@
                                         {{ $teamNames->take(2)->implode(', ') }}{{ $teamNames->count() > 2 ? ' +'.($teamNames->count() - 2) : '' }}
                                     </span>
                                 @endif
-                                <span class="shrink-0 rounded-md border px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide {{ $roleClasses($user->pivot->role) }}">{{ $user->pivot->role }}</span>
+                                @if ($canManageRow)
+                                    {{-- Not wire:model: a downgrade asks first, so the select snaps back
+                                         to the saved role and re-keys once the change lands. --}}
+                                    <select
+                                        wire:key="org-member-role-{{ $user->id }}-{{ $role }}"
+                                        x-data
+                                        x-on:change="$wire.promptChangeRole(@js((string) $user->id), $event.target.value); $event.target.value = @js($role)"
+                                        aria-label="{{ __('Role for :name', ['name' => $user->name]) }}"
+                                        class="shrink-0 rounded-lg border border-brand-ink/15 bg-white px-2 py-1 text-xs font-semibold text-brand-ink"
+                                    >
+                                        @foreach ($this->assignableRoles($role === 'owner') as $value => $label)
+                                            <option value="{{ $value }}" @selected($role === $value)>{{ $label }}</option>
+                                        @endforeach
+                                    </select>
+                                    @if ($isOwner && $role !== 'owner')
+                                        <button
+                                            type="button"
+                                            wire:click="promptTransferOwnership(@js((string) $user->id))"
+                                            class="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-brand-ink/15 bg-white px-2.5 text-xs font-semibold text-brand-moss shadow-sm transition hover:bg-brand-sand/40 hover:text-brand-ink"
+                                        >
+                                            <x-heroicon-o-key class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                            {{ __('Make owner') }}
+                                        </button>
+                                    @endif
+                                    <button
+                                        type="button"
+                                        wire:click="promptRemoveMember(@js((string) $user->id))"
+                                        class="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-brand-ink/15 bg-white px-2.5 text-xs font-semibold text-brand-moss shadow-sm transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                                    >
+                                        <x-heroicon-o-user-minus class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                        {{ __('Remove') }}
+                                    </button>
+                                @else
+                                    <span class="shrink-0 rounded-md border px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide {{ $roleClasses($user->pivot->role) }}">{{ $user->pivot->role }}</span>
+                                    @if ($isSelf)
+                                        <button
+                                            type="button"
+                                            wire:click="promptLeave"
+                                            class="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-brand-ink/15 bg-white px-2.5 text-xs font-semibold text-brand-moss shadow-sm transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                                        >
+                                            <x-heroicon-o-arrow-left-start-on-rectangle class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                                            {{ __('Leave') }}
+                                        </button>
+                                    @endif
+                                @endif
                             </li>
                         @endforeach
                     </ul>
@@ -251,7 +302,7 @@
                 <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-brand-moss">
                     <span class="inline-flex items-center gap-1.5">
                         <x-heroicon-o-information-circle class="h-4 w-4 shrink-0 text-brand-sage" aria-hidden="true" />
-                        {{ __('Invitations expire after 7 days. Owner can\'t be granted by invite.') }}
+                        {{ __('Invitations expire after 7 days. Owner can\'t be granted by invite; an owner uses Make owner.') }}
                     </span>
                     <a href="{{ route('organizations.teams', $organization) }}" wire:navigate class="ms-auto font-semibold text-brand-sage hover:text-brand-ink">
                         {{ __('Group people into teams') }} →

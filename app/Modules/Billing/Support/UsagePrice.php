@@ -15,6 +15,9 @@ use App\Modules\Edge\Support\EdgeValkey;
  *
  *   price = cost × (1 + dply.edge.usage_billing.margin_percent / 100)
  *
+ * except for the fixed-price meters (`fixed_price_meters`), whose config
+ * value is the customer price and never moves with the margin.
+ *
  * Every cost class, invoice line, pricing page, billing page and docs table
  * goes through here, so changing the margin reprices all of them. Rates in
  * config are costs in millicents (1/1000 ¢). The margin itself is never shown.
@@ -39,10 +42,22 @@ final class UsagePrice
         return (int) round(round(self::customer($costMillicents), 6) / 1000);
     }
 
-    /** A configured cost rate (dply.edge.usage_billing.<key>), millicents. */
+    /**
+     * A configured cost rate (dply.edge.usage_billing.<key>), millicents.
+     *
+     * A key in `fixed_price_meters` is configured as the customer price
+     * instead (bandwidth: $0.06/GB whatever the margin, ruling
+     * r-jnv0r3qf1xk49kmc). Its "cost" is backed out of that price at the
+     * current margin, so every path that adds the margin back (cents(),
+     * rate(), the cost classes) lands on exactly the configured price.
+     */
     public static function cost(string $key): float
     {
-        return max(0.0, (float) config('dply.edge.usage_billing.'.$key, 0));
+        $value = max(0.0, (float) config('dply.edge.usage_billing.'.$key, 0));
+
+        return in_array($key, (array) config('dply.edge.usage_billing.fixed_price_meters', []), true)
+            ? $value * 100 / (100 + self::marginPercent())
+            : $value;
     }
 
     /** The customer rate for a configured key, millicents. */
@@ -91,7 +106,6 @@ final class UsagePrice
             ['Apps and workers', 'vCPU', 'per vCPU-second', 'container_vcpu_millicents_per_second', 1],
             ['Apps and workers', 'Memory', 'per GiB-second', 'container_memory_millicents_per_gib_second', 1],
             ['Apps and workers', 'Disk', 'per GB-second', 'container_disk_millicents_per_gb_second', 1],
-            ['Apps and workers', 'Container bandwidth', 'per GB', 'container_egress_millicents_per_gb', 1],
             ['Databases', 'Compute', 'per compute-unit-second (1 vCPU, 4 GB)', 'database_compute_millicents_per_cu_second', 1],
             ['Databases', 'Storage', 'per GB-month', 'database_storage_millicents_per_gb_month', 1],
             ['SQL (D1)', 'Rows read', 'per million', 'd1_rows_read_millicents_per_million', 1],

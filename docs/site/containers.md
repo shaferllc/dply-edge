@@ -68,7 +68,7 @@ Open your app's **Overview**, select the **App** card, then choose a **Size**. T
 | 2 vCPU | 8 GB | $0.0000795 | $0.286 |
 | 4 vCPU | 12 GB | $0.000145 | $0.521 |
 
-Below the ladder, **1/16 vCPU** (256 MB, non-PHP apps only) is $0.00000242 per second awake ($0.0087 an hour).
+Below the ladder, **1/16 vCPU** (256 MB, non-PHP apps only) is $0.00000262 per second awake ($0.0094 an hour).
 
 Prices are per instance with every vCPU busy the whole time. You pay less in practice: CPU is billed only while it works, and a sleeping instance costs nothing. The **Container** section lists the same sizes by their key (`basic` is 0.25 vCPU, `standard-1` 0.5, `standard-2` 1, `standard-3` 2, `standard-4` 4). **1/16 vCPU** is available only to non-PHP apps.
 
@@ -156,7 +156,7 @@ The **Container** section's **Logs** panel shows the last 15 minutes of stdout a
 
 ## How compute is billed
 
-Container compute is metered per second: vCPU while it works, memory and disk while an instance runs, plus container egress per GB. Usage is collected hourly and appears as **Apps and workers (compute)** on the billing page, for web instances, queue workers and preview containers alike. It bills at the rates above, less your plan's included usage credit. See [Plans & pricing](/docs/pricing).
+Container compute is metered per second: vCPU while it works, memory and disk while an instance runs. Traffic your app sends to visitors bills once, as bandwidth, like any site. Usage is collected hourly and appears as **Apps and workers (compute)** on the billing page, for web instances, queue workers and preview containers alike. It bills at the rates above, less your plan's included usage credit. See [Plans & pricing](/docs/pricing).
 
 The **App** card's **Cost estimate** shows the running rate per second, minute, hour and day for your size and instance count, and what a given number of **Hours awake each day** costs. It is an estimate that assumes every vCPU is busy.
 

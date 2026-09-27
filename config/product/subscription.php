@@ -27,11 +27,10 @@ return [
     */
 
     'standard' => [
-        // No paid plan tiers. The one record is `free`: its per-surface
-        // ceilings (App\Enums\QuotaSurface). Null means unlimited. Any paid
-        // subscription also lifts the cap (ManagesOrganizationQuotas::quotaLimit()).
-        // Starter matches a Laravel Cloud starter: unlimited apps, usage
-        // credit instead of a site cap.
+        // Legacy per-surface quota record, not a plan (the plans are `tiers`
+        // below). `free` holds the per-surface ceilings
+        // (App\Enums\QuotaSurface), all null = unlimited; sites are
+        // unlimited on every plan and the fair-use cap is tiers.*.fair_use_apps.
         //
         // Callers: ManagesOrganizationQuotas::quotaLimit, SubscriptionPlanResolver.
         'plans' => [
@@ -174,6 +173,17 @@ return [
             'tier_pro' => env('STRIPE_PRICE_TIER_PRO', ''),
             'tier_team' => env('STRIPE_PRICE_TIER_TEAM', ''),
             'team_seat' => env('STRIPE_PRICE_TEAM_SEAT', ''),
+            // Grandfathered plan prices: comma-separated ids of archived
+            // prices that still bill that plan. When a plan price changes
+            // (dply:billing:provision-stripe archives the old one), put the
+            // old id here or its subscribers stop reading as that plan, and
+            // the syncer will not move them onto the new price on its own
+            // (SubscriptionPlanResolver::tierPriceIds()).
+            'legacy_tiers' => [
+                'starter' => env('STRIPE_PRICE_STARTER_LEGACY', ''),
+                'pro' => env('STRIPE_PRICE_TIER_PRO_LEGACY', ''),
+                'team' => env('STRIPE_PRICE_TIER_TEAM_LEGACY', ''),
+            ],
             // Retired per-site prices (extra site, SSR site, load balancing).
             // The syncer removes them without proration or credit.
             'retired_site_fees' => [

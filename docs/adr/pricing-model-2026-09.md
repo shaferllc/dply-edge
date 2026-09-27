@@ -34,7 +34,10 @@ its $5 cap (r-f17p5zgeh120cm5t) stay. Realtime's separate allowances
 - `margin_percent` default **30** (owner, ruling r-jnv0r3qf1xk49kmc; was 20), env `DPLY_USAGE_MARGIN_PERCENT`. The
   single knob. Replaces `markup_percent` (25) and every hard-coded markup.
 - Every meter's config value is the **provider cost** (Cloudflare list /
-  our infra cost for databases & Valkey). Customer price =
+  our infra cost for databases & Valkey), except the meters listed in
+  `fixed_price_meters`: their value is the customer price and the margin is
+  not added. Bandwidth is the one such meter ($0.06/GB, ruling
+  r-jnv0r3qf1xk49kmc). Customer price =
   `cost × (1 + margin/100)`, applied in ONE helper
   (e.g. `App\Modules\Billing\Support\UsagePrice::customer(int|float $costMillicents)`).
   No cost class applies its own markup.
@@ -45,7 +48,9 @@ its $5 cap (r-f17p5zgeh120cm5t) stay. Realtime's separate allowances
 
 Time-based, **billed per second while awake** (asleep = $0):
 - Container apps & queue workers: vCPU-seconds, GiB-memory-seconds,
-  GB-disk-seconds (+ container egress per GB).
+  GB-disk-seconds. Container egress (`tx_bytes`) is collected but not
+  billed: visitor responses already bill once as delivery bandwidth
+  (docs/pricing-review.md §8 item 6).
 - dply databases (Postgres/MySQL/MongoDB): compute CU-seconds + storage
   GB-month (storage is per unit, prorated by second held).
 - Valkey: per second awake by size.
@@ -70,6 +75,24 @@ Per unit:
   applied during trial).
 - Billing page / forecast: show "Usage this period $X · included credit $Y ·
   estimated charge $Z".
+
+## 7. Changing prices
+
+Full table: docs/pricing-review.md §7. The two steps that are easy to miss:
+
+- **Docs.** Every docs price is a generated table under a
+  `<!-- generated: php artisan dply:billing:price-table … -->` marker.
+  After any price, margin, credit or limit change, run
+  `php artisan dply:billing:price-table --write-docs`. It rewrites them all
+  in place. `--check-docs` (DocsPriceTablesTest) fails while one is stale.
+  Change the config **default**, not only production `.env`: the docs
+  render at the default. Run it without `DPLY_USAGE_*` overrides in your
+  local `.env`, or it writes those numbers.
+- **Plan prices.** `dply:billing:provision-stripe` archives the old Stripe
+  price. Put the old id in `STRIPE_PRICE_STARTER_LEGACY` /
+  `STRIPE_PRICE_TIER_PRO_LEGACY` / `STRIPE_PRICE_TIER_TEAM_LEGACY` (comma
+  lists) to grandfather its subscribers. An unlisted one is reported and
+  never moved or repriced on a guess.
 
 ## Hosting choices (UI)
 

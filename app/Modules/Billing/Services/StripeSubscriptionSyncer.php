@@ -67,9 +67,22 @@ class StripeSubscriptionSyncer
             return [];
         }
 
-        if (! $subscription->hasPrice($tierPriceId)) {
+        $onTier = collect(SubscriptionPlanResolver::tierPriceIds($desired->planKey))
+            ->contains(static fn (string $priceId): bool => $subscription->hasPrice($priceId));
+        $unknown = $onTier ? [] : $organization->unrecognisedSubscriptionPrices();
+        if ($unknown !== []) {
+            // Most likely an archived plan price nobody listed in
+            // STRIPE_PRICE_*_LEGACY. Moving it would reprice a customer on a
+            // guessed plan, so leave it and say so.
+            report(new \RuntimeException("Not syncing organization {$organization->id}: its subscription carries unrecognised Stripe price(s) ".implode(', ', $unknown).'. List them in STRIPE_PRICE_*_LEGACY (grandfather) or move the subscription by hand.'));
+
+            return [];
+        }
+        if (! $onTier) {
             // Pre-tier per-site subscription (possibly yearly): move it onto
             // the tier in one swap, invoiced now (owner: auto-move, 2026-09-16).
+            // A grandfathered plan price (STRIPE_PRICE_*_LEGACY) counts as on
+            // the tier and is never moved.
             $changes[] = $this->moveToTier($subscription, $desired);
         } else {
             $this->reconcileLine($subscription, $changes, 'team_seat', $desired->extraSeatCount);

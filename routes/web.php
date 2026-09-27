@@ -136,6 +136,22 @@ Route::get('/features', function () {
     return view('features');
 })->name('features');
 
+Route::view('/compliance', 'compliance')->name('compliance');
+Route::redirect('/security', '/compliance', 301);
+
+// RFC 9116. A route, not a file in public/, so the contact comes from
+// config('dply.security_email'). Bump Expires at least annually.
+$securityTxt = fn () => response(implode("\n", [
+    'Contact: mailto:'.config('dply.security_email'),
+    'Expires: 2027-09-27T00:00:00.000Z',
+    'Preferred-Languages: en',
+    'Canonical: '.url('/.well-known/security.txt'),
+    'Policy: '.route('compliance').'#disclosure',
+]).
+"\n", 200, ['Content-Type' => 'text/plain; charset=utf-8']);
+Route::get('/.well-known/security.txt', $securityTxt)->name('security-txt');
+Route::get('/security.txt', $securityTxt);
+
 // Public docs, rendered from docs/site/*.md (nav.json is the allow-list).
 // Slugs are [a-z0-9/-] only, so `..`, `.md` and `.txt` never reach `show`.
 Route::redirect('/docs', '/docs/introduction')->name('docs.index');

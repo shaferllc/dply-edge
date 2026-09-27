@@ -43,7 +43,8 @@ test('the margin is the one knob: every usage price moves with it, and only thro
     $at50 = collect(UsagePrice::rates())->pluck('millicents', 'label')->all();
 
     foreach ($at20 as $label => $millicents) {
-        expect($at50[$label])->toEqualWithDelta($millicents / 1.2 * 1.5, 1e-9);
+        // Bandwidth is a fixed customer price (fixed_price_meters): it does not move.
+        expect($at50[$label])->toEqualWithDelta($label === 'Bandwidth' ? $millicents : $millicents / 1.2 * 1.5, 1e-9);
     }
     // Each rate is the configured cost plus the margin.
     expect(UsagePrice::rate('requests_millicents_per_million'))->toBe(30_000 * 1.5)
@@ -183,3 +184,15 @@ test('the default margin is 30% and bandwidth stays a flat $0.06/GB at it', func
         ->and(UsagePrice::dollars(UsagePrice::rate('egress_millicents_per_gb')))->toBe('$0.06')
         ->and(UsagePrice::cents(UsagePrice::cost('egress_millicents_per_gb') * 100))->toBe(600);
 });
+
+test('bandwidth is a fixed $0.06/GB at any margin, on every path that prices it', function (int $margin) {
+    config(['dply.edge.usage_billing.margin_percent' => $margin]);
+    $bandwidth = collect(UsagePrice::rates())->firstWhere('label', 'Bandwidth');
+
+    expect($bandwidth['price'])->toBe('$0.06')
+        ->and(UsagePrice::dollars(UsagePrice::rate('egress_millicents_per_gb')))->toBe('$0.06')
+        // The invoice path: 100 GB of delivery egress is exactly $6.00.
+        ->and(app(EdgeUsageCostCalculator::class)->estimate(new EdgeUsageTotals(bytesEgress: 100 * 1024 ** 3))['subtotal_cents'])->toBe(600)
+        // Meters that are not fixed still move with the margin.
+        ->and(UsagePrice::rate('requests_millicents_per_million'))->toEqualWithDelta(30_000 * (1 + $margin / 100), 1e-6);
+})->with([20, 30, 50]);

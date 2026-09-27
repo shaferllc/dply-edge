@@ -6,6 +6,7 @@ namespace App\Models\Concerns;
 
 use App\Modules\Billing\Services\SubscriptionPlanResolver;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Facades\Cache;
 use Laravel\Cashier\Subscription;
 
 /**
@@ -16,9 +17,8 @@ use Laravel\Cashier\Subscription;
 trait ManagesOrganizationSubscription
 {
     /**
-     * The plan record the org's quota ceilings are read from. dply-edge has no
-     * paid plan tiers, so this is always the Free allowance — paying orgs are
-     * uncapped upstream ({@see ManagesOrganizationQuotas::quotaLimit()}).
+     * The legacy per-surface quota record ({@see ManagesOrganizationQuotas::quotaLimit()}),
+     * always `free`: every ceiling is unlimited. Plans are `billingTier()`.
      *
      * @return array{key: string, label: string, price_cents: int, max_sites: ?int, max_edge_apps: ?int, max_functions: ?int}
      */
@@ -35,7 +35,9 @@ trait ManagesOrganizationSubscription
     /**
      * The tier whose price is on the subscription: `starter`, `pro`, `team`,
      * `enterprise`, or null (no subscription, or a pre-tier per-site one the
-     * next billing sync moves onto a tier).
+     * next billing sync moves onto a tier). A grandfathered plan price counts
+     * when it is listed in `STRIPE_PRICE_*_LEGACY`
+     * ({@see SubscriptionPlanResolver::tierPriceIds()}).
      */
     public function subscribedTier(): ?string
     {
@@ -43,12 +45,32 @@ trait ManagesOrganizationSubscription
             return 'enterprise';
         }
         foreach (SubscriptionPlanResolver::PAID_TIERS as $tier) {
-            if ($this->subscriptionMatchesAnyPrice([config('subscription.standard.stripe.tier_'.$tier)])) {
+            if ($this->subscriptionMatchesAnyPrice(SubscriptionPlanResolver::tierPriceIds($tier))) {
                 return $tier;
             }
         }
 
         return null;
+    }
+
+    /**
+     * Prices on the live subscription that no config list knows — most
+     * likely an archived plan price nobody listed as legacy.
+     *
+     * @return list<string>
+     */
+    public function unrecognisedSubscriptionPrices(): array
+    {
+        $subscription = $this->liveSubscription();
+
+        if ($subscription === null) {
+            return [];
+        }
+        // A single-price subscription also names its price on the row.
+        $prices = $subscription->items->pluck('stripe_price')->push($subscription->stripe_price)
+            ->filter(static fn (mixed $id): bool => is_string($id) && $id !== '')->unique()->values()->all();
+
+        return SubscriptionPlanResolver::unrecognisedPrices($prices);
     }
 
     /**
@@ -58,6 +80,10 @@ trait ManagesOrganizationSubscription
      * subscription reads as Pro until the sync moves it; an org on its
      * card-less trial (organizations.trial_ends_at) gets the trial tier.
      * Anything else is `none`: no plan, paused.
+     *
+     * A live subscription on a price no config knows (an archived plan price
+     * not listed in STRIPE_PRICE_*_LEGACY) is paying: it reads as Pro so the
+     * org is not paused, and is reported so someone lists the price.
      */
     public function billingTier(): string
     {
@@ -67,7 +93,21 @@ trait ManagesOrganizationSubscription
 
         return $this->subscribedTier()
             ?? ($this->onStandardSubscription() ? 'pro' : null)
+            ?? ($this->reportUnrecognisedPrices() ? 'pro' : null)
             ?? ($this->onGenericTrial() ? (string) config('subscription.standard.trial.tier', 'pro') : 'none');
+    }
+
+    /** Reports (at most daily per price) a live subscription's unknown prices; true when there are any. */
+    private function reportUnrecognisedPrices(): bool
+    {
+        $unknown = $this->unrecognisedSubscriptionPrices();
+        foreach ($unknown as $priceId) {
+            if (Cache::add('billing.unrecognised_price.'.$priceId, true, now()->addDay())) {
+                report(new \RuntimeException("Organization {$this->getKey()} is subscribed to Stripe price {$priceId}, which no STRIPE_PRICE_* or STRIPE_PRICE_*_LEGACY setting lists; treating it as Pro. Add it to the right *_LEGACY list."));
+            }
+        }
+
+        return $unknown !== [];
     }
 
     /** False once the trial is over and nothing is paid: the org is paused. */
@@ -177,9 +217,9 @@ trait ManagesOrganizationSubscription
             $stripe['edge_ssr_yearly'] ?? null,
             $stripe['edge_usage'] ?? null,
             $stripe['edge_lb_endpoint'] ?? null,
-            $stripe['tier_starter'] ?? null,
-            $stripe['tier_pro'] ?? null,
-            $stripe['tier_team'] ?? null,
+            ...SubscriptionPlanResolver::tierPriceIds('starter'),
+            ...SubscriptionPlanResolver::tierPriceIds('pro'),
+            ...SubscriptionPlanResolver::tierPriceIds('team'),
             $stripe['team_seat'] ?? null,
         ];
 

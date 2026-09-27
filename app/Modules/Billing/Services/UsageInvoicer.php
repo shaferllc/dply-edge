@@ -226,23 +226,34 @@ class UsageInvoicer
     }
 
     /**
-     * The plan the period was on, from the subscription's prices; null for
-     * Enterprise (invoiced by hand).
+     * The plan the period was on, from the subscription's prices: a
+     * configured plan price (current or STRIPE_PRICE_*_LEGACY), else the
+     * price's own `metadata.dply_role` (an archived plan price nobody listed
+     * keeps it). Null for Enterprise (invoiced by hand), and for a price
+     * nothing identifies: that is reported, not guessed.
      *
      * @param  array<string, mixed>  $subscription
      */
     private function tierOf(Organization $organization, array $subscription): ?string
     {
-        $prices = array_map(static fn (array $item): ?string => $item['price']['id'] ?? null, (array) ($subscription['items']['data'] ?? []));
+        $items = (array) ($subscription['items']['data'] ?? []);
+        $prices = array_values(array_filter(array_map(static fn (array $item): ?string => $item['price']['id'] ?? null, $items)));
         $enterprise = (string) config('subscription.enterprise.stripe_price_id', '');
         if ($enterprise !== '' && in_array($enterprise, $prices, true)) {
             return null;
         }
-        foreach (SubscriptionPlanResolver::PAID_TIERS as $tier) {
-            $priceId = (string) config('subscription.standard.stripe.tier_'.$tier, '');
-            if ($priceId !== '' && in_array($priceId, $prices, true)) {
+        foreach ($items as $item) {
+            $tier = SubscriptionPlanResolver::tierOfPrice((string) ($item['price']['id'] ?? ''), (array) ($item['price']['metadata'] ?? []));
+            if ($tier !== null) {
                 return $tier;
             }
+        }
+
+        $unknown = SubscriptionPlanResolver::unrecognisedPrices($prices);
+        if ($unknown !== []) {
+            report(new \RuntimeException('Usage not billed: subscription '.($subscription['id'] ?? '?')." of organization {$organization->id} has no recognisable plan price (".implode(', ', $unknown).'). List it in STRIPE_PRICE_*_LEGACY and bill the period by hand.'));
+
+            return null;
         }
 
         // A pre-tier per-site subscription reads as Pro until the sync moves it.

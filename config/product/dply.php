@@ -40,6 +40,12 @@ return [
     'support_email' => env('DPLY_SUPPORT_EMAIL', 'hello@dply.io'),
 
     /*
+    | Where vulnerability reports go: security.txt, the /compliance page and
+    | the docs. General support stays on support_email.
+    */
+    'security_email' => env('DPLY_SECURITY_EMAIL', 'security@dply.io'),
+
+    /*
     | IP allow-list for the coming-soon gate. These addresses (and any logged-in
     | user) see the FULL site; everyone else only sees the coming-soon page.
     | Supports IPv4, IPv6, and CIDR ranges. Sources are merged: the base list
@@ -311,11 +317,15 @@ return [
             // Delivery. Workers Standard: $0.30 per million requests.
             'requests_millicents_per_million' => (float) env('DPLY_USAGE_REQUESTS_MC_PER_MILLION', 30_000),
             // Bandwidth. NOT a Cloudflare cost: Workers/R2 egress is
-            // unmetered at Cloudflare. $0.06/GB is a dply-set customer price
-            // (ruling r-jnv0r3qf1xk49kmc: "Keep $0.06/GB"); the cost here is
-            // backed out of it at the default 30% margin (0.06 / 1.3), so the
-            // price stays $0.06/GB at 30%.
-            'egress_millicents_per_gb' => (float) env('DPLY_USAGE_EGRESS_MC_PER_GB', 6_000 / 1.3),
+            // unmetered at Cloudflare. $0.06/GB is a dply-set CUSTOMER PRICE
+            // (ruling r-jnv0r3qf1xk49kmc: "bandwidth stays $0.06/GB"), so it is
+            // listed in fixed_price_meters below: the margin is not added and
+            // changing margin_percent leaves it at $0.06. The env var sets the
+            // price, not a cost.
+            'egress_millicents_per_gb' => (float) env('DPLY_USAGE_EGRESS_MC_PER_GB', 6_000),
+            // Meters whose value above is the customer price, not a cost
+            // (UsagePrice::cost() backs the cost out at the current margin).
+            'fixed_price_meters' => ['egress_millicents_per_gb'],
             // Site/build artifact storage (R2): $0.015/GB-month, Class A
             // (writes) $4.50/M, Class B (reads) $0.36/M.
             'r2_storage_millicents_per_gb_month' => (float) env('DPLY_USAGE_R2_STORAGE_MC_PER_GB_MONTH', 1_500),
@@ -329,12 +339,13 @@ return [
 
             // Container apps and queue workers (Cloudflare Containers), per
             // second awake: vCPU $0.000020/s, memory $0.0000025/GiB-s, disk
-            // $0.00000007/GB-s; egress $0.025/GB. Collected by
-            // dply:edge:collect-container-usage (per-second counters).
+            // $0.00000007/GB-s. Collected by dply:edge:collect-container-usage
+            // (per-second counters). Container egress (tx_bytes) is recorded
+            // but not billed: visitor responses already bill once as delivery
+            // bandwidth (see EdgeContainerComputeCost).
             'container_vcpu_millicents_per_second' => (float) env('DPLY_USAGE_CONTAINER_VCPU_MC_PER_SECOND', 2.0),
             'container_memory_millicents_per_gib_second' => (float) env('DPLY_USAGE_CONTAINER_MEMORY_MC_PER_GIB_SECOND', 0.25),
             'container_disk_millicents_per_gb_second' => (float) env('DPLY_USAGE_CONTAINER_DISK_MC_PER_GB_SECOND', 0.007),
-            'container_egress_millicents_per_gb' => (float) env('DPLY_USAGE_CONTAINER_EGRESS_MC_PER_GB', 2_500),
 
             // D1: rows read $0.001/M, rows written $1.00/M, storage
             // $0.75/GB-month. Queues: $0.40 per million operations.
@@ -359,8 +370,11 @@ return [
             'database_compute_millicents_per_cu_second' => (float) env('DPLY_USAGE_DATABASE_MC_PER_CU_SECOND', 10_600 / 3600),
             'database_storage_millicents_per_gb_month' => (float) env('DPLY_USAGE_DATABASE_STORAGE_MC_PER_GB_MONTH', 35_000),
 
-            // Realtime (docs/edge-realtime.md). Messages: ~$0.45 per million
-            // publishes is our Cloudflare cost (ruling r-p3dsj9znvtnyhphr).
+            // Realtime (docs/edge-realtime.md). Messages: $0.45 per million is
+            // a dply-set figure (ruling r-p3dsj9znvtnyhphr), NOT a Cloudflare
+            // list price: Durable Objects bill incoming WebSocket messages at
+            // 20:1 as requests, outgoing ones are free, and hibernation
+            // removes duration (docs/pricing-review.md §3).
             // Connection-minutes have no per-unit provider price; the cost is
             // backed out of the old $0.50/M customer price at the then-default
             // 20% margin (0.05 / 1.2); at 30% it is about $0.54/M.

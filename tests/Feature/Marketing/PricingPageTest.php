@@ -37,7 +37,7 @@ test('usage rates are the configured cost plus the margin, with the margin never
     $this->withoutMiddleware()->get(route('pricing'))->assertOk()
         ->assertSee('Usage rates')
         ->assertSee('$0.60')   // requests: $0.40 cost + 50%
-        ->assertSee('$0.03')   // bandwidth: $0.02 cost + 50%
+        ->assertSee('$0.02')   // bandwidth: a fixed price (fixed_price_meters), no margin
         ->assertDontSee('50%')
         ->assertDontSee('margin');
 });

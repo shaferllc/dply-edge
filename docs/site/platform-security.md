@@ -74,7 +74,7 @@ See [Data regions](/docs/data-regions) for details and options.
 
 ## Reporting a vulnerability
 
-If you find a security issue, report it privately. See [Compliance & security](/docs/compliance). To report abuse hosted on dply, see [Report abuse](/docs/abuse).
+If you find a security issue, report it privately to [security@dply.io](mailto:security@dply.io). See [Compliance & security](/docs/compliance). To report abuse hosted on dply, see [Report abuse](/docs/abuse).
 
 ## Related
 

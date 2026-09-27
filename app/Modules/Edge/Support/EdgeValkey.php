@@ -28,8 +28,10 @@ final class EdgeValkey
      *
      * cost_per_second (dollars) and cap_cost_cents are dply's COST. They were
      * backed out of the owner's 2026-09-24 customer price table at the
-     * default 20% margin (price / 1.2), so customer prices are unchanged at
-     * 20%. The customer price comes from {@see spec()} (UsagePrice).
+     * then-default 20% margin (price / 1.2), so they are NOT a measured
+     * cluster cost, and at today's 30% default every Valkey price is about
+     * 8% above that table (docs/pricing-review.md §3). The customer price
+     * comes from {@see spec()} (UsagePrice).
      *
      * @var array<string, array{label: string, memory_mb: int, sleeps: bool, cost_per_second: float, cap_cost_cents: float}>
      */

@@ -291,8 +291,10 @@ class Settings extends Component
             'revokeApiToken',
             [$apiToken->id],
             __('Revoke API token'),
-            __('Revoke :name? Integrations using this token will stop working immediately. This cannot be undone.', ['name' => $apiToken->name]),
-            __('Revoke token'),
+            $apiToken->revoked_at
+                ? __('Delete :name? It was already revoked when its owner left the organization.', ['name' => $apiToken->name])
+                : __('Revoke :name? Integrations using this token will stop working immediately. This cannot be undone.', ['name' => $apiToken->name]),
+            $apiToken->revoked_at ? __('Delete token') : __('Revoke token'),
             true
         );
     }

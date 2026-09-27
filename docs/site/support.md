@@ -44,7 +44,7 @@ Plan changes, cancellation and card updates are self-serve on your organization'
 ## Report abuse or a security issue
 
 - To report a site hosted on dply that is abusive, see [Report abuse](/docs/abuse).
-- To report a vulnerability in dply itself, email [hello@dply.io](mailto:hello@dply.io) with "Security" in the subject line and don't disclose it publicly until we've responded. See [Compliance & security](/docs/compliance).
+- To report a vulnerability in dply itself, email [security@dply.io](mailto:security@dply.io) and don't disclose it publicly until we've responded. See [Compliance & security](/docs/compliance).
 
 ## Related
 

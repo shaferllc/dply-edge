@@ -130,7 +130,15 @@ These apply at the relay right away, without a redeploy.
 
 ## Usage and billing
 
-Realtime is metered by connection-minutes (each open socket, each minute) and messages (publishes in plus frames delivered out), billed at $0.50 per million connection-minutes and $0.54 per million messages, less your plan's included usage credit. See [Usage & metering](/docs/usage) and [Realtime (WebSockets)](/docs/resources/realtime).
+Realtime is metered by connection-minutes (each open socket, each minute) and messages (publishes in plus frames delivered out). They bill at these rates, less your plan's included usage credit:
+
+<!-- generated: php artisan dply:billing:price-table rates --group="Realtime" -->
+| Meter | Price | Unit |
+| --- | --- | --- |
+| Connection-minutes | $0.542 | per million |
+| Messages | $0.585 | per million |
+
+See [Usage & metering](/docs/usage) and [Realtime (WebSockets)](/docs/resources/realtime).
 
 ## Next steps
 

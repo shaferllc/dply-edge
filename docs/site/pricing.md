@@ -66,7 +66,7 @@ Enterprise's limits are set in your contract; none of the above is a hard ceilin
 
 Usage is billed in arrears, on the invoice after the billing period ends, at the rates below, less your plan's included usage credit. See [Usage & metering](/docs/usage) for how each meter is measured and [Invoices & taxes](/docs/invoices) for how it appears on your bill.
 
-Rates are shown to more precision than a cent where the unit is small. Bandwidth is a flat price dply sets, not a pass-through of a provider charge. Each invoice line is rounded up to the next whole cent.
+Rates are shown to more precision than a cent where the unit is small. Bandwidth is a flat price dply sets, not a pass-through of a provider charge. Each invoice line is rounded to the nearest cent.
 
 <!-- generated: php artisan dply:billing:price-table rates -->
 | Group | Meter | Price | Unit |
@@ -80,7 +80,6 @@ Rates are shown to more precision than a cent where the unit is small. Bandwidth
 | Apps and workers | vCPU | $0.000026 | per vCPU-second |
 | Apps and workers | Memory | $0.00000325 | per GiB-second |
 | Apps and workers | Disk | $0.000000091 | per GB-second |
-| Apps and workers | Container bandwidth | $0.0325 | per GB |
 | Databases | Compute | $0.0000383 | per compute-unit-second (1 vCPU, 4 GB) |
 | Databases | Storage | $0.455 | per GB-month |
 | SQL (D1) | Rows read | $0.0013 | per million |
@@ -135,7 +134,7 @@ The trial is different: it has a $5 spending cap. See [Free trial](/docs/free-tr
 
 ## Estimate a bill
 
-The public pricing page has an estimator that runs the same arithmetic as the invoice. Inside the app, your organization's **Billing** page shows usage this period, the included credit, and the estimated charge for the current period.
+The public pricing page has an estimator for requests, bandwidth, build time and one small container app, at the same rates the invoice uses. It is an estimate: it leaves out storage operations, databases, Valkey, key-value, realtime and other meters. Inside the app, your organization's **Billing** page shows usage this period, the included credit, and the estimated charge for the current period.
 
 A Pro organization with $32 of usage in a period pays:
 

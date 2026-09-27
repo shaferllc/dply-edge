@@ -27,6 +27,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Queue\CallQueuedClosure;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -383,4 +384,34 @@ test('the renewal invoice lists usage by category, then the included credit as a
         // Starter includes $5: the credit is min($5, usage).
         ->and($items[1]['amount'])->toBe(-min(500, $data));
     expect(DB::table('billing_usage_charges')->value('cents'))->toBe(max(0, $data - 500));
+});
+
+test('after a plan-price change the renewal still bills the old price’s plan: legacy list, then price metadata', function () {
+    config(['subscription.standard.stripe.tier_starter' => 'price_starter_new', 'subscription.standard.stripe.legacy_tiers.starter' => 'price_starter_old']);
+    dataUsageOn($this->org, '2026-08-05');
+    dataUsageOn($this->org, '2026-09-04'); // $5.55 of usage
+
+    // Listed as legacy: Starter's $5 credit, not Pro's.
+    $this->stripe->subscription['items']['data'][0]['price']['id'] = 'price_starter_old';
+    stripeEvent('invoice.created', renewalInvoice());
+    expect($this->stripe->items()[1]['amount'])->toBe(-500);
+
+    // Not listed, but the archived price keeps the provisioner's metadata: Team's $50 credit.
+    DB::table('billing_usage_charges')->delete();
+    $this->stripe->calls = [];
+    $this->stripe->subscription['items']['data'][0]['price'] = ['id' => 'price_team_old', 'metadata' => ['dply_role' => 'tier_team']];
+    stripeEvent('invoice.created', renewalInvoice());
+    expect($this->stripe->items()[1]['metadata']['dply_usage_line'])->toBe('credit')
+        ->and($this->stripe->items()[1]['amount'])->toBe(-555);
+});
+
+test('a renewal on a price nothing identifies is reported, not billed as Pro', function () {
+    Exceptions::fake();
+    dataUsageOn($this->org, '2026-08-05');
+    $this->stripe->subscription['items']['data'][0]['price']['id'] = 'price_mystery';
+
+    stripeEvent('invoice.created', renewalInvoice());
+
+    expect($this->stripe->items())->toBe([]);
+    Exceptions::assertReported(fn (RuntimeException $e) => str_contains($e->getMessage(), 'price_mystery'));
 });

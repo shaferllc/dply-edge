@@ -66,7 +66,7 @@ At the two-factor prompt, enter a recovery code instead of the 6-digit code. Eac
 Open **Profile → Security**, choose **Manage or disable**, and enter your password plus a current 6-digit code or a recovery code.
 
 > [!NOTE]
-> dply asks for the two-factor code when you sign in with email and password. Signing in with a passkey or a linked OAuth account does not ask for a code, so protect your Git provider account with its own two-factor authentication.
+> dply asks for the two-factor code when you sign in with email and password, and when you sign in with a linked OAuth account. Signing in with a passkey does not ask for a code.
 
 ## What gets recorded
 
@@ -81,10 +81,16 @@ API tokens and CLI sign-ins act as you. Treat them like passwords:
 
 ## Delete your account
 
-Open **Profile → Delete account** and enter your password. Your account is deleted and you are signed out.
+Open **Profile → Delete account** and enter your password. Your account is deleted and you are signed out. You leave every organization you belong to, your API tokens stop working, and your seats are freed.
+
+What happens to organizations you own:
+
+- **You are the only owner and there are other members.** dply refuses. Make another member owner first (**Members → Make owner**), or remove the other members. See [Change a role or remove someone](/docs/roles-and-permissions#change-a-role-or-remove-someone).
+- **Another owner remains.** You simply leave; the organization carries on.
+- **You are the only member.** The organization is deleted with your account, on the same terms as [deleting an organization](/docs/organizations#delete-an-organization): delete its apps and cancel its subscription first, or dply refuses.
 
 > [!WARNING]
-> Deleting your account cannot be undone. Ownership of an organization cannot be transferred from the dashboard, so delete any organization you own first, or contact support. See [Organizations](/docs/organizations#delete-an-organization).
+> Deleting your account cannot be undone.
 
 ## Related
 

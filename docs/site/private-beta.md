@@ -56,7 +56,7 @@ There are no beta-only terms and no service level agreement during the beta.
 
 We read every report. The most useful ones include the app name, the deployment ID from **Deploys**, what you expected, and what happened instead. For a failed build, include the relevant lines from **Build & deploy logs**.
 
-Email [hello@dply.io](mailto:hello@dply.io) from the address on your dply account. We answer as quickly as we can on business days; there is no guaranteed response time. To report a vulnerability, use the same address with "Security" in the subject line.
+Email [hello@dply.io](mailto:hello@dply.io) from the address on your dply account. We answer as quickly as we can on business days; there is no guaranteed response time. To report a vulnerability, email [security@dply.io](mailto:security@dply.io) instead.
 
 See [Support](/docs/support) and [Report abuse](/docs/abuse).
 

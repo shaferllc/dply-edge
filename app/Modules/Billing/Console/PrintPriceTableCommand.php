@@ -19,41 +19,149 @@ use Illuminate\Console\Command;
  *   php artisan dply:billing:price-table rates --group="Key-value" --group=Queues
  *   php artisan dply:billing:price-table sizes           the size ladder (app, database, Valkey)
  *   php artisan dply:billing:price-table sizes --product=valkey
+ *
+ * Every docs table sits under a `<!-- generated: php artisan
+ * dply:billing:price-table … -->` marker. After a price change:
+ *
+ *   php artisan dply:billing:price-table --write-docs    rewrite every marked table in place
+ *   php artisan dply:billing:price-table --check-docs    fail if any is stale (DocsPriceTablesTest)
  */
 class PrintPriceTableCommand extends Command
 {
     protected $signature = 'dply:billing:price-table
                             {section=all : plans, limits, fair-use, rates, sizes, or all}
                             {--group=* : Only these usage groups (rates)}
-                            {--product= : app, database or valkey (sizes)}';
+                            {--product= : app, database or valkey (sizes)}
+                            {--write-docs : Rewrite every generated table in the docs in place}
+                            {--check-docs : Fail if any generated table in the docs is stale}
+                            {--docs-path= : The docs directory (default: docs/site)}';
 
     protected $description = 'Print the pricing tables as Markdown for docs/site.';
 
+    private const SECTIONS = ['plans', 'limits', 'fair-use', 'rates', 'sizes'];
+
     public function handle(): int
     {
+        if ($this->option('write-docs') || $this->option('check-docs')) {
+            return $this->docs((bool) $this->option('write-docs'));
+        }
+
         $section = (string) $this->argument('section');
-        $tables = [
-            'plans' => fn (): string => $this->plans(),
-            'limits' => fn (): string => $this->limits(),
-            'fair-use' => fn (): string => $this->fairUse(),
-            'rates' => fn (): string => $this->rates((array) $this->option('group')),
-            'sizes' => fn (): string => $this->sizes($this->option('product')),
-        ];
-        if ($section !== 'all' && ! isset($tables[$section])) {
-            $this->error('Unknown section. Use one of: all, '.implode(', ', array_keys($tables)));
+        if ($section !== 'all' && ! in_array($section, self::SECTIONS, true)) {
+            $this->error('Unknown section. Use one of: all, '.implode(', ', self::SECTIONS));
 
             return self::FAILURE;
         }
 
-        foreach ($section === 'all' ? $tables : [$section => $tables[$section]] as $name => $table) {
+        foreach ($section === 'all' ? self::SECTIONS : [$section] as $name) {
             if ($section === 'all') {
                 $this->line("<!-- {$name} -->");
             }
-            $this->line($table());
+            $this->line($this->render($name, (array) $this->option('group'), $this->option('product')));
             $this->newLine();
         }
 
         return self::SUCCESS;
+    }
+
+    /** @param  list<string>  $groups */
+    private function render(string $section, array $groups, mixed $product): string
+    {
+        return match ($section) {
+            'plans' => $this->plans(),
+            'limits' => $this->limits(),
+            'fair-use' => $this->fairUse(),
+            'rates' => $this->rates($groups),
+            'sizes' => $this->sizes($product),
+            default => throw new \InvalidArgumentException("Unknown price table section: {$section}"),
+        };
+    }
+
+    /**
+     * Finds every `<!-- generated: php artisan dply:billing:price-table … -->`
+     * marker under the docs directory and compares the table below it with
+     * what the command prints now; rewrites stale ones when $write.
+     */
+    private function docs(bool $write): int
+    {
+        $dir = (string) ($this->option('docs-path') ?: base_path('docs/site'));
+        $checked = 0;
+        $stale = [];
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS)) as $file) {
+            if ($file->getExtension() !== 'md' || str_contains($file->getPathname(), '_reports')) {
+                continue;
+            }
+            $lines = file($file->getPathname(), FILE_IGNORE_NEW_LINES);
+            $changed = false;
+            for ($i = 0; $i < count($lines); $i++) {
+                if (preg_match('/<!-- generated: php artisan dply:billing:price-table(.*?)-->/', $lines[$i], $m) !== 1) {
+                    continue;
+                }
+                [$section, $groups, $product] = $this->markerArgs($m[1]);
+                if (! in_array($section, self::SECTIONS, true)) {
+                    $stale[] = $file->getPathname().':'.($i + 1).' (unknown section '.$section.')';
+
+                    continue;
+                }
+                $expected = explode("\n", $this->render($section, $groups, $product));
+                // The table: the `|` lines after the marker (blank lines before it allowed).
+                $start = $i + 1;
+                while ($start < count($lines) && $lines[$start] === '') {
+                    $start++;
+                }
+                $end = $start;
+                while ($end < count($lines) && str_starts_with($lines[$end], '|')) {
+                    $end++;
+                }
+                $checked++;
+                if (array_slice($lines, $start, $end - $start) === $expected) {
+                    continue;
+                }
+                $stale[] = $file->getPathname().':'.($i + 1);
+                if ($write) {
+                    if ($start === $end) {
+                        // No table yet: add one right under the marker, followed by a blank line.
+                        [$start, $end] = [$i + 1, $i + 1];
+                        if (($lines[$i + 1] ?? '') !== '') {
+                            $expected[] = '';
+                        }
+                    }
+                    array_splice($lines, $start, $end - $start, $expected);
+                    $changed = true;
+                }
+            }
+            if ($changed) {
+                file_put_contents($file->getPathname(), implode("\n", $lines)."\n");
+            }
+        }
+
+        foreach ($stale as $where) {
+            $this->line(($write ? 'rewrote ' : 'stale ').$where);
+        }
+        $this->info(sprintf('%d generated table(s) checked, %d %s.', $checked, count($stale), $write ? 'rewritten' : 'stale'));
+
+        return $checked === 0 || (! $write && $stale !== []) ? self::FAILURE : self::SUCCESS;
+    }
+
+    /**
+     * `rates --group="Key-value" --group=Queues` → ['rates', ['Key-value', 'Queues'], null].
+     *
+     * @return array{0: string, 1: list<string>, 2: ?string}
+     */
+    private function markerArgs(string $args): array
+    {
+        preg_match_all('/--(\w+)=("[^"]*"|\S+)|(\S+)/', trim($args), $parts, PREG_SET_ORDER);
+        $section = 'all';
+        $options = ['group' => [], 'product' => []];
+        foreach ($parts as $part) {
+            if (($part[3] ?? '') !== '') {
+                $section = $part[3];
+            } else {
+                $options[$part[1]][] = trim($part[2], '"');
+            }
+        }
+
+        return [$section, $options['group'], $options['product'][0] ?? null];
     }
 
     /** @return array<string, array<string, mixed>> */

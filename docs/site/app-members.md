@@ -37,6 +37,8 @@ App roles do not let anyone delete the app. Deleting an app always needs an orga
 
 In the member list, pick a new role to change it. Choose **Remove** to take away the app role. The person goes back to what their organization role allows on this app.
 
+App roles also go away when the person leaves or is removed from the organization, or becomes an organization viewer.
+
 Every addition, role change, and removal is recorded in the app's audit log and the organization [activity log](/docs/activity-log).
 
 ## Related

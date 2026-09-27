@@ -27,9 +27,9 @@ class DeleteOrganizationAction
     /**
      * @throws ValidationException
      */
-    public function handle(Organization $organization, User $actor): void
+    public function handle(Organization $organization, User $actor, bool $requireAnotherOrganization = true): void
     {
-        $this->guard($organization, $actor);
+        $this->guard($organization, $actor, $requireAnotherOrganization);
 
         // Realtime apps cascade with the org, but their relay KV records would
         // stay live: remove them first, outside the transaction (remote calls).
@@ -66,9 +66,12 @@ class DeleteOrganizationAction
     }
 
     /**
+     * Account deletion passes $requireAnotherOrganization = false: the owner is
+     * leaving dply, so there is nowhere they need to land.
+     *
      * @throws ValidationException
      */
-    private function guard(Organization $organization, User $actor): void
+    public function guard(Organization $organization, User $actor, bool $requireAnotherOrganization = true): void
     {
         if ($organization->servers()->exists() || $organization->sites()->exists()) {
             throw ValidationException::withMessages([
@@ -80,6 +83,10 @@ class DeleteOrganizationAction
             throw ValidationException::withMessages([
                 'delete_confirm' => __('Cancel this organization\'s subscription before deleting it.'),
             ]);
+        }
+
+        if (! $requireAnotherOrganization) {
+            return;
         }
 
         $otherOrgs = $actor->organizations()

@@ -20,7 +20,7 @@ The usage lines are labeled by category, each with the dates they cover:
 |---|---|
 | Delivery (requests, bandwidth, site storage) | Requests, bandwidth, and site storage and its writes and reads |
 | Build time | Time in the build container, billed per second |
-| Apps and workers (compute) | Container app and queue worker vCPU, memory, disk and egress |
+| Apps and workers (compute) | Container app and queue worker vCPU, memory and disk (their traffic to visitors is under Delivery) |
 | Databases | Postgres, MySQL and MongoDB compute and storage |
 | Valkey | Valkey time by size |
 | SQL, queues and key-value | Edge SQL (D1), queues, and key-value |
@@ -28,7 +28,7 @@ The usage lines are labeled by category, each with the dates they cover:
 | Workers CPU, Durable Objects, object storage and images | Workers CPU time, Durable Objects, object storage buckets, and image transformations |
 | Included usage credit | A negative line: the smaller of your plan's included credit or the usage total above |
 
-A usage line appears only when it's more than zero. The included usage credit line appears only when you had usage to apply it to. If you used nothing, the invoice has no usage lines. Each line is rounded up to the next whole cent.
+A usage line appears only when it's more than zero. The included usage credit line appears only when you had usage to apply it to. If you used nothing, the invoice has no usage lines. Each line is rounded to the nearest cent.
 
 The invoice is charged to your card automatically.
 

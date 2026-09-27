@@ -11,8 +11,8 @@ On top of the organization role, you can give a member or deployer (not a viewer
 
 | Role | Summary |
 |---|---|
-| **Owner** | Everything, including deleting the organization. The person who creates an organization is its owner. Ownership cannot be granted by invitation. |
-| **Admin** | Everything an owner can do except delete the organization: billing, settings, members, activity log, API tokens. |
+| **Owner** | Everything, including deleting the organization and managing other owners. The person who creates an organization is its owner. Ownership cannot be granted by invitation; an owner makes another member owner from **Members**. An organization always has at least one owner. |
+| **Admin** | Everything an owner can do except delete the organization, grant ownership, or change or remove an owner: billing, settings, members, activity log, API tokens. |
 | **Member** | Creates, configures, and deploys apps. Cannot manage the organization, billing, or members, and cannot delete apps. |
 | **Deployer** | Sees every app and ships code: deploy, redeploy, roll back, promote and tear down previews, cancel or restart builds, purge the cache, and read logs. Cannot change anything else: environment variables and secrets, domains, resources, security settings (firewall, rate limits, bot protection, access, waiting room), build settings, alerts, members, or billing. Cannot create apps. |
 | **Viewer** | Sees every app, its deploys, previews, logs, and settings, and changes nothing. Free: a viewer does not take a seat. An app role never lifts a viewer above view-only. |
@@ -27,6 +27,9 @@ Owners and admins together are called *admins* throughout this documentation and
 |---|---|---|---|---|---|
 | See the organization overview, members, and teams | Yes | Yes | Yes | Yes | Yes |
 | Invite members and cancel invitations | Yes | Yes | No | No | No |
+| Change a member's role and remove members | Yes | Yes (not owners) | No | No | No |
+| Make another member owner | Yes | No | No | No | No |
+| Leave the organization (unless you are its only owner) | Yes | Yes | Yes | Yes | Yes |
 | Create, rename, and delete teams; change team membership | Yes | Yes | No | No | No |
 | Edit **General** settings (name, icon, email defaults, data region) | Yes | Yes | No | No | No |
 | View and revoke any API token in the organization | Yes | Yes | No | No | No |
@@ -65,7 +68,7 @@ An app role changes these rows on one app for a member or deployer. It does not 
 | Create API tokens on **Profile → API keys** | Yes | Yes | No | No | No |
 | Sign in with `dply login` | Yes | Yes | Yes | Yes | Yes |
 
-A token can never do more than the person who owns it. Every API request checks both the token's abilities and the owner's current role on the app: reads need view access, deployment, preview, and cache-purge requests need deploy access, and every other write needs configure access. Database queries and queue messages need an organization admin. When someone leaves an organization, their tokens for that organization stop working.
+A token can never do more than the person who owns it. Every API request checks both the token's abilities and the owner's current role on the app: reads need view access, deployment, preview, and cache-purge requests need deploy access, and every other write needs configure access. Database queries and queue messages need an organization admin. When someone leaves or is removed from an organization, their tokens for that organization are revoked: they stop working at once, show as **Revoked** in the organization's token list, and stay revoked if the person is invited back.
 
 `dply login` offers only the abilities your role allows:
 
@@ -91,8 +94,18 @@ dply emails a link that is valid for 7 days. The person must sign in (or sign up
 
 ## Change a role or remove someone
 
-> [!IMPORTANT]
-> The dashboard does not yet let you change a member's organization role or remove a member from an organization. Contact [support](/docs/support) to do either. To limit someone on a single app, give them the **Viewer** app role there; see [App members](/docs/app-members).
+Owners and admins manage people on **Members**. Everyone else sees the list read-only.
+
+- **Change a role.** Pick a new role in the member's row. A change that takes access away (for example Admin to Member, or anything to Viewer) asks you to confirm first. Admins cannot change an owner's role or make anyone owner. Moving a viewer to any other role takes a seat, so it is refused when your plan's seats are full. Making someone a viewer removes their app roles, since viewers can't hold one.
+- **Remove someone.** Choose **Remove** in their row and confirm. Admins cannot remove an owner.
+- **Leave.** Choose **Leave** in your own row. You cannot leave if you are the only owner: make someone else owner first.
+- **Make someone owner.** Owners see **Make owner** in each member's row. Turn on **Step down to admin** in the confirmation to hand ownership over and stay on as an admin.
+
+An organization always keeps at least one owner, so the last owner can't be demoted, removed, or leave.
+
+When someone is removed or leaves, dply takes them off every team, removes their app roles in the organization, revokes their API tokens for it, and updates your seat count (and, on Team, your bill). The person gets an email when an owner or admin changes their role or removes them. Every role change, removal, departure, and ownership change is recorded in the [activity log](/docs/activity-log).
+
+To limit someone on a single app instead, give them the **Viewer** app role there; see [App members](/docs/app-members).
 
 ## Seats
 

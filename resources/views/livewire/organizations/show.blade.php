@@ -160,9 +160,9 @@
                              2026_08_14 migration folded them into channels). --}}
                         <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('API tokens') }}</dt>
                         <dd class="mt-0.5 flex items-baseline gap-1.5">
-                            <span class="font-mono text-base font-semibold tabular-nums text-brand-ink">{{ $organization->apiTokens->count() }}</span>
+                            <span class="font-mono text-base font-semibold tabular-nums text-brand-ink">{{ $organization->apiTokens->whereNull('revoked_at')->count() }}</span>
                             <span class="truncate text-2xs font-semibold uppercase tracking-wide text-brand-moss">
-                                {{ trans_choice('token|tokens', $organization->apiTokens->count()) }}
+                                {{ trans_choice('token|tokens', $organization->apiTokens->whereNull('revoked_at')->count()) }}
                                 · {{ $organization->notificationChannels->count() }} {{ trans_choice('channel|channels', $organization->notificationChannels->count()) }}
                             </span>
                         </dd>

@@ -103,12 +103,13 @@ unrelated WIP commit three days earlier, so the boundary was silently unchecked.
 >   installs run both on their next `migrate` — **irreversible; back up
 >   production first.** Rebuild the dump with `schema:dump` against
 >   `dply_edge_testing` using a pg_dump matching the server (16).
-> - **`app/Actions` holds five plain classes and nothing else** —
+> - **`app/Actions` holds six plain classes and nothing else** —
 >   `Auth/EnsureLocalDevAdminUser`, `Auth/UnlinkSocialAccount`,
 >   `Organizations/EnsureUserHasWorkspaceOrganization`,
->   `Organizations/DeleteOrganizationAction`, `DeployContract/WaiveDeployContractRun`.
+>   `Organizations/DeleteOrganizationAction`, `Organizations/ManageOrganizationMembers`
+>   (role change / remove / leave / ownership transfer), `DeployContract/WaiveDeployContractRun`.
 >   The generic Actions framework (~375 files) was deleted 2026-09-11; Login,
->   Register, Security, SourceControl and org settings use the five survivors.
+>   Register, Security, SourceControl and org settings use the survivors.
 > - **Billing is three plans + included usage credit + one margin (2026-09-27,
 >   ruling r-2zxevg4sj675qn1m, spec `docs/adr/pricing-model-2026-09.md`).**
 >   Starter $5 / Pro $20 / Team $49 (+$5 per seat past 10), monthly only, in
@@ -117,25 +118,33 @@ unrelated WIP commit three days earlier, so the boundary was silently unchecked.
 >   unlimited: no per-site fees, no per-meter allowances. Every meter's config
 >   value in `dply.edge.usage_billing` is provider **cost** (millicents); the
 >   customer price is cost × (1 + `margin_percent`/100, env
->   `DPLY_USAGE_MARGIN_PERCENT`, default 20), applied only in
+>   `DPLY_USAGE_MARGIN_PERCENT`, default 30, ruling r-jnv0r3qf1xk49kmc), applied only in
 >   `App\Modules\Billing\Support\UsagePrice` — cost classes, invoices, the
->   pricing page and docs all go through it (`dply:billing:price-table` prints
->   the docs tables). Apps, workers, databases and Valkey bill per second
+>   pricing page and docs all go through it. Exception: keys in
+>   `fixed_price_meters` (bandwidth, $0.06/GB) are configured as the customer
+>   price and ignore the margin. After a price change run
+>   `php artisan dply:billing:price-table --write-docs` to rewrite every
+>   generated docs table (`DocsPriceTablesTest` fails until you do). Apps, workers, databases and Valkey bill per second
 >   awake. `UsageInvoicer` bills each closed period's usage per category plus
 >   a negative "Included usage credit" line = min(credit, usage). The syncer
->   removes the retired per-site Stripe lines without proration. A hidden
+>   removes the retired per-site Stripe lines without proration. Plan prices
+>   match through `SubscriptionPlanResolver::tierPriceIds()` (current +
+>   `STRIPE_PRICE_*_LEGACY`, the grandfather list); an unknown price is
+>   reported, never guessed. Container `tx_bytes` is not billed (delivery
+>   bandwidth already counts it). A hidden
 >   fair-use app cap is enforced in `CreateEdgeSite` (ruling r-bc0k0cta8e50x8vr).
-> - **No Free plan: a 5-day Pro trial, card up front (2026-09-26, ruling
->   r-f17p5zgeh120cm5t).** `subscription.standard.trial` holds the length,
->   tier, $5 trial spending cap and the 7-day keep period. `billingTier()` is
+> - **No Free plan: a 5-day trial of the chosen plan, card up front (2026-09-26, ruling
+>   r-f17p5zgeh120cm5t; chosen plan per r-jnv0r3qf1xk49kmc).** `subscription.standard.trial` holds the length,
+>   the tier for a card-less trial (Pro), the $5 trial spending cap and the 30-day keep period. `billingTier()` is
 >   `team` for a comped org (`organizations.comped_until`, `dply:billing:comp`),
 >   the subscription's plan (a trialing Stripe sub counts), the trial tier on a
 >   card-less trial (`trial_ends_at`, given to orgs that were on Free), else
 >   `none`: no plan. `dply:billing:enforce` (hourly and after each billing
 >   webhook) sends the trial emails, pauses a no-plan org (paused page through
 >   the host map, container gate, workers paused) and resumes it when paid.
->   Deleting a paused org's data after 7 days ships **off**
->   (`DPLY_BILLING_PURGE_ENABLED`); `--dry-run` lists what it would delete.
+>   Deleting a paused org's data after 30 days is **on** by default, with
+>   warning emails 7 days and 1 day before (`DPLY_BILLING_PURGE_ENABLED`,
+>   ruling r-jnv0r3qf1xk49kmc); `--dry-run` lists what it would delete.
 > - **The CLI (`packages/dply-cli`) and API-token catalog are Edge-only.** Token
 >   abilities live in `config/product/api_token_permissions.php`; the deployer
 >   allowlist must cover `cli.device_flow_role_caps.deployer` (a test guards it).

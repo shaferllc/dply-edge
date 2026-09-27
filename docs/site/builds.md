@@ -129,9 +129,14 @@ Build concurrency and timeout depend on your organization's plan; build time its
 | Realtime connections per app | 200 | 1,000 | 5,000 |
 | Audit log | No | No | Yes |
 
-Build time bills at $0.006 per minute, billed per second, less your plan's included usage credit. See [Plans & pricing](/docs/pricing).
+Build time is billed per second, less your plan's included usage credit. See [Plans & pricing](/docs/pricing).
 
-The free trial runs on the Pro limits, within the trial's $5 usage cap. See [Free trial](/docs/free-trial).
+<!-- generated: php artisan dply:billing:price-table rates --group="Builds" -->
+| Meter | Price | Unit |
+| --- | --- | --- |
+| Build time | $0.0065 | per minute, billed per second |
+
+The free trial runs on the limits of the plan you chose (Pro when it started from a first deploy), within the trial's $5 usage cap. See [Free trial](/docs/free-trial).
 
 How these work:
 

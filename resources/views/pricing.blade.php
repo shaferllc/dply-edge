@@ -274,7 +274,7 @@
             <div class="mx-auto max-w-6xl px-6 py-14 lg:px-10">
                 <h2 class="text-2xl font-bold tracking-[-0.02em]">{{ __('Estimate a month') }}</h2>
                 <p class="mt-2 max-w-2xl text-sm leading-6 text-edge-mute">
-                    {{ __('Move the numbers. The total is the same arithmetic the invoice runs.') }}
+                    {{ __('Move the numbers for an estimate at the rates the invoice uses. Storage, databases and other meters are not included.') }}
                 </p>
 
                 @include('partials.pricing-calculator', ['tiers' => $tiers])

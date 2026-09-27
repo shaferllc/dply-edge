@@ -22,6 +22,8 @@ Email [hello@dply.io](mailto:hello@dply.io) with "Abuse" in the subject line. In
 - **For copyright or trademark claims**: the work you own, where the infringing copy is, and a statement that you are the owner or authorized to act for the owner.
 - **How to reach you**, in case we need more detail.
 
+To report a vulnerability in dply itself, email [security@dply.io](mailto:security@dply.io) instead. See [Compliance & security](/docs/compliance).
+
 > [!WARNING]
 > Don't send malware as an attachment. Send the URL or a file hash instead.
 

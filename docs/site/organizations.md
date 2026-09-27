@@ -35,7 +35,7 @@ The organization sidebar holds these sections. Which ones you see depends on you
 | **Billing** | Plan, payment method, usage, invoices. See [Plans & pricing](/docs/pricing) | Owners and admins |
 | **Credentials** | Encrypted tokens dply holds for third-party providers | Everyone except deployers |
 | **General** | Name, icon, contact details, email defaults, data region, API tokens, and deletion | Owners and admins |
-| **Members** | People, roles, and pending invitations. Each member and pending invitation takes a seat on your plan, except view-only members, who are free. See [Seats](/docs/roles-and-permissions#seats) | All members |
+| **Members** | People, roles, and pending invitations. Owners and admins change roles and remove people here; anyone can leave. See [Change a role or remove someone](/docs/roles-and-permissions#change-a-role-or-remove-someone). Each member and pending invitation takes a seat on your plan, except view-only members, who are free. See [Seats](/docs/roles-and-permissions#seats) | All members |
 | **Notification channels** | Organization-owned alert destinations. See [Notification channels](/docs/notifications) | Owners and admins |
 | **Secrets** | The shared secret vault you link onto apps. See [Secrets](/docs/secrets) | All members |
 | **Teams** | Named groups of members. See [Teams](/docs/teams) | All members |
@@ -74,6 +74,10 @@ The setting applies only to buckets created after you change it. Existing bucket
 The **API tokens** list shows every token issued for this organization, across all members, with its prefix, when it was last used, and when it expires. An owner or admin can **Revoke** any token here. Revocation takes effect immediately and is recorded in the activity log.
 
 You create tokens on your own **Profile → API keys** page, not here. See [HTTP API](/docs/api).
+
+## Leave an organization
+
+Open **Members** and choose **Leave** in your own row. You lose access to the organization's apps, and your API tokens for it are revoked. You cannot leave if you are the organization's only owner; make another member owner first (**Make owner** in their row).
 
 ## Delete an organization
 

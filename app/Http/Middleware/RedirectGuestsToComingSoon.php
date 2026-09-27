@@ -81,6 +81,8 @@ class RedirectGuestsToComingSoon
             'cli/*',             // `curl https://dply.io/cli/install.sh | sh`
             'status/*',          // public status pages
             'share/*',           // one-time credential-share links
+            'security.txt',      // RFC 9116 security contact
+            '.well-known/security.txt',
         );
     }
 

@@ -11,8 +11,16 @@ use Carbon\CarbonInterface;
 
 /**
  * Prices container compute (container apps and queue workers) per second
- * awake: vCPU-, GiB-memory- and GB-disk-seconds plus egress, at cost from
+ * awake: vCPU-, GiB-memory- and GB-disk-seconds, at cost from
  * dply.edge.usage_billing.container_*, priced by UsagePrice (one margin).
+ *
+ * Container egress (tx_bytes) is recorded but NOT billed. Every visitor
+ * request to a container app goes through its Worker on the site's
+ * hostname, so the response bytes are already in the zone's
+ * edgeResponseBytes and billed once as delivery bandwidth ($0.06/GB,
+ * EdgeUsageCostCalculator). tx_bytes counts the same bytes again on their
+ * way from the container to the Worker, plus the container's own outbound
+ * calls, which Cloudflare covers with 1 TB/month included (NA/EU).
  */
 class EdgeContainerComputeCost
 {
@@ -43,12 +51,12 @@ class EdgeContainerComputeCost
         return UsagePrice::cents($this->costMillicents($cpuSeconds, $memoryGibSeconds, $diskGbSeconds, $txBytes));
     }
 
-    public function costMillicents(float $cpuSeconds, float $memoryGibSeconds, float $diskGbSeconds, int $txBytes): float
+    /** $txBytes is accepted for the callers' totals but not billed (see the class doc). */
+    public function costMillicents(float $cpuSeconds, float $memoryGibSeconds, float $diskGbSeconds, int $txBytes = 0): float
     {
         return $cpuSeconds * UsagePrice::cost('container_vcpu_millicents_per_second')
             + $memoryGibSeconds * UsagePrice::cost('container_memory_millicents_per_gib_second')
-            + $diskGbSeconds * UsagePrice::cost('container_disk_millicents_per_gb_second')
-            + $txBytes / 1024 ** 3 * UsagePrice::cost('container_egress_millicents_per_gb');
+            + $diskGbSeconds * UsagePrice::cost('container_disk_millicents_per_gb_second');
     }
 
     /**

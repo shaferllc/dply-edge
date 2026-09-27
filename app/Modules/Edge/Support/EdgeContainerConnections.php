@@ -65,9 +65,11 @@ final class EdgeContainerConnections
     public const ENABLE = ['ai', 'images'];
 
     /**
-     * Unmetered on our shared account (AI, Browser Rendering, Images,
-     * Vectorize), so only a paid plan past its trial gets them: attach,
-     * provision, and every deploy check {@see paidFeatures}.
+     * Billed to our shared account with no per-org cap: AI, Browser
+     * Rendering and Vectorize are unmetered, and Images is metered
+     * (EdgePlatformUsageCollector) but still runs on our account. So only a
+     * paid plan past its trial gets them: attach, provision, and every
+     * deploy check {@see paidFeatures}.
      */
     public const PAID_ONLY = ['ai', 'browser', 'images', 'vectors'];
 

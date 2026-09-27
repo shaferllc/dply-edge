@@ -19,11 +19,14 @@ uses(RefreshDatabase::class);
 
 beforeEach(fn () => config(['dply.edge.usage_billing.margin_percent' => 0]));
 
-test('compute is priced per second of vcpu, memory, disk and egress', function () {
+test('compute is priced per second of vcpu, memory and disk; container egress is not billed twice', function () {
     $cost = app(EdgeContainerComputeCost::class);
 
-    // 1 vCPU-hour (7.2¢) + 1 GiB-hour (0.9¢) + 4 GB-hours disk (0.1¢) + 1 GiB egress (2.5¢) = 10.7¢ → 11¢
-    expect($cost->cents(3600, 3600, 4 * 3600, 1024 ** 3))->toBe(11)
+    // 1 vCPU-hour (7.2¢) + 1 GiB-hour (0.9¢) + 4 GB-hours disk (0.1¢) = 8.2¢ → 8¢.
+    // The 1 GiB the container sent is the visitors' responses, already billed
+    // as delivery bandwidth (edgeResponseBytes on the site's hostname).
+    expect($cost->cents(3600, 3600, 4 * 3600, 1024 ** 3))->toBe(8)
+        ->and($cost->cents(3600, 3600, 4 * 3600, 0))->toBe(8)
         ->and(round($cost->perMinuteMillicents(0.25, 1, 4), 2))->toBe(46.68); // basic, all vCPU busy
 });
 
