@@ -613,3 +613,13 @@ test('frankenphp trusts the Worker with a multi-line Caddy block; a one-line blo
     expect($dockerfile)->not->toContain('ENV CADDY_GLOBAL_OPTIONS')
         ->and($options)->toBe("servers {\n\ttrusted_proxies static 0.0.0.0/0 ::/0\n}");
 });
+
+test('static assets from the container Worker allow any origin, so a custom domain can load them', function () {
+    $site = new Site;
+    $site->id = '01SITECORS';
+    $dir = sys_get_temp_dir().'/dply-container-test-'.bin2hex(random_bytes(4));
+
+    (new EdgeContainerDeployer)->scaffold($dir, $site, '/x/Dockerfile', 8080, [], [], '', false);
+
+    expect(File::get($dir.'/src/index.js'))->toContain("headers.set('access-control-allow-origin', '*')");
+});

@@ -1468,7 +1468,13 @@ export default {
 
     if ((request.method === 'GET' || request.method === 'HEAD') && env.ASSETS && /\.(css|js|mjs|map|png|jpe?g|gif|webp|avif|svg|ico|woff2?|ttf|eot|txt|xml|webmanifest)$/i.test(url.pathname)) {
       const asset = await env.ASSETS.fetch(request);
-      if (asset.status !== 404) return asset;
+      // Public build output. An app reached on a custom domain may still link
+      // its assets on another host (ASSET_URL), and module scripts need CORS.
+      if (asset.status !== 404) {
+        const headers = new Headers(asset.headers);
+        headers.set('access-control-allow-origin', '*');
+        return new Response(asset.body, { status: asset.status, statusText: asset.statusText, headers });
+      }
     }
 
     if (!(await trafficOpen(env))) {
