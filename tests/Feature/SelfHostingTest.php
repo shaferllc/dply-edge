@@ -13,6 +13,8 @@ use App\Models\Site;
 use App\Models\User;
 use App\Modules\Edge\Jobs\PublishEdgeDeploymentJob;
 use App\Modules\Edge\Services\Config\EdgeRepoConfigLinter;
+use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
+use App\Modules\Edge\Services\EdgeHostMapPublisher;
 use App\Modules\Edge\Services\SelfHosting\SelfDeployer;
 use App\Modules\Edge\Services\SelfHosting\SelfDeployState;
 use App\Modules\Edge\Support\EdgeContainerConnections;
@@ -371,4 +373,38 @@ test('register --bootstrap on a fresh database creates the owner, org and site w
         ->and(collect(EdgeContainerConnections::for($site))->where('kind', 'redis')->count())->toBe(1)
         ->and(EdgeSiteEnvVar::query()->where('site_id', $siteId)->where('key', 'DB_PASSWORD')->first()?->value)->toBe('db-secret')
         ->and(EdgeSiteEnvVar::query()->where('site_id', $siteId)->where('key', 'REDIS_URL')->count())->toBe(1);
+});
+
+test('a deploy publishes the host map to the new container script before the health check, on one deployment row', function () {
+    $site = selfSite();
+    fakeR2();
+
+    $deployer = Mockery::mock(SelfDeployer::class)->makePartial();
+    $deployer->shouldReceive('dbReachable')->andReturnTrue();
+    $deployer->shouldReceive('resolveSha')->andReturn(NEW_SHA);
+    $deployer->shouldReceive('release')->once()->andReturnUsing(function () use ($deployer) {
+        $deployer->rolledOut = true;
+
+        return ['files' => ['wrangler.jsonc' => '{}']];
+    });
+    $deployer->shouldReceive('awaitRollout')->andReturn(['ok' => true, 'settled' => true, 'reason' => null]);
+    $published = null;
+    $deployer->shouldReceive('healthFailure')->once()->andReturnUsing(function () use (&$published) {
+        expect($published)->not->toBeNull(); // routed before the check
+
+        return null;
+    });
+    app()->instance(SelfDeployer::class, $deployer);
+    $publisher = Mockery::mock(EdgeHostMapPublisher::class);
+    $publisher->shouldReceive('publish')->once()->andReturnUsing(function ($s, EdgeDeployment $d) use (&$published) {
+        $published = $d;
+
+        return 1;
+    });
+    app()->instance(EdgeHostMapPublisher::class, $publisher);
+
+    $this->artisan('dply:self:deploy', ['--ref' => 'origin/main'])->assertSuccessful();
+
+    expect($published->meta['container']['script_name'])->toBe(EdgeContainerDeployer::scriptName($site))
+        ->and(EdgeDeployment::query()->where('git_commit', NEW_SHA)->sole()->status)->toBe(EdgeDeployment::STATUS_LIVE);
 });

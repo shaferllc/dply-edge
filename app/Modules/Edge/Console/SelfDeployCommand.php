@@ -7,6 +7,8 @@ namespace App\Modules\Edge\Console;
 use App\Models\EdgeDeployment;
 use App\Models\Site;
 use App\Modules\Edge\Console\Concerns\RunsWithEnvFile;
+use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
+use App\Modules\Edge\Services\EdgeHostMapPublisher;
 use App\Modules\Edge\Services\EdgeProductionEnv;
 use App\Modules\Edge\Services\SelfHosting\SelfDeployer;
 use App\Modules\Edge\Services\SelfHosting\SelfDeployState;
@@ -22,6 +24,9 @@ use Throwable;
  */
 class SelfDeployCommand extends Command
 {
+    /** The row the host map was published with, finished by record(). */
+    private ?EdgeDeployment $pending = null;
+
     protected $signature = 'dply:self:deploy
         {--env-file= : Production .env to deploy with (e.g. restored from escrow). Default: this process\'s env}
         {--ref= : Git ref or commit to deploy (default: origin/<edge.self.branch>)}
@@ -179,10 +184,36 @@ class SelfDeployCommand extends Command
             if ($rollout['settled'] && ! $rollout['ok']) {
                 return 'rollout: '.(string) $rollout['reason'];
             }
+            if ($db && $site->exists && ! $this->option('dry-run')) {
+                $this->publishHostMap($site, $sha);
+            }
 
             return $deployer->healthFailure($site);
         } catch (Throwable $e) {
             return $e->getMessage();
+        }
+    }
+
+    /**
+     * Route the site's hostnames to the new container script, as a dashboard
+     * deploy does (EdgeHostMapPublisher reads meta.container.script_name).
+     * Without the database the last published entry keeps routing.
+     */
+    private function publishHostMap(Site $site, string $sha): void
+    {
+        $this->pending = EdgeDeployment::query()->create([
+            'site_id' => $site->id,
+            'organization_id' => $site->organization_id,
+            'status' => EdgeDeployment::STATUS_PUBLISHING,
+            'git_commit' => $sha,
+            'meta' => ['self_deploy' => true, 'host' => (string) gethostname(), 'container' => ['script_name' => EdgeContainerDeployer::scriptName($site)]],
+        ]);
+        try {
+            app(EdgeHostMapPublisher::class)->publish($site, $this->pending);
+            $this->line('→ Published the host map for '.$site->edgeHostname());
+        } catch (Throwable $e) {
+            // The health check below reports what this means for traffic.
+            $this->warn('Could not publish the host map: '.$e->getMessage());
         }
     }
 
@@ -223,17 +254,24 @@ class SelfDeployCommand extends Command
             }
             // No meta.container.fingerprint: a dashboard deploy would read it
             // as "this exact build is live" and skip building.
-            EdgeDeployment::query()->create([
-                'site_id' => $site->id,
-                'organization_id' => $site->organization_id,
+            $row = [
                 'status' => $status === 'live' ? EdgeDeployment::STATUS_LIVE : EdgeDeployment::STATUS_FAILED,
                 'git_commit' => $sha,
                 'git_branch' => $ref,
                 'published_at' => $status === 'live' ? now() : null,
                 'failed_at' => $status === 'live' ? null : now(),
                 'failure_reason' => $failure,
-                'meta' => ['self_deploy' => true, 'host' => (string) gethostname()],
-            ]);
+            ];
+            if ($this->pending !== null && $this->pending->git_commit === $sha) {
+                $this->pending->update($row);
+            } else {
+                EdgeDeployment::query()->create($row + [
+                    'site_id' => $site->id,
+                    'organization_id' => $site->organization_id,
+                    'meta' => ['self_deploy' => true, 'host' => (string) gethostname(), 'container' => ['script_name' => EdgeContainerDeployer::scriptName($site)]],
+                ]);
+            }
+            $this->pending = null;
         } catch (Throwable $e) {
             $this->warn('Could not record the deploy in the database: '.$e->getMessage());
         }
