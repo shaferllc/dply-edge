@@ -598,3 +598,18 @@ test('composer extra.dply.php-server pins frankenphp or fpm; octane servers stil
         ->and($pin('swoole'))->toBe('fpm')
         ->and(EdgeContainerDockerfile::detectPhpServer(json_decode((string) file_get_contents(base_path('composer.json')), true)))->toBe('frankenphp');
 });
+
+test('frankenphp trusts the Worker with a multi-line Caddy block; a one-line block stops the server from starting', function () {
+    $dir = checkout([
+        'composer.json' => '{"require":{"php":"^8.3"},"extra":{"dply":{"php-server":"frankenphp"}}}',
+        'artisan' => '',
+    ]);
+
+    $dockerfile = File::get(EdgeContainerDockerfile::prepare($dir)['path']);
+    preg_match('/^CMD \["sh", "-c", (".*")\]$/m', $dockerfile, $m);
+    $boot = json_decode($m[1]);
+    $options = shell_exec('sh -c '.escapeshellarg(substr($boot, 0, strpos($boot, '; export FRANKENPHP')).'; printf %s "$CADDY_GLOBAL_OPTIONS"'));
+
+    expect($dockerfile)->not->toContain('ENV CADDY_GLOBAL_OPTIONS')
+        ->and($options)->toBe("servers {\n\ttrusted_proxies static 0.0.0.0/0 ::/0\n}");
+});

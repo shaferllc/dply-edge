@@ -606,11 +606,6 @@ final class EdgeContainerDockerfile
             $lines[] = 'COPY --from=assets /app/bootstrap/ssr /app/bootstrap/ssr';
             $lines[] = 'COPY --from=assets /app/node_modules /app/node_modules';
         }
-        // The Worker terminates TLS. Trust its X-Forwarded-Proto so Laravel
-        // generates https asset URLs instead of mixed-content http links.
-        if ($server === 'frankenphp') {
-            $lines[] = 'ENV CADDY_GLOBAL_OPTIONS="servers { trusted_proxies static 0.0.0.0/0 ::/0 }"';
-        }
         $publish = implode(' && ', FrontendAssetBuild::phpAssetCommands(is_array($composer) ? $composer : []));
         $lines[] = 'RUN composer dump-autoload --no-dev --optimize && composer run-script post-autoload-dump --no-interaction'
             .($publish !== '' ? ' && '.$publish : '')
@@ -660,7 +655,10 @@ final class EdgeContainerDockerfile
             'roadrunner' => 'exec php artisan octane:start --server=roadrunner --host=0.0.0.0 --port=8080 --workers="${DPLY_PHP_FPM_MAX_CHILDREN:-2}"',
             'fpm' => 'children="${DPLY_PHP_FPM_MAX_CHILDREN:-2}"; limit="${DPLY_PHP_MEMORY_LIMIT:-128M}"; mkdir -p /tmp/views /tmp/client_body /tmp/fastcgi; chmod 1777 /tmp/views /tmp/client_body /tmp/fastcgi; export VIEW_COMPILED_PATH=/tmp/views; printf "[global]\npid = /tmp/php-fpm.pid\nerror_log = /tmp/php-fpm.log\ndaemonize = no\n[www]\nuser = www-data\ngroup = www-data\nlisten = 127.0.0.1:9000\npm = ondemand\npm.max_children = %s\npm.process_idle_timeout = 10s\npm.max_requests = 500\nclear_env = no\n" "$children" > /tmp/php-fpm.conf; php-fpm -F -y /tmp/php-fpm.conf -d "memory_limit=$limit" -d opcache.enable=1 -d opcache.memory_consumption=64 -d opcache.max_accelerated_files=10000 & until php -r \'exit(@fsockopen("127.0.0.1", 9000) ? 0 : 1);\'; do sleep 0.1; done; exec nginx -g "daemon off;"',
             // The image's Caddyfile reads FRANKENPHP_CONFIG inside `frankenphp {}`; an app's own value wins.
-            default => 'export FRANKENPHP_CONFIG="${FRANKENPHP_CONFIG:-num_threads ${DPLY_PHP_FPM_MAX_CHILDREN:-2}}"; exec frankenphp run --config /etc/frankenphp/Caddyfile',
+            // The Worker terminates TLS: trust its X-Forwarded-Proto so Laravel makes https links. Caddy
+            // needs a block's contents on their own lines, so it's built with printf; one line
+            // ("servers { … }") fails to parse and FrankenPHP never starts.
+            default => 'export CADDY_GLOBAL_OPTIONS="${CADDY_GLOBAL_OPTIONS:-$(printf \'servers {\\n\\ttrusted_proxies static 0.0.0.0/0 ::/0\\n}\')}"; export FRANKENPHP_CONFIG="${FRANKENPHP_CONFIG:-num_threads ${DPLY_PHP_FPM_MAX_CHILDREN:-2}}"; exec frankenphp run --config /etc/frankenphp/Caddyfile',
         };
         if ($ssr !== null) {
             // Inertia's default SSR URL is http://127.0.0.1:13714, which this serves.
