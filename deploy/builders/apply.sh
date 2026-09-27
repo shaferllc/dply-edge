@@ -34,7 +34,7 @@ if [ -z "$DRY" ]; then
 fi
 
 [ -s .secrets/builder.env ] || { echo "missing deploy/builders/.secrets/builder.env" >&2; exit 1; }
-for key in APP_KEY REDIS_URL DB_HOST DPLY_EDGE_R2_BUCKET DPLY_EDGE_CONTAINER_DEPLOY_API_TOKEN; do
+for key in APP_KEY REDIS_URL DB_HOST DPLY_EDGE_R2_BUCKET; do
   [ -n "$(env_get "$key")" ] || { echo "builder.env has no $key" >&2; exit 1; }
 done
 if grep -qE '^(SECRET_VAULT_IDENTITY_PATH|DB_ADMIN_|SECRET_VAULT_CRITICAL_PG_PASSWORD)=' .secrets/builder.env; then

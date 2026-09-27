@@ -63,14 +63,16 @@ chmod 600 "$out"
 val() { grep -E "^$1=" "$out" | tail -1 | cut -d= -f2- | tr -d '"'; }
 warn=0
 for k in APP_KEY APP_NAME DPLY_EDGE_CF_API_TOKEN DPLY_EDGE_CF_ACCOUNT_ID DPLY_EDGE_CF_DISPATCH_NAMESPACE \
-         DPLY_EDGE_R2_BUCKET DPLY_EDGE_R2_ACCESS_KEY DPLY_EDGE_R2_SECRET DPLY_EDGE_CONTAINER_DEPLOY_API_TOKEN \
-         DPLY_VALKEY_API_URL DPLY_VALKEY_TOKEN STRIPE_KEY STRIPE_SECRET STRIPE_WEBHOOK_SECRET \
+         DPLY_EDGE_R2_BUCKET DPLY_EDGE_R2_ACCESS_KEY DPLY_EDGE_R2_SECRET \
+         DPLY_VALKEY_API_URL DPLY_VALKEY_TOKEN STRIPE_SECRET \
          GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET MAIL_MAILER MAIL_FROM_ADDRESS PLATFORM_ADMIN_EMAILS; do
   [ -n "$(val "$k")" ] || { echo "MISSING  $k"; warn=1; }
 done
 case "$(val STRIPE_SECRET)" in sk_test_*|rk_test_*) echo "WARN     STRIPE_SECRET is a test key (fine for private beta, not for charging)"; warn=1;; esac
 case "$(val MAIL_HOST)" in ''|localhost|127.*|mailpit|mailhog) [ "$(val MAIL_MAILER)" = smtp ] && { echo "WARN     MAIL_HOST is local: production mail won't send"; warn=1; };; esac
-case "$(val GITHUB_OAUTH_REDIRECT_URI)" in ''|https://edge.dply.io/*) ;; *) echo "WARN     GITHUB_OAUTH_REDIRECT_URI is not on https://edge.dply.io"; warn=1;; esac
+case "$(val GITHUB_REDIRECT_URI)" in ''|https://edge.dply.io/*) ;; *) echo "WARN     GITHUB_REDIRECT_URI is not on https://edge.dply.io"; warn=1;; esac
+[ -n "$(val STRIPE_WEBHOOK_SECRET)" ] || echo "LATER    STRIPE_WEBHOOK_SECRET: add after cutover (Stripe webhook → https://edge.dply.io/stripe/webhook)"
+[ -n "$(val DPLY_EDGE_CONTAINER_DEPLOY_API_TOKEN)" ] || echo "OPTIONAL DPLY_EDGE_CONTAINER_DEPLOY_API_TOKEN: falls back to DPLY_EDGE_CF_API_TOKEN (a narrower token is safer)"
 
 echo "wrote $out ($(grep -cE '^[A-Z0-9_]+=' "$out") keys, mode 600)"
 [ "$warn" = 0 ] && echo "all required keys present" || echo "fix the lines above in $out, then re-run bootstrap --dry-run"
