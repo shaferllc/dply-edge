@@ -42,8 +42,12 @@ trait RunsWithEnvFile
             return self::FAILURE;
         }
         $vars = Dotenv::parse((string) file_get_contents($envFile));
+        // Settings committed in .env.<APP_ENV> (.env.production) are loaded by
+        // the child and the deployed app too, so they satisfy the check.
+        $committedFile = base_path('.env.'.($vars['APP_ENV'] ?? ''));
+        $committed = isset($vars['APP_ENV']) && is_readable($committedFile) ? Dotenv::parse((string) file_get_contents($committedFile)) : [];
         foreach ($required as $key) {
-            if (trim((string) ($vars[$key] ?? '')) === '') {
+            if (trim((string) ($vars[$key] ?? $committed[$key] ?? '')) === '') {
                 $this->error("{$envFile} has no {$key}.");
 
                 return self::FAILURE;
