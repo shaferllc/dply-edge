@@ -29,7 +29,7 @@ if [ -z "$DRY" ]; then
   cluster_id=${DOKS_CLUSTER_ID:-$(cd ../valkey/terraform && terraform output -raw cluster_id)}
   node -e "fetch('https://api.digitalocean.com/v2/kubernetes/clusters/$cluster_id/kubeconfig',{headers:{Authorization:'Bearer '+process.env.DIGITALOCEAN_TOKEN}}).then(r=>{if(!r.ok)throw new Error('kubeconfig '+r.status);return r.text()}).then(t=>require('fs').writeFileSync('kubeconfig',t))"
   export KUBECONFIG=$PWD/kubeconfig
-  kubectl apply --server-side -f "https://github.com/kedacore/keda/releases/download/$KEDA/keda-$KEDA.yaml" >/dev/null
+  kubectl apply --server-side -f "https://github.com/kedacore/keda/releases/download/$KEDA/keda-${KEDA#v}.yaml" >/dev/null
   kubectl -n keda wait --for=condition=Available deploy --all --timeout=300s
 fi
 
