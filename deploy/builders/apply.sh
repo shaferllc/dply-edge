@@ -20,7 +20,7 @@ MAX_REPLICAS=${2:-4}
 KEDA=v2.17.2
 umask 077
 
-env_get() { grep -E "^$1=" .secrets/builder.env | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//'; }
+env_get() { grep -hE "^$1=" ../../.env.production .secrets/builder.env | tail -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//'; }
 
 if [ -z "$DRY" ]; then
   # CI passes DIGITALOCEAN_TOKEN and DOKS_CLUSTER_ID; a laptop reads its secrets and terraform state.
