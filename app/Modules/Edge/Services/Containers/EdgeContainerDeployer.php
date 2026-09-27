@@ -45,8 +45,12 @@ class EdgeContainerDeployer
     /** Silence longer than this during a deploy gets a heartbeat line. */
     private const HEARTBEAT_AFTER_SECONDS = 30;
 
-    /** A database round trip above this (ms) means the app landed far from its data (next door is ~13 ms). */
-    public const FAR_FROM_DATABASE_MS = 40;
+    /**
+     * A database round trip above this (ms) means the app landed far from its
+     * data (next door is ~13 ms). 50, not 40: Houston or Chicago to nyc3 is
+     * ~41 ms and a restart rarely lands closer, so 40 cost minutes a deploy.
+     */
+    public const FAR_FROM_DATABASE_MS = 50;
 
     /** Restarts of the web instance to try for a closer placement. */
     public const REPLACE_ATTEMPTS = 2;
