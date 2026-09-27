@@ -53,7 +53,7 @@ An app has one database. Databases are available to apps with server code: conta
 | 2 vCPU | 8 GB | 2 |
 | 4 vCPU | 16 GB | 4 |
 
-The 1, 2 and 4 vCPU sizes appear in the size list once the larger database nodes are enabled in your region. Until then only 0.25 and 0.5 vCPU can be picked. The first large database in a region can take a few minutes to start the first time, while a node is added for it.
+The 1, 2 and 4 vCPU sizes appear in the size list once dply enables the larger database nodes. Until then only 0.25 and 0.5 vCPU can be picked. The first large database in a region can take a few minutes to start the first time, while a node is added for it.
 
 Disks come in `1 GB`, `5 GB`, `10 GB`, and `25 GB`. You can change the size and the disk later from the same sheet. A new size applies the next time the database wakes. A disk only grows: picking a smaller one is refused.
 

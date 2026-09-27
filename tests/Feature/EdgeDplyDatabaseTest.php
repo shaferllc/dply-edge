@@ -78,6 +78,23 @@ test('a size that does not fit yet falls back to the smallest dply size', functi
     Http::assertSent(fn ($request): bool => $request->method() === 'PUT' && $request['memory_mb'] === 1024 && $request['disk_gb'] === 1);
 });
 
+test('1, 2 and 4 CU are sold only with the large pools enabled, and a database keeps its size if they are switched off', function () {
+    Http::fake(['gateway.test/*' => Http::response([])]);
+    expect(EdgeDplyDatabase::sizes())->toHaveKeys(['0.25', '0.5'])->not->toHaveKey('1');
+
+    config(['dply.databases.large_sizes_enabled' => true]);
+    expect(array_map('strval', array_keys(EdgeDplyDatabase::sizes())))->toBe(['0.25', '0.5', '1', '2', '4']);
+    EdgeAppDatabase::sync($this->site, 'sql', 'postgres', 'sleep', '4');
+    Http::assertSent(fn ($request): bool => $request->method() === 'PUT' && $request['memory_mb'] === 16384);
+
+    config(['dply.databases.large_sizes_enabled' => false]);
+    expect(EdgeAppDatabase::sync($this->site, 'postgres', 'postgres', 'sleep', '4', 300, 5))->toBeNull()
+        ->and($this->site->edgeMeta()['database']['size'])->toBe('4');
+    Http::assertSent(fn ($request): bool => $request->method() === 'PUT' && $request['memory_mb'] === 16384 && $request['disk_gb'] === 5);
+    // A new pick of a large size is still refused.
+    expect(EdgeDplyDatabase::size('2', '4'))->toBe('0.25');
+});
+
 test('changing a dply database grows the disk, refuses to shrink it, and reuses the password', function () {
     Http::fake(['gateway.test/*' => Http::response([])]);
     EdgeAppDatabase::sync($this->site, 'sql', 'postgres', 'sleep', '0.25', 300, 5);

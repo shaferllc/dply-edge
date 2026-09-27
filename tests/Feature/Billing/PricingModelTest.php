@@ -234,6 +234,12 @@ test('every offered size and repriced meter is priced at least 30% over its esti
         }
         expect($row['ok'])->toBeTrue($row['meter'].' '.$row['unit']);
     }
+    // The 1, 2 and 4 CU sizes (db-large / db-xl pools) are checked whether or
+    // not dply.databases.large_sizes_enabled is on.
+    $meters = array_column(UnitCosts::rows(), 'meter');
+    foreach (['1', '2', '4'] as $cu) {
+        expect($meters)->toContain("Database compute {$cu} CU");
+    }
 });
 
 test('dply:billing:unit-costs prints unit costs against prices and the fixed monthly total', function () {
