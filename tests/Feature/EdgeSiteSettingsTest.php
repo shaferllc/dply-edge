@@ -141,7 +141,7 @@ test('edge danger section shows delete edge site not nginx teardown', function (
 
     Livewire::actingAs($user)
         ->test(EdgeSettings::class, ['server' => $server, 'site' => $site, 'section' => 'danger'])
-        ->assertSee('Delete Edge site')
+        ->assertSee('Delete '.$site->name)
         ->assertDontSee('Nginx vhost')
         ->assertDontSee('Suspend public site');
 });
