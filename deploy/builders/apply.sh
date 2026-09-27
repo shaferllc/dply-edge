@@ -20,7 +20,9 @@ MAX_REPLICAS=${2:-4}
 KEDA=v2.17.2
 umask 077
 
-env_get() { grep -hE "^$1=" ../../.env.production .secrets/builder.env | tail -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//'; }
+# KEY='value' / KEY="value" → KEY=value: kubectl --from-env-file keeps quotes literally.
+unquote() { sed -E -e "s/^([A-Za-z0-9_]+)='(.*)'$/\\1=\\2/" -e 's/^([A-Za-z0-9_]+)="(.*)"$/\1=\2/'; }
+env_get() { grep -hE "^$1=" ../../.env.production .secrets/builder.env | tail -1 | unquote | cut -d= -f2-; }
 
 if [ -z "$DRY" ]; then
   # CI passes DIGITALOCEAN_TOKEN and DOKS_CLUSTER_ID; a laptop reads its secrets and terraform state.
@@ -66,7 +68,9 @@ if [ -n "$DRY" ]; then
 fi
 
 kubectl create namespace dply-builders --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-kubectl -n dply-builders create secret generic dply-builder-env --from-env-file=.secrets/builder.env --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+grep -E '^[A-Za-z0-9_]+=' .secrets/builder.env | unquote > .secrets/builder.clean.env
+kubectl -n dply-builders create secret generic dply-builder-env --from-env-file=.secrets/builder.clean.env --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+rm -f .secrets/builder.clean.env
 kubectl -n dply-builders create secret generic dply-builder-keda --from-env-file=.secrets/keda.env --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 render | kubectl apply -f -
 # A changed Secret does not restart pods; a rollout does, draining each one.
