@@ -3,7 +3,6 @@
     $showBilling = ($edgeUsageBillingEnabled ?? false) || (($edgeManagedFee ?? 0) > 0) || $billing !== null;
     $maxRequests = max(1, collect($billing['daily'] ?? [])->max('requests') ?? 1);
     $maxEgress = max(1, collect($billing['daily'] ?? [])->max('bytes_egress') ?? 1);
-    $usageDetail = is_array($billing['usage_detail'] ?? null) ? $billing['usage_detail'] : [];
 @endphp
 
 @if (! $showBilling)
@@ -15,38 +14,23 @@
         @if ($billing !== null)
             <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
                 <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('This site') }}</p>
-                <dl class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <dl class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
                     <div>
-                        <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Est. / mo') }}</dt>
-                        <dd class="mt-1 text-xl font-semibold tabular-nums text-brand-ink">${{ number_format(($billing['total_cents'] ?? 0) / 100, 2) }}</dd>
-                    </div>
-                    <div>
-                        <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Site fee') }}</dt>
-                        <dd class="mt-1 text-xl font-semibold tabular-nums text-brand-ink">{{ __('None') }}</dd>
-                    </div>
-                    <div>
-                        <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Usage MTD') }}</dt>
+                        <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Usage this period') }}</dt>
                         <dd class="mt-1 text-xl font-semibold tabular-nums text-brand-ink">${{ number_format(($billing['usage_cents'] ?? 0) / 100, 2) }}</dd>
                     </div>
                     <div>
-                        <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Requests MTD') }}</dt>
+                        <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Requests') }}</dt>
                         <dd class="mt-1 text-xl font-semibold tabular-nums text-brand-ink">{{ number_format($billing['requests'] ?? 0) }}</dd>
                     </div>
-                </dl>
-
-                <dl class="mt-4 grid gap-2 border-t border-brand-ink/8 pt-3 text-sm sm:grid-cols-2">
-                    <div class="flex justify-between gap-2">
-                        <dt class="text-brand-moss">{{ __('Egress MTD') }}</dt>
-                        <dd class="tabular-nums font-medium text-brand-ink">{{ number_format(($billing['bytes_egress'] ?? 0) / (1024 ** 3), 2) }} GB</dd>
+                    <div>
+                        <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Egress') }}</dt>
+                        <dd class="mt-1 text-xl font-semibold tabular-nums text-brand-ink">{{ number_format(($billing['bytes_egress'] ?? 0) / (1024 ** 3), 2) }} GB</dd>
                     </div>
-                    @if (($billing['r2_storage_bytes'] ?? 0) > 0)
-                        <div class="flex justify-between gap-2">
-                            <dt class="text-brand-moss">{{ __('Storage') }}</dt>
-                            <dd class="tabular-nums font-medium text-brand-ink">{{ number_format(($billing['r2_storage_bytes'] ?? 0) / (1024 ** 3), 2) }} GB</dd>
-                        </div>
-                    @endif
                 </dl>
 
+                <div class="mt-4">@include('livewire.billing.partials.edge-site-usage-lines', ['billing' => $billing])</div>
+                <p class="mt-3 text-xs text-brand-moss">{{ __('Customer price before your plan’s included usage credit. Databases are billed per project, on the org billing page.') }}</p>
             </section>
 
             @if (($billing['daily'] ?? []) !== [])
@@ -119,6 +103,12 @@
                 <p class="border-b border-brand-ink/10 px-5 py-6 text-sm text-brand-moss sm:px-6">
                     {{ __('No daily snapshots yet this month. Stats appear after nightly collection.') }}
                 </p>
+            @endif
+
+            @if (($billing['daily_compute'] ?? []) !== [])
+                <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
+                    @include('livewire.billing.partials.edge-site-daily-compute', ['billing' => $billing])
+                </section>
             @endif
         @else
             <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">

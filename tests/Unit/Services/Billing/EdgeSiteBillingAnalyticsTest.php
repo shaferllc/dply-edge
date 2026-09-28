@@ -82,3 +82,36 @@ test('no site carries a fee on any plan, SSR included', function () {
         ->and($rows['Ssr']['platform_cents'])->toBe(0)
         ->and($rows['Ssr']['platform_kind'])->toBe('included');
 });
+
+test('a container app bills its compute on the site, not just delivery', function () {
+    $org = Organization::factory()->create();
+    $server = Server::factory()->for($org)->create();
+    $site = Site::factory()->for($org)->for($server)->create([
+        'status' => Site::STATUS_EDGE_ACTIVE,
+        'edge_backend' => 'dply_edge',
+        'meta' => ['edge' => ['runtime_mode' => 'container']],
+    ]);
+    \App\Models\EdgeContainerUsage::query()->create([
+        'organization_id' => $org->id,
+        'site_id' => $site->id,
+        'date' => now()->toDateString(),
+        'cpu_seconds' => 86_400,
+        'memory_gib_seconds' => 86_400,
+        'disk_gb_seconds' => 86_400,
+        'tx_bytes' => 0,
+    ]);
+
+    $row = app(EdgeSiteBillingAnalytics::class)->forSite($site->fresh());
+    $compute = collect($row['lines'])->firstWhere('key', 'compute');
+
+    expect($compute)->not->toBeNull()
+        ->and($compute['cents'])->toBeGreaterThan(0)
+        ->and($row['usage_cents'])->toBe($row['delivery_cents'] + $compute['cents'])
+        ->and($row['total_cents'])->toBe($row['usage_cents'])
+        ->and($row['daily_compute'])->toHaveCount(1)
+        ->and($row['daily_compute'][0]['cpu_hours'])->toBe(24.0)
+        ->and($row['daily_compute'][0]['cents'])->toBeGreaterThan(0);
+
+    $html = view('livewire.billing.partials.edge-site-daily-compute', ['billing' => $row])->render();
+    expect($html)->toContain('Daily compute')->toContain('24.0 vCPU-h');
+});

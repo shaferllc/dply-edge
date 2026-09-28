@@ -2,7 +2,6 @@
 
 @php
     $maxRequests = max(1, collect($site['daily'] ?? [])->max('requests') ?? 1);
-    $usageDetail = is_array($site['usage_detail'] ?? null) ? $site['usage_detail'] : [];
 @endphp
 
 <article class="rounded-xl border border-brand-ink/10 bg-white/40 overflow-hidden">
@@ -15,16 +14,12 @@
         </div>
         <div class="text-right shrink-0">
             <p class="text-lg font-bold tabular-nums text-brand-ink">${{ number_format(($site['total_cents'] ?? 0) / 100, 2) }}</p>
-            <p class="text-xs text-brand-moss">{{ __('/mo est.') }}</p>
+            <p class="text-xs text-brand-moss">{{ __('this period') }}</p>
         </div>
     </div>
 
     <div class="grid gap-2.5 px-3 py-2.5 sm:grid-cols-2 sm:px-4">
         <dl class="space-y-2 text-sm">
-            <div class="flex justify-between gap-2">
-                <dt class="text-brand-moss">{{ __('Delivery usage') }}</dt>
-                <dd class="tabular-nums font-medium text-brand-ink">${{ number_format(($site['usage_cents'] ?? 0) / 100, 2) }}</dd>
-            </div>
             <div class="flex justify-between gap-2">
                 <dt class="text-brand-moss">{{ __('Requests (MTD)') }}</dt>
                 <dd class="tabular-nums text-brand-ink">{{ number_format($site['requests'] ?? 0) }}</dd>
@@ -52,6 +47,16 @@
         @elseif (! ($site['has_snapshots'] ?? false))
             <p class="text-sm text-brand-moss/80">{{ __('No usage snapshots yet this month.') }}</p>
         @endif
+    </div>
+
+    @if (! $compact && ($site['daily_compute'] ?? []) !== [])
+        <div class="border-t border-brand-ink/10 px-3 py-2.5 sm:px-4">
+            @include('livewire.billing.partials.edge-site-daily-compute', ['billing' => $site])
+        </div>
+    @endif
+
+    <div class="border-t border-brand-ink/10 px-3 sm:px-4">
+        @include('livewire.billing.partials.edge-site-usage-lines', ['billing' => $site])
     </div>
 
     @if (! empty($site['workspace_url']))

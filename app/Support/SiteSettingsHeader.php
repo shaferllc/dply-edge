@@ -278,7 +278,7 @@ final class SiteSettingsHeader
             ],
             'billing' => [
                 'title' => __('Billing & usage'),
-                'description' => __('Usage and any extra-site or SSR fee for this Edge site.'),
+                'description' => __('What this site has used this billing period, line by line.'),
                 'icon' => 'heroicon-o-chart-bar',
             ],
             'cache' => [

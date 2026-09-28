@@ -4,15 +4,23 @@ declare(strict_types=1);
 
 namespace App\Modules\Billing\Services;
 
+use App\Models\EdgeContainerUsage;
+use App\Models\EdgeDeployment;
+use App\Models\EdgeRealtimeUsage;
+use App\Models\EdgeRedisUsage;
 use App\Models\EdgeUsageSnapshot;
 use App\Models\Organization;
 use App\Models\Site;
+use App\Modules\Billing\Support\UsagePrice;
+use App\Modules\Edge\Support\EdgeBuildMinutes;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Per Edge site billing: delivery usage (MTD + daily) at customer price.
+ * Per Edge site billing at customer price: delivery (MTD + daily) plus the
+ * site's own compute, Valkey, build and realtime usage (lines()). Databases
+ * are project-scoped, so they only show on the org billing page.
  * There are no site fees (ruling r-2zxevg4sj675qn1m): platform_cents is
  * always 0 and kept only so existing views and API payloads keep their shape.
  */
@@ -21,6 +29,9 @@ final class EdgeSiteBillingAnalytics
     public function __construct(
         private readonly EdgeOrganizationUsageReader $usageReader,
         private readonly EdgeUsageCostCalculator $usageCostCalculator,
+        private readonly EdgeContainerComputeCost $computeCost,
+        private readonly EdgeRedisCost $redisCost,
+        private readonly EdgeRealtimeCost $realtimeCost,
     ) {}
 
     /**
@@ -38,6 +49,7 @@ final class EdgeSiteBillingAnalytics
 
         $mtdBySite = $this->aggregateSnapshots($organization->id, $siteIds, $periodStart, $periodEnd);
         $dailyBySite = $this->dailySnapshotsBySite($organization->id, $siteIds, $dailyDays);
+        $computeBySite = $this->dailyComputeBySite($organization->id, $siteIds, $dailyDays);
 
         $result = [];
 
@@ -54,6 +66,8 @@ final class EdgeSiteBillingAnalytics
                 mtd: $mtd,
                 usageEstimate: $usageEstimate,
                 daily: $dailyBySite[$siteId] ?? [],
+                lines: $this->lines($site, $periodStart, $periodEnd),
+                dailyCompute: $computeBySite[$siteId] ?? [],
             );
         }
 
@@ -91,6 +105,7 @@ final class EdgeSiteBillingAnalytics
         $siteId = (string) $site->id;
         $mtdBySite = $this->aggregateSnapshots((string) $site->organization_id, [$site->id], $periodStart, $periodEnd);
         $dailyBySite = $this->dailySnapshotsBySite((string) $site->organization_id, [$site->id], $dailyDays);
+        $computeBySite = $this->dailyComputeBySite((string) $site->organization_id, [$site->id], $dailyDays);
         $mtd = $mtdBySite[$siteId] ?? EdgeUsageTotals::empty();
         $usageEstimate = $this->usageCostCalculator->estimate($mtd);
 
@@ -103,6 +118,8 @@ final class EdgeSiteBillingAnalytics
             mtd: $mtd,
             usageEstimate: $usageEstimate,
             daily: $dailyBySite[$siteId] ?? [],
+            lines: $this->lines($site, $periodStart, $periodEnd),
+            dailyCompute: $computeBySite[$siteId] ?? [],
         );
 
         if (app()->bound('request')) {
@@ -120,6 +137,75 @@ final class EdgeSiteBillingAnalytics
     public function platformFee(Site $site): array
     {
         return ['cents' => 0, 'kind' => 'included'];
+    }
+
+    /**
+     * The site's usage beyond delivery for the window, priced the way the
+     * invoice prices it. Lines with no usage are left out.
+     * ponytail: 4 queries per site; batch by site_id if the org page gets slow.
+     *
+     * @return list<array{key: string, label: string, detail: string, cents: int}>
+     */
+    public function lines(Site $site, Carbon $from, Carbon $to): array
+    {
+        $dates = [$from->toDateString(), $to->toDateString()];
+        $lines = [];
+
+        $c = EdgeContainerUsage::query()->where('site_id', $site->id)->whereBetween('date', $dates)
+            ->selectRaw('COALESCE(SUM(cpu_seconds), 0) AS cpu, COALESCE(SUM(memory_gib_seconds), 0) AS memory, COALESCE(SUM(disk_gb_seconds), 0) AS disk')
+            ->toBase()->first();
+        if ((float) ($c->memory ?? 0) > 0 || (float) ($c->cpu ?? 0) > 0) {
+            $lines[] = [
+                'key' => 'compute',
+                'label' => __('App and workers (compute)'),
+                'detail' => __(':cpu vCPU-h · :mem GiB-h memory · :disk GB-h disk', [
+                    'cpu' => number_format((float) $c->cpu / 3600, 1),
+                    'mem' => number_format((float) $c->memory / 3600, 1),
+                    'disk' => number_format((float) $c->disk / 3600, 1),
+                ]),
+                'cents' => $this->computeCost->siteCents($site, (float) $c->cpu, (float) $c->memory, (float) $c->disk),
+            ];
+        }
+
+        $valkeySeconds = (int) EdgeRedisUsage::query()->where('site_id', $site->id)->whereBetween('date', $dates)->sum('awake_seconds');
+        if ($valkeySeconds > 0 && $site->organization instanceof Organization) {
+            $lines[] = [
+                'key' => 'valkey',
+                'label' => __('Valkey'),
+                'detail' => __(':h h awake', ['h' => number_format($valkeySeconds / 3600, 1)]),
+                'cents' => $this->redisCost->valkeyCents($site->organization, [(string) $site->id => $valkeySeconds]),
+            ];
+        }
+
+        $buildSeconds = (int) EdgeDeployment::query()->where('site_id', $site->id)
+            ->where('created_at', '>=', $from->copy()->startOfDay())
+            ->where('created_at', '<=', $to->copy()->endOfDay())
+            ->sum('build_seconds');
+        if ($buildSeconds > 0) {
+            $lines[] = [
+                'key' => 'builds',
+                'label' => __('Build time'),
+                'detail' => __(':m min', ['m' => number_format($buildSeconds / 60, 1)]),
+                'cents' => UsagePrice::cents(EdgeBuildMinutes::costMillicents($buildSeconds)),
+            ];
+        }
+
+        $rt = EdgeRealtimeUsage::query()->where('site_id', $site->id)->whereBetween('date', $dates)
+            ->selectRaw('COALESCE(SUM(connection_seconds), 0) AS seconds, COALESCE(SUM(messages), 0) AS messages')
+            ->toBase()->first();
+        if ((int) ($rt->seconds ?? 0) > 0 || (int) ($rt->messages ?? 0) > 0) {
+            $lines[] = [
+                'key' => 'realtime',
+                'label' => __('Realtime'),
+                'detail' => __(':m connection-min · :n messages', [
+                    'm' => number_format((int) $rt->seconds / 60),
+                    'n' => number_format((int) $rt->messages),
+                ]),
+                'cents' => $this->realtimeCost->cents((int) $rt->seconds, (int) $rt->messages),
+            ];
+        }
+
+        return $lines;
     }
 
     /**
@@ -225,8 +311,48 @@ final class EdgeSiteBillingAnalytics
     }
 
     /**
+     * Container compute per day (app + workers), priced uncapped: the cap is
+     * monthly per instance, so a single day never reaches it.
+     *
+     * @param  list<string>  $siteIds
+     * @return array<string, list<array{date: string, label: string, cpu_hours: float, memory_gib_hours: float, cents: float}>>
+     */
+    private function dailyComputeBySite(string $organizationId, array $siteIds, int $days): array
+    {
+        if ($siteIds === []) {
+            return [];
+        }
+
+        $rows = EdgeContainerUsage::query()
+            ->where('organization_id', $organizationId)
+            ->whereIn('site_id', $siteIds)
+            ->where('date', '>=', now()->subDays(max(1, $days - 1))->toDateString())
+            ->groupBy('site_id', 'date')
+            ->orderBy('date')
+            ->selectRaw('site_id, date, COALESCE(SUM(cpu_seconds), 0) AS cpu, COALESCE(SUM(memory_gib_seconds), 0) AS memory, COALESCE(SUM(disk_gb_seconds), 0) AS disk')
+            ->toBase()
+            ->get();
+
+        $grouped = [];
+        foreach ($rows as $row) {
+            $date = Carbon::parse($row->date)->toDateString();
+            $grouped[(string) $row->site_id][] = [
+                'date' => $date,
+                'label' => Carbon::parse($date)->format('M j'),
+                'cpu_hours' => (float) $row->cpu / 3600,
+                'memory_gib_hours' => (float) $row->memory / 3600,
+                'cents' => $this->computeCost->siteMillicents(null, (float) $row->cpu, (float) $row->memory, (float) $row->disk) / 1000,
+            ];
+        }
+
+        return $grouped;
+    }
+
+    /**
      * @param  list<array<string, mixed>>  $daily
      * @param  array<string, mixed>  $usageEstimate
+     * @param  list<array{key: string, label: string, detail: string, cents: int}>  $lines
+     * @param  list<array<string, mixed>>  $dailyCompute
      * @return array<string, mixed>
      */
     private function formatSiteRow(
@@ -236,8 +362,11 @@ final class EdgeSiteBillingAnalytics
         EdgeUsageTotals $mtd,
         array $usageEstimate,
         array $daily,
+        array $lines = [],
+        array $dailyCompute = [],
     ): array {
-        $usageCents = (int) ($usageEstimate['subtotal_cents'] ?? 0);
+        $deliveryCents = (int) ($usageEstimate['subtotal_cents'] ?? 0);
+        $usageCents = $deliveryCents + array_sum(array_column($lines, 'cents'));
         $server = $site->relationLoaded('server') ? $site->server : $site->server()->first(['id', 'name']);
 
         return [
@@ -255,7 +384,9 @@ final class EdgeSiteBillingAnalytics
                 'ssr' => __('SSR site'),
                 default => __('Site fee'),
             },
+            'delivery_cents' => $deliveryCents,
             'usage_cents' => $usageCents,
+            'lines' => $lines,
             'total_cents' => $platformCents + $usageCents,
             'requests' => $mtd->requests,
             'bytes_egress' => $mtd->bytesEgress,
@@ -264,6 +395,7 @@ final class EdgeSiteBillingAnalytics
             'r2_class_b_ops' => $mtd->r2ClassBOps,
             'usage_detail' => $usageEstimate,
             'daily' => $daily,
+            'daily_compute' => $dailyCompute,
             'has_snapshots' => $mtd->requests > 0 || $mtd->bytesEgress > 0 || $daily !== [],
             'usage_billing_enabled' => $this->usageCostCalculator->isEnabled(),
         ];

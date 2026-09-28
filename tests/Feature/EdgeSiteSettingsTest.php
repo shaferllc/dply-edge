@@ -167,9 +167,9 @@ test('edge billing section shows usage stats and org analytics link', function (
     Livewire::actingAs($user)
         ->test(EdgeSettings::class, ['server' => $server, 'site' => $site, 'section' => 'billing'])
         ->assertSee('Billing & usage')
-        ->assertSee('Site fee')
-        ->assertSee('None')
-        ->assertDontSee('month per live site')
+        ->assertSee('Usage this period')
+        ->assertSee('Delivery')
+        ->assertDontSee('Site fee')
         ->assertSee('42,000')
         ->assertSee('Open org billing');
 
