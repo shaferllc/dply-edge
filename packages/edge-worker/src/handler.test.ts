@@ -565,6 +565,40 @@ describe('container sites', () => {
     expect(body).not.toContain('Oops! An Error Occurred');
   });
 
+  it('serves hashed container assets from the colo cache after the first hit', async () => {
+    const store = new Map<string, Response>();
+    (globalThis as { caches?: unknown }).caches = {
+      default: {
+        match: async (key: string) => store.get(key)?.clone(),
+        put: async (key: string, res: Response) => { store.set(key, res); },
+      },
+    };
+    let calls = 0;
+    const waits: Promise<unknown>[] = [];
+    const env: Env = {
+      HOST_MAP: createMockKv({
+        'app.example.test': {
+          site_id: 'site-1', deployment_id: 'deploy-9', storage_prefix: 'edge/site-1/deploy-9',
+          runtime_mode: 'container', ssr_worker_script: 'dply-ctr-site-1',
+        } as HostMapEntry,
+      }),
+      ARTIFACTS: createMockR2({}),
+      DISPATCHER: {
+        get: () => ({ fetch: async () => { calls++; return new Response('body{}', { headers: { 'content-type': 'text/css' } }); } }),
+      } as unknown as DispatchNamespace,
+    };
+    const ctx = { waitUntil: (p: Promise<unknown>) => { waits.push(p); } } as unknown as ExecutionContext;
+
+    const first = await handleRequest(new Request('https://app.example.test/build/assets/app-Bd9cpcDo.css'), env, ctx);
+    await Promise.all(waits);
+    const second = await handleRequest(new Request('https://app.example.test/build/assets/app-Bd9cpcDo.css'), env, ctx);
+
+    expect(first.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+    expect(await second.text()).toBe('body{}');
+    expect(calls).toBe(1);
+    delete (globalThis as { caches?: unknown }).caches;
+  });
+
   it('keeps the app 500 when APP_DEBUG is on', async () => {
     const env: Env = {
       HOST_MAP: createMockKv({

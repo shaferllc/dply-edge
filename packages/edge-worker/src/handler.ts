@@ -696,6 +696,21 @@ async function handleRequestInner(
     // Both are KV reads and independent, so neither waits on the other. KV
     // already serves hot keys from the colo for 60s (its default cacheTtl),
     // which is also how long a pause/resume or deploy switch can lag.
+    // Fingerprinted build output (hashed names never change) comes from this
+    // colo's cache after the first hit, so it never reaches the app. The
+    // per-app script cannot use the Cache API in the dispatch namespace, so
+    // it lives here. Best effort: a cache error falls through to the app.
+    const immutable = request.method === 'GET' && isImmutableAsset(requestPath);
+    if (immutable) {
+      try {
+        const hit = await caches.default.match(request.url);
+        if (hit) {
+          recordRequest(ctx, env, request, hit, hostEntry, url, requestPath, started, 'cache-hit');
+
+          return hit;
+        }
+      } catch {}
+    }
     const [paused, cached] = await Promise.all([
       hostEntry.runtime_mode === 'container' ? env.HOST_MAP.get(`container-pause:${hostEntry.site_id}`) : null,
       cacheMode(hostEntry) !== 'off' ? readEdgeCache(env, hostEntry, request) : null,
@@ -715,7 +730,16 @@ async function handleRequestInner(
       return cached.response;
     }
 
-    const ssrResponse = await dispatchSsrRequest(request, env, hostEntry);
+    let ssrResponse = await dispatchSsrRequest(request, env, hostEntry);
+    if (immutable && ssrResponse.status === 200 && !ssrResponse.headers.has('set-cookie')) {
+      const headers = new Headers(ssrResponse.headers);
+      headers.set('cache-control', 'public, max-age=31536000, immutable');
+      headers.set('access-control-allow-origin', '*');
+      ssrResponse = new Response(ssrResponse.body, { status: 200, statusText: ssrResponse.statusText, headers });
+      try {
+        ctx?.waitUntil(caches.default.put(request.url, ssrResponse.clone()).catch(() => {}));
+      } catch {}
+    }
     // An app serving its own WebSockets answers 101 with the socket. Every
     // filter below would rebuild the Response, which cannot carry a 101 or
     // the socket, so hand it back as-is.
