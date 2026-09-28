@@ -1529,8 +1529,12 @@ export default {
     // from this colo's cache.
     const immutable = request.method === 'GET' && isImmutableAsset(url.pathname);
     if (immutable) {
-      const hit = await caches.default.match(request);
-      if (hit) return hit;
+      // Best effort: a cache that is missing or refuses (dispatch-namespace
+      // scripts can lack one) must never fail the request.
+      try {
+        const hit = await caches.default.match(request);
+        if (hit) return hit;
+      } catch {}
     }
 
     if (!(await trafficOpen(env))) {
@@ -1545,7 +1549,9 @@ export default {
     cacheable.set('cache-control', 'public, max-age=31536000, immutable');
     cacheable.set('access-control-allow-origin', '*');
     const stored = new Response(response.body, { status: 200, statusText: response.statusText, headers: cacheable });
-    ctx.waitUntil(caches.default.put(request, stored.clone()));
+    try {
+      ctx.waitUntil(caches.default.put(request, stored.clone()).catch(() => {}));
+    } catch {}
     return stored;
   },
 

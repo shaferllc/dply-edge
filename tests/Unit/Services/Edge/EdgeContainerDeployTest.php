@@ -359,7 +359,9 @@ test('the worker fetches a warm container directly and caches fingerprinted asse
         ->and($worker)->toContain('await caches.default.match(request)')
         ->and($worker)->toContain("cacheable.set('cache-control', 'public, max-age=31536000, immutable')")
         ->and($worker)->toContain("cacheable.set('access-control-allow-origin', '*')")
-        ->and($worker)->toContain('ctx.waitUntil(caches.default.put(request, stored.clone()))');
+        ->and($worker)->toContain('ctx.waitUntil(caches.default.put(request, stored.clone()).catch(() => {}))')
+        // a missing or refusing cache must never fail the request (it 500'd in the dispatch namespace)
+        ->and($worker)->toContain('} catch {}');
 
     // The hash rule itself, run in node when it is available.
     $node = (new ExecutableFinder)->find('node');
