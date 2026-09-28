@@ -595,6 +595,7 @@ describe('container sites', () => {
 
     expect(first.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
     expect(await second.text()).toBe('body{}');
+    expect(second.headers.get('x-dply-cache')).toBe('hit');
     expect(calls).toBe(1);
     delete (globalThis as { caches?: unknown }).caches;
   });

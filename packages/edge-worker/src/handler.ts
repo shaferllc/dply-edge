@@ -705,9 +705,11 @@ async function handleRequestInner(
       try {
         const hit = await caches.default.match(request.url);
         if (hit) {
-          recordRequest(ctx, env, request, hit, hostEntry, url, requestPath, started, 'cache-hit');
+          const shown = new Response(hit.body, hit);
+          shown.headers.set('x-dply-cache', 'hit');
+          recordRequest(ctx, env, request, shown, hostEntry, url, requestPath, started, 'cache-hit');
 
-          return hit;
+          return shown;
         }
       } catch {}
     }
@@ -737,8 +739,12 @@ async function handleRequestInner(
       headers.set('access-control-allow-origin', '*');
       ssrResponse = new Response(ssrResponse.body, { status: 200, statusText: ssrResponse.statusText, headers });
       try {
-        ctx?.waitUntil(caches.default.put(request.url, ssrResponse.clone()).catch(() => {}));
-      } catch {}
+        ctx?.waitUntil(caches.default.put(request.url, ssrResponse.clone()).catch((e) => console.warn('dply asset cache put failed', String(e))));
+        headers.set('x-dply-cache', ctx ? 'store' : 'no-ctx');
+        ssrResponse = new Response(ssrResponse.body, { status: 200, statusText: ssrResponse.statusText, headers });
+      } catch (e) {
+        console.warn('dply asset cache unavailable', String(e));
+      }
     }
     // An app serving its own WebSockets answers 101 with the socket. Every
     // filter below would rebuild the Response, which cannot carry a 101 or
