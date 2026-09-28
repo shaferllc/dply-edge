@@ -170,7 +170,7 @@ class Register extends Component
             $orgInvitation !== null => route('invitations.accept', ['token' => $orgInvitation->token]),
             // No Free plan: a new workspace starts on the billing page, where
             // the trial begins (ruling r-f17p5zgeh120cm5t).
-            $user->hasVerifiedEmail() => $organization->hasPlan() ? route('dashboard') : route('billing.show', $organization).'#plans',
+            $user->hasVerifiedEmail() => $organization->hasPlan() ? route('dashboard') : route('billing.show', ['organization' => $organization, 'tab' => 'plan']),
             default => route('verification.notice'),
         };
 

@@ -67,8 +67,8 @@ test('organization show is displayed for member', function () {
 
     $response->assertOk();
     $response->assertSee($org->name);
-    $response->assertSee('Sections');
-    $response->assertSee('Members');
+    $response->assertSee('People');
+    $response->assertDontSee('Needs attention'); // members see no admin checks
 });
 
 test('organization settings page shows email defaults and api tokens for admins', function () {
@@ -79,7 +79,7 @@ test('organization settings page shows email defaults and api tokens for admins'
     $response = $this->actingAs($user)->get(route('organizations.settings', $org));
 
     $response->assertOk();
-    $response->assertSee('Email defaults');
+    $response->assertSee('Data &amp; email', false);
     $response->assertSee('Deploy-finish emails');
     $response->assertSee('API tokens');
 });

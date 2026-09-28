@@ -38,6 +38,7 @@ test('a paused org whose subscription ended can check out again instead of switc
 
     Livewire::actingAs($this->admin)
         ->test(BillingShow::class, ['organization' => $org])
+        ->set('tab', 'plan')
         ->assertSee('Choose Pro')
         ->assertSee('Choose Team')
         ->assertDontSee('Switch to Pro')
@@ -45,15 +46,46 @@ test('a paused org whose subscription ended can check out again instead of switc
         ->assertDontSee('Cancel subscription');
 });
 
-test('a Stripe trial shows End trial now, wired to endTrial with a confirmation', function () {
+test('a Stripe trial shows End trial now, confirmed in the app modal before endTrial runs', function () {
     $org = billingOrg($this->admin);
     Subscription::factory()->withPrice('price_test_tier_pro')->trialing(now()->addDays(3))->create(['organization_id' => $org->id]);
 
     Livewire::actingAs($this->admin)
         ->test(BillingShow::class, ['organization' => $org])
+        ->set('tab', 'plan')
         ->assertSee('End trial now')
-        ->assertSeeHtml('wire:click="endTrial"')
+        ->assertSeeHtml('wire:click="confirmEndTrial"')
+        ->assertDontSeeHtml('wire:confirm')
+        ->call('confirmEndTrial')
+        ->assertSet('showConfirmActionModal', true)
+        ->assertSet('confirmActionModalMethod', 'endTrial')
         ->assertSee('usage cap is lifted');
+});
+
+test('switching plans is confirmed in the app modal before changeTier runs', function () {
+    $org = billingOrg($this->admin);
+    Subscription::factory()->withPrice('price_test_tier_pro')->active()->create(['organization_id' => $org->id]);
+
+    Livewire::actingAs($this->admin)
+        ->test(BillingShow::class, ['organization' => $org])
+        ->set('tab', 'plan')
+        ->assertSeeHtml("wire:click=\"confirmChangeTier('team')\"")
+        ->call('confirmChangeTier', 'team')
+        ->assertSet('showConfirmActionModal', true)
+        ->assertSet('confirmActionModalMethod', 'changeTier')
+        ->assertSet('confirmActionModalArguments', ['team'])
+        ->assertSee('The prorated difference is invoiced now.');
+});
+
+test('an unknown tab falls back to Usage', function () {
+    $org = billingOrg($this->admin);
+
+    Livewire::actingAs($this->admin)
+        ->withQueryParams(['tab' => 'nope'])
+        ->test(BillingShow::class, ['organization' => $org])
+        ->assertSet('tab', 'usage')
+        ->set('tab', 'bogus')
+        ->assertSet('tab', 'usage');
 });
 
 test('an active paid plan has no End trial now', function () {
@@ -62,7 +94,14 @@ test('an active paid plan has no End trial now', function () {
 
     Livewire::actingAs($this->admin)
         ->test(BillingShow::class, ['organization' => $org])
-        ->assertDontSee('End trial now');
+        ->set('tab', 'plan')
+        ->assertDontSee('End trial now')
+        ->set('tab', 'payment')
+        ->assertSee('Billing details')
+        ->assertSee('Save billing details')
+        ->set('tab', 'limits')
+        ->assertSee('Usage alert')
+        ->assertSee('AI, browser and vector search limit');
 });
 
 test('cancel copy says the final usage is invoiced, not that charges stop', function () {
@@ -71,6 +110,7 @@ test('cancel copy says the final usage is invoiced, not that charges stop', func
 
     Livewire::actingAs($this->admin)
         ->test(BillingShow::class, ['organization' => $org])
+        ->set('tab', 'plan')
         ->assertSee('usage from this period is invoiced once when it ends')
         ->assertDontSee('no further charges')
         ->assertDontSee('billing just stops');
@@ -82,6 +122,7 @@ test('billing is monthly only: no annual toggle or annual price', function () {
 
     Livewire::actingAs($this->admin)
         ->test(BillingShow::class, ['organization' => $org])
+        ->set('tab', 'plan')
         ->assertDontSee('annual billing')
         ->assertDontSeeHtml('switch-interval')
         ->assertDontSee('/yr');
@@ -118,6 +159,7 @@ test('a card-less trial can add a card for its current plan (the path to End tri
 
     Livewire::actingAs($this->admin)
         ->test(BillingShow::class, ['organization' => $org])
+        ->set('tab', 'plan')
         ->assertSee('Add a card for Pro')
         ->assertSeeHtml("wire:click=\"subscribeTier('pro')\"")
         ->assertDontSee('End trial now');

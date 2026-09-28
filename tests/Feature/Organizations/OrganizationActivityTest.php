@@ -81,3 +81,24 @@ test('filters offer only live families, and VM-era rows fall under other', funct
     $component->call('setFamily', 'other');
     expect($component->instance()->auditLogs->total())->toBe(2);
 });
+
+test('rows read as sentences grouped by day, with field chips and a label fallback', function () {
+    $this->admin->update(['name' => 'TJ Shafer']);
+    AuditLog::create([
+        'organization_id' => $this->org->id,
+        'user_id' => $this->admin->id,
+        'action' => 'member.role_changed',
+        'old_values' => ['email' => 'sam@example.com', 'role' => 'member'],
+        'new_values' => ['role' => 'admin'],
+    ]);
+    $old = AuditLog::create(['organization_id' => $this->org->id, 'action' => 'server.created']);
+    $old->forceFill(['created_at' => now()->subDay()])->save();
+
+    Livewire::actingAs($this->admin)->test(Activity::class, ['organization' => $this->org])
+        ->assertSeeInOrder(['Today', 'TJ Shafer', 'changed the role of sam@example.com', 'role', 'member', 'admin', 'Yesterday', 'System', 'Server created'])
+        ->assertSee('Raw event')
+        ->assertDontSee('Families')
+        ->set('search', 'tj shaf')
+        ->assertSee('changed the role of')
+        ->assertDontSee('Server created');
+});

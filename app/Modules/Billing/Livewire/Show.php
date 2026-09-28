@@ -2,16 +2,22 @@
 
 namespace App\Modules\Billing\Livewire;
 
+use App\Livewire\Concerns\ConfirmsActionWithModal;
 use App\Livewire\Concerns\DispatchesToastNotifications;
+use App\Models\EdgeDeployment;
 use App\Models\Organization;
 use App\Modules\Billing\Services\BillingAnalytics;
 use App\Modules\Billing\Services\DesiredBillingState;
+use App\Modules\Billing\Services\EdgeOrganizationUsageReader;
+use App\Modules\Billing\Services\EdgeSiteBillingAnalytics;
 use App\Modules\Billing\Services\OrganizationBillingStateComputer;
 use App\Modules\Billing\Services\PlanCheckout;
 use App\Modules\Billing\Services\StandardSubscriptionCreator;
 use App\Modules\Billing\Services\StarterTrafficGate;
 use App\Modules\Billing\Services\SubscriptionPlanResolver;
 use App\Modules\Billing\Services\VatInsightService;
+use App\Modules\Billing\Support\UsagePrice;
+use App\Modules\Edge\Support\EdgeBuildMinutes;
 use Carbon\CarbonInterface;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Carbon;
@@ -22,6 +28,7 @@ use Laravel\Cashier\Subscription;
 use Laravel\Head\Facades\Head;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 use Throwable;
 
@@ -35,13 +42,22 @@ use Throwable;
  * @property-read array<string, int|null|string> $costForecast
  * @property-read bool $standardPricingAvailable
  * @property-read string $paymentSummary
+ * @property-read array<string, mixed> $usageByApp
+ * @property-read DesiredBillingState $usageState
  */
 #[Layout('layouts.app')]
 class Show extends Component
 {
+    use ConfirmsActionWithModal;
     use DispatchesToastNotifications;
 
+    public const TABS = ['usage', 'plan', 'invoices', 'payment', 'limits'];
+
     public Organization $organization;
+
+    /** Active section (Billing 2 redesign): usage, plan, invoices, payment, limits. */
+    #[Url(except: 'usage')]
+    public string $tab = 'usage';
 
     /**
      * Billing-entity fields for the org's invoices. Migrated off
@@ -79,12 +95,21 @@ class Show extends Component
         $this->authorize('update', $organization);
         Head::title($organization->name.' · '.__('Billing'));
         $this->organization = $organization;
+        $this->updatedTab();
         $this->invoice_email = (string) ($organization->invoice_email ?? '');
         $this->vat_number = (string) ($organization->vat_number ?? '');
         $this->billing_currency = (string) ($organization->billing_currency ?? '');
         $this->billing_details = (string) ($organization->billing_details ?? '');
         $this->usage_alert_dollars = $organization->usage_alert_cents === null ? '' : (string) ($organization->usage_alert_cents / 100);
         $this->metered_cap_dollars = $organization->metered_cap_cents === null ? '' : (string) ($organization->metered_cap_cents / 100);
+    }
+
+    /** The client can $set any string; unknown tabs fall back to Usage. */
+    public function updatedTab(): void
+    {
+        if (! in_array($this->tab, self::TABS, true)) {
+            $this->tab = 'usage';
+        }
     }
 
     /** Owners are emailed at 50/80/100% of this each billing period (UsageAlerts). */
@@ -306,6 +331,34 @@ class Show extends Component
         return $this->redirect($url, navigate: false);
     }
 
+    public function confirmChangeTier(string $tier): void
+    {
+        $this->authorize('update', $this->organization);
+        $label = (string) config('subscription.standard.tiers.'.$tier.'.label', ucfirst($tier));
+        $this->openConfirmActionModal(
+            'changeTier',
+            [$tier],
+            __('Switch to :plan', ['plan' => $label]),
+            __('Switch to :plan? The prorated difference is invoiced now.', ['plan' => $label]),
+            __('Switch to :plan', ['plan' => $label]),
+        );
+    }
+
+    public function confirmEndTrial(): void
+    {
+        $this->authorize('update', $this->organization);
+        $this->openConfirmActionModal(
+            'endTrial',
+            [],
+            __('End trial now'),
+            __('End the trial now? :plan is billed to your card today, and the trial’s $:limit usage cap is lifted.', [
+                'plan' => $this->organization->planTierLabel(),
+                'limit' => number_format(((int) config('subscription.standard.trial.spending_limit_cents', 500)) / 100, 0),
+            ]),
+            __('End trial now'),
+        );
+    }
+
     /**
      * Move an existing subscription to another paid tier. Swaps every line to
      * the target tier's set and invoices the prorated difference now.
@@ -447,7 +500,7 @@ class Show extends Component
     {
         session()->flash($key, $message);
 
-        return $this->redirect(route('subscription.show', $this->organization));
+        return $this->redirect(route('subscription.show', ['organization' => $this->organization, 'tab' => $this->tab]));
     }
 
     /**
@@ -517,14 +570,132 @@ class Show extends Component
     }
 
     /**
-     * Structured line items for the "Your bill" hero — one per Edge site kind
-     * in use plus metered Edge usage.
-     *
-     * @return list<array{label: string, quantity: int, unit_cents: int, line_cents: int, detail?: ?string}>
+     * Usage at customer price for display. An org with no plan bills no
+     * usage, so its billingState carries none; price it at the Pro rates
+     * (usage prices do not vary by plan) so the page still shows real usage.
      */
-    public function getTierLineItemsProperty(): array
+    #[Computed]
+    public function usageState(): DesiredBillingState
     {
-        return app(BillingAnalytics::class)->lineItems($this->billingState);
+        return in_array($this->billingState->planKey, SubscriptionPlanResolver::PAID_TIERS, true)
+            ? $this->billingState
+            : app(OrganizationBillingStateComputer::class)->computeForTier($this->organization, 'pro');
+    }
+
+    /**
+     * The Usage tab: per-app rows, a "Not per app" row for org-level usage,
+     * and a daily spend series for the current period. The app rows plus the
+     * not-per-app row add up to billingState->usageLineCents() (the header
+     * number) exactly: the not-per-app row is the remainder, per category and
+     * unclamped, so rounding between per-site and org pricing stays visible.
+     * Only the usage tab reads this — lines() costs 4 queries per site.
+     *
+     * @return array{apps: list<array<string, mixed>>, other: array<string, mixed>, has_other_column: bool, daily: list<array{date: string, label: string, compute: float, builds: float, delivery: float}>, total_cents: int}
+     */
+    #[Computed]
+    public function usageByApp(): array
+    {
+        $state = $this->usageState;
+        [$periodStart] = app(EdgeOrganizationUsageReader::class)->currentWindow($this->organization);
+        $days = (int) $periodStart->copy()->startOfDay()->diffInDays(now()->startOfDay()) + 1;
+        $rows = app(EdgeSiteBillingAnalytics::class)->sitesForOrganization($this->organization, max(1, $days));
+
+        $runtimes = $this->organization->sites()->whereIn('id', array_column($rows, 'site_id'))->get(['id', 'meta'])
+            ->mapWithKeys(fn ($site): array => [(string) $site->id => (string) ($site->edgeMeta()['runtime_mode'] ?? 'static')])
+            ->all();
+
+        $apps = [];
+        $bySite = ['delivery' => 0, 'builds' => 0, 'compute' => 0, 'valkey' => 0, 'realtime' => 0];
+        $daily = [];
+        $day = static function (array &$daily, string $date, string $key, float $cents): void {
+            $daily[$date] ??= ['date' => $date, 'label' => Carbon::parse($date)->format('M j'), 'compute' => 0.0, 'builds' => 0.0, 'delivery' => 0.0];
+            $daily[$date][$key] += $cents;
+        };
+        $from = $periodStart->toDateString();
+        // Every day of the period so far, so quiet days still get a (flat) bar.
+        for ($d = $periodStart->copy()->startOfDay(); $d->lte(now()); $d->addDay()) {
+            $day($daily, $d->toDateString(), 'delivery', 0.0);
+        }
+
+        foreach ($rows as $row) {
+            $lines = collect($row['lines'] ?? [])->pluck('cents', 'key')->map(fn ($c): int => (int) $c)->all();
+            $other = ($lines['valkey'] ?? 0) + ($lines['realtime'] ?? 0);
+            $apps[] = [
+                'name' => (string) $row['site_name'],
+                'url' => $row['workspace_url'] ?? null,
+                'runtime' => match ($runtimes[$row['site_id']] ?? 'static') {
+                    'hybrid' => __('Hybrid'),
+                    'container' => __('Container'),
+                    default => __('Static'),
+                },
+                'compute' => $lines['compute'] ?? 0,
+                'builds' => $lines['builds'] ?? 0,
+                'delivery' => (int) $row['delivery_cents'],
+                'other' => $other,
+                'total' => (int) $row['usage_cents'],
+            ];
+            $bySite['delivery'] += (int) $row['delivery_cents'];
+            foreach (['builds', 'compute', 'valkey', 'realtime'] as $key) {
+                $bySite[$key] += $lines[$key] ?? 0;
+            }
+            // Snapshot dates arrive as "Y-m-d 00:00:00" (date cast); key by day.
+            foreach ($row['daily'] ?? [] as $point) {
+                $date = Carbon::parse((string) $point['date'])->toDateString();
+                if ($date >= $from) {
+                    $day($daily, $date, 'delivery', (float) $point['cost_cents']);
+                }
+            }
+            foreach ($row['daily_compute'] ?? [] as $point) {
+                $date = Carbon::parse((string) $point['date'])->toDateString();
+                if ($date >= $from) {
+                    $day($daily, $date, 'compute', (float) $point['cents']);
+                }
+            }
+        }
+        usort($apps, fn (array $a, array $b): int => $b['total'] <=> $a['total']);
+
+        // Builds per day, priced the way EdgeSiteBillingAnalytics::lines() prices them.
+        if ($rows !== []) {
+            EdgeDeployment::query()->whereIn('site_id', array_column($rows, 'site_id'))
+                ->where('created_at', '>=', $periodStart->copy()->startOfDay())
+                ->groupByRaw('DATE(created_at)')
+                ->selectRaw('DATE(created_at) AS day, COALESCE(SUM(build_seconds), 0) AS seconds')
+                ->toBase()->get()
+                ->each(function (object $r) use (&$daily, $day): void {
+                    if ((int) $r->seconds > 0) {
+                        $day($daily, Carbon::parse((string) $r->day)->toDateString(), 'builds', (float) UsagePrice::cents(EdgeBuildMinutes::costMillicents((int) $r->seconds)));
+                    }
+                });
+        }
+        ksort($daily);
+
+        // Everything the app rows do not cover: org-scoped categories plus
+        // previews and removed apps. Remainder per category, never clamped.
+        $org = $state->usageLines();
+        $rest = [];
+        foreach (DesiredBillingState::USAGE_KEYS as $key) {
+            $cents = (int) ($org[$key] ?? 0) - ($bySite[$key] ?? 0);
+            if ($cents !== 0) {
+                $rest[$key] = $cents;
+            }
+        }
+        $total = $state->usageLineCents();
+        $other = [
+            'compute' => $rest['compute'] ?? 0,
+            'builds' => $rest['builds'] ?? 0,
+            'delivery' => $rest['delivery'] ?? 0,
+            'other' => array_sum(array_diff_key($rest, array_flip(['compute', 'builds', 'delivery']))),
+            'total' => $total - array_sum(array_column($apps, 'total')),
+            'detail' => collect($rest)->map(fn (int $cents, string $key): string => __(DesiredBillingState::usageLineLabel($key)).' '.($cents < 0 ? '−' : '').'$'.number_format(abs($cents) / 100, 2))->values()->all(),
+        ];
+
+        return [
+            'apps' => $apps,
+            'other' => $other,
+            'has_other_column' => $other['other'] !== 0 || collect($apps)->contains(fn (array $a): bool => $a['other'] !== 0),
+            'daily' => array_values($daily),
+            'total_cents' => $total,
+        ];
     }
 
     public function getNextInvoiceAtProperty(): ?CarbonInterface
@@ -559,7 +730,7 @@ class Show extends Component
 
         audit_log($this->organization, auth()->user(), 'billing.portal_accessed');
 
-        return $this->organization->redirectToBillingPortal(route('subscription.show', $this->organization));
+        return $this->organization->redirectToBillingPortal(route('subscription.show', ['organization' => $this->organization, 'tab' => 'payment']));
     }
 
     public function render(): View

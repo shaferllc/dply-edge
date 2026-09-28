@@ -28,6 +28,7 @@
     $docNavOn = 'bg-brand-sand/70 text-brand-ink border border-brand-ink/10 shadow-sm';
     $docNavOff = 'text-brand-moss hover:bg-brand-sand/40 hover:text-brand-ink border border-transparent';
     $ni = 'h-[1.125rem] w-[1.125rem] shrink-0 opacity-90';
+    $groupLabel = 'px-3 pb-1 pt-4 text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist';
     $useMergedChrome = filled($title);
 @endphp
 
@@ -61,102 +62,60 @@
                 <p class="font-semibold text-brand-ink truncate" title="{{ $org->name }}">{{ $org->name }}</p>
             </div>
             <nav class="mt-4 space-y-0.5" aria-label="{{ __('Organization navigation') }}">
-                {{-- Overview is the workspace root — pinned first; everything below is alphabetical. --}}
-                <a
-                    href="{{ route('organizations.show', $org) }}"
-                    wire:navigate
-                    @class([$navBase, $link('overview')])
-                >
+                {{-- Grouped by task (org redesign 2026-09-27). Teams lives inside
+                     People: /teams renders the same page with a team selected. --}}
+                <a href="{{ route('organizations.show', $org) }}" wire:navigate @class([$navBase, $link('overview')])>
                     <x-heroicon-o-squares-2x2 class="{{ $ni }}" aria-hidden="true" />
                     {{ __('Overview') }}
                 </a>
                 @if ($org->hasAdminAccess(auth()->user()))
-                    <a
-                        href="{{ route('organizations.activity', $org) }}"
-                        wire:navigate
-                        @class([$navBase, $link('activity')])
-                    >
+                    <a href="{{ route('organizations.activity', $org) }}" wire:navigate @class([$navBase, $link('activity')])>
                         <x-heroicon-o-clock class="{{ $ni }}" aria-hidden="true" />
                         {{ __('Activity') }}
                     </a>
-                    {{-- Automation folded into General settings — email defaults,
-                         Cloud alerts, Edge data region, and the org-wide API token
-                         list all live there now. --}}
                 @endif
+
+                <p class="{{ $groupLabel }}">{{ __('People') }}</p>
+                <a href="{{ route('organizations.members', $org) }}" wire:navigate @class([$navBase, ($is('members') || $is('teams')) ? $link('members') : $link('__none')])>
+                    <x-heroicon-o-users class="{{ $ni }}" aria-hidden="true" />
+                    {{ __('People') }}
+                </a>
+
                 @can('update', $org)
-                    <a
-                        href="{{ route('billing.show', $org) }}"
-                        wire:navigate
-                        @class([$navBase, $link('billing')])
-                    >
+                    <p class="{{ $groupLabel }}">{{ __('Money') }}</p>
+                    <a href="{{ route('billing.show', $org) }}" wire:navigate @class([$navBase, $link('billing')])>
                         <x-heroicon-o-credit-card class="{{ $ni }}" aria-hidden="true" />
                         {{ __('Billing') }}
                     </a>
                 @endcan
-                {{-- Realtime and Queues moved to the Services nav row (/realtime,
-                     /queues). They are products, not organization settings — see
-                     docs/adr/managed-services-tier.md, decision 1. The old
-                     org-scoped URLs still resolve, via OrgScopedRedirectController. --}}
-                @can('viewAny', \App\Models\ProviderCredential::class)
-                    <a
-                        href="{{ route('organizations.credentials', $org) }}"
-                        wire:navigate
-                        @class([$navBase, $link('providers')])
-                    >
-                        <x-heroicon-o-key class="{{ $ni }}" aria-hidden="true" />
-                        {{ __('Credentials') }}
-                    </a>
-                @endcan
-                @can('update', $org)
-                    <a
-                        href="{{ route('organizations.settings', $org) }}"
-                        wire:navigate
-                        @class([$navBase, $link('general')])
-                    >
-                        <x-heroicon-o-cog-6-tooth class="{{ $ni }}" aria-hidden="true" />
-                        {{ __('General') }}
-                    </a>
-                @endcan
-                <a
-                    href="{{ route('organizations.members', $org) }}"
-                    wire:navigate
-                    @class([$navBase, $link('members')])
-                >
-                    <x-heroicon-o-users class="{{ $ni }}" aria-hidden="true" />
-                    {{ __('Members') }}
-                </a>
+
+                <p class="{{ $groupLabel }}">{{ __('Connections') }}</p>
                 @can('viewNotificationChannels', $org)
-                    <a
-                        href="{{ route('organizations.notification-channels', $org) }}"
-                        wire:navigate
-                        @class([$navBase, $link('notifications')])
-                    >
+                    <a href="{{ route('organizations.notification-channels', $org) }}" wire:navigate @class([$navBase, $link('notifications')])>
                         <x-heroicon-o-bell class="{{ $ni }}" aria-hidden="true" />
-                        {{ __('Notification channels') }}
+                        {{ __('Notifications') }}
+                    </a>
+                @endcan
+                @can('viewAny', \App\Models\ProviderCredential::class)
+                    <a href="{{ route('organizations.credentials', $org) }}" wire:navigate @class([$navBase, $link('providers')])>
+                        <x-heroicon-o-globe-alt class="{{ $ni }}" aria-hidden="true" />
+                        {{ __('Domains & DNS') }}
                     </a>
                 @endcan
                 @can('view', $org)
-                    <a
-                        href="{{ route('organizations.secrets', $org) }}"
-                        wire:navigate
-                        @class([$navBase, $link('secrets')])
-                    >
+                    <a href="{{ route('organizations.secrets', $org) }}" wire:navigate @class([$navBase, $link('secrets')])>
                         <x-heroicon-o-lock-closed class="{{ $ni }}" aria-hidden="true" />
                         {{ __('Secrets') }}
                     </a>
                 @endcan
-                <a
-                    href="{{ route('organizations.teams', $org) }}"
-                    wire:navigate
-                    @class([$navBase, $link('teams')])
-                >
-                    <x-heroicon-o-rectangle-group class="{{ $ni }}" aria-hidden="true" />
-                    {{ __('Teams') }}
-                </a>
-                {{-- Webserver templates nav temporarily hidden.
-                @can('view', $org)
+
+                @can('update', $org)
+                    <p class="{{ $groupLabel }}">{{ __('Settings') }}</p>
+                    <a href="{{ route('organizations.settings', $org) }}" wire:navigate @class([$navBase, $link('general')])>
+                        <x-heroicon-o-cog-6-tooth class="{{ $ni }}" aria-hidden="true" />
+                        {{ __('General') }}
+                    </a>
                 @endcan
-                --}}
             </nav>
         </div>
         <a

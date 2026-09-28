@@ -1,331 +1,162 @@
+{{--
+  Org billing — "Billing 2 · tabs, usage by app" (redesign 2026-09-27).
+  One header number (usage this period vs included credit); everything else
+  lives in a tab (Show::$tab, ?tab=). Only the active tab's partial renders,
+  so the per-app usage queries run on the Usage tab alone.
+--}}
 @php
-    // At-a-glance figures for the hero stat strip. The "status" tile is the
-    // big one — color-coded so it doubles as a banner.
-    $edgeSiteCount = $this->billingState->edgeCount;
-    $monthlyCents = (int) ($this->billingState->monthlyTotalCents ?? 0);
-    $intervalLabel = __(':plan · billed monthly', ['plan' => $this->organization->planTierLabel()]);
-    $subscriptionValid = (bool) $this->subscription?->valid();
-    $keepDays = (int) config('subscription.standard.trial.keep_data_days', 30);
-
     $org = $this->organization;
+    $state = $this->billingState;
+    $money = fn (int $cents, int $decimals = 2): string => '$'.number_format($cents / 100, $decimals);
+    $hasCard = $this->paymentSummary !== 'No payment method';
+    $card = $hasCard ? trim(($org->pm_type ? ucfirst((string) $org->pm_type).' ' : '').$this->paymentSummary) : null;
+    $planPrice = $money($state->managedSubtotalCents(), $state->managedSubtotalCents() % 100 === 0 ? 0 : 2);
+
     if ($org->isComped()) {
-        $statusTone = 'success';
-        $statusLabel = __('Comped');
-        $statusSub = __(':plan · nothing due', ['plan' => $org->planTierLabel()]);
+        $parts = [$org->planTierLabel(), __('comped until :date, nothing due', ['date' => $org->comped_until?->toFormattedDateString()])];
     } elseif ($org->onTrialPlan()) {
-        $statusTone = 'info';
-        $statusLabel = __('Trial');
-        $statusSub = __(':plan until :date', ['plan' => $org->planTierLabel(), 'date' => $org->planTrialEndsAt()?->toFormattedDayDateString()]);
+        $parts = [__(':plan trial', ['plan' => $org->planTierLabel()]), __('ends :date', ['date' => $org->planTrialEndsAt()?->toFormattedDateString()])];
     } elseif (! $org->hasPlan()) {
-        $statusTone = $org->billing_paused_at ? 'danger' : 'neutral';
-        $statusLabel = $org->billing_paused_at ? __('Paused') : __('No plan');
-        $statusSub = $org->eligibleForTrial()
-            ? __('Start a :days-day trial below', ['days' => (int) config('subscription.standard.trial.days', 5)])
-            : __('Choose a plan below');
+        $parts = [$org->billing_paused_at ? __('Paused') : __('No plan'), $org->eligibleForTrial()
+            ? __('start a :days-day trial', ['days' => (int) config('subscription.standard.trial.days', 5)])
+            : __('choose a plan to keep your apps running')];
     } elseif ($this->onGracePeriod) {
-        $statusTone = 'warning';
-        $statusLabel = __('Cancelled');
-        $statusSub = $this->subscriptionEndsAt ? __('Access until :date', ['date' => $this->subscriptionEndsAt->toFormattedDateString()]) : __('In grace period');
+        $parts = [$org->planTierLabel(), __(':price/mo', ['price' => $planPrice]), __('cancelled, access until :date', ['date' => $this->subscriptionEndsAt?->toFormattedDateString()])];
     } else {
-        // hasPlan() with no trial or comp means a live subscription.
-        $statusTone = 'success';
-        $statusLabel = __('Active');
-        $statusSub = $intervalLabel;
+        $parts = [$org->planTierLabel(), __(':price/mo', ['price' => $planPrice])];
+        if ($this->nextInvoiceAt) {
+            $parts[] = __('renews :date', ['date' => $this->nextInvoiceAt->format('M j')]);
+        }
+    }
+    if ($card !== null) {
+        $parts[] = $card;
     }
 
-    $statusTiles = [
-        'success' => 'border-brand-sage/30 bg-brand-sage/8',
-        'info' => 'border-sky-200 bg-sky-50',
-        'warning' => 'border-amber-200 bg-amber-50',
-        'danger' => 'border-red-200 bg-red-50',
-        'neutral' => 'border-brand-ink/10 bg-white',
-    ];
-    $statusDot = [
-        'success' => 'bg-brand-sage',
-        'info' => 'bg-sky-500',
-        'warning' => 'bg-amber-500',
-        'danger' => 'bg-red-500',
-        'neutral' => 'bg-brand-ink/15',
+    $tabs = [
+        'usage' => __('Usage'),
+        'plan' => __('Plan'),
+        'invoices' => __('Invoices'),
+        'payment' => __('Payment & details'),
+        'limits' => __('Limits'),
     ];
 @endphp
 
-<div>
+{{-- Old deep links (#plans from Register / plan-upsell, #invoices, #payment-method) open their tab. --}}
+<div x-init="(t => t && $wire.tab !== t && $wire.set('tab', t))({ '#plans': 'plan', '#invoices': 'invoices', '#payment-method': 'payment' }[location.hash])">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <x-organization-shell
             :organization="$organization"
             section="billing"
-            :title="__('Billing')"
-            :description="__('A monthly plan plus metered usage past its included credit. Preview usage counts too.')"
-            icon="heroicon-o-credit-card"
             :breadcrumb="[
                 ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
                 ['label' => $organization->name, 'href' => route('organizations.show', $organization), 'icon' => 'building-office-2'],
                 ['label' => __('Billing'), 'icon' => 'credit-card'],
             ]"
         >
-
-            {{-- Hairline strip, matching invoices / org settings / notification
-                 channels. The status tile keeps its tone tint — it doubles as the
-                 subscription banner. --}}
-            <x-slot:stats>
-                <dl class="grid grid-cols-3 gap-px bg-brand-ink/5" aria-label="{{ __('Billing at a glance') }}">
-                    <div class="px-3 py-2 {{ $statusTiles[$statusTone] }}">
-                        <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Status') }}</dt>
-                        <dd class="mt-0.5 flex items-baseline gap-1.5">
-                            <span class="inline-block h-1.5 w-1.5 shrink-0 self-center rounded-full {{ $statusDot[$statusTone] }}" aria-hidden="true"></span>
-                            <span class="text-sm font-semibold text-brand-ink">{{ $statusLabel }}</span>
-                            <span class="truncate text-xs text-brand-moss" title="{{ $statusSub }}">{{ $statusSub }}</span>
-                        </dd>
+            <div class="space-y-5">
+                <div class="flex flex-wrap items-end justify-between gap-4">
+                    <div class="min-w-0">
+                        <h1 class="text-2xl font-semibold tracking-tight text-brand-ink">{{ __('Billing') }}</h1>
+                        <p class="mt-1 text-sm text-brand-moss">{{ implode(' · ', $parts) }}</p>
                     </div>
-                    <div class="bg-white px-3 py-2">
-                        <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Edge sites') }}</dt>
-                        <dd class="mt-0.5 flex items-baseline gap-1.5">
-                            <span class="font-mono text-base font-semibold tabular-nums text-brand-ink">{{ $edgeSiteCount }}</span>
-                            <span class="truncate text-xs text-brand-moss">{{ __('live · billable') }}</span>
-                        </dd>
-                    </div>
-                    <div class="bg-white px-3 py-2">
-                        <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Current bill') }}</dt>
-                        <dd class="mt-0.5 flex items-baseline gap-1.5">
-                            <span class="font-mono text-base font-semibold tabular-nums text-brand-ink">${{ number_format($monthlyCents / 100, 0) }}</span>
-                            <span class="truncate text-xs text-brand-moss">
-                                {{ __('/mo · :interval', ['interval' => $intervalLabel]) }}
-                            </span>
-                        </dd>
-                    </div>
-                </dl>
-            </x-slot:stats>
-
-            @if ($errors->isNotEmpty())
-                <div class="border-b border-brand-ink/10 px-3 py-2 sm:px-4">
-                    <x-livewire-validation-errors />
-                </div>
-            @endif
-
-            @if (
-                request()->query('checkout') === 'success'
-                || session('billing_status')
-                || session('billing_error')
-                || request()->query('checkout') === 'cancelled'
-                || $errors->has('plan')
-                || $errors->has('billing')
-            )
-                <div class="space-y-3 border-b border-brand-ink/10 px-3 py-2 sm:px-4">
-                    @if (request()->query('checkout') === 'success')
-                        <x-alert tone="success">{{ __('Billing updated.') }}</x-alert>
-                    @endif
-                    @if (session('billing_status'))
-                        <x-alert tone="success">{{ session('billing_status') }}</x-alert>
-                    @endif
-                    @if (session('billing_error'))
-                        <x-alert tone="error">{{ session('billing_error') }}</x-alert>
-                    @endif
-                    @if (request()->query('checkout') === 'cancelled')
-                        <x-alert tone="warning">{{ __('Checkout was cancelled.') }}</x-alert>
-                    @endif
-                    @error('plan')<x-alert tone="error">{{ $message }}</x-alert>@enderror
-                    @error('billing')<x-alert tone="error">{{ $message }}</x-alert>@enderror
-                </div>
-            @endif
-
-            <div wire:loading.flex wire:target="subscribeTier,changeTier,endTrial,portal,cancelSubscription,resumeSubscription"
-                 class="hidden items-center gap-3 border-b border-brand-ink/10 bg-brand-gold/10 px-3 py-2 sm:px-4">
-                <x-spinner variant="ink" size="sm" />
-                <span class="text-sm font-medium text-brand-ink">{{ __('Updating your subscription with Stripe…') }}</span>
-            </div>
-
-            @include('livewire.billing.partials.payment-method')
-
-            @include('livewire.billing.partials.plan-picker')
-
-            @include('livewire.billing.partials.bill-hero')
-
-            @include('livewire.billing.partials.cost-forecast')
-
-            {{-- Billing details. Org-scoped invoice email, VAT, currency,
-                 legal details — printed on Stripe invoices for this org's
-                 subscription. Migrated off the user-level profile page in
-                 2026-05 because subscriptions are org-scoped. --}}
-            @if ($this->canManageBilling)
-                @php
-                    $currencies = config('profile_options.currencies', []);
-                @endphp
-                <section class="border-b border-brand-ink/10">
-                    <x-workspace-panel-head dense icon="heroicon-o-identification" :title="__('Billing details')" :note="__('Printed on every Stripe invoice for this organization.')" />
-                    <form wire:submit="saveBillingDetails" class="space-y-3 px-3 py-3 sm:px-4">
-                        <div class="grid gap-3 sm:grid-cols-2">
-                            <div>
-                                <x-input-label for="org_invoice_email" :value="__('Invoice email')" />
-                                <x-text-input id="org_invoice_email" wire:model="invoice_email" type="email" class="mt-1 block w-full" autocomplete="email" />
-                                <p class="mt-1 text-xs text-brand-mist">{{ __('Where invoices land — defaults to the org owner\'s email when blank.') }}</p>
-                                <x-input-error :messages="$errors->get('invoice_email')" />
-                            </div>
-                            <div>
-                                <x-input-label for="org_vat_number" :value="__('VAT number')" />
-                                <x-text-input id="org_vat_number" wire:model="vat_number" type="text" class="mt-1 block w-full" placeholder="NL123456789B01" autocomplete="off" />
-                                <p class="mt-1 text-xs text-brand-mist">{{ __('Include the country code. EU businesses may receive a VAT exemption notice when valid.') }}</p>
-                                <x-input-error :messages="$errors->get('vat_number')" />
-                            </div>
-                        </div>
-                        <div class="grid gap-3 sm:grid-cols-2">
-                        <div>
-                            <x-input-label for="org_billing_currency" :value="__('Currency')" />
-                            <select
-                                id="org_billing_currency"
-                                wire:model="billing_currency"
-                                class="mt-1 block w-full rounded-lg border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink shadow-sm focus:border-brand-sage focus:ring-brand-sage"
-                            >
-                                <option value="">{{ __('Select a currency') }}</option>
-                                @foreach ($currencies as $code => $label)
-                                    <option value="{{ $code }}">{{ $label }}</option>
-                                @endforeach
-                            </select>
-                            <p class="mt-1 text-xs text-brand-mist">{{ __('Preferred currency for invoices and payment references.') }}</p>
-                            <x-input-error :messages="$errors->get('billing_currency')" />
-                        </div>
-                        <div>
-                            <x-input-label for="org_billing_details" :value="__('Legal details')" />
-                            <textarea
-                                id="org_billing_details"
-                                wire:model="billing_details"
-                                rows="2"
-                                class="mt-1 block w-full rounded-lg border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink shadow-sm placeholder:text-brand-mist focus:border-brand-sage focus:ring-brand-sage"
-                                placeholder="{{ __('Legal name, address, and other details to show on invoices') }}"
-                            ></textarea>
-                            <p class="mt-1 text-xs text-brand-mist">{{ __('Printed on newly created invoices when provided.') }}</p>
-                            <x-input-error :messages="$errors->get('billing_details')" />
-                        </div>
-                        </div>
-                        <div class="flex items-center justify-end border-t border-brand-ink/10 pt-2">
-                            <button type="submit" wire:loading.attr="disabled" wire:target="saveBillingDetails"
-                                    class="inline-flex h-7 items-center gap-1 rounded-md bg-brand-ink px-2.5 text-xs font-semibold text-brand-cream shadow-sm transition-colors hover:bg-brand-forest disabled:opacity-70">
-                                <span wire:loading.remove wire:target="saveBillingDetails" class="inline-flex items-center gap-1">
-                                    <x-heroicon-o-check class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                                    {{ __('Save billing details') }}
-                                </span>
-                                <span wire:loading wire:target="saveBillingDetails" class="inline-flex items-center gap-1">
-                                    <x-spinner variant="cream" size="sm" />
-                                    {{ __('Saving…') }}
-                                </span>
-                            </button>
-                        </div>
-                    </form>
-                </section>
-            @endif
-
-            {{-- Invoices --}}
-            <section id="invoices" class="border-b border-brand-ink/10" wire:init="loadInvoices">
-                <x-workspace-panel-head dense icon="heroicon-o-document" :title="__('Invoices')" :note="__('Recent invoices from Stripe.')" />
-                    @if (! $invoicesLoaded)
-                        <p class="px-3 py-8 text-center text-xs text-brand-mist sm:px-4">{{ __('Loading invoices…') }}</p>
-                    @elseif ($this->invoices === [])
-                        <div class="px-3 py-8 text-center sm:px-4">
-                            <span class="mx-auto inline-flex h-9 w-9 items-center justify-center rounded-xl bg-brand-sand/45 text-brand-mist ring-1 ring-brand-ink/10">
-                                <x-heroicon-o-document class="h-4 w-4" aria-hidden="true" />
-                            </span>
-                            <x-empty-state
-                                borderless
-                                compact
-                                icon="heroicon-o-document-text"
-                                :title="__('No invoices yet')"
-                                :description="__('Invoices appear here once your plan is billed.')"
-                            />
-                        </div>
-                    @else
-                        <ul class="divide-y divide-brand-ink/10">
-                            @foreach ($this->invoices as $invoice)
-                                @php $hosted = $invoice['url']; @endphp
-                                <li class="flex items-center justify-between gap-4 px-3 py-2 transition-colors hover:bg-brand-sand/15 sm:px-4">
-                                    <div class="min-w-0">
-                                        <p class="text-sm font-semibold text-brand-ink">{{ \Illuminate\Support\Carbon::createFromTimestamp($invoice['date'])->toFormattedDateString() }}</p>
-                                        <p class="mt-0.5 font-mono text-xs text-brand-moss tabular-nums">{{ $invoice['total'] }}</p>
-                                    </div>
-                                    @if ($hosted)
-                                        <a href="{{ $hosted }}" target="_blank" rel="noopener noreferrer" class="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-brand-sage hover:text-brand-ink">
-                                            <x-heroicon-o-arrow-top-right-on-square class="h-4 w-4 shrink-0" aria-hidden="true" />
-                                            {{ __('Open in Stripe') }}
-                                        </a>
-                                    @endif
-                                </li>
-                            @endforeach
-                        </ul>
-                    @endif
-            </section>
-
-            @include('livewire.billing.partials.how-billing-works')
-
-            {{-- Subscription — cancel / resume. Last so the page reads
-                 amount → forecast → pay → invoices → leave. --}}
-            @if ($subscriptionValid)
-                <section class="border-b border-brand-ink/10 last:border-b-0">
-                    <x-workspace-panel-head
-                        dense
-                        :icon="$this->onGracePeriod ? 'heroicon-o-clock' : 'heroicon-o-arrow-path'"
-                        :title="__('Cancel or resume')"
-                        :note="$this->subscription->onTrial() ? __('Cancel during the trial and you are never charged. When the trial ends, the organization is paused.') : __('Your plan runs to the end of the period. Usage from that period is invoiced once, then the organization is paused.')"
-                    />
-                    <div class="px-3 py-3 sm:px-4">
-                        @if ($this->onGracePeriod)
-                            <div class="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
-                                <p class="text-sm font-semibold text-amber-950">
-                                    {{ __('Subscription ends :date.', ['date' => $this->subscriptionEndsAt?->toFormattedDateString()]) }}
-                                </p>
-                                <p class="mt-0.5 text-sm text-amber-900/80">{{ __('You keep full access until then. Change your mind?') }}</p>
-                                <button type="button" wire:click="resumeSubscription"
-                                        wire:loading.attr="disabled" wire:target="resumeSubscription"
-                                        class="mt-3 inline-flex items-center gap-2 rounded-lg bg-brand-ink px-4 py-2 text-xs font-semibold text-brand-cream hover:bg-brand-forest disabled:opacity-70">
-                                    <span wire:loading.remove wire:target="resumeSubscription" class="inline-flex items-center gap-2">
-                                        <x-heroicon-o-arrow-uturn-left class="h-4 w-4 shrink-0" aria-hidden="true" />
-                                        {{ __('Resume subscription') }}
-                                    </span>
-                                    <span wire:loading wire:target="resumeSubscription" class="inline-flex items-center gap-2">
-                                        <x-spinner size="sm" variant="cream" />
-                                        {{ __('Resuming…') }}
-                                    </span>
-                                </button>
-                            </div>
-                        @else
-                            <button type="button" x-on:click="$dispatch('open-modal', 'cancel-subscription')"
-                                    class="inline-flex items-center gap-1.5 text-sm font-semibold text-red-700 underline underline-offset-2 hover:text-red-900">
-                                <x-heroicon-o-x-circle class="h-4 w-4 shrink-0" aria-hidden="true" />
-                                {{ __('Cancel subscription') }}
-                            </button>
-                        @endif
-                    </div>
-                </section>
-            @endif
-
-            {{-- Confirmation modals --}}
-            @if ($subscriptionValid)
-                <x-modal name="cancel-subscription" maxWidth="md">
-                    <div class="p-6">
-                        <h3 class="text-lg font-semibold text-brand-ink">{{ __('Cancel subscription') }}</h3>
-                        <p class="mt-3 text-sm text-brand-moss leading-relaxed">
-                            @if ($this->subscription->onTrial())
-                                {{ __('Your trial runs until :date and you won\'t be charged, for the plan or for trial usage.', ['date' => $this->organization->planTrialEndsAt()?->toFormattedDateString()]) }}
-                            @elseif ($this->nextInvoiceAt)
-                                {{ __('You\'ll keep full access until :date. There are no further plan charges, but usage from this period is invoiced once when it ends.', ['date' => $this->nextInvoiceAt->toFormattedDateString()]) }}
-                            @else
-                                {{ __('You\'ll keep full access until the end of your current billing period. There are no further plan charges, but usage from this period is invoiced once when it ends.') }}
+                    <div class="flex flex-col items-end gap-1 text-right">
+                        <span class="text-2xs font-semibold uppercase tracking-[0.14em] text-brand-mist">{{ __('Usage this period') }}</span>
+                        <span class="text-2xl font-semibold tabular-nums text-brand-ink">
+                            {{ $money($this->usageState->usageLineCents()) }}
+                            @if ($state->usageCreditCents > 0)
+                                <span class="text-sm font-normal text-brand-moss">{{ __('of :credit credit', ['credit' => $money($state->usageCreditCents, 0)]) }}</span>
                             @endif
-                        </p>
-                        <p class="mt-2 text-sm text-brand-moss leading-relaxed">
-                            {{ __('After that the organization is paused: sites show a paused page and its data is kept :days days. You can resume anytime before the period ends.', ['days' => $keepDays]) }}
-                        </p>
-                        <div class="mt-6 flex justify-end gap-3">
-                            <x-secondary-button type="button" x-on:click="$dispatch('close-modal', 'cancel-subscription')">
-                                {{ __('Keep subscription') }}
-                            </x-secondary-button>
-                            <button type="button"
-                                    wire:click="cancelSubscription"
-                                    x-on:click="$dispatch('close-modal', 'cancel-subscription')"
-                                    class="inline-flex items-center rounded-xl bg-red-700 px-4 py-2 text-sm font-semibold text-white hover:bg-red-800">
-                                {{ __('Cancel subscription') }}
-                            </button>
-                        </div>
+                        </span>
                     </div>
-                </x-modal>
-            @endif
+                </div>
+
+                <nav class="flex gap-1 overflow-x-auto border-b border-brand-ink/10" aria-label="{{ __('Billing sections') }}">
+                    @foreach ($tabs as $key => $label)
+                        <a href="{{ route('billing.show', ['organization' => $organization, 'tab' => $key]) }}"
+                           wire:click.prevent="$set('tab', '{{ $key }}')"
+                           @if ($tab === $key) aria-current="page" @endif
+                           @class([
+                               '-mb-px shrink-0 border-b-2 px-3 pb-3 pt-2 text-sm font-medium transition-colors',
+                               'border-brand-sage text-brand-ink' => $tab === $key,
+                               'border-transparent text-brand-moss hover:text-brand-ink' => $tab !== $key,
+                           ])>{{ $label }}</a>
+                    @endforeach
+                </nav>
+
+                {{-- Flashes and the Stripe loader show on every tab. --}}
+                @if ($errors->isNotEmpty())
+                    <x-livewire-validation-errors />
+                @endif
+
+                @if (
+                    request()->query('checkout') === 'success'
+                    || session('billing_status')
+                    || session('billing_error')
+                    || request()->query('checkout') === 'cancelled'
+                    || $errors->has('plan')
+                    || $errors->has('billing')
+                )
+                    <div class="space-y-3">
+                        @if (request()->query('checkout') === 'success')
+                            <x-alert tone="success">{{ __('Billing updated.') }}</x-alert>
+                        @endif
+                        @if (session('billing_status'))
+                            <x-alert tone="success">{{ session('billing_status') }}</x-alert>
+                        @endif
+                        @if (session('billing_error'))
+                            <x-alert tone="error">{{ session('billing_error') }}</x-alert>
+                        @endif
+                        @if (request()->query('checkout') === 'cancelled')
+                            <x-alert tone="warning">{{ __('Checkout was cancelled.') }}</x-alert>
+                        @endif
+                        @error('plan')<x-alert tone="error">{{ $message }}</x-alert>@enderror
+                        @error('billing')<x-alert tone="error">{{ $message }}</x-alert>@enderror
+                    </div>
+                @endif
+
+                <div wire:loading.flex wire:target="subscribeTier,changeTier,endTrial,portal,cancelSubscription,resumeSubscription,confirmActionModal"
+                     class="hidden items-center gap-3 rounded-xl border border-brand-gold/30 bg-brand-gold/10 px-4 py-2.5">
+                    <x-spinner variant="ink" size="sm" />
+                    <span class="text-sm font-medium text-brand-ink">{{ __('Updating your subscription with Stripe…') }}</span>
+                </div>
+
+                @if (! $org->hasPlan() && $tab !== 'plan')
+                    <div class="dply-card flex flex-wrap items-center gap-4 px-5 py-4 sm:px-6">
+                        <div class="min-w-0 flex-1">
+                            <p class="text-sm font-semibold text-brand-ink">{{ $org->billing_paused_at ? __('This organization is paused') : __('No plan yet') }}</p>
+                            <p class="mt-0.5 text-sm text-brand-moss">{{ $org->eligibleForTrial()
+                                ? __('Start a :days-day trial of any plan. Card required, cancel before it bills.', ['days' => (int) config('subscription.standard.trial.days', 5)])
+                                : __('Choose a plan to bring your apps back.') }}</p>
+                        </div>
+                        <button type="button" wire:click="$set('tab', 'plan')"
+                                class="inline-flex h-9 items-center rounded-lg bg-brand-ink px-3.5 text-sm font-semibold text-brand-cream transition-colors hover:bg-brand-forest">
+                            {{ __('Choose a plan') }}
+                        </button>
+                    </div>
+                @endif
+
+                @switch($tab)
+                    @case('plan')
+                        @include('livewire.billing.partials.plan-picker')
+                        @include('livewire.billing.partials.subscription-cancel')
+                        @include('livewire.billing.partials.how-billing-works')
+                        @break
+                    @case('invoices')
+                        @include('livewire.billing.partials.invoices-list')
+                        @break
+                    @case('payment')
+                        @include('livewire.billing.partials.payment-method')
+                        @include('livewire.billing.partials.billing-details')
+                        @break
+                    @case('limits')
+                        @include('livewire.billing.partials.limits')
+                        @break
+                    @default
+                        @include('livewire.billing.partials.usage-by-app')
+                @endswitch
+            </div>
         </x-organization-shell>
     </div>
+
+    @include('livewire.partials.confirm-action-modal')
 </div>

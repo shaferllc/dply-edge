@@ -18,8 +18,8 @@ use Livewire\Attributes\Layout;
 use Livewire\Component;
 
 /**
- * Org Secrets: Cloud-style vault (Secrets tab) plus residency (age key +
- * external stores). Vault values are write-never after save.
+ * Org Secrets, three tabs: Shared secrets (the vault — values are write-never
+ * after save), Encryption (who holds the org age key) and External stores.
  *
  * Livewire exposes get<Name>Property() methods as $this-><name> in PHP and
  * Blade. PHPStan cannot see that magic, so the contract is stated here.
@@ -72,6 +72,7 @@ class Secrets extends Component
         ]);
 
         $this->reset('store_name', 'store_form');
+        $this->dispatch('close-modal', 'add-store');
         $this->toastSuccess(__('External secret store added.'));
     }
 
@@ -104,6 +105,7 @@ class Secrets extends Component
     public function render(): View
     {
         return view('livewire.organizations.secrets', [
+            'activeTab' => self::normalizeTab($this->tab),
             'orgKey' => $this->orgKey,
             'stores' => $this->stores,
             'vaultRows' => $this->vaultSecretRows(),

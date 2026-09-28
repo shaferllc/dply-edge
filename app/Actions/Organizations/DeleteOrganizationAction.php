@@ -75,7 +75,7 @@ class DeleteOrganizationAction
     {
         if ($organization->servers()->exists() || $organization->sites()->exists()) {
             throw ValidationException::withMessages([
-                'delete_confirm' => __('Remove all servers and sites from this organization before deleting it.'),
+                'delete_confirm' => __('Delete every app in this organization before deleting it.'),
             ]);
         }
 

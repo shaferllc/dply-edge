@@ -3,7 +3,7 @@
         ->map(fn (string $key) => config('subscription.standard.tiers.'.$key.'.label').' $'.number_format((int) config('subscription.standard.tiers.'.$key.'.usage_credit_cents') / 100, 0))
         ->implode(', ');
 @endphp
-<section class="border-b border-brand-ink/10 last:border-b-0">
+<section class="dply-card overflow-hidden p-0">
     <x-workspace-panel-head
         dense
         icon="heroicon-o-document-text"

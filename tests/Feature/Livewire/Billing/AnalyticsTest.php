@@ -19,7 +19,7 @@ uses(RefreshDatabase::class);
  * User: "we can probably merge …/billing and …/billing/analytics and …/invoices
  * to simplify billing, it shlu,ld be real easy to read"
  */
-test('billing page includes the compact cost forecast', function () {
+test('billing page shows usage and the projected period total', function () {
     $admin = User::factory()->create();
     $org = Organization::factory()->create();
     $org->users()->attach($admin->id, ['role' => 'admin']);
@@ -32,7 +32,7 @@ test('billing page includes the compact cost forecast', function () {
     Livewire::actingAs($admin)
         ->test(BillingShow::class, ['organization' => $org])
         ->assertOk()
-        ->assertSee('Cost forecast')
+        ->assertSee('Usage this period')
         ->assertSee('Projected this period')
         ->assertSee('Invoices')
         ->assertDontSee('Historical spend')

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\EdgeOnlyCopyTest;
 
 use App\Livewire\Auth\Register;
-use App\Livewire\Organizations\Teams;
+use App\Livewire\Organizations\Members;
 use App\Models\BetaInvitation;
 use App\Models\Organization;
 use App\Models\User;
@@ -27,13 +27,13 @@ test('the invited register page offers the real trial, not free servers', functi
         ->assertDontSee('cloud servers');
 });
 
-test('the teams page says teams group people, not scope servers', function () {
+test('the people page says teams group people, not scope servers', function () {
     $user = User::factory()->create();
     $org = Organization::factory()->create();
     $org->users()->attach($user->id, ['role' => 'owner']);
 
-    Livewire::actingAs($user)->test(Teams::class, ['organization' => $org])
-        ->assertSee('route notifications')
+    Livewire::actingAs($user)->test(Members::class, ['organization' => $org])
+        ->assertSee('Teams group people so alerts reach the right group')
         ->assertDontSee('scope servers');
 });
 

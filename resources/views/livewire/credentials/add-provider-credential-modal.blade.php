@@ -11,7 +11,7 @@
     >
         <div class="shrink-0 border-b border-brand-ink/10 px-6 py-5">
             <p class="text-xs font-semibold uppercase tracking-[0.18em] text-brand-sage">
-                {{ $capability === 'cdn' ? __('CDN accounts') : __('Server providers') }}
+                {{ $capability === 'cdn' ? __('CDN accounts') : __('DNS providers') }}
             </p>
             <h2 class="mt-2 text-xl font-semibold text-brand-ink">
                 {{ $providerPickerLocked ? __('Connect :provider', ['provider' => $activeProviderLabel]) : __('Connect a provider') }}

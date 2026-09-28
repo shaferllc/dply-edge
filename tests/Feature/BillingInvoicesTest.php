@@ -41,6 +41,7 @@ test('org admin can see invoices on the billing page', function () {
         ->test(BillingShow::class, ['organization' => $org])
         ->assertOk()
         ->assertSee('Invoices')
+        ->set('tab', 'invoices')
         ->call('loadInvoices') // wire:init
         ->assertSee('No invoices yet');
 });

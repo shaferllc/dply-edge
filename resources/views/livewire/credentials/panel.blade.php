@@ -20,9 +20,9 @@
 @if ($credentials->isNotEmpty())
     <section class="dply-card overflow-hidden">
         @if ($credentials->contains(fn ($cred) => filled($cred->validation_error)))
-            <div class="border-b border-rose-200 bg-rose-50 px-6 py-3 sm:px-7">
-                <p class="text-sm font-semibold text-rose-900">{{ __('A saved token can no longer connect') }}</p>
-                <p class="mt-1 text-xs leading-relaxed text-rose-800">{{ __('Add a new API key below. Existing servers keep the old one until you do — creating a worker or droplet will fail.') }}</p>
+            <div class="border-b border-rose-500/25 bg-rose-500/10 px-6 py-3 sm:px-7">
+                <p class="text-sm font-semibold text-rose-800">{{ __('A saved token can no longer connect') }}</p>
+                <p class="mt-1 text-xs leading-relaxed text-rose-700">{{ __('Add a new token below, then remove the old one. Until you do, dply can’t update DNS for domains in that account.') }}</p>
             </div>
         @endif
         <div class="flex items-start gap-3 border-b border-brand-ink/10 bg-brand-sand/20 px-6 py-5 sm:px-7">

@@ -5,7 +5,7 @@
     <p class="mt-3 text-base font-semibold text-brand-ink">{{ $title }}</p>
     <p class="mx-auto mt-1 max-w-md text-sm text-brand-moss">{{ $message }}</p>
     @if ($organization)
-        <a href="{{ route('billing.show', $organization) }}#plans" class="mt-4 inline-flex items-center gap-2 rounded-xl bg-brand-ink px-4 py-2 text-sm font-semibold text-brand-cream hover:bg-brand-forest">
+        <a href="{{ route('billing.show', ['organization' => $organization, 'tab' => 'plan']) }}" class="mt-4 inline-flex items-center gap-2 rounded-xl bg-brand-ink px-4 py-2 text-sm font-semibold text-brand-cream hover:bg-brand-forest">
             {{ __('See plans') }}
         </a>
     @endif

@@ -45,7 +45,7 @@ class NotificationChannels extends Component
             'breadcrumbs' => [
                 ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
                 ['label' => $this->organization->name, 'href' => route('organizations.show', $this->organization), 'icon' => 'building-office-2'],
-                ['label' => __('Teams'), 'href' => route('organizations.teams', $this->organization), 'icon' => 'rectangle-group'],
+                ['label' => __('People'), 'href' => route('organizations.members', ['organization' => $this->organization, 'team' => $this->team->id]), 'icon' => 'users'],
                 ['label' => $this->team->name, 'icon' => 'user-group'],
                 ['label' => __('Notification channels'), 'icon' => 'bell-alert'],
             ],

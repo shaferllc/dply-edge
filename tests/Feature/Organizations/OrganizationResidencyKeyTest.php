@@ -49,7 +49,7 @@ test('dply-managed residency key can be rotated in place', function () {
 
     Livewire::actingAs($user)
         ->test(OrganizationsSecrets::class, ['organization' => $org])
-        ->set('tab', 'residency')
+        ->set('tab', 'encryption')
         ->call('confirmRotateEncryptionKey')
         ->assertSet('confirmActionModalMethod', 'rotateToNewDplyHeldKey')
         ->assertSee('Rotate dply-managed key?')
@@ -74,6 +74,41 @@ test('member cannot revert the residency key', function () {
         ->set('tab', 'residency')
         ->call('confirmRevertToDplyHeld')
         ->assertForbidden();
+});
+
+test('the old residency tab name opens Encryption', function () {
+    [$user, $org] = residencyOwnerWithOrg();
+
+    Livewire::actingAs($user)
+        ->withQueryParams(['tab' => 'residency'])
+        ->test(OrganizationsSecrets::class, ['organization' => $org])
+        ->assertViewHas('activeTab', 'encryption')
+        ->assertSee('You hold the key')
+        ->call('setTab', 'stores')
+        ->assertViewHas('activeTab', 'stores');
+});
+
+test('a generated customer-held identity is shown once whatever tab is open', function () {
+    [$user, $org] = residencyOwnerWithOrg();
+
+    $component = Livewire::actingAs($user)
+        ->test(OrganizationsSecrets::class, ['organization' => $org])
+        ->assertViewHas('activeTab', 'secrets')
+        ->call('confirmPromoteToCustomerHeld');
+
+    $identity = $component->get('revealed_identity');
+    expect($identity)->toBeString()->not->toBe('');
+
+    $component
+        ->assertViewHas('activeTab', 'secrets')
+        ->assertSee('Save this identity now — it is shown once')
+        ->assertSee($identity)
+        ->call('setTab', 'stores')
+        ->assertSee('Save this identity now — it is shown once')
+        ->call('dismissIdentity')
+        ->assertDontSee('Save this identity now — it is shown once');
+
+    expect($org->secretKey()->first()?->identity_holder)->toBe(OrgSecretKey::HOLDER_CUSTOMER);
 });
 
 /**

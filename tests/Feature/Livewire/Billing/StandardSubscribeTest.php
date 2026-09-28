@@ -32,22 +32,28 @@ test('billing page renders edge-site billing with no server plan residue', funct
         'created_at' => now()->subDays(5),
     ]);
 
-    Livewire::actingAs($this->admin)
+    $page = Livewire::actingAs($this->admin)
         ->test(BillingShow::class, ['organization' => $this->org])
         ->assertOk()
-        ->assertSee('Edge sites')
-        // No Free plan: a new org is offered the trial (ruling r-f17p5zgeh120cm5t).
-        ->assertSee('Start 5-day Pro trial')
-        ->assertSee('Start 5-day Team trial')
-        ->assertSee('card required')
-        ->assertSee('How billing works')
-        ->assertSee('Cost forecast')
-        ->assertSee('Invoices')
-        ->assertSee('Add a credit card')
+        ->assertSee('Usage this period')
+        ->assertSee('Daily spend')
+        ->assertSee('(1 live)')
+        ->assertSee('Projected this period')
         ->assertDontSee('Pay yearly')
         ->assertDontSee('Any size, any provider')
         ->assertDontSee('One flat plan')
         ->assertDontSee('dply plan');
+
+    // No Free plan: a new org is offered the trial (ruling r-f17p5zgeh120cm5t).
+    $page->set('tab', 'plan')
+        ->assertSee('Start 5-day Pro trial')
+        ->assertSee('Start 5-day Team trial')
+        ->assertSee('card required')
+        ->assertSee('How billing works');
+
+    $page->set('tab', 'invoices')->assertSee('Loading invoices');
+    $page->set('tab', 'payment')->assertSee('Add a credit card');
+    $page->set('tab', 'limits')->assertSee('once the organization has a subscription');
 });
 
 test('subscribe rejects unknown tiers', function () {

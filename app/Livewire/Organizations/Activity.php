@@ -116,7 +116,9 @@ class Activity extends Component
                 $q->where('action', 'ilike', $needle)
                     ->orWhere('subject_type', 'ilike', $needle)
                     ->orWhereRaw('CAST(old_values AS text) ILIKE ?', [$needle])
-                    ->orWhereRaw('CAST(new_values AS text) ILIKE ?', [$needle]);
+                    ->orWhereRaw('CAST(new_values AS text) ILIKE ?', [$needle])
+                    // Rows lead with the actor's name, so people search by it.
+                    ->orWhereHas('user', fn (Builder $u) => $u->where('name', 'ilike', $needle)->orWhere('email', 'ilike', $needle));
             });
         }
 

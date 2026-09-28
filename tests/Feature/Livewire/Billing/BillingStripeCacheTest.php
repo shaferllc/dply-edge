@@ -24,6 +24,7 @@ test('invoices load lazily from the per-customer cache and a webhook busts it', 
 
     Livewire::actingAs($admin)
         ->test(BillingShow::class, ['organization' => $org])
+        ->set('tab', 'invoices')
         ->assertSee('Loading invoices')
         ->assertDontSee('$20.00')
         ->call('loadInvoices')

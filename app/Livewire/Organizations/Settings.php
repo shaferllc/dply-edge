@@ -19,7 +19,8 @@ use Livewire\Component;
 use Livewire\Features\SupportFileUploads\WithFileUploads;
 
 /**
- * Every organization-level setting an admin can change.
+ * Every organization-level setting an admin can change. Each one saves on
+ * its own when it changes (redesign 2026-09-27) — there is no Save button.
  *
  * The old "Automation & API" tab (email defaults, Cloud alert destinations,
  * Edge data region, API tokens) folded in here in 2026-08: none of it was
@@ -53,11 +54,6 @@ class Settings extends Component
     public bool $deploy_email_notifications_enabled = true;
 
     public string $edge_data_region = 'default';
-
-    public string $alert_slack_webhook_url = '';
-
-    /** Comma- or newline-separated emails for the destinations textarea. */
-    public string $alert_extra_emails_input = '';
 
     public function mount(Organization $organization): void
     {
@@ -95,45 +91,78 @@ class Settings extends Component
 
         $this->deploy_email_notifications_enabled = (bool) $this->organization->deploy_email_notifications_enabled;
         $this->edge_data_region = (string) ($this->organization->edge_data_region ?: 'default');
-        $this->alert_slack_webhook_url = (string) ($this->organization->alert_slack_webhook_url ?: '');
-        $emails = (array) ($this->organization->alert_extra_emails ?? []);
-        $this->alert_extra_emails_input = implode("\n", array_filter($emails, 'is_string'));
     }
 
-    public function saveGeneral(): void
+    /*
+     * Autosave: each profile field saves on its own when it changes (text on
+     * blur, selects live). Per-field hooks rather than a catch-all updated()
+     * so delete_confirm keystrokes and the icon upload never reach saveField.
+     */
+    public function updatedName(): void
+    {
+        $this->saveField('name');
+    }
+
+    public function updatedSlug(): void
+    {
+        $this->saveField('slug');
+    }
+
+    public function updatedEmail(): void
+    {
+        $this->saveField('email');
+    }
+
+    public function updatedDescription(): void
+    {
+        $this->saveField('description');
+    }
+
+    public function updatedTimezone(): void
+    {
+        $this->saveField('timezone');
+    }
+
+    /** @param  'name'|'slug'|'email'|'description'|'timezone'  $field */
+    private function saveField(string $field): void
     {
         $this->authorize('update', $this->organization);
 
-        $validated = $this->validate([
+        $rules = [
             'name' => ['required', 'string', 'max:255'],
             'slug' => ['required', 'alpha_dash', 'max:255', Rule::unique('organizations', 'slug')->ignore($this->organization->id)],
             'email' => ['nullable', 'email', 'max:255'],
             'description' => ['nullable', 'string', 'max:500'],
             'timezone' => ['nullable', 'string', Rule::in(DateTimeZone::listIdentifiers(DateTimeZone::ALL))],
-        ]);
+        ];
+        $this->validateOnly($field, [$field => $rules[$field]]);
 
-        $before = $this->organization->only(['name', 'slug', 'email', 'description', 'timezone']);
+        $value = trim((string) $this->{$field});
+        $value = match ($field) {
+            'slug' => Str::lower($value),
+            'name' => $value,
+            default => $value !== '' ? $value : null,
+        };
+        $this->{$field} = (string) $value;
 
-        $this->organization->update([
-            'name' => $validated['name'],
-            'slug' => Str::lower($validated['slug']),
-            'email' => $validated['email'] ?: null,
-            'description' => $validated['description'] ?: null,
-            'timezone' => $validated['timezone'] ?: null,
-        ]);
+        $old = $this->organization->{$field};
+        // Blur fires on every tab-through: an unchanged value is not a save.
+        if ($old === $value) {
+            return;
+        }
 
-        $this->slug = (string) $this->organization->slug;
+        $this->organization->update([$field => $value]);
 
         audit_log(
             $this->organization,
             auth()->user(),
             'organization.updated',
             $this->organization,
-            $before,
-            $this->organization->only(['name', 'slug', 'email', 'description', 'timezone']),
+            [$field => $old],
+            [$field => $value],
         );
 
-        $this->toastSuccess(__('Organization settings saved.'));
+        $this->dispatch('org-setting-saved', field: $field);
     }
 
     /** Fires when an icon file is chosen — validate, store, set it immediately. */
@@ -163,7 +192,7 @@ class Settings extends Component
 
         $this->reset('org_icon_upload');
         $this->recordIconChange($old, $path);
-        $this->toastSuccess(__('Icon updated.'));
+        $this->dispatch('org-setting-saved', field: 'icon');
     }
 
     public function removeOrgIcon(): void
@@ -177,7 +206,7 @@ class Settings extends Component
             $this->recordIconChange($old, null);
         }
 
-        $this->toastSuccess(__('Icon removed.'));
+        $this->dispatch('org-setting-saved', field: 'icon');
     }
 
     public function updatedDeployEmailNotificationsEnabled(): void
@@ -191,7 +220,7 @@ class Settings extends Component
             'enabled' => $this->deploy_email_notifications_enabled,
         ]);
         $this->refreshOrganization();
-        $this->toastSuccess(__('Deploy email preferences updated.'));
+        $this->dispatch('org-setting-saved', field: 'deploy_email_notifications_enabled');
     }
 
     public function updatedEdgeDataRegion(): void
@@ -216,61 +245,7 @@ class Settings extends Component
         );
 
         $this->refreshOrganization();
-        $this->toastSuccess(__('Edge data region updated.'));
-    }
-
-    public function saveAlertDestinations(): void
-    {
-        $this->authorize('update', $this->organization);
-
-        $this->validate([
-            'alert_slack_webhook_url' => ['nullable', 'url', 'max:500', 'starts_with:https://'],
-            'alert_extra_emails_input' => ['nullable', 'string', 'max:2000'],
-        ], [
-            'alert_slack_webhook_url.starts_with' => __('Slack webhook URLs start with https://'),
-        ]);
-
-        // Parse the textarea: one email per line or comma-separated.
-        $raw = preg_split('/[\s,]+/', $this->alert_extra_emails_input) ?: [];
-        $emails = [];
-        foreach ($raw as $candidate) {
-            $candidate = trim((string) $candidate);
-            if ($candidate === '') {
-                continue;
-            }
-            if (filter_var($candidate, FILTER_VALIDATE_EMAIL) === false) {
-                $this->addError('alert_extra_emails_input', __('Invalid email: :email', ['email' => $candidate]));
-
-                return;
-            }
-            $emails[$candidate] = true;
-        }
-        $emails = array_keys($emails);
-
-        $previous = [
-            'alert_slack_webhook_url' => $this->organization->alert_slack_webhook_url,
-            'alert_extra_emails' => $this->organization->alert_extra_emails,
-        ];
-
-        $this->organization->update([
-            'alert_slack_webhook_url' => trim($this->alert_slack_webhook_url) ?: null,
-            'alert_extra_emails' => $emails,
-        ]);
-
-        audit_log(
-            $this->organization,
-            auth()->user(),
-            'organization.alert_destinations_updated',
-            null,
-            $previous,
-            [
-                'alert_slack_webhook_url' => $this->organization->alert_slack_webhook_url,
-                'alert_extra_emails' => $this->organization->alert_extra_emails,
-            ],
-        );
-
-        $this->refreshOrganization();
-        $this->toastSuccess(__('Alert destinations saved.'));
+        $this->dispatch('org-setting-saved', field: 'edge_data_region');
     }
 
     /**
@@ -330,9 +305,11 @@ class Settings extends Component
         $this->authorize('delete', $this->organization);
 
         $this->validate([
-            'delete_confirm' => ['required', 'same:name'],
+            // Against the saved name, not $this->name: a rejected autosave can
+            // leave the Name field holding something the org is not called.
+            'delete_confirm' => ['required', Rule::in([$this->organization->name])],
         ], [
-            'delete_confirm.same' => __('Type the organization name exactly to confirm.'),
+            'delete_confirm.in' => __('Type the organization name exactly to confirm.'),
         ]);
 
         $action->handle($this->organization, auth()->user());

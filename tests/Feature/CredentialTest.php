@@ -5,6 +5,7 @@ namespace Tests\Feature\CredentialTest;
 use App\Livewire\Credentials\Index as CredentialsIndex;
 use App\Models\Organization;
 use App\Models\ProviderCredential;
+use App\Models\Site;
 use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -55,8 +56,44 @@ test('organization credentials page is displayed', function () {
     $response = $this->actingAs($user)->get(route('organizations.credentials', $org));
 
     $response->assertOk();
-    $response->assertSee('Credentials');
+    $response->assertSee('Domains & DNS');
     $response->assertSee('Connect a provider');
+});
+
+test('domains page lists zones from custom domains with their provider and status', function () {
+    $user = userWithOrganization();
+    $org = $user->currentOrganization();
+    ProviderCredential::factory()->create([
+        'user_id' => $user->id,
+        'organization_id' => $org->id,
+        'provider' => 'cloudflare',
+        'validation_error' => 'Invalid API token',
+    ]);
+    Site::factory()->create([
+        'organization_id' => $org->id,
+        'name' => 'marketing',
+        'meta' => ['edge' => ['routing' => ['custom_domains' => [
+            'www.acme.co.uk' => ['mode' => 'auto', 'zone' => 'acme.co.uk', 'dns_status' => 'ready'],
+            'shop.other.io' => ['mode' => 'manual', 'dns_status' => 'pending'],
+        ]]]],
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(CredentialsIndex::class, ['organization' => $org])
+        ->assertViewHas('zones', function (array $zones): bool {
+            $byZone = collect($zones)->keyBy('zone');
+
+            return count($zones) === 2
+                && $byZone['acme.co.uk']['provider'] === 'Cloudflare'
+                && $byZone['acme.co.uk']['status'] === 'Token rejected'
+                && $byZone['acme.co.uk']['fix_token'] === true
+                // No confirmed zone: the hostname is its own row, provider unknown.
+                && $byZone['shop.other.io']['provider'] === null
+                && $byZone['shop.other.io']['status'] === 'Waiting for DNS';
+        })
+        ->assertSee('acme.co.uk')
+        ->assertSee('marketing')
+        ->assertSee('Fix token');
 });
 
 test('credentials index forbidden for deployer', function () {
@@ -198,6 +235,26 @@ test('vercel dns credential stores optional team id', function () {
         ->firstOrFail();
 
     expect($credential->credentials['team_id'])->toBe('team_abc123');
+});
+
+test('a leftover non-dns token can be removed but not replaced', function () {
+    $user = userWithOrganization();
+    $org = $user->currentOrganization();
+    ProviderCredential::factory()->create([
+        'user_id' => $user->id,
+        'organization_id' => $org->id,
+        'provider' => 'digitalocean',
+        'name' => 'Old droplets',
+        'validation_error' => 'Unauthorized',
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(CredentialsIndex::class, ['organization' => $org])
+        ->assertSee('Old droplets')
+        ->assertSee('DigitalOcean')
+        ->assertDontSee('Replace token')
+        ->assertDontSee('token rejected')
+        ->assertSee('Remove');
 });
 
 test('cdn tab lists only cdn capable providers', function () {

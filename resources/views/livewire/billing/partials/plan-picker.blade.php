@@ -1,7 +1,7 @@
 {{--
-  Callers: livewire.billing.show (@include), right after payment-method.
+  Callers: livewire.billing.show (@include), Plan tab.
   Actions: Show::subscribeTier (no valid subscription: new, or ended and paused),
-  Show::changeTier, and Show::endTrial on the current card during a Stripe trial.
+  Show::confirmChangeTier / Show::confirmEndTrial (confirm modal, then changeTier / endTrial).
   Tiers come from config subscription.standard.tiers; no Free plan, a trial instead (ruling r-f17p5zgeh120cm5t).
 --}}
 @php
@@ -15,7 +15,7 @@
     $stripeTrial = (bool) $this->subscription?->onTrial();
     $num = fn (?int $n) => $n === null ? __('Unlimited') : number_format($n);
 @endphp
-<section id="plans" class="border-b border-brand-ink/10">
+<section id="plans" class="dply-card overflow-hidden p-0">
     <x-workspace-panel-head
         dense
         icon="heroicon-o-squares-2x2"
@@ -29,7 +29,7 @@
         @foreach ($tiers as $key => $tier)
             @php $isCurrent = $key === $current; @endphp
             <div @class([
-                'flex flex-col rounded-2xl border bg-white p-4 dark:bg-zinc-900',
+                'flex flex-col rounded-2xl border bg-white p-4',
                 'border-brand-sage ring-1 ring-brand-sage' => $isCurrent,
                 'border-brand-ink/10' => ! $isCurrent,
             ])>
@@ -63,7 +63,7 @@
                     @if ($isCurrent)
                         <p class="text-xs text-brand-mist">{{ $this->organization->onTrialPlan() ? __('On trial until :date.', ['date' => $this->organization->planTrialEndsAt()?->toFormattedDayDateString()]) : __('Your current plan.') }}</p>
                         @if ($stripeTrial)
-                            <x-primary-button type="button" class="mt-2 w-full justify-center" wire:click="endTrial" wire:confirm="{{ __('End the trial now? :plan is billed to your card today, and the trial’s $:limit usage cap is lifted.', ['plan' => $tier['label'], 'limit' => number_format(((int) config('subscription.standard.trial.spending_limit_cents', 500)) / 100, 0)]) }}" wire:loading.attr="disabled" wire:target="endTrial">
+                            <x-primary-button type="button" class="mt-2 w-full justify-center" wire:click="confirmEndTrial" wire:loading.attr="disabled" wire:target="confirmEndTrial,endTrial,confirmActionModal">
                                 {{ __('End trial now') }}
                             </x-primary-button>
                         @elseif (! $hasSubscription && $this->organization->onTrialPlan())
@@ -77,7 +77,7 @@
                             {{ $trialOffered ? __('Start :days-day :plan trial', ['days' => $trialDays, 'plan' => $tier['label']]) : __('Choose :plan', ['plan' => $tier['label']]) }}
                         </x-primary-button>
                     @else
-                        <x-secondary-button type="button" class="w-full justify-center" wire:click="changeTier('{{ $key }}')" wire:confirm="{{ __('Switch to :plan? The prorated difference is invoiced now.', ['plan' => $tier['label']]) }}" wire:loading.attr="disabled" wire:target="changeTier">
+                        <x-secondary-button type="button" class="w-full justify-center" wire:click="confirmChangeTier('{{ $key }}')" wire:loading.attr="disabled" wire:target="confirmChangeTier,changeTier,confirmActionModal">
                             {{ __('Switch to :plan', ['plan' => $tier['label']]) }}
                         </x-secondary-button>
                     @endif

@@ -8,6 +8,7 @@ use App\Models\Organization;
 use App\Models\OrganizationSecret;
 use App\Support\Sites\OrganizationSecretException;
 use App\Support\Sites\OrganizationSecretManager;
+use Illuminate\Support\Carbon;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 
@@ -38,7 +39,17 @@ trait ManagesOrganizationVaultSecrets
 
     public function setTab(string $tab): void
     {
-        $this->tab = in_array($tab, ['secrets', 'residency'], true) ? $tab : 'secrets';
+        $this->tab = self::normalizeTab($tab);
+    }
+
+    /** `residency` is the tab's old name; old links land on Encryption. */
+    public static function normalizeTab(string $tab): string
+    {
+        return match ($tab) {
+            'encryption', 'residency' => 'encryption',
+            'stores' => 'stores',
+            default => 'secrets',
+        };
     }
 
     public function createVaultSecret(OrganizationSecretManager $manager): void
@@ -65,6 +76,7 @@ trait ManagesOrganizationVaultSecrets
         }
 
         $this->reset('vault_key', 'vault_value', 'vault_notes');
+        $this->dispatch('close-modal', 'new-secret');
         $this->toastSuccess(__('Secret saved. The value cannot be read back — rotate to replace it.'));
     }
 
@@ -151,7 +163,10 @@ trait ManagesOrganizationVaultSecrets
     }
 
     /**
-     * @return list<array{id: string, key: string, notes: ?string, sites_count: int, site_names: list<string>}>
+     * `updated_at` stands in for "last rotated": rotating bumps it (so does a
+     * notes edit, which this page doesn't offer).
+     *
+     * @return list<array{id: string, key: string, notes: ?string, sites_count: int, site_names: list<string>, updated_at: ?Carbon}>
      */
     public function vaultSecretRows(): array
     {
@@ -168,6 +183,7 @@ trait ManagesOrganizationVaultSecrets
                 'notes' => $secret->notes,
                 'sites_count' => $secret->sites->count(),
                 'site_names' => $secret->sites->pluck('name')->filter()->values()->all(),
+                'updated_at' => $secret->updated_at,
             ])
             ->all();
     }
