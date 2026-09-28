@@ -45,6 +45,9 @@ spec:
   # KEDA owns the replica count (ScaledObject below); this is the first apply.
   replicas: 1
   revisionHistoryLimit: 5
+  # An old pod drains for up to terminationGracePeriodSeconds (7500 s); the
+  # default 600 s deadline would mark every rollout during a build as failed.
+  progressDeadlineSeconds: 9000
   strategy:
     type: RollingUpdate
     rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
