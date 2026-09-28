@@ -12,6 +12,9 @@ use App\Modules\Edge\Services\Containers\EdgeContainerRollout;
 use App\Modules\Edge\Support\EdgeContainerSettings;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Process;
+use Illuminate\Support\Str;
+use Symfony\Component\Process\ExecutableFinder;
 
 function checkout(array $files): string
 {
@@ -330,12 +333,45 @@ test('the generated worker project wires the container, queues and the token-gua
         ->and($worker)->toContain('startAndWaitForPorts')
         ->and($worker)->toContain('async function proxy(env, request, target)')
         ->and($worker)->toContain('portReadyTimeoutMS: 45000')
-        ->and($worker)->toContain('return proxy(env, new Request(request, { headers }), await webTarget(env, request))')
+        ->and($worker)->toContain('const response = await proxy(env, new Request(request, { headers }), await webTarget(env, request))')
         ->and($worker)->toContain('"/_dply/queue/send"')
         ->and($worker)->toContain("request.headers.get('x-dply-queue-token') !== env.DPLY_QUEUE_TOKEN")
         ->and($worker)->toContain('{"site-jobs":"JOBS"}')
         ->and($worker)->not->toContain('puppeteer')
         ->and($worker)->not->toContain('__');
+});
+
+test('the worker fetches a warm container directly and caches fingerprinted assets', function () {
+    $site = new Site;
+    $site->id = '01SITEABC';
+    $dir = sys_get_temp_dir().'/dply-container-test-'.bin2hex(random_bytes(4));
+
+    (new EdgeContainerDeployer)->scaffold($dir, $site, '/x/Dockerfile', 8080, []);
+    $worker = File::get($dir.'/src/index.js');
+    $proxy = Str::between($worker, 'async function proxy(env, request, target) {', "\nfunction revealAppErrors");
+
+    // Only a non-replayable upload waits up front; everything else lets the
+    // SDK's containerFetch start the container when it is not healthy.
+    expect($proxy)->toContain("if (!retryable) {\n    try {\n      await container.startAndWaitForPorts(")
+        ->and(substr_count($proxy, 'await container.startAndWaitForPorts('))->toBe(2)
+        ->and($worker)->toContain('if (max === 1) return 0;')
+        ->and($worker)->toContain("const immutable = request.method === 'GET' && isImmutableAsset(url.pathname);")
+        ->and($worker)->toContain('await caches.default.match(request)')
+        ->and($worker)->toContain("cacheable.set('cache-control', 'public, max-age=31536000, immutable')")
+        ->and($worker)->toContain("cacheable.set('access-control-allow-origin', '*')")
+        ->and($worker)->toContain('ctx.waitUntil(caches.default.put(request, stored.clone()))');
+
+    // The hash rule itself, run in node when it is available.
+    $node = (new ExecutableFinder)->find('node');
+    if ($node !== null) {
+        $fn = Str::between($worker, 'function isImmutableAsset(path) {', "\n}\n");
+        $script = 'function isImmutableAsset(path) {'.$fn."\n}\n"
+            .'console.log(JSON.stringify(["/build/assets/app-BXa3Kq9z.css","/build/assets/app-3f9a1c2e.js","/_next/static/x.js","/build/assets/app-Homepage.js","/css/app.css","/login"].map(isImmutableAsset)));';
+        $result = Process::run([$node, '-e', $script]);
+        expect(json_decode($result->output(), true))->toBe([true, true, true, false, false, false]);
+        File::copy($dir.'/src/index.js', $dir.'/src/check.mjs');
+        expect(Process::run([$node, '--check', $dir.'/src/check.mjs'])->successful())->toBeTrue();
+    }
 });
 
 test('a browser resource imports puppeteer and a site without one does not', function () {

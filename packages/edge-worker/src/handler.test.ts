@@ -811,6 +811,45 @@ describe('container sites', () => {
     expect(await response.text()).toBe('console.log(1)');
     expect(puts).toContain('edge_cache:site-1:/build/assets/app-abc123.js');
   });
+
+  it('does not write the edge cache for a container without a cache mode', async () => {
+    const puts: string[] = [];
+    const pending: Promise<unknown>[] = [];
+    const env: Env = {
+      HOST_MAP: createMockKv({
+        'app.example.test': {
+          site_id: 'site-1',
+          deployment_id: 'deploy-9',
+          storage_prefix: 'edge/site-1/deploy-9',
+          runtime_mode: 'container',
+          ssr_worker_script: 'dply-ctr-site-1',
+        } as HostMapEntry,
+      }),
+      ARTIFACTS: createMockR2({}),
+      EDGE_CACHE: {
+        get: async () => null,
+        put: async (key: string) => {
+          puts.push(key);
+        },
+      } as unknown as KVNamespace,
+      DISPATCHER: {
+        get: () => ({
+          fetch: async () => new Response('a{}', {
+            status: 200,
+            headers: { 'Content-Type': 'text/css', 'Cache-Control': 'public, max-age=31536000, immutable' },
+          }),
+        }),
+      } as unknown as DispatchNamespace,
+    };
+    const ctx = { waitUntil: (promise: Promise<unknown>) => { pending.push(promise); } } as ExecutionContext;
+
+    const response = await handleRequest(new Request('https://app.example.test/build/assets/app-BXa3Kq9z.css'), env, ctx);
+    await Promise.all(pending);
+
+    expect(await response.text()).toBe('a{}');
+    expect(response.headers.get('Cache-Control')).toBe('public, max-age=31536000, immutable');
+    expect(puts).toEqual([]);
+  });
 });
 
 describe('websocket passthrough', () => {

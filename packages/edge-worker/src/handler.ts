@@ -728,7 +728,12 @@ async function handleRequestInner(
     const stamped = stampVariantCookie(applyRepoHeaderRules(presented, requestPath, hostEntry));
     const withHtml = await maybeInjectEdgeHtml(stamped, hostEntry, env);
     const configured = applyConfiguredCache(withHtml, request, requestPath, hostEntry);
-    const [forClient, forCache] = teeIfCacheable(configured, request);
+    // Reads above only happen with a cache mode, so writes do too: an app's
+    // own Cache-Control (e.g. immutable build assets) must not cost a KV put
+    // per request that nothing reads back.
+    const [forClient, forCache] = cacheMode(hostEntry) !== 'off'
+      ? teeIfCacheable(configured, request)
+      : [configured, null];
     if (forCache) {
       ctx?.waitUntil(writeEdgeCache(env, hostEntry, request, forCache));
     }

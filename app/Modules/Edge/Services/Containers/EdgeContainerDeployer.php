@@ -1280,6 +1280,8 @@ function instance(env, index) {
 // already running and the cap is reached.
 async function leastIndex(env) {
   const max = limits().max;
+  // One instance: nothing to choose, so skip the hasRoom round trip.
+  if (max === 1) return 0;
   for (let i = 0; i < max; i++) {
     if (await instance(env, i).hasRoom(i)) return i;
   }
@@ -1325,6 +1327,16 @@ function isSocket(response) {
   return response.status === 101 || Boolean(response.webSocket);
 }
 
+// Content-addressed file names (app.3f9a1c2e.css, app-BXa3Kq9z.js, …).
+// Same rules as isImmutableAsset in packages/edge-worker/src/handler.ts.
+function isImmutableAsset(path) {
+  if (/\.[a-f0-9]{8,}\.[a-z0-9]+$/i.test(path)) return true;
+  if (/(^|\/)(_next\/static|_astro|_app\/immutable)\//.test(path)) return true;
+  const match = /[-.]([a-f0-9]{8,}|[A-Za-z0-9_-]{8})\.(?:m?js|css|woff2?|png|jpe?g|webp|avif|svg|gif|ico|wasm|map)$/.exec(path);
+  if (!match) return false;
+  return /\d/.test(match[1]) || (/[A-Z]/.test(match[1].slice(1)) && /[a-z]/.test(match[1]));
+}
+
 function withStickyCookie(response, id) {
   if (isSocket(response)) return response;
   const headers = new Headers(response.headers);
@@ -1367,13 +1379,21 @@ async function proxy(env, request, target) {
   const fresh = () => httpRequest(request, body);
   request = fresh();
   const container = target.container;
-  try {
-    await container.startAndWaitForPorts({
-      ports: [__PORT__],
-      cancellationOptions: { portReadyTimeoutMS: 45000 },
-    });
-  } catch {
-    // fetch() below starts the container again.
+  // The warm path is one fetch. The SDK's containerFetch (0.3.x) starts the
+  // container and waits for the port itself when it is not running or not
+  // marked healthy. startAndWaitForPorts here on every request cost a DO
+  // round trip, a storage write and a probe of the app's own / (waitForPort).
+  // Only a large upload, which the retry loop below cannot replay, still
+  // waits up front with the longer cold-start timeout.
+  if (!retryable) {
+    try {
+      await container.startAndWaitForPorts({
+        ports: [__PORT__],
+        cancellationOptions: { portReadyTimeoutMS: 45000 },
+      });
+    } catch {
+      // fetch() below starts the container again.
+    }
   }
   // A WebSocket upgrade goes through here too, Upgrade / Sec-WebSocket-*
   // headers intact (httpRequest copies them). A 101 never enters the retry
@@ -1504,13 +1524,29 @@ export default {
       }
     }
 
+    // Fingerprinted build output the image built (Vite's public/build is not
+    // in the repo, so ASSETS misses it) comes from the container once, then
+    // from this colo's cache.
+    const immutable = request.method === 'GET' && isImmutableAsset(url.pathname);
+    if (immutable) {
+      const hit = await caches.default.match(request);
+      if (hit) return hit;
+    }
+
     if (!(await trafficOpen(env))) {
       return new Response('This app is paused. The workspace usage credit is used up.', { status: 503, headers: { 'content-type': 'text/plain; charset=utf-8', 'retry-after': '3600' } });
     }
     const headers = new Headers(request.headers);
     headers.set('x-forwarded-proto', url.protocol.replace(':', ''));
     headers.set('x-forwarded-host', url.host);
-    return proxy(env, new Request(request, { headers }), await webTarget(env, request));
+    const response = await proxy(env, new Request(request, { headers }), await webTarget(env, request));
+    if (!immutable || response.status !== 200 || response.headers.has('set-cookie')) return response;
+    const cacheable = new Headers(response.headers);
+    cacheable.set('cache-control', 'public, max-age=31536000, immutable');
+    cacheable.set('access-control-allow-origin', '*');
+    const stored = new Response(response.body, { status: 200, statusText: response.statusText, headers: cacheable });
+    ctx.waitUntil(caches.default.put(request, stored.clone()));
+    return stored;
   },
 
   // Cron Triggers: ask the app to run each handler for this schedule.
