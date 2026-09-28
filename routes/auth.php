@@ -20,22 +20,28 @@ Route::get('auth/{provider}/callback', [OAuthController::class, 'callback'])->na
 // for guard / middleware / throttle settings.
 
 Route::middleware('guest')->group(function () {
-    Route::livewire('register', Register::class)->name('register');
-    Route::livewire('login', Login::class)->name('login');
-    Route::livewire('two-factor-challenge', TwoFactorChallenge::class)->name('two-factor.login');
+    Route::livewire('register', Register::class)->name('register')->withHead(
+        title: 'Create account',
+        description: 'Create a dply account and deploy your first app from Git. Every plan starts with a 5-day trial.',
+    );
+    Route::livewire('login', Login::class)->name('login')->withHead(
+        title: 'Log in',
+        description: 'Log in to dply to deploy and manage your apps.',
+    );
+    Route::livewire('two-factor-challenge', TwoFactorChallenge::class)->name('two-factor.login')->withHead(title: 'Two-factor authentication', robots: 'noindex, nofollow');
 
-    Route::livewire('forgot-password', ForgotPassword::class)->name('password.request');
-    Route::livewire('reset-password/{token}', ResetPassword::class)->name('password.reset');
+    Route::livewire('forgot-password', ForgotPassword::class)->name('password.request')->withHead(title: 'Forgot password', description: 'Reset your dply password.');
+    Route::livewire('reset-password/{token}', ResetPassword::class)->name('password.reset')->withHead(title: 'Reset password', robots: 'noindex, nofollow');
 });
 
-Route::middleware('auth')->group(function () {
-    Route::livewire('verify-email', VerifyEmail::class)->name('verification.notice');
+Route::middleware('auth')->withHead(robots: 'noindex, nofollow')->group(function () {
+    Route::livewire('verify-email', VerifyEmail::class)->name('verification.notice')->withHead(title: 'Verify email');
 
     Route::get('verify-email/{id}/{hash}', VerifyEmailController::class)
         ->middleware(['signed', 'throttle:6,1'])
         ->name('verification.verify');
 
-    Route::livewire('confirm-password', ConfirmPassword::class)->name('password.confirm');
+    Route::livewire('confirm-password', ConfirmPassword::class)->name('password.confirm')->withHead(title: 'Confirm password');
 
     Route::post('logout', [AuthenticatedSessionController::class, 'destroy'])
         ->name('logout');

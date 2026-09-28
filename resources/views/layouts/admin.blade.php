@@ -7,7 +7,7 @@
 
         @include('partials.theme-head')
 
-        <title>@yield('title', __('Platform admin') . ' — ' . config('app.name', 'Laravel'))</title>
+        @head
 
         @vite(['resources/css/app.css', 'resources/js/app.js'])
         @livewireStyles

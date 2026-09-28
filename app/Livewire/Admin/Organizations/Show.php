@@ -7,6 +7,7 @@ namespace App\Livewire\Admin\Organizations;
 use App\Livewire\Admin\Concerns\AuthorizesPlatformAdmin;
 use App\Models\Organization;
 use Illuminate\Contracts\View\View;
+use Laravel\Head\Facades\Head;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
 
@@ -20,6 +21,7 @@ class Show extends Component
     public function mount(Organization $organization): void
     {
         $this->mountAuthorizesPlatformAdmin();
+        Head::title(__('Admin').' · '.$organization->name);
         $this->organization = $organization;
     }
 

@@ -3,9 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <x-seo-meta
-        full-title="{{ config('app.name') }} – Your whole app, deployed from Git"
-        description="dply edge deploys static sites, server-rendered apps and PHP, Rails or Node servers from a Git push — with managed Postgres, MySQL, Valkey and queue workers alongside. One bill, no servers to run." />
+    @head
     <meta name="csrf-token" content="{{ csrf_token() }}">
 
     @include('partials.theme-head')

@@ -3,9 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <x-seo-meta
-        title="Features"
-        description="Deploy static, SSG, and SSR sites straight from git to a global edge network. Preview URLs on every branch, custom domains with automatic TLS, access rules, and request analytics." />
+    @head
     <meta name="csrf-token" content="{{ csrf_token() }}">
 
     @include('partials.theme-head')

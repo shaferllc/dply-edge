@@ -2,8 +2,6 @@
 
 @section('card-width', 'max-w-3xl')
 
-@section('title', __('Access forbidden'))
-
 @section('content')
     @include('errors.partials.403-experience')
 @endsection

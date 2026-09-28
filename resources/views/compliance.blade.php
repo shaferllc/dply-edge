@@ -7,9 +7,7 @@
 
     @include('partials.theme-head')
 
-    <x-seo-meta
-        title="Security & compliance"
-        description="Where dply runs your apps and data, how it encrypts and isolates them, which subprocessors it uses, and how to report a vulnerability." />
+    @head
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @livewireStyles
 </head>

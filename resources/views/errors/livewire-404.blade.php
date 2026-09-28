@@ -15,7 +15,7 @@
 
     @include('partials.theme-head')
 
-    <title>{{ __('Page not found') }} – {{ config('app.name', 'Laravel') }}</title>
+    @head
 
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     <style>[x-cloak]{display:none!important}</style>

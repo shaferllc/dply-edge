@@ -13,6 +13,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Laravel\Head\Facades\Head;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
 
@@ -47,6 +48,7 @@ class Teams extends Component
     public function mount(Organization $organization): void
     {
         $this->authorize('view', $organization);
+        Head::title($organization->name.' · '.__('Teams'));
         $this->organization = $organization;
         // The route-bound model is already fresh — only the relations need
         // loading. Skipping fresh() here avoids a duplicate organizations SELECT.

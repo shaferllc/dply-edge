@@ -13,6 +13,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\ValidationException;
+use Laravel\Head\Facades\Head;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
 
@@ -30,6 +31,7 @@ class Members extends Component
     public function mount(Organization $organization): void
     {
         $this->authorize('view', $organization);
+        Head::title($organization->name.' · '.__('Members'));
 
         // The route-bound model is already fresh — just eager-load the relations
         // the view needs, rather than re-querying it via refreshOrganization().

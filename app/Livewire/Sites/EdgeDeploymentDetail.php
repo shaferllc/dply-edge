@@ -14,6 +14,7 @@ use App\Modules\Edge\Services\EdgeDeploymentAliasGenerator;
 use App\Support\Sites\SiteSettingsViewData;
 use App\Support\Sites\SiteShowViewData;
 use Illuminate\Contracts\View\View;
+use Laravel\Head\Facades\Head;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
 
@@ -59,6 +60,7 @@ class EdgeDeploymentDetail extends Component
         $this->server = $server;
         $this->site = $site;
         $this->deployment = $deployment;
+        Head::title($site->name.' · '.__('Deployment :ref', ['ref' => $deployment->git_commit ? substr($deployment->git_commit, 0, 7) : '#'.$deployment->id]));
         $this->tab = in_array($tab, $allowedTabs, true) ? (string) $tab : 'overview';
     }
 

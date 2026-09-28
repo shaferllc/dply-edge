@@ -1,7 +1,5 @@
 @extends('errors.layout')
 
-@section('title', __('Too many requests'))
-
 @section('content')
     <div class="inline-flex items-center justify-center w-20 h-20 rounded-full bg-amber-50 mb-6">
         <x-heroicon-o-bolt class="w-10 h-10 text-amber-500" />

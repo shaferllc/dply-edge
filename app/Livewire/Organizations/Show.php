@@ -4,6 +4,7 @@ namespace App\Livewire\Organizations;
 
 use App\Models\Organization;
 use Illuminate\Contracts\View\View;
+use Laravel\Head\Facades\Head;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
 
@@ -15,6 +16,7 @@ class Show extends Component
     public function mount(Organization $organization): void
     {
         $this->authorize('view', $organization);
+        Head::title($organization->name);
         $this->organization = $organization;
         // The route-bound model is already fresh — only the relations need
         // loading. Skipping fresh() here avoids a duplicate organizations SELECT.

@@ -7,7 +7,7 @@
 
     @include('partials.theme-head')
 
-    <title>{{ ($title ?? null) ? $title . ' – ' : '' }}{{ config('app.name', 'Laravel') }}</title>
+    @head
 
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @livewireStyles

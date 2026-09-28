@@ -1,3 +1,98 @@
+@php
+    /*
+     | Pricing model (docs/adr/pricing-model-2026-09.md, ruling r-2zxevg4sj675qn1m).
+     | Everything is read from the config the invoice is built from, and every
+     | usage price goes through App\Modules\Billing\Support\UsagePrice (provider
+     | cost + one margin, never shown), so the page cannot drift from the bill:
+     |   subscription.standard.tiers.*   plans, seats, included credit, limits
+     |   subscription.standard.trial.*   trial length, plan, data grace
+     |   UsagePrice::rates() / sizes()   every usage rate and the size ladder
+     */
+    $tiers = collect(config('subscription.standard.tiers'))->only(\App\Modules\Billing\Services\SubscriptionPlanResolver::PAID_TIERS)->all();
+    $taglines = ['starter' => __('For side projects'), 'pro' => __('For real projects'), 'team' => __('For your whole company')];
+
+    $trialDays = (int) config('subscription.standard.trial.days', 5);
+    $trialCap = number_format(((int) config('subscription.standard.trial.spending_limit_cents', 500)) / 100, 0);
+    $keepDays = (int) config('subscription.standard.trial.keep_data_days', 30);
+
+    $num = static fn (?int $n): string => $n === null ? __('Unlimited') : number_format($n);
+    $money = static fn (?int $cents): string => '$'.number_format(((int) $cents) / 100, 0);
+    $yesNo = static fn (bool $v): string => $v ? __('Yes') : '—';
+
+    // Plan comparison: prices and limits. Sites are unlimited on every plan.
+    $compare = [
+        [__('Price'), fn ($t) => $money($t['price_cents']).__('/mo')],
+        [__('Sites'), fn () => __('Unlimited')],
+        [__('Included usage'), fn ($t) => __(':credit / mo', ['credit' => $money($t['usage_credit_cents'])])],
+        [__('Seats'), fn ($t) => $num($t['seats']).($t['extra_seat_cents'] ? __(' · then $:p each', ['p' => number_format($t['extra_seat_cents'] / 100, 0)]) : '')],
+        [__('Concurrent builds'), fn ($t) => (string) $t['concurrent_builds']],
+        [__('Build timeout'), fn ($t) => __(':m min', ['m' => $t['build_timeout_minutes']])],
+        [__('Custom domains'), fn ($t) => $num($t['custom_domains'])],
+        [__('Container apps (PHP, Rails, Node)'), fn ($t) => ! $t['containers'] ? '—' : ($t['app_instances'] === null ? __('Autoscaling') : trans_choice(':count instance per app|:count instances per app', (int) $t['app_instances']))],
+        [__('Queue workers per app'), fn ($t) => ! $t['containers'] ? '—' : trim(($t['worker_instances'] === null ? __('Unlimited') : trans_choice(':count worker|:count workers', (int) $t['worker_instances'])).($t['worker_autoscale'] ? __(' · autoscaling') : ''))],
+        [__('Edge SQL databases (D1)'), fn ($t) => $num($t['databases'])],
+        [__('Managed queues'), fn ($t) => $num($t['queues'])],
+        [__('Realtime connections per app'), fn ($t) => $num($t['realtime_max_connections'])],
+        [__('Request logs'), fn () => __(':d days', ['d' => (int) config('edge.analytics.access_logs_days', 7)])],
+        [__('Audit log'), fn ($t) => $yesNo((bool) $t['audit_log'])],
+        [__('Preview deployments'), fn () => __('Unlimited · usage counts')],
+    ];
+
+    $rateGroups = collect(\App\Modules\Billing\Support\UsagePrice::rates())->groupBy('group');
+    $sizes = \App\Modules\Billing\Support\UsagePrice::sizes();
+
+    $faqs = [
+        [
+            'q' => __('How does the trial work?'),
+            'a' => __(':days days of the plan you choose, with a card on file. You are billed on day :next unless you cancel first. Trial usage is capped at $:cap, so a busy trial cannot run up a bill. If a trial ends without payment, sites stop serving and apps sleep; your data is kept :keep days, then deleted.', ['days' => $trialDays, 'next' => $trialDays + 1, 'cap' => $trialCap, 'keep' => $keepDays]),
+        ],
+        [
+            'q' => __('What exactly am I paying for?'),
+            'a' => __('Your plan’s monthly fee, extra seats on Team, and usage past the credit your plan includes. Usage is what runs and what is served: the seconds your apps, workers, databases and Valkey are awake, and requests, bandwidth, storage and operations by the unit.'),
+        ],
+        [
+            'q' => __('How does the included usage credit work?'),
+            'a' => __('Each plan includes an amount of usage every month. Your invoice lists usage by category, then takes the credit off, down to $0. Credit that you don’t use does not roll over.'),
+        ],
+        [
+            'q' => __('Are sites really unlimited?'),
+            'a' => __('Yes. There is no per-site fee on any plan, static or server-rendered. You pay for what the sites use.'),
+        ],
+        [
+            'q' => __('Do preview deployments cost anything?'),
+            'a' => __('Previews have no fee, but everything they use counts as usage: build time, requests and bandwidth, and compute for PHP, Rails and Node previews.'),
+        ],
+        [
+            'q' => __('What happens if I go past my plan?'),
+            'a' => __('Sites keep serving and builds keep running. Usage past the included credit lands on your next invoice. Nothing is throttled, and you can set a usage alert on the billing page.'),
+        ],
+        [
+            'q' => __('Do apps and databases sleep?'),
+            'a' => __('Container apps, databases and the smaller Valkey sizes sleep after an idle period you choose and wake on the next request or connection. While asleep they cost nothing; database storage still bills.'),
+        ],
+        [
+            'q' => __('Can I pay yearly?'),
+            'a' => __('Not yet. Plans are billed monthly.'),
+        ],
+        [
+            'q' => __('Where do I see what I am accruing?'),
+            'a' => __('The organization billing page shows usage this period, the credit it uses, and the estimated charge, before the invoice lands.'),
+        ],
+    ];
+
+    // Read by @head below, so this block sits above the document.
+    $fromPrice = $money(collect($tiers)->min('price_cents'));
+    \Laravel\Head\Facades\Head::description(__('Plans from :from/mo: Starter, Pro and Team, each with unlimited sites and included usage. Apps, databases and Valkey bill by the second; requests and bandwidth by the unit.', ['from' => $fromPrice]))
+        ->schema(\Laravel\Head\Facades\Schema::product()
+            ->name('dply')
+            ->description(__('Git-push hosting for static sites, server-rendered apps and PHP, Rails or Node servers.'))
+            ->offers(collect($tiers)->map(fn ($t) => \Laravel\Head\Facades\Schema::offer()
+                ->name($t['label'])
+                ->price(number_format($t['price_cents'] / 100, 2, '.', ''))
+                ->currency('USD')
+                ->availability(\Laravel\Head\Enums\OfferAvailability::InStock))->values()->all()))
+        ->schema(\Laravel\Head\Facades\Schema::faq()->questions(collect($faqs)->pluck('a', 'q')->all()));
+@endphp
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="dark">
 <head>
@@ -7,9 +102,7 @@
 
     @include('partials.theme-head')
 
-    <x-seo-meta
-        title="Pricing"
-        description="Starter, Pro and Team plans with unlimited sites and included usage. Apps, databases and Valkey bill by the second; requests and bandwidth by the unit." />
+    @head
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @livewireStyles
     <style>
@@ -18,88 +111,6 @@
 </head>
 <body class="bg-edge-void font-display text-edge-text antialiased">
 @include('partials.skip-link')
-    @php
-        /*
-         | Pricing model (docs/adr/pricing-model-2026-09.md, ruling r-2zxevg4sj675qn1m).
-         | Everything is read from the config the invoice is built from, and every
-         | usage price goes through App\Modules\Billing\Support\UsagePrice (provider
-         | cost + one margin, never shown), so the page cannot drift from the bill:
-         |   subscription.standard.tiers.*   plans, seats, included credit, limits
-         |   subscription.standard.trial.*   trial length, plan, data grace
-         |   UsagePrice::rates() / sizes()   every usage rate and the size ladder
-         */
-        $tiers = collect(config('subscription.standard.tiers'))->only(\App\Modules\Billing\Services\SubscriptionPlanResolver::PAID_TIERS)->all();
-        $taglines = ['starter' => __('For side projects'), 'pro' => __('For real projects'), 'team' => __('For your whole company')];
-
-        $trialDays = (int) config('subscription.standard.trial.days', 5);
-        $trialCap = number_format(((int) config('subscription.standard.trial.spending_limit_cents', 500)) / 100, 0);
-        $keepDays = (int) config('subscription.standard.trial.keep_data_days', 30);
-
-        $num = static fn (?int $n): string => $n === null ? __('Unlimited') : number_format($n);
-        $money = static fn (?int $cents): string => '$'.number_format(((int) $cents) / 100, 0);
-        $yesNo = static fn (bool $v): string => $v ? __('Yes') : '—';
-
-        // Plan comparison: prices and limits. Sites are unlimited on every plan.
-        $compare = [
-            [__('Price'), fn ($t) => $money($t['price_cents']).__('/mo')],
-            [__('Sites'), fn () => __('Unlimited')],
-            [__('Included usage'), fn ($t) => __(':credit / mo', ['credit' => $money($t['usage_credit_cents'])])],
-            [__('Seats'), fn ($t) => $num($t['seats']).($t['extra_seat_cents'] ? __(' · then $:p each', ['p' => number_format($t['extra_seat_cents'] / 100, 0)]) : '')],
-            [__('Concurrent builds'), fn ($t) => (string) $t['concurrent_builds']],
-            [__('Build timeout'), fn ($t) => __(':m min', ['m' => $t['build_timeout_minutes']])],
-            [__('Custom domains'), fn ($t) => $num($t['custom_domains'])],
-            [__('Container apps (PHP, Rails, Node)'), fn ($t) => ! $t['containers'] ? '—' : ($t['app_instances'] === null ? __('Autoscaling') : trans_choice(':count instance per app|:count instances per app', (int) $t['app_instances']))],
-            [__('Queue workers per app'), fn ($t) => ! $t['containers'] ? '—' : trim(($t['worker_instances'] === null ? __('Unlimited') : trans_choice(':count worker|:count workers', (int) $t['worker_instances'])).($t['worker_autoscale'] ? __(' · autoscaling') : ''))],
-            [__('Edge SQL databases (D1)'), fn ($t) => $num($t['databases'])],
-            [__('Managed queues'), fn ($t) => $num($t['queues'])],
-            [__('Realtime connections per app'), fn ($t) => $num($t['realtime_max_connections'])],
-            [__('Request logs'), fn () => __(':d days', ['d' => (int) config('edge.analytics.access_logs_days', 7)])],
-            [__('Audit log'), fn ($t) => $yesNo((bool) $t['audit_log'])],
-            [__('Preview deployments'), fn () => __('Unlimited · usage counts')],
-        ];
-
-        $rateGroups = collect(\App\Modules\Billing\Support\UsagePrice::rates())->groupBy('group');
-        $sizes = \App\Modules\Billing\Support\UsagePrice::sizes();
-
-        $faqs = [
-            [
-                'q' => __('How does the trial work?'),
-                'a' => __(':days days of the plan you choose, with a card on file. You are billed on day :next unless you cancel first. Trial usage is capped at $:cap, so a busy trial cannot run up a bill. If a trial ends without payment, sites stop serving and apps sleep; your data is kept :keep days, then deleted.', ['days' => $trialDays, 'next' => $trialDays + 1, 'cap' => $trialCap, 'keep' => $keepDays]),
-            ],
-            [
-                'q' => __('What exactly am I paying for?'),
-                'a' => __('Your plan’s monthly fee, extra seats on Team, and usage past the credit your plan includes. Usage is what runs and what is served: the seconds your apps, workers, databases and Valkey are awake, and requests, bandwidth, storage and operations by the unit.'),
-            ],
-            [
-                'q' => __('How does the included usage credit work?'),
-                'a' => __('Each plan includes an amount of usage every month. Your invoice lists usage by category, then takes the credit off, down to $0. Credit that you don’t use does not roll over.'),
-            ],
-            [
-                'q' => __('Are sites really unlimited?'),
-                'a' => __('Yes. There is no per-site fee on any plan, static or server-rendered. You pay for what the sites use.'),
-            ],
-            [
-                'q' => __('Do preview deployments cost anything?'),
-                'a' => __('Previews have no fee, but everything they use counts as usage: build time, requests and bandwidth, and compute for PHP, Rails and Node previews.'),
-            ],
-            [
-                'q' => __('What happens if I go past my plan?'),
-                'a' => __('Sites keep serving and builds keep running. Usage past the included credit lands on your next invoice. Nothing is throttled, and you can set a usage alert on the billing page.'),
-            ],
-            [
-                'q' => __('Do apps and databases sleep?'),
-                'a' => __('Container apps, databases and the smaller Valkey sizes sleep after an idle period you choose and wake on the next request or connection. While asleep they cost nothing; database storage still bills.'),
-            ],
-            [
-                'q' => __('Can I pay yearly?'),
-                'a' => __('Not yet. Plans are billed monthly.'),
-            ],
-            [
-                'q' => __('Where do I see what I am accruing?'),
-                'a' => __('The organization billing page shows usage this period, the credit it uses, and the estimated charge, before the invoice lands.'),
-            ],
-        ];
-    @endphp
 
     <x-edge-marketing-header active="pricing" />
 

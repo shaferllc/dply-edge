@@ -7,7 +7,7 @@
 
     @include('partials.theme-head')
 
-    <x-seo-meta :title="(isset($title) && $title) ? $title : null" />
+    @head
 
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @livewireStyles

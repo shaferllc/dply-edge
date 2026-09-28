@@ -9,6 +9,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Laravel\Head\Facades\Head;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Url;
 use Livewire\Component;
@@ -46,6 +47,7 @@ class Activity extends Component
     {
         $this->authorize('view', $organization);
         abort_unless($organization->hasAdminAccess(auth()->user()), 403);
+        Head::title($organization->name.' · '.__('Activity'));
         $this->organization = $organization;
     }
 

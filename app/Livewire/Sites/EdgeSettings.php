@@ -17,6 +17,7 @@ use App\Support\Sites\SiteSettingsViewData;
 use App\Support\SiteSettingsSidebar;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Model;
+use Laravel\Head\Facades\Head;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
@@ -141,12 +142,10 @@ class EdgeSettings extends Component
             return;
         }
 
-        $allowed = array_column(SiteSettingsSidebar::items($site, $server), 'id');
-        if (! in_array($section, $allowed, true)) {
-            abort(404);
-        }
+        $item = collect(SiteSettingsSidebar::items($site, $server))->firstWhere('id', $section) ?? abort(404);
 
         $this->section = $section;
+        Head::title($site->name.' · '.$item['label']);
 
         $this->mountSiteWorkspace($server, $site);
     }

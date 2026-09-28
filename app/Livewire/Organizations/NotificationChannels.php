@@ -5,6 +5,7 @@ namespace App\Livewire\Organizations;
 use App\Livewire\Concerns\ManagesNotificationChannels;
 use App\Models\Organization;
 use Illuminate\Contracts\View\View;
+use Laravel\Head\Facades\Head;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
 
@@ -19,6 +20,7 @@ class NotificationChannels extends Component
     {
         $this->organization = $organization;
         $this->authorize('viewNotificationChannels', $organization);
+        Head::title($organization->name.' · '.__('Notification channels'));
         $this->syncNotificationChannelTypeDefaults();
     }
 

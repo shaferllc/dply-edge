@@ -1,7 +1,5 @@
 @extends('errors.layout')
 
-@section('title', __('Service unavailable'))
-
 @section('content')
     <div class="inline-flex items-center justify-center w-20 h-20 rounded-full bg-brand-sage/20 mb-6">
         <x-heroicon-o-wrench-screwdriver class="w-10 h-10 text-brand-forest" />

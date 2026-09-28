@@ -1,7 +1,5 @@
 @extends('errors.layout')
 
-@section('title', __('Unauthorized'))
-
 @section('content')
     <div class="inline-flex items-center justify-center w-20 h-20 rounded-full bg-brand-sand/50 mb-6">
         <x-heroicon-o-lock-closed class="w-10 h-10 text-brand-moss" />

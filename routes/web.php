@@ -70,6 +70,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
+use Laravel\Head\Facades\Head;
+use Laravel\Head\Facades\Schema;
 
 Broadcast::routes(['middleware' => ['web', 'auth']]);
 
@@ -146,19 +148,31 @@ Route::post('/api/edge/preview-comments/{site}', [EdgePreviewCommentsController:
     ->name('api.edge.preview-comments.store');
 
 Route::get('/', function () {
+    Head::schema(Schema::organization()->name('dply')->url(url('/'))->logo(asset('images/dply-logo.svg')))
+        ->schema(Schema::webSite()->name('dply')->url(url('/')));
+
     // The animated homepage is THE homepage — no classic/animated switching.
     return view('welcome-v2');
-});
+})->withHead(
+    title: ['value' => 'dply · Your whole app, deployed from Git', 'exact' => true],
+    description: 'dply deploys static sites, server-rendered apps and PHP, Rails or Node servers from a Git push, with managed Postgres, MySQL, Valkey and queue workers alongside. One bill, no servers to run.',
+);
 
 Route::get('/pricing', function () {
     return view('pricing');
-})->name('pricing');
+})->name('pricing')->withHead(title: 'Pricing'); // description + schemas: pricing.blade.php
 
 Route::get('/features', function () {
     return view('features');
-})->name('features');
+})->name('features')->withHead(
+    title: 'Features',
+    description: 'Deploy static, SSG, and SSR sites straight from git to a global edge network. Preview URLs on every branch, custom domains with automatic TLS, access rules, and request analytics.',
+);
 
-Route::view('/compliance', 'compliance')->name('compliance');
+Route::view('/compliance', 'compliance')->name('compliance')->withHead(
+    title: 'Security & compliance',
+    description: 'Where dply runs your apps and data, how it encrypts and isolates them, which subprocessors it uses, and how to report a vulnerability.',
+);
 Route::redirect('/security', '/compliance', 301);
 
 // RFC 9116. A route, not a file in public/, so the contact comes from
@@ -202,7 +216,11 @@ Route::get('/deploy', function (Request $request) {
 })->name('deploy.shortlink');
 
 Route::livewire('/coming-soon', MarketingComingSoonSignup::class)
-    ->name('coming-soon');
+    ->name('coming-soon')
+    ->withHead(
+        title: 'Early access',
+        description: 'Join the dply edge waitlist. Deploy Laravel, Rails and Node apps, with their databases and queue workers, straight from Git.',
+    );
 
 Route::livewire('/status/{statusPage}', StatusPublicPage::class)
     ->middleware(['throttle:120,1'])
@@ -219,9 +237,12 @@ Route::prefix('cli')->middleware('throttle:60,1')->group(function (): void {
 // once they're signed in as the invited address (see Invitations\Accept).
 Route::livewire('invitations/accept/{token}', InvitationsAccept::class)
     ->middleware('throttle:30,1')
-    ->name('invitations.accept');
+    ->name('invitations.accept')
+    ->withHead(title: 'Invitation', robots: 'noindex, nofollow');
 
-Route::middleware(['auth', 'verified', 'org'])->group(function () {
+// Signed-in app: never indexed. Pages name themselves — static titles here,
+// runtime Head::title() in the component when the title names a record.
+Route::middleware(['auth', 'verified', 'org'])->withHead(robots: 'noindex, nofollow')->group(function () {
     // One product surface: the app list lives at /dashboard (route name
     // dashboard). /projects redirects there. Create, import, and the other
     // project tools stay under /projects/* with edge.* names. Not /apps or
@@ -230,7 +251,7 @@ Route::middleware(['auth', 'verified', 'org'])->group(function () {
     // prints a short code; user lands here (deep link or paste),
     // confirms scopes + org, and we mint an ApiToken that the polling
     // CLI picks up exactly once via /api/v1/auth/device/poll.
-    Route::livewire('/auth/device', AuthDeviceApproval::class)->name('auth.device.show');
+    Route::livewire('/auth/device', AuthDeviceApproval::class)->name('auth.device.show')->withHead(title: 'Authorize the CLI');
     Route::get('/projects/sites/{site}/preview-access', EdgePreviewAccessController::class)
         ->name('edge.preview-access');
     Route::permanentRedirect('/apps/sites/{site}/preview-access', '/projects/sites/{site}/preview-access');
@@ -240,35 +261,35 @@ Route::middleware(['auth', 'verified', 'org'])->group(function () {
         ->middleware('can:viewPlatformAdmin')
         ->name('admin.')
         ->group(function (): void {
-            Route::livewire('/', AdminOverview::class)->name('overview');
-            Route::livewire('/operations', AdminOperations::class)->name('operations');
-            Route::livewire('/audit', AdminAuditLog::class)->name('audit');
-            Route::livewire('/users', Index::class)->name('users.index');
+            Route::livewire('/', AdminOverview::class)->name('overview')->withHead(title: 'Admin · Overview');
+            Route::livewire('/operations', AdminOperations::class)->name('operations')->withHead(title: 'Admin · Operations');
+            Route::livewire('/audit', AdminAuditLog::class)->name('audit')->withHead(title: 'Admin · Audit log');
+            Route::livewire('/users', Index::class)->name('users.index')->withHead(title: 'Admin · Users');
             Route::post('/impersonate/{user}', [ImpersonationController::class, 'start'])->name('impersonate.start');
-            Route::livewire('/organizations', AdminOrganizationsIndex::class)->name('organizations.index');
+            Route::livewire('/organizations', AdminOrganizationsIndex::class)->name('organizations.index')->withHead(title: 'Admin · Organizations');
             Route::livewire('/organizations/{organization}', AdminOrganizationsShow::class)->name('organizations.show');
-            Route::livewire('/beta-invites', AdminBetaInvites::class)->name('beta-invites');
-            Route::livewire('/coming-soon-access', AdminComingSoonAccess::class)->name('coming-soon-access');
-            Route::livewire('/connections', AdminConnections::class)->name('connections');
+            Route::livewire('/beta-invites', AdminBetaInvites::class)->name('beta-invites')->withHead(title: 'Admin · Beta invites');
+            Route::livewire('/coming-soon-access', AdminComingSoonAccess::class)->name('coming-soon-access')->withHead(title: 'Admin · Coming-soon access');
+            Route::livewire('/connections', AdminConnections::class)->name('connections')->withHead(title: 'Admin · Connections');
         });
     Route::redirect('/admin/dashboard', '/admin')->middleware('can:viewPlatformAdmin')->name('admin.dashboard');
 
     Route::redirect('/settings', '/settings/profile')->name('settings.index');
-    Route::livewire('/settings/profile', SettingsHub::class)->name('settings.profile');
-    Route::livewire('/notifications', NotificationsIndex::class)->name('notifications.index');
+    Route::livewire('/settings/profile', SettingsHub::class)->name('settings.profile')->withHead(title: 'Profile');
+    Route::livewire('/notifications', NotificationsIndex::class)->name('notifications.index')->withHead(title: 'Notifications');
 
-    Route::livewire('/profile/security', SettingsSecurity::class)->name('profile.security');
-    Route::livewire('/profile/source-control', SettingsSourceControl::class)->name('profile.source-control');
-    Route::livewire('/profile/api-keys', SettingsApiKeys::class)->name('profile.api-keys');
-    Route::livewire('/profile/cli', SettingsCliAuthentications::class)->name('profile.cli');
-    Route::livewire('/profile/notification-channels', SettingsNotificationChannels::class)->name('profile.notification-channels');
-    Route::livewire('/profile/notification-channels/bulk-assign', BulkNotificationAssignments::class)->name('profile.notification-channels.bulk-assign');
-    Route::livewire('/profile/delete-account', ProfileDeleteAccount::class)->name('profile.delete-account');
+    Route::livewire('/profile/security', SettingsSecurity::class)->name('profile.security')->withHead(title: 'Security');
+    Route::livewire('/profile/source-control', SettingsSourceControl::class)->name('profile.source-control')->withHead(title: 'Source control');
+    Route::livewire('/profile/api-keys', SettingsApiKeys::class)->name('profile.api-keys')->withHead(title: 'API keys');
+    Route::livewire('/profile/cli', SettingsCliAuthentications::class)->name('profile.cli')->withHead(title: 'CLI sessions');
+    Route::livewire('/profile/notification-channels', SettingsNotificationChannels::class)->name('profile.notification-channels')->withHead(title: 'Notification channels');
+    Route::livewire('/profile/notification-channels/bulk-assign', BulkNotificationAssignments::class)->name('profile.notification-channels.bulk-assign')->withHead(title: 'Bulk notification assignments');
+    Route::livewire('/profile/delete-account', ProfileDeleteAccount::class)->name('profile.delete-account')->withHead(title: 'Delete account');
 
-    Route::livewire('/profile/two-factor', TwoFactorPage::class)->name('two-factor.setup');
+    Route::livewire('/profile/two-factor', TwoFactorPage::class)->name('two-factor.setup')->withHead(title: 'Two-factor authentication');
 
-    Route::livewire('organizations', OrganizationsIndex::class)->name('organizations.index');
-    Route::livewire('organizations/create', OrganizationsCreate::class)->name('organizations.create');
+    Route::livewire('organizations', OrganizationsIndex::class)->name('organizations.index')->withHead(title: 'Organizations');
+    Route::livewire('organizations/create', OrganizationsCreate::class)->name('organizations.create')->withHead(title: 'New organization');
     Route::livewire('organizations/{organization}', OrganizationsShow::class)->name('organizations.show');
     Route::livewire('organizations/{organization}/settings', OrganizationsSettings::class)->name('organizations.settings');
     Route::livewire('organizations/{organization}/members', OrganizationsMembers::class)->name('organizations.members');
@@ -303,13 +324,13 @@ Route::middleware(['auth', 'verified', 'org'])->group(function () {
     Route::livewire('organizations/{organization}/secrets', OrganizationsSecrets::class)->name('organizations.secrets');
 
     Route::permanentRedirect('projects', '/dashboard');
-    Route::livewire('dashboard', EdgeIndex::class)->name('dashboard');
-    Route::livewire('projects/create', EdgeCreate::class)->name('edge.create');
-    Route::livewire('projects/import', Import::class)->name('edge.import');
-    Route::livewire('projects/templates', Templates::class)->name('edge.templates');
-    Route::livewire('projects/usage', Usage::class)->name('edge.usage');
-    Route::livewire('projects/databases', Databases::class)->name('edge.databases');
-    Route::livewire('projects/queues', Queues::class)->name('edge.queues');
+    Route::livewire('dashboard', EdgeIndex::class)->name('dashboard')->withHead(title: 'Dashboard');
+    Route::livewire('projects/create', EdgeCreate::class)->name('edge.create')->withHead(title: 'New project');
+    Route::livewire('projects/import', Import::class)->name('edge.import')->withHead(title: 'Import a project');
+    Route::livewire('projects/templates', Templates::class)->name('edge.templates')->withHead(title: 'Templates');
+    Route::livewire('projects/usage', Usage::class)->name('edge.usage')->withHead(title: 'Usage');
+    Route::livewire('projects/databases', Databases::class)->name('edge.databases')->withHead(title: 'Databases');
+    Route::livewire('projects/queues', Queues::class)->name('edge.queues')->withHead(title: 'Queues');
 
     /*
      * Legacy /edge/*, /apps/*, /applications/* URLs. The list moved to
@@ -323,7 +344,7 @@ Route::middleware(['auth', 'verified', 'org'])->group(function () {
     Route::permanentRedirect('/applications', '/dashboard');
     Route::permanentRedirect('/applications/{path}', '/projects/{path}')->where('path', '.*');
 
-    Route::livewire('status-pages', StatusPagesIndex::class)->name('status-pages.index');
+    Route::livewire('status-pages', StatusPagesIndex::class)->name('status-pages.index')->withHead(title: 'Status pages');
     Route::livewire('status-pages/{statusPage}', StatusPagesManage::class)->name('status-pages.manage');
 
     // Edge site workspace. Every edge site hangs off a placeholder `Server`

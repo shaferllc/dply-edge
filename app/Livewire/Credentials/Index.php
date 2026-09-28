@@ -9,6 +9,7 @@ use App\Models\Organization;
 use App\Models\ProviderCredential;
 use App\Support\ServerProviderGate;
 use Illuminate\Contracts\View\View;
+use Laravel\Head\Facades\Head;
 use Livewire\Attributes\On;
 use Livewire\Component;
 
@@ -65,6 +66,7 @@ class Index extends Component
 
         if ($this->organization) {
             $this->authorize('view', $this->organization);
+            Head::title($this->organization->name.' · '.__('Credentials'));
             session(['current_organization_id' => $this->organization->id]);
         }
 

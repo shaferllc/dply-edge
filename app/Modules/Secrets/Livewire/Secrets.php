@@ -13,6 +13,7 @@ use App\Modules\Secrets\Livewire\Concerns\ManagesOrganizationResidencyKey;
 use App\Modules\Secrets\Livewire\Concerns\ManagesOrganizationVaultSecrets;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Collection;
+use Laravel\Head\Facades\Head;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
 
@@ -49,6 +50,7 @@ class Secrets extends Component
     public function mount(Organization $organization): void
     {
         $this->authorize('view', $organization);
+        Head::title($organization->name.' · '.__('Secrets'));
         $this->organization = $organization;
     }
 

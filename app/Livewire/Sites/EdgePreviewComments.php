@@ -17,6 +17,7 @@ use App\Modules\Edge\Services\EdgePreviewReviewState;
 use App\Modules\Edge\Support\EdgeDeploymentConfirmSummary;
 use App\Services\DeployContract\DeployContractState;
 use Illuminate\Contracts\View\View;
+use Laravel\Head\Facades\Head;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
 
@@ -74,6 +75,7 @@ class EdgePreviewComments extends Component
 
         $this->server = $site->server;
         $this->site = $site;
+        Head::title($site->name.' · '.__('Preview comments'));
     }
 
     public function addComment(): void

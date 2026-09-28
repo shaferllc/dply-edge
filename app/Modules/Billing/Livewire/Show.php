@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rule;
 use Laravel\Cashier\Invoice;
 use Laravel\Cashier\Subscription;
+use Laravel\Head\Facades\Head;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
@@ -76,6 +77,7 @@ class Show extends Component
     public function mount(Organization $organization): void
     {
         $this->authorize('update', $organization);
+        Head::title($organization->name.' · '.__('Billing'));
         $this->organization = $organization;
         $this->invoice_email = (string) ($organization->invoice_email ?? '');
         $this->vat_number = (string) ($organization->vat_number ?? '');

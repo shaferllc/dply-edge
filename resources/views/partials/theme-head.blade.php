@@ -10,7 +10,9 @@
      flashes light. That is worst under `npm run dev`, where Vite injects CSS
      with JavaScript and there is no render-blocking <link> at all. #0b0d0a is
      the dark ground for both body classes in use (`bg-brand-cream`, which the
-     dark block redefines, and `bg-edge-void`). Keep in sync with theme-color. --}}
+     dark block redefines, and `bg-edge-void`). Keep in sync with the theme
+     colour in App\Providers\HeadServiceProvider, which (via @head) also owns
+     the favicons and manifest. --}}
 <meta name="color-scheme" content="dark">
 <style>html{color-scheme:dark;background-color:#0b0d0a}</style>
 {{-- Workspace sidebar width. The body script that used to set this runs after
@@ -35,12 +37,3 @@ try {
 <link rel="preconnect" href="https://fonts.bunny.net">
 <link rel="preconnect" href="https://fonts.bunny.net" crossorigin>
 <link href="https://fonts.bunny.net/css?family=space-grotesk:400,500,600,700|space-mono:400,700&display=swap" rel="stylesheet">
-
-{{-- Favicons (served from public/ root). --}}
-<link rel="icon" href="{{ asset('favicon.ico') }}" sizes="32x32">
-<link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
-<link rel="icon" type="image/png" sizes="32x32" href="{{ asset('favicon-32x32.png') }}">
-<link rel="icon" type="image/png" sizes="16x16" href="{{ asset('favicon-16x16.png') }}">
-<link rel="apple-touch-icon" href="{{ asset('apple-touch-icon.png') }}">
-<link rel="manifest" href="{{ asset('site.webmanifest') }}">
-<meta name="theme-color" content="#0b0d0a">

@@ -1,7 +1,5 @@
 @extends('errors.layout')
 
-@section('title', __('Gateway timeout'))
-
 @section('content')
     <div class="inline-flex items-center justify-center w-20 h-20 rounded-full bg-red-50 mb-6">
         <x-heroicon-o-signal-slash class="w-10 h-10 text-red-500" />

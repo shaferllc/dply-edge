@@ -11,6 +11,7 @@ use App\Models\StatusPage;
 use App\Models\StatusPageMonitor;
 use Illuminate\Contracts\View\View;
 use Illuminate\Validation\Rule;
+use Laravel\Head\Facades\Head;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
 
@@ -53,6 +54,7 @@ class Manage extends Component
         }
 
         $this->authorize('view', $statusPage);
+        Head::title($statusPage->name.' · '.__('Status page'));
 
         $this->statusPage = $statusPage->load([
             'monitors.monitorable' => function ($morph) {

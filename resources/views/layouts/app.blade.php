@@ -7,7 +7,7 @@
 
         @include('partials.theme-head')
 
-        <title>@yield('title', config('app.name', 'Laravel'))</title>
+        @head
 
         @php
             // Driver-aware: resolves whichever broadcast connection is active —

@@ -2,8 +2,6 @@
 
 @section('card-width', 'max-w-3xl')
 
-@section('title', __('Page not found'))
-
 @section('content')
     @include('errors.partials.404-experience')
 @endsection

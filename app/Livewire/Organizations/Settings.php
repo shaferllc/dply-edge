@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Laravel\Head\Facades\Head;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
 use Livewire\Features\SupportFileUploads\WithFileUploads;
@@ -62,6 +63,7 @@ class Settings extends Component
     {
         $this->authorize('view', $organization);
         abort_unless($organization->hasAdminAccess(auth()->user()), 403);
+        Head::title($organization->name.' · '.__('Settings'));
 
         // The route-bound model is already fresh — hydrate directly off it.
         $this->organization = $organization;

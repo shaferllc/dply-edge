@@ -16,6 +16,7 @@
         "blade-ui-kit/blade-icons": "^1.9",
         "laravel/cashier": "^16.5",
         "laravel/framework": "^13.0",
+        "laravel/head": "^0.2.2",
         "laravel/horizon": "^5.45",
         "laravel/mcp": "^1.0",
         "laravel/octane": "^2.18",

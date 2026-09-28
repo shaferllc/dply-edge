@@ -1,6 +1,4 @@
 @props([
-    'title' => null,
-    'description' => null,
     'active' => null,
 ])
 <!DOCTYPE html>
@@ -12,7 +10,7 @@
 
     @include('partials.theme-head')
 
-    <x-seo-meta :title="$title" :description="$description" />
+    @head
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @livewireStyles
     <style>

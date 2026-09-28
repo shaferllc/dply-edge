@@ -66,7 +66,8 @@ test('a page renders with title, description, anchors, toc, callouts and code', 
 
     $response->assertSee('<title>Introduction', false)
         ->assertSee('What dply is and how it deploys.')
-        ->assertSee('<link rel="canonical" href="'.route('docs.show', 'introduction').'">', false)
+        // laravel/head normalises canonicals to https.
+        ->assertSee('<link rel="canonical" href="'.str_replace('http://', 'https://', route('docs.show', 'introduction')).'">', false)
         // Headings get ids + permalinks, and appear in the right-rail TOC.
         ->assertSee('<h2 id="first-steps">', false)
         ->assertSee('href="#first-steps"', false)

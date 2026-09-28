@@ -6,14 +6,7 @@
 
     @include('partials.theme-head')
 
-    <x-seo-meta
-        :full-title="$page['title'].' – '.config('app.name', 'dply').' docs'"
-        :description="$page['description'] ?: __('dply documentation: :title.', ['title' => $page['title']])"
-        :canonical="route('docs.show', $page['slug'])"
-        type="article" />
-    @unless ($page['exists'])
-        <meta name="robots" content="noindex">
-    @endunless
+    @head
     @if ($page['exists'])
         <link rel="alternate" type="text/markdown" href="{{ route('docs.markdown', $page['slug']) }}">
     @endif

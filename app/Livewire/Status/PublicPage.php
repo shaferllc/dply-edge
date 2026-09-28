@@ -10,6 +10,7 @@ use App\Models\StatusPageMonitor;
 use App\Services\Status\MonitorOperationalState;
 use Illuminate\Support\Collection;
 use Illuminate\View\View as IlluminateView;
+use Laravel\Head\Facades\Head;
 use Livewire\Component;
 
 class PublicPage extends Component
@@ -21,6 +22,9 @@ class PublicPage extends Component
         if (! $statusPage->is_public) {
             abort(404);
         }
+
+        Head::title($statusPage->name.' '.__('status'))
+            ->description($statusPage->description ?: __(':name system status, incidents and uptime.', ['name' => $statusPage->name]));
 
         $this->statusPage = $statusPage->load([
             'monitors.monitorable' => function ($morph) {
