@@ -40,6 +40,7 @@ use App\Modules\Edge\Services\EdgeQueueConsumers;
 use App\Modules\Edge\Services\EdgeValkeyUsageCollector;
 use App\Modules\Edge\Services\Realtime\EdgeRealtimeApps;
 use App\Modules\Edge\Support\EdgeContainerConnections;
+use App\Modules\Edge\Support\EdgeContainerInstances;
 use App\Modules\Edge\Support\EdgeContainerPlans;
 use App\Modules\Edge\Support\EdgeContainerSettings;
 use App\Modules\Edge\Support\EdgeDplyDatabase;
@@ -629,6 +630,31 @@ class Resources extends Component
         }
         $this->toastSuccess(__('Workers started.'));
         $this->loadWorkersStatus();
+    }
+
+    /** Live instance state for the app card and sheet (EdgeContainerInstances); null until loaded. */
+    public ?array $appInstances = null;
+
+    /** Loaded after the first render (x-init on the app card), from a ~15s cache. */
+    public function loadAppInstances(): void
+    {
+        $this->authorize('view', $this->site);
+        $this->appInstances = EdgeContainerInstances::snapshot($this->site);
+    }
+
+    /** Measure where the app runs and its database round trip now. Wakes the app. */
+    public function checkAppPlacement(): void
+    {
+        $this->authorize('update', $this->site);
+        $placement = EdgeContainerDeployer::probePlacement($this->site);
+        if ($placement === null) {
+            $this->toastError(__('The app did not answer the database check. Try again in a moment.'));
+
+            return;
+        }
+        $this->site->mergeEdgeMeta(['placement' => $placement]);
+        $this->site->save();
+        $this->toastSuccess(__('Running in :location, :ms ms to the database.', ['location' => $placement['location'], 'ms' => round($placement['rtt_ms'], 1)]));
     }
 
     /** Database panel: gateway state (never wakes it) and the agent's backup report. */

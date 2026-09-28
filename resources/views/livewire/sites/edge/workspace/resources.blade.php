@@ -89,13 +89,21 @@
         {{-- Runtime --}}
         <div class="grid gap-3">
             @if ($isContainer && is_array($settings))
-                @php $c = $map['container']; @endphp
-                <button type="button" wire:click="$refresh" wire:island="resources-app" x-on:click="$dispatch('open-modal', 'resources-app')" class="{{ $node }} border-brand-forest ring-4 ring-brand-forest/10 dark:border-brand-forest">
+                @php $c = $map['container']; $live = $appInstances; $liveUrl = filled($site->edgeLiveUrl()); @endphp
+                {{-- Live instance state loads after the page (loadAppInstances, ~15s cache), so the map never waits on the app. --}}
+                <button type="button" wire:click="$refresh" wire:island="resources-app" x-on:click="$dispatch('open-modal', 'resources-app')" @if ($live === null && $liveUrl) x-init="$wire.$island('map').loadAppInstances()" @endif class="{{ $node }} border-brand-forest ring-4 ring-brand-forest/10 dark:border-brand-forest">
                     <span class="flex items-center justify-between gap-2"><span class="{{ $eyebrow }}">{{ __('App') }}</span>{!! ($site->edgeMeta()['active_deployment_id'] ?? null) ? $pill(__('Running'), 'ok') : $pill(__('Not deployed'), 'off') !!}</span>
                     <span class="mt-1.5 block text-sm font-bold text-brand-ink">{{ $map['framework'] ?? __('App') }} · {{ collect($sizes)->firstWhere('key', $settings['instance_type'])['label'] ?? __('Custom') }}</span>
                     <span class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-2xs text-brand-mist">
                         @if ($c && $c['memMb'] !== null)<span><b class="text-brand-ink">{{ $c['memMb'] }}</b> MB {{ __('of') }} {{ rtrim(rtrim(number_format($c['memGib'], 2), '0'), '.') }} GiB</span>@endif
-                        <span>{{ trans_choice(':count instance|:count instances', $settings['max_instances'], ['count' => $settings['max_instances']]) }}</span>
+                        @if ($live !== null && $live['instances'] !== null)
+                            <span class="inline-flex items-center gap-1"><span @class(['h-1.5 w-1.5 rounded-full', 'bg-emerald-500' => $live['running'] > 0, 'bg-violet-500' => $live['running'] === 0])></span><b class="text-brand-ink">{{ $live['running'] }}</b> {{ __('of :max running', ['max' => max(count($live['instances']), 1)]) }}</span>
+                        @elseif ($live === null && $liveUrl)
+                            <span class="inline-block h-3 w-20 animate-pulse rounded bg-brand-ink/10 dark:bg-brand-mist/15" aria-label="{{ __('Loading instances') }}"></span>
+                        @else
+                            <span>{{ trans_choice(':count instance|:count instances', $settings['max_instances'], ['count' => $settings['max_instances']]) }}</span>
+                        @endif
+                        @if ($map['placement'])<span>{{ $map['placement']['location'] }}@if ($map['placement']['rtt'] !== null) · <b class="text-brand-ink">{{ $map['placement']['rtt'] }}</b> ms {{ __('to DB') }}@endif</span>@endif
                         @if (is_array($quote))<span>~<b class="text-brand-ink">{{ $quote['awakeMonth'] }}</b>/mo</span>@endif
                     </span>
                     @if ($c){!! $mini($c['memSeries'], $c['memGib'] * 1024) !!}@endif

@@ -11,6 +11,49 @@
         <x-sheet.header :eyebrow="$map['framework'] ?? __('Container')" :title="__('App')" />
 
         <x-sheet.body>
+            @if (filled($site->edgeLiveUrl()))
+                @php
+                    $shape = \App\Modules\Edge\Support\EdgeContainerSettings::shape($site);
+                    $threads = \App\Modules\Edge\Support\EdgeContainerSettings::phpFpmPool($settings['instance_type'], $site)['max_children'];
+                    $up = \App\Modules\Edge\Support\EdgeContainerInstances::RUNNING;
+                    $gib = rtrim(rtrim(number_format($shape['memory_gib'], 2), '0'), '.');
+                @endphp
+                <x-sheet.section :title="__('Running now')" :x-init="$appInstances === null ? '$wire.$island(\'resources-app\').loadAppInstances()' : null">
+                    @if ($appInstances === null)
+                        <x-sheet.note>{{ __('Reading the app’s instances…') }}</x-sheet.note>
+                    @else
+                        @if ($appInstances['error'])
+                            <x-sheet.note tone="warn">{{ $appInstances['error'] }}</x-sheet.note>
+                        @endif
+                        <x-sheet.metrics :cols="3">
+                            @if ($appInstances['instances'] !== null)
+                                <x-sheet.metric :label="__('Instances')" :note="__('of :max · :min always on', ['max' => count($appInstances['instances']), 'min' => $settings['min_instances']])">{{ $appInstances['running'] }}</x-sheet.metric>
+                            @endif
+                            <x-sheet.metric :label="__('Each instance')" :note="__('up to :n PHP workers', ['n' => $threads])">{{ rtrim(rtrim(number_format($shape['vcpu'], 3), '0'), '.') }} vCPU · {{ $gib }} GiB</x-sheet.metric>
+                            @if (($map['container']['memMb'] ?? null) !== null)
+                                <x-sheet.metric :label="__('Memory peak')" :note="__('of :gib GiB, last hourly sample', ['gib' => $gib])">{{ $map['container']['memMb'] }} MB</x-sheet.metric>
+                            @endif
+                        </x-sheet.metrics>
+                        <div>
+                            @foreach ($appInstances['instances'] ?? [] as $instance)
+                                <x-sheet.stat :label="$instance['name']">
+                                    {{ str($instance['status'])->headline() }}@if ($instance['since']) · {{ __('since :ago', ['ago' => \Illuminate\Support\Carbon::createFromTimestamp($instance['since'])->diffForHumans(short: true)]) }}@endif
+                                </x-sheet.stat>
+                            @endforeach
+                            @if (is_array($appInstances['health']))
+                                <x-sheet.stat :label="__('Cloudflare')">
+                                    {{ collect($appInstances['health'])->filter()->map(fn ($n, $k) => $n.' '.$k)->implode(' · ') ?: __('none active') }}@if ($appInstances['version']) · v{{ $appInstances['version'] }}@endif
+                                </x-sheet.stat>
+                            @endif
+                            @if (is_array($appInstances['workers']) && $appInstances['workers'] !== [])
+                                <x-sheet.stat :label="__('Queue workers')">{{ __(':running of :total running', ['running' => collect($appInstances['workers'])->whereIn('status', $up)->count(), 'total' => count($appInstances['workers'])]) }}</x-sheet.stat>
+                            @endif
+                        </div>
+                        <div><x-sheet.button wire:click="loadAppInstances" wire:loading.attr="disabled" wire:target="loadAppInstances">{{ __('Refresh') }}</x-sheet.button></div>
+                    @endif
+                </x-sheet.section>
+            @endif
+
             <x-sheet.field :label="__('Size')" :help="$trial ? __('Applies on the next deploy. During the trial an app runs the smallest size, one instance, and sleeps after 5 minutes idle.') : __('Applies on the next deploy.')">
                 <x-sheet.options>
                     @foreach ($sizes as $size)
@@ -104,6 +147,11 @@
                 <x-sheet.note :tone="$far ? 'warn' : 'info'">
                     {{ __('Running in :location (:region), :ms ms to the database.', ['location' => $placement['location'], 'region' => $placement['region'], 'ms' => rtrim(rtrim(number_format((float) $placement['rtt_ms'], 1), '0'), '.')]) }}
                     @if ($far) {{ __('That is far: redeploy to be placed again.') }} @endif
+                    @can('update', $site)
+                        @if (\App\Modules\Edge\Services\Containers\EdgeContainerDeployer::canProbePlacement($site))
+                            <button type="button" wire:click="checkAppPlacement" wire:loading.attr="disabled" wire:target="checkAppPlacement" class="font-semibold underline">{{ __('Check now') }}</button>
+                        @endif
+                    @endcan
                 </x-sheet.note>
             @endif
 

@@ -247,25 +247,10 @@ class EdgeContainerDeployer
      */
     public function recordPlacement(Site $site, callable $log): void
     {
-        $database = $site->edgeMeta()['database'] ?? [];
-        if (! $site->isLaravelFrameworkDetected() || ! is_array($database) || ($database['provider'] ?? '') !== 'dply'
-            || ! in_array($database['engine'] ?? '', ['postgres', 'mysql'], true)) {
+        if (! self::canProbePlacement($site)) {
             return;
         }
-        $probe = static function () use ($site): ?array {
-            try {
-                $body = EdgeQueueWorkers::command($site, 'db-probe');
-            } catch (Throwable) {
-                return null;
-            }
-
-            return ($body['ok'] ?? false) ? [
-                'location' => strtolower((string) ($body['location'] ?? '')),
-                'region' => (string) ($body['region'] ?? ''),
-                'rtt_ms' => (float) ($body['rtt_median_ms'] ?? 0),
-                'at' => now()->getTimestamp(),
-            ] : null;
-        };
+        $probe = static fn (): ?array => self::probePlacement($site);
         $describe = static fn (array $p): string => sprintf('%s (%s), %s ms to the database', $p['location'] ?: '?', $p['region'] ?: '?', rtrim(rtrim(number_format($p['rtt_ms'], 1), '0'), '.'));
 
         $best = $probe();
@@ -298,6 +283,37 @@ class EdgeContainerDeployer
         }
         $site->mergeEdgeMeta(['placement' => $best]);
         $site->save();
+    }
+
+    /** A Laravel app on a dply Postgres/MySQL: the only apps db-probe measures. */
+    public static function canProbePlacement(Site $site): bool
+    {
+        $database = $site->edgeMeta()['database'] ?? [];
+
+        return $site->isLaravelFrameworkDetected() && is_array($database) && ($database['provider'] ?? '') === 'dply'
+            && in_array($database['engine'] ?? '', ['postgres', 'mysql'], true);
+    }
+
+    /**
+     * Where the app runs now and its round trip to the database, from inside
+     * the container. Wakes a sleeping app. Null when it did not answer.
+     *
+     * @return array{location: string, region: string, rtt_ms: float, at: int}|null
+     */
+    public static function probePlacement(Site $site): ?array
+    {
+        try {
+            $body = EdgeQueueWorkers::command($site, 'db-probe');
+        } catch (Throwable) {
+            return null;
+        }
+
+        return ($body['ok'] ?? false) ? [
+            'location' => strtolower((string) ($body['location'] ?? '')),
+            'region' => (string) ($body['region'] ?? ''),
+            'rtt_ms' => (float) ($body['rtt_median_ms'] ?? 0),
+            'at' => now()->getTimestamp(),
+        ] : null;
     }
 
     /**
