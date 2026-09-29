@@ -97,7 +97,7 @@
                     <div class="grid gap-3 rounded-xl border border-brand-ink/10 p-3.5 dark:border-brand-mist/20" wire:key="worker-group-{{ $gi }}">
                         <div class="flex items-end gap-2">
                             <x-sheet.field :label="__('Queues')" class="min-w-0 flex-1">
-                                <input type="text" wire:model.live.debounce.500ms="workers.groups.{{ $gi }}.queues" placeholder="high" class="dply-input mt-0 font-mono" />
+                                <input aria-label="{{ __('Queues') }}" type="text" wire:model.live.debounce.500ms="workers.groups.{{ $gi }}.queues" placeholder="high" class="dply-input mt-0 font-mono" />
                             </x-sheet.field>
                             <x-sheet.button variant="danger" wire:click="removeWorkerGroup({{ $gi }})" class="shrink-0">{{ __('Remove') }}</x-sheet.button>
                         </div>

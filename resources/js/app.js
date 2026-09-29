@@ -58,7 +58,13 @@ document.addEventListener('alpine:init', () => {
     if (! Alpine.store('sheets')) {
         Alpine.store('sheets', {
             stack: [],
+            opener: null,
+            refocus: null,
             open(name) {
+                // A sheet that swaps for another in one click empties the stack
+                // for a moment: keep the original opener instead of the row.
+                if (this.refocus) this.refocus = clearTimeout(this.refocus);
+                else if (! this.stack.length) this.opener = document.activeElement;
                 this.stack = [...this.stack.filter((n) => n !== name), name];
                 document.body.classList.add('overflow-y-hidden');
             },
@@ -75,7 +81,15 @@ document.addEventListener('alpine:init', () => {
             },
             set(stack) {
                 this.stack = stack;
-                if (! stack.length) document.body.classList.remove('overflow-y-hidden');
+                if (stack.length) return;
+                document.body.classList.remove('overflow-y-hidden');
+                // After x-trap lets go (it activates/releases on a 15ms timer).
+                clearTimeout(this.refocus);
+                this.refocus = setTimeout(() => {
+                    this.refocus = null;
+                    if (this.opener?.isConnected) this.opener.focus();
+                    this.opener = null;
+                }, 30);
             },
         });
     }

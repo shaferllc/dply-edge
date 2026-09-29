@@ -17,6 +17,7 @@ use App\Livewire\Sites\Edge\Workspace\Concerns\Resources\ManagesSqlResource;
 use App\Livewire\Sites\Edge\Workspace\Concerns\Resources\ManagesStateResource;
 use App\Livewire\Sites\Edge\Workspace\Concerns\Resources\ManagesStorageResources;
 use App\Livewire\Sites\Edge\Workspace\Concerns\Resources\ManagesVectorsResource;
+use App\Models\DplyDatabase;
 use App\Models\EdgeDataUsage;
 use App\Models\EdgeDeployment;
 use App\Models\EdgeKvUsage;
@@ -35,6 +36,7 @@ use App\Modules\Edge\Console\ScaleEdgeQueueWorkersCommand;
 use App\Modules\Edge\Jobs\RestoreEdgeDplyPostgresJob;
 use App\Modules\Edge\Jobs\TransferEdgeDplyDatabaseJob;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
+use App\Modules\Edge\Services\DplyDatabases;
 use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Edge\Services\EdgeQueueConsumers;
 use App\Modules\Edge\Services\EdgeValkeyUsageCollector;
@@ -540,6 +542,135 @@ class Resources extends Component
         if ($suggestion !== null) {
             EdgeDatabaseResize::dismiss($this->site, $suggestion['size']);
         }
+    }
+
+    /**
+     * The "Add a database" sheet: create one (engine, name) or attach one the
+     * organization already has (DplyDatabases).
+     *
+     * @var array{mode: string, engine: string, name: string, attach: string}
+     */
+    public array $newDatabase = ['mode' => 'create', 'engine' => 'postgres', 'name' => '', 'attach' => ''];
+
+    /** The non-primary database whose sheet is open. */
+    public ?string $openDatabaseId = null;
+
+    /** Typed to confirm deleting a database (its name). */
+    public string $deleteDatabaseConfirm = '';
+
+    public function openAddDatabase(): void
+    {
+        $this->authorize('update', $this->site);
+        $first = DplyDatabases::for($this->site)->isEmpty();
+        $this->newDatabase = ['mode' => 'create', 'engine' => 'postgres', 'name' => $first ? Str::slug((string) $this->site->name).'-db' : '', 'attach' => ''];
+        $this->resetErrorBag('newDatabase');
+        $this->panel = 'database-add';
+    }
+
+    public function createDatabase(): void
+    {
+        $this->authorize('update', $this->site);
+        try {
+            if (($this->newDatabase['mode'] ?? '') === 'attach') {
+                $database = DplyDatabases::attachable($this->site)->firstWhere('id', (string) ($this->newDatabase['attach'] ?? ''));
+                if ($database === null) {
+                    throw new \RuntimeException('Pick a database to attach.');
+                }
+                DplyDatabases::attach($this->site, $database);
+            } else {
+                $database = DplyDatabases::create($this->site, (string) $this->newDatabase['engine'], (string) $this->newDatabase['name'], EdgeDplyDatabase::OFFERED_SIZES[0], 300, EdgeDplyDatabase::DEFAULT_DISK);
+            }
+        } catch (\Throwable $e) {
+            $this->addError('newDatabase', $e->getMessage());
+
+            return;
+        }
+        $this->afterDatabaseChange(__(':name is on this app. Redeploy so the app gets its connection.', ['name' => $database->name]));
+        $this->dispatch('close-modal', 'resources-database-add');
+    }
+
+    public function openExtraDatabase(string $id): void
+    {
+        $this->authorize('update', $this->site);
+        $this->openDatabaseId = $id;
+        $this->deleteDatabaseConfirm = '';
+        $this->resetErrorBag('database');
+    }
+
+    public function updateExtraDatabase(string $field, string $value): void
+    {
+        $this->authorize('update', $this->site);
+        $database = $this->attachedDatabase((string) $this->openDatabaseId);
+        $settings = ['size' => $database->size, 'suspend' => (string) $database->suspend, 'disk' => (string) $database->disk_gb];
+        if (! array_key_exists($field, $settings)) {
+            return;
+        }
+        $settings[$field] = $value;
+        try {
+            DplyDatabases::update($database, $this->site, $settings['size'], (int) $settings['suspend'], (int) $settings['disk']);
+        } catch (\Throwable $e) {
+            $this->addError('database', $e->getMessage());
+        }
+    }
+
+    public function makeDatabasePrimary(string $id): void
+    {
+        $this->authorize('update', $this->site);
+        DplyDatabases::makePrimary($this->site, $this->attachedDatabase($id));
+        $this->openDatabaseId = null;
+        $this->afterDatabaseChange(__('Primary database changed. Redeploy so the app uses it.'));
+        $this->dispatch('close-modal', 'resources-database-extra');
+    }
+
+    public function detachDatabase(string $id): void
+    {
+        $this->authorize('update', $this->site);
+        $database = $this->attachedDatabase($id);
+        DplyDatabases::detach($this->site, $database);
+        $this->openDatabaseId = null;
+        $this->afterDatabaseChange(__(':name was detached. It keeps running in your organization. Redeploy to drop it from the app.', ['name' => $database->name]));
+        $this->dispatch('close-modal', 'resources-database-extra');
+        $this->dispatch('close-modal', 'resources-database');
+    }
+
+    public function deleteDatabase(string $id): void
+    {
+        $this->authorize('update', $this->site);
+        $database = $this->attachedDatabase($id);
+        if (trim($this->deleteDatabaseConfirm) !== $database->name) {
+            $this->addError('database', __('Type :name to delete it.', ['name' => $database->name]));
+
+            return;
+        }
+        try {
+            DplyDatabases::delete($database, $this->site);
+        } catch (\Throwable $e) {
+            $this->addError('database', $e->getMessage());
+
+            return;
+        }
+        $this->openDatabaseId = null;
+        $this->deleteDatabaseConfirm = '';
+        $this->afterDatabaseChange(__(':name and its backups were deleted.', ['name' => $database->name]));
+        $this->dispatch('close-modal', 'resources-database-extra');
+        $this->dispatch('close-modal', 'resources-database');
+    }
+
+    /** One of this app's databases, or 404: the id comes from the browser. */
+    private function attachedDatabase(string $id): DplyDatabase
+    {
+        $database = DplyDatabases::for($this->site)->firstWhere('id', $id);
+        abort_if($database === null, 404);
+
+        return $database;
+    }
+
+    private function afterDatabaseChange(string $message): void
+    {
+        $this->site->refresh();
+        $this->hydrateDrafts();
+        $this->panel = '';
+        $this->toastSuccess($message);
     }
 
     /** "Needs setup" on workers already added: start the shared queue and deploy. */
@@ -1413,7 +1544,7 @@ class Resources extends Component
 
     public function openPanel(string $panel): void
     {
-        if ($panel !== '' && ! in_array($panel, ['sleep', 'cache', 'databases', 'connection', 'delete-connection', 'browser', 'estimate', 'failed-jobs', 'worker-logs', 'worker-setup'], true)) {
+        if ($panel !== '' && ! in_array($panel, ['sleep', 'cache', 'databases', 'connection', 'delete-connection', 'browser', 'estimate', 'failed-jobs', 'worker-logs', 'worker-setup', 'database-add'], true)) {
             return;
         }
 
@@ -3104,6 +3235,10 @@ class Resources extends Component
                 'databaseUsage' => $this->dplyDatabaseRecord() !== null ? $this->databaseUsage() : null,
                 'map' => EdgeServiceMap::for($this->site),
                 'savedDatabase' => $this->persistedState()['database'],
+                // Every dply database on the app, primary first (DplyDatabases), and the org's others for "Attach existing".
+                'appDatabases' => $appDatabases = DplyDatabases::for($this->site),
+                'attachableDatabases' => $this->panel === 'database-add' ? DplyDatabases::attachable($this->site) : collect(),
+                'openDatabase' => $this->openDatabaseId !== null ? $appDatabases->firstWhere('id', $this->openDatabaseId) : null,
                 'needsRedeploy' => $this->needsRedeploy(),
             ],
         );

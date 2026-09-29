@@ -221,10 +221,15 @@ test('mongodb is only offered when the gateway is configured', function () {
     $this->site->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
     $test = fn () => Livewire::actingAs($user)->test(Resources::class, ['server' => $this->site->server, 'site' => $this->site]);
 
-    $test()->openSheet('resources-database')->assertSeeHtml('data-engine="mongodb"')->assertDontSee('Coming soon')->call('selectDatabase', 'mongodb')->assertSet('draftDatabase', 'mongodb')->assertSeeHtml('id="postgres-disk"');
+    // Engines are picked when adding a database (sheets/database-add); starting one needs the gateway.
+    Http::fake(['gateway.test/*' => Http::response([])]);
+    $test()->call('openAddDatabase')->openSheet('resources-database-add')->assertSee('MongoDB')
+        ->set('newDatabase.engine', 'mongodb')->set('newDatabase.name', 'docs')->call('createDatabase')->assertHasNoErrors();
+    expect($this->site->fresh()->edgeMeta()['database']['engine'])->toBe('mongodb');
 
     config(['edge.valkey.api_url' => null]);
-    $test()->openSheet('resources-database')->assertSee('Coming soon')->call('selectDatabase', 'mongodb')->assertNotSet('draftDatabase', 'mongodb');
+    $test()->call('openAddDatabase')->set('newDatabase.engine', 'mongodb')->set('newDatabase.name', 'more')->call('createDatabase')
+        ->assertHasErrors('newDatabase');
 });
 
 test('mysql is a dply database: DB_* on 3306, resize with DB_PASSWORD, delete through the gateway', function () {
@@ -256,10 +261,13 @@ test('mysql is offered only when the gateway is configured', function () {
     $this->site->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
     $test = fn () => Livewire::actingAs($user)->test(Resources::class, ['server' => $this->site->server, 'site' => $this->site]);
 
-    $test()->call('selectDatabase', 'mysql')->assertSet('draftDatabase', 'mysql')->assertSeeHtml('id="postgres-disk"')->assertSee('dply MySQL in New York');
+    Http::fake(['gateway.test/*' => Http::response([])]);
+    $test()->call('openAddDatabase')->set('newDatabase.engine', 'mysql')->set('newDatabase.name', 'shop')->call('createDatabase')->assertHasNoErrors();
+    expect($this->site->fresh()->edgeMeta()['database']['engine'])->toBe('mysql');
 
     config(['edge.valkey.api_url' => null]);
-    $test()->openSheet('resources-database')->assertSee('Coming soon')->call('selectDatabase', 'mysql')->assertNotSet('draftDatabase', 'mysql');
+    $test()->call('openAddDatabase')->set('newDatabase.engine', 'mysql')->set('newDatabase.name', 'shop2')->call('createDatabase')
+        ->assertHasErrors('newDatabase');
 });
 
 test('a point-in-time restore runs as a queued job and records its result', function () {

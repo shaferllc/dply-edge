@@ -62,6 +62,7 @@
         aria-modal="true"
         aria-labelledby="resource-clear-confirm-title"
         x-data
+        x-trap="true"
         x-on:keydown.escape.window="$wire.closeClearConfirm()"
     >
         <div class="fixed inset-0 bg-brand-ink/50 backdrop-blur-sm" wire:click="closeClearConfirm"></div>

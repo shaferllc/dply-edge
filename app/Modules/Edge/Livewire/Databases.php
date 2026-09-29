@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Livewire;
 
+use App\Models\DplyDatabase;
 use App\Models\EdgeDatabase;
 use App\Models\Organization;
 use App\Models\Site;
+use App\Modules\Edge\Services\DplyDatabases;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Contracts\View\View;
@@ -164,6 +166,72 @@ class Databases extends Component
         $this->results = null;
     }
 
+    /** dply databases section: the app to attach one to, keyed by database id. */
+    public array $dplyAttachSite = [];
+
+    /** @var array<string, bool> make it the app's primary when attaching */
+    public array $dplyAttachPrimary = [];
+
+    /** @var array<string, string> typed name to confirm a delete */
+    public array $dplyDeleteConfirm = [];
+
+    public function attachDply(string $id): void
+    {
+        $database = $this->dplyDatabase($id);
+        $site = Site::query()->where('organization_id', $database->organization_id)->find((string) ($this->dplyAttachSite[$id] ?? ''));
+        if ($site === null) {
+            $this->addError('dply.'.$id, __('Pick an app.'));
+
+            return;
+        }
+        $this->authorize('update', $site);
+        try {
+            DplyDatabases::attach($site, $database, primary: (bool) ($this->dplyAttachPrimary[$id] ?? false));
+        } catch (Throwable $e) {
+            $this->addError('dply.'.$id, $e->getMessage());
+
+            return;
+        }
+        session()->flash('status', __(':db is attached to :site. Redeploy the app to use it.', ['db' => $database->name, 'site' => $site->name]));
+    }
+
+    public function detachDply(string $id, string $siteId): void
+    {
+        $database = $this->dplyDatabase($id);
+        $site = $database->sites()->whereKey($siteId)->firstOrFail();
+        $this->authorize('update', $site);
+        DplyDatabases::detach($site, $database);
+        session()->flash('status', __(':db was detached from :site. It keeps running here.', ['db' => $database->name, 'site' => $site->name]));
+    }
+
+    public function deleteDply(string $id): void
+    {
+        $database = $this->dplyDatabase($id);
+        if (trim((string) ($this->dplyDeleteConfirm[$id] ?? '')) !== $database->name) {
+            $this->addError('dply.'.$id, __('Type :name to delete it.', ['name' => $database->name]));
+
+            return;
+        }
+        try {
+            DplyDatabases::delete($database);
+        } catch (Throwable $e) {
+            $this->addError('dply.'.$id, $e->getMessage());
+
+            return;
+        }
+        audit_log($database->organization, auth()->user(), 'database.deleted', null, null, ['name' => $database->name, 'engine' => $database->engine]);
+        session()->flash('status', __(':db and its backups were deleted.', ['db' => $database->name]));
+    }
+
+    /** One of this organization's dply databases, for someone who can manage it. */
+    private function dplyDatabase(string $id): DplyDatabase
+    {
+        $database = DplyDatabase::query()->where('organization_id', $this->organization()->id)->findOrFail($id);
+        $this->authorize('update', $database->organization);
+
+        return $database;
+    }
+
     public function render(): View
     {
         $org = $this->organization();
@@ -180,6 +248,8 @@ class Databases extends Component
         return view('livewire.edge.databases', [
             'org' => $org,
             'databases' => EdgeDatabase::query()->where('organization_id', $org->id)->orderBy('name')->get(),
+            // Postgres / MySQL / MongoDB (DplyDatabases), with the apps each is on.
+            'dplyDatabases' => DplyDatabase::query()->where('organization_id', $org->id)->with('sites:id,name')->orderBy('name')->get(),
             'current' => $selected,
             'info' => $info,
             'sites' => $org->sites()->whereNotNull('edge_backend')->orderBy('name')->get(['id', 'name', 'meta']),

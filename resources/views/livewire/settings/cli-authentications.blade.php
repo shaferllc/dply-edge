@@ -245,7 +245,7 @@ env:
             >
                 @if ($organizations->count() > 1)
                     <x-slot:actions>
-                        <select
+                        <select aria-label="{{ __('Organization') }}"
                             wire:model.live="organization_id"
                             class="h-6 min-w-[10rem] rounded-md border-brand-ink/15 bg-white py-0 pl-2 pr-7 text-xs shadow-sm focus:border-brand-sage focus:ring-brand-sage"
                         >

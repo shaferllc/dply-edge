@@ -6,9 +6,9 @@
     <div class="grid content-start gap-3 lg:col-span-4">
         <form wire:submit="create" class="grid gap-3 rounded-xl border border-brand-ink/10 p-3.5 dark:border-brand-mist/15">
             <x-sheet.section :title="__('New database')">
-                <input wire:model="name" type="text" class="dply-input mt-0 font-mono" placeholder="app-db" />
+                <input aria-label="{{ __('Database name') }}" wire:model="name" type="text" class="dply-input mt-0 font-mono" placeholder="app-db" />
                 <x-input-error :messages="$errors->get('name')" />
-                <select wire:model="location" class="dply-input mt-0">
+                <select aria-label="{{ __('Location') }}" wire:model="location" class="dply-input mt-0">
                     @foreach ($locations as $value => $label)
                         <option value="{{ $value }}">{{ __($label) }}</option>
                     @endforeach
@@ -90,13 +90,13 @@
                 <form wire:submit="attach" class="grid gap-3 rounded-xl border border-brand-ink/10 p-3.5 dark:border-brand-mist/15">
                     <x-sheet.section :title="__('Attach to a project')">
                         <div class="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
-                            <select wire:model="attachSite" class="dply-input mt-0">
+                            <select aria-label="{{ __('Project') }}" wire:model="attachSite" class="dply-input mt-0">
                                 <option value="">{{ __('Choose a project…') }}</option>
                                 @foreach ($sites as $site)
                                     <option value="{{ $site->id }}">{{ $site->name }}</option>
                                 @endforeach
                             </select>
-                            <input wire:model="bindingName" type="text" class="dply-input mt-0 font-mono" />
+                            <input aria-label="{{ __('Binding name') }}" wire:model="bindingName" type="text" class="dply-input mt-0 font-mono" />
                             <x-sheet.button type="submit">{{ __('Attach') }}</x-sheet.button>
                         </div>
                         <x-input-error :messages="array_merge($errors->get('attachSite'), $errors->get('bindingName'))" />
@@ -107,7 +107,7 @@
                 <x-sheet.danger :title="__('Delete database')" x-data="{ confirm: '' }">
                     <p class="text-xs text-brand-moss">{{ __('Permanently deletes the database and all its data. Type its name to confirm.') }}</p>
                     <div class="flex gap-2">
-                        <input x-model="confirm" type="text" class="dply-input mt-0 min-w-0 flex-1 font-mono" placeholder="{{ $current->name }}" />
+                        <input aria-label="{{ __('Type :name to confirm', ['name' => $current->name]) }}" x-model="confirm" type="text" class="dply-input mt-0 min-w-0 flex-1 font-mono" placeholder="{{ $current->name }}" />
                         <x-sheet.button variant="danger" x-bind:disabled="confirm !== {{ \Illuminate\Support\Js::from($current->name) }}" x-on:click="$wire.delete({{ \Illuminate\Support\Js::from($current->id) }}, confirm)">{{ __('Delete') }}</x-sheet.button>
                     </div>
                     <x-input-error :messages="$errors->get('delete')" />

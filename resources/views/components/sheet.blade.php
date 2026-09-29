@@ -62,9 +62,15 @@ $maxWidth = [
         aria-hidden="true"
     ></div>
 
+    {{-- Focus: x-trap holds Tab inside the open sheet (focus-trap's own stack
+         pauses the one underneath); the store puts focus back on the opener
+         when the last sheet closes. --}}
     <section
         role="dialog"
         aria-modal="true"
+        tabindex="-1"
+        x-bind:aria-labelledby="'sheet-title-' + name"
+        x-trap.noreturn="index >= 0"
         x-show="index >= 0"
         x-cloak
         x-transition:enter="duration-300 ease-[cubic-bezier(.2,.8,.2,1)]"
@@ -78,7 +84,7 @@ $maxWidth = [
              property); stepping back uses `transform`. Both are transitioned. --}}
         x-bind:style="{ transform: depth > 0 ? `translateX(${-depth * 28}px) scale(${1 - depth * 0.035})` : '', transformOrigin: 'left center' }"
         x-bind:class="depth > 0 && 'brightness-90 dark:brightness-75'"
-        class="pointer-events-auto absolute inset-y-0 right-0 flex w-full {{ $maxWidth }} flex-col border-l border-brand-ink/15 bg-white shadow-2xl transition-[translate,transform,filter] duration-300 ease-[cubic-bezier(.2,.8,.2,1)] sm:rounded-l-2xl dark:border-brand-mist/20 dark:bg-zinc-900"
+        class="pointer-events-auto absolute inset-y-0 right-0 flex w-full outline-none {{ $maxWidth }} flex-col border-l border-brand-ink/15 bg-white shadow-2xl transition-[translate,transform,filter] duration-300 ease-[cubic-bezier(.2,.8,.2,1)] sm:rounded-l-2xl dark:border-brand-mist/20 dark:bg-zinc-900"
     >
         <div class="min-h-0 flex-1 overflow-y-auto" x-bind:inert="depth > 0">
             {{ $slot }}

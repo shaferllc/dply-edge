@@ -299,7 +299,7 @@ dialog[data-docs-dialog]::backdrop {
 .docs-search__crumb {
     display: block;
     font-family: 'Space Mono', ui-monospace, monospace;
-    font-size: 10px;
+    font-size: 11px;
     letter-spacing: 0.12em;
     text-transform: uppercase;
     color: #5c6353;

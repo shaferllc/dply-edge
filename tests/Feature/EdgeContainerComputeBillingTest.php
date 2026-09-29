@@ -181,7 +181,8 @@ test('the collector stores counted reply bytes, null for a site whose Worker nev
     $counted = Site::factory()->create(['organization_id' => $org->id]);
     $idle = Site::factory()->create(['organization_id' => $org->id]);
     $old = Site::factory()->create(['organization_id' => $org->id]);
-    $sites = ['a' => $counted, 'b' => $idle, 'c' => $old];
+    $streaming = Site::factory()->create(['organization_id' => $org->id]);
+    $sites = ['a' => $counted, 'b' => $idle, 'c' => $old, 'd' => $streaming];
     $aeFails = false;
 
     Http::fake(function (\Illuminate\Http\Client\Request $request) use ($sites, &$aeFails) {
@@ -191,9 +192,11 @@ test('the collector stores counted reply bytes, null for a site whose Worker nev
             }
             $body = $request->body();
 
-            return Http::response(['data' => str_contains($body, 'SUM(')
-                ? [['site' => strtolower((string) $sites['a']->id), 'bytes' => 700]]
-                : [['site' => strtolower((string) $sites['a']->id)], ['site' => strtolower((string) $sites['b']->id)]], 'meta' => [['name' => 'site']]]);
+            return Http::response(['data' => match (true) {
+                str_contains($body, 'SUM(') => [['site' => strtolower((string) $sites['a']->id), 'bytes' => 700]],
+                str_contains($body, "'stream'") => [['site' => strtolower((string) $sites['d']->id)]], // served a socket today
+                default => [['site' => strtolower((string) $sites['a']->id)], ['site' => strtolower((string) $sites['b']->id)], ['site' => strtolower((string) $sites['d']->id)]],
+            }, 'meta' => [['name' => 'site']]]);
         }
         if (str_contains($request->url(), '/containers/applications')) {
             return Http::response(['success' => true, 'result' => array_map(fn (string $k, Site $s): array => ['id' => $k, 'name' => 'dply-ctr-'.strtolower((string) $s->id)], array_keys($sites), $sites)]);
@@ -210,7 +213,8 @@ test('the collector stores counted reply bytes, null for a site whose Worker nev
     $collect();
     expect($reply($counted))->toBe(700)
         ->and($reply($idle))->toBe(0)        // counts replies, none today: all tx is outbound
-        ->and($reply($old))->toBeNull();     // no point in 30 days: Worker predates the counter
+        ->and($reply($old))->toBeNull()      // no point in 30 days: Worker predates the counter
+        ->and($reply($streaming))->toBeNull(); // a socket or event stream today: bytes uncountable, no outbound bills
 
     $aeFails = true;
     $collect();

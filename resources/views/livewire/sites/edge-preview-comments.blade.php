@@ -203,7 +203,7 @@
                     @if ($replyToCommentId === (string) $thread->id)
                         <li class="bg-brand-sand/10 px-6 py-4 pl-12">
                             <form wire:submit.prevent="submitReply" class="space-y-3">
-                                <textarea wire:model="replyBody" rows="2" class="w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm shadow-sm focus:border-brand-sage focus:ring-1 focus:ring-brand-sage" placeholder="{{ __('Write a reply…') }}"></textarea>
+                                <textarea aria-label="{{ __('Reply') }}" wire:model="replyBody" rows="2" class="w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm shadow-sm focus:border-brand-sage focus:ring-1 focus:ring-brand-sage" placeholder="{{ __('Write a reply…') }}"></textarea>
                                 @error('replyBody')<p class="text-xs text-rose-700">{{ $message }}</p>@enderror
                                 <div class="flex gap-2">
                                     <button type="submit" class="rounded-lg bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white">{{ __('Reply') }}</button>

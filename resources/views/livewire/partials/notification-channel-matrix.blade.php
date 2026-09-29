@@ -24,7 +24,7 @@
             {{ __('Create a channel') }}
         </button>
         @if ($showFilter && ! $channels->isEmpty())
-            <input type="search" x-model="q" placeholder="{{ __('Filter events…') }}"
+            <input aria-label="{{ __('Filter events') }}" type="search" x-model="q" placeholder="{{ __('Filter events…') }}"
                 class="w-52 rounded-md border-brand-ink/15 text-xs shadow-sm focus:border-brand-sage focus:ring-brand-sage">
         @endif
     </div>

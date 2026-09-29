@@ -16,27 +16,30 @@
 
     /* Micro type scale — prefer text-xxs / text-3xs / text-2xs / text-xs over
        arbitrary text-[Npx]. Resize sitewide by editing these tokens only.
-       Keep line-heights tight (not 1rem) so 8–10px labels don’t read as huge
+       Floor is 10–11px for readability (low-vision feedback, 2026-09-29).
+       Keep line-heights tight (not 1rem) so small labels don’t read as huge
        blocky caps in metric strips and dense chrome. */
-    --text-xxs: 8px;
+    --text-xxs: 10px;
     --text-xxs--line-height: 1;
-    --text-3xs: 9px;
+    --text-3xs: 10px;
     --text-3xs--line-height: 1.15;
-    --text-2xs: 10px;
+    --text-2xs: 11px;
     --text-2xs--line-height: 1.2;
 
-    /* Brand palette — sampled from dply logo */
+    /* Brand palette — sampled from dply logo. Text tokens (moss, mist, sage) are
+       darkened to pass WCAG AA 4.5:1 on white, cream and sand tints; html.dark
+       below does the same against void, panel and sand. */
     --color-brand-ink: #171a0e;
     --color-brand-forest: #32482c;
-    --color-brand-moss: #5d6259;
-    --color-brand-sage: #688479;
+    --color-brand-moss: #4f544b;
+    --color-brand-sage: #53695f;
     --color-brand-olive: #5d5622;
     --color-brand-rust: #9a6215;
     --color-brand-copper: #ac6e22;
     --color-brand-gold: #cda942;
     --color-brand-sand: #e1d8ac;
     --color-brand-cream: #fdfcf9;
-    --color-brand-mist: #a7a69a;
+    --color-brand-mist: #6b6c62;
 
     --background-image-mesh-brand: radial-gradient(at 40% 20%, rgb(205 169 66 / 0.12) 0px, transparent 50%),
         radial-gradient(at 80% 0%, rgb(104 132 121 / 0.14) 0px, transparent 45%),
@@ -61,7 +64,7 @@
     --color-edge-text: #e8ece3;
     --color-edge-dim: #9aa291;
     --color-edge-mute: #8a9180;
-    --color-edge-faint: #5c6353;
+    --color-edge-faint: #7a8170;
     --color-edge-lime: #c3f53c;
     --color-edge-lime-bright: #d9ff7a;
 
@@ -115,8 +118,8 @@ html.dark {
     /* Type + ground */
     --color-brand-ink: #e8ece3;        /* headings and body text */
     --color-brand-cream: #0b0d0a;      /* page ground, and the label on an inverted button */
-    --color-brand-moss: #8a9180;       /* secondary text */
-    --color-brand-mist: #5c6353;       /* muted / captions */
+    --color-brand-moss: #a4ab99;       /* secondary text */
+    --color-brand-mist: #8b9281;       /* muted / captions */
 
     /* Surfaces */
     --color-white: #101410;            /* every bg-white card is a panel out here */

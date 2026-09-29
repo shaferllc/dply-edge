@@ -144,7 +144,7 @@ final class UsagePrice
             ['Realtime', 'Connection-minutes', 'per million', 'realtime_connection_minute_millicents', 1_000_000],
             ['Realtime', 'Messages', 'per million', 'realtime_message_millicents_per_million', 1],
             ['Workers', 'CPU time', 'per million CPU-ms', 'workers_cpu_millicents_per_million_ms', 1],
-            ['Workers', 'Log events', 'per million', 'workers_logs_millicents_per_million', 1],
+            ['Workers', 'Log events (first 5M per app a month included)', 'per million', 'workers_logs_millicents_per_million', 1],
             ['Durable Objects', 'Requests', 'per million', 'do_requests_millicents_per_million', 1],
             ['Durable Objects', 'Duration', 'per million GB-seconds', 'do_duration_millicents_per_million_gb_s', 1],
             ['Durable Objects', 'Rows read', 'per million', 'do_rows_read_millicents_per_million', 1],

@@ -230,7 +230,7 @@
                     <div class="flex flex-wrap items-end gap-2">
                         <div class="min-w-[12rem] flex-1">
                             <x-input-label :value="__('Add update')" />
-                            <textarea wire:model="updateBodies.{{ $incident->id }}" rows="2" class="mt-1 block w-full rounded-lg border-brand-ink/15 text-sm shadow-sm focus:border-brand-sage focus:ring-brand-sage/30" placeholder="{{ __('Status update…') }}"></textarea>
+                            <textarea aria-label="{{ __('Add update') }}" wire:model="updateBodies.{{ $incident->id }}" rows="2" class="mt-1 block w-full rounded-lg border-brand-ink/15 text-sm shadow-sm focus:border-brand-sage focus:ring-brand-sage/30" placeholder="{{ __('Status update…') }}"></textarea>
                         </div>
                         <x-secondary-button type="button" wire:click="addIncidentUpdate('{{ $incident->id }}')">{{ __('Post') }}</x-secondary-button>
                     </div>

@@ -431,11 +431,11 @@
                     <form wire:submit="runDatabaseConsole" class="grid gap-2">
                         @if ($databaseEngine === 'mongodb')
                             <div class="grid gap-2 sm:grid-cols-[12rem_1fr]">
-                                <input type="text" wire:model="databaseConsoleCollection" placeholder="{{ __('collection') }}" class="dply-input mt-0 font-mono" />
-                                <input type="text" wire:model="databaseConsoleFilter" placeholder='{"status": "open"}' class="dply-input mt-0 font-mono" />
+                                <input aria-label="{{ __('Collection') }}" type="text" wire:model="databaseConsoleCollection" placeholder="{{ __('collection') }}" class="dply-input mt-0 font-mono" />
+                                <input aria-label="{{ __('Filter (JSON)') }}" type="text" wire:model="databaseConsoleFilter" placeholder='{"status": "open"}' class="dply-input mt-0 font-mono" />
                             </div>
                         @else
-                            <textarea wire:model="databaseConsoleSql" rows="4" spellcheck="false" placeholder="select id, email from users order by id desc limit 20" x-on:keydown.meta.enter.prevent="$wire.$island('resources-database').runDatabaseConsole()" x-on:keydown.ctrl.enter.prevent="$wire.$island('resources-database').runDatabaseConsole()" class="dply-input mt-0 font-mono"></textarea>
+                            <textarea aria-label="{{ __('SQL query') }}" wire:model="databaseConsoleSql" rows="4" spellcheck="false" placeholder="select id, email from users order by id desc limit 20" x-on:keydown.meta.enter.prevent="$wire.$island('resources-database').runDatabaseConsole()" x-on:keydown.ctrl.enter.prevent="$wire.$island('resources-database').runDatabaseConsole()" class="dply-input mt-0 font-mono"></textarea>
                         @endif
                         <div class="flex flex-wrap items-center gap-3">
                             <x-sheet.button type="submit" variant="primary" wire:loading.attr="disabled" wire:target="runDatabaseConsole">
@@ -596,7 +596,7 @@
                                     <p class="mt-0.5 text-2xs leading-4 text-brand-mist">{{ $databaseEngine === 'postgres' ? __('A pg_dump custom-format file (pg_dump -Fc). It is restored as the app\'s login.') : __('A mongodump --archive file, gzipped or not.') }}</p>
                                 </div>
                                 <form wire:submit="prepareDatabaseUpload" class="flex flex-wrap items-center gap-2">
-                                    <input type="text" wire:model="databaseImportFile" placeholder="{{ $databaseEngine === 'postgres' ? 'app.pgdump' : 'app.archive.gz' }}" class="dply-input mt-0 w-56 font-mono" />
+                                    <input aria-label="{{ __('File name') }}" type="text" wire:model="databaseImportFile" placeholder="{{ $databaseEngine === 'postgres' ? 'app.pgdump' : 'app.archive.gz' }}" class="dply-input mt-0 w-56 font-mono" />
                                     <x-sheet.button type="submit">{{ __('Get upload command') }}</x-sheet.button>
                                 </form>
                                 @if ($databaseUploadCommand)

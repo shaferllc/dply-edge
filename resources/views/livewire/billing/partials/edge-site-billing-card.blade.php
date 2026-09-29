@@ -45,7 +45,7 @@
                 </div>
             </div>
         @elseif (! ($site['has_snapshots'] ?? false))
-            <p class="text-sm text-brand-moss/80">{{ __('No usage snapshots yet this month.') }}</p>
+            <p class="text-sm text-brand-moss">{{ __('No usage snapshots yet this month.') }}</p>
         @endif
     </div>
 

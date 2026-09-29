@@ -70,9 +70,9 @@
 
             <!-- Hamburger -->
             <div class="-me-2 flex items-center sm:hidden">
-                <button @click="open = ! open" type="button" class="relative inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 focus:outline-none transition duration-150 ease-in-out">
-                    <x-heroicon-o-bars-3 class="absolute h-6 w-6" x-show="! open" />
-                    <x-heroicon-o-x-mark class="absolute h-6 w-6" x-show="open" x-cloak />
+                <button @click="open = ! open" type="button" aria-label="{{ __('Menu') }}" x-bind:aria-expanded="open.toString()" class="relative inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 focus:outline-none transition duration-150 ease-in-out">
+                    <x-heroicon-o-bars-3 class="absolute h-6 w-6" x-show="! open" aria-hidden="true" />
+                    <x-heroicon-o-x-mark class="absolute h-6 w-6" x-show="open" x-cloak aria-hidden="true" />
                 </button>
             </div>
         </div>

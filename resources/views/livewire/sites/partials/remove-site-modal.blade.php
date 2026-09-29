@@ -27,6 +27,8 @@
         role="dialog"
         aria-modal="true"
         aria-labelledby="remove-site-modal-title"
+        x-trap="true"
+        x-on:keydown.escape.window="$wire.closeRemoveSiteModal()"
         x-data="{ copied: false, copy() { navigator.clipboard.writeText({{ \Illuminate\Support\Js::from($siteName) }}).then(() => { this.copied = true; setTimeout(() => this.copied = false, 1500); }); } }"
     >
         <div class="fixed inset-0 z-0 bg-brand-ink/60 backdrop-blur-sm" wire:click="closeRemoveSiteModal" wire:key="remove-site-backdrop"></div>

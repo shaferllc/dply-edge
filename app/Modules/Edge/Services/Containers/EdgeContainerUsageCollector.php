@@ -81,18 +81,24 @@ class EdgeContainerUsageCollector
     }
 
     /**
-     * @param  array{day: array<string, int>, metered: array<string, true>}  $replies
+     * @param  array{day: array<string, int>, metered: array<string, true>, streamed: array<string, true>}  $replies
      */
     private function replyFor(array $replies, string $siteId): ?int
     {
-        return isset($replies['metered'][$siteId]) ? ($replies['day'][$siteId] ?? 0) : null;
+        // Null bills no outbound: a Worker older than the counter, or a day
+        // it served a socket or event stream, whose bytes it can't count.
+        if (! isset($replies['metered'][$siteId]) || isset($replies['streamed'][$siteId])) {
+            return null;
+        }
+
+        return $replies['day'][$siteId] ?? 0;
     }
 
     /**
      * Reply bytes per site for the day, and which sites wrote any in 30 days.
      * Null when Analytics Engine cannot be read: the column is left as it was.
      *
-     * @return array{day: array<string, int>, metered: array<string, true>}|null
+     * @return array{day: array<string, int>, metered: array<string, true>, streamed: array<string, true>}|null
      */
     private function replyBytes(EdgeCloudflareClient $client, CarbonInterface $date): ?array
     {
@@ -102,12 +108,16 @@ class EdgeContainerUsageCollector
         try {
             $day = $client->queryAnalyticsEngineSql("SELECT blob1 AS site, SUM(_sample_interval * double1) AS bytes FROM {$dataset} WHERE timestamp >= {$at($from)} AND timestamp < {$at($from->copy()->addDay())} GROUP BY site");
             $seen = $client->queryAnalyticsEngineSql("SELECT blob1 AS site FROM {$dataset} WHERE timestamp >= {$at($from->copy()->subDays(29))} AND timestamp < {$at($from->copy()->addDay())} GROUP BY site");
+            $streamed = $client->queryAnalyticsEngineSql("SELECT blob1 AS site FROM {$dataset} WHERE blob2 = 'stream' AND timestamp >= {$at($from)} AND timestamp < {$at($from->copy()->addDay())} GROUP BY site");
         } catch (Throwable $e) {
             Log::warning('Container reply bytes unreadable; reply_bytes left as it was', ['date' => $from->toDateString(), 'error' => $e->getMessage()]);
 
             return null;
         }
-        $out = ['day' => [], 'metered' => []];
+        $out = ['day' => [], 'metered' => [], 'streamed' => []];
+        foreach ($streamed as $row) {
+            $out['streamed'][(string) ($row['site'] ?? '')] = true;
+        }
         foreach ($day as $row) {
             $out['day'][(string) ($row['site'] ?? '')] = (int) round((float) ($row['bytes'] ?? 0));
         }

@@ -66,6 +66,8 @@ final class EdgeProductionEnv
     {
         return in_array($key, ['DATABASE_URL', 'DB_URL', 'REDIS_URL', 'MONGODB_URI', 'MONGO_URL'], true)
             || str_starts_with($key, 'DB_')
-            || str_starts_with($key, 'REDIS_');
+            || str_starts_with($key, 'REDIS_')
+            // Another attached database's connection (DplyDatabases): ANALYTICS_DB_HOST, ANALYTICS_DATABASE_URL …
+            || preg_match('/^[A-Z][A-Z0-9_]*_(DB_[A-Z_]+|DATABASE_URL|MONGODB_URI|MONGO_URL|MONGODB_DATABASE|MYSQL_ATTR_SSL_CA)$/', $key) === 1;
     }
 }

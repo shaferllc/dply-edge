@@ -20,7 +20,7 @@
                         >
                             <span>{{ $item['title'] }}</span>
                             @unless ($item['exists'])
-                                <span class="font-terminal shrink-0 text-[10px] uppercase tracking-wider text-edge-faint">{{ __('soon') }}</span>
+                                <span class="font-terminal shrink-0 text-2xs uppercase tracking-wider text-edge-faint">{{ __('soon') }}</span>
                             @endunless
                         </a>
                     </li>

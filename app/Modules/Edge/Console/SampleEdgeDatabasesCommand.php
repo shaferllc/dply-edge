@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Console;
 
+use App\Models\DplyDatabase;
 use App\Models\Site;
 use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Edge\Support\EdgeDatabaseResize;
@@ -93,7 +94,81 @@ class SampleEdgeDatabasesCommand extends Command
             }
         }
 
+        $this->sampleOtherDatabases($publisher);
+
         return self::SUCCESS;
+    }
+
+    /**
+     * Databases that are no app's primary (DplyDatabases): their history on
+     * their own row, and the same disk, connection and memory alerts, sent to
+     * an app they are attached to. Resize suggestions stay with the primary.
+     */
+    private function sampleOtherDatabases(NotificationPublisher $publisher): void
+    {
+        DplyDatabase::query()->whereDoesntHave('sites', fn ($q) => $q->where('dply_database_site.primary', true))->each(function (DplyDatabase $database) use ($publisher): void {
+            try {
+                $in = ValkeyGatewayClient::fromConfig($database->region)->insights($database->remote_id, true);
+            } catch (Throwable $e) {
+                $this->warn($database->name.': '.$e->getMessage());
+
+                return;
+            }
+            $disk = (int) ($in['disk_bytes'] ?? 0);
+            $used = (int) ($in['disk_used_bytes'] ?? 0);
+            $state = (array) ($database->state ?? []);
+            if (isset($in['size_bytes']) || $disk > 0) {
+                $state['history'] = self::withPoint((array) ($state['history'] ?? []), ['size' => (int) ($in['size_bytes'] ?? 0), 'disk_used' => $used, 'disk' => $disk, 'connections' => (int) ($in['connections'] ?? 0)]);
+                $database->forceFill(['state' => $state])->save();
+            }
+            $site = $database->sites()->first();
+            if ($site === null) {
+                return; // detached everywhere: recorded, nobody to tell
+            }
+            $key = 'db-'.$database->id;
+            if ($disk > 0 && $used >= self::WARN_AT * $disk) {
+                $this->notifyOnce($publisher, $site, 'edge.database.disk_filling',
+                    __('The :name database disk is :pct% full', ['name' => $database->name, 'pct' => (int) round($used / $disk * 100)]),
+                    __('A full disk stops writes. Pick a larger disk on its card; a disk only grows.'),
+                    ['database' => $database->name, 'used' => $used, 'disk' => $disk], $key);
+            }
+            $max = (int) ($in['max_connections'] ?? 0);
+            if ($max > 0 && (int) ($in['connections'] ?? 0) >= self::WARN_AT * $max) {
+                $this->notifyOnce($publisher, $site, 'edge.database.connections_high',
+                    __('The :name database is near its connection limit', ['name' => $database->name]),
+                    __(':n of :max connections were open. A larger size allows more.', ['n' => (int) $in['connections'], 'max' => $max]),
+                    ['database' => $database->name, 'connections' => (int) $in['connections'], 'max' => $max], $key);
+            }
+            $limit = (int) ($in['memory_bytes'] ?? 0);
+            if ($limit > 0 && (int) ($in['memory_anon_bytes'] ?? 0) >= 0.9 * $limit && strtotime((string) ($in['taken_at'] ?? '')) >= now()->subMinutes(90)->getTimestamp()) {
+                $this->notifyOnce($publisher, $site, 'edge.database.memory_high',
+                    __('The :name database is using :pct% of its memory', ['name' => $database->name, 'pct' => (int) round((int) $in['memory_anon_bytes'] / $limit * 100)]),
+                    __('Near the limit, queries slow down and the database can restart. A bigger size gives it room.'),
+                    ['database' => $database->name], $key);
+            }
+        });
+    }
+
+    /**
+     * A day's point added to a history, the day's highest reading, newest last.
+     *
+     * @param  list<array<string, mixed>>  $history
+     * @param  array{size: int, disk_used: int, disk: int, connections: int}  $point
+     * @return list<array<string, mixed>>
+     */
+    private static function withPoint(array $history, array $point): array
+    {
+        $today = now()->utc()->toDateString();
+        $last = end($history);
+        if (is_array($last) && ($last['date'] ?? '') === $today) {
+            array_pop($history);
+            foreach (['size', 'disk_used', 'connections'] as $k) {
+                $point[$k] = max($point[$k], (int) ($last[$k] ?? 0));
+            }
+        }
+        $history[] = ['date' => $today] + $point;
+
+        return array_slice(array_values($history), -self::HISTORY_DAYS);
     }
 
     /**
@@ -156,9 +231,10 @@ class SampleEdgeDatabasesCommand extends Command
     }
 
     /** @param  array<string, mixed>  $metadata */
-    private function notifyOnce(NotificationPublisher $publisher, Site $site, string $event, string $title, string $body, array $metadata): void
+    private function notifyOnce(NotificationPublisher $publisher, Site $site, string $event, string $title, string $body, array $metadata, ?string $key = null): void
     {
-        if (! Cache::add('edge:database:'.$site->id.':alerted:'.$event, true, self::ALERT_EVERY)) {
+        $cacheKey = 'edge:database:'.($key ?? $site->id).':alerted:'.$event;
+        if (! Cache::add($cacheKey, true, self::ALERT_EVERY)) {
             return;
         }
         try {
@@ -172,7 +248,7 @@ class SampleEdgeDatabasesCommand extends Command
             );
             $this->line($title);
         } catch (Throwable $e) {
-            Cache::forget('edge:database:'.$site->id.':alerted:'.$event); // try again next run
+            Cache::forget($cacheKey); // try again next run
             $this->warn($site->name.': '.$e->getMessage());
         }
     }

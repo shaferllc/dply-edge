@@ -8,6 +8,7 @@ use App\Models\EdgeRealtimeApp;
 use App\Models\Server;
 use App\Models\Site;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
+use App\Modules\Edge\Services\DplyDatabases;
 use App\Modules\Edge\Services\EdgeCustomDomainProvisioner;
 use App\Modules\Edge\Services\EdgeDeliveryContextResolver;
 use App\Modules\Edge\Services\EdgeGithubWebhookProvisioner;
@@ -34,7 +35,7 @@ class TeardownEdgeSiteJob implements ShouldQueue
     use SerializesModels;
 
     /** Teardown phases in the order handle() runs them; the danger page shows them as steps. */
-    public const STEPS = ['webhook', 'previews', 'domains', 'scripts', 'storage', 'deployments'];
+    public const STEPS = ['webhook', 'previews', 'domains', 'scripts', 'storage', 'databases', 'deployments'];
 
     public function __construct(public string $siteId) {}
 
@@ -115,6 +116,15 @@ class TeardownEdgeSiteJob implements ShouldQueue
                 report($e);
             }
         });
+
+        // Databases: one only this app used goes with it (the delete dialog
+        // names them); one other apps share is detached and keeps running.
+        $this->step($site, 'databases');
+        foreach (DplyDatabases::for($site) as $database) {
+            $this->bestEffort($site, 'database '.$database->name, fn () => $database->sites()->count() > 1
+                ? DplyDatabases::detach($site, $database)
+                : DplyDatabases::delete($database, $site));
+        }
 
         $this->step($site, 'deployments');
         $backend?->unpublish($site);

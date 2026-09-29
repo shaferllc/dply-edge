@@ -40,7 +40,7 @@
             @endif
             <div class="relative flex-1">
                 <x-heroicon-o-magnifying-glass class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-brand-moss" aria-hidden="true" />
-                <input
+                <input aria-label="{{ __('Search branches and tags') }}"
                     type="text"
                     wire:model.live.debounce.300ms="edge_deploy_ref_search"
                     placeholder="{{ __('Search…') }}"

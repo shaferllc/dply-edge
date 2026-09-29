@@ -36,7 +36,7 @@
 
 <nav class="border-b border-brand-ink/10 bg-white" aria-label="{{ __('Workspace') }}">
     <div class="mx-auto flex max-w-7xl items-center gap-3 px-4 sm:px-6 lg:px-8">
-        <span class="hidden shrink-0 text-[11px] font-semibold uppercase tracking-wider text-brand-ink/60 sm:inline sm:w-20">
+        <span class="hidden shrink-0 text-[11px] font-semibold uppercase tracking-wider text-brand-moss sm:inline sm:w-20">
             {{ __('Compute') }}
         </span>
         <div class="flex min-w-0 flex-1 gap-0.5 overflow-x-auto sm:gap-1" style="-webkit-overflow-scrolling: touch;">

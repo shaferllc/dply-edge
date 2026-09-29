@@ -58,11 +58,11 @@
             @if ($queues->isNotEmpty())
                 <form wire:submit="attach" class="grid gap-2 rounded-xl border border-brand-ink/10 bg-white p-3 sm:grid-cols-4 dark:bg-zinc-900">
                     <p class="text-xs font-semibold uppercase tracking-[0.14em] text-brand-moss sm:col-span-4">{{ __('Attach to a project') }}</p>
-                    <select wire:model="attachQueue" class="rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm dark:bg-zinc-900">
+                    <select aria-label="{{ __('Queue') }}" wire:model="attachQueue" class="rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm dark:bg-zinc-900">
                         <option value="">{{ __('Queue…') }}</option>
                         @foreach ($queues as $queue)<option value="{{ $queue->id }}">{{ $queue->name }}</option>@endforeach
                     </select>
-                    <select wire:model="attachSite" class="rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm dark:bg-zinc-900">
+                    <select aria-label="{{ __('Project') }}" wire:model="attachSite" class="rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm dark:bg-zinc-900">
                         <option value="">{{ __('Project…') }}</option>
                         @foreach ($sites as $site)<option value="{{ $site->id }}">{{ $site->name }}</option>@endforeach
                     </select>

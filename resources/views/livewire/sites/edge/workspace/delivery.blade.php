@@ -122,7 +122,7 @@
                             <p class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Origin auth secret') }}</p>
                             <p class="mt-1 text-xs text-brand-moss">{{ __('Sent as X-Dply-Origin-Auth on proxied requests.') }}</p>
                             <div class="mt-2 flex flex-wrap items-center gap-2">
-                                <input type="password" readonly value="{{ $edgeOrigin['auth_secret'] }}" class="block min-w-0 flex-1 rounded-lg border border-brand-ink/15 bg-white px-3 py-2 font-mono text-xs text-brand-ink dark:border-brand-mist/20 dark:bg-zinc-900" onclick="this.select()" />
+                                <input aria-label="{{ __('Origin auth secret') }}" type="password" readonly value="{{ $edgeOrigin['auth_secret'] }}" class="block min-w-0 flex-1 rounded-lg border border-brand-ink/15 bg-white px-3 py-2 font-mono text-xs text-brand-ink dark:border-brand-mist/20 dark:bg-zinc-900" onclick="this.select()" />
                                 <button type="button" class="inline-flex items-center gap-1 rounded-lg border border-brand-ink/10 bg-white px-3 py-2 text-xs font-medium text-brand-moss hover:bg-brand-sand/40" @click="navigator.clipboard.writeText(@js($edgeOrigin['auth_secret'])); copied = true; setTimeout(() => copied = false, 2000)">
                                     <x-heroicon-o-clipboard class="h-4 w-4" />
                                     <span x-show="!copied">{{ __('Copy') }}</span>
@@ -142,7 +142,7 @@
                     <div>
                         <p class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Purge cache by tag') }}</p>
                         <form wire:submit.prevent="purgeEdgeCacheByTag" class="mt-2 flex flex-wrap items-center gap-2">
-                            <input type="text" wire:model="buildForm.edge_cache_purge_tag" autocomplete="off" spellcheck="false" placeholder="article-42" class="min-w-0 flex-1 rounded-lg border border-brand-ink/15 bg-white px-3 py-2 font-mono text-xs text-brand-ink shadow-sm focus:border-brand-sage focus:ring-1 focus:ring-brand-sage dark:border-brand-mist/20 dark:bg-zinc-900" />
+                            <input aria-label="{{ __('Cache tag to purge') }}" type="text" wire:model="buildForm.edge_cache_purge_tag" autocomplete="off" spellcheck="false" placeholder="article-42" class="min-w-0 flex-1 rounded-lg border border-brand-ink/15 bg-white px-3 py-2 font-mono text-xs text-brand-ink shadow-sm focus:border-brand-sage focus:ring-1 focus:ring-brand-sage dark:border-brand-mist/20 dark:bg-zinc-900" />
                             <button type="submit" wire:loading.attr="disabled" wire:target="purgeEdgeCacheByTag" class="inline-flex items-center gap-1.5 rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-brand-sand/40 disabled:cursor-wait disabled:opacity-60">
                                 <span wire:loading.remove wire:target="purgeEdgeCacheByTag">{{ __('Purge') }}</span>
                                 <span wire:loading wire:target="purgeEdgeCacheByTag">{{ __('Purging…') }}</span>
@@ -274,7 +274,7 @@ origin:
                         <p class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Signing secret') }}</p>
                         <p class="mt-1 text-xs text-brand-moss">{{ __('HMAC-signs /_dply/image URLs.') }}</p>
                         <div class="mt-2 flex flex-wrap items-center gap-2">
-                            <input type="password" readonly value="{{ $imageSecret }}" class="block min-w-0 flex-1 rounded-lg border border-brand-ink/15 bg-white px-3 py-2 font-mono text-xs text-brand-ink dark:border-brand-mist/20 dark:bg-zinc-900" onclick="this.select()" />
+                            <input aria-label="{{ __('Signing secret') }}" type="password" readonly value="{{ $imageSecret }}" class="block min-w-0 flex-1 rounded-lg border border-brand-ink/15 bg-white px-3 py-2 font-mono text-xs text-brand-ink dark:border-brand-mist/20 dark:bg-zinc-900" onclick="this.select()" />
                             <button type="button" class="inline-flex items-center gap-1 rounded-lg border border-brand-ink/10 bg-white px-3 py-2 text-xs font-medium text-brand-moss hover:bg-brand-sand/40" @click="navigator.clipboard.writeText(@js($imageSecret)); copiedSig = true; setTimeout(() => copiedSig = false, 2000)">
                                 <x-heroicon-o-clipboard class="h-4 w-4" />
                                 <span x-show="!copiedSig">{{ __('Copy') }}</span>

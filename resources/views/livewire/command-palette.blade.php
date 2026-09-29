@@ -84,7 +84,7 @@
     @cmdk-changed.window="active = 0; confirming = -1; $nextTick(() => $refs.input && $refs.input.focus())"
     class="contents"
 >
-    <div x-show="open" x-cloak style="z-index: 200;" class="fixed inset-0 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="{{ __('Search') }}">
+    <div x-show="open" x-trap="open" x-cloak style="z-index: 200;" class="fixed inset-0 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="{{ __('Search') }}">
         {{-- Backdrop --}}
         <div
             x-show="open"
@@ -135,7 +135,7 @@
                 <div class="flex items-center gap-3 border-b border-brand-ink/10 px-4">
                     <x-heroicon-o-magnifying-glass class="h-5 w-5 shrink-0 text-brand-moss" />
                     <input
-                        x-ref="input"
+                        x-ref="input" autofocus
                         id="command-palette-search"
                         name="command_palette_search"
                         type="text"

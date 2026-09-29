@@ -1,5 +1,6 @@
 @if ($compact)
-    <div>
+    <div class="grid gap-6">
+        @include('livewire.edge.partials.dply-databases')
         @include('livewire.edge.partials.databases-manager')
     </div>
 @else
@@ -12,10 +13,13 @@
 
         <x-profile-shell
             :title="__('Databases')"
-            :description="__('Serverless SQLite databases on Dply Edge. Bind one to a project and query it from your app as env.DB.')"
+            :description="__('Postgres, MySQL and MongoDB databases your apps connect to, and serverless SQLite (D1) databases bound as env.DB.')"
             icon="heroicon-o-circle-stack"
         >
-            @include('livewire.edge.partials.databases-manager')
+            <div class="grid gap-8">
+                @include('livewire.edge.partials.dply-databases')
+                @include('livewire.edge.partials.databases-manager')
+            </div>
         </x-profile-shell>
     </div>
 @endif

@@ -31,7 +31,7 @@
                 class="ml-1 font-mono text-brand-moss hover:text-brand-ink transition-colors cursor-pointer"
                 title="{{ __('Copy reference') }}">{{ $dplyRef }}</button>
         </p>
-        <p class="text-xs text-brand-mist/80 {{ $dplyDetail ? 'mb-4' : 'mb-8' }}">{{ __('Quote this reference to support to help us find what happened.') }}</p>
+        <p class="text-xs text-brand-mist {{ $dplyDetail ? 'mb-4' : 'mb-8' }}">{{ __('Quote this reference to support to help us find what happened.') }}</p>
     @endif
 
     @if ($dplyDetail)

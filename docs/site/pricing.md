@@ -93,7 +93,7 @@ Rates are shown to more precision than a cent where the unit is small. Bandwidth
 | Realtime | Connection-minutes | $0.25 | per million |
 | Realtime | Messages | $0.62 | per million |
 | Workers | CPU time | $0.026 | per million CPU-ms |
-| Workers | Log events | $0.78 | per million |
+| Workers | Log events (first 5M per app a month included) | $0.78 | per million |
 | Durable Objects | Requests | $0.195 | per million |
 | Durable Objects | Duration | $16.25 | per million GB-seconds |
 | Durable Objects | Rows read | $0.0013 | per million |

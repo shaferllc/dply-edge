@@ -10,7 +10,7 @@
          path is cheaper than a support round-trip. --}}
     <div class="rounded-xl border border-brand-ink/10 bg-brand-ink/[0.02] px-3 py-3">
         <p class="text-xs font-medium text-brand-ink/80">{{ __('Where to get these') }}</p>
-        <ol class="mt-2 space-y-1 text-xs text-brand-ink/70">
+        <ol class="mt-2 space-y-1 text-xs text-brand-moss">
             <li>
                 {{ __('1. Open the') }}
                 <a
@@ -25,7 +25,7 @@
             <li>{{ __('3. Copy the Access Token shown on that same page and paste it below.') }}</li>
             <li>{{ __('4. For the admin ID, go to Settings → Teammates in Intercom and copy the ID of the teammate messages should come from.') }}</li>
         </ol>
-        <p class="mt-2 text-xs text-brand-ink/60">
+        <p class="mt-2 text-xs text-brand-moss">
             {{ __('The token belongs to one workspace and one region — make sure both match the workspace you just took it from.') }}
         </p>
     </div>
@@ -40,7 +40,7 @@
                 class="mt-1 block w-full rounded-xl border border-brand-ink/15 px-3 py-2 text-sm font-mono shadow-sm focus:border-brand-sage focus:ring-brand-sage"
                 autocomplete="new-password"
             />
-            <p class="mt-1 text-xs text-brand-ink/60">
+            <p class="mt-1 text-xs text-brand-moss">
                 {{ __('Developer Hub → your app → Configure → Authentication.') }}
             </p>
             @error($p.'intercom_access_token')
@@ -58,7 +58,7 @@
                     <option value="{{ $region }}">{{ \App\Modules\Notifications\Services\IntercomClient::labelForRegion($region) }}</option>
                 @endforeach
             </select>
-            <p class="mt-1 text-xs text-brand-ink/60">
+            <p class="mt-1 text-xs text-brand-moss">
                 {{ __('A token issued in one region will not work against another.') }}
             </p>
             @error($p.'intercom_region')
@@ -77,7 +77,7 @@
             placeholder="394051"
             autocomplete="off"
         />
-        <p class="mt-1 text-xs text-brand-ink/60">
+        <p class="mt-1 text-xs text-brand-moss">
             {{ __('Intercom requires every message to come from a teammate. Copy the ID from Settings → Teammates.') }}
         </p>
         @error($p.'intercom_admin_id')
@@ -161,7 +161,7 @@
                 class="mt-1 block w-full rounded-xl border border-brand-ink/15 px-3 py-2 text-sm shadow-sm focus:border-brand-sage focus:ring-brand-sage"
                 autocomplete="off"
             />
-            <p class="mt-1 text-xs text-brand-ink/60">
+            <p class="mt-1 text-xs text-brand-moss">
                 {{ __('Used when an alert carries no subject of its own. Intercom rejects e-mail messages without one.') }}
             </p>
             @error($p.'intercom_subject')

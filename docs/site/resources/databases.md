@@ -24,11 +24,10 @@ SQLite is a file at `/tmp/database.sqlite` inside the app. It is saved while the
 ## Create a database
 
 1. In your app, open **Overview**.
-2. Choose **Add resource**, then **Database**. A **Database** card appears on the app's map.
-3. Choose the **Database** card. Under **Database**, pick **Postgres**, **MySQL**, or **MongoDB**.
-4. Pick a **Size**, a **Sleep** time, and a **Disk** (see below). The sheet shows an estimate as **About $…/mo**. The **Awake** field (hours a day) only changes the estimate, not the database.
-5. Choose **Confirm** in the **Switch to Postgres?** footer.
-6. Deploy the app.
+2. Choose **Add resource**, then **Database**.
+3. Under **Create new**, pick **Postgres**, **MySQL** or **MongoDB**, and enter a **Name** (letters, numbers and dashes). Or choose **Attach existing** to use a database your organization already has.
+4. Choose **Create database** (or **Attach**). A card for it appears on the app's map. It starts at the smallest size, a 1 GB disk and 5 minutes' sleep; change those on its card (see below).
+5. Deploy the app.
 
 The database starts on its first connection. The first start creates its disk and takes a few seconds, once. After that the app receives these values on every deploy:
 
@@ -41,7 +40,9 @@ The database starts on its first connection. The first start creates its disk an
 
 A value you save yourself in [Environment variables](/docs/environment-variables) wins over the one dply sets.
 
-An app has one database. Databases are available to apps with server code: container apps, and SSR or hybrid apps. On an SSR or hybrid app the values arrive as Worker bindings (`env.DATABASE_URL`), and the Worker needs a driver that opens TCP sockets with the `nodejs_compat` flag. A [database pool](/docs/resources/database-pools) in front of the database saves the connection setup on every request.
+An app can have several databases. The first is its **primary** and uses the names above. Each other database uses the same names behind its own prefix, taken from its name: a database named `analytics` sets `ANALYTICS_DB_HOST`, `ANALYTICS_DB_PASSWORD`, `ANALYTICS_DATABASE_URL` and the rest (`ANALYTICS_MONGODB_URI` for MongoDB), and its card shows a Laravel connection that reads them. Migrations on deploy run against the primary. Choose **Make primary** on another database's card to swap which one uses the plain names; the old primary moves to its own prefix. Preview deployments never receive any of these values.
+
+Databases are available to apps with server code: container apps, and SSR or hybrid apps. On an SSR or hybrid app the values arrive as Worker bindings (`env.DATABASE_URL`), and the Worker needs a driver that opens TCP sockets with the `nodejs_compat` flag. A [database pool](/docs/resources/database-pools) in front of the database saves the connection setup on every request.
 
 ## Sizes and disk
 
@@ -194,12 +195,31 @@ Storage, and compute per compute unit (the 0.25 vCPU size is a quarter of one):
 
 A 0.25 vCPU database that stays on all month (720 hours) with a 1 GB disk is about $21.80. The same database awake 8 hours a day is about $7.40. This bills at the invoice line **Databases**, less your plan's included usage credit. Usage shows on the app's bill and in [Usage & metering](/docs/usage).
 
-## Remove or switch a database
+### What each database's card shows
 
-To remove a database, open **Database** on the app card, pick **None**, then choose **Remove**. To move to another engine, pick it and choose **Confirm**.
+The primary's card has everything on this page: statistics, the console, backups and restore, export and import, and suggested resizes. Another database's card shows its disk use, connections and last backup, updated hourly without waking it, and you get the same disk, connection, memory and backup alerts for it. For its console, exports and restores, make it primary.
+
+## Detach or delete a database
+
+Open the database's card, then under **Manage**:
+
+- **Detach** takes it off this app. The database, its data and its bill stay in your organization, so you can attach it to another app, or back to this one, with **Add resource** → **Database** → **Attach existing**. When you detach the primary, the next database becomes primary; with none left, the app goes back to SQLite.
+- **Delete** destroys it. Type its name to confirm. A database attached to other apps can't be deleted until you detach it there.
+
+### Databases no app uses
+
+A detached database keeps running and billing for its disk. **Projects** → **Databases** lists every Postgres, MySQL and MongoDB database in your organization, with the apps using each one. From there you can:
+
+- **Attach** it to an app. Tick **as its primary** to make it the app's `DB_*` connection.
+- **Detach** it from an app.
+- **Delete** it, once no app uses it.
+
+Redeploy the app after attaching so it picks up the connection.
+
+To move to another engine, add a database with the new engine, move your data, make it primary, then delete the old one.
 
 > [!WARNING]
-> Removing a database, or switching to another engine, deletes the database, its disk, and all of its backups at once. It cannot be undone. Choose **Export now** and **Download** first if you want to keep the data.
+> Deleting a database deletes its disk and all of its backups at once. It cannot be undone. Choose **Export now** and **Download** first if you want to keep the data.
 
 ## Related
 

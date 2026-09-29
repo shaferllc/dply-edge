@@ -118,7 +118,7 @@
             </button>
         @endif
 
-        <p class="text-xs leading-5 text-brand-moss/70">
+        <p class="text-xs leading-5 text-brand-moss">
             {{ __('Already connected accounts are managed under Settings → Source control.') }}
             @unless ($showPatForm)
                 {{ __('Connecting from here returns you to this page once authorized.') }}

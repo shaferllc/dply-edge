@@ -38,34 +38,21 @@
                     @endif
                 </div>
             @endif
-            @php
-                $engineNames = ['none' => __('None'), 'postgres' => __('Postgres'), 'mongodb' => __('MongoDB'), 'mysql' => __('MySQL'), 'sql' => __('SQLite')];
-                $engineHelp = [
-                    'none' => __('No database attached.'),
-                    'postgres' => __('dply :engine · :region', ['engine' => 'Postgres', 'region' => \App\Modules\Providers\Valkey\ValkeyRegions::get(\App\Modules\Edge\Support\DataRegion::forSite($site))['label']]),
-                    'mongodb' => __('dply :engine · :region', ['engine' => 'MongoDB', 'region' => \App\Modules\Providers\Valkey\ValkeyRegions::get(\App\Modules\Edge\Support\DataRegion::forSite($site))['label']]),
-                    'mysql' => __('dply :engine · :region', ['engine' => 'MySQL', 'region' => \App\Modules\Providers\Valkey\ValkeyRegions::get(\App\Modules\Edge\Support\DataRegion::forSite($site))['label']]),
-                    'sql' => __('A file inside the app, saved while it runs and restored when it wakes.'),
-                ];
-            @endphp
-            <x-sheet.field :label="__('Database')">
-                <x-sheet.options id="database-engine">
-                    @foreach ($engineNames as $engine => $label)
-                        @php
-                            $locked = $engine !== 'sql' && $engine !== 'none' && (! $dplyDatabases || ! $cardOnFile);
-                            $why = $engine !== 'sql' && $engine !== 'none' ? (! $dplyDatabases ? __('Coming soon') : (! $cardOnFile ? __('Add a card') : null)) : null;
-                        @endphp
-                        <x-sheet.option
-                            wire:click="selectDatabase('{{ $engine }}')"
-                            data-engine="{{ $engine }}"
-                            :selected="$databaseEngine === $engine"
-                            :disabled="$locked"
-                            :title="$label"
-                            :description="$why ?? $engineHelp[$engine]"
-                        />
-                    @endforeach
-                </x-sheet.options>
-            </x-sheet.field>
+            {{-- The app's primary database (DplyDatabases), or SQLite in the app. Add more from Add resource → Database;
+                 there is no engine switch here: Detach or Delete, then add another. --}}
+            @php $primaryDatabase = $appDatabases->first(fn ($d) => (bool) $d->attached_primary); @endphp
+            @if ($dplyEngine && $primaryDatabase)
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <p class="text-sm font-bold text-brand-ink">{{ $primaryDatabase->name }}</p>
+                        <p class="text-xs text-brand-moss">{{ ['postgres' => 'Postgres', 'mongodb' => 'MongoDB', 'mysql' => 'MySQL'][$primaryDatabase->engine] ?? $primaryDatabase->engine }} · {{ \App\Modules\Providers\Valkey\ValkeyRegions::get($primaryDatabase->region)['label'] ?? $primaryDatabase->region }} · {{ __('uses DB_* and DATABASE_URL') }}</p>
+                    </div>
+                    <span class="shrink-0 rounded-full bg-brand-sage/15 px-2 py-0.5 text-2xs font-semibold text-brand-forest dark:text-brand-sage">{{ __('Primary') }}</span>
+                </div>
+            @elseif ($databaseEngine === 'sql')
+                <x-sheet.note>{{ __('SQLite: a file inside the app, saved while it runs and restored when it wakes. For a database that several instances or queue workers share, add a dply database.') }}</x-sheet.note>
+                <x-sheet.button variant="primary" wire:click="openAddDatabase" wire:island="resources-database-add" x-on:click="$dispatch('close-modal', 'resources-database'); $dispatch('open-modal', 'resources-database-add')" class="justify-self-start">{{ __('Add a database') }}</x-sheet.button>
+            @endif
 
             @if ($dplyEngine)
                 @php $trialCap = \App\Modules\Edge\Support\EdgeTrialLimits::applies($site->organization); @endphp
@@ -151,6 +138,23 @@
                     <x-sheet.row :title="$dplyEngine ? __('Stats & backups') : __('Tools')" x-on:click="$dispatch('database-tab', {{ \Illuminate\Support\Js::from($dplyEngine ? 'overview' : 'settings') }}); $dispatch('open-modal', 'resources-app-database')" />
                 @endif
             </div>
+            @if ($dplyEngine && ($primaryDatabase ?? null))
+                @php $sharedWith = $primaryDatabase->sites()->count(); @endphp
+                <x-sheet.section :title="__('Manage')">
+                    <x-sheet.button wire:click="detachDatabase('{{ $primaryDatabase->id }}')" class="justify-self-start">{{ __('Detach') }}</x-sheet.button>
+                    <p class="text-2xs text-brand-mist">{{ $appDatabases->count() > 1 ? __('Detach takes it off this app and keeps it in your organization; the next database becomes primary.') : __('Detach takes it off this app and keeps it in your organization; the app goes back to SQLite.') }}</p>
+                    @if ($sharedWith > 1)
+                        <p class="text-2xs text-brand-mist">{{ trans_choice('Also attached to :count other app. Detach it there before deleting.|Also attached to :count other apps. Detach it there before deleting.', $sharedWith - 1) }}</p>
+                    @else
+                        <div class="grid gap-2 rounded-xl border border-rose-500/30 p-3">
+                            <p class="text-xs text-brand-ink">{{ __('Delete destroys the database and all of its backups right away. Export it first if you need the data.') }}</p>
+                            <input type="text" wire:model="deleteDatabaseConfirm" placeholder="{{ $primaryDatabase->name }}" aria-label="{{ __('Type :name to confirm', ['name' => $primaryDatabase->name]) }}" class="dply-input font-mono text-xs" />
+                            <x-sheet.button variant="danger" wire:click="deleteDatabase('{{ $primaryDatabase->id }}')" class="justify-self-start">{{ __('Delete :name', ['name' => $primaryDatabase->name]) }}</x-sheet.button>
+                        </div>
+                    @endif
+                    @error('database') <x-sheet.note tone="warn" role="alert">{{ $message }}</x-sheet.note> @enderror
+                </x-sheet.section>
+            @endif
         </x-sheet.body>
 
         @if ($databaseEngine !== $savedDatabase)

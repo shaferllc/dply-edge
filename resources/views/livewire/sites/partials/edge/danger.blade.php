@@ -9,6 +9,7 @@
         'domains' => __('Remove custom domains'),
         'scripts' => __('Delete Workers scripts'),
         'storage' => __('Delete KV store and realtime apps'),
+        'databases' => __('Delete or detach its databases'),
         'deployments' => __('Stop live traffic and delete deployments'),
     ];
     $currentStep = $inventory['teardown']['step'] ?? null;
@@ -57,7 +58,7 @@
                 <div class="min-w-0">
                     <h3 class="flex flex-wrap items-center gap-2 text-sm font-semibold text-brand-ink">
                         {{ $inventory['paused'] ? __('Site is paused') : __('Pause site') }}
-                        <span class="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ring-1 text-emerald-700 ring-emerald-300 dark:text-emerald-300 dark:ring-raw-emerald-800">{{ __('Reversible') }}</span>
+                        <span class="rounded-full px-2 py-0.5 text-2xs font-semibold uppercase tracking-wider ring-1 text-emerald-700 ring-emerald-300 dark:text-emerald-300 dark:ring-raw-emerald-800">{{ __('Reversible') }}</span>
                     </h3>
                     <p class="mt-0.5 max-w-2xl text-sm text-brand-moss">
                         {{ $inventory['paused']
@@ -81,7 +82,7 @@
                     <div class="min-w-0">
                         <h3 class="flex flex-wrap items-center gap-2 text-sm font-semibold text-brand-ink">
                             {{ __('Disconnect repository') }}
-                            <span class="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ring-1 text-emerald-700 ring-emerald-300 dark:text-emerald-300 dark:ring-raw-emerald-800">{{ __('Reversible') }}</span>
+                            <span class="rounded-full px-2 py-0.5 text-2xs font-semibold uppercase tracking-wider ring-1 text-emerald-700 ring-emerald-300 dark:text-emerald-300 dark:ring-raw-emerald-800">{{ __('Reversible') }}</span>
                         </h3>
                         <p class="mt-0.5 max-w-2xl text-sm text-brand-moss">
                             {{ __('Stops automatic deploys from :repo. The live site keeps serving the current deployment. Reconnect under Deploy triggers.', ['repo' => $inventory['repo']]) }}
@@ -164,7 +165,19 @@
         <div class="border-b border-brand-ink/10 px-6 py-5">
             <p class="text-xs font-semibold uppercase tracking-[0.18em] text-rose-700 dark:text-rose-300">{{ __('Danger zone') }}</p>
             <h2 class="mt-2 text-xl font-semibold text-brand-ink">{{ __('Delete :name?', ['name' => $site->name]) }}</h2>
-            <p class="mt-2 text-sm leading-6 text-brand-moss">{{ __('Your organization’s databases, queues and buckets are not touched.') }}</p>
+            @php
+                // TeardownEdgeSiteJob: a database only this app uses goes with it; a shared one is detached.
+                [$sharedDatabases, $ownDatabases] = \App\Modules\Edge\Services\DplyDatabases::for($site)->partition(fn ($d) => $d->sites()->count() > 1);
+            @endphp
+            @if ($ownDatabases->isNotEmpty())
+                <p class="mt-2 text-sm leading-6 text-rose-700 dark:text-rose-300">
+                    {{ trans_choice('Its database :names is deleted too, with all of its backups. Export it first from its card if you need the data.|Its databases :names are deleted too, with all of their backups. Export them first from their cards if you need the data.', $ownDatabases->count(), ['names' => $ownDatabases->pluck('name')->implode(', ')]) }}
+                </p>
+            @endif
+            @if ($sharedDatabases->isNotEmpty())
+                <p class="mt-2 text-sm leading-6 text-brand-moss">{{ trans_choice(':names is shared with other apps, so it is only detached.|:names are shared with other apps, so they are only detached.', $sharedDatabases->count(), ['names' => $sharedDatabases->pluck('name')->implode(', ')]) }}</p>
+            @endif
+            <p class="mt-2 text-sm leading-6 text-brand-moss">{{ __('Your organization’s queues and buckets are not touched.') }}</p>
         </div>
 
         <div class="space-y-4 px-6 py-5">

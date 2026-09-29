@@ -38,7 +38,7 @@
             <span class="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-2.5 text-brand-mist">
                 <x-heroicon-o-magnifying-glass class="h-3.5 w-3.5" aria-hidden="true" />
             </span>
-            <input
+            <input :aria-label="labels.search"
                 type="search"
                 x-model="query"
                 x-ref="search"
@@ -130,7 +130,7 @@
                                     </template>
                                     <template x-if="entry.scope">
                                         <span class="inline-flex items-center gap-1 font-mono text-2xs text-brand-mist" :title="labels.scope">
-                                            <span class="text-brand-mist/60" x-text="labels.scope + ':'"></span>
+                                            <span class="text-brand-mist" x-text="labels.scope + ':'"></span>
                                             <span x-text="entry.scope"></span>
                                         </span>
                                     </template>

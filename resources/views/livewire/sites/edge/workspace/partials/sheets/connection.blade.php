@@ -21,7 +21,7 @@
                 $kindGroups['connect']['kinds'] = [...$kindGroups['connect']['kinds'], ...$visibleKinds->keys()->diff($grouped)->all()];
                 $extras = [
                     'background' => $hasCronWorker || ($isContainer && ! ($workers['enabled'] ?? false)),
-                    'data' => ! $databaseVisible,
+                    'data' => true,
                 ];
             @endphp
             <div class="grid gap-5">
@@ -38,8 +38,9 @@
                                     <x-sheet.row wire:click="openWorkerSetup" wire:island="resources-worker-setup" x-on:click="$dispatch('close-modal', 'resources-connection'); $dispatch('open-modal', 'resources-worker-setup')" :title="__('Queue workers')" :hint="__('Run jobs in the background. Choose queues and when they run.')"><x-slot:icon><x-resource-kind-icon kind="queue" /></x-slot:icon></x-sheet.row>
                                 @endif
                             @endif
-                            @if ($groupKey === 'data' && ! $databaseVisible)
-                                <x-sheet.row wire:click="addDatabase" wire:island="resources-database" x-on:click="$dispatch('close-modal', 'resources-connection')" :title="__('Database')"><x-slot:icon><x-resource-kind-icon kind="database" /></x-slot:icon></x-sheet.row>
+                            @if ($groupKey === 'data')
+                                {{-- An app can have several (DplyDatabases): always offered. --}}
+                                <x-sheet.row wire:click="openAddDatabase" wire:island="resources-database-add" x-on:click="$dispatch('close-modal', 'resources-connection'); $dispatch('open-modal', 'resources-database-add')" :title="__('Database')" :hint="__('Postgres, MySQL or MongoDB. Create one or attach one your organization has.')"><x-slot:icon><x-resource-kind-icon kind="database" /></x-slot:icon></x-sheet.row>
                             @endif
                             @foreach ($group['kinds'] as $key)
                                 @continue(! $groupKinds->has($key))

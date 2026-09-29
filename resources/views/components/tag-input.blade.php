@@ -89,7 +89,7 @@
         list="{{ $listId }}"
         autocomplete="off"
         placeholder="{{ $placeholder ?? __('Add a tag…') }}"
-        class="min-w-[8rem] flex-1 border-0 bg-transparent px-1 py-0.5 text-sm text-brand-ink placeholder:text-brand-moss/70 focus:outline-none focus:ring-0 disabled:cursor-not-allowed"
+        class="min-w-[8rem] flex-1 border-0 bg-transparent px-1 py-0.5 text-sm text-brand-ink placeholder:text-brand-mist focus:outline-none focus:ring-0 disabled:cursor-not-allowed"
     >
 
     <datalist id="{{ $listId }}">
@@ -98,7 +98,7 @@
         @endforeach
     </datalist>
 
-    <span class="pr-1 text-xs text-brand-moss/70" x-show="atLimit" x-cloak>
+    <span class="pr-1 text-xs text-brand-moss" x-show="atLimit" x-cloak>
         {{ __('Tag limit reached') }}
     </span>
 </div>

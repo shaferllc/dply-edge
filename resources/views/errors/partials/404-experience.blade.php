@@ -194,11 +194,11 @@
     <p class="mx-auto mt-4 min-h-[1.25rem] max-w-md text-sm font-medium text-brand-forest dark:text-brand-sage" x-text="quip"></p>
 
     @if (! empty($errorContext['server']) && empty($errorContext['site']))
-        <p class="mx-auto mt-4 max-w-md text-sm text-brand-moss/80">
+        <p class="mx-auto mt-4 max-w-md text-sm text-brand-moss">
             {{ __('The server ":server" exists, but the specific page you requested could not be found.', ['server' => $errorContext['server']->name]) }}
         </p>
     @elseif (! empty($errorContext['site']))
-        <p class="mx-auto mt-4 max-w-md text-sm text-brand-moss/80">
+        <p class="mx-auto mt-4 max-w-md text-sm text-brand-moss">
             {{ __('The site ":site" exists on server ":server", but the specific page was not found.', ['site' => $errorContext['site']->domain, 'server' => $errorContext['server']->name ?? '']) }}
         </p>
     @endif

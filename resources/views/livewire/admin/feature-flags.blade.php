@@ -12,7 +12,7 @@
         icon="heroicon-o-flag"
     >
         <div class="border-b border-brand-ink/10 px-3 py-2.5 sm:px-4">
-            <input type="search" wire:model.live.debounce.300ms="search" placeholder="{{ __('Search organizations') }}" class="dply-input mt-0 w-full sm:w-72" />
+            <input aria-label="{{ __('Search organizations') }}" type="search" wire:model.live.debounce.300ms="search" placeholder="{{ __('Search organizations') }}" class="dply-input mt-0 w-full sm:w-72" />
         </div>
 
         <div class="overflow-x-auto">

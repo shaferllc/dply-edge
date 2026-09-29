@@ -12,9 +12,9 @@
         @livewireStyles
     </head>
     <body class="flex min-h-dvh flex-col bg-edge-void font-display text-edge-text antialiased">
-        <div class="flex-1 w-full">
+        <main class="flex-1 w-full">
             {{ $slot }}
-        </div>
+        </main>
         <x-edge-marketing-footer />
         @livewireScripts
     </body>

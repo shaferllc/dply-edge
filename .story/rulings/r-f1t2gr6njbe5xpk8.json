@@ -1,0 +1,16 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-29",
+  "id": "r-f1t2gr6njbe5xpk8",
+  "recordedBy": {
+    "client": "claude",
+    "id": "83d1b381-88e4-47a3-933e-9fbc89f87100"
+  },
+  "scopeTags": [
+    "billing",
+    "pricing",
+    "logs"
+  ],
+  "supersedes": null,
+  "text": "Workers Logs billing (log events: invocation, console and container stdout lines): \"Keep, with an allowance\". Each app's first 5 million log events a month are included; past that, $0.60 per million (Cloudflare's cost) + margin = $0.78/M at 30%. An explicit exception to r-2zxevg4sj675qn1m's \"no per-meter allowances\", so ordinary logging never appears on a bill. Config: dply.edge.usage_billing.workers_logs_included_per_app_month (5_000_000), applied per app (edge_platform_usage resource) in EdgePlatformUsageCost. (Owner answer, 2026-09-29.)"
+}

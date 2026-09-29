@@ -104,7 +104,7 @@
     >
         <div class="relative">
             <x-heroicon-o-magnifying-glass class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-brand-moss" aria-hidden="true" />
-            <input
+            <input aria-label="{{ __('Search repositories') }}"
                 x-ref="repoSearch"
                 x-model="search"
                 x-on:input="active = 0"

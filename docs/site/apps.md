@@ -94,7 +94,7 @@ The page shows **This app is being removed** while dply tears it down, then retu
 A scheduled app keeps serving traffic until its deletion time. There is no way to cancel a scheduled deletion from the dashboard.
 
 > [!WARNING]
-> Deleting an app cannot be undone. Its production URL, deployment aliases, and custom domains stop serving immediately after teardown.
+> Deleting an app cannot be undone. Its production URL, deployment aliases, and custom domains stop serving immediately after teardown. A dply database only this app uses is deleted with it, backups included; the delete dialog names each one. A database other apps also use is only detached. Export a database from its card first if you need the data.
 
 ### What deleting removes
 

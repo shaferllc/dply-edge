@@ -48,7 +48,7 @@
             :note="__('One address or many — separate with commas, spaces, or new lines. Already-registered addresses are skipped.')"
         />
         <form wire:submit="sendInvites" class="space-y-3 px-3 py-3 sm:px-4">
-            <textarea wire:model="emails" rows="3"
+            <textarea aria-label="{{ __('Email addresses') }}" wire:model="emails" rows="3"
                       placeholder="alex@example.com, sam@example.com"
                       class="block w-full rounded-lg border-brand-ink/15 text-sm focus:border-brand-gold focus:ring-brand-gold/40"></textarea>
             <div class="flex justify-end">

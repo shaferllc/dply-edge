@@ -40,17 +40,26 @@ class EdgePlatformUsageCost
             ->get();
 
         $totals = array_fill_keys([...self::COUNTS, ...self::STORAGE], 0);
+        $totals['log_events_billable'] = 0;
         foreach ($rows as $row) {
-            foreach ($totals as $column => $value) {
-                $totals[$column] = $value + ($column === 'do_gb_seconds' ? (float) $row->{$column} : (int) $row->{$column});
+            foreach (array_merge(self::COUNTS, self::STORAGE) as $column) {
+                $totals[$column] += $column === 'do_gb_seconds' ? (float) $row->{$column} : (int) $row->{$column};
             }
+            // Rows are per app (resource): each gets its own included events.
+            $totals['log_events_billable'] += self::billableLogEvents((int) $row->log_events);
         }
 
         return $totals + ['cents' => $this->cents($totals)];
     }
 
+    /** One app's log events past its monthly allowance (dply.edge.usage_billing.workers_logs_included_per_app_month). */
+    public static function billableLogEvents(int $events): int
+    {
+        return max(0, $events - (int) config('dply.edge.usage_billing.workers_logs_included_per_app_month', 5_000_000));
+    }
+
     /**
-     * @param  array<string, int|float>  $usage
+     * @param  array<string, int|float>  $usage  one app's usage, or an organization's with log_events_billable
      */
     public function cents(array $usage): int
     {
@@ -64,7 +73,7 @@ class EdgePlatformUsageCost
             + $perMillion('r2_class_a_ops', 'r2_bucket_class_a_millicents_per_million')
             + $perMillion('r2_class_b_ops', 'r2_bucket_class_b_millicents_per_million')
             + $perMillion('images_transformations', 'images_transformations_millicents_per_million')
-            + $perMillion('log_events', 'workers_logs_millicents_per_million')
+            + ($usage['log_events_billable'] ?? self::billableLogEvents((int) ($usage['log_events'] ?? 0))) / 1_000_000 * $rate('workers_logs_millicents_per_million')
             + ($usage['do_storage_bytes'] ?? 0) / 1024 ** 3 * $rate('do_storage_millicents_per_gb_month')
             + ($usage['r2_storage_bytes'] ?? 0) / 1024 ** 3 * $rate('r2_bucket_storage_millicents_per_gb_month');
 

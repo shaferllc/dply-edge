@@ -130,7 +130,7 @@
                             :style="`width: ${scans}%`"
                         ></div>
                     </div>
-                    <p class="mt-2 text-left text-xs text-brand-moss/80">{{ __('Cap intentionally set at 99%.') }}</p>
+                    <p class="mt-2 text-left text-xs text-brand-moss">{{ __('Cap intentionally set at 99%.') }}</p>
                 </div>
             </div>
 
@@ -183,15 +183,15 @@
     <p class="mx-auto mt-4 min-h-[1.25rem] max-w-md text-sm font-medium text-brand-rust dark:text-brand-gold" x-text="quip"></p>
 
     @if (! empty($errorContext['server']))
-        <p class="mx-auto mt-4 max-w-md text-sm text-brand-moss/80">
+        <p class="mx-auto mt-4 max-w-md text-sm text-brand-moss">
             {{ __('You do not have access to the server ":server".', ['server' => $errorContext['server']->name]) }}
         </p>
     @elseif (! empty($errorContext['site']))
-        <p class="mx-auto mt-4 max-w-md text-sm text-brand-moss/80">
+        <p class="mx-auto mt-4 max-w-md text-sm text-brand-moss">
             {{ __('You do not have access to the site ":site".', ['site' => $errorContext['site']->domain]) }}
         </p>
     @elseif (! empty($errorContext['organization']))
-        <p class="mx-auto mt-4 max-w-md text-sm text-brand-moss/80">
+        <p class="mx-auto mt-4 max-w-md text-sm text-brand-moss">
             {{ __('You are not a member of ":org".', ['org' => $errorContext['organization']->name]) }}
         </p>
     @endif
@@ -274,7 +274,7 @@
                         :class="{
                             'text-brand-rust/95': entry.tone === 'deny',
                             'text-brand-gold/90': entry.tone === 'excuse',
-                            'text-brand-mist/80': entry.tone === 'muted',
+                            'text-brand-mist': entry.tone === 'muted',
                         }"
                     >
                         <span class="shrink-0 text-brand-gold/70" x-text="entry.tone === 'deny' ? 'DENY' : entry.tone === 'excuse' ? 'NOTE' : 'AUDIT'"></span>

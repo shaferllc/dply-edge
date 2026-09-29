@@ -133,7 +133,7 @@
             maxlength="{{ (int) $maxLength }}"
             spellcheck="true"
             @if ($placeholder) placeholder="{{ $placeholder }}" @endif
-            class="block w-full flex-1 resize-y border-0 bg-transparent px-3 py-2.5 font-mono text-sm leading-relaxed text-brand-ink placeholder:font-sans placeholder:text-brand-moss/70 focus:outline-none focus:ring-0"
+            class="block w-full flex-1 resize-y border-0 bg-transparent px-3 py-2.5 font-mono text-sm leading-relaxed text-brand-ink placeholder:font-sans placeholder:text-brand-mist focus:outline-none focus:ring-0"
         >{{ $value }}</textarea>
 
         <div
@@ -144,7 +144,7 @@
             aria-live="polite"
         >
             @if (trim((string) $value) === '')
-                <p class="text-sm italic text-brand-moss/70">{{ __('Nothing to preview yet.') }}</p>
+                <p class="text-sm italic text-brand-moss">{{ __('Nothing to preview yet.') }}</p>
             @else
                 <x-markdown :content="$value" />
             @endif
@@ -158,7 +158,7 @@
         </p>
         <p
             class="ml-auto text-xs tabular-nums"
-            x-bind:class="overLimit ? 'font-semibold text-rose-600' : 'text-brand-moss/80'"
+            x-bind:class="overLimit ? 'font-semibold text-rose-600' : 'text-brand-moss'"
         >
             <span x-text="characterCount.toLocaleString()">{{ number_format(mb_strlen((string) $value)) }}</span>
             <span aria-hidden="true">/</span>

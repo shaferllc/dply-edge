@@ -23,6 +23,10 @@ Adding **Images** now opens its sheet right away. The sheet is one page: the add
 
 The **App** sheet now shows **Max instances** with **Min instances (always awake)** right under it, instead of keeping the minimum under **Sleep, scaling, region**. See [Scaling and sleep](/docs/scaling-and-sleep).
 
+### More than one database per app
+
+An app can now have several Postgres, MySQL and MongoDB databases. Add one from **Add resource** → **Database**, choosing the engine and a name, or attach one your organization already has. The first is the app's primary (`DB_*`, `DATABASE_URL`); others use their name as a prefix, like `ANALYTICS_DATABASE_URL`, and **Make primary** swaps them. Each database has **Detach**, which keeps it in your organization, and **Delete**, which asks you to type its name. The **None** choice is gone. **Projects** → **Databases** lists them all, including ones no app uses, so you can attach them elsewhere or delete them. See [Databases](/docs/resources/databases).
+
 ### Container deploys are checked before they take traffic
 
 A container deploy now starts the new version on its own first, runs your migrations there (`php artisan migrate --force` or `rails db:migrate`), and requests it. Only a version that answers moves into production. A failed migration or a server error stops the deploy with the error your app logged, and visitors keep the previous version. See [Deployments](/docs/deployments).

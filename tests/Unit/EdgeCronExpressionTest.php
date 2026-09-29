@@ -60,3 +60,44 @@ test('the Worker’s matcher agrees: due when it should be, never for what PHP r
         }
     }
 });
+
+test('the container Worker counts reply bytes, including a cut-off download, and marks streams', function () {
+    $node = (new ExecutableFinder)->find('node');
+    if ($node === null) {
+        $this->markTestSkipped('node is not installed');
+    }
+    $site = new App\Models\Site(['meta' => ['edge' => []]]);
+    $site->id = '01REPLYBYTES';
+    $dir = sys_get_temp_dir().'/dply-reply-test-'.bin2hex(random_bytes(4));
+    (new EdgeContainerDeployer)->scaffold($dir, $site, '/x/Dockerfile', 8080, []);
+    $worker = File::get($dir.'/src/index.js');
+    File::deleteDirectory($dir);
+
+    $fns = 'const SITE_ID = "s";'
+        .'function isSocket(response) {'.Str::betweenFirst($worker, 'function isSocket(response) {', "\n}\n")."\n}\n"
+        .'function countReply(env, response) {'.Str::betweenFirst($worker, 'function countReply(env, response) {', "\n}\n")."\n}\n";
+    $script = $fns.<<<'JS'
+    const points = [];
+    const env = { DPLY_BYTES: { writeDataPoint: (p) => points.push([p.blobs[1] ?? 'reply', p.doubles[0]]) } };
+    const chunked = () => new Response(new ReadableStream({ start(c) { c.enqueue(new Uint8Array(1000)); c.enqueue(new Uint8Array(500)); c.close(); } }));
+    const tick = () => new Promise((r) => setTimeout(r, 20));
+    (async () => {
+      await countReply(env, chunked()).arrayBuffer();                                    // read to the end
+      const cut = countReply(env, new Response(new ReadableStream({ pull(c) { c.enqueue(new Uint8Array(700)); } })));
+      const reader = cut.body.getReader(); await reader.read(); await reader.cancel();  // visitor went away
+      countReply(env, new Response('data: x\n\n', { headers: { 'content-type': 'text/event-stream' } }));
+      countReply(env, new Response('abc', { headers: { 'content-length': '3' } }));
+      await tick();
+      console.log(JSON.stringify(points));
+    })();
+    JS;
+    $result = Process::run([$node, '-e', $script]);
+    $points = json_decode($result->output(), true);
+
+    expect($points)->toContain(['reply', 1500])       // both chunks, no Content-Length
+        ->toContain(['stream', 0])                     // an event stream is marked, not counted
+        ->toContain(['reply', 3]);                     // Content-Length taken as is
+    $cut = collect($points)->first(fn ($p) => $p[0] === 'reply' && ! in_array($p[1], [1500, 3], true));
+    expect($cut)->not->toBeNull()                      // the aborted download was still recorded
+        ->and($cut[1])->toBeGreaterThanOrEqual(700);
+});

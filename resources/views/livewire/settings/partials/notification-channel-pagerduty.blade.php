@@ -6,13 +6,13 @@
 <div class="space-y-4">
     <div class="rounded-xl border border-brand-ink/10 bg-brand-ink/[0.02] px-3 py-3">
         <p class="text-xs font-medium text-brand-ink/80">{{ __('Where to get the integration key') }}</p>
-        <ol class="mt-2 space-y-1 text-xs text-brand-ink/70">
+        <ol class="mt-2 space-y-1 text-xs text-brand-moss">
             <li>{{ __('1. In PagerDuty, open the service you want dply to page — Services → Service Directory → your service.') }}</li>
             <li>{{ __('2. Go to the Integrations tab and choose Add an integration.') }}</li>
             <li>{{ __('3. Pick Events API v2. dply does not support the older Events API v1.') }}</li>
             <li>{{ __('4. Copy the Integration Key it generates and paste it below.') }}</li>
         </ol>
-        <p class="mt-2 text-xs text-brand-ink/60">
+        <p class="mt-2 text-xs text-brand-moss">
             {{ __('The key is tied to that one service, so its escalation policy decides who gets woken. A wrong-region key is rejected with a message about the key rather than about the region.') }}
         </p>
     </div>
@@ -60,7 +60,7 @@
                     <option value="{{ $severity }}">{{ ucfirst($severity) }}</option>
                 @endforeach
             </select>
-            <p class="mt-1 text-xs text-brand-ink/60">
+            <p class="mt-1 text-xs text-brand-moss">
                 {{ __('Only used for alerts that carry no severity of their own — subscribed events bring theirs.') }}
             </p>
             @error($p.'pagerduty_default_severity')
@@ -76,7 +76,7 @@
                 class="mt-1 block w-full rounded-xl border border-brand-ink/15 px-3 py-2 text-sm shadow-sm focus:border-brand-sage focus:ring-brand-sage"
                 autocomplete="off"
             />
-            <p class="mt-1 text-xs text-brand-ink/60">
+            <p class="mt-1 text-xs text-brand-moss">
                 {{ __('Overrides the affected server or site as the incident source. Usually best left blank.') }}
             </p>
             @error($p.'pagerduty_source')
@@ -114,7 +114,7 @@
         </div>
     </div>
 
-    <p class="text-xs text-brand-ink/60">
+    <p class="text-xs text-brand-moss">
         {{ __('Sending a test raises an info-level incident so it proves the wiring without waking whoever is on call.') }}
     </p>
 </div>

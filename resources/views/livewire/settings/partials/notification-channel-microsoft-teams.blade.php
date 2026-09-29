@@ -13,13 +13,13 @@
 <div class="space-y-3">
     <div class="rounded-xl border border-brand-ink/10 bg-brand-ink/[0.02] px-3 py-3">
         <p class="text-xs font-medium text-brand-ink/80">{{ __('Where to get the workflow URL') }}</p>
-        <ol class="mt-2 space-y-1 text-xs text-brand-ink/70">
+        <ol class="mt-2 space-y-1 text-xs text-brand-moss">
             <li>{{ __('1. In Teams, right-click the channel you want alerts in → Workflows.') }}</li>
             <li>{{ __('2. Choose the template "Post to a channel when a webhook request is received".') }}</li>
             <li>{{ __('3. Sign in when prompted, confirm the team and channel, and create the flow.') }}</li>
             <li>{{ __('4. Copy the URL it shows you at the end and paste it below.') }}</li>
         </ol>
-        <p class="mt-2 text-xs text-brand-ink/60">
+        <p class="mt-2 text-xs text-brand-moss">
             {{ __('This is a Power Automate Workflow, not the older "Incoming Webhook" connector — Microsoft retired connectors in May 2026 and those URLs no longer deliver.') }}
         </p>
     </div>
@@ -54,7 +54,7 @@
         @enderror
     </div>
 
-    <p class="text-xs text-brand-ink/60">
+    <p class="text-xs text-brand-moss">
         {{ __('Alerts arrive as an Adaptive Card with the title, detail, and a button back into dply.') }}
     </p>
 </div>

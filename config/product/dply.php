@@ -428,6 +428,10 @@ return [
             // container stdout lines). The account's 20M included events are
             // not passed on. Collected per script by collect-platform-usage.
             'workers_logs_millicents_per_million' => (float) env('DPLY_EDGE_WORKERS_LOGS_MC_PER_MILLION', 60_000),
+            // Each app's first 5M log events a month are included; only the
+            // rest bill (ruling r-f1t2gr6njbe5xpk8, 2026-09-29: an exception to "no per-meter
+            // allowances", so ordinary logging never shows up on the bill).
+            'workers_logs_included_per_app_month' => (int) env('DPLY_EDGE_WORKERS_LOGS_INCLUDED_PER_APP', 5_000_000),
             'do_requests_millicents_per_million' => (float) env('DPLY_EDGE_DO_REQUESTS_MC_PER_MILLION', 15_000),
             'do_duration_millicents_per_million_gb_s' => (float) env('DPLY_EDGE_DO_DURATION_MC_PER_MILLION_GB_S', 1_250_000),
             'do_rows_read_millicents_per_million' => (float) env('DPLY_EDGE_DO_ROWS_READ_MC_PER_MILLION', 100),

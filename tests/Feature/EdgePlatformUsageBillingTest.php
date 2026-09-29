@@ -154,8 +154,23 @@ test('log events bill per script, container stdout folded into its app', functio
 
     expect(EdgePlatformUsage::query()->where('resource', $ctr)->value('log_events'))->toBe(1_000_000)
         ->and(EdgePlatformUsage::query()->count())->toBe(1)
-        // $0.60 per million (margin 0 in this file).
-        ->and(app(EdgePlatformUsageCost::class)->cents(['log_events' => 1_000_000]))->toBe(60);
+        // Within the app's 5M included a month: nothing (ruling r-f1t2gr6njbe5xpk8).
+        ->and(app(EdgePlatformUsageCost::class)->cents(['log_events' => 1_000_000]))->toBe(0)
+        // Past it, $0.60 per million (margin 0 in this file).
+        ->and(app(EdgePlatformUsageCost::class)->cents(['log_events' => 6_000_000]))->toBe(60);
+});
+
+test('each app gets its own included log events', function () {
+    $org = Organization::factory()->create();
+    foreach (['dply-ctr-a' => 4_000_000, 'dply-ctr-b' => 4_000_000, 'dply-ctr-c' => 7_000_000] as $resource => $events) {
+        EdgePlatformUsage::query()->create(['organization_id' => $org->id, 'resource' => $resource, 'date' => now()->toDateString(), 'log_events' => $events]);
+    }
+
+    $bill = app(EdgePlatformUsageCost::class)->forOrganization($org, now()->startOfMonth(), now()->endOfMonth());
+
+    expect($bill['log_events'])->toBe(15_000_000)
+        ->and($bill['log_events_billable'])->toBe(2_000_000) // only c's 2M past its 5M
+        ->and($bill['cents'])->toBe(120);
 });
 
 test('re-running a day overwrites instead of adding', function () {

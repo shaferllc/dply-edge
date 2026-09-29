@@ -178,7 +178,7 @@
                                 </button>
                             </span>
                         </template>
-                        <input
+                        <input aria-label="{{ __('Search countries') }}"
                             x-ref="searchInput"
                             type="text"
                             x-model="query"

@@ -118,9 +118,10 @@ final class EdgeDplyDatabase
     /**
      * @return array{id: string, host: string, port: string, database: string, username: string, password: string, region: string}
      */
-    public static function provision(Site $site, string $size, int $suspend, int $disk, string $engine = 'postgres', ?string $region = null): array
+    public static function provision(Site $site, string $size, int $suspend, int $disk, string $engine = 'postgres', ?string $region = null, ?string $id = null): array
     {
-        $id = self::tenantId($site, $engine);
+        // An app's first database keeps the old per-site id; more get their own (DplyDatabases).
+        $id ??= self::tenantId($site, $engine);
         $password = Str::random(40);
         $region = ValkeyRegions::get($region ?? DataRegion::forSite($site))['key'];
         ValkeyGatewayClient::fromConfig($region)->put($id, $password, self::memoryMb($size), self::sleepAfter($suspend), true, $engine, self::disk($disk));

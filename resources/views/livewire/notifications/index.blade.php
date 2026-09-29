@@ -97,14 +97,14 @@
 
                 <div class="flex flex-wrap items-center gap-2">
                     @if ($categories->isNotEmpty())
-                        <select wire:model.live="categoryFilter" class="rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink shadow-sm focus:border-brand-sage focus:ring-brand-sage">
+                        <select aria-label="{{ __('Filter by category') }}" wire:model.live="categoryFilter" class="rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink shadow-sm focus:border-brand-sage focus:ring-brand-sage">
                             <option value="">{{ __('All categories') }}</option>
                             @foreach ($categories as $cat)
                                 <option value="{{ $cat }}">{{ \Illuminate\Support\Str::headline(str_replace('_', ' ', $cat)) }}</option>
                             @endforeach
                         </select>
                     @endif
-                    <select wire:model.live="severityFilter" class="rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink shadow-sm focus:border-brand-sage focus:ring-brand-sage">
+                    <select aria-label="{{ __('Filter by severity') }}" wire:model.live="severityFilter" class="rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink shadow-sm focus:border-brand-sage focus:ring-brand-sage">
                         <option value="">{{ __('All severities') }}</option>
                         @foreach (['critical' => __('Critical'), 'error' => __('Error'), 'danger' => __('Danger'), 'warning' => __('Warning'), 'info' => __('Info'), 'success' => __('Success')] as $sevKey => $sevLabel)
                             <option value="{{ $sevKey }}">{{ $sevLabel }}</option>

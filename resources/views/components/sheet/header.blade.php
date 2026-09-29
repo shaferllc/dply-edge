@@ -23,7 +23,7 @@
         @if ($eyebrow)
             <p class="truncate font-mono text-2xs text-brand-mist">{{ $eyebrow }}</p>
         @endif
-        <h2 class="text-base font-semibold tracking-tight text-brand-ink">{{ $title }}</h2>
+        <h2 x-bind:id="'sheet-title-' + name" class="text-base font-semibold tracking-tight text-brand-ink">{{ $title }}</h2>
         @if (trim((string) $slot) !== '')
             <div class="mt-0.5 text-xs text-brand-moss">{{ $slot }}</div>
         @endif

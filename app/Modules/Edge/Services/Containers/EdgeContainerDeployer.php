@@ -1808,30 +1808,45 @@ async function proxy(env, request, target) {
 // wrapped, and a stream the client drops (SSE, aborted download) never
 // reaches flush(), so those bytes count as outbound.
 function countReply(env, response) {
-  if (!env.DPLY_BYTES || !response.body || isSocket(response)) return response;
-  const record = (bytes) => {
+  if (!env.DPLY_BYTES) return response;
+  const record = (bytes, kind) => {
     try {
-      env.DPLY_BYTES.writeDataPoint({ indexes: [SITE_ID], blobs: [SITE_ID], doubles: [bytes] });
+      env.DPLY_BYTES.writeDataPoint({ indexes: [SITE_ID], blobs: kind ? [SITE_ID, kind] : [SITE_ID], doubles: [bytes] });
     } catch {
       // Metering never breaks a reply.
     }
   };
+  // A socket or an event stream can't be counted here. Mark the day: dply
+  // then bills no outbound for it (EdgeContainerUsageCollector), rather than
+  // bill those replies as outbound.
+  if (isSocket(response) || (response.headers.get('content-type') ?? '').startsWith('text/event-stream')) {
+    record(0, 'stream');
+    return response;
+  }
+  if (!response.body) return response;
   const length = Number(response.headers.get('content-length'));
   if (Number.isFinite(length) && length > 0) {
     record(length);
     return response;
   }
+  // Counted as it flows, and recorded once however it ends: finished, or cut
+  // off by the visitor (flush() alone never ran for an aborted download).
   let bytes = 0;
-  const counter = new TransformStream({
+  let recorded = false;
+  const once = () => {
+    if (!recorded) {
+      recorded = true;
+      record(bytes);
+    }
+  };
+  const { readable, writable } = new TransformStream({
     transform(chunk, controller) {
       bytes += chunk.byteLength;
       controller.enqueue(chunk);
     },
-    flush() {
-      record(bytes);
-    },
   });
-  return new Response(response.body.pipeThrough(counter), response);
+  response.body.pipeTo(writable).then(once, once);
+  return new Response(readable, response);
 }
 
 function revealAppErrors(env, response) {

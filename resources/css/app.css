@@ -6,8 +6,7 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
-@source '../../storage/framework/views/*.php';
-@source '../**/*.blade.php';
+@source '..*.blade.php';
 @source '../**/*.js';
 @source '../../app/Support/LogLineTone.php';
 
@@ -441,7 +440,7 @@
     }
 
     html.dark .text-slate-400 {
-        color: color-mix(in srgb, var(--color-brand-mist) 80%, transparent);
+        color: var(--color-brand-mist);
     }
 
     html.dark .border-slate-100 {

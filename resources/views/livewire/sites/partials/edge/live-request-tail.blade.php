@@ -61,7 +61,7 @@
             </p>
         </div>
         <div class="flex flex-wrap items-center gap-1.5">
-            <select x-model="methodFilter"
+            <select aria-label="{{ __('Filter by method') }}" x-model="methodFilter"
                     class="dply-input !mt-0 w-auto cursor-pointer appearance-none rounded-md border border-brand-ink/15 bg-white py-1 pl-2 pr-8 font-mono text-xs text-brand-ink shadow-none dark:border-brand-mist/20 dark:bg-zinc-900">
                 <option value="">{{ __('Method') }}</option>
                 <option value="GET">GET</option>
@@ -72,7 +72,7 @@
                 <option value="HEAD">HEAD</option>
                 <option value="OPTIONS">OPTIONS</option>
             </select>
-            <select x-model="statusFilter"
+            <select aria-label="{{ __('Filter by status') }}" x-model="statusFilter"
                     class="dply-input !mt-0 w-auto cursor-pointer appearance-none rounded-md border border-brand-ink/15 bg-white py-1 pl-2 pr-8 font-mono text-xs text-brand-ink shadow-none dark:border-brand-mist/20 dark:bg-zinc-900">
                 <option value="">{{ __('Status') }}</option>
                 <option value="2xx">2xx</option>
@@ -80,7 +80,7 @@
                 <option value="4xx">4xx</option>
                 <option value="5xx">5xx</option>
             </select>
-            <input type="text"
+            <input aria-label="{{ __('Filter by path') }}" type="text"
                    x-model="filter"
                    placeholder="{{ __('Path…') }}"
                    class="w-28 rounded-md border border-brand-ink/15 bg-white px-2 py-1 font-mono text-xs text-brand-ink dark:border-brand-mist/20 dark:bg-zinc-900" />

@@ -125,6 +125,22 @@ final class EdgeAppDatabase
      */
     public static function storeCredentials(Site $site, string $engine, array $credentials): void
     {
+        foreach (self::credentialPairs($engine, $credentials) as $key => $value) {
+            self::writeEnv($site, $key, $value);
+        }
+    }
+
+    /**
+     * The env a database's connection sets. The app's primary uses the
+     * standard names (DB_*, DATABASE_URL, MONGODB_URI); another attached
+     * database the same names behind its prefix (ANALYTICS_DB_HOST,
+     * ANALYTICS_DATABASE_URL, ANALYTICS_MONGODB_URI).
+     *
+     * @param  array{host: string, port: string, database: string, username: string, password: string}  $credentials
+     * @return array<string, string>
+     */
+    public static function credentialPairs(string $engine, array $credentials, string $prefix = ''): array
+    {
         $auth = rawurlencode($credentials['username']).':'.rawurlencode($credentials['password']);
         $database = rawurlencode($credentials['database']);
         $address = $credentials['host'].':'.$credentials['port'];
@@ -155,10 +171,15 @@ final class EdgeAppDatabase
                 'DATABASE_URL' => 'mysql://'.$auth.'@'.$address.'/'.$database.'?ssl-mode=REQUIRED',
             ],
         };
-
-        foreach ($pairs as $key => $value) {
-            self::writeEnv($site, $key, $value);
+        if ($prefix === '') {
+            return $pairs;
         }
+        $prefixed = [];
+        foreach ($pairs as $key => $value) {
+            $prefixed[$prefix.'_'.$key] = $value;
+        }
+
+        return $prefixed;
     }
 
     public static function forgetCredentials(Site $site): void
@@ -278,7 +299,7 @@ final class EdgeAppDatabase
         return null;
     }
 
-    private static function requireCard(Site $site): void
+    public static function requireCard(Site $site): void
     {
         // Local-only escape hatch, the same as Resources::cardOnFile.
         if (app()->isLocal() && config('edge.skip_card_check')) {
@@ -303,7 +324,7 @@ final class EdgeAppDatabase
         $site->mergeEdgeMeta(['database' => $database]);
     }
 
-    private static function writeEnv(Site $site, string $key, string $value): void
+    public static function writeEnv(Site $site, string $key, string $value): void
     {
         $row = $site->edgeEnvVars()
             ->where('scope', EdgeSiteEnvVar::SCOPE_PRODUCTION)

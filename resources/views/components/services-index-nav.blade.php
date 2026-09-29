@@ -37,7 +37,7 @@
         {{-- sm:w-20 matches the Compute eyebrow so both tab strips start on the
              same column; the muted moss (vs. Compute's ink) keeps this row
              reading as the secondary of the pair. --}}
-        <span class="hidden shrink-0 text-[11px] font-semibold uppercase tracking-wider text-brand-moss/70 sm:inline sm:w-20">
+        <span class="hidden shrink-0 text-[11px] font-semibold uppercase tracking-wider text-brand-moss sm:inline sm:w-20">
             {{ __('Services') }}
         </span>
         <div class="flex min-w-0 flex-1 gap-0.5 overflow-x-auto sm:gap-1" style="-webkit-overflow-scrolling: touch;">

@@ -226,7 +226,11 @@
                                 {!! $pill($d['status'] === 'ready' ? __('Ready') : (string) str($d['status'])->headline(), $d['status'] === 'ready' ? 'ok' : 'warn') !!}
                             @endif
                         </span>
+                        @php $primaryName = $appDatabases->first(fn ($x) => (bool) $x->attached_primary)?->name; @endphp
                         <span class="mt-1.5 block text-sm font-bold text-brand-ink">{{ ['postgres' => 'Postgres', 'mongodb' => 'MongoDB', 'mysql' => 'MySQL', 'sql' => 'SQLite'][$databaseEngine] ?? __('None') }}@if ($dplyEngine) · <span class="font-normal text-brand-moss">{{ $databaseName }}</span>@endif</span>
+                        @if ($primaryName && $databaseEngine !== 'sql')
+                            <span class="block font-mono text-2xs text-brand-mist">{{ $primaryName }} · {{ __('primary') }}</span>
+                        @endif
                         @if ($databaseEngine === 'sql')
                             <span class="mt-0.5 block text-xs text-brand-moss">{{ __('A file inside the app, saved while it runs and restored when it wakes.') }}</span>
                         @elseif ($dplyEngine && $d)
@@ -244,6 +248,18 @@
                         @include('livewire.sites.edge.workspace.partials.workers-node')
                     @endif
                 @endif
+                {{-- The app's other databases (DplyDatabases): each its own box and sheet. --}}
+                @foreach ($appDatabases->reject(fn ($d) => (bool) $d->attached_primary) as $extra)
+                    <button type="button" wire:click="openExtraDatabase('{{ $extra->id }}')" wire:island="resources-database-extra" x-on:click="$dispatch('open-modal', 'resources-database-extra')" class="{{ $node }}" wire:key="extra-db-{{ $extra->id }}">
+                        <span class="flex items-center justify-between gap-2">
+                            <span class="{{ $eyebrow }}">{{ __('Database') }}</span>
+                            <span class="font-mono text-2xs text-brand-mist">{{ $extra->attached_env_name }}_*</span>
+                        </span>
+                        <span class="mt-1.5 block text-sm font-bold text-brand-ink">{{ $extra->name }}</span>
+                        <span class="mt-0.5 block text-xs text-brand-moss">{{ ['postgres' => 'Postgres', 'mongodb' => 'MongoDB', 'mysql' => 'MySQL'][$extra->engine] ?? $extra->engine }} · {{ \App\Modules\Edge\Services\EdgeAppDatabase::POSTGRES_SIZES[$extra->size]['cpu'] ?? $extra->size }}</span>
+                        {!! $more !!}
+                    </button>
+                @endforeach
 
                 @if ($showBrowser && $browserOn)
                     <button type="button" wire:click="openPanel('browser')" wire:island="resources-browser" x-on:click="$dispatch('open-modal', 'resources-browser')" class="{{ $node }}">
@@ -306,6 +322,18 @@
         @include('livewire.sites.edge.workspace.partials.sheets.workers')
         @include('livewire.sites.edge.workspace.partials.sheets.worker-logs')
         @include('livewire.sites.edge.workspace.partials.sheets.failed-jobs')
+    @endisland
+    @island(name: 'resources-database-add', always: true, skip: true, with: $this->viewData())
+        @placeholder
+            <x-sheet.pending name="resources-database-add" maxWidth="lg" />
+        @endplaceholder
+        @include('livewire.sites.edge.workspace.partials.sheets.database-add')
+    @endisland
+    @island(name: 'resources-database-extra', always: true, skip: true, with: $this->viewData())
+        @placeholder
+            <x-sheet.pending name="resources-database-extra" maxWidth="lg" />
+        @endplaceholder
+        @include('livewire.sites.edge.workspace.partials.sheets.database-extra')
     @endisland
     @island(name: 'resources-worker-setup', always: true, skip: true, with: $this->viewData())
         @placeholder
