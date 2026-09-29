@@ -3,22 +3,48 @@
         <x-sheet.header :title="__('Add a resource')" close-wire="openPanel('')" />
 
         <x-sheet.body>
-            <div class="grid gap-1.5">
-                @if ($isContainer && ! $scheduler && $site->isLaravelFrameworkDetected())
-                    <x-sheet.row wire:click="addScheduler" wire:island="resources-workers" x-on:click="$dispatch('close-modal', 'resources-connection')" :title="__('Scheduler')"><x-slot:icon><x-heroicon-o-clock /></x-slot:icon></x-sheet.row>
-                @endif
-                @if ($isContainer && ! ($workers['enabled'] ?? false))
-                    <x-sheet.row wire:click="addWorkers" wire:island="resources-workers" x-on:click="$dispatch('close-modal', 'resources-connection')" :title="__('Queue workers')"><x-slot:icon><x-resource-kind-icon kind="queue" /></x-slot:icon></x-sheet.row>
-                @endif
-                @unless ($databaseVisible)
-                    <x-sheet.row wire:click="addDatabase" wire:island="resources-database" x-on:click="$dispatch('close-modal', 'resources-connection')" :title="__('Database')"><x-slot:icon><x-resource-kind-icon kind="database" /></x-slot:icon></x-sheet.row>
-                @endunless
-                @foreach ($connectionKinds as $key => $kind)
-                    @continue(! in_array($key, $allowedKinds, true) || in_array($key, \App\Modules\Edge\Support\EdgeContainerConnections::HIDDEN_FROM_BUILDER, true))
-                    @continue($key === 'redis' && collect($connections)->contains('kind', 'redis'))
-                    @continue($key === 'realtime' && collect($connections)->contains('kind', 'realtime'))
-                    @php $locked = in_array($key, \App\Modules\Edge\Support\EdgeContainerConnections::PAID_ONLY, true) && ! $paidFeatures; @endphp
-                    <x-sheet.row wire:click="chooseConnectionKind('{{ $key }}')" :disabled="$locked" :class="$locked ? 'cursor-not-allowed opacity-50' : ''" :title="__($kind['label'])" :hint="$locked ? \App\Modules\Edge\Support\EdgeContainerConnections::paidOnlyReason() : (__($kind['hint'] ?? '') ?: null)"><x-slot:icon><x-resource-kind-icon :kind="$key" /></x-slot:icon></x-sheet.row>
+            @php
+                $visibleKinds = collect($connectionKinds)->filter(fn ($kind, $key) => in_array($key, $allowedKinds, true)
+                    && ! in_array($key, \App\Modules\Edge\Support\EdgeContainerConnections::HIDDEN_FROM_BUILDER, true)
+                    && ! (in_array($key, ['redis', 'realtime'], true) && collect($connections)->contains('kind', $key)));
+                $kindGroups = [
+                    'background' => ['title' => __('Background work'), 'kinds' => ['queue']],
+                    'data' => ['title' => __('Data & storage'), 'kinds' => ['sql', 'database_pool', 'key_value', 'durable_object', 'redis', 'object_storage']],
+                    'ai' => ['title' => __('AI & media'), 'kinds' => ['ai', 'vectors', 'images']],
+                    'connect' => ['title' => __('Connect'), 'kinds' => ['service', 'realtime']],
+                ];
+                $grouped = collect($kindGroups)->flatMap(fn ($g) => $g['kinds'])->all();
+                // A kind added later without a group still shows, under Connect.
+                $kindGroups['connect']['kinds'] = [...$kindGroups['connect']['kinds'], ...$visibleKinds->keys()->diff($grouped)->all()];
+                $extras = [
+                    'background' => $hasCronWorker || ($isContainer && ! ($workers['enabled'] ?? false)),
+                    'data' => ! $databaseVisible,
+                ];
+            @endphp
+            <div class="grid gap-5">
+                @foreach ($kindGroups as $groupKey => $group)
+                    @php $groupKinds = $visibleKinds->only($group['kinds']); @endphp
+                    @continue($groupKinds->isEmpty() && ! ($extras[$groupKey] ?? false))
+                    <x-sheet.section :title="$group['title']">
+                        <div class="grid gap-1.5">
+                            @if ($groupKey === 'background')
+                                @if ($hasCronWorker)
+                                    <x-sheet.row wire:click="openPanel('')" wire:island="resources-connection" x-on:click="$dispatch('close-modal', 'resources-connection'); $dispatch('edge-cron-new')" :title="__('Scheduled task')" :hint="__('Run a command on a schedule. Add as many as you need.')"><x-slot:icon><x-heroicon-o-calendar-days /></x-slot:icon></x-sheet.row>
+                                @endif
+                                @if ($isContainer && ! ($workers['enabled'] ?? false))
+                                    <x-sheet.row wire:click="addWorkers" wire:island="resources-workers" x-on:click="$dispatch('close-modal', 'resources-connection')" :title="__('Queue workers')"><x-slot:icon><x-resource-kind-icon kind="queue" /></x-slot:icon></x-sheet.row>
+                                @endif
+                            @endif
+                            @if ($groupKey === 'data' && ! $databaseVisible)
+                                <x-sheet.row wire:click="addDatabase" wire:island="resources-database" x-on:click="$dispatch('close-modal', 'resources-connection')" :title="__('Database')"><x-slot:icon><x-resource-kind-icon kind="database" /></x-slot:icon></x-sheet.row>
+                            @endif
+                            @foreach ($group['kinds'] as $key)
+                                @continue(! $groupKinds->has($key))
+                                @php $kind = $groupKinds[$key]; $locked = in_array($key, \App\Modules\Edge\Support\EdgeContainerConnections::PAID_ONLY, true) && ! $paidFeatures; @endphp
+                                <x-sheet.row wire:click="chooseConnectionKind('{{ $key }}')" :disabled="$locked" :class="$locked ? 'cursor-not-allowed opacity-50' : ''" :title="__($kind['label'])" :hint="$locked ? \App\Modules\Edge\Support\EdgeContainerConnections::paidOnlyReason() : (__($kind['hint'] ?? '') ?: null)"><x-slot:icon><x-resource-kind-icon :kind="$key" /></x-slot:icon></x-sheet.row>
+                            @endforeach
+                        </div>
+                    </x-sheet.section>
                 @endforeach
             </div>
         </x-sheet.body>

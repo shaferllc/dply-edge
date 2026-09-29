@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Listeners\SyncBillingOnSubscriptionWebhook;
+use App\Models\ApiToken;
 use App\Models\Incident;
 use App\Models\NotificationChannel;
 use App\Models\Organization;
@@ -287,6 +288,20 @@ class AppServiceProvider extends ServiceProvider
             $token = $request->attributes->get('api_token');
 
             return Limit::perMinute(600)->by($token ? 'edge-api:'.$token->id : 'edge-api-ip:'.$request->ip());
+        });
+
+        // Key-value admin API. Each call is a Cloudflare REST call on the
+        // platform account, whose ~1200 per 5 minutes every organization
+        // shares, so it is keyed by ORGANIZATION: more tokens, same ceiling.
+        // Throttle middleware sorts ahead of auth.api, so the token is not on
+        // the request yet: look it up here to key by its organization.
+        RateLimiter::for('kv-api', function (Request $request) {
+            $plaintext = $request->bearerToken() ?? $request->header('X-API-Key');
+            $organization = is_string($plaintext) && $plaintext !== '' ? ApiToken::findTokenByPlaintext($plaintext)?->organization : null;
+
+            return Limit::perMinute(60)
+                ->by($organization ? 'kv-api:'.$organization->id : 'kv-api-ip:'.$request->ip())
+                ->response(fn () => response()->json(['message' => 'Too many key-value API calls: 60 a minute per organization. Apps should read and write through their internal host or binding.'], 429));
         });
 
         // Creating and tearing down sites that provision infrastructure. Keyed

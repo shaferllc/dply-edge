@@ -352,7 +352,7 @@ class EdgeBuildRunner
             }
 
             foreach ($deployment->site !== null ? EdgeEffectiveBindings::overriddenByRepo($deployment->site, $deployment) : [] as $name) {
-                $this->appendBuildLog($buildLog, "[bindings] wrangler.toml also declares {$name}. The repo's binding is used and the Resources page's {$name} is skipped.\n");
+                $this->appendBuildLog($buildLog, "[bindings] wrangler.toml also declares {$name}. The repo's binding is used and the one added on Overview is skipped.\n");
             }
 
             if ($repoConfig !== null) {

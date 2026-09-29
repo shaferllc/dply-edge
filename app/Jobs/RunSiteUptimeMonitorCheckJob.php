@@ -21,6 +21,7 @@ use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
@@ -129,8 +130,9 @@ class RunSiteUptimeMonitorCheckJob implements ShouldBeUnique, ShouldQueue
 
         // A container app that may sleep: loading its page would wake it, and
         // a check every 5 minutes kept it from ever reaching its sleep timeout.
-        // Asleep means nothing to check this round; keep the last result.
-        if (! $monitor->isSslCheck() && self::containerAsleep($site)) {
+        // Asleep, or awake only because of our own last check, means nothing
+        // to check this round; keep the last result.
+        if (! $monitor->isSslCheck() && self::containerResting($site)) {
             $monitor->forceFill(['last_checked_at' => now()])->save();
 
             return;
@@ -174,18 +176,36 @@ class RunSiteUptimeMonitorCheckJob implements ShouldBeUnique, ShouldQueue
     }
 
     /**
-     * True when the site is a container app with no always-awake instance and
-     * none running now. Asking the Worker which instances run never wakes one.
+     * True when the site is a container app with no always-awake instance that
+     * is asleep, or awake only because one of our checks was its last request
+     * (lastActivity from the site Worker). Asking the Worker never wakes one.
      */
-    private static function containerAsleep(Site $site): bool
+    private static function containerResting(Site $site): bool
     {
         if (($site->edgeMeta()['runtime_mode'] ?? '') !== 'container'
             || EdgeContainerSettings::for($site)['min_instances'] > 0) {
             return false;
         }
         $snapshot = EdgeContainerInstances::snapshot($site);
+        if ($snapshot['instances'] === null) {
+            return false;
+        }
+        if ($snapshot['running'] === 0) {
+            return true;
+        }
 
-        return $snapshot['instances'] !== null && $snapshot['running'] === 0;
+        $lastActivity = collect($snapshot['instances'])->pluck('lastActivity')->filter()->max();
+        $lastProbe = Cache::get(self::probedKey($site->id));
+
+        // A check takes a few seconds; a request later than that came from someone else.
+        return $lastActivity !== null && is_int($lastProbe)
+            && $lastActivity <= $lastProbe + self::HTTP_TIMEOUT_SECONDS + 5;
+    }
+
+    /** When a check last actually requested this site (skipped rounds don't count). */
+    private static function probedKey(string $siteId): string
+    {
+        return 'uptime-probed:'.$siteId;
     }
 
     /**
@@ -251,9 +271,12 @@ class RunSiteUptimeMonitorCheckJob implements ShouldBeUnique, ShouldQueue
             $emit->info('GET '.$attemptUrl);
             $checkedUrl = $attemptUrl;
             $started = microtime(true);
+            Cache::put(self::probedKey((string) $monitor->site_id), now()->timestamp, now()->addDay());
             try {
                 $response = Http::timeout(self::HTTP_TIMEOUT_SECONDS)
                     ->connectTimeout(self::CONNECT_TIMEOUT_SECONDS)
+                    // The edge worker and usage totals leave out dply-* agents: our checks are not the customer's traffic.
+                    ->withUserAgent('dply-uptime/1.0')
                     ->get($attemptUrl);
                 $latency = $this->elapsedMs($started);
                 $status = $response->status();

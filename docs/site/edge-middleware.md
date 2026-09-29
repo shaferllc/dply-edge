@@ -67,7 +67,7 @@ Every production variable under **Environment** is available on `env` (for examp
 
 ## Scheduled handlers
 
-Export a `scheduled` handler next to `fetch` to run code on a cron schedule. Schedules are set in the **Crons** section or `dply.yaml`. See [Scheduled tasks](/docs/scheduled-tasks).
+Export a `scheduled` handler next to `fetch` to run code on a cron schedule. Schedules are set on **Overview** (**Scheduled tasks**) or in `dply.yaml`. See [Scheduled tasks](/docs/scheduled-tasks).
 
 ## Deploys and rollbacks
 

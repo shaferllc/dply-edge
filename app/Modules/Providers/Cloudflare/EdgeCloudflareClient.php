@@ -251,13 +251,23 @@ class EdgeCloudflareClient
         return $response->body();
     }
 
-    /** $ttl is Cloudflare's expiration_ttl in seconds (60 or more); null keeps the key forever. */
-    public function putKvValue(string $namespaceId, string $key, string $value, ?int $ttl = null): void
+    /**
+     * $ttl is Cloudflare's expiration_ttl in seconds (60 or more); $expiration
+     * is an absolute unix time. Neither keeps the key forever. Metadata goes
+     * up as multipart, which is the only way the REST API takes it.
+     */
+    public function putKvValue(string $namespaceId, string $key, string $value, ?int $ttl = null, ?int $expiration = null, mixed $metadata = null): void
     {
         $url = $this->kvNamespaceUrl($namespaceId).'/values/'.rawurlencode($key);
-        $response = Http::withToken($this->apiToken)
-            ->withBody($value, 'text/plain')
-            ->put($ttl === null ? $url : $url.'?expiration_ttl='.$ttl);
+        $query = http_build_query(array_filter(['expiration_ttl' => $ttl, 'expiration' => $expiration], static fn ($v): bool => $v !== null));
+        $url = $query === '' ? $url : $url.'?'.$query;
+        $request = Http::withToken($this->apiToken);
+        $response = $metadata === null
+            ? $request->withBody($value, 'text/plain')->put($url)
+            : $request->asMultipart()->put($url, [
+                ['name' => 'value', 'contents' => $value],
+                ['name' => 'metadata', 'contents' => json_encode($metadata, JSON_THROW_ON_ERROR)],
+            ]);
         if (! $response->successful()) {
             $message = $response->json('errors.0.message');
             throw new RuntimeException(is_string($message) && $message !== '' ? $message : 'The key could not be saved.');
@@ -270,6 +280,24 @@ class EdgeCloudflareClient
         if ($response->status() !== 404 && ! $response->successful()) {
             $message = $response->json('errors.0.message');
             throw new RuntimeException(is_string($message) && $message !== '' ? $message : 'The key could not be deleted.');
+        }
+    }
+
+    /** The key's metadata, or null when it has none or the key is missing. */
+    public function getKvMetadata(string $namespaceId, string $key): mixed
+    {
+        $response = Http::withToken($this->apiToken)->get($this->kvNamespaceUrl($namespaceId).'/metadata/'.rawurlencode($key));
+
+        return $response->successful() ? $response->json('result') : null;
+    }
+
+    /** @param  list<string>  $keys  Up to 10,000 per call. */
+    public function bulkDeleteKvKeys(string $namespaceId, array $keys): void
+    {
+        $response = Http::withToken($this->apiToken)->post($this->kvNamespaceUrl($namespaceId).'/bulk/delete', $keys);
+        if (! $response->successful()) {
+            $message = $response->json('errors.0.message');
+            throw new RuntimeException(is_string($message) && $message !== '' ? $message : 'The keys could not be deleted.');
         }
     }
 
@@ -920,7 +948,7 @@ class EdgeCloudflareClient
             zones(filter: { zoneTag: $zoneTag }) {
               httpRequestsAdaptiveGroups(
                 limit: 10000
-                filter: { datetime_geq: $since, datetime_leq: $until }
+                filter: { datetime_geq: $since, datetime_leq: $until, clientRequestPath_notlike: "/__dply/%", userAgent_notlike: "dply-%", OR: [{ clientRequestPath_notlike: "/_dply/%" }, { clientRequestPath: "/_dply/image" }] }
                 orderBy: [count_DESC]
               ) {
                 count

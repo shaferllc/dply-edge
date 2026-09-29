@@ -71,28 +71,60 @@
 
         {!! $hFlow !!}{!! $vFlow !!}
 
-        {{-- Edge --}}
-        <button type="button" wire:click="$refresh" wire:island="resources-edge" x-on:click="$dispatch('open-modal', 'resources-edge')" class="{{ $node }}">
-            <span class="flex items-center justify-between gap-2"><span class="{{ $eyebrow }}">{{ __('Edge network') }}</span>{!! $pill(__('Active'), 'ok') !!}</span>
-            <span class="mt-1.5 block break-all font-mono text-xs font-semibold text-brand-ink">{{ $hostname ?: __('No URL yet') }}</span>
-            <span class="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-2xs text-brand-mist">
-                @if ($map['placement'] && $map['placement']['rtt'] !== null)<span><b class="text-brand-ink">{{ $map['placement']['rtt'] }}</b> ms RTT</span>@endif
-                <span>{{ __('cache') }} <b class="text-brand-ink">{{ $cacheModes[$cacheMode] ?? $cacheMode }}</b></span>
-                <span><b class="text-brand-ink">{{ number_format($map['requestsToday']) }}</b> {{ __('req today') }}</span>
-            </span>
-            {!! $mini($map['requests']) !!}
-            {!! $more !!}
-        </button>
+        {{-- Edge. The open-site link sits over the box (a link can't live inside the button). --}}
+        @php
+            $customDomains = (array) ($site->edgeMeta()['routing']['custom_domains'] ?? []);
+            $readyDomains = collect($customDomains)->filter(fn ($d) => is_array($d) && ($d['dns_status'] ?? null) === 'ready')->count();
+            $avgPerDay = (int) round($map['requests30d'] / 30);
+        @endphp
+        <div class="relative">
+            <button type="button" wire:click="$refresh" wire:island="resources-edge" x-on:click="$dispatch('open-modal', 'resources-edge')" class="{{ $node }}">
+                <span class="flex items-center justify-between gap-2"><span class="{{ $eyebrow }}">{{ __('Edge network') }}</span>{!! $pill(__('Active'), 'ok') !!}</span>
+                <span class="mt-1.5 block truncate pe-7 font-mono text-xs font-semibold text-brand-ink" title="{{ $hostname }}">{{ $hostname ?: __('No URL yet') }}</span>
+                <span class="mt-0.5 block text-2xs text-brand-moss">
+                    {{ __('HTTPS') }} ·
+                    @if ($customDomains === [])
+                        {{ __('no custom domain') }}
+                    @else
+                        {{ trans_choice(':count custom domain|:count custom domains', count($customDomains)) }}@if ($readyDomains < count($customDomains)) <span class="text-amber-600 dark:text-amber-300">({{ __(':count pending DNS', ['count' => count($customDomains) - $readyDomains]) }})</span>@endif
+                    @endif
+                </span>
+                <span class="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-2xs text-brand-mist">
+                    @if ($map['placement'] && $map['placement']['rtt'] !== null)<span><b class="text-brand-ink">{{ $map['placement']['rtt'] }}</b> ms RTT</span>@endif
+                    <span>{{ __('cache') }} <b class="text-brand-ink">{{ $cacheModes[$cacheMode] ?? $cacheMode }}</b></span>
+                    <span><b class="text-brand-ink">{{ number_format($map['requestsToday']) }}</b> {{ __('req today') }}</span>
+                    <span>~<b class="text-brand-ink">{{ number_format($avgPerDay) }}</b>/{{ __('day avg') }}</span>
+                </span>
+                {!! $mini($map['requests']) !!}
+                {!! $more !!}
+            </button>
+            @if ($hostname)
+                <a href="https://{{ $hostname }}" target="_blank" rel="noopener" class="absolute end-3 top-[2.35rem] grid h-6 w-6 place-items-center rounded-md text-brand-mist transition hover:bg-brand-sand/40 hover:text-brand-ink" title="{{ __('Open :host', ['host' => $hostname]) }}" aria-label="{{ __('Open :host in a new tab', ['host' => $hostname]) }}">
+                    <x-heroicon-m-arrow-top-right-on-square class="h-3.5 w-3.5" aria-hidden="true" />
+                </a>
+            @endif
+        </div>
 
         {!! $hFlow !!}{!! $vFlow !!}
 
         {{-- Runtime --}}
         <div class="grid gap-3">
             @if ($isContainer && is_array($settings))
-                @php $c = $map['container']; $live = $appInstances; $liveUrl = filled($site->edgeLiveUrl()); @endphp
+                @php
+                    $c = $map['container']; $live = $appInstances; $liveUrl = filled($site->edgeLiveUrl());
+                    // Sleep countdown: the app sleeps sleep_after past the last request into its
+                    // last running instance (lastActivity comes from the site Worker, /_dply/instances).
+                    $awake = collect($live['instances'] ?? [])->filter(fn ($i) => in_array($i['status'], \App\Modules\Edge\Support\EdgeContainerInstances::RUNNING, true));
+                    $asleep = $live !== null && $live['instances'] !== null && $awake->isEmpty();
+                    $sleepSeconds = preg_match('/^(\d+)([smh])$/', $sleepAfter, $sm) === 1 ? (int) $sm[1] * ['s' => 1, 'm' => 60, 'h' => 3600][$sm[2]] : null;
+                    $lastActivity = $awake->pluck('lastActivity')->filter()->max();
+                    $sleepsIn = $lastActivity && $sleepSeconds ? max(0, $lastActivity + $sleepSeconds - now()->timestamp) : null;
+                    $awakeSince = $awake->pluck('since')->filter()->min();
+                    $alwaysOn = (int) ($settings['min_instances'] ?? 0) > 0;
+                @endphp
                 {{-- Live instance state loads after the page (loadAppInstances, ~15s cache), so the map never waits on the app. --}}
                 <button type="button" wire:click="$refresh" wire:island="resources-app" x-on:click="$dispatch('open-modal', 'resources-app')" @if ($live === null && $liveUrl) x-init="$wire.$island('map').loadAppInstances()" @endif class="{{ $node }} border-brand-forest ring-4 ring-brand-forest/10 dark:border-brand-forest">
-                    <span class="flex items-center justify-between gap-2"><span class="{{ $eyebrow }}">{{ __('App') }}</span>{!! ($site->edgeMeta()['active_deployment_id'] ?? null) ? $pill(__('Running'), 'ok') : $pill(__('Not deployed'), 'off') !!}</span>
+                    <span class="flex items-center justify-between gap-2"><span class="{{ $eyebrow }}">{{ __('App') }}</span>{!! ! ($site->edgeMeta()['active_deployment_id'] ?? null) ? $pill(__('Not deployed'), 'off') : ($asleep ? $pill(__('Asleep'), 'off') : $pill(__('Running'), 'ok')) !!}</span>
                     <span class="mt-1.5 block text-sm font-bold text-brand-ink">{{ $map['framework'] ?? __('App') }} · {{ collect($sizes)->firstWhere('key', $settings['instance_type'])['label'] ?? __('Custom') }}</span>
                     <span class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-2xs text-brand-mist">
                         @if ($c && $c['memMb'] !== null)<span><b class="text-brand-ink">{{ $c['memMb'] }}</b> MB {{ __('of') }} {{ rtrim(rtrim(number_format($c['memGib'], 2), '0'), '.') }} GiB</span>@endif
@@ -105,20 +137,39 @@
                         @endif
                         @if ($map['placement'])<span>{{ $map['placement']['location'] }}@if ($map['placement']['rtt'] !== null) · <b class="text-brand-ink">{{ $map['placement']['rtt'] }}</b> ms {{ __('to DB') }}@endif</span>@endif
                         @if (is_array($quote))<span>~<b class="text-brand-ink">{{ $quote['awakeMonth'] }}</b>/mo</span>@endif
+                        @if ($awakeSince)<span>{{ __('awake') }} <b class="text-brand-ink">{{ \Illuminate\Support\Carbon::createFromTimestamp($awakeSince)->diffForHumans(syntax: \Carbon\CarbonInterface::DIFF_ABSOLUTE, short: true) }}</b></span>@endif
+                        @if ($lastActivity)<span>{{ __('last request') }} <b class="text-brand-ink">{{ \Illuminate\Support\Carbon::createFromTimestamp($lastActivity)->diffForHumans(short: true) }}</b></span>@endif
                     </span>
                     @if ($c){!! $mini($c['memSeries'], $c['memGib'] * 1024) !!}@endif
-                    {!! $sleepNote(__('Sleeps after :time idle', ['time' => \App\Support\Sites\EdgeServiceMap::duration($sleepAfter)])) !!}
+                    @if ($alwaysOn)
+                        {!! $sleepNote(trans_choice('Always awake: :count instance never sleeps|Always awake: :count instances never sleep', (int) $settings['min_instances'])) !!}
+                    @elseif ($asleep)
+                        {!! $sleepNote(__('Asleep · wakes on the next request')) !!}
+                    @elseif ($sleepsIn !== null)
+                        {{-- Counts down in the browser; once it runs out, re-reads the instances to show the app asleep. --}}
+                        <p class="mt-2 flex items-center gap-1.5 text-2xs text-brand-moss" wire:key="sleep-countdown-{{ $lastActivity }}"
+                           x-data="{ left: {{ $sleepsIn }}, t: null, destroy() { clearInterval(this.t) } }"
+                           x-init="t = setInterval(() => { if (--left <= 0) { clearInterval(t); setTimeout(() => $wire.$island('map').loadAppInstances(), 15000) } }, 1000)">
+                            <x-heroicon-o-moon class="h-3.5 w-3.5 text-violet-500" aria-hidden="true" />
+                            <span x-show="left > 0">{{ __('Sleeps in') }} <b class="font-mono tabular-nums text-brand-ink" x-text="Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0')">{{ intdiv($sleepsIn, 60) }}:{{ str_pad((string) ($sleepsIn % 60), 2, '0', STR_PAD_LEFT) }}</b> {{ __('without a request') }}</span>
+                            <span x-show="left <= 0" x-cloak>{{ __('Going to sleep…') }}</span>
+                        </p>
+                    @else
+                        {!! $sleepNote(__('Sleeps after :time idle', ['time' => \App\Support\Sites\EdgeServiceMap::duration($sleepAfter)])) !!}
+                    @endif
                     {!! $more !!}
                 </button>
                 @if ($workersNode && $queueRedisHost === null && ! $workersUnderDatabase)
                     @include('livewire.sites.edge.workspace.partials.workers-node')
                 @endif
+                @include('livewire.sites.edge.workspace.partials.crons-node')
             @else
                 <div class="rounded-2xl border border-brand-forest bg-white p-3.5 ring-4 ring-brand-forest/10 dark:bg-zinc-900">
                     <p class="{{ $eyebrow }}">{{ $runtimeMode === 'static' ? __('Static assets') : __('Worker') }}</p>
                     <p class="mt-1.5 text-sm font-bold text-brand-ink">{{ $map['framework'] ?? __('Auto-detected') }}</p>
                     <p class="mt-1 text-xs text-brand-moss">{{ ['hybrid' => __('Static assets plus server routes on Workers'), 'ssr' => __('Server-rendered on Workers')][$runtimeMode] ?? __('Files served from the edge cache') }}</p>
                 </div>
+                @include('livewire.sites.edge.workspace.partials.crons-node')
             @endif
         </div>
 
@@ -178,7 +229,7 @@
 
                 <button type="button" wire:click="openConnectionBuilder" wire:island="resources-connection" x-on:click="$dispatch('open-modal', 'resources-connection')" class="rounded-2xl border border-dashed border-brand-ink/25 bg-white/60 px-3.5 py-3 text-left text-sm font-semibold text-brand-ink transition hover:border-brand-ink dark:border-brand-mist/30 dark:bg-zinc-900/60">
                     ＋ {{ __('Add resource') }}
-                    <span class="mt-0.5 block text-xs font-normal text-brand-moss">{{ __('Database, cache, storage, queue, workers, browser') }}</span>
+                    <span class="mt-0.5 block text-xs font-normal text-brand-moss">{{ __('Database, cache, storage, queue, workers, scheduled tasks, browser') }}</span>
                 </button>
                 @if ($showBrowser && ! $browserOn)
                     <button type="button" wire:click="openPanel('browser')" wire:island="resources-browser" x-on:click="$dispatch('open-modal', 'resources-browser')" class="-mt-1 text-left text-xs font-semibold text-brand-sage hover:underline">{{ __('Add a browser') }}</button>

@@ -102,7 +102,7 @@ The workspace now splits that into **focused sections**. Each section has its ow
 
 | Section | What you do here |
 |---------|------------------|
-| **Crons** | UTC schedules (max 5 per Worker): commands in container apps, `scheduled()` in Worker apps |
+| **Scheduled tasks** (Overview box) | UTC schedules (max 5 per Worker): commands in container apps, `scheduled()` in Worker apps |
 | **Jobs** | Projects queues this app runs or sends to, Laravel queue workers, queue bindings for Worker code |
 | **Bindings** | Attach KV, R2, D1, queues |
 

@@ -106,6 +106,11 @@ return [
         'edge.databases.query' => 'edge.write',
         'edge.queues.index' => 'edge.read',
         'edge.queues.send' => 'edge.write',
+        'edge.kv.index' => 'edge.read',
+        'edge.kv.keys' => 'edge.read',
+        'edge.kv.show' => 'edge.read',
+        'edge.kv.update' => 'edge.write',
+        'edge.kv.destroy' => 'edge.write',
     ],
 
     'categories' => [

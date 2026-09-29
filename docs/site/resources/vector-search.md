@@ -10,7 +10,7 @@ A vector index stores embeddings, lists of numbers that describe a piece of text
 
 ## Create an index
 
-1. In your app, open **Resources**.
+1. In your app, open **Overview**.
 2. Choose **Add resource**, then **Vector search**.
 3. Leave **Create new** selected and enter a **Name**, such as `Search`. Use at most 32 letters, numbers, and dashes.
 4. Pick **Dimensions**: how many numbers each vector has. Match your embedding model, such as `768` for `bge-base` or `1536` for `text-embedding-3-small`.

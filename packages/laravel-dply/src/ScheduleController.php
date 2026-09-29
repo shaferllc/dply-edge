@@ -8,11 +8,14 @@ use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
+use Symfony\Component\Process\Process;
 use Throwable;
 
 /**
  * Cron Trigger from the site Worker: runs the handler as an artisan command
- * (`schedule:run` for the scheduler, or e.g. `reports:send --daily`).
+ * (`schedule:run` for the scheduler, or e.g. `reports:send --daily`). A
+ * handler whose first word is not an artisan command runs as a shell command
+ * in the app root (e.g. `php scripts/cleanup.php`, `node bin/sync.js`).
  */
 class ScheduleController
 {
@@ -24,10 +27,18 @@ class ScheduleController
         }
 
         $command = trim((string) $request->input('handler', '')) ?: 'schedule:run';
+        $command = (string) preg_replace('/^php\s+artisan\s+/', '', $command);
         @set_time_limit(0);
 
         try {
-            $exit = Artisan::call($command);
+            if (self::isArtisan($command)) {
+                $exit = Artisan::call($command);
+                $output = Artisan::output();
+            } else {
+                $process = Process::fromShellCommandline($command, base_path(), null, null, null);
+                $exit = $process->run();
+                $output = $process->getOutput().$process->getErrorOutput();
+            }
         } catch (Throwable $e) {
             report($e);
 
@@ -37,9 +48,17 @@ class ScheduleController
         return new JsonResponse([
             'command' => $command,
             'exit' => $exit,
-            'output' => mb_substr(Artisan::output(), -2000),
+            'output' => mb_substr($output, -2000),
             'plan' => $command === 'schedule:run' ? $this->plan() : null,
         ], $exit === 0 ? 200 : 500);
+    }
+
+    /** Whether the handler's first word is a registered artisan command. */
+    public static function isArtisan(string $command): bool
+    {
+        $name = strtok($command, " \t") ?: '';
+
+        return $name !== '' && array_key_exists($name, Artisan::all());
     }
 
     /**

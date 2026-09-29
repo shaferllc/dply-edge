@@ -24,7 +24,7 @@ Opening paragraph: what this is and when you'd use it (2–4 sentences).
 - Sentence-case headings. Second person ("you"). Present tense.
 - Name UI exactly as the product shows it: bold for UI labels (**Deploy**,
   **Add resource**), backticks for values, env vars, commands, file names.
-- Show the path to a setting: "In your app, open **Resources**, choose
+- Show the path to a setting: "In your app, open **Overview**, choose
   **Add resource**, then **Key-value**."
 - Code blocks always have a language (`bash`, `php`, `toml`, `yaml`, `json`,
   `js`, `ts`, `env`, `http`).

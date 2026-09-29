@@ -22,9 +22,12 @@
             </x-sheet.tabs>
             <div x-show="tab === 'how'" class="grid gap-3">
                 <ol class="list-decimal space-y-1.5 pl-4 text-sm text-brand-ink">
-                    <li>{{ __('GET http://:host/ lists up to 100 keys.', ['host' => $kvHostName]) }}</li>
+                    <li>{{ __('GET http://:host/ lists up to 1,000 keys. Pass ?prefix= to filter and ?cursor= for the next page.', ['host' => $kvHostName]) }}</li>
+                    <li>{{ __('POST http://:host/ with {"keys": [...]} reads up to 100 keys at once.', ['host' => $kvHostName]) }}</li>
                     <li>{{ __('GET http://:host/key reads one value. A missing key is a 404.', ['host' => $kvHostName]) }}</li>
                     <li>{{ __('PUT http://:host/key stores the request body. DELETE removes it.', ['host' => $kvHostName]) }}</li>
+                    <li>{{ __('A PUT can send x-dply-ttl or x-dply-expires-at to expire the key, and x-dply-metadata (JSON) to keep metadata with it.') }}</li>
+                    <li>{{ __('Counters and locks need Valkey or State: this store is eventually consistent.') }}</li>
                     <li>{{ __('The worker for this app receives those calls. No other app can.') }}</li>
                     <li>{{ __('This starts working after the next deploy.') }}</li>
                 </ol>
@@ -59,8 +62,14 @@
                         <x-sheet.empty :message="$kvPrefix !== '' ? __('No keys start with that.') : __('No keys yet.')" />
                     @else
                         <div class="grid gap-1.5">
-                            @foreach ($kvKeys as $key)
-                                <x-sheet.row wire:key="kv-key-{{ md5($key) }}" wire:click="pickKvKey({{ \Illuminate\Support\Js::from($key) }})" :title="$key" class="font-mono" />
+                            @foreach ($kvKeys as $row)
+                                @php
+                                    $hint = implode(' · ', array_filter([
+                                        $row['expiration'] ? __('Expires :at UTC', ['at' => \Illuminate\Support\Carbon::createFromTimestamp($row['expiration'], 'UTC')->toDayDateTimeString()]) : null,
+                                        $row['metadata'] !== null ? \Illuminate\Support\Str::limit(json_encode($row['metadata'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), 80) : null,
+                                    ]));
+                                @endphp
+                                <x-sheet.row wire:key="kv-key-{{ md5($row['name']) }}" wire:click="pickKvKey({{ \Illuminate\Support\Js::from($row['name']) }})" :title="$row['name']" :hint="$hint !== '' ? $hint : null" class="font-mono" />
                             @endforeach
                         </div>
                         @if ($kvCursor !== null)
@@ -68,6 +77,31 @@
                         @endif
                     @endif
                 </x-sheet.section>
+                @php $kvDeletion = $this->kvPrefixDeletion(); @endphp
+                @if (is_array($kvDeletion) && ! $kvDeletion['done'])
+                    <div wire:poll.2s>
+                        <x-sheet.note>{{ __('Deleting keys starting with :prefix… :count removed.', ['prefix' => $kvDeletion['prefix'], 'count' => number_format($kvDeletion['removed'])]) }}</x-sheet.note>
+                    </div>
+                @elseif (is_array($kvDeletion) && $kvDeletion['failed'] !== null)
+                    <x-sheet.note tone="warn">{{ __('Deleting keys starting with :prefix stopped after :count. :reason', ['prefix' => $kvDeletion['prefix'], 'count' => number_format($kvDeletion['removed']), 'reason' => $kvDeletion['failed']]) }}</x-sheet.note>
+                @elseif (trim($kvPrefix) !== '' && $kvKeys !== [])
+                    <x-sheet.danger :title="__('Delete keys by prefix')">
+                        @if (is_array($kvDeletion))
+                            <p class="text-xs text-brand-moss">{{ __('Last run removed :count keys starting with :prefix.', ['count' => number_format($kvDeletion['removed']), 'prefix' => $kvDeletion['prefix']]) }}</p>
+                        @endif
+                        @if ($kvDeleteCount === null)
+                            <div><x-sheet.button variant="danger" wire:click="previewKvPrefixDelete" wire:loading.attr="disabled" wire:target="previewKvPrefixDelete">{{ __('Delete keys starting with :prefix', ['prefix' => trim($kvPrefix)]) }}</x-sheet.button></div>
+                        @else
+                            <p class="text-xs text-brand-moss">{{ __('This deletes :count keys starting with :prefix. It cannot be undone. Type the prefix to confirm.', ['count' => $kvDeleteCount, 'prefix' => trim($kvPrefix)]) }}</p>
+                            <input type="text" wire:model="kvDeleteConfirm" spellcheck="false" aria-label="{{ __('Type the prefix to confirm') }}" class="dply-input mt-0 font-mono" />
+                            <div class="flex gap-2">
+                                <x-sheet.button variant="danger" wire:click="deleteKvPrefix" wire:loading.attr="disabled" wire:target="deleteKvPrefix">{{ __('Delete keys') }}</x-sheet.button>
+                                <x-sheet.button wire:click="$set('kvDeleteCount', null)">{{ __('Cancel') }}</x-sheet.button>
+                            </div>
+                        @endif
+                        <x-input-error :messages="$errors->get('kvDelete')" />
+                    </x-sheet.danger>
+                @endif
                 <x-sheet.section :title="__('Try a key')">
                     <p class="text-xs text-brand-moss">{{ __('Read and write one key in this store from here. This does not call the app.') }}</p>
                     <x-sheet.field :label="__('Key')" for="kv-demo-key">

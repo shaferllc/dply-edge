@@ -269,6 +269,25 @@ describe('handleRequest', () => {
     ]);
   });
 
+  it('does not count dply control calls as requests', async () => {
+    const points: AnalyticsEngineDataPoint[] = [];
+    const env: Env = {
+      HOST_MAP: createMockKv({ 'preview.example.test': hostEntry }),
+      ARTIFACTS: createMockR2({
+        'edge/site-1/deploy-9/index.html': { body: '<!doctype html><html><body>edge</body></html>', contentType: 'text/html; charset=utf-8' },
+        'edge/site-1/deploy-9/_dply/instances': { body: '{}', contentType: 'application/json' },
+      }),
+      EDGE_ANALYTICS: { writeDataPoint: (point: AnalyticsEngineDataPoint) => { points.push(point); } } as AnalyticsEngineDataset,
+    };
+
+    await handleRequest(new Request('https://preview.example.test/_dply/instances'), env);
+    await handleRequest(new Request('https://preview.example.test/', { headers: { 'User-Agent': 'dply-uptime/1.0' } }), env);
+    await handleRequest(new Request('https://preview.example.test/'), env);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(points.map((point) => point.blobs?.[3])).toEqual(['/']);
+  });
+
   it('returns 404 for unknown hosts', async () => {
     const env: Env = {
       HOST_MAP: createMockKv({}),

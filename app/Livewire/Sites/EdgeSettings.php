@@ -60,8 +60,8 @@ class EdgeSettings extends Component
             $section = 'general';
         }
 
-        // The Container page merged into Overview's app card; old links land there.
-        if ($section === 'container' || $section === 'edge-container' || ($section === 'edge-delivery' && ($site->edgeMeta()['runtime_mode'] ?? '') === 'container')) {
+        // The Container and Crons pages merged into Overview (app card, Scheduled tasks box); old links land there.
+        if (in_array($section, ['container', 'edge-container', 'crons', 'edge-crons'], true) || ($section === 'edge-delivery' && ($site->edgeMeta()['runtime_mode'] ?? '') === 'container')) {
             $this->redirect(route('sites.show', [
                 'server' => $server,
                 'site' => $site,
@@ -98,7 +98,6 @@ class EdgeSettings extends Component
             'edge-billing' => 'billing',
             'edge-bot-protection' => 'bot-protection',
             'edge-build' => 'build',
-            'edge-crons' => 'crons',
             'edge-delivery' => 'delivery',
             'edge-deploy-triggers' => 'deploy-triggers',
             'edge-deploys' => 'deploys',

@@ -39,12 +39,17 @@ Cache::put('greeting', 'hello', 3600);
 
 A value expires only when its TTL is at least 60 seconds. A shorter TTL stores the value with no expiry.
 
+`Cache::many()` reads up to 100 keys in one request, and `Cache::flush()` removes every key in the store.
+
+> [!WARNING]
+> `Cache::increment()` and `Cache::decrement()` throw an error on a key-value store, and so do `Cache::lock()` and anything built on them, such as rate limiting and `WithoutOverlapping`. The store is eventually consistent, so it can't count or lock safely. Attach [Valkey (Redis)](/docs/resources/valkey) or use [State](/docs/resources/state) for those.
+
 > [!IMPORTANT]
 > The `dply/laravel` package provides the cache store. dply adds it on the next deploy when the app does not require it, but only when dply builds the image. If your repository has its own `Dockerfile`, run `composer require dply/laravel`.
 
 ### Rails (container apps)
 
-Add `gem "dply-rails"`. The next deploy sets `DPLY_KV_HOST`, and `Rails.cache` uses the store when no Redis is attached.
+Add `gem "dply-rails"`. The next deploy sets `DPLY_KV_HOST`, and `Rails.cache` uses the store when no Redis is attached. `read_multi` reads up to 100 keys in one request, `clear` removes every key, and `increment` / `decrement` raise, as in Laravel.
 
 ```ruby
 Rails.cache.write('session', 'hello')
@@ -54,14 +59,25 @@ Rails.cache.delete('session')
 
 ### Any language (container apps)
 
-The store answers at its private host. Copy the exact host from the store's sheet. It looks like `dply.my-app.cache.internal`.
+The store answers at its private host. Copy the exact host from the store's sheet. It looks like `dply.my-app.cache.internal`. The host belongs to this app: only this app's containers can reach it, and it needs no credentials. The same store attached to another app has a different host there. To reach a store from anywhere else, see [From outside the app](#from-outside-the-app).
 
 | Request | Result |
 | --- | --- |
-| `GET http://{host}/` | Lists up to 100 keys as `{"keys": [...]}`. |
-| `GET http://{host}/{key}` | The value as text. A missing key is a `404`. |
-| `PUT http://{host}/{key}` | Stores the request body. Send `x-dply-ttl: {seconds}` (60 or more) to expire it. |
+| `GET http://{host}/` | Lists up to 1,000 keys as `{"keys": [...], "cursor": ...}`. Add `?prefix=` to filter, and pass `?cursor=` from the previous page for the next one. `cursor` is `null` on the last page. Add `&detail=1` to get `{"name", "expiration", "metadata"}` for each key instead of just its name. |
+| `POST http://{host}/` | Reads up to 100 keys at once. Send `{"keys": ["a", "b"]}` and get `{"values": {"a": "…", "b": null}}` back. A missing key is `null`. |
+| `GET http://{host}/{key}` | The value as text. A missing key is a `404`. The key's metadata, if any, comes back in an `x-dply-metadata` header. |
+| `PUT http://{host}/{key}` | Stores the request body. |
 | `DELETE http://{host}/{key}` | Removes the key. |
+
+A `PUT` takes these optional headers:
+
+| Header | Value |
+| --- | --- |
+| `x-dply-ttl` | Seconds until the key expires, 60 or more. A shorter value stores it with no expiry. |
+| `x-dply-expires-at` | A unix time at least 60 seconds ahead, when the key expires. Send this or `x-dply-ttl`, not both. |
+| `x-dply-metadata` | JSON of up to 1024 bytes kept alongside the value. It comes back when you read the key or list with `detail=1`. |
+
+A `GET` for a key can send `x-dply-cache-ttl: {seconds}` (30 or more) to let each location cache the value for that long. Reads get faster, but a change can take that long to show. A header that breaks these rules gets a `400` that says which rule.
 
 ```js
 const host = 'http://dply.my-app.cache.internal';
@@ -99,10 +115,32 @@ Choose **Settings** on the store's card. The sheet has these tabs:
 
 - **How it works**: the HTTP paths above.
 - **Implementation**: Laravel, Rails, and HTTP samples with this store's names filled in.
-- **Keys**: lists keys, with **Keys starting with…** to filter and **Load more** for the next page. Under **Try a key**, enter a **Key**, a **Value**, and optionally **Expire after (seconds)** (at least 60), then choose **Write**, **Read**, or **Delete key**. This writes the store directly and does not call your app. Demo values must be under 8 KB.
+- **Keys**: lists keys, with each key's expiry and metadata under its name. Use **Keys starting with…** to filter and **Load more** for the next page. Choose a key to load it and its value into **Try a key**, change the **Value**, and choose **Write** to save it. Under **Try a key** you can also enter a **Key**, a **Value**, and optionally **Expire after (seconds)** (at least 60), then choose **Write**, **Read**, or **Delete key**. This writes the store directly and does not call your app. Demo values must be under 8 KB, and a larger value isn't loaded into the field.
 - **Usage**: reads, writes, deletes, and lists this month, and storage.
 - **Costs**: this month's cost so far.
 - **Settings**: rename the store's binding. The app uses the new host and name after the next deploy. The store keeps its data.
+
+### Delete keys by prefix
+
+1. On **Keys**, search for a prefix, such as `user:`.
+2. Choose **Delete keys starting with user:**. The sheet shows how many keys match, or "1,000+" when there are more than one page.
+3. Type the prefix to confirm, then choose **Delete keys**.
+
+The keys are deleted in the background, a page of 1,000 at a time, and the sheet shows how many have gone so far. Only one delete runs on a store at a time. It cannot be undone. To remove every key, delete the store instead: an empty prefix is not allowed.
+
+## From outside the app
+
+The private host only works inside the app. To seed, inspect or fix keys from your machine or CI, use the [HTTP API](/docs/api/reference#key-value-stores) or the CLI with an API token:
+
+```bash
+dply kv list
+dply kv keys cache --prefix user:
+dply kv get cache user:1
+dply kv put cache user:1 hello --ttl 3600 --metadata '{"plan":"pro"}'
+dply kv delete cache user:1
+```
+
+Reading needs `edge.read`, and writing or deleting needs `edge.write`. Everything except listing stores also needs you to be an organization owner or admin. These calls share **60 requests per minute per organization** across all its tokens. Use them for admin work, not app traffic.
 
 ## Sleep
 

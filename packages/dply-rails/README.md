@@ -35,8 +35,19 @@ Rails.cache.read("session")
 Rails.cache.delete("session")
 ```
 
-`Dply::Rails::Kv` is the same store when you want it by name. A counter that
-must be exact belongs on State.
+`Dply::Rails::Kv` is the same store when you want it by name. `read_multi`
+reads up to 100 keys per request, and `Rails.cache.clear` removes every key.
+`increment` and `decrement` raise: the store is eventually consistent, so
+counters and rate limiting need Valkey (Redis) or State.
 
 `queue_as` names map to queue bindings (default `JOBS`, set `DPLY_QUEUE` to change).
 Limits: 128 KB per job, 24 h max `wait`.
+
+## Changelog
+
+### 0.2.0
+
+- `Rails.cache.clear` removes every key on the key-value store.
+- `Rails.cache.read_multi` reads up to 100 keys per request.
+- `Rails.cache.increment` / `decrement` raise with a message pointing to
+  Valkey (Redis) or State, instead of Rails' generic "does not support".

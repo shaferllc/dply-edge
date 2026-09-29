@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Livewire\Sites\Edge\Workspace;
 
-use App\Livewire\Concerns\ConfirmsActionWithModal;
 use App\Livewire\Concerns\DispatchesToastNotifications;
 use App\Livewire\Concerns\Edge\MountsEdgeWorkspaceSection;
 use App\Models\EdgeDeployment;
@@ -14,13 +13,16 @@ use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Support\EdgeContainerSettings;
 use App\Modules\Edge\Support\EdgeEffectiveCrons;
 use App\Modules\Edge\Support\EdgeQueueWorkers;
-use App\Support\Sites\EdgeSiteViewData;
 use Illuminate\Contracts\View\View;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Livewire\Attributes\On;
 use Livewire\Component;
 
 /**
- * Scheduled tasks, told per runtime. Every entry becomes a Cloudflare Cron
+ * Scheduled tasks, told per runtime. Lives on Overview beside Resources: it
+ * owns the sheets (list, edit, run) and Resources draws the map box from
+ * self::schedule(); "Add a resource" → Scheduled task fires edge-cron-new. Every entry becomes a Cloudflare Cron
  * Trigger on the site's Worker (at most 5 schedules per Worker):
  *
  *   - container: the handler is an artisan command / rake task the Worker
@@ -34,7 +36,6 @@ use Livewire\Component;
  */
 class Crons extends Component
 {
-    use ConfirmsActionWithModal;
     use DispatchesToastNotifications;
     use MountsEdgeWorkspaceSection;
 
@@ -55,6 +56,11 @@ class Crons extends Component
 
     public ?string $runCommand = null;
 
+    /** @var list<array{name: string, description: string, app: bool}>|null The live app's commands, once loaded. */
+    public ?array $appCommands = null;
+
+    public ?string $appCommandsError = null;
+
     public function mount(Server $server, Site $site): void
     {
         $this->mountEdgeWorkspaceSection($server, $site);
@@ -73,6 +79,7 @@ class Crons extends Component
         ));
     }
 
+    #[On('edge-cron-new')]
     public function newCron(): void
     {
         $this->authorize('update', $this->site);
@@ -93,6 +100,33 @@ class Crons extends Component
         $this->new_handler = $this->dashboard_crons[$index]['handler'];
         $this->editingCron = $index;
         $this->dispatch('open-modal', 'edge-cron');
+    }
+
+    /**
+     * Ask the live app for its artisan commands / rake tasks, for the Command
+     * field. On demand, because it wakes a sleeping container; cached per
+     * deployment, since the list only changes when the code does.
+     */
+    public function loadAppCommands(): void
+    {
+        $this->authorize('update', $this->site);
+        abort_unless($this->isContainer(), 404);
+        $this->appCommandsError = null;
+
+        $key = 'edge:cron-commands:'.$this->site->id.':'.($this->configDeployment()?->id ?? 0);
+        try {
+            $this->appCommands = Cache::remember($key, now()->addDay(), function (): array {
+                $body = EdgeQueueWorkers::command($this->site, 'commands');
+
+                return array_values(array_map(static fn ($c): array => [
+                    'name' => (string) ($c['name'] ?? ''),
+                    'description' => (string) ($c['description'] ?? ''),
+                    'app' => (bool) ($c['app'] ?? false),
+                ], array_filter((array) ($body['commands'] ?? []), static fn ($c): bool => is_array($c) && ($c['name'] ?? '') !== '')));
+            });
+        } catch (\Throwable $e) {
+            $this->appCommandsError = $e->getMessage();
+        }
     }
 
     public function closeCron(): void
@@ -229,6 +263,7 @@ class Crons extends Component
             ),
         ]);
         $this->site->save();
+        $this->dispatch('edge-crons-updated');
 
         audit_log(
             $this->site->organization,
@@ -273,38 +308,50 @@ class Crons extends Component
 
     private function configDeployment(): ?EdgeDeployment
     {
+        return self::configDeploymentFor($this->site);
+    }
+
+    private static function configDeploymentFor(Site $site): ?EdgeDeployment
+    {
         return EdgeDeployment::query()
-            ->where('site_id', $this->site->id)
+            ->where('site_id', $site->id)
             ->where('status', EdgeDeployment::STATUS_LIVE)
             ->latest('id')
             ->first()
             ?: EdgeDeployment::query()
-                ->where('site_id', $this->site->id)
+                ->where('site_id', $site->id)
                 ->whereNotNull('repo_config')
                 ->latest('id')
                 ->first();
     }
 
-    public function render(): View
+    /**
+     * The schedules as they will deploy, for the Overview box and the sheet.
+     * The scheduler takes a slot first on containers (EdgeContainerDeployer::cronHandlers);
+     * anything past Cloudflare's limit is marked dropped.
+     *
+     * @return array{rows: list<array<string, mixed>>, scheduler: bool, schedulerInWorker: bool, used: int, max: int}
+     */
+    public static function schedule(Site $site, ?EdgeDeployment $deployment = null): array
     {
-        $latestLive = $this->configDeployment();
-        $isContainer = $this->isContainer();
-        $effective = EdgeEffectiveCrons::for($this->site, $latestLive);
-
-        // The scheduler takes a slot first on containers (EdgeContainerDeployer::cronHandlers).
-        $scheduler = $isContainer && EdgeContainerSettings::for($this->site)['scheduler'];
-        $schedulerInWorker = $scheduler && EdgeQueueWorkers::runsScheduler($this->site);
+        $deployment ??= self::configDeploymentFor($site);
+        $scheduler = ($site->edgeMeta()['runtime_mode'] ?? '') === 'container' && EdgeContainerSettings::for($site)['scheduler'];
+        $schedulerInWorker = $scheduler && EdgeQueueWorkers::runsScheduler($site);
         $slots = ($scheduler && ! $schedulerInWorker) ? ['* * * * *'] : [];
+        $overrides = array_values(array_filter(
+            is_array($site->edgeMeta()['crons_overrides'] ?? null) ? $site->edgeMeta()['crons_overrides'] : [],
+            static fn ($e): bool => is_array($e) && is_string($e['schedule'] ?? null) && $e['schedule'] !== '',
+        ));
 
         $rows = [];
-        foreach ($effective as $cron) {
+        foreach (EdgeEffectiveCrons::for($site, $deployment) as $cron) {
             if (! in_array($cron['schedule'], $slots, true)) {
                 $slots[] = $cron['schedule'];
             }
             $dashboardIndex = null;
             if ($cron['source'] === 'dashboard') {
-                foreach ($this->dashboard_crons as $i => $d) {
-                    if ($d['schedule'] === $cron['schedule'] && ($d['handler'] !== '' ? $d['handler'] : null) === $cron['handler']) {
+                foreach ($overrides as $i => $d) {
+                    if ($d['schedule'] === $cron['schedule'] && (($d['handler'] ?? '') !== '' ? $d['handler'] : null) === $cron['handler']) {
                         $dashboardIndex = $i;
                         break;
                     }
@@ -317,32 +364,32 @@ class Crons extends Component
             ];
         }
 
-        return view('livewire.sites.edge.workspace.crons', array_merge(
-            EdgeSiteViewData::context($this->site, 'crons'),
-            [
-                'server' => $this->server,
-                'site' => $this->site,
-                'rows' => $rows,
-                'isContainer' => $isContainer,
-                'scheduler' => $scheduler,
-                'schedulerInWorker' => $schedulerInWorker,
-                'canRunNow' => $this->canRunNow(),
-                'framework' => match (true) {
-                    $this->site->isLaravelFrameworkDetected() => 'laravel',
-                    $this->site->isRailsFrameworkDetected() => 'rails',
-                    default => 'other',
-                },
-                'commandLabel' => match (true) {
-                    $this->site->isLaravelFrameworkDetected() => __('Artisan command'),
-                    $this->site->isRailsFrameworkDetected() => __('Rake task'),
-                    default => __('Command'),
-                },
-                'maxSchedules' => self::MAX_SCHEDULES,
-                'usedSchedules' => count($slots),
-                'sourcePath' => is_array($latestLive?->repo_config) && is_string($latestLive->repo_config['source_path'] ?? null)
-                    ? $latestLive->repo_config['source_path']
-                    : 'dply.yaml',
-            ],
-        ));
+        return ['rows' => $rows, 'scheduler' => $scheduler, 'schedulerInWorker' => $schedulerInWorker, 'used' => count($slots), 'max' => self::MAX_SCHEDULES];
+    }
+
+    public function render(): View
+    {
+        $latestLive = $this->configDeployment();
+        $schedule = self::schedule($this->site, $latestLive);
+
+        return view('livewire.sites.edge.workspace.crons', [
+            'site' => $this->site,
+            'rows' => $schedule['rows'],
+            'isContainer' => $this->isContainer(),
+            'scheduler' => $schedule['scheduler'],
+            'schedulerInWorker' => $schedule['schedulerInWorker'],
+            'canRunNow' => $this->canRunNow(),
+            'framework' => match (true) {
+                $this->site->isLaravelFrameworkDetected() => 'laravel',
+                $this->site->isRailsFrameworkDetected() => 'rails',
+                default => 'other',
+            },
+            'commandLabel' => __('Command'),
+            'maxSchedules' => $schedule['max'],
+            'usedSchedules' => $schedule['used'],
+            'sourcePath' => is_array($latestLive?->repo_config) && is_string($latestLive->repo_config['source_path'] ?? null)
+                ? $latestLive->repo_config['source_path']
+                : 'dply.yaml',
+        ]);
     }
 }

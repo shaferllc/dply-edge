@@ -275,9 +275,16 @@ These commands work on the organization's D1 databases and queues. See [Edge SQL
 | `dply db query <database> "<sql>" [--json]` | Runs SQL and prints each statement's rows, or its change and row counts. | `edge.write` |
 | `dply queues list [--json]` | Lists queues. | `edge.read` |
 | `dply queues send <queue> '<json>'` | Sends one message. Text that isn't valid JSON is sent as a string. | `edge.write` |
+| `dply kv list [--json]` | Lists key-value stores. | `edge.read` |
+| `dply kv keys <store> [--prefix p] [--cursor c] [--json]` | Lists up to 1,000 keys, with each key's expiry and metadata. Prints the `--cursor` for the next page. | `edge.read` |
+| `dply kv get <store> <key> [--json]` | Prints the value. | `edge.read` |
+| `dply kv put <store> <key> <value> [--ttl s \| --expires-at unix] [--metadata json]` | Writes a key. | `edge.write` |
+| `dply kv delete <store> <key>` | Deletes a key. | `edge.write` |
 
 > [!WARNING]
 > `dply db query` runs whatever SQL you give it, including writes and `DROP`. That's why it needs `edge.write`.
+
+`dply kv` shares the key-value API's limit of 60 calls a minute per organization. It's for seeding and inspecting keys, not for app traffic. Every `dply kv` command except `list` also needs you to be an organization owner or admin.
 
 ### Notifications
 

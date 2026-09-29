@@ -105,7 +105,7 @@ To start a `dply.yaml` from settings you made in the dashboard, open **Environme
 
 ## Bindings
 
-Bindings give your Worker code access to Cloudflare resources through `env`, for example `env.SESSIONS.get(key)`. You can declare them in `dply.yaml`, in a `wrangler.toml` you already have, or on the app's **Resources** page. For the dashboard way, see [Resources overview](/docs/resources).
+Bindings give your Worker code access to Cloudflare resources through `env`, for example `env.SESSIONS.get(key)`. You can declare them in `dply.yaml`, in a `wrangler.toml` you already have, or on the app's **Overview**. For the dashboard way, see [Resources overview](/docs/resources).
 
 > [!NOTE]
 > Repository bindings apply to apps that run a Worker: server-rendered and hybrid apps, and static sites with edge middleware. A static site with no middleware ignores them. Container apps use only queue bindings from the repository.
@@ -190,7 +190,7 @@ Binding errors are reported when the deploy publishes, not in the build log. The
 When the same binding name is declared in more than one place:
 
 1. `wrangler.toml` wins over `dply.yaml`.
-2. Either repository file wins over the **Resources** page. The build log notes it: `wrangler.toml also declares SESSIONS. The repo's binding is used and the Resources page's SESSIONS is skipped.`
+2. Either repository file wins over **Overview**. The build log notes it: `wrangler.toml also declares SESSIONS. The repo's binding is used and the one added on Overview is skipped.`
 
 These names are reserved by the platform, and bindings that use them are dropped: `HOST_MAP`, `ASSETS`, `DEPLOYMENT_ID`, `SITE_ID`, `STORAGE_PREFIX`, `EDGE_CACHE`, `DISPATCHER`.
 

@@ -53,6 +53,11 @@ In the examples, `$DPLY_TOKEN` holds your token and `$SITE` holds an app ID from
 | `POST` | `/edge/databases/{database}/query` | `edge.write` |
 | `GET` | `/edge/queues` | `edge.read` |
 | `POST` | `/edge/queues/{queue}/messages` | `edge.write` |
+| `GET` | `/edge/kv` | `edge.read` |
+| `GET` | `/edge/kv/{store}/keys` | `edge.read` |
+| `GET` | `/edge/kv/{store}/keys/{key}` | `edge.read` |
+| `PUT` | `/edge/kv/{store}/keys/{key}` | `edge.write` |
+| `DELETE` | `/edge/kv/{store}/keys/{key}` | `edge.write` |
 | `GET` | `/notifications/channels` | `notifications.read` |
 | `GET` | `/notifications/events` | `notifications.read` |
 | `POST` | `/notifications/channels/{channel}/test` | `notifications.write` |
@@ -860,6 +865,84 @@ curl -X POST https://edge.dply.io/api/v1/edge/queues/emails/messages \
 ```
 
 Status `202`.
+
+## Key-value stores
+
+Key-value stores belong to the organization. Create and delete them in the dashboard. See [Key-value (KV)](/docs/resources/key-value).
+
+These endpoints are for admin work: seeding, inspecting and fixing keys from a script or CI. They share **60 requests per minute per organization** across all its tokens. Over that, they return `429`. Apps should read and write through their internal host or binding, which has no such limit.
+
+Listing and reading keys, as well as writing and deleting them, also need the token's user to be an organization owner or admin: values often hold sessions and tokens. Otherwise they return `403`. Listing stores does not.
+
+If Cloudflare doesn't answer, these endpoints return `503`. A store created in the last two minutes may not be listed yet.
+
+In the paths, `store` is the store's ID or name. `key` is the key itself, URL-encoded. A `/` in a key can stay as it is.
+
+### List stores
+
+`GET /edge/kv` · `edge.read`
+
+```json
+{ "data": [{ "id": "4f1c…", "name": "cache" }] }
+```
+
+### List keys
+
+`GET /edge/kv/{store}/keys` · `edge.read`
+
+| Parameter | In | Rules |
+|---|---|---|
+| `prefix` | query | Optional. Only keys starting with this. |
+| `cursor` | query | Optional. The `cursor` from the previous page. |
+
+Returns up to 1,000 keys per page. `cursor` is `null` on the last page.
+
+```json
+{
+  "data": [{ "name": "user:1", "expiration": 1790000000, "metadata": { "plan": "pro" } }],
+  "cursor": "AArAbN…"
+}
+```
+
+### Read a key
+
+`GET /edge/kv/{store}/keys/{key}` · `edge.read`
+
+```json
+{ "data": { "key": "user:1", "value": "hello", "encoding": "utf-8", "metadata": { "plan": "pro" } } }
+```
+
+A value that isn't valid UTF-8 comes back base64-encoded, with `encoding` set to `base64`. A missing key returns `404`.
+
+### Write a key
+
+`PUT /edge/kv/{store}/keys/{key}` · `edge.write`
+
+| Parameter | In | Rules |
+|---|---|---|
+| `value` | body | Required. A string of up to 1 MB. |
+| `ttl` | body | Optional. Seconds until the key expires, 60 or more. |
+| `expires_at` | body | Optional. A unix time at least 60 seconds ahead. Send `ttl` or `expires_at`, not both. |
+| `metadata` | body | Optional JSON object, up to 1024 bytes. |
+
+```bash
+curl -X PUT https://edge.dply.io/api/v1/edge/kv/cache/keys/user:1 \
+  -H "Authorization: Bearer $DPLY_TOKEN" -H "Accept: application/json" \
+  -H "Content-Type: application/json" \
+  -d '{"value": "hello", "ttl": 3600, "metadata": {"plan": "pro"}}'
+```
+
+```json
+{ "data": { "key": "user:1", "saved": true } }
+```
+
+### Delete a key
+
+`DELETE /edge/kv/{store}/keys/{key}` · `edge.write`
+
+```json
+{ "data": { "key": "user:1", "deleted": true } }
+```
 
 ## Notifications
 

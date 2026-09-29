@@ -10,7 +10,7 @@ dply keeps several kinds of logs for each app. Build and deploy logs tell you wh
 | Build & deploy | Clone, install, build, and publish output for each deploy | **Build & deploy logs** |
 | Requests | One row per visitor request: method, path, status, timing, cache, country | **Traffic & analytics** → **Live requests**, `dply logs`, the API |
 | Container | `stdout` and `stderr` from a container app, its queue workers and the router in front | **Build & deploy logs** → **What your app is printing** |
-| Queue workers | Job and worker lifecycle output | **Resources** → queue workers → **Logs** |
+| Queue workers | Job and worker lifecycle output | **Overview** → **Queue workers** → **Logs** |
 
 ## Build & deploy logs
 
@@ -65,7 +65,7 @@ Your container must write to `stdout` or `stderr`. Logs appear after the deploy 
 
 ## Queue worker logs
 
-For an app with queue workers, open **Resources**, find the queue workers card, and choose **Logs**. The panel shows the last hour of worker output, newest first: each job as it runs and finishes, and each worker starting, restarting, and stopping. Output reaches the panel about a minute after it happens. Choose **Refresh** to reload.
+For an app with queue workers, open **Overview**, select **Queue workers**, and choose **Logs**. The panel shows the last hour of worker output, newest first: each job as it runs and finishes, and each worker starting, restarting, and stopping. Output reaches the panel about a minute after it happens. Choose **Refresh** to reload.
 
 See [Queue workers](/docs/queue-workers).
 

@@ -45,7 +45,7 @@ So that the cap covers several days of real use, everything that bills while it 
 | Postgres, MySQL, MongoDB | Smallest size, sleeps when idle (no **Stays on**) |
 | Valkey | Smallest size, sleeps when idle (no **Stays on**) |
 
-Larger choices show **Available after your trial** on the **Resources** page. Settings you saved before the trial are kept and apply again once the trial converts; redeploy an app to pick up its size.
+Larger choices show **Available after your trial** in their sheets on **Overview**. Settings you saved before the trial are kept and apply again once the trial converts; redeploy an app to pick up its size.
 
 > [!NOTE]
 > PHP apps that run FrankenPHP, Swoole or RoadRunner need 0.5 vCPU, so they may not stay up on the trial size. End the trial early (below) to run them at full size.

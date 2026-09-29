@@ -5,12 +5,12 @@
             'what' => __('Background work for this app: the Projects queues it is attached to and who runs them, its Laravel workers, and queue bindings for Worker code.'),
             'steps' => [
                 __('Create queues in Projects → Queues and attach them on Overview → Resources. The first production app attached to a queue runs its jobs; others only send.'),
-                __('Container Laravel apps: turn on workers on Overview → Resources to run php artisan queue:work.'),
+                __('Container Laravel apps: add Queue workers on Overview to run php artisan queue:work.'),
                 __('From middleware/SSR code, send messages with await env.JOBS.send({ type: "…", … }) (binding name must match).'),
             ],
             'setupLinks' => [
                 [
-                    'label' => __('Resources page'),
+                    'label' => __('Overview'),
                     'href' => $bindingsUrl,
                 ],
             ],

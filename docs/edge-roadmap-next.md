@@ -73,7 +73,7 @@ Scope: P10a, P10d, P10b, P10c — edge compute moat: middleware, A/B split, depl
 
 **Wave D — complete ✅ (2026-07-09).**
 
-- Cron triggers on per-site Workers: **shipped** (this was listed as "needs CF cron API wiring" long after it landed). `dply.yaml` parses `crons:`, `EdgeEffectiveCrons` merges repo + dashboard rows, and both bundle uploaders push them via `EdgeCloudflareClient::setDispatchScriptSchedules()`. UI on the Crons tab.
+- Cron triggers on per-site Workers: **shipped** (this was listed as "needs CF cron API wiring" long after it landed). `dply.yaml` parses `crons:`, `EdgeEffectiveCrons` merges repo + dashboard rows, and both bundle uploaders push them via `EdgeCloudflareClient::setDispatchScriptSchedules()`. UI: Overview → Add resource → Scheduled task, and the Scheduled tasks box on the map.
 - Interactive create/attach/detach UI for bindings: **shipped**. `edge-bindings` tab, backed by `EdgeEffectiveBindings` + `EdgeDashboardBindingProvisioner`. wrangler.toml stays authoritative; dashboard rows are additive and lose name collisions.
 
 **Still deferred:** proper service-bindings for middleware → SSR (today they coexist; dispatch overhead is fine for v1). **Phase 3b Custom Hostnames (SSL for SaaS)** shipped on managed `dply_edge` — see `EdgeCustomDomainProvisioner` + `config/edge.php` `custom_hostnames`.

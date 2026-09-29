@@ -646,7 +646,9 @@ test('frankenphp trusts the Worker with a multi-line Caddy block; a one-line blo
     $dockerfile = File::get(EdgeContainerDockerfile::prepare($dir)['path']);
     preg_match('/^CMD \["sh", "-c", (".*")\]$/m', $dockerfile, $m);
     $boot = json_decode($m[1]);
-    $options = shell_exec('sh -c '.escapeshellarg(substr($boot, 0, strpos($boot, '; export FRANKENPHP')).'; printf %s "$CADDY_GLOBAL_OPTIONS"'));
+    // Run inside the checkout: the boot line runs `php artisan optimize`, which from
+    // the project root cached dply's own config with the testing database.
+    $options = shell_exec('cd '.escapeshellarg($dir).' && sh -c '.escapeshellarg(substr($boot, 0, strpos($boot, '; export FRANKENPHP')).'; printf %s "$CADDY_GLOBAL_OPTIONS"'));
 
     expect($dockerfile)->not->toContain('ENV CADDY_GLOBAL_OPTIONS')
         ->and($options)->toBe("servers {\n\ttrusted_proxies static 0.0.0.0/0 ::/0\n}");
@@ -708,4 +710,76 @@ test('the worker hints its durable objects to the region of the app database', f
     expect($worker)->toContain('const LOCATION_HINT = "enam";')
         ->and($worker)->toContain('binding.get(binding.idFromName(name), LOCATION_HINT ? { locationHint: LOCATION_HINT } : undefined)')
         ->and($worker)->toContain("import { Container } from '@cloudflare/containers';");
+});
+
+test('the key-value proxy pages keys, bulk-reads, and checks ttl, expiry, and metadata headers', function () {
+    if (trim((string) shell_exec('command -v node')) === '') {
+        $this->markTestSkipped('node is not installed');
+    }
+    $site = new Site;
+    $site->id = '01KVPROXY';
+    $dir = sys_get_temp_dir().'/dply-container-test-'.bin2hex(random_bytes(4));
+    (new EdgeContainerDeployer)->scaffold($dir, $site, '/x/Dockerfile', 8080, []);
+    $worker = File::get($dir.'/src/index.js');
+
+    preg_match('/const asciiJson = .*?\nasync function kvFetch.*?\n}\n/s', $worker, $block);
+    $later = (string) (time() + 3600);
+    File::put($dir.'/kv.mjs', $block[0].str_replace('__LATER__', $later, <<<'JS'
+    const store = new Map([['a1', { value: 'one', metadata: { v: 'é' } }], ['a2', { value: 'two' }], ['b1', { value: 'three' }]]);
+    const puts = [];
+    const kv = {
+      async list({ prefix = '', cursor }) {
+        const names = [...store.keys()].filter((n) => n.startsWith(prefix));
+        const start = cursor ? Number(cursor) : 0;
+        const page = names.slice(start, start + 2);
+        const done = start + 2 >= names.length;
+        return { keys: page.map((name) => ({ name, metadata: store.get(name).metadata })), list_complete: done, cursor: done ? undefined : String(start + 2) };
+      },
+      async get(keys) { return new Map(keys.map((k) => [k, store.get(k)?.value ?? null])); },
+      async getWithMetadata(key) { const hit = store.get(key); return { value: hit?.value ?? null, metadata: hit?.metadata ?? null }; },
+      async put(key, value, options) { puts.push(options); },
+      async delete() {},
+    };
+    const call = async (method, path, { headers = {}, body, query = '' } = {}) => {
+      const url = new URL('http://kv.internal/' + path + query);
+      const res = await kvFetch(kv, new Request(url, { method, headers, body }), path, url);
+      return res.status + ':' + (res.status === 204 ? '' : await res.text()) + (res.headers.get('x-dply-metadata') ? '|' + res.headers.get('x-dply-metadata') : '');
+    };
+    const later = '__LATER__';
+    console.log([
+      await call('GET', ''),
+      await call('GET', '', { query: '?cursor=2' }),
+      await call('GET', '', { query: '?prefix=a&detail=1' }),
+      await call('POST', '', { headers: { 'content-type': 'application/json' }, body: JSON.stringify({ keys: ['a1', 'zz'] }) }),
+      await call('POST', '', { body: '{"keys":[]}' }),
+      await call('GET', 'a1'),
+      await call('GET', 'a1', { headers: { 'x-dply-cache-ttl': '5' } }),
+      await call('GET', 'zz'),
+      await call('PUT', 'k', { body: 'v', headers: { 'x-dply-ttl': '30', 'x-dply-metadata': '{"n":1}' } }),
+      await call('PUT', 'k', { body: 'v', headers: { 'x-dply-expires-at': later } }),
+      await call('PUT', 'k', { body: 'v', headers: { 'x-dply-ttl': '120', 'x-dply-expires-at': later } }),
+      await call('PUT', 'k', { body: 'v', headers: { 'x-dply-expires-at': '10' } }),
+      await call('PUT', 'k', { body: 'v', headers: { 'x-dply-metadata': 'nope' } }),
+      await call('PUT', 'k', { body: 'v', headers: { 'x-dply-metadata': JSON.stringify({ x: 'y'.repeat(1100) }) } }),
+      JSON.stringify(puts),
+    ].join('\n'));
+    JS));
+
+    expect(explode("\n", trim((string) shell_exec('node '.escapeshellarg($dir.'/kv.mjs').' 2>&1'))))->toBe([
+        '200:{"keys":["a1","a2"],"cursor":"2"}',
+        '200:{"keys":["b1"],"cursor":null}',
+        '200:{"keys":[{"name":"a1","expiration":null,"metadata":{"v":"é"}},{"name":"a2","expiration":null,"metadata":null}],"cursor":null}',
+        '200:{"values":{"a1":"one","zz":null}}',
+        '400:Send {"keys": [...]} with 1 to 100 keys.',
+        '200:one|{"v":"\u00e9"}',
+        '400:x-dply-cache-ttl must be 30 seconds or more.',
+        '404:',
+        '204:',
+        '204:',
+        '400:Send x-dply-ttl or x-dply-expires-at, not both.',
+        '400:x-dply-expires-at must be a unix time at least 60 seconds ahead.',
+        '400:x-dply-metadata must be JSON.',
+        '400:x-dply-metadata must be 1024 bytes or less.',
+        '[{"metadata":{"n":1}},{"expiration":'.$later.'}]',
+    ]);
 });

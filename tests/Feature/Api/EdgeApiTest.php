@@ -185,3 +185,65 @@ test('running sql needs edge.write', function () {
 
     $this->postJson('/api/v1/edge/databases/app/query', ['sql' => 'drop table users'], $headers)->assertForbidden();
 });
+
+test('kv api lists the org stores and reads, writes, and deletes keys', function () {
+    config(['edge.cloudflare.account_id' => 'acct', 'edge.cloudflare.api_token' => 'tok']);
+    [$headers, $site] = edgeApiContext(['edge.read', 'edge.write']);
+    $prefix = 'dply-'.strtolower((string) $site->organization_id).'-';
+    Http::fake([
+        'api.cloudflare.com/client/v4/accounts/acct/storage/kv/namespaces?*' => Http::response(['success' => true, 'result' => [
+            ['id' => 'ns-1', 'title' => $prefix.'cache'],
+            ['id' => 'ns-9', 'title' => 'dply-someone-else-cache'],
+        ]]),
+        '*/namespaces/ns-1/keys*' => Http::response(['success' => true, 'result' => [['name' => 'user:1', 'expiration' => 1900000000, 'metadata' => ['v' => 1]]], 'result_info' => ['cursor' => '']]),
+        '*/namespaces/ns-1/values/user%3A1' => Http::response('hello'),
+        '*/namespaces/ns-1/metadata/user%3A1' => Http::response(['success' => true, 'result' => ['v' => 1]]),
+        '*/namespaces/ns-1/values/*' => Http::response(['success' => true, 'result' => null]),
+    ]);
+
+    $this->getJson('/api/v1/edge/kv', $headers)->assertOk()->assertExactJson(['data' => [['id' => 'ns-1', 'name' => 'cache']]]);
+    $this->getJson('/api/v1/edge/kv/cache/keys?prefix=user:', $headers)->assertOk()
+        ->assertJsonPath('data.0.name', 'user:1')->assertJsonPath('data.0.metadata.v', 1)->assertJsonPath('cursor', null);
+    $this->getJson('/api/v1/edge/kv/cache/keys/user:1', $headers)->assertOk()
+        ->assertJsonPath('data.value', 'hello')->assertJsonPath('data.encoding', 'utf-8')->assertJsonPath('data.metadata.v', 1);
+    $this->putJson('/api/v1/edge/kv/cache/keys/a/b', ['value' => 'x', 'ttl' => 120, 'metadata' => ['by' => 'ci']], $headers)->assertOk();
+    $this->putJson('/api/v1/edge/kv/cache/keys/a', ['value' => 'x', 'ttl' => 120, 'expires_at' => time() + 600], $headers)->assertUnprocessable();
+    $this->deleteJson('/api/v1/edge/kv/cache/keys/a/b', [], $headers)->assertOk();
+    $this->getJson('/api/v1/edge/kv/ns-9/keys', $headers)->assertNotFound();
+
+    Http::assertSent(fn ($r) => $r->method() === 'PUT' && str_contains($r->url(), '/values/a%2Fb?expiration_ttl=120') && str_contains($r->body(), 'name="metadata"'));
+});
+
+test('kv api writes need edge.write and share 60 calls a minute per organization', function () {
+    config(['edge.cloudflare.account_id' => 'acct', 'edge.cloudflare.api_token' => 'tok']);
+    [$headers, $site] = edgeApiContext(['edge.read']);
+    Http::fake(['*' => Http::response(['success' => true, 'result' => [['id' => 'ns-1', 'title' => 'dply-'.strtolower((string) $site->organization_id).'-cache']]])]);
+
+    $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.1'])->putJson('/api/v1/edge/kv/cache/keys/a', ['value' => 'x'], $headers)->assertForbidden();
+
+    // A second token in the same organization shares the same 60.
+    $owner = $site->organization->users()->first();
+    ['plaintext' => $plain] = ApiToken::createToken($owner, $site->organization, 'second', null, ['edge.read']);
+    $second = ['Authorization' => 'Bearer '.$plain, 'Accept' => 'application/json'];
+    // From two addresses, so only the organization ties the calls together.
+    for ($i = 0; $i < 59; $i++) {
+        $this->withServerVariables(['REMOTE_ADDR' => $i < 30 ? '10.0.0.1' : '10.0.0.2'])->getJson('/api/v1/edge/kv', $i < 30 ? $headers : $second)->assertOk();
+    }
+    $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.2'])->getJson('/api/v1/edge/kv', $second)->assertStatus(429)->assertJsonPath('message', fn ($m) => str_contains($m, 'per organization'));
+});
+
+test('kv api lists the shared account once for an org with no stores, and a viewer cannot read keys', function () {
+    config(['edge.cloudflare.account_id' => 'acct', 'edge.cloudflare.api_token' => 'tok']);
+    [$headers, $site] = edgeApiContext(['edge.read']);
+    Http::fake(['*' => Http::response(['success' => true, 'result' => [['id' => 'ns-9', 'title' => 'dply-someone-else-cache']]])]);
+
+    $user = $site->organization->users()->first();
+    $site->organization->users()->updateExistingPivot($user->id, ['role' => 'viewer']);
+
+    $this->getJson('/api/v1/edge/kv', $headers)->assertOk()->assertExactJson(['data' => []]);
+    $this->getJson('/api/v1/edge/kv', $headers)->assertOk();
+    Http::assertSentCount(1);
+
+    $this->getJson('/api/v1/edge/kv/cache/keys', $headers)->assertForbidden();
+    $this->getJson('/api/v1/edge/kv/cache/keys/a', $headers)->assertForbidden();
+});

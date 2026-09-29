@@ -10,7 +10,7 @@ Workers AI lets your app run open models, such as Llama and Mistral for text and
 
 ## Turn on AI
 
-1. In your app, open **Resources**.
+1. In your app, open **Overview**.
 2. Choose **Add resource**, then **AI**.
 3. Deploy the app.
 

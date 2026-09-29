@@ -17,7 +17,7 @@ Starting a new deploy cancels any deploy of the same app that is still building 
 
 ### Container apps
 
-Container apps roll out new instances instead of switching files. By default the rollout is gradual: a new instance starts before an old one stops. After the rollout, dply waits up to three minutes for the new instances to report healthy, then requests the live URL. If an instance fails, the deploy fails. You can change the rollout strategy on the app's **Container** page. See [Container apps](/docs/containers).
+Container apps roll out new instances instead of switching files. By default the rollout is gradual: a new instance starts before an old one stops. After the rollout, dply waits up to three minutes for the new instances to report healthy, then requests the live URL. If an instance fails, the deploy fails. You can change the rollout strategy on **Overview**: select the **App** card, then **Sleep, scaling, region**. See [Container apps](/docs/containers).
 
 ## Watch a deploy
 

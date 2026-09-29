@@ -60,4 +60,4 @@ await env.JOBS.send({ type: 'notify', … })
 - **Projects → Queues** — create queues, watch the backlog
 - **Overview → Resources** — attach queues, turn on workers
 - **Bindings** — KV, R2, D1, and queue attachments
-- **Crons** — run commands or `scheduled()` on a schedule
+- **Scheduled tasks** (Overview) — run commands or `scheduled()` on a schedule

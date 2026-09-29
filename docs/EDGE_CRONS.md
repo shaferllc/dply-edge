@@ -9,18 +9,18 @@ group: edge
 
 # Edge crons
 
-**Crons** run work on a UTC schedule. Every schedule becomes a Cloudflare Cron Trigger on the app's Worker, so it works for every app that ships one:
+**Scheduled tasks** (crons) run work on a UTC schedule. They live on **Overview**: add one from **Add resource** → **Scheduled task** (as many as you need), and they show as a **Scheduled tasks** box under the app on the map. The old Crons page is gone; `…/crons` redirects to Overview. Every schedule becomes a Cloudflare Cron Trigger on the app's Worker, so it works for every app that ships one:
 
 - **Container apps** (Laravel, Rails, Node): each schedule runs a command in the live container.
 - **SSR and middleware apps**: each schedule calls the Worker's `scheduled()` export.
 
-Schedules apply on the **next deploy**. The page opens with a sentence describing what runs, then lists each schedule in plain English ("Every day at 06:30 UTC, run reports:daily") with its raw expression and source.
+Schedules apply on the **next deploy**. The map box lists the first three schedules and how many slots are used. Selecting it opens the **Scheduled tasks** sheet, which lists each schedule in plain English ("Every day at 06:30 UTC, run reports:daily") with its raw expression and source.
 
 ## The 5-schedule limit
 
-**Cloudflare allows 5 schedules per Worker.** The page shows **N of 5 used**. Extras are dropped at deploy and marked **Won't run** here. Several commands can share one schedule, so reuse an expression before adding a new one.
+**Cloudflare allows 5 schedules per Worker.** The sheet shows **N of 5 used** and the map box shows the same count. Extras are dropped at deploy and marked **Won't run**. Several commands can share one schedule, so reuse an expression before adding a new one.
 
-On a Laravel container app, the scheduler (`schedule:run` every minute) takes one slot, unless it runs inside a queue worker. Turn it on or off on **Overview → Resources**.
+On a Laravel container app, the scheduler (`schedule:run` every minute) takes one slot, unless it runs inside a queue worker. Turn it on from **Add resource** → **Scheduled task** → **Run Laravel’s scheduler**, and off from the **Scheduler** / **Queue workers** box.
 
 ## Dashboard vs repo
 
@@ -33,7 +33,7 @@ Dashboard entries add to the repo's. Prefer the repo for anything you want repro
 
 ## Adding a schedule
 
-**Add a schedule** (or click a row's **Edit**) opens a modal:
+**Add resource** → **Scheduled task**, **Add** in the sheet, or a row's **Edit** opens the edit sheet. On a Laravel container app with the scheduler off, a new task first offers **Run Laravel’s scheduler**, which is usually all a Laravel app needs. The fields are:
 
 - **When (UTC)**: a preset (every minute, every 5 minutes, hourly, daily at 06:00, Monday at 06:00, first of the month) or a custom 5-field expression, read back in plain English as you type.
 - **Command** (container apps only), labelled **Artisan command**, **Rake task** or **Command** for Node.

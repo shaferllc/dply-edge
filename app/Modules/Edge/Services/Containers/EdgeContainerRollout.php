@@ -101,7 +101,7 @@ final class EdgeContainerRollout
         // Out of budget: say so rather than claim success. The deploy is not
         // necessarily failed — Cloudflare may still finish — but nobody should
         // read this as "confirmed running".
-        $log("Rollout did not settle within the wait budget — check the Container tab.\n");
+        $log("Rollout did not settle within the wait budget — check Build & deploy logs.\n");
 
         return ['ok' => false, 'settled' => false, 'health' => $last, 'version' => $version, 'reason' => 'timed out waiting for rollout'];
     }

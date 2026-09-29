@@ -74,7 +74,7 @@ Redis (dply Valkey) or a shared Postgres/MySQL database and are managed on
 
 - **Laravel scheduler:** turn on *Run the Laravel scheduler every minute* under
   **Container**. A Cron Trigger calls `schedule:run` through `dply/laravel`.
-- **Anything else:** add a cron under **Crons**. The Cron Trigger POSTs the
+- **Anything else:** add a **Scheduled task** on Overview. The Cron Trigger POSTs the
   command to `/_dply/schedule`: an artisan command (Laravel, e.g.
   `reports:send --daily`), a rake task (Rails, e.g. `reports:daily`), or, for
   Node, whatever your own `POST /_dply/schedule` route does with it (see

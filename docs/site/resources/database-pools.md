@@ -7,7 +7,7 @@ A database pool keeps warm connections to a Postgres or MySQL database near your
 
 ## Create a pool
 
-1. In your app, open **Resources**.
+1. In your app, open **Overview**.
 2. Choose **Add resource**, then **Database pool**.
 3. Leave **Create new** selected and enter a **Name**, such as `DB`.
 4. Choose what to pool:

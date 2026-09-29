@@ -23,7 +23,7 @@ SQLite is a file at `/tmp/database.sqlite` inside the app. It is saved while the
 
 ## Create a database
 
-1. In your app, open **Resources**.
+1. In your app, open **Overview**.
 2. Choose **Add resource**, then **Database**. A **Database** card appears on the app's map.
 3. Choose the **Database** card. Under **Database**, pick **Postgres**, **MySQL**, or **MongoDB**.
 4. Pick a **Size**, a **Sleep** time, and a **Disk** (see below). The sheet shows an estimate as **About $…/mo**. The **Awake** field (hours a day) only changes the estimate, not the database.

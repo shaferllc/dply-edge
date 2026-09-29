@@ -116,15 +116,43 @@ test('a sleeping container app is not woken by its uptime check; an awake one is
     $run = fn () => (new RunSiteUptimeMonitorCheckJob($monitor->id))->handle(app(SiteUptimeCheckUrlResolver::class), app(NotificationPublisher::class));
 
     $status = 'stopped';
-    Http::fake(fn ($request) => str_contains($request->url(), '/_dply/instances')
-        ? Http::response([['name' => 'instance-0', 'status' => $status]])
-        : Http::response('ok', 200));
+    Http::fake(function ($request) use (&$status) {
+        return str_contains($request->url(), '/_dply/instances')
+            ? Http::response([['name' => 'instance-0', 'status' => $status]])
+            : Http::response('ok', 200);
+    });
     $run();
     Http::assertNotSent(fn ($r) => ! str_contains($r->url(), '/_dply/instances') && str_contains($r->url(), 'app.example.test'));
     expect($monitor->fresh()->last_checked_at)->not->toBeNull();
 
     \Illuminate\Support\Facades\Cache::flush();
     $status = 'running';
+    $run();
+    Http::assertSent(fn ($r) => ! str_contains($r->url(), '/_dply/instances') && str_contains($r->url(), 'app.example.test'));
+});
+
+test('an app awake only because of the last uptime check is left to sleep; a later visitor request means it is checked', function () {
+    $site = Site::factory()->create([
+        'status' => Site::STATUS_EDGE_ACTIVE,
+        'edge_backend' => 'dply_edge',
+        'meta' => ['edge' => ['runtime_mode' => 'container', 'live_url' => 'https://app.example.test']],
+    ]);
+    $checkedAt = now()->subMinutes(5);
+    $monitor = SiteUptimeMonitor::factory()->create(['site_id' => $site->id, 'path' => null, 'last_ok' => true, 'last_checked_at' => $checkedAt]);
+    \Illuminate\Support\Facades\Cache::put('uptime-probed:'.$site->id, $checkedAt->timestamp);
+    $run = fn () => (new RunSiteUptimeMonitorCheckJob($monitor->id))->handle(app(SiteUptimeCheckUrlResolver::class), app(NotificationPublisher::class));
+
+    $lastActivity = $checkedAt->timestamp + 2; // our own check
+    Http::fake(function ($request) use (&$lastActivity) {
+        return str_contains($request->url(), '/_dply/instances')
+            ? Http::response([['name' => 'instance-0', 'status' => 'running', 'lastActivity' => $lastActivity * 1000]])
+            : Http::response('ok', 200);
+    });
+    $run();
+    Http::assertNotSent(fn ($r) => ! str_contains($r->url(), '/_dply/instances') && str_contains($r->url(), 'app.example.test'));
+
+    \Illuminate\Support\Facades\Cache::forget('edge-container-instances:'.$site->id);
+    $lastActivity = now()->subMinute()->timestamp; // a visitor after our check
     $run();
     Http::assertSent(fn ($r) => ! str_contains($r->url(), '/_dply/instances') && str_contains($r->url(), 'app.example.test'));
 });

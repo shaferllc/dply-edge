@@ -201,11 +201,6 @@ final class SiteSettingsHeader
                 'description' => __('Hybrid origin, image optimization, and cache tools.'),
                 'icon' => 'heroicon-o-cloud',
             ],
-            'crons' => [
-                'title' => __('Crons'),
-                'description' => __('Scheduled worker invocations.'),
-                'icon' => 'heroicon-o-clock',
-            ],
             'security' => [
                 'title' => __('Security'),
                 'description' => __('Hostname, TLS, and whether firewall, bot protection, and rate limits are on. Recent blocked requests from this app.'),

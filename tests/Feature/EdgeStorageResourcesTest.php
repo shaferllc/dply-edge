@@ -11,11 +11,14 @@ use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
+use App\Modules\Edge\Jobs\DeleteEdgeKvKeysByPrefixJob;
 use App\Modules\Edge\Services\EdgeKvUsageCollector;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Sleep;
 use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
@@ -89,11 +92,11 @@ test('KV keys search by prefix and page with a cursor', function () {
         ->call('openKv', $host)
         ->set('kvPrefix', 'user:')
         ->call('refreshKv')
-        ->assertSet('kvKeys', ['user:1'])
+        ->assertSet('kvKeys', [['name' => 'user:1', 'expiration' => null, 'metadata' => null]])
         ->assertSet('kvCursor', 'c2')
         ->assertSee('Load more')
         ->call('loadMoreKvKeys')
-        ->assertSet('kvKeys', ['user:1', 'user:2'])
+        ->assertSet('kvKeys', [['name' => 'user:1', 'expiration' => null, 'metadata' => null], ['name' => 'user:2', 'expiration' => null, 'metadata' => null]])
         ->assertSet('kvCursor', null)
         ->assertSee('Delete store');
 
@@ -233,4 +236,80 @@ test('empty and delete never empties a bucket another organization created', fun
 
     expect(EdgeContainerConnections::for($site->fresh()))->toHaveCount(1);
     Http::assertNotSent(fn (Request $request): bool => $request->method() === 'DELETE');
+});
+
+test('KV delete by prefix counts the first page, needs the prefix typed, and queues the job', function () {
+    [$user, $site, $host] = storageApp('key_value', 'ns-1');
+    Queue::fake();
+    Http::fake(['*' => Http::response(['success' => true, 'result' => [['name' => 'user:1'], ['name' => 'user:2']], 'result_info' => ['cursor' => '']])]);
+
+    Livewire::actingAs($user)->test(Resources::class, ['server' => $site->server, 'site' => $site])
+        ->call('openKv', $host)
+        ->call('previewKvPrefixDelete')
+        ->assertHasErrors('kvDelete')
+        ->set('kvPrefix', 'user:')
+        ->call('refreshKv')
+        ->assertSee('Delete keys starting with user:')
+        ->call('previewKvPrefixDelete')
+        ->assertSet('kvDeleteCount', '2')
+        ->set('kvDeleteConfirm', 'user')
+        ->call('deleteKvPrefix')
+        ->assertHasErrors('kvDelete')
+        ->set('kvDeleteConfirm', 'user:')
+        ->call('deleteKvPrefix')
+        ->assertHasNoErrors()
+        ->assertSee('Deleting keys starting with user:');
+
+    Queue::assertPushed(DeleteEdgeKvKeysByPrefixJob::class, fn ($job) => $job->namespaceId === 'ns-1' && $job->prefix === 'user:');
+});
+
+test('the prefix delete job walks every page and bulk-deletes each', function () {
+    Http::fake(function (Request $request) {
+        if (str_ends_with($request->url(), '/bulk/delete')) {
+            return Http::response(['success' => true, 'result' => null]);
+        }
+        parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
+        return ($query['cursor'] ?? '') === 'c2'
+            ? Http::response(['success' => true, 'result' => [['name' => 'user:3']], 'result_info' => ['cursor' => '']])
+            : Http::response(['success' => true, 'result' => [['name' => 'user:1'], ['name' => 'user:2']], 'result_info' => ['cursor' => 'c2']]);
+    });
+
+    Sleep::fake();
+
+    (new DeleteEdgeKvKeysByPrefixJob('ns-1', 'user:'))->handle();
+
+    Sleep::assertSleptTimes(1);
+
+    $deleted = collect(Http::recorded())->map(fn ($pair) => $pair[0])
+        ->filter(fn (Request $r) => str_ends_with($r->url(), '/bulk/delete'))->map(fn (Request $r) => $r->data())->values()->all();
+    expect($deleted)->toBe([['user:1', 'user:2'], ['user:3']])
+        ->and(DeleteEdgeKvKeysByPrefixJob::progress('ns-1'))->toBe(['prefix' => 'user:', 'removed' => 3, 'done' => true, 'failed' => null]);
+});
+
+test('picking a KV key loads its value so Write edits it in place', function () {
+    [$user, $site, $host] = storageApp('key_value', 'ns-1');
+    Http::fake([
+        '*/values/*' => Http::response('hello', 200),
+        '*' => Http::response(['success' => true, 'result' => [['name' => 'greeting', 'expiration' => null]], 'result_info' => ['cursor' => '']]),
+    ]);
+
+    Livewire::actingAs($user)->test(Resources::class, ['server' => $site->server, 'site' => $site])
+        ->call('openKv', $host)
+        ->call('pickKvKey', 'greeting')
+        ->assertSet('kvDemoKey', 'greeting')
+        ->assertSet('kvDemoValue', 'hello');
+});
+
+test('a long prefix delete hands the cursor to a fresh run instead of racing the shared quota', function () {
+    Sleep::fake();
+    Queue::fake();
+    Http::fake(fn (Request $request) => str_ends_with($request->url(), '/bulk/delete')
+        ? Http::response(['success' => true, 'result' => null])
+        : Http::response(['success' => true, 'result' => [['name' => 'k']], 'result_info' => ['cursor' => 'more']]));
+
+    (new DeleteEdgeKvKeysByPrefixJob('ns-1', 'user:'))->handle();
+
+    Queue::assertPushed(DeleteEdgeKvKeysByPrefixJob::class, fn ($job) => $job->cursor === 'more' && $job->removed === DeleteEdgeKvKeysByPrefixJob::PAGES_PER_RUN);
+    expect(DeleteEdgeKvKeysByPrefixJob::progress('ns-1')['done'])->toBeFalse();
 });

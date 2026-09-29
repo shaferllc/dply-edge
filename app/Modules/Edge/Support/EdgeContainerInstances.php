@@ -24,7 +24,7 @@ final class EdgeContainerInstances
 
     /**
      * @return array{
-     *     instances: ?list<array{name: string, status: string, since: ?int}>, running: int, error: ?string,
+     *     instances: ?list<array{name: string, status: string, since: ?int, lastActivity: ?int}>, running: int, error: ?string,
      *     health: ?array<string, int>, version: ?int,
      *     workers: ?list<array<string, mixed>>,
      * }
@@ -46,6 +46,7 @@ final class EdgeContainerInstances
                 'name' => (string) ($row['name'] ?? ''),
                 'status' => (string) ($row['status'] ?? 'unknown'),
                 'since' => isset($row['lastChange']) ? intdiv((int) $row['lastChange'], 1000) : null,
+                'lastActivity' => is_numeric($row['lastActivity'] ?? null) ? intdiv((int) $row['lastActivity'], 1000) : null,
             ], array_filter(is_array($rows) ? $rows : [], 'is_array')));
             $out['running'] = count(array_filter($out['instances'], static fn (array $i): bool => in_array($i['status'], self::RUNNING, true)));
         } catch (Throwable) {

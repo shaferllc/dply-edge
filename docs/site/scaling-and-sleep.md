@@ -42,6 +42,8 @@ A PHP instance runs one request per PHP worker process. The number of workers co
 
 An instance that has had no request for the **Sleeps after** time goes to sleep and is not billed while asleep. Choose `5m`, `10m`, `30m`, `1h`, `6h` or `24h`. New apps default to `5m`.
 
+While the app is awake, the **App** card on Overview counts down to sleep (**Sleeps in 7:32 without a request**), resetting on each request. It also shows how long the app has been awake and when it last got a request. When the app is asleep the card says **Asleep**; with **Min instances** above zero it says **Always awake**.
+
 A longer timeout means fewer cold starts and more billed time. The **Cost estimate** on the **App** card shows what your size costs at a given number of hours awake each day, and how much sleeping saves.
 
 ## Keep instances awake
@@ -74,7 +76,9 @@ These wake an app and then let it sleep again after the timeout:
 
 - A queue batch from a [Queues](/docs/resources/queues) resource. With **Run queued jobs and scheduled tasks on their own instance** on, the batch goes to a separate jobs instance (one extra instance on the bill while it runs) instead of a web instance.
 - The Laravel scheduler, but only when one of your scheduled tasks is due. See [Scheduled tasks](/docs/scheduled-tasks).
-- A cron from the **Crons** section.
+- A scheduled task from Overview.
+
+dply's own uptime checks do not keep an app awake. A check is skipped while the app is asleep, and also when the app's last request was the previous check, so the app still reaches its sleep timeout.
 
 [Queue workers](/docs/queue-workers) run as their own always-on instances and do not keep the web instances awake.
 

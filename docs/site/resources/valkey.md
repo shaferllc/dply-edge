@@ -10,7 +10,7 @@ dply Valkey is a Redis-compatible in-memory store that belongs to one app. Your 
 
 ## Create a store
 
-1. In your app, open **Resources**.
+1. In your app, open **Overview**.
 2. Choose **Add resource**, then **dply Valkey**.
 3. Leave **Create new** selected.
 4. Enter a **Name**, such as `Cache`.

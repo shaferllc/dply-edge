@@ -1,6 +1,21 @@
 # Changelog
 
 ## [Unreleased]
+### Added
+- The app card on Overview counts down to sleep ("Sleeps in 7:32 without a request"), shows Asleep or Always awake, and shows how long the app has been awake and when it last got a request.
+### Fixed
+- Uptime checks no longer keep a container app awake: when the app's last request was the check itself, the next check waits so the app can reach its sleep timeout.
+### Added
+- Key-value stores: a container app's store host now pages every key (`?prefix=`, `?cursor=`, `&detail=1` for expiry and metadata), reads up to 100 keys in one `POST`, and takes `x-dply-expires-at`, `x-dply-metadata` and `x-dply-cache-ttl` headers.
+- Key-value stores: the Keys tab shows each key's expiry and metadata, choosing a key loads its value for editing, and keys can be deleted by prefix in the background.
+- Key-value stores can be read and written from outside the app with the API (`/api/v1/edge/kv`) and `dply kv`, limited to 60 calls a minute per organization.
+### Fixed
+- `dply/laravel` 1.1.0: `Cache::flush()` on a key-value store removes every key, not only the first 100. The store implements `touch()`, so it loads on Laravel 13. `increment()` and `decrement()` now throw instead of losing updates. `dply-rails` 0.2.0 does the same for `clear`, `read_multi` and counters.
+- `dply db`, `dply queues`: flags such as `--json` were dropped before reaching the command.
+### Fixed
+- dply's own traffic no longer shows in Live requests or counts toward request and bandwidth totals. This covers container control calls (`/_dply/instances`, `/_dply/workers`, …), the `/__dply/` page-speed beacon, and uptime checks, which now send a `dply-uptime/1.0` user agent. Image requests through `/_dply/image` still count.
+### Changed
+- Scheduled tasks moved onto Overview. Add as many as you need from Add resource → Scheduled task, and they show as a Scheduled tasks box under the app on the map. That box opens the list, where you can edit a task or run it now. The separate Scheduler option is now the first choice inside Scheduled task for Laravel apps, and the Crons page redirects to Overview.
 ### Changed
 - Site, server, Fleet, organization, and profile pages now share one merged card layout — sand identity header, flush tabs, and hairline sections instead of stacked floating heroes.
 ### Changed

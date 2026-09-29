@@ -10,7 +10,7 @@ Realtime gives your app WebSockets for broadcasting: live notifications, dashboa
 
 ## Create a Realtime app
 
-1. In your app, open **Resources**.
+1. In your app, open **Overview**.
 2. Choose **Add resource**, then **Realtime**.
 3. Optionally enter a **Name**. It is only shown in dply.
 4. Pick **Max connections**: the most sockets that may be open at once. Past this, new connections are refused.

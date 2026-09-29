@@ -10,7 +10,7 @@ Browser rendering gives your app its own headless Chrome. Use it to take screens
 
 ## Turn on the browser
 
-1. In your app, open **Resources**.
+1. In your app, open **Overview**.
 2. Choose **Add a browser**, then **Turn on** on the **Browser** sheet.
 3. Choose **Deploy** on the sheet, or deploy the app yourself.
 

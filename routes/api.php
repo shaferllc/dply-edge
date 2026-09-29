@@ -12,6 +12,7 @@ use App\Modules\Edge\Http\Controllers\Api\EdgeDataApiController;
 use App\Modules\Edge\Http\Controllers\Api\EdgeDeploymentApiController;
 use App\Modules\Edge\Http\Controllers\Api\EdgeDomainApiController;
 use App\Modules\Edge\Http\Controllers\Api\EdgeEnvController;
+use App\Modules\Edge\Http\Controllers\Api\EdgeKvApiController;
 use App\Modules\Edge\Http\Controllers\Api\EdgeLintApiController;
 use App\Modules\Edge\Http\Controllers\Api\EdgeLogApiController;
 use App\Modules\Edge\Http\Controllers\Api\EdgePreviewApiController;
@@ -99,6 +100,20 @@ Route::prefix('v1')->group(function (): void {
                 ->middleware('ability:'.$apiAbilities['edge.queues.index']);
             Route::post('/queues/{queue}/messages', [EdgeDataApiController::class, 'send'])
                 ->middleware('ability:'.$apiAbilities['edge.queues.send']);
+
+            // Admin access to key-value stores; kv-api guards the shared Cloudflare quota.
+            Route::middleware('throttle:kv-api')->group(function () use ($apiAbilities): void {
+                Route::get('/kv', [EdgeKvApiController::class, 'index'])
+                    ->middleware('ability:'.$apiAbilities['edge.kv.index']);
+                Route::get('/kv/{store}/keys', [EdgeKvApiController::class, 'keys'])
+                    ->middleware('ability:'.$apiAbilities['edge.kv.keys']);
+                Route::get('/kv/{store}/keys/{key}', [EdgeKvApiController::class, 'show'])
+                    ->middleware('ability:'.$apiAbilities['edge.kv.show'])->where('key', '.+');
+                Route::put('/kv/{store}/keys/{key}', [EdgeKvApiController::class, 'update'])
+                    ->middleware('ability:'.$apiAbilities['edge.kv.update'])->where('key', '.+');
+                Route::delete('/kv/{store}/keys/{key}', [EdgeKvApiController::class, 'destroy'])
+                    ->middleware('ability:'.$apiAbilities['edge.kv.destroy'])->where('key', '.+');
+            });
 
             Route::get('/sites/{site}/domains', [EdgeDomainApiController::class, 'index'])
                 ->middleware('ability:'.$apiAbilities['edge.domains.index']);

@@ -732,7 +732,7 @@ class EdgeContainerDeployer
                 ['tag' => 'v2', 'new_sqlite_classes' => ['EdgeState']],
             ],
             // Workers Logs: Worker + container stdout/stderr, read back by the
-            // Container tab through the telemetry query API.
+            // Build & deploy logs through the telemetry query API.
             'observability' => ['enabled' => true],
         ];
         if ($queues !== []) {
@@ -1088,8 +1088,14 @@ export class App extends Container {
   // upgrades on: it answers with a 101 whose webSocket it pipes both ways.
   async fetch(request) {
     this.reservations.shift();
+    this.lastActivityAt = Date.now();
     return super.fetch(request);
   }
+
+  // Last request into this instance, for the dashboard's sleep countdown
+  // (/_dply/instances). Memory only: a sleeping instance has no countdown.
+  lastActivityAt = null;
+  async activity() { return this.lastActivityAt; }
 
   // The first MIN_INSTANCES instances never sleep (minimum replicas).
   async remember(index) {
@@ -1137,6 +1143,63 @@ App.outbound = async (request, env) => {
   return presented.status === 520 ? fetch(request) : presented;
 };
 
+// Header values must be ASCII: escape anything else so the JSON still parses.
+const asciiJson = (value) => JSON.stringify(value).replace(/[\u007f-\uffff]/g, (ch) => '\\u' + ch.charCodeAt(0).toString(16).padStart(4, '0'));
+
+async function kvFetch(kv, request, path, url) {
+  const refuse = (message) => new Response(message, { status: 400 });
+  if (path === '' && request.method === 'GET') {
+    const q = url.searchParams;
+    const listed = await kv.list({ prefix: q.get('prefix') || undefined, cursor: q.get('cursor') || undefined });
+    const detail = q.get('detail') === '1';
+    return Response.json({
+      keys: (listed.keys || []).map((key) => detail ? { name: key.name, expiration: key.expiration ?? null, metadata: key.metadata ?? null } : key.name),
+      cursor: listed.list_complete ? null : listed.cursor,
+    });
+  }
+  if (path === '' && request.method === 'POST') {
+    const keys = (await request.json().catch(() => null))?.keys;
+    if (!Array.isArray(keys) || keys.length < 1 || keys.length > 100 || !keys.every((key) => typeof key === 'string' && key !== '')) {
+      return refuse('Send {"keys": [...]} with 1 to 100 keys.');
+    }
+    const found = await kv.get(keys, 'text');
+    return Response.json({ values: Object.fromEntries(keys.map((key) => [key, found.get(key) ?? null])) });
+  }
+  if (path === '') return refuse('Name a key.');
+  if (request.method === 'GET') {
+    const cacheTtl = Number(request.headers.get('x-dply-cache-ttl') || 0);
+    if (cacheTtl !== 0 && !(Number.isInteger(cacheTtl) && cacheTtl >= 30)) return refuse('x-dply-cache-ttl must be 30 seconds or more.');
+    const { value, metadata } = await kv.getWithMetadata(path, cacheTtl ? { type: 'text', cacheTtl } : { type: 'text' });
+    const headers = { 'content-type': 'text/plain; charset=utf-8' };
+    if (metadata != null) headers['x-dply-metadata'] = asciiJson(metadata);
+    return new Response(value, { status: value == null ? 404 : 200, headers });
+  }
+  if (request.method === 'PUT') {
+    const ttl = request.headers.get('x-dply-ttl');
+    const expiresAt = request.headers.get('x-dply-expires-at');
+    const metadata = request.headers.get('x-dply-metadata');
+    if (ttl && expiresAt) return refuse('Send x-dply-ttl or x-dply-expires-at, not both.');
+    const options = {};
+    if (Number(ttl) >= 60) options.expirationTtl = Math.floor(Number(ttl));
+    if (expiresAt) {
+      const at = Number(expiresAt);
+      if (!Number.isInteger(at) || at < Date.now() / 1000 + 60) return refuse('x-dply-expires-at must be a unix time at least 60 seconds ahead.');
+      options.expiration = at;
+    }
+    if (metadata !== null) {
+      try { options.metadata = JSON.parse(metadata); } catch { return refuse('x-dply-metadata must be JSON.'); }
+      if (new TextEncoder().encode(JSON.stringify(options.metadata)).length > 1024) return refuse('x-dply-metadata must be 1024 bytes or less.');
+    }
+    await kv.put(path, await request.arrayBuffer(), options);
+    return new Response(null, { status: 204 });
+  }
+  if (request.method === 'DELETE') {
+    await kv.delete(path);
+    return new Response(null, { status: 204 });
+  }
+  return new Response('Method not allowed.', { status: 405 });
+}
+
 async function connectionFetch(c, request, env, ctx) {
   if (c.asleep) return new Response('This resource is asleep.', { status: 503 });
   // AI and vector search go through dply's meter (EdgeMeter): cap, kill switch, usage.
@@ -1147,26 +1210,7 @@ async function connectionFetch(c, request, env, ctx) {
   if (c.kind === 'durable_object') {
     return binding.get(binding.idFromName('store')).fetch(request);
   }
-  if (c.kind === 'key_value') {
-    if (request.method === 'GET' && path === '') {
-      const listed = await binding.list({ limit: 100 });
-      return Response.json({ keys: (listed.keys || []).map((key) => key.name) });
-    }
-    if (path === '') return new Response('Name a key.', { status: 400 });
-    if (request.method === 'GET') {
-      const value = await binding.get(path, 'text');
-      return new Response(value, { status: value == null ? 404 : 200, headers: { 'content-type': 'text/plain; charset=utf-8' } });
-    }
-    if (request.method === 'PUT') {
-      const ttl = Number(request.headers.get('x-dply-ttl') || 0);
-      await binding.put(path, await request.arrayBuffer(), ttl >= 60 ? { expirationTtl: Math.floor(ttl) } : {});
-      return new Response(null, { status: 204 });
-    }
-    if (request.method === 'DELETE') {
-      await binding.delete(path);
-      return new Response(null, { status: 204 });
-    }
-  }
+  if (c.kind === 'key_value') return kvFetch(binding, request, path, url);
   if (c.kind === 'object_storage') {
     if (request.method === 'GET' && path === '') {
       const listed = await binding.list({ limit: 100 });
@@ -1476,7 +1520,10 @@ export default {
       // Web instance state (running or not), for sampling only awake apps.
       if (url.pathname === '/_dply/instances' && request.method === 'GET') {
         const names = Array.from({ length: INSTANCES }, (_, i) => 'instance-' + i);
-        return Response.json(await Promise.all(names.map(async (name) => ({ name, ...(await getContainer(env.APP, name).getState()) }))));
+        return Response.json(await Promise.all(names.map(async (name) => {
+          const container = getContainer(env.APP, name);
+          return { name, ...(await container.getState()), lastActivity: await container.activity().catch(() => null) };
+        })));
       }
       // Queue worker state for the workspace. Reading it never starts one.
       if (url.pathname === '/_dply/workers' && request.method === 'GET') {

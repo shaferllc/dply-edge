@@ -1316,6 +1316,17 @@ async function reportRequest(
   durationMs: number,
   cacheStatus: string,
 ): Promise<void> {
+  // dply's own calls are not visitor traffic: control routes (/_dply/instances,
+  // /_dply/workers, …), the /__dply/ beacons, and checks sent as dply-* agents
+  // (uptime monitor, probes). /_dply/image is visitor traffic: pages load images through it.
+  if (
+    (url.pathname.startsWith('/_dply/') && url.pathname !== EDGE_IMAGE_PATH)
+    || url.pathname.startsWith('/__dply/')
+    || (request.headers.get('User-Agent') ?? '').startsWith('dply-')
+  ) {
+    return;
+  }
+
   const status = response.status;
   const bytesHeader = response.headers.get('Content-Length');
   const bytes = bytesHeader ? Number.parseInt(bytesHeader, 10) : 0;

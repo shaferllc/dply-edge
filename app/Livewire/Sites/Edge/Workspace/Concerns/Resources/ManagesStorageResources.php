@@ -6,6 +6,7 @@ namespace App\Livewire\Sites\Edge\Workspace\Concerns\Resources;
 
 use App\Livewire\Sites\Edge\Workspace\Resources;
 use App\Modules\Billing\Services\EdgePlatformUsageCost;
+use App\Modules\Edge\Jobs\DeleteEdgeKvKeysByPrefixJob;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Support\Facades\Cache;
@@ -56,6 +57,76 @@ trait ManagesStorageResources
 
     public string $objectLocationHint = '';
 
+    /** Keys under the searched prefix, from the first listing page ("12" or "1,000+"); null until asked. */
+    public ?string $kvDeleteCount = null;
+
+    /** The prefix typed again to confirm a delete by prefix. */
+    public string $kvDeleteConfirm = '';
+
+    public function previewKvPrefixDelete(): void
+    {
+        $this->authorize('update', $this->site);
+        $this->resetErrorBag('kvDelete');
+        $this->kvDeleteCount = null;
+        $this->kvDeleteConfirm = '';
+        $connection = $this->kvConnection();
+        $prefix = trim($this->kvPrefix);
+        if ($connection === null) {
+            return;
+        }
+        if ($prefix === '') {
+            $this->addError('kvDelete', __('Search for a prefix first. To remove every key, delete the store.'));
+
+            return;
+        }
+        try {
+            $page = EdgeCloudflareClient::fromConfig()->listKvKeysPage($connection['target'], null, $prefix, 1000);
+        } catch (\Throwable) {
+            $this->addError('kvDelete', __('The store did not answer.'));
+
+            return;
+        }
+        if ($page['keys'] === []) {
+            $this->addError('kvDelete', __('No keys start with that.'));
+
+            return;
+        }
+        $this->kvDeleteCount = $page['cursor'] === null ? number_format(count($page['keys'])) : '1,000+';
+    }
+
+    public function deleteKvPrefix(): void
+    {
+        $this->authorize('update', $this->site);
+        $this->resetErrorBag('kvDelete');
+        $connection = $this->kvConnection();
+        $prefix = trim($this->kvPrefix);
+        if ($connection === null || $prefix === '' || $this->kvDeleteCount === null) {
+            return;
+        }
+        if ($this->kvDeleteConfirm !== $prefix) {
+            $this->addError('kvDelete', __('Type the prefix exactly to confirm.'));
+
+            return;
+        }
+        $running = DeleteEdgeKvKeysByPrefixJob::progress($connection['target']);
+        if (is_array($running) && ! $running['done']) {
+            $this->addError('kvDelete', __('A delete is already running on this store.'));
+
+            return;
+        }
+        DeleteEdgeKvKeysByPrefixJob::start($connection['target'], $prefix);
+        $this->kvDeleteCount = null;
+        $this->kvDeleteConfirm = '';
+    }
+
+    /** @return array{prefix: string, removed: int, done: bool, failed: ?string}|null */
+    public function kvPrefixDeletion(): ?array
+    {
+        $connection = $this->kvConnection();
+
+        return $connection === null ? null : DeleteEdgeKvKeysByPrefixJob::progress($connection['target']);
+    }
+
     public function loadMoreKvKeys(): void
     {
         $this->authorize('update', $this->site);
@@ -70,7 +141,7 @@ trait ManagesStorageResources
 
             return;
         }
-        $this->kvKeys = array_values(array_unique([...$this->kvKeys, ...array_column($page['keys'], 'name')]));
+        $this->kvKeys = collect([...$this->kvKeys, ...$page['keys']])->unique('name')->values()->all();
         $this->kvCursor = $page['cursor'];
     }
 

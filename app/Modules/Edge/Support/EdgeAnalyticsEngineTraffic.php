@@ -15,6 +15,9 @@ use Throwable;
  */
 final class EdgeAnalyticsEngineTraffic
 {
+    /** Leaves out dply's own /_dply/* control calls (recorded before the worker skipped them); /_dply/image is visitor traffic. */
+    private const VISITOR_PATHS = "(NOT startsWith(blob4, '/_dply/') OR blob4 = '/_dply/image') AND NOT startsWith(blob4, '/__dply/')";
+
     public function __construct(
         private readonly ?EdgeCloudflareClient $client = null,
     ) {}
@@ -61,7 +64,7 @@ final class EdgeAnalyticsEngineTraffic
 
         $start = now()->utc()->startOfDay()->format('Y-m-d H:i:s');
         $totals = $this->rows(sprintf(
-            "SELECT count() AS requests, sum(double3) AS bytes_egress, sumIf(1, double1 >= 200 AND double1 < 300) AS status_2xx, sumIf(1, double1 >= 300 AND double1 < 400) AS status_3xx, sumIf(1, double1 >= 400 AND double1 < 500) AS status_4xx, sumIf(1, double1 >= 500) AS status_5xx FROM %s WHERE index1 = '%s' AND timestamp >= toDateTime('%s')",
+            "SELECT count() AS requests, sum(double3) AS bytes_egress, sumIf(1, double1 >= 200 AND double1 < 300) AS status_2xx, sumIf(1, double1 >= 300 AND double1 < 400) AS status_3xx, sumIf(1, double1 >= 400 AND double1 < 500) AS status_4xx, sumIf(1, double1 >= 500) AS status_5xx FROM %s WHERE index1 = '%s' AND timestamp >= toDateTime('%s') AND ".self::VISITOR_PATHS,
             $dataset,
             $index,
             $start,
@@ -72,7 +75,7 @@ final class EdgeAnalyticsEngineTraffic
 
         $row = $totals[0] ?? [];
         $paths = $this->rows(sprintf(
-            "SELECT blob4 AS path, count() AS requests FROM %s WHERE index1 = '%s' AND timestamp >= toDateTime('%s') GROUP BY path ORDER BY requests DESC LIMIT 8",
+            "SELECT blob4 AS path, count() AS requests FROM %s WHERE index1 = '%s' AND timestamp >= toDateTime('%s') AND ".self::VISITOR_PATHS." GROUP BY path ORDER BY requests DESC LIMIT 8",
             $dataset,
             $index,
             $start,
@@ -106,7 +109,7 @@ final class EdgeAnalyticsEngineTraffic
 
         $limit = min(200, max(1, $limit));
         $rows = $this->rows(sprintf(
-            "SELECT timestamp, blob2 AS hostname, blob3 AS method, blob4 AS path, double1 AS status, double2 AS duration_ms, double3 AS bytes_egress, blob5 AS cache_status FROM %s WHERE index1 = '%s' AND timestamp >= toDateTime('%s') ORDER BY timestamp DESC LIMIT %d",
+            "SELECT timestamp, blob2 AS hostname, blob3 AS method, blob4 AS path, double1 AS status, double2 AS duration_ms, double3 AS bytes_egress, blob5 AS cache_status FROM %s WHERE index1 = '%s' AND timestamp >= toDateTime('%s') AND ".self::VISITOR_PATHS." ORDER BY timestamp DESC LIMIT %d",
             $dataset,
             $index,
             $since->utc()->format('Y-m-d H:i:s'),

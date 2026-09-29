@@ -7,7 +7,7 @@ If you already have a Redis or Redis-compatible server, such as Upstash, Redis C
 
 ## Connect an address
 
-1. In your app, open **Resources**.
+1. In your app, open **Overview**.
 2. Choose **Add resource**, then **dply Valkey**.
 3. Choose **Attach existing**.
 4. Enter a **Name**, such as `Cache`.

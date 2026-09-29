@@ -1,6 +1,6 @@
 Gem::Specification.new do |spec|
   spec.name = "dply-rails"
-  spec.version = "0.1.0"
+  spec.version = "0.2.0"
   spec.summary = "Active Job on Cloudflare Queues for Rails apps deployed as dply Edge containers."
   spec.authors = ["dply"]
   spec.license = "MIT"

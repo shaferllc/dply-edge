@@ -125,7 +125,7 @@ Both paths rely on the `dply/laravel` package. dply adds it to the generated ima
 
 ## Run the scheduler
 
-In **Overview** → **App** card → **Sleep, scaling, region**, turn on **Run the Laravel scheduler every minute**, then deploy. dply calls `schedule:run` every minute. When queue workers are running, the first worker runs the scheduler instead. To run a single artisan command on its own schedule, add it under **Crons**; **Run now** there runs it once in the live app and shows the output. See [Scheduled tasks](/docs/scheduled-tasks).
+In **Overview**, select **Add resource** → **Scheduled task** → **Run Laravel’s scheduler** (or turn on **Run the Laravel scheduler every minute** in the **App** card's **Sleep, scaling, region**), then deploy. dply calls `schedule:run` every minute. When queue workers are running, the first worker runs the scheduler instead. To run a single artisan command on its own schedule, add it as a **Scheduled task** on Overview; **Run now** in its sheet runs it once in the live app and shows the output. See [Scheduled tasks](/docs/scheduled-tasks).
 
 ## Broadcasting
 

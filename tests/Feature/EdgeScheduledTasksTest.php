@@ -83,3 +83,31 @@ test('run now calls the container schedule route for any app and explains a miss
 
     Http::assertSent(fn ($r) => str_ends_with($r->url(), '/_dply/schedule') && $r['handler'] === 'reports:daily');
 });
+
+test('scheduled tasks live on Overview: a map box and an Add-resource row, and the old Crons URL redirects there', function () {
+    $org = Organization::factory()->create();
+    $user = User::factory()->create();
+    $org->users()->attach($user->id, ['role' => 'owner']);
+    session(['current_organization_id' => $org->id]);
+    $server = Server::factory()->create(['organization_id' => $org->id, 'user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]]);
+    $site = Site::factory()->create([
+        'organization_id' => $org->id, 'server_id' => $server->id, 'user_id' => $user->id,
+        'type' => SiteType::Static, 'edge_backend' => 'dply_edge', 'status' => Site::STATUS_EDGE_ACTIVE,
+        'meta' => ['edge' => [
+            'runtime_mode' => 'ssr',
+            'crons_overrides' => [['schedule' => '30 6 * * *', 'handler' => null]],
+        ]],
+    ]);
+
+    expect(collect(\App\Support\SiteSettingsSidebar::items($site, $server))->pluck('id')->all())->not->toContain('crons');
+
+    Livewire::actingAs($user)->test(\App\Livewire\Sites\Edge\Workspace\Resources::class, ['server' => $server, 'site' => $site])
+        ->assertSee('Scheduled tasks')
+        ->assertSee('Every day at 06:30 UTC')
+        ->call('openConnectionBuilder')
+        ->assertSee('Scheduled task');
+
+    Livewire::actingAs($user)
+        ->test(\App\Livewire\Sites\EdgeSettings::class, ['server' => $server, 'site' => $site, 'section' => 'crons'])
+        ->assertRedirect(route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'general']));
+});

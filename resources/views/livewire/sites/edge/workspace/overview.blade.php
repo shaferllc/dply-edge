@@ -21,6 +21,11 @@
     {{-- The resource map: every resource the app uses, each box opening its settings in a sheet. --}}
     @livewire('sites.edge.workspace.resources', ['server' => $server, 'site' => $site], key('edge-overview-resources-'.$site->id))
 
+    {{-- Scheduled tasks: the sheets behind the map's box and "Add a resource" → Scheduled task. --}}
+    @if (\App\Modules\Edge\Support\EdgeSiteHasWorker::for($site))
+        @livewire('sites.edge.workspace.crons', ['server' => $server, 'site' => $site], key('edge-overview-crons-'.$site->id))
+    @endif
+
     @include('livewire.sites.partials.edge.service-map')
 
     @livewire('sites.edge.workspace.overview-observability', ['server' => $server, 'site' => $site], key('edge-overview-observability-'.$site->id))

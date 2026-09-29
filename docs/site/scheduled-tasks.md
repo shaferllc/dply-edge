@@ -9,8 +9,8 @@ Scheduled tasks run your code on a cron schedule without a request coming in. Ho
 
 Schedules come from two places, merged on each deploy:
 
-- The **Crons** section in the sidebar (under **Extend**). Rows you add there are stored on the app.
-- A `crons` list in `dply.yaml`, committed with your code. These appear in the **Crons** section as read-only.
+- **Overview** → **Add resource** → **Scheduled task**. Add as many as you need (up to the limit below); rows you add there are stored on the app.
+- A `crons` list in `dply.yaml`, committed with your code. These show on Overview as read-only, marked **Repo**.
 
 ```yaml
 crons:
@@ -19,10 +19,10 @@ crons:
     handler: "reports:send --daily"
 ```
 
-A schedule is a standard 5-field cron expression in **UTC**. Changes take effect on the next deploy. The **Crons** section appears once the app has a Worker to schedule: a container app, a Worker SSR app, or a static or hybrid app with [edge middleware](/docs/edge-middleware).
+A schedule is a standard 5-field cron expression in **UTC**. In the form, pick **Minutes**, **Hourly**, **Daily**, **Weekly** or **Monthly** and a time to build one, or choose **Custom** and type any expression. Changes take effect on the next deploy. Once an app has a task, a **Scheduled tasks** box appears on the Overview map under the app. Select it to see every schedule, **Edit** or **Run now** one, or **Add** another. Scheduled tasks are available once the app has a Worker to schedule: a container app, a Worker SSR app, or a static or hybrid app with [edge middleware](/docs/edge-middleware). Static apps with middleware have no **Add resource** button, so they get an **Add a scheduled task** link under the app box instead.
 
 > [!IMPORTANT]
-> Cloudflare allows 5 schedules per Worker, so an app can have at most 5 distinct schedules. For container apps the Laravel scheduler uses one of them (`* * * * *`) unless it runs inside a queue worker. The **Crons** section shows **N of 5 used**; schedules past the fifth are dropped at deploy and marked **Won't run**. Several commands can share one schedule.
+> Cloudflare allows 5 schedules per Worker, so an app can have at most 5 distinct schedules. For container apps the Laravel scheduler uses one of them (`* * * * *`) unless it runs inside a queue worker. The **Scheduled tasks** sheet shows **N of 5 used**; schedules past the fifth are dropped at deploy and marked **Won't run**. Several commands can share one schedule.
 
 [Preview deployments](/docs/preview-deployments) never run scheduled tasks; only production does.
 
@@ -58,7 +58,7 @@ Each schedule calls the `scheduled` export of your app's Worker entry. Next.js (
 
 ### The Laravel scheduler
 
-To run `schedule:run` every minute, open **Overview**, select **Add resource**, then **Scheduler**, and redeploy. You can also turn on **Run the Laravel scheduler every minute** in **Sleep, scaling, region**. dply adds the `dply/laravel` package to the image if your app does not require it (add it yourself if you ship your own `Dockerfile`).
+To run `schedule:run` every minute, open **Overview**, select **Add resource** → **Scheduled task**, choose **Run Laravel’s scheduler** at the top, and redeploy. You can also turn on **Run the Laravel scheduler every minute** in **Sleep, scaling, region**. dply adds the `dply/laravel` package to the image if your app does not require it (add it yourself if you ship your own `Dockerfile`).
 
 Where the scheduler runs depends on whether the app has [queue workers](/docs/queue-workers):
 
@@ -75,11 +75,15 @@ Select the **Scheduler** card on **Overview** (or the **Queue workers** card whe
 
 ### Commands on a schedule
 
-For anything other than the Laravel scheduler, add a schedule in the **Crons** section (or `dply.yaml`) with a command. Each run POSTs the command to `/_dply/schedule` in the live app:
+For anything other than the Laravel scheduler, add a **Scheduled task** on Overview (or in `dply.yaml`) with a command. Each run POSTs the command to `/_dply/schedule` in the live app.
 
-- Laravel (**Artisan command**): runs through `dply/laravel`, for example `reports:send --daily`. A blank handler runs `schedule:run`.
-- Rails (**Rake task**): runs through `dply-rails`, for example `reports:daily`.
-- Node (**Command**): your app handles `POST /_dply/schedule` itself. The body is JSON `{cron, handler}`; check that the `x-dply-queue-token` header equals `DPLY_QUEUE_TOKEN` from the app's environment, and answer JSON `{output}`:
+On a Laravel or Rails container app, choose **Pick from the app's artisan commands** (or **rake tasks**) under **Command** to list what the live app defines. Your app's own commands are listed first; typing in the field suggests the rest. Asking wakes the app if it is asleep.
+
+How the command runs:
+
+- Laravel: runs through `dply/laravel`. An artisan command such as `reports:send --daily` runs through Artisan (a leading `php artisan` is optional). Anything else runs as a shell command from the app root, for example `php scripts/cleanup.php` or `node bin/sync.js`. A blank handler runs `schedule:run`.
+- Rails: runs through `dply-rails`. A rake task such as `reports:daily` runs through Rake. Anything else runs as a shell command from the app root, for example `bin/rails runner Cleanup.call`.
+- Node: your app handles `POST /_dply/schedule` itself. The body is JSON `{cron, handler}`; check that the `x-dply-queue-token` header equals `DPLY_QUEUE_TOKEN` from the app's environment, and answer JSON `{output}`:
 
 ```js
 app.post("/_dply/schedule", express.json(), async (req, res) => {

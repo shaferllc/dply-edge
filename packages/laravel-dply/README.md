@@ -31,8 +31,24 @@ Cache::forget('session');
 ```
 
 The store name is the resource name, lowercased: `Cache::store('testing')`.
-A counter that must be exact belongs on State. Values expire only when the
-TTL is at least 60 seconds.
+Values expire only when the TTL is at least 60 seconds. `Cache::many()` reads
+up to 100 keys per request, and `Cache::flush()` removes every key.
+
+`increment()` and `decrement()` throw: a key-value store is eventually
+consistent and cannot count atomically. Counters, locks (`Cache::lock()`) and
+rate limiting need Valkey (Redis) or State.
+
+## Changelog
+
+### 1.1.0
+
+- The key-value store implements `touch()`. Laravel 13 added it to the cache
+  store contract, and without it the store failed to load.
+- `Cache::flush()` removes every key. It used to stop after the first 100.
+- `Cache::many()` reads in one request per 100 keys; `putMany()` writes in parallel.
+- `increment()` and `decrement()` on the key-value store now throw. They read
+  and wrote the value back, so concurrent calls lost updates. Move counters and
+  rate limiting to Valkey (Redis) or State.
 
 ## Object storage
 

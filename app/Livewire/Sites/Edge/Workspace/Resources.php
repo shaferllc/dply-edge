@@ -47,6 +47,7 @@ use App\Modules\Edge\Support\EdgeDplyDatabase;
 use App\Modules\Edge\Support\EdgeDplyDatabaseStats;
 use App\Modules\Edge\Support\EdgeEffectiveBindings;
 use App\Modules\Edge\Support\EdgeQueueWorkers;
+use App\Modules\Edge\Support\EdgeSiteHasWorker;
 use App\Modules\Edge\Support\EdgeSizeLadder;
 use App\Modules\Edge\Support\EdgeTrialLimits;
 use App\Modules\Edge\Support\EdgeValkey;
@@ -57,12 +58,13 @@ use App\Support\Http\UnsafeOutboundUrlException;
 use App\Support\Sites\EdgeServiceMap;
 use App\Support\Sites\EdgeSiteViewData;
 use Illuminate\Contracts\View\View;
-use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\On;
 use Livewire\Component;
 
 /**
@@ -356,6 +358,7 @@ class Resources extends Component
     public ?string $schedulerOutput = null;
 
     /** The Laravel scheduler as a resource: every minute, in a worker when the app has them. */
+    #[On('edge-scheduler-add')]
     public function addScheduler(): void
     {
         $this->authorize('update', $this->site);
@@ -371,6 +374,10 @@ class Resources extends Component
         $this->schedulerOutput = null;
         $this->refreshPending();
     }
+
+    /** The Crons component beside this one saved; re-render so the map's Scheduled tasks box follows. */
+    #[On('edge-crons-updated')]
+    public function cronsUpdated(): void {}
 
     /** Run schedule:run once now, in the live app, and show what it printed. */
     public function runSchedulerNow(): void
@@ -1095,7 +1102,7 @@ class Resources extends Component
 
     public string $kvName = '';
 
-    /** @var list<string> */
+    /** @var list<array{name: string, expiration: ?int, metadata: mixed}> */
     public array $kvKeys = [];
 
     public int $kvReads = 0;
@@ -1511,9 +1518,11 @@ class Resources extends Component
         $this->loadKvUsage($connection['target']);
 
         $this->kvCursor = null;
+        $this->kvDeleteCount = null;
+        $this->kvDeleteConfirm = '';
         try {
             $page = EdgeCloudflareClient::fromConfig()->listKvKeysPage($connection['target'], null, trim($this->kvPrefix));
-            $this->kvKeys = array_column($page['keys'], 'name');
+            $this->kvKeys = $page['keys'];
             $this->kvCursor = $page['cursor'];
         } catch (\Throwable) {
             $this->kvKeys = [];
@@ -1534,10 +1543,14 @@ class Resources extends Component
         $this->dispatch('open-modal', 'resources-kv');
     }
 
+    /** Loads the key into Try a key so Write edits it in place. */
     public function pickKvKey(string $key): void
     {
         $this->authorize('update', $this->site);
         $this->kvDemoKey = $key;
+        $this->runKvDemo('read');
+        // Values over the demo's 8 KB write limit stay out of the field so Write cannot truncate them.
+        $this->kvDemoValue = strlen($this->kvDemoPreview) <= 8192 ? $this->kvDemoPreview : '';
     }
 
     public function saveKvSettings(): void
@@ -2776,6 +2789,8 @@ class Resources extends Component
                 'allowedKinds' => $allowedKinds,
                 'hasCode' => $hasCode,
                 'isWorker' => in_array($runtime, ['ssr', 'hybrid'], true),
+                'hasCronWorker' => $hasCronWorker = EdgeSiteHasWorker::for($this->site),
+                'crons' => $hasCronWorker ? Crons::schedule($this->site) : null,
                 'overriddenByRepo' => $hasCode ? $this->repoBindingNames() : [],
                 'queueOwners' => $this->queueOwners($connections),
                 'databaseEngine' => $databaseEngine,

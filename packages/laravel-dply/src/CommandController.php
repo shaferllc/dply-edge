@@ -43,6 +43,9 @@ class CommandController
         if ($action === 'resources') {
             return $this->containerResources();
         }
+        if ($action === 'commands') {
+            return $this->commandList();
+        }
         if ($action === 'queue-test') {
             return $this->queueTest((int) $request->input('count', 1), (string) $request->input('queue', ''));
         }
@@ -72,6 +75,28 @@ class CommandController
             'exit' => $exit,
             'output' => mb_substr(Artisan::output(), -4000),
         ], $exit === 0 ? 200 : 500);
+    }
+
+    /**
+     * Every visible artisan command, the app's own first (classes under App\
+     * and closures from routes/console.php), for the scheduled-task picker.
+     */
+    private function commandList(): JsonResponse
+    {
+        $list = [];
+        foreach (Artisan::all() as $name => $command) {
+            if ($command->isHidden()) {
+                continue;
+            }
+            $list[] = [
+                'name' => (string) $name,
+                'description' => (string) $command->getDescription(),
+                'app' => str_starts_with($command::class, 'App\\') || $command instanceof \Illuminate\Foundation\Console\ClosureCommand,
+            ];
+        }
+        usort($list, static fn (array $a, array $b): int => [$b['app'], $a['name']] <=> [$a['app'], $b['name']]);
+
+        return new JsonResponse(['commands' => $list]);
     }
 
     /**

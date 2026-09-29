@@ -92,6 +92,7 @@ Requests are limited per token.
 |---|---|
 | All authenticated `/api/v1` endpoints, including `/api/v1/edge/*` | 60 requests per minute per token |
 | `/api/v1/edge/*` (additional limit) | 600 requests per minute per token |
+| `/api/v1/edge/kv/*` (additional limit) | 60 requests per minute per **organization**, shared by all its tokens |
 | `POST /api/v1/auth/device/start` | 30 requests per minute per IP address |
 | `POST /api/v1/auth/device/poll` | 60 requests per minute per IP address |
 

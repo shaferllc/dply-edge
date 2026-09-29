@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Tests\Feature\EdgeContainerSettingsTest;
 
 use App\Enums\SiteType;
+use App\Livewire\Sites\Edge\Workspace\Logs;
 use App\Livewire\Sites\Edge\Workspace\Resources;
 use App\Livewire\Sites\Edge\Workspace\Security;
+use App\Livewire\Sites\EdgeSettings;
 use App\Models\EdgeKvUsage;
 use App\Models\EdgeSiteEnvVar;
 use App\Models\Organization;
@@ -49,7 +51,7 @@ test('container settings live on Overview: no Container tab, and its old URL red
     expect(collect(SiteSettingsSidebar::items($container, $server))->pluck('id')->all())->not->toContain('container');
 
     Livewire::actingAs($user)
-        ->test(\App\Livewire\Sites\EdgeSettings::class, ['server' => $server, 'site' => $container, 'section' => 'container'])
+        ->test(EdgeSettings::class, ['server' => $server, 'site' => $container, 'section' => 'container'])
         ->assertRedirect(route('sites.show', ['server' => $server, 'site' => $container, 'section' => 'general']));
 });
 
@@ -227,7 +229,7 @@ test('the logs page loads the container app output from workers observability', 
     ]]]])]);
 
     $logs = Livewire::actingAs($user)
-        ->test(\App\Livewire\Sites\Edge\Workspace\Logs::class, ['server' => $server, 'site' => $site])
+        ->test(Logs::class, ['server' => $server, 'site' => $site])
         ->call('loadAppLogs')
         ->assertSet('appLogsError', null)
         ->assertSee('Laravel booted')
@@ -544,7 +546,7 @@ test('key value settings show how it works and rename the store', function () {
     Livewire::actingAs($user)
         ->test(Resources::class, ['server' => $server, 'site' => $site->fresh()])
         ->call('openKv', $host)
-        ->assertSee('GET http://'.$host.'/ lists up to 100 keys.')
+        ->assertSee('GET http://'.$host.'/ lists up to 1,000 keys. Pass ?prefix= to filter and ?cursor= for the next page.')
         ->assertSee('Reads are $1.00 per million')
         ->assertSee('Implementation')
         ->assertSee('The next deploy adds dply/laravel')

@@ -19,8 +19,9 @@ const TOP_LEVEL = {
   whoami: { handler: commands.whoami, summary: 'Show account + session (alias for account show).' },
   account: { handler: runAccount, summary: 'Profile, orgs, CLI sessions (show, orgs, sessions, revoke).' },
   billing: { handler: runBilling, summary: 'Plan estimate, breakdown, invoices (org admin).' },
-  db: { handler: runDb, summary: 'D1 databases: list | query <database> "<sql>".' },
-  queues: { handler: runQueues, summary: "Queues: list | send <queue> '<json>'." },
+  db: { handler: dataCommands.dbCommand, summary: 'D1 databases: list | query <database> "<sql>".' },
+  queues: { handler: dataCommands.queuesCommand, summary: "Queues: list | send <queue> '<json>'." },
+  kv: { handler: dataCommands.kvCommand, summary: 'Key-value stores: list | keys | get | put | delete.' },
   use: { handler: instanceCommands.useCommand, summary: 'Switch which dply instance the CLI talks to (list, <name>, <url>, forget).' },
   sites: { handler: commands.sites, summary: 'List your Edge sites (name filter).' },
   link: { handler: commands.link, summary: 'Link this folder to an existing Edge site (.dply/site.json).' },
@@ -155,18 +156,6 @@ async function runAccount(argv) {
   return accountCommands.accountCommand(args.length ? args : ['show'], flags);
 }
 
-async function runDb(argv) {
-  const { args, flags } = parse(argv);
-
-  return dataCommands.dbCommand(args, flags);
-}
-
-async function runQueues(argv) {
-  const { args, flags } = parse(argv);
-
-  return dataCommands.queuesCommand(args, flags);
-}
-
 async function runBilling(argv) {
   const { args, flags } = parse(argv);
 
@@ -283,6 +272,8 @@ function printTopLevelHelp() {
   info(`  ${'db query <db> "sql"'.padEnd(18)} ${c.dim('Run SQL against a database')}`);
   info(`  ${'queues list'.padEnd(18)} ${c.dim('Cloudflare Queues')}`);
   info(`  ${"queues send <q> '{}'".padEnd(18)} ${c.dim('Send a JSON message')}`);
+  info(`  ${'kv list'.padEnd(18)} ${c.dim('Key-value stores')}`);
+  info(`  ${'kv get <s> <key>'.padEnd(18)} ${c.dim('Read a key (also keys, put, delete)')}`);
   info('');
   info(c.bold('Sites:'));
   info(`  ${'sites [name]'.padEnd(18)} ${c.dim('Edge sites this token can see')}`);

@@ -1,133 +1,89 @@
+{{-- Scheduled tasks on Overview: the sheets behind the map's "Scheduled tasks"
+     box (Resources draws the box). Everything here is teleported sheets. --}}
 @php
     $canEdit = auth()->user()?->can('update', $site);
-    $repoCount = collect($rows)->where('source', 'repo')->count();
     $dropped = collect($rows)->where('dropped', true);
-    $field = 'mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink focus:border-brand-forest focus:ring-brand-forest dark:border-brand-mist/20 dark:bg-zinc-900';
-    $presets = [
-        '* * * * *' => __('Every minute'),
-        '*/5 * * * *' => __('Every 5 minutes'),
-        '0 * * * *' => __('Every hour'),
-        '0 6 * * *' => __('Every day at 06:00 UTC'),
-        '0 6 * * 1' => __('Every Monday at 06:00 UTC'),
-        '0 6 1 * *' => __('First of the month at 06:00 UTC'),
-    ];
 @endphp
 
 <div>
-    <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
-        @include('livewire.sites.edge.workspace.partials.feature-guide', [
-            'docSlug' => 'scheduled-tasks',
-            'what' => $isContainer
-                ? __('Run a command in this app on a schedule. Each schedule becomes a Cron Trigger on the app’s Worker, which calls into the container.')
-                : __('Call your Worker’s scheduled() handler on a schedule. Your code gets event.cron to tell the schedules apart.'),
-            'steps' => $isContainer
-                ? [
-                    __('Add a schedule and the :command to run.', ['command' => \Illuminate\Support\Str::lower($commandLabel)]),
-                    __('Redeploy so the Cron Triggers attach.'),
-                    __('Laravel apps can also turn on the scheduler (schedule:run every minute) on Overview → Resources.'),
-                ]
-                : [
-                    __('Export scheduled() from your middleware or SSR Worker — see the example below.'),
-                    __('Add a schedule here or in dply.yaml.'),
-                    __('Redeploy so the Cron Triggers attach.'),
-                ],
-            'tips' => [
-                __('Schedules are UTC, not your browser’s timezone.'),
-                __('Cloudflare allows :n schedules per Worker. Several commands can share one schedule.', ['n' => $maxSchedules]),
-            ],
-        ])
-    </section>
+    <x-sheet name="edge-crons" maxWidth="lg">
+        <x-sheet.header :eyebrow="__('Resources')" :title="__('Scheduled tasks')">
+            {{ $isContainer
+                ? __('Each schedule becomes a Cron Trigger on the app’s Worker, which runs the command in the container.')
+                : __('Each schedule calls your Worker’s scheduled() handler; event.cron tells them apart.') }}
+            @if ($canEdit)
+                <x-slot:actions>
+                    <x-sheet.button variant="primary" wire:click="newCron">{{ __('Add') }}</x-sheet.button>
+                </x-slot:actions>
+            @endif
+        </x-sheet.header>
 
-    <section class="space-y-8 border-b border-brand-ink/10 px-5 py-8 sm:px-10 sm:py-10">
-        <div>
-            <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Scheduled tasks') }}</p>
-            <p class="mt-3 max-w-3xl text-2xl font-medium leading-snug tracking-tight text-brand-ink sm:text-3xl">
+        <x-sheet.body>
+            <p class="text-sm text-brand-ink">
                 @if ($rows === [] && ! $scheduler)
                     {{ $isContainer ? __('Nothing runs on a schedule in this app yet.') : __('Your Worker isn’t called on a schedule yet.') }}
                 @else
-                    @if ($scheduler)
-                        {{ __('Laravel’s scheduler runs every minute') }}{{ $schedulerInWorker ? __(' inside a queue worker') : '' }}{{ $rows === [] ? '.' : ',' }}
-                        @if ($rows !== []) {{ __('plus') }} @endif
-                    @endif
-                    @if ($rows !== [])
-                        <span class="text-brand-sage">{{ trans_choice(':count scheduled task|:count scheduled tasks', count($rows)) }}</span>
-                        {{ $isContainer ? __('run in this app.') : __('call your Worker’s scheduled() handler.') }}
-                    @endif
-                    @if ($dropped->isNotEmpty())
-                        <span class="text-amber-600 dark:text-amber-300">{{ trans_choice(':count won’t run: Cloudflare allows :max schedules per Worker.|:count won’t run: Cloudflare allows :max schedules per Worker.', $dropped->count(), ['max' => $maxSchedules]) }}</span>
-                    @endif
+                    {{ __(':used of :max used', ['used' => $usedSchedules, 'max' => $maxSchedules]) }} · {{ __('times are UTC, changes apply on the next deploy.') }}
+                @endif
+                @if ($dropped->isNotEmpty())
+                    <span class="block text-amber-600 dark:text-amber-300">{{ trans_choice(':count won’t run: Cloudflare allows :max schedules per Worker.|:count won’t run: Cloudflare allows :max schedules per Worker.', $dropped->count(), ['max' => $maxSchedules]) }}</span>
                 @endif
             </p>
-        </div>
 
-        <div>
-            <div class="flex items-center justify-between gap-3 border-b border-brand-ink/10 pb-2">
-                <p class="text-sm font-semibold text-brand-ink">
-                    {{ __('Schedules') }}
-                    <span class="ml-1 font-normal text-brand-mist">{{ __(':used of :max used', ['used' => $usedSchedules, 'max' => $maxSchedules]) }}</span>
-                </p>
-                @if ($canEdit)
-                    <button type="button" wire:click="newCron" class="inline-flex min-h-9 items-center gap-1 text-sm font-medium text-brand-sage hover:underline">
-                        <x-heroicon-m-plus class="h-4 w-4" aria-hidden="true" />{{ __('Add a schedule') }}
-                    </button>
+            <div class="grid gap-1.5">
+                @if ($scheduler)
+                    <div class="flex items-center gap-3 rounded-xl border border-brand-ink/10 bg-brand-sand/20 px-3.5 py-2.5 dark:border-brand-mist/20 dark:bg-zinc-800/40">
+                        <span class="min-w-0 flex-1">
+                            <span class="block text-sm font-semibold text-brand-ink">{{ __('Every minute, run') }} <span class="font-mono">schedule:run</span></span>
+                            <span class="block text-2xs text-brand-mist">
+                                {{ $schedulerInWorker ? __('Laravel scheduler, in queue worker 0 so the web container isn’t woken.') : __('Laravel scheduler, one schedule slot.') }}
+                                {{ __('Turn it off on the Scheduler / Queue workers box.') }}
+                            </span>
+                        </span>
+                        @if ($canRunNow && $canEdit)
+                            <x-sheet.button wire:click="runNow('schedule:run')">{{ __('Run now') }}</x-sheet.button>
+                        @endif
+                    </div>
+                @endif
+
+                @foreach ($rows as $row)
+                    <div class="flex items-center gap-3 rounded-xl border border-brand-ink/10 bg-brand-sand/20 px-3.5 py-2.5 dark:border-brand-mist/20 dark:bg-zinc-800/40" wire:key="cron-row-{{ $loop->index }}-{{ $row['schedule'] }}">
+                        <span class="min-w-0 flex-1">
+                            <span class="block text-sm font-semibold text-brand-ink">
+                                {{ \Illuminate\Support\Str::ucfirst($row['when']) }}@if ($isContainer), {{ __('run') }} <span class="font-mono">{{ $row['handler'] ?? '—' }}</span>@endif
+                            </span>
+                            <span class="block truncate font-mono text-2xs text-brand-mist">
+                                {{ $row['schedule'] }}@unless ($isContainer) · event.cron @endunless · {{ $row['source'] === 'repo' ? $sourcePath : __('dashboard') }}
+                            </span>
+                            @if ($row['dropped'])
+                                <span class="block text-2xs text-amber-600 dark:text-amber-300">{{ __('Won’t run — over the :max-schedule limit.', ['max' => $maxSchedules]) }}</span>
+                            @endif
+                        </span>
+                        <span class="flex shrink-0 items-center gap-1.5">
+                            @if ($canRunNow && $canEdit && $row['handler'])
+                                <x-sheet.button wire:click="runNow(@js($row['handler']))">{{ __('Run now') }}</x-sheet.button>
+                            @endif
+                            @if ($row['index'] !== null && $canEdit)
+                                <x-sheet.button wire:click="editCron({{ $row['index'] }})">{{ __('Edit') }}</x-sheet.button>
+                            @elseif ($row['source'] === 'repo')
+                                <span class="font-mono text-2xs uppercase text-brand-moss" title="{{ __('Change it in :file', ['file' => $sourcePath]) }}">{{ __('Repo') }}</span>
+                            @endif
+                        </span>
+                    </div>
+                @endforeach
+
+                @if ($rows === [] && ! $scheduler)
+                    <x-sheet.empty :message="__('None yet.')">
+                        @if ($canEdit)
+                            <x-sheet.button wire:click="newCron">{{ __('Add a scheduled task') }}</x-sheet.button>
+                        @endif
+                    </x-sheet.empty>
                 @endif
             </div>
 
-            @if ($scheduler)
-                <div class="flex min-h-14 items-center gap-3 border-b border-brand-ink/10 py-3">
-                    <span class="min-w-0 flex-1">
-                        <span class="block text-sm text-brand-ink sm:text-base">{{ __('Every minute, run') }} <span class="font-mono">schedule:run</span></span>
-                        <span class="mt-0.5 block text-xs text-brand-moss">
-                            {{ $schedulerInWorker ? __('Runs in queue worker 0, so the web container isn’t woken.') : __('Uses one schedule slot on the app’s Worker.') }}
-                            {{ __('Turn it off on Overview → Resources.') }}
-                        </span>
-                    </span>
-                    @if ($canRunNow && $canEdit)
-                        <button type="button" wire:click="runNow('schedule:run')" class="shrink-0 text-xs font-medium text-brand-sage hover:underline">{{ __('Run now') }}</button>
-                    @endif
-                </div>
-            @endif
-
-            @forelse ($rows as $row)
-                <div class="flex min-h-14 items-center gap-3 border-b border-brand-ink/10 py-3" wire:key="cron-row-{{ $loop->index }}-{{ $row['schedule'] }}">
-                    <span class="min-w-0 flex-1">
-                        <span class="block text-sm text-brand-ink sm:text-base">
-                            {{ \Illuminate\Support\Str::ucfirst($row['when']) }}{{ $isContainer ? ',' : '' }}
-                            @if ($isContainer)
-                                {{ __('run') }} <span class="font-mono">{{ $row['handler'] ?? '—' }}</span>
-                            @endif
-                        </span>
-                        <span class="mt-0.5 block font-mono text-xs text-brand-moss">
-                            {{ $row['schedule'] }}
-                            @unless ($isContainer) · event.cron @endunless
-                            · {{ $row['source'] === 'repo' ? $sourcePath : __('dashboard') }}
-                        </span>
-                        @if ($row['dropped'])
-                            <span class="mt-0.5 block text-xs text-amber-600 dark:text-amber-300">{{ __('Won’t run — over the :max-schedule limit.', ['max' => $maxSchedules]) }}</span>
-                        @endif
-                    </span>
-                    <span class="flex shrink-0 items-center gap-4">
-                        @if ($canRunNow && $canEdit && $row['handler'])
-                            <button type="button" wire:click="runNow(@js($row['handler']))" class="text-xs font-medium text-brand-sage hover:underline">{{ __('Run now') }}</button>
-                        @endif
-                        @if ($row['index'] !== null && $canEdit)
-                            <button type="button" wire:click="editCron({{ $row['index'] }})" class="inline-flex items-center gap-1 text-xs font-medium text-brand-ink hover:underline">{{ __('Edit') }}<x-heroicon-m-chevron-right class="h-3.5 w-3.5 text-brand-mist" aria-hidden="true" /></button>
-                        @elseif ($row['source'] === 'repo')
-                            <span class="font-mono text-2xs uppercase text-brand-moss">{{ __('Repo') }}</span>
-                        @endif
-                    </span>
-                </div>
-            @empty
-                @unless ($scheduler)
-                    <p class="border-b border-brand-ink/10 py-4 text-sm text-brand-moss">{{ __('None yet. Changes apply on the next deploy.') }}</p>
-                @endunless
-            @endforelse
-        </div>
-
-        @if ($isContainer && $framework === 'other')
-            <div>
-                <p class="border-b border-brand-ink/10 pb-2 text-sm font-semibold text-brand-ink">{{ __('In your app') }}</p>
-                <x-edge-yaml-example class="mt-3" file="server.js" :hint="__('Each schedule POSTs here with the handler you set. Check the token: DPLY_QUEUE_TOKEN is in the app’s environment.')">
+            @if ($isContainer && $framework === 'other')
+                <x-sheet.section :title="__('In your app')">
+                    <x-edge-yaml-example file="server.js" :hint="__('Each schedule POSTs here with the handler you set. Check the token: DPLY_QUEUE_TOKEN is in the app’s environment.')">
 app.post("/_dply/schedule", express.json(), async (req, res) => {
   if (req.get("x-dply-queue-token") !== process.env.DPLY_QUEUE_TOKEN) {
     return res.status(403).json({ error: "Forbidden" });
@@ -136,14 +92,13 @@ app.post("/_dply/schedule", express.json(), async (req, res) => {
   // run the task for `handler` here
   res.json({ output: `ran ${handler}` });
 });
-                </x-edge-yaml-example>
-            </div>
-        @endif
+                    </x-edge-yaml-example>
+                </x-sheet.section>
+            @endif
 
-        @unless ($isContainer)
-            <div>
-                <p class="border-b border-brand-ink/10 pb-2 text-sm font-semibold text-brand-ink">{{ __('In your Worker') }}</p>
-                <x-edge-yaml-example class="mt-3" file="src/middleware.ts" :hint="__('Each schedule calls scheduled(); branch on controller.cron.')">
+            @unless ($isContainer)
+                <x-sheet.section :title="__('In your Worker')">
+                    <x-edge-yaml-example file="src/middleware.ts" :hint="__('Each schedule calls scheduled(); branch on controller.cron.')">
 export default {
   async fetch(request, env) {
     return new Response(null, { status: 204, headers: { "X-Dply-Middleware": "continue" } });
@@ -155,108 +110,193 @@ export default {
     }
   },
 };
-                </x-edge-yaml-example>
-            </div>
-        @endunless
-    </section>
+                    </x-edge-yaml-example>
+                </x-sheet.section>
+            @endunless
 
-    <details class="group" @if ($repoCount > 0) open @endif>
-        <summary class="flex cursor-pointer list-none items-center justify-between gap-3 bg-brand-sand/10 px-5 py-3.5 text-sm font-semibold text-brand-ink hover:bg-brand-sand/20 sm:px-6 [&::-webkit-details-marker]:hidden">
-            <span class="inline-flex items-center gap-2">
-                {{ __('Advanced') }}
-                @if ($repoCount > 0)
-                    <span class="rounded-full bg-brand-sand/60 px-2 py-0.5 font-mono text-2xs font-semibold uppercase tracking-wide text-brand-moss">{{ $repoCount }}</span>
-                @endif
-            </span>
-            <x-heroicon-m-chevron-down class="h-4 w-4 text-brand-mist transition group-open:rotate-180" />
-        </summary>
-        <div class="space-y-4 border-t border-brand-ink/10 px-5 py-4 sm:px-6">
-            <div class="flex flex-wrap items-center justify-between gap-2">
-                <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('From :file', ['file' => $sourcePath]) }}</p>
-                <a href="{{ route('sites.edge.dply-yaml', ['server' => $site->server_id, 'site' => $site->id]) }}" class="inline-flex items-center gap-1 text-xs font-medium text-brand-sage hover:underline">
-                    <x-heroicon-o-arrow-down-tray class="h-3.5 w-3.5" aria-hidden="true" />
-                    {{ __('Generate :file', ['file' => $sourcePath]) }}
-                </a>
-            </div>
-            <p class="text-sm text-brand-moss">{{ __('Repo schedules show above, marked Repo, and can only be changed in the file. Dashboard schedules add to them on deploy.') }}</p>
-            <x-edge-yaml-example :file="$sourcePath" :hint="__('Commit schedules in the repo, or add them above.')">
+            <x-sheet.section :title="__('From :file', ['file' => $sourcePath])">
+                <x-edge-yaml-example :file="$sourcePath" :hint="__('Repo schedules show above, marked Repo. Dashboard schedules add to them on deploy.')">
 crons:
   - schedule: "0 6 * * *"
     handler: "{{ $isContainer ? 'reports:daily' : 'daily' }}"
-            </x-edge-yaml-example>
-        </div>
-    </details>
+                </x-edge-yaml-example>
+                <a href="{{ route('sites.edge.dply-yaml', ['server' => $site->server_id, 'site' => $site->id]) }}" class="inline-flex items-center gap-1 text-xs font-medium text-brand-sage hover:underline">
+                    <x-heroicon-o-arrow-down-tray class="h-3.5 w-3.5" aria-hidden="true" />{{ __('Generate :file', ['file' => $sourcePath]) }}
+                </a>
+            </x-sheet.section>
 
-    <x-modal name="edge-cron" maxWidth="xl" overlayClass="bg-brand-ink/40" focusable>
+            <x-docs-link slug="scheduled-tasks" />
+        </x-sheet.body>
+    </x-sheet>
+
+    <x-sheet name="edge-cron" maxWidth="lg" focusable>
         @if ($editingCron !== null)
-            <div class="space-y-5 p-6 sm:p-7">
-                <div class="flex items-start justify-between gap-4">
-                    <h2 class="text-lg font-semibold text-brand-ink">{{ $editingCron === -1 ? __('Add a schedule') : __('Edit schedule') }}</h2>
-                    <button type="button" wire:click="closeCron" class="dply-icon-btn h-9 w-9" aria-label="{{ __('Close') }}">
-                        <x-heroicon-o-x-mark class="h-5 w-5" aria-hidden="true" />
-                    </button>
-                </div>
+            <x-sheet.header :eyebrow="__('Scheduled tasks')" :title="$editingCron === -1 ? __('Add a scheduled task') : __('Edit scheduled task')" close-wire="closeCron" />
 
-                <div>
-                    <x-input-label for="cron-schedule" :value="__('When (UTC)')" />
-                    <div class="mt-1 flex flex-wrap gap-1.5">
-                        @foreach ($presets as $expr => $label)
-                            <button type="button" wire:click="$set('new_schedule', @js($expr))" @class(['min-h-8 rounded-full border px-3 text-xs font-medium', 'border-brand-sage bg-brand-sage/10 text-brand-ink' => $new_schedule === $expr, 'border-brand-ink/15 text-brand-moss hover:text-brand-ink' => $new_schedule !== $expr])>{{ $label }}</button>
-                        @endforeach
-                    </div>
-                    <input id="cron-schedule" type="text" wire:model.live.debounce.300ms="new_schedule" placeholder="*/5 * * * *" autocomplete="off" class="{{ $field }} mt-2 font-mono" />
-                    <p class="mt-1 text-xs text-brand-moss">{{ \Illuminate\Support\Str::ucfirst(\App\Livewire\Sites\Edge\Workspace\Crons::describe($new_schedule)) }}</p>
-                    @error('new_schedule') <p class="mt-1 text-xs text-rose-600">{{ $message }}</p> @enderror
-                </div>
+            <form wire:submit="saveCron" class="contents">
+                <x-sheet.body>
+                    @if ($editingCron === -1 && $isContainer && $framework === 'laravel' && ! $scheduler)
+                        <button type="button" wire:click="closeCron" x-on:click="$dispatch('edge-scheduler-add')" class="flex w-full items-center gap-3 rounded-xl border border-brand-forest/40 bg-brand-forest/5 px-3.5 py-2.5 text-left transition hover:border-brand-forest">
+                            <x-heroicon-o-clock class="h-5 w-5 shrink-0 text-brand-forest dark:text-brand-sage" aria-hidden="true" />
+                            <span class="min-w-0 flex-1">
+                                <span class="block text-sm font-semibold text-brand-ink">{{ __('Run Laravel’s scheduler') }}</span>
+                                <span class="block text-2xs text-brand-mist">{{ __('schedule:run every minute, so everything in routes/console.php runs. Usually all a Laravel app needs.') }}</span>
+                            </span>
+                            <span class="text-lg leading-none text-brand-mist" aria-hidden="true">›</span>
+                        </button>
+                        <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Or a command on its own schedule') }}</p>
+                    @endif
+                    <x-sheet.field :label="__('When (UTC)')" for="cron-schedule" :help="\Illuminate\Support\Str::ucfirst(\App\Livewire\Sites\Edge\Workspace\Crons::describe($new_schedule))">
+                        {{-- Builder: writes new_schedule; typing an expression below re-reads it. --}}
+                        <div class="grid gap-2" x-data="{
+                            mode: 'daily', every: 5, minute: 0, hour: 6, dow: 1, dom: 1,
+                            init() { this.parse($wire.new_schedule); $wire.$watch('new_schedule', (v) => this.parse(v)); },
+                            get time() { return String(this.hour).padStart(2, '0') + ':' + String(this.minute).padStart(2, '0'); },
+                            set time(v) { const [h, m] = (v || '00:00').split(':'); this.hour = +h; this.minute = +m; },
+                            parse(v) {
+                                const f = (v || '').trim().split(/\s+/), n = (x) => /^\d+$/.test(x);
+                                if (f.length !== 5) { this.mode = 'custom'; return; }
+                                const [mi, h, dm, mo, dw] = f, rest = h + dm + mo + dw, m = mi.match(/^\*\/(\d+)$/);
+                                if (mi === '*' && rest === '****') { this.mode = 'minutes'; this.every = 1; }
+                                else if (m && rest === '****') { this.mode = 'minutes'; this.every = +m[1]; }
+                                else if (n(mi) && rest === '****') { this.mode = 'hourly'; this.minute = +mi; }
+                                else if (n(mi) && n(h) && dm + mo + dw === '***') { this.mode = 'daily'; this.minute = +mi; this.hour = +h; }
+                                else if (n(mi) && n(h) && n(dw) && dm + mo === '**') { this.mode = 'weekly'; this.minute = +mi; this.hour = +h; this.dow = +dw % 7; }
+                                else if (n(mi) && n(h) && n(dm) && mo + dw === '**') { this.mode = 'monthly'; this.minute = +mi; this.hour = +h; this.dom = +dm; }
+                                else { this.mode = 'custom'; }
+                            },
+                            apply() {
+                                const t = this.minute + ' ' + this.hour;
+                                const expr = {
+                                    minutes: +this.every === 1 ? '* * * * *' : '*/' + this.every + ' * * * *',
+                                    hourly: this.minute + ' * * * *',
+                                    daily: t + ' * * *',
+                                    weekly: t + ' * * ' + this.dow,
+                                    monthly: t + ' ' + this.dom + ' * *',
+                                }[this.mode];
+                                if (expr && expr !== $wire.new_schedule) $wire.$set('new_schedule', expr);
+                            },
+                        }">
+                            <div role="group" class="flex flex-wrap gap-0.5 rounded-lg border border-brand-ink/10 p-0.5 dark:border-brand-mist/20">
+                                @foreach (['minutes' => __('Minutes'), 'hourly' => __('Hourly'), 'daily' => __('Daily'), 'weekly' => __('Weekly'), 'monthly' => __('Monthly'), 'custom' => __('Custom')] as $mode => $label)
+                                    <button type="button" x-on:click="mode = @js($mode); apply()" :aria-pressed="mode === @js($mode)" :class="mode === @js($mode) ? 'bg-brand-ink text-brand-cream' : 'text-brand-moss hover:text-brand-ink'" class="min-w-0 flex-1 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-semibold transition">{{ $label }}</button>
+                                @endforeach
+                            </div>
 
-                @if ($isContainer)
-                    <div>
-                        <x-input-label for="cron-handler" :value="$commandLabel" />
-                        <input id="cron-handler" type="text" wire:model="new_handler" placeholder="reports:daily" autocomplete="off" class="{{ $field }} font-mono" />
-                        <p class="mt-1 text-xs text-brand-moss">
-                            @if ($framework === 'laravel')
-                                {{ __('Runs in the live container, like php artisan :example.', ['example' => 'reports:daily']) }}
-                            @elseif ($framework === 'rails')
-                                {{ __('Runs in the live container, like rake :example.', ['example' => 'reports:daily']) }}
-                            @else
-                                {{ __('Sent to your app as the handler in POST /_dply/schedule — your app decides what it means.') }}
+                            <div class="flex flex-wrap items-center gap-2 text-xs text-brand-moss" x-show="mode !== 'custom'">
+                                <template x-if="mode === 'minutes'">
+                                    <label class="flex items-center gap-2">{{ __('Every') }}
+                                        <select x-model.number="every" x-on:change="apply()" class="dply-input mt-0 w-auto py-1">
+                                            @foreach ([1, 2, 5, 10, 15, 20, 30] as $n)
+                                                <option value="{{ $n }}">{{ trans_choice(':count minute|:count minutes', $n) }}</option>
+                                            @endforeach
+                                        </select>
+                                    </label>
+                                </template>
+                                <template x-if="mode === 'hourly'">
+                                    <label class="flex items-center gap-2">{{ __('At minute') }}
+                                        <input type="number" min="0" max="59" x-model.number="minute" x-on:change="apply()" class="dply-input mt-0 w-20 py-1" />
+                                        {{ __('past every hour') }}
+                                    </label>
+                                </template>
+                                <template x-if="mode === 'weekly'">
+                                    <label class="flex items-center gap-2">{{ __('On') }}
+                                        <select x-model.number="dow" x-on:change="apply()" class="dply-input mt-0 w-auto py-1">
+                                            @foreach ([1 => __('Monday'), 2 => __('Tuesday'), 3 => __('Wednesday'), 4 => __('Thursday'), 5 => __('Friday'), 6 => __('Saturday'), 0 => __('Sunday')] as $n => $day)
+                                                <option value="{{ $n }}">{{ $day }}</option>
+                                            @endforeach
+                                        </select>
+                                    </label>
+                                </template>
+                                <template x-if="mode === 'monthly'">
+                                    <label class="flex items-center gap-2">{{ __('On day') }}
+                                        <select x-model.number="dom" x-on:change="apply()" class="dply-input mt-0 w-auto py-1">
+                                            @foreach (range(1, 28) as $n)
+                                                <option value="{{ $n }}">{{ $n }}</option>
+                                            @endforeach
+                                        </select>
+                                    </label>
+                                </template>
+                                <template x-if="['daily', 'weekly', 'monthly'].includes(mode)">
+                                    <label class="flex items-center gap-2">{{ __('at') }}
+                                        <input type="time" step="60" x-model="time" x-on:change="apply()" class="dply-input mt-0 w-auto py-1" />
+                                        UTC
+                                    </label>
+                                </template>
+                            </div>
+                        </div>
+                        <input id="cron-schedule" type="text" wire:model.live.debounce.300ms="new_schedule" placeholder="*/5 * * * *" autocomplete="off" aria-label="{{ __('Cron expression') }}" class="dply-input font-mono" />
+                        @error('new_schedule') <p class="text-xs text-rose-600">{{ $message }}</p> @enderror
+                    </x-sheet.field>
+
+                    @if ($isContainer)
+                        <x-sheet.field :label="$commandLabel" for="cron-handler" :help="match ($framework) {
+                            'laravel' => __('Runs in the live container from the app root. An artisan command like :artisan, or any shell command like :shell.', ['artisan' => 'reports:daily', 'shell' => 'php scripts/cleanup.php']),
+                            'rails' => __('Runs in the live container from the app root. A rake task like :rake, or any shell command like :shell.', ['rake' => 'reports:daily', 'shell' => 'bin/rails runner Cleanup.call']),
+                            default => __('Sent to your app as the handler in POST /_dply/schedule — your app decides what it means.'),
+                        }">
+                            <input id="cron-handler" type="text" wire:model.live.debounce.300ms="new_handler" placeholder="reports:daily" autocomplete="off" list="cron-app-commands" class="dply-input font-mono" />
+                            @if (in_array($framework, ['laravel', 'rails'], true))
+                                @if ($appCommands === null)
+                                    <button type="button" wire:click="loadAppCommands" wire:loading.attr="disabled" wire:target="loadAppCommands" class="justify-self-start text-xs font-semibold text-brand-sage hover:underline disabled:opacity-50">
+                                        <span wire:loading.remove wire:target="loadAppCommands">{{ $framework === 'rails' ? __('Pick from the app’s rake tasks') : __('Pick from the app’s artisan commands') }}</span>
+                                        <span wire:loading wire:target="loadAppCommands">{{ __('Asking the app… (wakes it if asleep)') }}</span>
+                                    </button>
+                                    @if ($appCommandsError)
+                                        <p class="text-xs text-rose-600">{{ $appCommandsError }}</p>
+                                    @endif
+                                @else
+                                    @php $ownCommands = collect($appCommands)->where('app', true); @endphp
+                                    <datalist id="cron-app-commands">
+                                        @foreach ($appCommands as $c)
+                                            <option value="{{ $c['name'] }}">{{ $c['description'] }}</option>
+                                        @endforeach
+                                    </datalist>
+                                    @if ($ownCommands->isNotEmpty())
+                                        <div class="grid gap-1">
+                                            <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Defined in your app') }}</p>
+                                            <div class="grid max-h-48 gap-1 overflow-y-auto">
+                                                @foreach ($ownCommands as $c)
+                                                    <button type="button" wire:click="$set('new_handler', @js($c['name']))" @class(['flex items-baseline gap-2 rounded-lg border px-2.5 py-1.5 text-left', 'border-brand-sage bg-brand-sage/10' => $new_handler === $c['name'], 'border-brand-ink/10 hover:border-brand-ink/25 dark:border-brand-mist/20' => $new_handler !== $c['name']])>
+                                                        <span class="shrink-0 font-mono text-xs text-brand-ink">{{ $c['name'] }}</span>
+                                                        <span class="min-w-0 truncate text-2xs text-brand-mist">{{ $c['description'] }}</span>
+                                                    </button>
+                                                @endforeach
+                                            </div>
+                                        </div>
+                                    @endif
+                                    <p class="text-2xs text-brand-mist">{{ trans_choice(':count command from the app; start typing to see all of them.|:count commands from the app; start typing to see all of them.', count($appCommands)) }}</p>
+                                @endif
                             @endif
-                        </p>
-                    </div>
-                @else
-                    <p class="rounded-lg bg-brand-sand/20 px-3 py-2 text-xs text-brand-moss">{{ __('Your Worker’s scheduled() handler runs; controller.cron is this expression.') }}</p>
-                @endif
-
-                <div class="flex items-center justify-between gap-2">
-                    @if ($editingCron >= 0)
-                        <button type="button" wire:click="removeEditingCron" class="text-sm font-semibold text-red-600 hover:underline">{{ __('Remove schedule') }}</button>
+                        </x-sheet.field>
                     @else
-                        <span></span>
+                        <x-sheet.note>{{ __('Your Worker’s scheduled() handler runs; controller.cron is this expression.') }}</x-sheet.note>
+                    @endif
+                </x-sheet.body>
+
+                <x-sheet.footer>
+                    @if ($editingCron >= 0)
+                        <x-sheet.button variant="danger" wire:click="removeEditingCron">{{ __('Remove') }}</x-sheet.button>
+                    @else
+                        <span>{{ __('Save, then Add for the next one. Applies on the next deploy.') }}</span>
                     @endif
                     <span class="flex gap-2">
-                        <button type="button" wire:click="closeCron" class="rounded-lg border border-brand-ink/15 px-4 py-2 text-sm font-medium text-brand-ink hover:bg-brand-sand/40">{{ __('Cancel') }}</button>
-                        <x-primary-button type="button" wire:click="saveCron" wire:loading.attr="disabled" wire:target="saveCron">{{ __('Save') }}</x-primary-button>
+                        <x-sheet.button wire:click="closeCron">{{ __('Cancel') }}</x-sheet.button>
+                        <x-sheet.button variant="primary" type="submit" wire:loading.attr="disabled" wire:target="saveCron">{{ __('Save') }}</x-sheet.button>
                     </span>
-                </div>
-            </div>
+                </x-sheet.footer>
+            </form>
         @endif
-    </x-modal>
+    </x-sheet>
 
-    <x-modal name="edge-cron-run" maxWidth="2xl" overlayClass="bg-brand-ink/40" focusable>
-        <div class="space-y-4 p-6 sm:p-7">
-            <div class="flex items-start justify-between gap-4">
-                <h2 class="text-lg font-semibold text-brand-ink">{{ __('Run') }} <span class="font-mono">{{ $runCommand }}</span></h2>
-                <button type="button" x-on:click="$dispatch('close-modal', 'edge-cron-run')" class="dply-icon-btn h-9 w-9" aria-label="{{ __('Close') }}">
-                    <x-heroicon-o-x-mark class="h-5 w-5" aria-hidden="true" />
-                </button>
-            </div>
+    <x-sheet name="edge-cron-run" maxWidth="xl">
+        <x-sheet.header :eyebrow="__('Scheduled tasks')" :title="__('Run :command', ['command' => (string) $runCommand])" />
+        <x-sheet.body>
             @if ($runOutput === null)
                 <p class="inline-flex items-center gap-2 text-sm text-brand-moss"><x-spinner size="sm" variant="muted" />{{ __('Running in the live app…') }}</p>
             @else
-                <pre class="max-h-80 overflow-auto rounded-lg bg-brand-sand/15 p-3 font-mono text-xs leading-relaxed text-brand-ink dark:bg-zinc-950">{{ $runOutput }}</pre>
+                <pre class="max-h-96 overflow-auto rounded-lg bg-brand-sand/15 p-3 font-mono text-xs leading-relaxed text-brand-ink dark:bg-zinc-950">{{ $runOutput }}</pre>
             @endif
-        </div>
-    </x-modal>
-
-    @include('livewire.partials.confirm-action-modal')
+        </x-sheet.body>
+    </x-sheet>
 </div>

@@ -312,7 +312,6 @@ final class SiteSettingsSidebar
 
         // ── Extend ───────────────────────────────────────────────────────
         if ($hasWorker) {
-            $items[] = ['id' => 'crons', 'label' => __('Crons'), 'icon' => 'heroicon-o-clock', 'group' => 'extend'];
             $items[] = ['id' => 'jobs', 'label' => __('Jobs'), 'icon' => 'heroicon-o-rectangle-stack', 'group' => 'extend'];
         }
 
