@@ -597,43 +597,35 @@ test('build journey ships only new log lines per tick, routed to their step', fu
     @unlink($log);
 });
 
-test('overview deploy poll skips the render until the watched deploy settles', function () {
-    // The journey card polls itself; the Overview's own 2s tick re-renders
-    // (hero, service map) only once the deploy it watches stops running.
+test('overview re-renders only when its own app’s deploy starts or ends', function () {
+    // No poll: the deploy pill fires edge-deploy-changed, and the Overview
+    // re-renders (hero, service map) only for this app.
     [$user, $server, $site] = makeEdgeSiteForSettings();
-    // Newer than the live deploy the helper seeds.
-    $deploy = fn (string $status, int $inSeconds) => EdgeDeployment::query()->forceCreate([
+    $building = EdgeDeployment::query()->forceCreate([
         'site_id' => $site->id,
         'organization_id' => $site->organization_id,
-        'status' => $status,
-        'storage_prefix' => 'edge/test/poll-'.$inSeconds,
-        'created_at' => now()->addSeconds($inSeconds),
+        'status' => EdgeDeployment::STATUS_BUILDING,
+        'storage_prefix' => 'edge/test/poll',
+        'created_at' => now()->addMinute(),
     ]);
     $mapQueries = fn (): int => collect(DB::getQueryLog())
         ->filter(fn (array $q): bool => str_contains($q['query'], 'edge_usage_snapshots'))->count();
-    $building = $deploy(EdgeDeployment::STATUS_BUILDING, 60);
 
     $lw = Livewire::actingAs($user)
         ->test(Overview::class, ['server' => $server, 'site' => $site])
-        ->assertSeeHtml('wire:poll.2s="checkDeploy(')
-        ->assertSeeLivewire(BuildJourney::class);
+        ->assertDontSeeHtml('wire:poll')
+        ->assertDontSeeLivewire(BuildJourney::class)
+        ->assertSee('Deploying. Follow it in the bar at the bottom of the page.');
 
     DB::enableQueryLog();
     DB::flushQueryLog();
-    $lw->call('checkDeploy', $building->id);
+    $lw->dispatch('edge-deploy-changed', siteId: 'another-app');
     expect($mapQueries())->toBe(0);
 
-    // A cancel/restart queued a newer deploy: re-render so the card swaps to it.
-    $restarted = $deploy(EdgeDeployment::STATUS_BUILDING, 120);
-    $lw->call('checkDeploy', $building->id)
-        ->assertSeeHtml("checkDeploy('{$restarted->id}')");
+    $building->forceFill(['status' => EdgeDeployment::STATUS_LIVE])->save();
+    $lw->dispatch('edge-deploy-changed', siteId: (string) $site->id)
+        ->assertDontSee('Deploying. Follow it in the bar at the bottom of the page.');
     expect($mapQueries())->toBeGreaterThan(0);
-
-    // Settled: full render, the card and the poll are gone.
-    $restarted->forceFill(['status' => EdgeDeployment::STATUS_LIVE])->save();
-    $lw->call('checkDeploy', $restarted->id)
-        ->assertDontSeeHtml('wire:poll')
-        ->assertDontSeeLivewire(BuildJourney::class);
 });
 
 test('overview observability cards skip the deployments context', function () {

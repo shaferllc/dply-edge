@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Modules\Edge\Services\EdgeArtifactPublisher;
 use App\Modules\Edge\Services\EdgeDeliveryContextResolver;
+use App\Modules\Edge\Support\EdgeDeployProgress;
 use App\Modules\Edge\Support\EdgeLiveBuildLog;
 use App\Modules\Edge\Support\EdgeLogCopy;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
@@ -70,6 +71,27 @@ class EdgeDeployment extends Model
         'build_started_at',
         'build_seconds',
     ];
+
+    /**
+     * The deploy pill: remember who started a deploy (the finished toast goes
+     * to them), and tell the organization when one starts or changes status.
+     * Steps inside a status are pushed by EdgeDeployProgress::record().
+     */
+    protected static function booted(): void
+    {
+        static::creating(function (EdgeDeployment $deployment): void {
+            $userId = auth()->id();
+            if ($userId !== null && ! isset($deployment->meta['triggered_by'])) {
+                $deployment->meta = array_merge($deployment->meta ?? [], ['triggered_by' => (string) $userId]);
+            }
+        });
+        static::created(fn (EdgeDeployment $deployment) => EdgeDeployProgress::broadcast($deployment));
+        static::updated(function (EdgeDeployment $deployment): void {
+            if ($deployment->wasChanged('status')) {
+                EdgeDeployProgress::broadcast($deployment);
+            }
+        });
+    }
 
     /** @return array<string, string> */
     protected function casts(): array
@@ -170,6 +192,9 @@ class EdgeDeployment extends Model
             ->update(['status' => $status]);
 
         $this->refresh();
+        if ($affected > 0) {
+            EdgeDeployProgress::broadcast($this); // A query update skips the model's updated hook.
+        }
 
         return $affected > 0 && ! $this->wasCancelledByOperator();
     }

@@ -14,6 +14,7 @@
             class="relative min-w-[200px] max-w-xl rounded-lg border py-3 pl-4 pr-10 text-sm shadow-lg"
         >
             <span class="block" x-text="toast.message"></span>
+            <a x-show="toast.url" :href="toast.url" :target="toast.newTab ? '_blank' : null" :rel="toast.newTab ? 'noopener' : null" class="mt-1 inline-block text-xs font-semibold underline underline-offset-2" x-text="toast.linkLabel"></a>
             <button
                 type="button"
                 @click="remove(toast.id)"

@@ -199,11 +199,11 @@
                             </section>
                         @endif
                     @else
-                        @livewire('edge.build-journey', ['deploymentId' => $quickLookDeploymentId], key('quick-look-journey-'.$quickLookDeploymentId))
+                        @include('livewire.sites.partials.edge.deployment-journey-card', ['deploymentId' => $quickLookDeploymentId])
                     @endif
                 </div>
                 <div class="flex flex-wrap items-center justify-between gap-2 border-t border-brand-ink/10 bg-brand-sand/15 px-6 py-3">
-                    <span class="text-xs text-brand-mist">{{ __('Live — updates every second while the build is running.') }}</span>
+                    <span></span>
                     @if ($quickLookSite)
                         <a
                             href="{{ route('sites.show', ['server' => $quickLookSite->server, 'site' => $quickLookSite]) }}"

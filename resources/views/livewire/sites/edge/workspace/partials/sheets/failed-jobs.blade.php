@@ -30,7 +30,7 @@
                             <p class="break-words text-rose-700 dark:text-rose-300">{{ $job['error'] }}</p>
                             <details>
                                 <summary class="cursor-pointer text-brand-moss">{{ __('Stack trace') }}</summary>
-                                <pre class="mt-1 max-h-64 overflow-auto whitespace-pre-wrap rounded-xl bg-zinc-950 p-3 font-mono text-2xs text-zinc-200">{{ $job['trace'] }}</pre>
+                                <pre class="mt-1 max-h-64 overflow-auto whitespace-pre-wrap rounded-xl bg-zinc-950 p-3 font-mono text-2xs text-raw-zinc-200">{{ $job['trace'] }}</pre>
                             </details>
                         </li>
                     @endforeach

@@ -261,7 +261,7 @@
             <x-sheet.button variant="danger" wire:click="removeScheduler">{{ __('Remove') }}</x-sheet.button>
         </div>
         @if ($schedulerOutput)
-            <pre class="overflow-x-auto whitespace-pre-wrap rounded-xl bg-zinc-950 p-3 font-mono text-2xs text-zinc-200">{{ $schedulerOutput }}</pre>
+            <pre class="overflow-x-auto whitespace-pre-wrap rounded-xl bg-zinc-950 p-3 font-mono text-2xs text-raw-zinc-200">{{ $schedulerOutput }}</pre>
         @endif
     </div>
 @endif

@@ -1,7 +1,7 @@
 {{-- Overview: identity, the service map (the app as a request travels, with live detail per box), then traffic and usage (lazy). --}}
 
-{{-- While a deploy runs, checkDeploy() skips the render until that deploy settles (the journey card polls itself). --}}
-<div @if ($isInProgress ?? false) wire:poll.2s="checkDeploy(@js((string) $inProgressDeployment->id))" @endif>
+{{-- Re-renders when this app's deploy starts or ends (deployChanged, from the deploy pill). --}}
+<div>
     @if (! empty($edgeDeliveryBanner))
         <div class="border-b border-brand-ink/10 px-5 py-3 sm:px-6">
             @include('livewire.sites.partials.edge.delivery-banner')

@@ -85,6 +85,8 @@
     --color-raw-red-950: oklch(25.8% 0.092 26.042);
     --color-raw-rose-100: oklch(94.1% 0.03 12.58);
     --color-raw-rose-200: oklch(89.2% 0.058 10.001);
+    /* Text on the always-dark terminal panes (bg-zinc-950): zinc-200 flips dark in the dark theme. */
+    --color-raw-zinc-200: oklch(92% 0.004 286.32);
     --color-raw-rose-800: oklch(45.5% 0.188 13.697);
     --color-raw-rose-900: oklch(41% 0.159 10.272);
     --color-raw-sky-100: oklch(95.1% 0.026 236.824);

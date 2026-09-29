@@ -211,11 +211,7 @@
                             <span wire:loading.remove wire:target="redeploySelectedRef">{{ __('Deploy this branch or tag') }}</span>
                             <span wire:loading wire:target="redeploySelectedRef">{{ __('Deploying…') }}</span>
                         </x-secondary-button>
-                        <livewire:edge.build-journey
-                            :deployment-id="$launchedDeploymentId"
-                            :log-only="true"
-                            :key="'create-build-'.$launchedDeploymentId"
-                        />
+                        @include('livewire.sites.partials.edge.deployment-journey-card', ['deploymentId' => $launchedDeploymentId, 'autoOpen' => true])
                     </div>
                 @elseif ($currentStep === 3)
                     <div class="mt-4 space-y-4">

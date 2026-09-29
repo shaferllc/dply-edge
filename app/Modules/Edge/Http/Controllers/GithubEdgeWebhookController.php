@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Site;
 use App\Modules\Edge\Actions\CreateEdgePreviewSite;
 use App\Modules\Edge\Actions\RedeployEdgeSite;
+use App\Modules\Edge\Support\EdgeDeployProgress;
 use App\Modules\Edge\Jobs\TeardownEdgeSiteJob;
 use App\Modules\Edge\Support\EdgePreviewPolicy;
 use App\Modules\Edge\Support\EdgeRepoRoot;
@@ -165,6 +166,10 @@ class GithubEdgeWebhookController extends Controller
 
         $commit = is_string($payload['after'] ?? null) ? (string) $payload['after'] : null;
         $deployment = (new RedeployEdgeSite)->handle($site, $commit);
+        // Whoever pushed gets the "is live" toast, when their GitHub is linked.
+        if (($pusher = EdgeDeployProgress::githubPusher($payload)) !== null) {
+            EdgeDeployProgress::setMeta($deployment->id, 'triggered_by', $pusher);
+        }
         $this->touchWebhookLastEvent($site);
 
         return response()->json([

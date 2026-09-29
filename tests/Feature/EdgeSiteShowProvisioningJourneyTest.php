@@ -21,8 +21,10 @@ test('edge site provisioning shows edge build journey not byo nginx copy', funct
         ->get(route('sites.show', ['server' => $server, 'site' => $site]))
         ->assertOk()
         ->assertSee('Edge deployment')
-        ->assertSee('Queued / cloning repository')
-        ->assertSee('Publishing to Edge CDN')
+        // Progress is in the deploy pill, opened for a first deploy.
+        ->assertSee('Deploying. Follow it in the bar at the bottom of the page.')
+        ->assertSee('dply-deploy-pill-open', false)
+        ->assertSee('deployPill(', false)
         ->assertSee('acme/web@main')
         ->assertSee('npm run build')
         ->assertSee('dist')

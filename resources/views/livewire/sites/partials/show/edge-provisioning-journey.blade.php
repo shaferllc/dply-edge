@@ -93,13 +93,12 @@
 
             @include('livewire.sites.partials.edge.recovery-callout')
 
-            {{-- Per-step live build view. Mounts the same BuildJourney
-                 component the workspace uses so this first-deploy shell
-                 gets the same streaming output (clone log under the
-                 cloning row, install/build output under the building
-                 row, etc.) plus the copy button on each pane. --}}
+            {{-- The first deploy's progress is in the deploy pill, opened
+                 for it: a first deploy is when people watch most. --}}
             @if ($edgeLatestDeployment !== null)
-                @livewire('edge.build-journey', ['deploymentId' => $edgeLatestDeployment->id], key('edge-prov-build-journey-'.$edgeLatestDeployment->id))
+                <div class="rounded-2xl border border-brand-ink/10 bg-white/40 dark:bg-zinc-900/40">
+                    @include('livewire.sites.partials.edge.deployment-journey-card', ['deployment' => $edgeLatestDeployment, 'autoOpen' => true])
+                </div>
             @else
                 <div class="rounded-2xl border border-dashed border-brand-ink/15 bg-white/40 px-5 py-6 text-center text-xs text-brand-moss">
                     {{ __('Waiting for the first deploy to start…') }}

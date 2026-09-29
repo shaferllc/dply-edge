@@ -11,6 +11,7 @@ use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Services\Ssr\EdgeSsrFrameworkRegistry;
 use App\Modules\Edge\Support\EdgeBuildDockerBootstrap;
 use App\Modules\Edge\Support\EdgeEffectiveBindings;
+use App\Modules\Edge\Support\EdgeDeployProgress;
 use App\Modules\Edge\Support\EdgeLiveBuildLog;
 use App\Modules\Edge\Support\EdgeLogCopy;
 use App\Modules\Edge\Support\EdgeRepoRoot;
@@ -754,6 +755,7 @@ class EdgeBuildRunner
         File::append($path, $chunk);
         if ($this->activeDeploymentId !== null && $this->activeDeploymentId !== '') {
             EdgeLiveBuildLog::append($this->activeDeploymentId, $chunk);
+            EdgeDeployProgress::record($this->activeDeploymentId, $chunk);
         }
     }
 

@@ -225,12 +225,6 @@
                         </div>
                     @endif
 
-                    @if ($isInProgress)
-                        <div class="border-b border-brand-ink/10">
-                            @livewire('edge.build-journey', ['deploymentId' => $deployment->id], key('edge-detail-log-tab-journey-'.$deployment->id))
-                        </div>
-                    @endif
-
                     <section class="border-b border-brand-ink/10">
                         <div class="flex flex-wrap items-center justify-between gap-2 px-5 py-3 sm:px-6">
                             <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">

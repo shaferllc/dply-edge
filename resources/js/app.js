@@ -15,6 +15,7 @@ import {
     registerDplyLazyAssetListeners,
 } from './lazy-load.js';
 import { registerDeployPipelineWorkspace } from './deploy-pipeline-dnd.js';
+import { registerDeployPill } from './deploy-pill.js';
 import { registerRealtimeConsole } from './realtime-console.js';
 import {
     installFeedbackConsoleBuffer,
@@ -150,13 +151,17 @@ document.addEventListener('alpine:init', () => {
                         this.regionClass = this.savedRegionClass;
                     }
 
-                    const id = Date.now();
+                    const id = Date.now() + Math.random();
                     const message = e.detail?.message ?? 'Done';
                     const type = e.detail?.type ?? 'success';
-                    this.toasts.push({ id, message, type });
+                    // Optional link, e.g. the deploy pill's "Open" / "View log".
+                    const url = e.detail?.url ?? null;
+                    const linkLabel = e.detail?.linkLabel ?? null;
+                    const newTab = e.detail?.newTab ?? false;
+                    this.toasts.push({ id, message, type, url, linkLabel, newTab });
                     setTimeout(() => {
                         this.toasts = this.toasts.filter((t) => t.id !== id);
-                    }, 4000);
+                    }, e.detail?.duration ?? 4000);
                 });
             },
             remove(id) {
@@ -166,6 +171,7 @@ document.addEventListener('alpine:init', () => {
     });
 
     registerDeployPipelineWorkspace(window.Alpine);
+    registerDeployPill(window.Alpine);
     registerFeedbackSidebar(window.Alpine);
     registerRealtimeConsole(window.Alpine);
     // Toolbar/shortcuts for Markdown textareas (server notes today). Pure DOM

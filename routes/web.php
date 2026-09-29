@@ -51,6 +51,7 @@ use App\Modules\Edge\Http\Controllers\EdgeAuditLogExportController;
 use App\Modules\Edge\Http\Controllers\EdgeDeployHookController;
 use App\Modules\Edge\Http\Controllers\EdgeFormIngestController;
 use App\Modules\Edge\Http\Controllers\EdgeLiveAccessLogPollController;
+use App\Http\Controllers\EdgeDeployPillController;
 use App\Modules\Edge\Http\Controllers\EdgeLogCsvDownloadController;
 use App\Modules\Edge\Http\Controllers\EdgeMeterIngestController;
 use App\Modules\Edge\Http\Controllers\EdgePreviewAccessController;
@@ -359,6 +360,14 @@ Route::middleware(['auth', 'verified', 'org'])->withHead(robots: 'noindex, nofol
     // dispatcher because the .csv extension wouldn't match.
     Route::get('projects/{site}/edge/logs.csv', EdgeLogCsvDownloadController::class)
         ->name('sites.edge.logs.csv');
+
+    // The deploy pill on every page (resources/js/deploy-pill.js).
+    Route::prefix('deploy-pill')->name('deploy-pill.')->controller(EdgeDeployPillController::class)->group(function (): void {
+        Route::get('/', 'index')->name('index');
+        Route::get('{deployment}/tail', 'tail')->name('tail');
+        Route::post('{deployment}/cancel', 'cancel')->name('cancel');
+        Route::post('{deployment}/redeploy', 'redeploy')->name('redeploy');
+    });
 
     Route::get('projects/{site}/edge/logs/live.json', EdgeLiveAccessLogPollController::class)
         ->name('sites.edge.logs.live');

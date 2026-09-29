@@ -199,7 +199,7 @@
                     <x-sheet.button type="button" x-on:click="download()">{{ __('Download') }}</x-sheet.button>
                 </div>
 
-                <div x-ref="log" class="min-h-40 flex-1 overflow-auto rounded-lg bg-zinc-950 p-3 font-mono text-xs leading-relaxed text-zinc-200">
+                <div x-ref="log" class="min-h-40 flex-1 overflow-auto rounded-lg bg-zinc-950 p-3 font-mono text-xs leading-relaxed text-raw-zinc-200">
                     @if ($openLog === null || $openLog === '')
                         <p class="text-zinc-400">{{ $stillBuilding ? __('Waiting for build output…') : __('No build log stored for this deploy.') }}</p>
                     @else
@@ -254,7 +254,7 @@
                         <span wire:loading wire:target="loadAppLogs">{{ __('Loading…') }}</span>
                     </x-sheet.button>
                 </div>
-                <div class="min-h-40 flex-1 overflow-auto rounded-lg bg-zinc-950 p-3 font-mono text-xs leading-relaxed text-zinc-200">
+                <div class="min-h-40 flex-1 overflow-auto rounded-lg bg-zinc-950 p-3 font-mono text-xs leading-relaxed text-raw-zinc-200">
                     @forelse ($appLogs ?? [] as $line)
                         @php $err = Logs::isErrorLine($line); @endphp
                         <div

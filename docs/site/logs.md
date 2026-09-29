@@ -25,7 +25,7 @@ A log usually covers:
 - Your build command
 - Publishing the output to the edge
 
-In the dialog, type in **Find in log** to show only matching lines. **Download** saves the log as a text file. While a deploy is building, the page and the open dialog refresh every five seconds so you can watch it progress.
+In the dialog, type in **Find in log** to show only matching lines. **Download** saves the log as a text file. While a deploy is building, the page and the open dialog refresh every five seconds so you can watch it progress. The **Full log** link in the deploy bar at the bottom of the page opens this dialog for a running deploy.
 
 ### When a build fails
 

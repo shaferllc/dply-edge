@@ -288,7 +288,7 @@
                 @endphp
                 <div class="overflow-hidden rounded-xl border border-brand-ink/10">
                     @if ($pendingDeployment !== null)
-                        @livewire('edge.build-journey', ['deploymentId' => (string) $pendingDeployment->id], key('edge-adhoc-preview-build-'.$pendingDeployment->id))
+                        @include('livewire.sites.partials.edge.deployment-journey-card', ['deployment' => $pendingDeployment])
                     @else
                         <p class="px-4 py-6 text-center text-xs text-brand-moss">{{ __('Waiting for the build to start…') }}</p>
                     @endif

@@ -47,6 +47,8 @@
                     aria-hidden="true"
                     data-organization-id="{{ auth()->user()->currentOrganization()?->id }}"
                     data-user-id="{{ auth()->id() }}"
+                    {{-- The app this page belongs to: the deploy pill puts its deploys first and toasts them. --}}
+                    data-site-id="{{ ($routeSite = request()->route('site')) instanceof \App\Models\Site ? $routeSite->id : (is_string($routeSite) ? $routeSite : '') }}"
                 ></div>
 
                 {{-- Billing state (a canceled subscription in its grace period) is
@@ -79,6 +81,14 @@
 
         {{-- Toasts (from Livewire dispatch('notify')) --}}
         @include('partials.toast-stack')
+
+        @auth
+            @if (auth()->user()->currentOrganization() !== null)
+                @persist('deploy-pill')
+                    @include('partials.deploy-pill')
+                @endpersist
+            @endif
+        @endauth
 
         @auth
             {{-- The global command palette (⌘K) is now mounted inside

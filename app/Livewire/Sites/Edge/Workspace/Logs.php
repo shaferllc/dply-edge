@@ -42,6 +42,12 @@ class Logs extends Component
         $this->site->load([
             'edgeDeployments' => fn ($query) => $query->orderByDesc('created_at')->limit(10),
         ]);
+
+        // ?deployment= (the deploy pill's "Full log"): open that deploy's log.
+        $linked = request()->query('deployment');
+        if (is_string($linked) && EdgeDeployment::query()->where('site_id', $this->site->id)->whereKey($linked)->exists()) {
+            $this->openDeploy($linked);
+        }
     }
 
     public function loadAppLogs(): void

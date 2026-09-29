@@ -21,11 +21,19 @@ Container apps roll out new instances instead of switching files. By default the
 
 ## Watch a deploy
 
-While a deploy is running, **Deploys** shows a live card that streams the log by step: cloning, installing and building, and publishing. Choose **Open full build log** to see everything.
+While a deploy is running, a bar at the bottom of every page shows it: the app, the step it is on, and how long it has been running. The steps are **Cloning**, **Building**, **Publishing**, and for container apps **Pushing image**, **Rolling out** (with a percentage) and **Checking the app answers**. The bar shows every running deploy in your organization for apps you can open. Preview deploys show only while you are in that app. With more than three running, the rest collapse into **+N more deploying**.
 
-A build that is waiting for another build in your organization to finish shows `Queued — waiting for an earlier build in this organization to finish.` See [Builds](/docs/builds) for concurrency limits.
+Select a deploy in the bar to see its last few log lines as they arrive, with:
 
-To stop a build and start it again, choose **Restart build** on the live card and confirm. The build is marked failed and the same commit is queued again.
+- **Full log**: opens the deploy's complete log on **Build & deploy logs**, which keeps updating while it runs.
+- **Open app**: goes to the app.
+- **Cancel**: stops the deploy after you confirm. Only people who can deploy the app see it.
+
+**Minimize** shrinks the bar to a dot with a count, until you open it again. Your browser remembers the choice.
+
+When the deploy finishes, the bar turns green and disappears, or red and stays until you choose **Dismiss**. A red bar has **Redeploy**, which queues the same commit again. You get a notification with a link to the app or the log if you started the deploy (from the dashboard, or by pushing to GitHub from a GitHub account linked to dply), or if you are on that app's pages.
+
+A build that is waiting for another build in your organization to finish shows **Queued**. See [Builds](/docs/builds) for concurrency limits.
 
 Builds that run past your plan's build timeout are stopped automatically.
 

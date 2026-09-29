@@ -11,6 +11,7 @@ use App\Models\Server;
 use App\Models\Site;
 use App\Support\Sites\EdgeSiteViewData;
 use Illuminate\Contracts\View\View;
+use Livewire\Attributes\On;
 use Livewire\Component;
 
 class Overview extends Component
@@ -24,19 +25,14 @@ class Overview extends Component
     }
 
     /**
-     * The 2s poll while a deploy runs. The build-journey card polls its own
-     * progress, so a tick only re-renders the Overview (hero, service map,
-     * failure strip) once $watching stops being the in-flight deploy — it
-     * finished, or a cancel/restart queued a new one the card must swap to.
+     * The deploy pill says a deploy started or ended somewhere in the org.
+     * Re-render (hero, service map, the "Deploying" note) only for this app;
+     * the pill itself shows the steps in between.
      */
-    public function checkDeploy(string $watching): void
+    #[On('edge-deploy-changed')]
+    public function deployChanged(string $siteId = ''): void
     {
-        $latest = $this->site->edgeDeployments()->first(['id', 'status']);
-
-        if ($latest !== null && (string) $latest->id === $watching && in_array($latest->status, [
-            EdgeDeployment::STATUS_BUILDING,
-            EdgeDeployment::STATUS_PUBLISHING,
-        ], true)) {
+        if ($siteId !== (string) $this->site->id) {
             $this->skipRender();
         }
     }

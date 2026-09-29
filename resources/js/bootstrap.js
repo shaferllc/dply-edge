@@ -59,6 +59,12 @@ function bindDplyOrganizationServerChannel() {
         });
     });
 
+    // Deploy started / moved a step / finished → the deploy pill
+    // (resources/js/deploy-pill.js), which decides what this member may see.
+    orgChannel.listen('.edge.deployment.progress', (payload) => {
+        window.dispatchEvent(new CustomEvent('dply-deploy-progress', { detail: payload }));
+    });
+
     // Backup finished (success/failure) → transient app-wide toast for the
     // operator who triggered it, no matter which page they're on. Filtered to
     // the triggering user so other org admins on the same channel aren't spammed.

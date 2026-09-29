@@ -5,6 +5,12 @@ description: "Notable changes to dply, newest first."
 
 What changed in dply, newest first. Each entry links to the page that covers the feature in full.
 
+## 2026-09-29
+
+### Deploy progress follows you
+
+A running deploy now shows in a bar at the bottom of every page instead of a card on **Overview** and **Deploys**. It shows the step the deploy is on, including the container rollout percentage, for every deploy in your organization you can see. Open it for the last few log lines, **Full log**, **Open app** and **Cancel**. When it finishes you get a notification if you started it or are on that app's pages. See [Deployments](/docs/deployments#watch-a-deploy).
+
 ## 2026-09-28
 
 ### App pages that read like a sentence

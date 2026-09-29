@@ -10,7 +10,7 @@
             @if ($workerLogs === [])
                 <p class="rounded-xl border border-dashed border-brand-ink/15 px-4 py-6 text-center text-xs text-brand-moss dark:border-brand-mist/20">{{ __('No worker output in the last hour.') }}</p>
             @else
-                <ol class="overflow-x-auto rounded-xl bg-zinc-950 p-3 font-mono text-2xs leading-relaxed text-zinc-200">
+                <ol class="overflow-x-auto rounded-xl bg-zinc-950 p-3 font-mono text-2xs leading-relaxed text-raw-zinc-200">
                     @foreach ($workerLogs as $line)
                         <li @class(['whitespace-pre-wrap break-words', 'text-red-400' => str_ends_with(rtrim($line['message']), 'FAIL') || $line['level'] === 'error', 'text-emerald-400' => str_ends_with(rtrim($line['message']), 'DONE'), 'text-sky-300' => str_starts_with($line['message'], '[dply-worker')])><span class="text-zinc-500">{{ $line['at'] ? \Illuminate\Support\Carbon::parse($line['at'])->format('H:i:s') : '' }}</span> {{ $line['message'] }}</li>
                     @endforeach
