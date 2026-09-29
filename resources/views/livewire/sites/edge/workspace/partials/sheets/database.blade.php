@@ -6,7 +6,38 @@
             @php
                 $dplyEngine = in_array($databaseEngine, ['postgres', 'mongodb', 'mysql'], true);
                 $postgresLocked = ! $cardOnFile;
+                // A suggested resize (EdgeDatabaseResize): never automatic, since it restarts the database.
+                $resize = $dplyEngine ? \App\Modules\Edge\Support\EdgeDatabaseResize::suggestion($site) : null;
+                $resizeScheduled = $dplyEngine ? ($site->edgeMeta()['database']['resize_scheduled'] ?? null) : null;
+                $sizeLabel = fn (string $key): string => isset(\App\Modules\Edge\Services\EdgeAppDatabase::POSTGRES_SIZES[$key]) ? \App\Modules\Edge\Services\EdgeAppDatabase::POSTGRES_SIZES[$key]['cpu'].' · '.\App\Modules\Edge\Services\EdgeAppDatabase::POSTGRES_SIZES[$key]['memory'] : $key;
+                $canResize = auth()->user()?->can('update', $site) ?? false;
             @endphp
+            @if (is_array($resizeScheduled))
+                <x-sheet.note tone="warn">
+                    {{ __('Resizing to :size at :time. The database restarts then; open connections drop once.', ['size' => $sizeLabel((string) $resizeScheduled['size']), 'time' => \Illuminate\Support\Carbon::createFromTimestamp((int) $resizeScheduled['at'], $site->organization?->timezone ?: 'UTC')->format('D H:i T')]) }}
+                    @if ($canResize)
+                        <button type="button" wire:click="cancelDatabaseResize" class="ms-2 font-semibold underline">{{ __('Cancel') }}</button>
+                    @endif
+                </x-sheet.note>
+            @elseif ($resize)
+                <div class="grid gap-2 rounded-xl border border-brand-forest/40 bg-brand-forest/5 p-3.5" data-resize-suggestion>
+                    <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ $resize['direction'] === 'up' ? __('Suggested: a bigger size') : __('Suggested: a smaller size') }}</p>
+                    <p class="text-sm font-semibold text-brand-ink">{{ $sizeLabel($resize['from']) }} → {{ $sizeLabel($resize['size']) }}
+                        @isset($postgresSizes[$resize['size']]['month'], $postgresSizes[$resize['from']]['month'])
+                            <span class="font-normal text-brand-moss">· {{ __('$:from → $:to/mo', ['from' => $postgresSizes[$resize['from']]['month'], 'to' => $postgresSizes[$resize['size']]['month']]) }}</span>
+                        @endisset
+                    </p>
+                    <p class="text-xs text-brand-moss">{{ $resize['reason'] }}</p>
+                    <p class="text-2xs text-brand-mist">{{ __('Resizing restarts the database: open connections drop for a few seconds, and it starts at the new size on the next connection.') }}</p>
+                    @if ($canResize)
+                        <div class="flex flex-wrap items-center gap-2">
+                            <x-sheet.button variant="primary" wire:click="resizeDatabaseNow" wire:loading.attr="disabled" wire:target="resizeDatabaseNow">{{ __('Resize now') }}</x-sheet.button>
+                            <x-sheet.button wire:click="resizeDatabaseTonight">{{ __('Resize tonight (:time)', ['time' => \App\Modules\Edge\Support\EdgeDatabaseResize::tonight($site)->format('H:i T')]) }}</x-sheet.button>
+                            <button type="button" wire:click="dismissDatabaseResize" class="text-xs font-semibold text-brand-moss hover:text-brand-ink">{{ __('Dismiss for :days days', ['days' => \App\Modules\Edge\Support\EdgeDatabaseResize::DISMISS_DAYS]) }}</button>
+                        </div>
+                    @endif
+                </div>
+            @endif
             @php
                 $engineNames = ['none' => __('None'), 'postgres' => __('Postgres'), 'mongodb' => __('MongoDB'), 'mysql' => __('MySQL'), 'sql' => __('SQLite')];
                 $engineHelp = [
@@ -61,12 +92,29 @@
                     </x-sheet.segmented>
                 </x-sheet.field>
 
-                <x-sheet.field :label="__('Disk')">
+                @php
+                    // The running database's disk: smaller ones can't be picked, bigger ones ask first (Resources::selectPostgresDisk).
+                    $runningDisk = (string) ($site->edgeMeta()['database']['remote_id'] ?? '') !== '' ? (int) ($site->edgeMeta()['database']['disk_gb'] ?? 0) : 0;
+                @endphp
+                <x-sheet.field :label="__('Disk')" :help="$runningDisk > 0 ? __('A database disk only grows.') : null">
                     <x-sheet.segmented id="postgres-disk">
                         @foreach ($postgresDisks as $gb => $label)
-                            <x-sheet.segment wire:click="selectPostgresDisk({{ $gb }})" :active="$postgresDisk === $gb" :disabled="$postgresLocked">{{ __($label) }}</x-sheet.segment>
+                            <x-sheet.segment wire:click="selectPostgresDisk({{ $gb }})" :active="$postgresDisk === $gb" :disabled="$postgresLocked || $gb < $runningDisk">{{ __($label) }}</x-sheet.segment>
                         @endforeach
                     </x-sheet.segmented>
+                    @if ($growDiskTo !== null)
+                        <div class="mt-2 grid gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-brand-ink" data-disk-grow>
+                            <p>{{ __('Grow the disk to :gb GB? A database disk can’t shrink afterwards. Disk goes from $:from to $:to a month.', [
+                                'gb' => $growDiskTo,
+                                'from' => number_format((float) $postgresGigabyte * $postgresDisk, 2),
+                                'to' => number_format((float) $postgresGigabyte * $growDiskTo, 2),
+                            ]) }}</p>
+                            <div class="flex gap-2">
+                                <x-sheet.button variant="primary" wire:click="confirmDiskGrow">{{ __('Grow to :gb GB', ['gb' => $growDiskTo]) }}</x-sheet.button>
+                                <x-sheet.button wire:click="cancelDiskGrow">{{ __('Keep :gb GB', ['gb' => $postgresDisk]) }}</x-sheet.button>
+                            </div>
+                        </div>
+                    @endif
                 </x-sheet.field>
 
                 @if ($postgresSuspend !== -1)
@@ -80,7 +128,7 @@
 
                 <x-sheet.cost :label="__('Compute $:compute · disk $:disk', ['compute' => $postgresSizes[$postgresSize]['month'], 'disk' => number_format((float) $postgresGigabyte * $postgresDisk, 2)])" :sub="__(':second/s ($:hour/hour) awake · disk $:gigabyte/GB-month', ['second' => $postgresSizes[$postgresSize]['second'], 'hour' => $postgresSizes[$postgresSize]['hour'], 'gigabyte' => $postgresGigabyte])">{{ __('About $:total/mo', ['total' => number_format((float) str_replace(',', '', $postgresSizes[$postgresSize]['month']) + (float) $postgresGigabyte * $postgresDisk, 2)]) }}</x-sheet.cost>
                 @if ($databaseEngine === 'postgres' && $postgresSuspend !== -1 && $postgresSize !== '0.25')
-                    <p class="-mt-3 text-2xs text-brand-mist">{{ __('Scales from 0.25 vCPU · 1 GB; priced at full size.') }}</p>
+                    <p class="-mt-3 text-2xs text-brand-mist">{{ __('Uses spare CPU on its node when there is some.') }}</p>
                 @endif
             @endif
 

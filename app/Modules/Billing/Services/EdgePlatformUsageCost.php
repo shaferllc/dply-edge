@@ -10,17 +10,17 @@ use App\Modules\Billing\Support\UsagePrice;
 use Carbon\CarbonInterface;
 
 /**
- * Workers CPU, Durable Objects, customer R2 buckets and Images on the bill. Called by
+ * Workers CPU, Workers Logs, Durable Objects, customer R2 buckets and Images on the bill. Called by
  * OrganizationBillingStateComputer. Reads edge_platform_usage
  * (EdgePlatformUsageCollector) by organization, so a deleted app's usage
- * still bills. Cost rates in dply.edge.usage_billing.{workers_cpu,do,r2_bucket,images}_*,
+ * still bills. Cost rates in dply.edge.usage_billing.{workers_cpu,workers_logs,do,r2_bucket,images}_*,
  * priced by UsagePrice.
  * Counts are summed over the period; storage is each resource's peak day,
  * charged as a whole GB-month (like EdgeKvCost).
  */
 class EdgePlatformUsageCost
 {
-    private const COUNTS = ['cpu_ms', 'do_requests', 'do_gb_seconds', 'do_rows_read', 'do_rows_written', 'r2_class_a_ops', 'r2_class_b_ops', 'images_transformations'];
+    private const COUNTS = ['cpu_ms', 'do_requests', 'do_gb_seconds', 'do_rows_read', 'do_rows_written', 'r2_class_a_ops', 'r2_class_b_ops', 'images_transformations', 'log_events'];
 
     private const STORAGE = ['do_storage_bytes', 'r2_storage_bytes'];
 
@@ -64,6 +64,7 @@ class EdgePlatformUsageCost
             + $perMillion('r2_class_a_ops', 'r2_bucket_class_a_millicents_per_million')
             + $perMillion('r2_class_b_ops', 'r2_bucket_class_b_millicents_per_million')
             + $perMillion('images_transformations', 'images_transformations_millicents_per_million')
+            + $perMillion('log_events', 'workers_logs_millicents_per_million')
             + ($usage['do_storage_bytes'] ?? 0) / 1024 ** 3 * $rate('do_storage_millicents_per_gb_month')
             + ($usage['r2_storage_bytes'] ?? 0) / 1024 ** 3 * $rate('r2_bucket_storage_millicents_per_gb_month');
 

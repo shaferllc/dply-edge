@@ -15,6 +15,17 @@
         @endif
         @if ($workersUnavailable)
             <x-sheet.note>{{ $workersUnavailable }}</x-sheet.note>
+            {{-- The same one-step fix the "Add queue workers" sheet offers. --}}
+            @if ($isContainer && \App\Modules\Edge\Support\EdgeQueueWorkers::connection($site, 'auto') === null)
+                <div class="flex flex-wrap items-center gap-2">
+                    <x-sheet.button variant="primary" wire:click="fixQueueBackend" wire:loading.attr="disabled" wire:target="fixQueueBackend">
+                        <span wire:loading.remove wire:target="fixQueueBackend">{{ __('Add dply Valkey for the queue') }}</span>
+                        <span wire:loading wire:target="fixQueueBackend">{{ __('Starting Valkey…') }}</span>
+                    </x-sheet.button>
+                    <span class="text-2xs text-brand-mist">{{ __('Smallest size, sleeps when idle, up to :price/mo. Deploys when it’s ready.', ['price' => '$'.number_format(\App\Modules\Edge\Support\EdgeValkey::CLASSES[\App\Modules\Edge\Support\EdgeValkey::DEFAULT_CLASS]['price_cap_cents'] / 100, 2)]) }}</span>
+                </div>
+                @error('workerSetup') <x-sheet.note tone="warn">{{ $message }}</x-sheet.note> @enderror
+            @endif
         @else
             @php $allow = \App\Modules\Edge\Support\EdgeQueueWorkers::allowance($site); @endphp
             <x-sheet.section>
@@ -251,7 +262,7 @@
         <p class="text-xs text-brand-moss">
             {{ $schedulerOnWorker
                 ? __('Runs in worker-0 beside the queue workers, so the app itself can still sleep. Pausing the workers pauses it too.')
-                : __('A Cron Trigger calls the app every minute, which keeps it from sleeping. Add queue workers and it moves into a worker instead.') }}
+                : __('A Cron Trigger checks every minute and wakes the app only when a task in routes/console.php is due. Add queue workers and it runs in a worker instead.') }}
         </p>
         <div class="flex flex-wrap gap-1.5">
             <x-sheet.button wire:click="runSchedulerNow" wire:loading.attr="disabled" wire:target="runSchedulerNow">

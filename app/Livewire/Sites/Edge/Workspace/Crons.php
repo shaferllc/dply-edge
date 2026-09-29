@@ -11,6 +11,7 @@ use App\Models\Server;
 use App\Models\Site;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Support\EdgeContainerSettings;
+use App\Modules\Edge\Support\EdgeCronExpression;
 use App\Modules\Edge\Support\EdgeEffectiveCrons;
 use App\Modules\Edge\Support\EdgeQueueWorkers;
 use Illuminate\Contracts\View\View;
@@ -22,14 +23,15 @@ use Livewire\Component;
 /**
  * Scheduled tasks, told per runtime. Lives on Overview beside Resources: it
  * owns the sheets (list, edit, run) and Resources draws the map box from
- * self::schedule(); "Add a resource" → Scheduled task fires edge-cron-new. Every entry becomes a Cloudflare Cron
- * Trigger on the site's Worker (at most 5 schedules per Worker):
+ * self::schedule(); "Add a resource" → Scheduled task fires edge-cron-new.
  *
- *   - container: the handler is an artisan command / rake task the Worker
- *     runs in the app (EdgeContainerDeployer::cronHandlers), plus Laravel's
- *     `schedule:run` every minute when the scheduler is on;
- *   - SSR / middleware: only the schedule is pushed; the script's
- *     scheduled() handler tells them apart by event.cron.
+ *   - container: every task shares one every-minute Cron Trigger and the
+ *     Worker runs the due ones in the app (EdgeContainerDeployer::cronHandlers),
+ *     so up to EdgeCronExpression::MAX_TASKS tasks, in the grammar that class
+ *     checks; plus Laravel's `schedule:run` when the scheduler is on;
+ *   - SSR / middleware: each distinct schedule is its own Cron Trigger, and
+ *     the script's scheduled() tells them apart by event.cron, so Cloudflare's
+ *     limit of EdgeEffectiveCrons::MAX_WORKER_SCHEDULES applies.
  *
  * Repo-declared crons (dply.yaml) are read-only; dashboard rows live on
  * edgeMeta `crons_overrides` and merge additively at deploy time.
@@ -38,9 +40,6 @@ class Crons extends Component
 {
     use DispatchesToastNotifications;
     use MountsEdgeWorkspaceSection;
-
-    /** Cloudflare's limit on Cron Triggers per Worker. */
-    private const MAX_SCHEDULES = 5;
 
     /** @var list<array{schedule: string, handler: string}> */
     public array $dashboard_crons = [];
@@ -55,6 +54,9 @@ class Crons extends Component
     public ?string $runOutput = null;
 
     public ?string $runCommand = null;
+
+    /** @var array<string, string> Arguments the command said it is missing, as the sheet fills them in. */
+    public array $runArgs = [];
 
     /** @var list<array{name: string, description: string, app: bool}>|null The live app's commands, once loaded. */
     public ?array $appCommands = null;
@@ -78,6 +80,10 @@ class Crons extends Component
             array_filter($overrides, static fn ($e): bool => is_array($e) && is_string($e['schedule'] ?? null) && $e['schedule'] !== ''),
         ));
     }
+
+    /** The scheduler was added or removed (Resources): its row here follows. */
+    #[On('edge-scheduler-changed')]
+    public function schedulerChanged(): void {}
 
     #[On('edge-cron-new')]
     public function newCron(): void
@@ -152,8 +158,18 @@ class Crons extends Component
 
             return;
         }
+        if ($this->isContainer() && ! EdgeCronExpression::supported($schedule)) {
+            $this->addError('new_schedule', __('Use numbers, *, ranges (1-5), lists (1,15), steps (*/10) and names like MON or JAN. L, W, # and ? aren’t supported.'));
+
+            return;
+        }
 
         $this->refreshFromMeta();
+        if ($this->editingCron === -1 && $this->isContainer() && count($this->dashboard_crons) >= EdgeCronExpression::MAX_TASKS) {
+            $this->addError('new_schedule', __('An app can run up to :max scheduled tasks.', ['max' => EdgeCronExpression::MAX_TASKS]));
+
+            return;
+        }
         $row = ['schedule' => $schedule, 'handler' => $handler];
         if ($this->editingCron !== null && isset($this->dashboard_crons[$this->editingCron])) {
             $this->dashboard_crons[$this->editingCron] = $row;
@@ -198,9 +214,67 @@ class Crons extends Component
         abort_unless(in_array($command, $this->runnableCommands(), true), 404);
 
         $this->runCommand = $command;
-        $this->runOutput = null;
+        $this->runArgs = [];
         $this->dispatch('open-modal', 'edge-cron-run');
+        $this->execute($command);
+    }
 
+    /** Run the listed command again with the arguments the sheet asked for. */
+    public function runWithArgs(): void
+    {
+        $this->authorize('update', $this->site);
+        abort_unless($this->canRunNow() && is_string($this->runCommand), 404);
+        abort_unless(in_array($this->runCommand, $this->runnableCommands(), true), 404);
+
+        $this->execute($this->commandWithArgs());
+    }
+
+    /**
+     * Put the arguments into the scheduled task itself, so its next run has
+     * them. Only dashboard tasks: a dply.yaml task changes in the repo.
+     */
+    public function saveArgsToTask(): void
+    {
+        $this->authorize('update', $this->site);
+        abort_unless(is_string($this->runCommand), 404);
+
+        $this->refreshFromMeta();
+        $full = $this->commandWithArgs();
+        $changed = 0;
+        foreach ($this->dashboard_crons as $i => $row) {
+            if ($row['handler'] === $this->runCommand) {
+                $this->dashboard_crons[$i]['handler'] = $full;
+                $changed++;
+            }
+        }
+        if ($changed === 0) {
+            $this->toastError(__('That task is in :file; add the arguments there.', ['file' => 'dply.yaml']));
+
+            return;
+        }
+        $this->persist();
+        $this->runCommand = $full;
+        $this->runArgs = [];
+        $this->toastSuccess(__('Saved. The task runs :command from the next deploy.', ['command' => $full]));
+    }
+
+    /** The command plus the sheet's arguments, quoted where Artisan needs it. */
+    private function commandWithArgs(): string
+    {
+        $parts = [(string) $this->runCommand];
+        foreach ($this->runArgs as $value) {
+            $value = trim((string) $value);
+            if ($value !== '') {
+                $parts[] = preg_match('#^[\w@.:/+=,-]+$#', $value) === 1 ? $value : '"'.addcslashes($value, '"\\').'"';
+            }
+        }
+
+        return implode(' ', $parts);
+    }
+
+    private function execute(string $command): void
+    {
+        $this->runOutput = null;
         $url = $this->site->edgeLiveUrl();
         if (! is_string($url) || $url === '') {
             $this->runOutput = __('This app has no live URL yet. Deploy it first.');
@@ -223,6 +297,13 @@ class Crons extends Component
                 default => __('The app answered HTTP :status.', ['status' => $response->status()])
                     .(trim((string) $response->body()) !== '' ? "\n\n".mb_substr(trim((string) $response->body()), 0, 2000) : ''),
             };
+            // Symfony Console's own message: ask for exactly those, keeping what was typed.
+            if (is_array($body) && preg_match('/Not enough arguments \(missing: (.+)\)/', (string) ($body['error'] ?? ''), $m) === 1) {
+                preg_match_all('/"([^"]+)"/', $m[1], $names);
+                foreach ($names[1] as $name) {
+                    $this->runArgs[$name] ??= '';
+                }
+            }
         } catch (\Throwable $e) {
             $this->runOutput = $e->getMessage();
         }
@@ -326,18 +407,25 @@ class Crons extends Component
     }
 
     /**
-     * The schedules as they will deploy, for the Overview box and the sheet.
-     * The scheduler takes a slot first on containers (EdgeContainerDeployer::cronHandlers);
-     * anything past Cloudflare's limit is marked dropped.
+     * The schedules as they will deploy, for the Overview box and the sheet,
+     * each marked `dropped` (with why) when it won't run.
      *
-     * @return array{rows: list<array<string, mixed>>, scheduler: bool, schedulerInWorker: bool, used: int, max: int}
+     *   - container: one shared trigger; tasks past MAX_TASKS, or with an
+     *     expression the Worker can't read, won't run. `used`/`max` count tasks.
+     *   - SSR / middleware: a trigger per distinct schedule; past Cloudflare's
+     *     limit won't run. `used`/`max` count schedules.
+     *
+     * @return array{rows: list<array<string, mixed>>, scheduler: bool, schedulerInWorker: bool, used: int, max: int, container: bool}
      */
     public static function schedule(Site $site, ?EdgeDeployment $deployment = null): array
     {
         $deployment ??= self::configDeploymentFor($site);
-        $scheduler = ($site->edgeMeta()['runtime_mode'] ?? '') === 'container' && EdgeContainerSettings::for($site)['scheduler'];
+        $container = ($site->edgeMeta()['runtime_mode'] ?? '') === 'container';
+        $scheduler = $container && EdgeContainerSettings::for($site)['scheduler'];
         $schedulerInWorker = $scheduler && EdgeQueueWorkers::runsScheduler($site);
-        $slots = ($scheduler && ! $schedulerInWorker) ? ['* * * * *'] : [];
+        $max = $container ? EdgeCronExpression::MAX_TASKS : EdgeEffectiveCrons::MAX_WORKER_SCHEDULES;
+        $slots = [];
+        $tasks = 0;
         $overrides = array_values(array_filter(
             is_array($site->edgeMeta()['crons_overrides'] ?? null) ? $site->edgeMeta()['crons_overrides'] : [],
             static fn ($e): bool => is_array($e) && is_string($e['schedule'] ?? null) && $e['schedule'] !== '',
@@ -345,8 +433,21 @@ class Crons extends Component
 
         $rows = [];
         foreach (EdgeEffectiveCrons::for($site, $deployment) as $cron) {
-            if (! in_array($cron['schedule'], $slots, true)) {
-                $slots[] = $cron['schedule'];
+            $dropped = null;
+            if ($container) {
+                // Same order and rules as EdgeContainerDeployer::cronHandlers.
+                if (! EdgeCronExpression::supported($cron['schedule'])) {
+                    $dropped = 'unsupported';
+                } elseif ($tasks >= $max) {
+                    $dropped = 'limit';
+                } else {
+                    $tasks++;
+                }
+            } else {
+                if (! in_array($cron['schedule'], $slots, true)) {
+                    $slots[] = $cron['schedule'];
+                }
+                $dropped = array_search($cron['schedule'], $slots, true) >= $max ? 'limit' : null;
             }
             $dashboardIndex = null;
             if ($cron['source'] === 'dashboard') {
@@ -359,12 +460,13 @@ class Crons extends Component
             }
             $rows[] = $cron + [
                 'when' => self::describe($cron['schedule']),
-                'dropped' => array_search($cron['schedule'], $slots, true) >= self::MAX_SCHEDULES,
+                'dropped' => $dropped !== null,
+                'dropped_reason' => $dropped,
                 'index' => $dashboardIndex,
             ];
         }
 
-        return ['rows' => $rows, 'scheduler' => $scheduler, 'schedulerInWorker' => $schedulerInWorker, 'used' => count($slots), 'max' => self::MAX_SCHEDULES];
+        return ['rows' => $rows, 'scheduler' => $scheduler, 'schedulerInWorker' => $schedulerInWorker, 'used' => $container ? $tasks : count($slots), 'max' => $max, 'container' => $container];
     }
 
     public function render(): View
@@ -379,6 +481,7 @@ class Crons extends Component
             'scheduler' => $schedule['scheduler'],
             'schedulerInWorker' => $schedule['schedulerInWorker'],
             'canRunNow' => $this->canRunNow(),
+            'runIsDashboardTask' => is_string($this->runCommand) && collect($this->dashboard_crons)->contains('handler', $this->runCommand),
             'framework' => match (true) {
                 $this->site->isLaravelFrameworkDetected() => 'laravel',
                 $this->site->isRailsFrameworkDetected() => 'rails',

@@ -84,7 +84,7 @@ Each model has its own rate in neurons per million input and output tokens (the 
 
 ### Monthly limit
 
-AI, browser rendering and vector search share one monthly limit per organization, **$25** unless an owner changes it on the **Billing** page. It counts every app in the organization, and the **Try it** and **Query** tabs in the dashboard. Owners are emailed at 80% and 100%. At the limit, calls are refused until the next billing period or until an owner raises it:
+AI, browser rendering and vector search share one monthly limit per organization, **$25** unless an owner changes it on the **Billing** page. It counts every app in the organization and the demos in the dashboard. Owners are emailed at 80% and 100%. At the limit, calls are refused until the next billing period or until an owner raises it:
 
 - A Worker app's call rejects with an error whose message says the limit is reached (`error.status` is `429`).
 - A container app gets HTTP `429` with `{"error": "..."}`.

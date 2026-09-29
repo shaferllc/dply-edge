@@ -106,12 +106,17 @@
                 </x-sheet.note>
             @endif
 
-            <x-sheet.field :label="__('Instances')" :help="__('The first start runs only this many, together. A later deploy can briefly run one extra instance so the new version starts before the current one stops. Queues run on these same instances.')">
+            <x-sheet.field :label="__('Max instances')" :help="__('The first start runs only this many, together. A later deploy can briefly run one extra instance so the new version starts before the current one stops. Queues run on these same instances.')">
                 <x-sheet.segmented>
                     @foreach ($instanceCounts as $count)
                         <x-sheet.segment wire:click="selectInstances({{ $count }})" :active="$settings['max_instances'] === $count" :disabled="$trial && $count > 1" :title="$trial && $count > 1 ? __('Available after your trial') : null">{{ $count }}</x-sheet.segment>
                     @endforeach
                 </x-sheet.segmented>
+            </x-sheet.field>
+
+            <x-sheet.field :label="__('Min instances (always awake)')" for="app-min-instances" :help="$minInstances > 0 ? __('The first :count never sleep, so they never cold start. Billed while awake.', ['count' => $minInstances]) : __('0: every instance sleeps when idle.')">
+                <input id="app-min-instances" type="number" min="0" max="{{ $draftMaxInstances }}" wire:model.live.debounce.400ms="minInstances" class="dply-input mt-0 w-24" @disabled($trial) />
+                <x-input-error :messages="$errors->get('minInstances')" />
             </x-sheet.field>
 
             <x-sheet.field :label="__('Sleeps after')">

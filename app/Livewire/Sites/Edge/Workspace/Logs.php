@@ -33,6 +33,14 @@ class Logs extends Component
     /** Which lines the app-output dialog starts on: all or errors. */
     public string $appFilter = 'all';
 
+    /** How far back the app output goes, in minutes (Workers Logs keeps a few days). */
+    public int $appMinutes = 15;
+
+    public const APP_WINDOWS = [15 => '15 minutes', 60 => '1 hour', 360 => '6 hours', 1440 => '24 hours', 4320 => '3 days'];
+
+    /** Text Cloudflare searches for across the whole window ('' = everything). */
+    public string $appSearch = '';
+
     public ?string $openDeployment = null;
 
     public function mount(Server $server, Site $site): void
@@ -55,13 +63,28 @@ class Logs extends Component
         if (! $this->isContainer()) {
             return;
         }
+        if (! array_key_exists($this->appMinutes, self::APP_WINDOWS)) {
+            $this->appMinutes = 15;
+        }
         try {
-            $this->appLogs = EdgeContainerDeployer::appLogLines($this->site);
+            $this->appLogs = EdgeContainerDeployer::appLogLines($this->site, $this->appMinutes, $this->appSearch);
             $this->appLogsError = null;
         } catch (Throwable $e) {
             $this->appLogs = [];
             $this->appLogsError = $e->getMessage();
         }
+    }
+
+    /** Enter in the dialog's search: ask Cloudflare for lines containing it, not just filter what's loaded. */
+    public function searchAppLogs(string $text): void
+    {
+        $this->appSearch = mb_substr(trim($text), 0, 200);
+        $this->loadAppLogs();
+    }
+
+    public function updatedAppMinutes(): void
+    {
+        $this->loadAppLogs();
     }
 
     public function openAppLogs(string $filter = 'all'): void

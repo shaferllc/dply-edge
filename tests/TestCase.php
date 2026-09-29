@@ -4,12 +4,14 @@ namespace Tests;
 
 use App\Modules\Billing\Services\EdgeOrganizationUsageReader;
 use App\Modules\Billing\Services\OrganizationBillingStateComputer;
+use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Notifications\Services\AssignableNotificationChannels;
 use App\Policies\SitePolicy;
 use App\Support\Sites\LinkedOrganizationSecrets;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Facades\DB;
+use Laravel\Pennant\Feature;
 use Livewire\Livewire;
 
 abstract class TestCase extends BaseTestCase
@@ -51,6 +53,12 @@ abstract class TestCase extends BaseTestCase
         set_time_limit(0);
 
         $this->withoutVite();
+
+        // Resource feature flags default to on in tests, so they cover the
+        // feature; EdgeResourceFlagsTest checks the flag itself.
+        foreach (EdgeContainerConnections::FLAGGED as $kind) {
+            Feature::define(EdgeContainerConnections::flag($kind), static fn (): bool => true);
+        }
 
         // Outbound URL checks resolve DNS; answer with a public address so
         // tests never depend on the network. A test can swap in its own.

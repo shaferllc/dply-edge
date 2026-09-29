@@ -18,7 +18,7 @@ Schedules apply on the **next deploy**. The map box lists the first three schedu
 
 ## The 5-schedule limit
 
-**Cloudflare allows 5 schedules per Worker.** The sheet shows **N of 5 used** and the map box shows the same count. Extras are dropped at deploy and marked **Won't run**. Several commands can share one schedule, so reuse an expression before adding a new one.
+**Limits depend on the runtime.** Container apps register one `* * * * *` Cron Trigger and the Worker's `scheduled()` runs each task whose schedule is due (`cronDue(…, strict)`), so they get up to `EdgeCronExpression::MAX_TASKS` (50) tasks in the grammar `EdgeCronExpression::supported()` checks (no `L`/`W`/`#`/`?`). SSR / middleware Workers still get one Cron Trigger per distinct schedule because their own `scheduled()` branches on `controller.cron`, so Cloudflare's 5 apply (`EdgeEffectiveCrons::MAX_WORKER_SCHEDULES`). Either way, extras and unreadable expressions are dropped at deploy and marked **Won't run**.
 
 On a Laravel container app, the scheduler (`schedule:run` every minute) takes one slot, unless it runs inside a queue worker. Turn it on from **Add resource** → **Scheduled task** → **Run Laravel’s scheduler**, and off from the **Scheduler** / **Queue workers** box.
 

@@ -43,6 +43,7 @@ use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeContainerInstances;
 use App\Modules\Edge\Support\EdgeContainerPlans;
 use App\Modules\Edge\Support\EdgeContainerSettings;
+use App\Modules\Edge\Support\EdgeDatabaseResize;
 use App\Modules\Edge\Support\EdgeDplyDatabase;
 use App\Modules\Edge\Support\EdgeDplyDatabaseStats;
 use App\Modules\Edge\Support\EdgeEffectiveBindings;
@@ -65,6 +66,7 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
+use Livewire\Attributes\Renderless;
 use Livewire\Component;
 
 /**
@@ -234,6 +236,55 @@ class Resources extends Component
         return $this->readValkeyPassword($host);
     }
 
+    /**
+     * Images sheet demo: sends a sample picture through the live app's
+     * Images binding (/_dply/images on the site Worker) and returns what came
+     * back straight to Alpine, so the picture never sits in component state.
+     *
+     * @param  array<string, mixed>  $options
+     * @return array{ok: bool, error?: string, ms?: int, in_bytes?: int, out_bytes?: int, type?: string, image?: string, info?: mixed}
+     */
+    #[Renderless]
+    public function runImagesDemo(string $call, array $options = []): array
+    {
+        $this->authorize('update', $this->site);
+        // Only a container app's Worker has the /_dply/images route.
+        if (($this->site->edgeMeta()['runtime_mode'] ?? '') !== 'container') {
+            return ['ok' => false, 'error' => __('The live demo runs on container apps.')];
+        }
+        $url = $this->site->edgeLiveUrl();
+        if (! is_string($url) || $url === '') {
+            return ['ok' => false, 'error' => __('This app has no live URL yet. Deploy it first.')];
+        }
+        $sample = (string) file_get_contents(public_path('images/og/dply-og.png'));
+        $query = http_build_query(array_intersect_key(array_filter($options, fn ($v) => $v !== '' && $v !== null), array_flip(['width', 'height', 'fit', 'format', 'quality'])));
+        $started = hrtime(true);
+        try {
+            $response = Http::timeout(30)
+                ->withHeaders(['x-dply-queue-token' => EdgeContainerDeployer::queueToken($this->site)])
+                ->withBody($sample, 'image/png')
+                ->post(rtrim($url, '/').'/_dply/images'.($call === 'info' ? '/info' : '/?'.$query));
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'error' => $e->getMessage()];
+        }
+        $ms = (int) ((hrtime(true) - $started) / 1e6);
+        if ($response->status() === 404) {
+            return ['ok' => false, 'error' => __('The live app does not have this demo yet. Redeploy it with Images attached.')];
+        }
+        if (! $response->successful()) {
+            return ['ok' => false, 'error' => __('The app answered HTTP :status: :body', ['status' => $response->status(), 'body' => str($response->body())->limit(200)])];
+        }
+        if ($call === 'info') {
+            return ['ok' => true, 'ms' => $ms, 'in_bytes' => strlen($sample), 'info' => $response->json()];
+        }
+        $type = (string) $response->header('content-type');
+        if (preg_match('#^image/(webp|avif|jpeg|png|gif)$#', $type) !== 1) {
+            return ['ok' => false, 'error' => __('The app sent back :type, not an image.', ['type' => $type ?: 'nothing'])];
+        }
+
+        return ['ok' => true, 'ms' => $ms, 'in_bytes' => strlen($sample), 'out_bytes' => strlen($response->body()), 'type' => $type, 'image' => 'data:'.$type.';base64,'.base64_encode($response->body())];
+    }
+
     /** Server-side use only (stats, backlog): never returned to the browser without update. */
     private function readValkeyPassword(string $host): string
     {
@@ -355,6 +406,159 @@ class Resources extends Component
         $this->refreshPending();
     }
 
+    /**
+     * The "Add queue workers" sheet: the three choices that change cost or
+     * whether jobs run at all (queues, mode, processes), plus the shared
+     * queue backend when the app has none. Everything else keeps its default
+     * and lives in the workers sheet.
+     *
+     * @var array{queues: string, mode: string, processes: int, backend: string, groups: list<string>}
+     */
+    public array $workerSetup = [];
+
+    public function openWorkerSetup(): void
+    {
+        $this->authorize('update', $this->site);
+        $allow = EdgeQueueWorkers::allowance($this->site);
+        $scan = $this->queueScan();
+        $groups = $scan['groups'];
+        // Horizon's supervisors become groups only where the plan has room for them.
+        if (count($groups) < 2 || count($groups) - 1 > $allow['groups']) {
+            $groups = [];
+        }
+        $this->workerSetup = [
+            'queues' => implode(',', $groups !== [] ? $groups[0] : ($scan['queues'] !== [] ? $scan['queues'] : ['default'])),
+            'groups' => array_map(static fn (array $g): string => implode(',', $g), array_slice($groups, 1)),
+            'mode' => $allow['autoscale'] ? 'scale' : 'always',
+            'processes' => EdgeQueueWorkers::recommendedProcesses($this->site),
+            'backend' => EdgeQueueWorkers::connection($this->site, 'auto') !== null ? 'ready' : 'valkey',
+        ];
+        $this->resetErrorBag('workerSetup');
+        $this->panel = 'worker-setup';
+    }
+
+    /** Create what the workers need, turn them on with the sheet's choices, and deploy unless asked not to. */
+    public function confirmWorkerSetup(bool $deploy = true): void
+    {
+        $this->authorize('update', $this->site);
+        abort_unless($this->workerSetup !== [], 404);
+        $allow = EdgeQueueWorkers::allowance($this->site);
+        $queues = EdgeQueueWorkers::normalize(['queues' => (string) ($this->workerSetup['queues'] ?? '')])['queues'];
+
+        if (($this->workerSetup['backend'] ?? '') === 'valkey' && EdgeQueueWorkers::connection($this->site, 'auto') === null) {
+            if (! $this->setupQueueBackend()) {
+                return;
+            }
+        }
+
+        $scale = ($this->workerSetup['mode'] ?? '') === 'scale' && $allow['autoscale'];
+        $max = max(1, min($allow['instances'] ?? 2, 2));
+        $this->workers = EdgeQueueWorkers::normalize(array_merge($this->workers, [
+            'enabled' => true,
+            'paused' => false,
+            'queues' => $queues,
+            'processes' => (int) ($this->workerSetup['processes'] ?? 1),
+            'autoscale' => $scale,
+            'instances' => $scale ? 0 : 1,
+            'max_instances' => $scale ? $max : 1,
+            'groups' => array_map(
+                static fn (string $g, int $i): array => ['key' => '', 'queues' => $g, 'processes' => 1, 'instances' => 0, 'autoscale' => true, 'max_instances' => 1],
+                $this->workerSetup['groups'] ?? [],
+                array_keys($this->workerSetup['groups'] ?? []),
+            ),
+        ]));
+        $this->workerSetup = [];
+        $this->panel = '';
+        $this->dispatch('close-modal', 'resources-worker-setup');
+        $deploy ? $this->redeploySettings() : $this->refreshPending();
+    }
+
+    /**
+     * The one-step fix for "Needs setup": a small dply Valkey the app and its
+     * workers share, through the same path as Add resource → dply Valkey.
+     */
+    public function setupQueueBackend(): bool
+    {
+        $this->authorize('update', $this->site);
+        $this->connectionKind = 'redis';
+        $this->connectionMode = 'create';
+        $this->connectionLabel = 'queue';
+        $this->valkeyClass = EdgeValkey::DEFAULT_CLASS;
+        $this->valkeySleep = EdgeValkey::DEFAULT_SLEEP;
+        $this->resetErrorBag('connection');
+        $this->saveConnection();
+        $this->connectionKind = '';
+        $error = $this->getErrorBag()->first('connection');
+        if ($error !== '') {
+            $this->addError('workerSetup', $error);
+
+            return false;
+        }
+        $this->site->refresh();
+
+        return true;
+    }
+
+    /** The suggested database resize (EdgeDatabaseResize), approved: now. */
+    public function resizeDatabaseNow(): void
+    {
+        $this->authorize('update', $this->site);
+        $suggestion = EdgeDatabaseResize::suggestion($this->site);
+        if ($suggestion === null) {
+            return;
+        }
+        $error = EdgeDatabaseResize::apply($this->site, $suggestion['size']);
+        $this->site->refresh();
+        $this->hydrateDrafts();
+        $error === null
+            ? $this->toastSuccess(__('Resizing. The database restarts at the new size on its next connection.'))
+            : $this->toastError($error);
+    }
+
+    /** Approved for tonight, in the organization's time zone (dply:edge:resize-databases runs it). */
+    public function resizeDatabaseTonight(): void
+    {
+        $this->authorize('update', $this->site);
+        $suggestion = EdgeDatabaseResize::suggestion($this->site);
+        if ($suggestion === null) {
+            return;
+        }
+        $at = EdgeDatabaseResize::schedule($this->site, $suggestion['size'], (string) auth()->id());
+        $this->toastSuccess(__('Scheduled for :time.', ['time' => $at->format('D H:i T')]));
+    }
+
+    public function cancelDatabaseResize(): void
+    {
+        $this->authorize('update', $this->site);
+        EdgeDatabaseResize::cancelScheduled($this->site);
+    }
+
+    public function dismissDatabaseResize(): void
+    {
+        $this->authorize('update', $this->site);
+        $suggestion = EdgeDatabaseResize::suggestion($this->site);
+        if ($suggestion !== null) {
+            EdgeDatabaseResize::dismiss($this->site, $suggestion['size']);
+        }
+    }
+
+    /** "Needs setup" on workers already added: start the shared queue and deploy. */
+    public function fixQueueBackend(): void
+    {
+        if ($this->setupQueueBackend()) {
+            $this->redeployEdge();
+        }
+    }
+
+    /** What the last build found in the code (EdgeQueueNames), or nothing yet. */
+    private function queueScan(): array
+    {
+        $scan = $this->site->edgeDeployments()->whereNotNull('meta')->latest('created_at')->limit(5)->get()
+            ->map(fn ($d) => is_array($d->meta['queue_scan'] ?? null) ? $d->meta['queue_scan'] : null)->filter()->first();
+
+        return ['queues' => array_values((array) ($scan['queues'] ?? [])), 'groups' => array_values(array_filter((array) ($scan['groups'] ?? []), 'is_array'))];
+    }
+
     public ?string $schedulerOutput = null;
 
     /** The Laravel scheduler as a resource: every minute, in a worker when the app has them. */
@@ -365,14 +569,27 @@ class Resources extends Component
         $this->scheduler = true;
         $this->panel = '';
         $this->refreshPending();
+        $this->dispatch('edge-scheduler-changed'); // the Scheduled tasks sheet lists it
     }
 
+    /** Also from the Scheduled tasks sheet (Crons), whose scheduler row holds the switch now. */
+    #[On('edge-scheduler-remove')]
     public function removeScheduler(): void
     {
         $this->authorize('update', $this->site);
         $this->scheduler = false;
         $this->schedulerOutput = null;
         $this->refreshPending();
+        $this->dispatch('edge-scheduler-changed'); // the Scheduled tasks sheet lists it
+    }
+
+    /** The deploy pill saw a deploy start or end: re-render for this app only, so the App box says Deploying. */
+    #[On('edge-deploy-changed')]
+    public function deployChanged(string $siteId = ''): void
+    {
+        if ($siteId !== (string) $this->site->id) {
+            $this->skipRender();
+        }
     }
 
     /** The Crons component beside this one saved; re-render so the map's Scheduled tasks box follows. */
@@ -396,7 +613,7 @@ class Resources extends Component
             $body = $response->json();
             $this->schedulerOutput = is_array($body)
                 ? trim((string) ($body['output'] ?? $body['error'] ?? '')) ?: __('schedule:run finished with nothing to print.')
-                : __('The app answered HTTP :status. Deploy once with the scheduler on so dply/laravel is in the image.', ['status' => $response->status()]);
+                : __('The app answered HTTP :status. Redeploy so the latest dply/laravel and routing are live.', ['status' => $response->status()]);
         } catch (\Throwable $e) {
             $this->schedulerOutput = $e->getMessage();
         }
@@ -1196,7 +1413,7 @@ class Resources extends Component
 
     public function openPanel(string $panel): void
     {
-        if ($panel !== '' && ! in_array($panel, ['sleep', 'cache', 'databases', 'connection', 'delete-connection', 'browser', 'estimate', 'failed-jobs', 'worker-logs'], true)) {
+        if ($panel !== '' && ! in_array($panel, ['sleep', 'cache', 'databases', 'connection', 'delete-connection', 'browser', 'estimate', 'failed-jobs', 'worker-logs', 'worker-setup'], true)) {
             return;
         }
 
@@ -1844,7 +2061,7 @@ class Resources extends Component
 
     public function chooseConnectionKind(string $kind): void
     {
-        if (! isset(EdgeContainerConnections::KINDS[$kind]) || ! in_array($kind, $this->allowedKinds(), true) || in_array($kind, EdgeContainerConnections::HIDDEN_FROM_BUILDER, true)) {
+        if (! isset(EdgeContainerConnections::KINDS[$kind]) || ! in_array($kind, $this->allowedKinds(), true) || in_array($kind, EdgeContainerConnections::HIDDEN_FROM_BUILDER, true) || ! EdgeContainerConnections::flagOn($kind, $this->site->organization)) {
             return;
         }
         $this->connectionKind = $kind;
@@ -1859,7 +2076,15 @@ class Resources extends Component
 
                 return;
             }
-            $this->storeConnection(strtoupper($kind), $kind.'.internal', '');
+            // The full per-app host from the start, so the sheet shows the address the app uses.
+            $host = EdgeContainerConnections::resourceHost($this->site, $kind);
+            $this->storeConnection(strtoupper($kind), $host, '');
+            // Images has more to show than a toast: open its sheet straight away.
+            if ($kind === 'images' && ! $this->getErrorBag()->has('connection')) {
+                $this->imagesHost = $host;
+                $this->renderIsland('resources-images');
+                $this->dispatch('open-modal', 'resources-images');
+            }
 
             return;
         }
@@ -1892,7 +2117,7 @@ class Resources extends Component
     {
         $this->authorize('update', $this->site);
         $kind = $this->connectionKind;
-        if (! isset(EdgeContainerConnections::KINDS[$kind]) || in_array($kind, EdgeContainerConnections::ENABLE, true) || ! in_array($kind, $this->allowedKinds(), true) || in_array($kind, EdgeContainerConnections::HIDDEN_FROM_BUILDER, true)) {
+        if (! isset(EdgeContainerConnections::KINDS[$kind]) || in_array($kind, EdgeContainerConnections::ENABLE, true) || ! in_array($kind, $this->allowedKinds(), true) || in_array($kind, EdgeContainerConnections::HIDDEN_FROM_BUILDER, true) || ! EdgeContainerConnections::flagOn($kind, $this->site->organization)) {
             return;
         }
         if ($kind === 'realtime') {
@@ -2099,6 +2324,9 @@ class Resources extends Component
         $this->reset('connectionKind', 'connectionLabel', 'connectionPick', 'connectionOptions');
         $this->dispatch('close-modal', 'resources-connection');
         $this->toastSuccess(__('Connected. It applies on the next deploy.'));
+        if ($row['kind'] === 'vectors') {
+            $this->openNewVectorsIndex($row['host'], $this->connectionMode === 'create');
+        }
     }
 
     public function sleepConnection(string $host, bool $asleep): void
@@ -2156,6 +2384,13 @@ class Resources extends Component
             $this->toastSuccess($asleep
                 ? __('Asleep. The app stops receiving the Redis address on the next deploy. The store keeps its keys and stops billing a minute after the app lets go of it.')
                 : __('Awake. The app gets the Redis address on the next deploy.'));
+
+            return;
+        }
+        if ($kind === 'vectors') {
+            $this->toastSuccess($asleep
+                ? __('Asleep. The app loses this index on the next deploy, so searches stop and no queries are billed. Stored vectors are kept and still billed; delete the index to stop that.')
+                : __('Awake. The app gets the index back on the next deploy.'));
 
             return;
         }
@@ -2239,6 +2474,14 @@ class Resources extends Component
         if ($host === $this->valkeyHost) {
             $this->valkeyHost = '';
             $this->dispatch('close-modal', 'resources-valkey');
+        }
+        if ($host === $this->imagesHost) {
+            $this->imagesHost = '';
+            $this->dispatch('close-modal', 'resources-images');
+        }
+        if ($target['kind'] === 'vectors' && $host === $this->resourceHost) {
+            $this->resourceHost = '';
+            $this->dispatch('close-modal', 'resources-vectors');
         }
         $this->dispatch('close-modal', 'resources-delete-connection');
         $this->toastSuccess(match (true) {
@@ -2474,14 +2717,53 @@ class Resources extends Component
         $this->refreshPending();
     }
 
+    /** A bigger disk waiting for "Grow" in the sheet: growing is permanent, so it is never one click. */
+    public ?int $growDiskTo = null;
+
     public function selectPostgresDisk(int $gb): void
     {
         $this->authorize('update', $this->site);
         if (! array_key_exists($gb, EdgeDplyDatabase::DISKS)) {
             return;
         }
+        $current = $this->currentDatabaseDisk();
+        if ($current !== null && $gb < $current) {
+            return; // a disk only grows; the sheet shows smaller ones disabled
+        }
+        if ($current !== null && $gb > $current) {
+            // Settings apply as they change, and the gateway grows the volume
+            // at once: ask first.
+            $this->growDiskTo = $gb;
+
+            return;
+        }
+        $this->growDiskTo = null;
         $this->draftPostgresDisk = $gb;
         $this->refreshPending();
+    }
+
+    public function confirmDiskGrow(): void
+    {
+        $this->authorize('update', $this->site);
+        if ($this->growDiskTo === null) {
+            return;
+        }
+        $this->draftPostgresDisk = $this->growDiskTo;
+        $this->growDiskTo = null;
+        $this->refreshPending();
+    }
+
+    public function cancelDiskGrow(): void
+    {
+        $this->growDiskTo = null;
+    }
+
+    /** The running database's disk in GB, or null before one exists (any size may be picked then). */
+    private function currentDatabaseDisk(): ?int
+    {
+        $database = (array) ($this->site->edgeMeta()['database'] ?? []);
+
+        return (string) ($database['remote_id'] ?? '') !== '' && isset($database['disk_gb']) ? EdgeDplyDatabase::disk((int) $database['disk_gb']) : null;
     }
 
     public function selectPostgresSuspend(int $seconds): void
@@ -2825,11 +3107,6 @@ class Resources extends Component
                 'needsRedeploy' => $this->needsRedeploy(),
             ],
         );
-    }
-
-    protected function currentEdgeSection(): ?string
-    {
-        return 'general';
     }
 
     /** Settings saved since the last deploy started, so the live app does not have them yet. */

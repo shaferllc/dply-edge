@@ -18,6 +18,7 @@ use Illuminate\Support\Carbon;
  * @property float $memory_gib_seconds
  * @property float $disk_gb_seconds
  * @property int $tx_bytes
+ * @property ?int $reply_bytes
  */
 class EdgeContainerUsage extends Model
 {
@@ -27,7 +28,7 @@ class EdgeContainerUsage extends Model
 
     protected $fillable = [
         'organization_id', 'site_id', 'date', 'application_id',
-        'cpu_seconds', 'memory_gib_seconds', 'disk_gb_seconds', 'tx_bytes',
+        'cpu_seconds', 'memory_gib_seconds', 'disk_gb_seconds', 'tx_bytes', 'reply_bytes',
     ];
 
     /** @return array<string, string> */
@@ -39,6 +40,7 @@ class EdgeContainerUsage extends Model
             'memory_gib_seconds' => 'float',
             'disk_gb_seconds' => 'float',
             'tx_bytes' => 'integer',
+            'reply_bytes' => 'integer',
         ];
     }
 }

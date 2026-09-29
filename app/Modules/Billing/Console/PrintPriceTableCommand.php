@@ -197,7 +197,7 @@ class PrintPriceTableCommand extends Command
             'Build timeout' => fn (array $t): string => $t['build_timeout_minutes'].' min',
             'Custom domains (per organization)' => fn (array $t): string => $num($t['custom_domains']),
             'Container app instances' => fn (array $t): string => $t['app_instances'] === null ? 'Autoscaling' : $num($t['app_instances']).' per app',
-            'Queue workers per app' => fn (array $t): string => $num($t['worker_instances']).($t['worker_autoscale'] ? ', autoscaling' : ''),
+            'Queue workers per app' => fn (array $t): string => $num($t['worker_instances']).($t['worker_autoscale'] ? ($t['worker_instances'] === 1 ? ', starts when jobs arrive' : ', autoscaling') : ''),
             'SQL databases (D1)' => fn (array $t): string => $num($t['databases']),
             'Queues' => fn (array $t): string => $num($t['queues']),
             'Realtime connections per app' => fn (array $t): string => $num($t['realtime_max_connections']),

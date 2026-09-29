@@ -39,9 +39,9 @@ final class EdgeContainerRollout
      * @param  callable(string): void  $log
      * @return array{ok: bool, settled: bool, health: array<string, mixed>, version: int|null, reason: ?string}
      */
-    public function await(Site $site, callable $log, int $timeoutSeconds = 180, int $pollSeconds = 5): array
+    public function await(Site $site, callable $log, int $timeoutSeconds = 180, int $pollSeconds = 5, ?string $application = null): array
     {
-        $name = self::applicationName($site);
+        $name = $application ?? self::applicationName($site);
         $deadline = microtime(true) + max(10, $timeoutSeconds);
         $client = EdgeCloudflareClient::fromConfig();
         $last = [];

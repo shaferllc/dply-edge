@@ -6,6 +6,7 @@ namespace App\Modules\Edge\Console;
 
 use App\Models\Site;
 use App\Modules\Edge\Services\EdgeAppDatabase;
+use App\Modules\Edge\Support\EdgeDatabaseResize;
 use App\Modules\Edge\Support\EdgeDplyDatabase;
 use App\Modules\Notifications\Services\NotificationPublisher;
 use App\Modules\Providers\Valkey\ValkeyGatewayClient;
@@ -17,6 +18,8 @@ use Throwable;
  * Hourly: each dply database's size, disk and connections for the panel's
  * 30-day history, and an alert when the disk is filling or connections are
  * near the limit. (Failing backups alert from EdgeValkeyUsageCollector.)
+ * Also its memory, for the memory alert and the suggested resize
+ * (EdgeDatabaseResize), which someone approves in the database sheet.
  *
  * Reads the snapshot the database agent took before its last stop
  * (insights?cached=1), so it never wakes a sleeping database. At most one
@@ -69,6 +72,18 @@ class SampleEdgeDatabasesCommand extends Command
                     __('A full disk stops writes. Pick a larger disk under Resources; a disk only grows.'),
                     ['used' => $used, 'disk' => $disk]);
             }
+            // Memory, for the resize suggestion (EdgeDatabaseResize). Only a fresh, new snapshot.
+            if (EdgeDatabaseResize::record($site, $in) !== null) {
+                $high = EdgeDatabaseResize::memoryHigh($site);
+                if ($high !== null) {
+                    $this->notifyOnce($publisher, $site, 'edge.database.memory_high',
+                        __('The database for :app is using :pct% of its memory', ['app' => $site->name, 'pct' => (int) round($high['used_mb'] / $high['limit_mb'] * 100)]),
+                        __('Near the limit, queries slow down and the database can restart. A bigger size gives it room.'),
+                        $high);
+                }
+            }
+            $this->suggestResize($site->fresh());
+
             $max = (int) ($in['max_connections'] ?? 0);
             if ($max > 0 && (int) ($in['connections'] ?? 0) >= self::WARN_AT * $max) {
                 $this->notifyOnce($publisher, $site, 'edge.database.connections_high',
@@ -103,6 +118,41 @@ class SampleEdgeDatabasesCommand extends Command
         $database['history'] = array_slice(array_values($history), -self::HISTORY_DAYS);
         $site->mergeEdgeMeta(['database' => $database]);
         $site->save();
+    }
+
+    /**
+     * Tell the app's people about a suggested resize, once per suggested
+     * size: again only after the suggestion went away and came back (or its
+     * dismissal ran out). Approving happens in the database sheet.
+     */
+    private function suggestResize(Site $site): void
+    {
+        $suggestion = EdgeDatabaseResize::suggestion($site);
+        $database = (array) ($site->edgeMeta()['database'] ?? []);
+        $told = $database['resize_notified'] ?? null;
+        if ($suggestion === null || isset($database['resize_scheduled'])) {
+            if ($told !== null && $suggestion === null) {
+                unset($database['resize_notified']);
+                $site->mergeEdgeMeta(['database' => $database]);
+                $site->save();
+            }
+
+            return;
+        }
+        if ($told === $suggestion['size']) {
+            return;
+        }
+        $to = EdgeAppDatabase::POSTGRES_SIZES[$suggestion['size']] ?? null;
+        EdgeDatabaseResize::notify($site, 'edge.database.resize_suggested',
+            $suggestion['direction'] === 'up'
+                ? __('The database for :app could use a bigger size', ['app' => $site->name])
+                : __('The database for :app could run on a smaller size', ['app' => $site->name]),
+            $suggestion['reason'].' '.__('Suggested: :size. Review it and resize now or tonight; resizing restarts the database.', ['size' => $to !== null ? $to['cpu'].' · '.$to['memory'] : $suggestion['size']]),
+            $suggestion);
+        $database['resize_notified'] = $suggestion['size'];
+        $site->mergeEdgeMeta(['database' => $database]);
+        $site->save();
+        $this->line($site->name.': suggested '.$suggestion['size']);
     }
 
     /** @param  array<string, mixed>  $metadata */

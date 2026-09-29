@@ -64,8 +64,13 @@ final class EdgeEffectiveCrons
         return $merged;
     }
 
+    /** Cloudflare's Cron Triggers per Worker: the limit for SSR / middleware apps, whose own scheduled() branches on the schedule. */
+    public const MAX_WORKER_SCHEDULES = 5;
+
     /**
-     * Convenience for the CF uploaders — flat list of schedule strings.
+     * The distinct schedules an SSR / middleware Worker gets as its own Cron
+     * Triggers, first MAX_WORKER_SCHEDULES only. (Container apps share one
+     * trigger instead: EdgeContainerDeployer::cronHandlers.)
      *
      * @return list<string>
      */
@@ -76,6 +81,6 @@ final class EdgeEffectiveCrons
             $schedules[$entry['schedule']] = true;
         }
 
-        return array_keys($schedules);
+        return array_slice(array_keys($schedules), 0, self::MAX_WORKER_SCHEDULES);
     }
 }

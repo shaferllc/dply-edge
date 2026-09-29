@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge;
 
+use App\Models\Organization;
 use App\Models\Site;
 use App\Modules\Edge\Console\CheckEdgeBuildersCommand;
 use App\Modules\Edge\Console\CheckEdgeQueueWorkersCommand;
@@ -33,6 +34,7 @@ use App\Modules\Edge\Console\MoveRedisToValkeyCommand;
 use App\Modules\Edge\Console\PruneEdgeAnalyticsCommand;
 use App\Modules\Edge\Console\PublishEdgeBaseImagesCommand;
 use App\Modules\Edge\Console\ReapStuckEdgeBuildsCommand;
+use App\Modules\Edge\Console\ResizeEdgeDatabasesCommand;
 use App\Modules\Edge\Console\RollupEdgeAnalyticsEngineCommand;
 use App\Modules\Edge\Console\SampleContainerMemoryCommand;
 use App\Modules\Edge\Console\SampleEdgeDatabasesCommand;
@@ -49,10 +51,12 @@ use App\Modules\Edge\Livewire\Import;
 use App\Modules\Edge\Livewire\Index;
 use App\Modules\Edge\Livewire\Templates;
 use App\Modules\Edge\Livewire\Usage;
+use App\Modules\Edge\Support\EdgeContainerConnections;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Pennant\Feature;
 use Livewire\Livewire;
 
 /**
@@ -103,6 +107,7 @@ class EdgeServiceProvider extends ServiceProvider
                 CheckEdgeQueueWorkersCommand::class,
                 CheckEdgeRealtimeCommand::class,
                 SampleEdgeDatabasesCommand::class,
+                ResizeEdgeDatabasesCommand::class,
                 CheckEdgeBuildersCommand::class,
                 DrainEdgeBuilderCommand::class,
                 SelfBootstrapCommand::class,
@@ -114,6 +119,10 @@ class EdgeServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        // Feature flags for resource kinds: off until turned on per organization.
+        foreach (EdgeContainerConnections::FLAGGED as $kind) {
+            Feature::define(EdgeContainerConnections::flag($kind), static fn (Organization $organization): bool => false);
+        }
         Livewire::component('edge.index', Index::class);
         Livewire::component('edge.create', Create::class);
         Livewire::component('edge.import', Import::class);

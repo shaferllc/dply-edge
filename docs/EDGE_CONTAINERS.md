@@ -72,17 +72,19 @@ Redis (dply Valkey) or a shared Postgres/MySQL database and are managed on
 
 ## Scheduled tasks
 
-- **Laravel scheduler:** turn on *Run the Laravel scheduler every minute* under
-  **Container**. A Cron Trigger calls `schedule:run` through `dply/laravel`.
-- **Anything else:** add a **Scheduled task** on Overview. The Cron Trigger POSTs the
-  command to `/_dply/schedule`: an artisan command (Laravel, e.g.
-  `reports:send --daily`), a rake task (Rails, e.g. `reports:daily`), or, for
+- **Laravel scheduler:** **Add resource** → **Scheduled task** → *Run Laravel's
+  scheduler* on Overview. A Cron Trigger calls `schedule:run` through `dply/laravel`.
+- **Anything else:** add a **Scheduled task** on Overview. When it's due the Worker POSTs
+  the command to `/_dply/schedule`: an artisan command (Laravel, e.g.
+  `reports:send --daily`), a rake task (Rails, e.g. `reports:daily`), any
+  shell command in the app root, or, for
   Node, whatever your own `POST /_dply/schedule` route does with it (see
   [Edge crons](EDGE_CRONS.md#node-handler)). **Run now** runs a listed command
   in the live app and shows its output.
 
-Cloudflare allows 5 schedules per Worker; extras are dropped at deploy. The
-Laravel scheduler takes one unless it runs inside a queue worker.
+All tasks share one every-minute Cron Trigger and the Worker runs the due
+ones, so an app can have up to 50 (Cloudflare's 5-per-Worker limit only
+applies to SSR / middleware apps). See [Edge crons](EDGE_CRONS.md).
 
 ## Environment
 

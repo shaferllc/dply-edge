@@ -1,0 +1,16 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-29",
+  "id": "r-wgec4ve0bransayf",
+  "recordedBy": {
+    "client": "claude",
+    "id": "83d1b381-88e4-47a3-933e-9fbc89f87100"
+  },
+  "scopeTags": [
+    "billing",
+    "queue-workers",
+    "pricing"
+  ],
+  "supersedes": null,
+  "text": "Queue workers on Starter: \"Allow scale-to-zero on Starter\" — \"Starter only, not trials\". Starter's one worker may run as start-when-jobs-arrive (0 idle, at most 1). Trials keep one always-on worker. Multi-instance autoscale and extra worker groups stay Pro and above. (Owner's answers in the queue-workers setup grill, 2026-09-29; config: subscription.standard.tiers.starter.worker_autoscale = true, trials forced off in EdgeQueueWorkers::allowance.)"
+}

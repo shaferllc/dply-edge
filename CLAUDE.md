@@ -133,8 +133,10 @@ unrelated WIP commit three days earlier, so the boundary was silently unchecked.
 >   removes the retired per-site Stripe lines without proration. Plan prices
 >   match through `SubscriptionPlanResolver::tierPriceIds()` (current +
 >   `STRIPE_PRICE_*_LEGACY`, the grandfather list); an unknown price is
->   reported, never guessed. Container `tx_bytes` is not billed (delivery
->   bandwidth already counts it). A hidden
+>   reported, never guessed. Container outbound = `tx_bytes` − the replies the
+>   app's Worker counted (`reply_bytes`, Analytics Engine `dply_container_bytes`),
+>   at Cloudflare's $0.025/GB + margin (ruling r-48pkfdnq9f75j8mw); replies bill as
+>   delivery bandwidth. Workers Logs events bill at $0.60/M + margin. A hidden
 >   fair-use app cap is enforced in `CreateEdgeSite` (ruling r-bc0k0cta8e50x8vr).
 > - **No Free plan: a 5-day trial of the chosen plan, card up front (2026-09-26, ruling
 >   r-f17p5zgeh120cm5t; chosen plan per r-jnv0r3qf1xk49kmc).** `subscription.standard.trial` holds the length,
@@ -151,6 +153,14 @@ unrelated WIP commit three days earlier, so the boundary was silently unchecked.
 > - **The CLI (`packages/dply-cli`) and API-token catalog are Edge-only.** Token
 >   abilities live in `config/product/api_token_permissions.php`; the deployer
 >   allowlist must cover `cli.device_flow_role_caps.deployer` (a test guards it).
+> - **Resource feature flags (Laravel Pennant, 2026-09-29).** SQL database,
+>   Database pool, Key-value store, State, AI, Vector search, Images and Another
+>   app (`service`) are behind per-organization flags `resource-{kind}`
+>   (`EdgeContainerConnections::FLAGGED` / `flagOn()`), off by default. Only
+>   *adding* one is gated; apps that already have it keep it. Toggle them on
+>   localhost at `/admin/feature-flags` (404 elsewhere), or anywhere with
+>   `php artisan dply:feature {kind} {org-slug} [--off|--all]` (bare lists who
+>   has what). `TestCase` turns them all on.
 > - **Owner decisions are recorded as storybloq rulings** (`.story/`). Check
 >   them before reopening a settled question.
 

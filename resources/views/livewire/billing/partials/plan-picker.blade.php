@@ -53,7 +53,7 @@
                     <li>{{ __(':n custom domains · :databases databases · :queues queues', ['n' => $num($tier['custom_domains']), 'databases' => $num($tier['databases']), 'queues' => $num($tier['queues'])]) }}</li>
                     <li>{{ $tier['containers'] ? ($tier['app_instances'] === 1 ? __('Container apps, one instance each') : __('Container apps with autoscaling')) : __('No container apps') }}</li>
                     @if ($tier['containers'] && array_key_exists('worker_instances', $tier))
-                        <li>{{ ($tier['worker_instances'] === null ? __('Unlimited queue workers per app') : trans_choice(':count queue worker per app|:count queue workers per app', (int) $tier['worker_instances'])).(($tier['worker_autoscale'] ?? false) ? __(', autoscaling') : '').((int) ($tier['worker_groups'] ?? 0) > 0 ? __(', :g worker groups', ['g' => (int) $tier['worker_groups']]) : '') }}</li>
+                        <li>{{ ($tier['worker_instances'] === null ? __('Unlimited queue workers per app') : trans_choice(':count queue worker per app|:count queue workers per app', (int) $tier['worker_instances'])).(($tier['worker_autoscale'] ?? false) ? (($tier['worker_instances'] ?? null) === 1 ? __(', starts when jobs arrive') : __(', autoscaling')) : '').((int) ($tier['worker_groups'] ?? 0) > 0 ? __(', :g worker groups', ['g' => (int) $tier['worker_groups']]) : '') }}</li>
                     @endif
                     @if ($tier['audit_log'])
                         <li>{{ __('Audit log') }}</li>

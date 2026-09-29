@@ -54,7 +54,7 @@ Non-price limits — build concurrency and timeout, custom domains, database and
 | Build timeout | 20 min | 45 min | 60 min |
 | Custom domains (per organization) | 3 | 20 | 100 |
 | Container app instances | 1 per app | Autoscaling | Autoscaling |
-| Queue workers per app | 1 | 5, autoscaling | 10, autoscaling |
+| Queue workers per app | 1, starts when jobs arrive | 5, autoscaling | 10, autoscaling |
 | SQL databases (D1) | 2 | 10 | 50 |
 | Queues | 2 | 10 | 50 |
 | Realtime connections per app | 200 | 1,000 | 5,000 |
@@ -80,6 +80,7 @@ Rates are shown to more precision than a cent where the unit is small. Bandwidth
 | Apps and workers | vCPU | $0.000026 | per vCPU-second |
 | Apps and workers | Memory | $0.00000325 | per GiB-second |
 | Apps and workers | Disk | $0.000000091 | per GB-second |
+| Apps and workers | Outbound traffic | $0.0325 | per GB (calls out, not replies) |
 | Databases | Compute | $0.0000333 | per compute-unit-second (1 vCPU, 4 GB) |
 | Databases | Storage | $0.20 | per GB-month |
 | SQL (D1) | Rows read | $0.0013 | per million |
@@ -92,6 +93,7 @@ Rates are shown to more precision than a cent where the unit is small. Bandwidth
 | Realtime | Connection-minutes | $0.25 | per million |
 | Realtime | Messages | $0.62 | per million |
 | Workers | CPU time | $0.026 | per million CPU-ms |
+| Workers | Log events | $0.78 | per million |
 | Durable Objects | Requests | $0.195 | per million |
 | Durable Objects | Duration | $16.25 | per million GB-seconds |
 | Durable Objects | Rows read | $0.0013 | per million |

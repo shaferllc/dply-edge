@@ -34,6 +34,7 @@ use App\Modules\Edge\Console\EvaluateEdgeGuardrailsCommand;
 use App\Modules\Edge\Console\ReapStuckEdgeBuildsCommand;
 use App\Modules\Edge\Console\RollupEdgeAnalyticsEngineCommand;
 use App\Modules\Edge\Console\SampleContainerMemoryCommand;
+use App\Modules\Edge\Console\ResizeEdgeDatabasesCommand;
 use App\Modules\Edge\Console\SampleEdgeDatabasesCommand;
 use App\Modules\Edge\Console\ScaleEdgeQueueWorkersCommand;
 use App\Modules\Edge\Console\WarmEdgeBuildImagesCommand;
@@ -138,6 +139,11 @@ final class DplySchedule
             ->withoutOverlapping()
             ->runInBackground()
             ->name('edge-sample-databases');
+        // Database resizes someone approved for tonight (EdgeDatabaseResize).
+        $schedule->command(ResizeEdgeDatabasesCommand::class)
+            ->everyFifteenMinutes()
+            ->withoutOverlapping()
+            ->name('edge-resize-databases');
         // Peak memory of awake container apps, for smaller-size suggestions.
         $schedule->command(SampleContainerMemoryCommand::class)
             ->hourly()

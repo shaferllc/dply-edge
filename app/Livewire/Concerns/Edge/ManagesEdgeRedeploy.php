@@ -33,27 +33,7 @@ trait ManagesEdgeRedeploy
             return;
         }
 
+        // Stay on this page: the deploy pill at the bottom shows the progress.
         $this->toastSuccess(__('Deploy queued.'));
-
-        // Land on Deploys so the build journey + history are visible (BYO opens
-        // the Deploy Console; Edge progress lives on this section).
-        $section = $this->currentEdgeSection();
-        if ($section !== null && $section !== 'deploys') {
-            $this->redirect(route('sites.show', [
-                'server' => $this->server,
-                'site' => $this->site,
-                'section' => 'deploys',
-            ]), navigate: true);
-        }
-    }
-
-    /**
-     * The workspace section the host component is rendering. Only the full Edge
-     * settings page tracks one; the embedded panels do not, and they never
-     * redirect after a queued deploy.
-     */
-    protected function currentEdgeSection(): ?string
-    {
-        return null;
     }
 }

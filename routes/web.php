@@ -13,6 +13,7 @@ use App\Livewire\Admin\AuditLog as AdminAuditLog;
 use App\Livewire\Admin\BetaInvites as AdminBetaInvites;
 use App\Livewire\Admin\ComingSoonAccess as AdminComingSoonAccess;
 use App\Livewire\Admin\Connections as AdminConnections;
+use App\Livewire\Admin\FeatureFlags as AdminFeatureFlags;
 use App\Livewire\Admin\Operations as AdminOperations;
 use App\Livewire\Admin\Organizations\Index as AdminOrganizationsIndex;
 use App\Livewire\Admin\Organizations\Show as AdminOrganizationsShow;
@@ -272,6 +273,7 @@ Route::middleware(['auth', 'verified', 'org'])->withHead(robots: 'noindex, nofol
             Route::livewire('/beta-invites', AdminBetaInvites::class)->name('beta-invites')->withHead(title: 'Admin · Beta invites');
             Route::livewire('/coming-soon-access', AdminComingSoonAccess::class)->name('coming-soon-access')->withHead(title: 'Admin · Coming-soon access');
             Route::livewire('/connections', AdminConnections::class)->name('connections')->withHead(title: 'Admin · Connections');
+            Route::livewire('/feature-flags', AdminFeatureFlags::class)->name('feature-flags')->withHead(title: 'Admin · Feature flags');
         });
     Route::redirect('/admin/dashboard', '/admin')->middleware('can:viewPlatformAdmin')->name('admin.dashboard');
 

@@ -21,6 +21,31 @@
         @endif
         {!! $more !!}
     </button>
+@elseif ($connection['kind'] === 'images')
+    {{-- Images opens its sheet like Valkey; removing it lives there (there is nothing to sleep). --}}
+    <button type="button" wire:click="$set('imagesHost', '{{ $connection['host'] }}')" wire:island="resources-images" x-on:click="$dispatch('open-modal', 'resources-images')" class="{{ $node }}">
+        <span class="flex items-center justify-between gap-2">
+            <span class="flex items-center gap-1.5 {{ $eyebrow }}"><x-resource-kind-icon kind="images" class="h-3.5 w-3.5 shrink-0" />{{ __($connectionKinds['images']['label']) }}</span>
+            {!! $connection['asleep'] ? $pill(__('Asleep'), 'sleep') : $pill(__('On'), 'ok') !!}
+        </span>
+        <span class="mt-1.5 block font-mono text-xs font-semibold text-brand-ink">{{ $isWorker ? 'env.'.$connection['name'] : $connection['host'] }}</span>
+        <span class="mt-0.5 block text-2xs text-brand-moss">{{ __('Resize and convert pictures') }}</span>
+        {!! $more !!}
+    </button>
+@elseif ($connection['kind'] === 'vectors')
+    {{-- Vector search opens its sheet like the other boxes; search, sleep, detach and delete live there. --}}
+    <button type="button" wire:click="openResource('{{ $connection['host'] }}')" wire:island="resources-vectors" @class([$node, 'resource-asleep border-dashed' => $connection['asleep']])>
+        <span class="flex items-center justify-between gap-2">
+            <span class="flex items-center gap-1.5 {{ $eyebrow }}"><x-resource-kind-icon kind="vectors" class="h-3.5 w-3.5 shrink-0" />{{ __($connectionKinds['vectors']['label']) }}</span>
+            {!! $connection['asleep'] ? '<span class="flex items-center">'.$pill(__('Asleep'), 'sleep').$snore.'</span>' : $pill(__('On'), 'ok') !!}
+        </span>
+        <span class="mt-1.5 block truncate text-sm font-bold text-brand-ink" title="{{ $connection['target'] }}">{{ \App\Modules\Edge\Support\EdgeContainerConnections::resourceLabel($connection['host']) }}</span>
+        <span class="mt-0.5 block truncate font-mono text-2xs text-brand-moss">{{ $isWorker ? 'env.'.$connection['name'] : $connection['host'] }}</span>
+        @if (isset($connectionEstimates[$connection['host']]))
+            <span class="mt-1 block font-mono text-2xs text-brand-mist"><b class="text-brand-ink">${{ number_format($connectionEstimates[$connection['host']] / 100, 2) }}</b> {{ __('this month') }}</span>
+        @endif
+        {!! $more !!}
+    </button>
 @else
                     <div @class([
                         'rounded-2xl border p-3.5',
@@ -45,8 +70,6 @@
                                     <button type="button" wire:click="openObject('{{ $connection['host'] }}')" wire:island="resources-object" x-on:click="$dispatch('open-modal', 'resources-object')" class="rounded-md border border-brand-ink/15 px-2 py-0.5 text-2xs font-semibold text-brand-ink hover:border-brand-ink/40 dark:border-brand-mist/25">{{ __('Open') }}</button>
                                 @elseif ($connection['kind'] === 'redis' && \App\Modules\Edge\Support\EdgeValkey::isTarget($connection['target']))
                                     <button type="button" wire:click="$set('valkeyHost', '{{ $connection['host'] }}')" wire:island="resources-valkey" x-on:click="$dispatch('open-modal', 'resources-valkey')" class="rounded-md border border-brand-ink/15 px-2 py-0.5 text-2xs font-semibold text-brand-ink hover:border-brand-ink/40 dark:border-brand-mist/25">{{ __('Details') }}</button>
-                                @elseif ($connection['kind'] === 'images')
-                                    <button type="button" wire:click="$set('imagesHost', '{{ $connection['host'] }}')" wire:island="resources-images" x-on:click="$dispatch('open-modal', 'resources-images')" class="rounded-md border border-brand-ink/15 px-2 py-0.5 text-2xs font-semibold text-brand-ink hover:border-brand-ink/40 dark:border-brand-mist/25">{{ __('Settings') }}</button>
                                 @else
                                     {{-- Every other kind: its sheet is resources-{kind}, opened by host. --}}
                                     <button type="button" wire:click="openResource('{{ $connection['host'] }}')" wire:island="resources-{{ $connection['kind'] === 'redis' ? 'redis-external' : str_replace('_', '-', $connection['kind']) }}" class="rounded-md border border-brand-ink/15 px-2 py-0.5 text-2xs font-semibold text-brand-ink hover:border-brand-ink/40 dark:border-brand-mist/25">{{ __('Open') }}</button>

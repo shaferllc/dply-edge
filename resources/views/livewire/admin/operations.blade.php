@@ -135,7 +135,8 @@
                             <button type="button" wire:click="clearConsole" class="text-xs font-medium text-brand-moss hover:text-brand-ink">{{ __('Clear') }}</button>
                         @endif
                     </div>
-                    <pre class="max-h-80 overflow-auto whitespace-pre-wrap break-all rounded-xl bg-brand-ink/95 p-3 font-mono text-xs leading-relaxed text-emerald-100">{{ $consoleOutput !== '' ? $consoleOutput : __('Run a maintenance action above — its output appears here.') }}</pre>
+                    {{-- A fixed terminal palette: brand-ink flips light in dark mode, which left light text on a light box. --}}
+                    <pre @class(['max-h-80 overflow-auto whitespace-pre-wrap break-all rounded-xl border border-zinc-800 bg-zinc-950 p-3 font-mono text-xs leading-relaxed', 'text-emerald-200' => $consoleOutput !== '', 'text-zinc-400' => $consoleOutput === ''])>{{ $consoleOutput !== '' ? $consoleOutput : __('Run a maintenance action above — its output appears here.') }}</pre>
                 </div>
             </div>
         </section>
@@ -177,11 +178,12 @@
                 dense
                 icon="heroicon-o-document-text"
                 :title="__('Application log tail')"
-                :note="__('Last lines of the current log file.')"
+                :note="__('The last 500 lines of the current log file, newest at the bottom.')"
             />
             <div class="px-3 py-3 sm:px-4">
                 @if ($logTail)
-                    <pre class="max-h-[18rem] overflow-auto rounded-xl border border-brand-ink/10 bg-brand-ink/95 p-4 font-mono text-xs text-zinc-100">{{ $logTail }}</pre>
+                    {{-- Newest at the bottom: starts scrolled there. Long lines wrap so nothing is cut off. --}}
+                    <pre x-data x-init="$el.scrollTop = $el.scrollHeight" class="max-h-[36rem] overflow-auto whitespace-pre-wrap break-all rounded-xl border border-zinc-800 bg-zinc-950 p-4 font-mono text-xs leading-relaxed text-zinc-100">{{ $logTail }}</pre>
                 @else
                     <p class="rounded-xl border border-dashed border-brand-ink/15 px-4 py-6 text-sm text-brand-moss">{{ __('Log file not readable yet.') }}</p>
                 @endif

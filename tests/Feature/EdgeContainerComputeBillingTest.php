@@ -158,3 +158,62 @@ test('a site with several container applications is billed for all of them', fun
         ->and($row->memory_gib_seconds)->toBe(5400.0)
         ->and($row->tx_bytes)->toBe(3);
 });
+
+test('outbound bills tx minus counted replies per app-day at cost + margin, never below zero, never unmeasured', function () {
+    config(['dply.edge.usage_billing.margin_percent' => 30]);
+    $site = Site::factory()->create();
+    $gb = 1024 ** 3;
+    $row = fn (string $date, int $tx, ?int $reply) => EdgeContainerUsage::query()->create(['organization_id' => $site->organization_id, 'site_id' => $site->id, 'date' => $date, 'cpu_seconds' => 0, 'memory_gib_seconds' => 0, 'disk_gb_seconds' => 0, 'tx_bytes' => $tx, 'reply_bytes' => $reply]);
+    $row(now()->subDays(3)->toDateString(), 12 * $gb, 2 * $gb);  // 10 GB out
+    $row(now()->subDays(2)->toDateString(), 1 * $gb, 5 * $gb);   // replies > tx: 0, not -4
+    $row(now()->subDays(1)->toDateString(), 50 * $gb, null);     // Worker predates the counter: 0
+
+    $result = app(EdgeContainerComputeCost::class)->forOrganization($site->organization, now()->subDays(5), now());
+
+    // 10 GB × $0.025 × 1.3 = 32.5¢.
+    expect($result['outbound_bytes'])->toBe(10 * $gb)
+        ->and($result['cents'])->toBe(33);
+});
+
+test('the collector stores counted reply bytes, null for a site whose Worker never counted, and leaves them on an AE failure', function () {
+    config(['edge.cloudflare.analytics_dataset' => 'dply_edge']);
+    $org = Organization::factory()->create();
+    $counted = Site::factory()->create(['organization_id' => $org->id]);
+    $idle = Site::factory()->create(['organization_id' => $org->id]);
+    $old = Site::factory()->create(['organization_id' => $org->id]);
+    $sites = ['a' => $counted, 'b' => $idle, 'c' => $old];
+    $aeFails = false;
+
+    Http::fake(function (\Illuminate\Http\Client\Request $request) use ($sites, &$aeFails) {
+        if (str_contains($request->url(), '/analytics_engine/sql')) {
+            if ($aeFails) {
+                return Http::response('unknown dataset', 400);
+            }
+            $body = $request->body();
+
+            return Http::response(['data' => str_contains($body, 'SUM(')
+                ? [['site' => strtolower((string) $sites['a']->id), 'bytes' => 700]]
+                : [['site' => strtolower((string) $sites['a']->id)], ['site' => strtolower((string) $sites['b']->id)]], 'meta' => [['name' => 'site']]]);
+        }
+        if (str_contains($request->url(), '/containers/applications')) {
+            return Http::response(['success' => true, 'result' => array_map(fn (string $k, Site $s): array => ['id' => $k, 'name' => 'dply-ctr-'.strtolower((string) $s->id)], array_keys($sites), $sites)]);
+        }
+
+        return Http::response(['data' => ['viewer' => ['accounts' => [['containersUsageAdaptiveGroups' => array_map(
+            fn (string $k): array => ['dimensions' => ['applicationId' => $k], 'sum' => ['cpuTimeSec' => 1, 'allocatedMemory' => 0, 'allocatedDisk' => 0, 'txBytes' => 1000]],
+            array_keys($sites),
+        )]]]]]);
+    });
+    $collect = fn () => (new EdgeContainerUsageCollector(new EdgeCloudflareClient('acct', 'token')))->collectForDate(now()->startOfDay());
+    $reply = fn (Site $s) => EdgeContainerUsage::query()->where('site_id', $s->id)->value('reply_bytes');
+
+    $collect();
+    expect($reply($counted))->toBe(700)
+        ->and($reply($idle))->toBe(0)        // counts replies, none today: all tx is outbound
+        ->and($reply($old))->toBeNull();     // no point in 30 days: Worker predates the counter
+
+    $aeFails = true;
+    $collect();
+    expect($reply($counted))->toBe(700)
+        ->and($reply($old))->toBeNull();
+});

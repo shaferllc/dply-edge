@@ -18,7 +18,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Number;
-use Illuminate\Support\Str;
 
 final class AdminPlatformMetrics
 {
@@ -154,7 +153,7 @@ final class AdminPlatformMetrics
         ];
     }
 
-    public static function readLogTail(string $path, int $lines = 36): ?string
+    public static function readLogTail(string $path, int $lines = 500): ?string
     {
         if (! is_readable($path)) {
             return null;
@@ -162,14 +161,14 @@ final class AdminPlatformMetrics
 
         try {
             $size = filesize($path);
-            $content = file_get_contents($path, false, null, max(0, $size !== false ? $size - 98_000 : 0));
+            $content = file_get_contents($path, false, null, max(0, $size !== false ? $size - 512_000 : 0));
             if ($content === false) {
                 return null;
             }
             $parts = preg_split("/\r\n|\n|\r/", $content) ?: [];
             $tail = array_slice($parts, -$lines);
 
-            return Str::limit(implode("\n", $tail), 12000);
+            return implode("\n", $tail);
         } catch (\Throwable) {
             return null;
         }

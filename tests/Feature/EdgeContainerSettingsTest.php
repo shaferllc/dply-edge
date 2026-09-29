@@ -247,6 +247,27 @@ test('the logs page loads the container app output from workers observability', 
     Http::assertSent(fn ($request) => str_ends_with($request->url(), '/telemetry/query') && $request['parameters']['filters'][0]['value'] === 'dply-ctr-'.strtolower((string) $site->id));
 });
 
+test('app output searches Cloudflare across a longer window', function () {
+    config(['edge.cloudflare.account_id' => 'acct', 'edge.cloudflare.api_token' => 'tok']);
+    [$user, $server, $site] = containerSite();
+    Http::fake(['api.cloudflare.com/client/v4/accounts/acct/containers/applications' => Http::response(['success' => true, 'result' => []]), 'api.cloudflare.com/client/v4/accounts/acct/workers/observability/telemetry/query' => Http::response(['success' => true, 'result' => ['events' => ['events' => [
+        ['timestamp' => 1_757_000_001_000, '$metadata' => ['message' => 'production.ERROR: No application encryption key', 'level' => 'error']],
+    ]]]])]);
+
+    Livewire::actingAs($user)
+        ->test(Logs::class, ['server' => $server, 'site' => $site])
+        ->set('appMinutes', 1440)
+        ->call('searchAppLogs', '  production.ERROR ')
+        ->assertSet('appSearch', 'production.ERROR')
+        ->assertSee('in the last 24 hours matching “production.ERROR”', false)
+        ->set('appMinutes', 999) // not a window we offer
+        ->assertSet('appMinutes', 15);
+
+    Http::assertSent(fn ($request) => str_ends_with($request->url(), '/telemetry/query')
+        && ($request['parameters']['filters'][1] ?? null) === ['key' => '$metadata.message', 'operation' => 'includes', 'type' => 'string', 'value' => 'production.ERROR']
+        && abs($request['timeframe']['to'] - $request['timeframe']['from'] - 1440 * 60_000) < 1000);
+});
+
 test('a sheet body renders when the sheet first opens, not with the page', function () {
     [$user, $server, $site] = containerSite();
 

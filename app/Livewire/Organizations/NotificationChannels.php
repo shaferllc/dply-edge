@@ -46,6 +46,11 @@ class NotificationChannels extends Component
         'edge.workers.crashing' => ['Queue workers crashing', 'Workers keep exiting'],
         'edge.database.disk_filling' => ['Database disk filling', 'Over 80% full'],
         'edge.database.connections_high' => ['Database connections high', 'Near the connection limit'],
+        'edge.database.memory_high' => ['Database memory high', 'Over 90% of its memory'],
+        'edge.database.resize_suggested' => ['Database resize suggested', 'A bigger or smaller size, for you to approve'],
+        'edge.database.resized' => ['Database resized', 'An approved resize ran'],
+        'edge.database.resize_failed' => ['Database resize failed', 'An approved resize did not run'],
+        'edge.app.resize_suggested' => ['Smaller app size suggested', 'The app has room to spare'],
         'site.errors.operation_failed' => ['Operation failed', 'A background app operation errored'],
         'account.provider_credential.unhealthy' => ['Cloud API token rejected', 'A provider stopped accepting a credential'],
     ];

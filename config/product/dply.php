@@ -355,12 +355,15 @@ return [
             // Container apps and queue workers (Cloudflare Containers), per
             // second awake: vCPU $0.000020/s, memory $0.0000025/GiB-s, disk
             // $0.00000007/GB-s. Collected by dply:edge:collect-container-usage
-            // (per-second counters). Container egress (tx_bytes) is recorded
-            // but not billed: visitor responses already bill once as delivery
-            // bandwidth (see EdgeContainerComputeCost).
+            // (per-second counters). Outbound traffic (ruling
+            // r-48pkfdnq9f75j8mw): container egress (tx_bytes) minus the
+            // replies the app's Worker counted, per app per day. Cloudflare
+            // container egress $0.025/GB (NA/EU; account allowance not passed
+            // on) + margin. Replies bill as delivery bandwidth instead.
             'container_vcpu_millicents_per_second' => (float) env('DPLY_USAGE_CONTAINER_VCPU_MC_PER_SECOND', 2.0),
             'container_memory_millicents_per_gib_second' => (float) env('DPLY_USAGE_CONTAINER_MEMORY_MC_PER_GIB_SECOND', 0.25),
             'container_disk_millicents_per_gb_second' => (float) env('DPLY_USAGE_CONTAINER_DISK_MC_PER_GB_SECOND', 0.007),
+            'container_outbound_millicents_per_gb' => (float) env('DPLY_USAGE_CONTAINER_OUTBOUND_MC_PER_GB', 2_500),
             // Monthly cap per app instance: this many hours of the size's
             // 100%-CPU price (UsagePrice::containerCapHours). Break-even is
             // 720 / (1 + margin) h (554 h at 30%), so the code never lets it
@@ -421,6 +424,10 @@ return [
             // Images: $0.50 per 1,000 unique transformations.
             // Collected by dply:edge:collect-platform-usage.
             'workers_cpu_millicents_per_million_ms' => (float) env('DPLY_EDGE_WORKERS_CPU_MC_PER_MILLION_MS', 2_000),
+            // Workers Logs: $0.60 per million events (invocation, console and
+            // container stdout lines). The account's 20M included events are
+            // not passed on. Collected per script by collect-platform-usage.
+            'workers_logs_millicents_per_million' => (float) env('DPLY_EDGE_WORKERS_LOGS_MC_PER_MILLION', 60_000),
             'do_requests_millicents_per_million' => (float) env('DPLY_EDGE_DO_REQUESTS_MC_PER_MILLION', 15_000),
             'do_duration_millicents_per_million_gb_s' => (float) env('DPLY_EDGE_DO_DURATION_MC_PER_MILLION_GB_S', 1_250_000),
             'do_rows_read_millicents_per_million' => (float) env('DPLY_EDGE_DO_ROWS_READ_MC_PER_MILLION', 100),

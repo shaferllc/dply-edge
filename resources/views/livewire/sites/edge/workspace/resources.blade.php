@@ -1,4 +1,9 @@
 <div>
+    {{-- ?sheet=database|app (links in notifications, e.g. a suggested resize): open that sheet on load. --}}
+    @php $linkedSheet = ['database' => 'resources-database', 'app' => 'resources-app'][(string) request()->query('sheet')] ?? null; @endphp
+    @if ($linkedSheet)
+        <span class="hidden" x-data x-init="$nextTick(() => { $wire.$island(@js($linkedSheet)).$refresh(); $dispatch('open-modal', @js($linkedSheet)) })"></span>
+    @endif
     {{-- Islands: an action inside a sheet re-renders that sheet's island and
          the map (Resources::renderIsland), not the whole page. A sheet body is
          teleported out of its island, so app.js routes its actions back.
@@ -16,7 +21,8 @@
         $workersUnderDatabase = $queueStore === 'database' && $databaseVisible;
         $queueRedisHost = $queueStore === 'redis' ? (collect($connections)->firstWhere('kind', 'redis')['host'] ?? null) : null;
         $orderedConnections = collect($connections)->sortBy(fn ($c) => $c['host'] === $queueRedisHost ? 0 : 1)->values()->all();
-        $workersNode = $isContainer && (($workers['enabled'] ?? false) || $scheduler);
+        // The scheduler alone lives in the Scheduled tasks box (partials/crons-node), not a box of its own.
+        $workersNode = $isContainer && ($workers['enabled'] ?? false);
 
         $node = 'group block w-full rounded-2xl border border-brand-ink/15 bg-white p-3.5 text-left transition hover:-translate-y-px hover:border-brand-ink/40 dark:border-brand-mist/20 dark:bg-zinc-900 dark:hover:border-brand-mist/50';
         $eyebrow = 'text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist';
@@ -25,8 +31,13 @@
             'ok' => 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
             'sleep' => 'bg-violet-500/10 text-violet-700 dark:text-violet-300',
             'warn' => 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
+            'busy' => 'bg-brand-sage/15 text-brand-forest dark:text-brand-sage',
             default => 'bg-brand-sand/40 text-brand-moss',
-        }.'"><span class="h-1.5 w-1.5 rounded-full bg-current'.($tone === 'ok' ? ' animate-pulse' : '').'"></span>'.e($text).'</span>';
+        }.'"><span class="h-1.5 w-1.5 rounded-full bg-current'.(in_array($tone, ['ok', 'busy'], true) ? ' animate-pulse' : '').'"></span>'.e($text).'</span>';
+        // The resource cards' "zzz" (app.css .resource-snore), for anything sleeping on the map.
+        $snore = '<span class="resource-snore" aria-hidden="true"><span>z</span><span>z</span><span>z</span></span>';
+        // A deploy in flight outranks asleep/running on the App box (the deploy pill has the steps).
+        $deploying = $site->edgeDeployments()->whereIn('status', \App\Modules\Edge\Support\EdgeDeployProgress::IN_FLIGHT)->exists();
         $mini = function (array $values, ?float $ceiling = null) {
             $line = \App\Support\Sites\EdgeServiceMap::path($values, 120, 28, ceiling: $ceiling);
 
@@ -37,6 +48,8 @@
         $tallMap = count($connections) + ($databaseVisible ? 1 : 0) + ($workersNode ? 1 : 0) > 3;
         $hFlow = '<svg viewBox="0 0 40 100" preserveAspectRatio="none" class="hidden '.($tallMap ? 'h-28' : 'h-full min-h-10').' w-full lg:block" aria-hidden="true"><path d="M0 50 H40" class="dply-flow stroke-brand-forest"></path></svg>';
         $vFlow = '<svg viewBox="0 0 20 28" class="mx-auto block h-7 w-5 lg:hidden" aria-hidden="true"><path d="M10 0 V28" class="dply-flow stroke-brand-forest"></path></svg>';
+        // Joins a box stacked under the App/Worker box (queue workers, scheduler, scheduled tasks) to it.
+        $stackFlow = '<svg viewBox="0 0 20 20" class="mx-auto block h-5 w-5" aria-hidden="true"><path d="M10 0 V20" class="dply-flow stroke-brand-forest"></path></svg>';
         $sleepNote = fn (string $text) => '<p class="mt-2 flex items-center gap-1.5 text-2xs text-brand-moss"><svg class="h-3.5 w-3.5 text-violet-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z"/></svg>'.e($text).'</p>';
         $w = \App\Modules\Edge\Support\EdgeQueueWorkers::normalize($workers);
     @endphp
@@ -62,9 +75,13 @@
     ])>
         {{-- Visitors --}}
         <div class="text-center text-xs text-brand-moss">
-            <div class="mx-auto mb-2 grid h-14 w-14 place-items-center rounded-full border border-brand-ink/15 bg-[repeating-radial-gradient(circle,transparent_0_8px,rgb(23_26_14/0.06)_8px_9px)] font-mono text-2xs text-brand-mist dark:border-brand-mist/20">
-                {{ $map['placement']['region'] ?? '' }}
+            <div class="relative mx-auto mb-2 grid h-14 w-14 place-items-center">
+                <span class="absolute inset-0 animate-ping rounded-full bg-brand-forest/15 [animation-duration:3s]" aria-hidden="true"></span>
+                <span class="relative grid h-14 w-14 place-items-center rounded-full border border-brand-forest/40 bg-brand-forest/10 text-brand-forest dark:border-brand-sage/40 dark:text-brand-sage">
+                    <x-heroicon-o-globe-americas class="h-7 w-7" aria-hidden="true" />
+                </span>
             </div>
+            <span class="{{ $eyebrow }} block">{{ __('Visitors') }}@if ($map['placement']['region'] ?? null) · <span class="font-mono normal-case tracking-normal">{{ $map['placement']['region'] }}</span>@endif</span>
             <span class="block font-mono text-lg font-bold tabular-nums text-brand-ink">{{ \Illuminate\Support\Number::abbreviate($map['requests30d'], maxPrecision: 1) }}</span>
             {{ __('requests, 30 days') }}
         </div>
@@ -107,8 +124,8 @@
 
         {!! $hFlow !!}{!! $vFlow !!}
 
-        {{-- Runtime --}}
-        <div class="grid gap-3">
+        {{-- Runtime: the app, with what runs beside it joined underneath by $stackFlow. --}}
+        <div class="grid content-start">
             @if ($isContainer && is_array($settings))
                 @php
                     $c = $map['container']; $live = $appInstances; $liveUrl = filled($site->edgeLiveUrl());
@@ -121,10 +138,12 @@
                     $sleepsIn = $lastActivity && $sleepSeconds ? max(0, $lastActivity + $sleepSeconds - now()->timestamp) : null;
                     $awakeSince = $awake->pluck('since')->filter()->min();
                     $alwaysOn = (int) ($settings['min_instances'] ?? 0) > 0;
+                    // Read by the boxes that live inside the app (scheduler, SQLite).
+                    $appAsleep = $asleep && ! $deploying;
                 @endphp
                 {{-- Live instance state loads after the page (loadAppInstances, ~15s cache), so the map never waits on the app. --}}
-                <button type="button" wire:click="$refresh" wire:island="resources-app" x-on:click="$dispatch('open-modal', 'resources-app')" @if ($live === null && $liveUrl) x-init="$wire.$island('map').loadAppInstances()" @endif class="{{ $node }} border-brand-forest ring-4 ring-brand-forest/10 dark:border-brand-forest">
-                    <span class="flex items-center justify-between gap-2"><span class="{{ $eyebrow }}">{{ __('App') }}</span>{!! ! ($site->edgeMeta()['active_deployment_id'] ?? null) ? $pill(__('Not deployed'), 'off') : ($asleep ? $pill(__('Asleep'), 'off') : $pill(__('Running'), 'ok')) !!}</span>
+                <button type="button" wire:click="$refresh" wire:island="resources-app" x-on:click="$dispatch('open-modal', 'resources-app')" @if ($live === null && $liveUrl) x-init="$wire.$island('map').loadAppInstances()" @endif @class([$node, 'border-brand-forest ring-4 ring-brand-forest/10 dark:border-brand-forest' => ! $asleep || $deploying, 'resource-asleep border-dashed border-brand-forest/60' => $asleep && ! $deploying])>
+                    <span class="flex items-center justify-between gap-2"><span class="{{ $eyebrow }}">{{ __('App') }}</span>{!! $deploying ? $pill(__('Deploying'), 'busy') : (! ($site->edgeMeta()['active_deployment_id'] ?? null) ? $pill(__('Not deployed'), 'off') : ($asleep ? '<span class="flex items-center">'.$pill(__('Asleep'), 'off').$snore.'</span>' : $pill(__('Running'), 'ok'))) !!}</span>
                     <span class="mt-1.5 block text-sm font-bold text-brand-ink">{{ $map['framework'] ?? __('App') }} · {{ collect($sizes)->firstWhere('key', $settings['instance_type'])['label'] ?? __('Custom') }}</span>
                     <span class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-2xs text-brand-mist">
                         @if ($c && $c['memMb'] !== null)<span><b class="text-brand-ink">{{ $c['memMb'] }}</b> MB {{ __('of') }} {{ rtrim(rtrim(number_format($c['memGib'], 2), '0'), '.') }} GiB</span>@endif
@@ -160,8 +179,10 @@
                     {!! $more !!}
                 </button>
                 @if ($workersNode && $queueRedisHost === null && ! $workersUnderDatabase)
+                    {!! $stackFlow !!}
                     @include('livewire.sites.edge.workspace.partials.workers-node')
                 @endif
+                @if (is_array($crons) && ($crons['rows'] !== [] || ($crons['scheduler'] && ! $crons['schedulerInWorker']))){!! $stackFlow !!}@endif
                 @include('livewire.sites.edge.workspace.partials.crons-node')
             @else
                 <div class="rounded-2xl border border-brand-forest bg-white p-3.5 ring-4 ring-brand-forest/10 dark:bg-zinc-900">
@@ -169,6 +190,7 @@
                     <p class="mt-1.5 text-sm font-bold text-brand-ink">{{ $map['framework'] ?? __('Auto-detected') }}</p>
                     <p class="mt-1 text-xs text-brand-moss">{{ ['hybrid' => __('Static assets plus server routes on Workers'), 'ssr' => __('Server-rendered on Workers')][$runtimeMode] ?? __('Files served from the edge cache') }}</p>
                 </div>
+                @if (is_array($crons) && ($crons['rows'] !== [] || ($crons['scheduler'] && ! $crons['schedulerInWorker']))){!! $stackFlow !!}@endif
                 @include('livewire.sites.edge.workspace.partials.crons-node')
             @endif
         </div>
@@ -191,10 +213,14 @@
 
                 @if ($databaseVisible)
                     @php $d = $map['database']; $dplyEngine = in_array($databaseEngine, ['postgres', 'mongodb', 'mysql'], true); @endphp
-                    <button type="button" wire:click="$refresh" wire:island="resources-database" x-on:click="$dispatch('open-modal', 'resources-database')" class="{{ $node }}">
+                    {{-- SQLite is a file inside the app, so it sleeps when the app does. --}}
+                    @php $dbAsleep = $databaseEngine === 'sql' && ($appAsleep ?? false); @endphp
+                    <button type="button" wire:click="$refresh" wire:island="resources-database" x-on:click="$dispatch('open-modal', 'resources-database')" @class([$node, 'resource-asleep border-dashed' => $dbAsleep])>
                         <span class="flex items-center justify-between gap-2">
                             <span class="{{ $eyebrow }}">{{ __('Database') }}</span>
-                            @if ($databaseEngine === 'sql')
+                            @if ($dbAsleep)
+                                <span class="flex items-center">{!! $pill(__('Asleep with the app'), 'off') !!}{!! $snore !!}</span>
+                            @elseif ($databaseEngine === 'sql')
                                 {!! $pill(__('In the app'), 'ok') !!}
                             @elseif (($d['status'] ?? '') !== '')
                                 {!! $pill($d['status'] === 'ready' ? __('Ready') : (string) str($d['status'])->headline(), $d['status'] === 'ready' ? 'ok' : 'warn') !!}
@@ -280,6 +306,12 @@
         @include('livewire.sites.edge.workspace.partials.sheets.workers')
         @include('livewire.sites.edge.workspace.partials.sheets.worker-logs')
         @include('livewire.sites.edge.workspace.partials.sheets.failed-jobs')
+    @endisland
+    @island(name: 'resources-worker-setup', always: true, skip: true, with: $this->viewData())
+        @placeholder
+            <x-sheet.pending name="resources-worker-setup" maxWidth="lg" />
+        @endplaceholder
+        @include('livewire.sites.edge.workspace.partials.sheets.worker-setup')
     @endisland
     @island(name: 'resources-service', always: true, skip: true, with: $this->viewData())
         @placeholder

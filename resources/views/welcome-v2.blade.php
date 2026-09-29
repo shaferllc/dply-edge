@@ -211,7 +211,7 @@
                                 trans_choice('{1} 1 seat|[2,*] :count seats', (int) $plan['seats'], ['count' => (int) $plan['seats']]).($plan['extra_seat_cents'] ? ' · $'.number_format($plan['extra_seat_cents'] / 100, 0).'/extra' : ''),
                                 '$'.number_format($plan['usage_credit_cents'] / 100, 0).' usage included',
                                 $plan['databases'].' databases · '.$plan['queues'].' queues',
-                                $plan['audit_log'] ? 'Audit log' : ($plan['worker_autoscale'] ? 'Autoscaling workers' : $plan['concurrent_builds'].' build at a time'),
+                                $plan['audit_log'] ? 'Audit log' : ($plan['worker_autoscale'] && $plan['worker_instances'] !== 1 ? 'Autoscaling workers' : $plan['concurrent_builds'].' build at a time'),
                             ];
                         @endphp
                         <div class="reveal flex flex-col bg-edge-void p-7" style="transition-delay:{{ .06 * $i + .14 }}s">

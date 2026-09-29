@@ -1065,3 +1065,90 @@ test('an app on a retired size is offered the new rung when its peaks fit, and p
         ->assertSee('~$14/mo typical · $22/mo cap') // basic: $13.58 and $21.85, rounded over $10
         ->assertSee('1 vCPU · 6 GB (retired)');
 });
+
+/** An owner of $app, with the workspace server set up the way the page needs. */
+function ownerOf(Site $app): User
+{
+    $user = User::factory()->create();
+    $app->organization->users()->attach($user->id, ['role' => 'owner']);
+    $app->forceFill(['user_id' => $user->id, 'type' => SiteType::Static, 'status' => Site::STATUS_EDGE_ACTIVE])->save();
+    $app->server->forceFill(['user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]])->save();
+
+    return $user;
+}
+
+test('the add sheet prefills queues from the last build and starts workers when jobs arrive', function () {
+    Process::fake();
+    $app = laravelApp(['database' => ['engine' => 'sql', 'provider' => null], 'connections' => [['kind' => 'redis', 'name' => 'REDIS', 'host' => 'redis.internal', 'target' => 'dply-valkey:x']]]);
+    \App\Models\EdgeDeployment::query()->create([
+        'site_id' => $app->id, 'organization_id' => $app->organization_id, 'status' => \App\Models\EdgeDeployment::STATUS_LIVE,
+        'meta' => ['queue_scan' => ['queues' => ['high', 'default', 'emails'], 'groups' => []]],
+    ]);
+
+    Livewire::actingAs(ownerOf($app))->test(Resources::class, ['server' => $app->server, 'site' => $app])
+        ->call('openWorkerSetup')
+        ->assertSet('workerSetup.queues', 'high,default,emails')
+        ->assertSet('workerSetup.mode', 'scale')
+        ->assertSet('workerSetup.backend', 'ready') // the app's Valkey takes the jobs
+        ->assertSee('Start when jobs arrive')
+        ->set('workerSetup.processes', 2)
+        ->call('confirmWorkerSetup', false)
+        ->assertHasNoErrors();
+
+    expect(EdgeQueueWorkers::for($app->fresh()))->toMatchArray([
+        'enabled' => true, 'queues' => 'high,default,emails', 'processes' => 2,
+        'autoscale' => true, 'instances' => 0, 'max_instances' => 2,
+    ]);
+});
+
+test('Starter may start its one worker when jobs arrive, a trial runs it always on', function () {
+    config(['subscription.standard.stripe.tier_starter' => 'price_tier_starter']);
+    $starter = Organization::factory()->create();
+    Subscription::factory()->withPrice('price_tier_starter')->active()->create(['organization_id' => $starter->id]);
+    $trial = Organization::factory()->create(['trial_ends_at' => now()->addDays(3)]);
+
+    expect(EdgeQueueWorkers::allowance(laravelApp([], $starter)))->toMatchArray(['instances' => 1, 'autoscale' => true, 'groups' => 0])
+        ->and(EdgeQueueWorkers::allowance(laravelApp([], $trial))['autoscale'])->toBeFalse();
+});
+
+test('an app without a shared queue gets Valkey offered, and a failed start leaves workers off', function () {
+    Process::fake();
+    Http::fake(['*' => Http::response(['error' => 'gateway down'], 500)]);
+    $app = laravelApp(['database' => ['engine' => 'sql', 'provider' => null]]);
+
+    Livewire::actingAs(ownerOf($app))->test(Resources::class, ['server' => $app->server, 'site' => $app])
+        ->call('openWorkerSetup')
+        ->assertSet('workerSetup.backend', 'valkey')
+        ->assertSee('Add dply Valkey for the queue')
+        ->call('confirmWorkerSetup', false)
+        ->assertHasErrors('workerSetup');
+
+    expect(EdgeQueueWorkers::for($app->fresh())['enabled'])->toBeFalse();
+});
+
+test('a smaller app size is suggested by notification once, linking to the App sheet', function () {
+    $t = now()->getTimestamp();
+    $app = laravelApp(['live_url' => 'https://up.on-dply.live', 'container' => ['instance_type' => 'basic'], 'memory' => ['type' => 'basic', 'samples' => array_map(fn ($i) => [$t - ($i + 1) * 3600, 140.0], range(0, 6))]]);
+    Http::fake([
+        'up.on-dply.live/_dply/instances' => Http::response([['name' => 'instance-0', 'status' => 'healthy']]),
+        'up.on-dply.live/_dply/command' => Http::response(['memory_peak_mb' => 150.0]),
+    ]);
+
+    $this->artisan('dply:edge:sample-container-memory')->assertSuccessful();
+    $this->artisan('dply:edge:sample-container-memory')->assertSuccessful();
+
+    $events = NotificationEvent::query()->where('event_key', 'edge.app.resize_suggested')->get();
+    expect($events)->toHaveCount(1)
+        ->and($events[0]->url)->toEndWith('?sheet=app')
+        ->and($events[0]->title)->toContain('smaller size');
+});
+
+test('the scheduler and scheduled tasks share one box on the map', function () {
+    $app = laravelApp(['container' => ['scheduler' => true], 'crons_overrides' => [['schedule' => '0 6 * * *', 'handler' => 'inspire']]]);
+
+    Livewire::actingAs(ownerOf($app))->test(Resources::class, ['server' => $app->server, 'site' => $app])
+        ->assertSee('Scheduled tasks')
+        ->assertSee('(Laravel scheduler)')
+        ->assertSee('inspire')
+        ->assertDontSee('schedule:run every minute'); // the old separate Scheduler box
+});

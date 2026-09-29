@@ -23,6 +23,41 @@ func memoryLimit(fallback int64) int64 {
 	return n
 }
 
+// memoryUsage is the pod's memory as dply's resize suggestion reads it
+// (cgroup v2): the limit, what the processes hold (anon: the engine's own
+// buffers and connections), the page cache the kernel keeps for data files
+// (file), and the peak since the pod started. anon near the limit is real
+// pressure; a full page cache is normal and shows up as cache_hit_ratio.
+// Zeros when the files cannot be read.
+func memoryUsage() (limit, anon, file, peak int64) {
+	limit = memoryLimit(0)
+	if b, err := os.ReadFile("/sys/fs/cgroup/memory.stat"); err == nil {
+		anon, file = parseMemoryStat(string(b))
+	}
+	if b, err := os.ReadFile("/sys/fs/cgroup/memory.peak"); err == nil {
+		peak, _ = strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
+	}
+	return limit, anon, file, peak
+}
+
+// parseMemoryStat reads anon and file bytes from a cgroup v2 memory.stat.
+func parseMemoryStat(stat string) (anon, file int64) {
+	for _, line := range strings.Split(stat, "\n") {
+		k, v, ok := strings.Cut(line, " ")
+		if !ok {
+			continue
+		}
+		n, _ := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+		switch k {
+		case "anon":
+			anon = n
+		case "file":
+			file = n
+		}
+	}
+	return anon, file
+}
+
 // diskUsage is the data volume's size and bytes in use.
 func diskUsage(path string) (total, used int64) {
 	var st syscall.Statfs_t

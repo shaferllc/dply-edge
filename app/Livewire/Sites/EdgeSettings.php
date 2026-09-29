@@ -178,9 +178,4 @@ class EdgeSettings extends Component
     /** The banner component finished a run: re-render once to pick up its side effects. */
     #[On('console-action-finished')]
     public function refreshAfterConsoleAction(): void {}
-
-    protected function currentEdgeSection(): ?string
-    {
-        return $this->section;
-    }
 }

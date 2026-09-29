@@ -9,6 +9,7 @@
 @source '../../storage/framework/views/*.php';
 @source '../**/*.blade.php';
 @source '../**/*.js';
+@source '../../app/Support/LogLineTone.php';
 
 @import './dply-theme.css';
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Services\Config;
 
+use App\Modules\Edge\Support\EdgeCronExpression;
 use App\Modules\Edge\Support\EdgeTagVendors;
 use Symfony\Component\Yaml\Yaml;
 
@@ -937,7 +938,9 @@ class EdgeRepoConfigLoader
      *
      * Shape-only cron validation (5 whitespace-separated tokens of
      * cron-legal characters) — Cloudflare is the source of truth for
-     * semantics. Max 5 schedules per site (CF limit).
+     * semantics. Up to EdgeCronExpression::MAX_TASKS entries; an SSR /
+     * middleware Worker still gets only its first 5 distinct schedules
+     * (EdgeEffectiveCrons::schedulesFor).
      *
      * @param  list<string>  $warnings
      * @return list<array{schedule: string, handler?: string}>
@@ -950,8 +953,8 @@ class EdgeRepoConfigLoader
 
         $out = [];
         foreach ($value as $index => $entry) {
-            if (count($out) >= 5) {
-                $warnings[] = 'crons[]: dply Edge supports up to 5 schedules per site — extras ignored.';
+            if (count($out) >= EdgeCronExpression::MAX_TASKS) {
+                $warnings[] = sprintf('crons[]: dply Edge runs up to %d scheduled tasks per app — extras ignored.', EdgeCronExpression::MAX_TASKS);
                 break;
             }
             if (! is_array($entry)) {

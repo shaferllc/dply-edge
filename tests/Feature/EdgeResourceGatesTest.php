@@ -22,6 +22,7 @@ use App\Modules\Edge\Support\EdgeContainerConnections;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Laravel\Pennant\Feature;
 use Livewire\Livewire;
 
 /*
@@ -289,4 +290,25 @@ test('an app that already deployed an unprefixed binding fails loudly instead of
     expect(fn () => app(EdgeBindingsAutoResolver::class)->resolve($site, repoDeployment($site, ['kv' => ['CACHE' => 'cache']])))
         ->toThrow(\RuntimeException::class, 'Ask support to move it');
     Http::assertNotSent(fn (Request $r): bool => $r->method() === 'POST' && str_contains($r->url(), '/storage/kv/namespaces'));
+});
+
+test('a flagged resource kind can only be added once its feature flag is on for the organization', function () {
+    [$org, $site, $user] = gatedApp('container');
+    $org->forceFill(paid())->save();
+    fakeAccount();
+    $flag = EdgeContainerConnections::flag('images');
+    // TestCase turns the flags on; the real default is off.
+    Feature::define($flag, static fn (): bool => false);
+
+    $page = Livewire::actingAs($user)->test(Resources::class, ['server' => $site->server, 'site' => $site->fresh()])
+        ->call('openConnectionBuilder')
+        ->assertDontSeeHtml("chooseConnectionKind('images')")
+        ->call('chooseConnectionKind', 'images');
+    expect(EdgeContainerConnections::for($site->fresh()))->toBe([]);
+
+    Feature::for($org->fresh())->activate($flag);
+    $page->call('openConnectionBuilder')
+        ->assertSeeHtml("chooseConnectionKind('images')")
+        ->call('chooseConnectionKind', 'images');
+    expect(collect(EdgeContainerConnections::for($site->fresh()))->pluck('kind')->all())->toBe(['images']);
 });

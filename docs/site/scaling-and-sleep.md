@@ -12,9 +12,10 @@ A container app scales between a minimum and a maximum number of instances. When
 
 | Setting | Where |
 |---|---|
-| **Instances** (maximum) | **Overview** → **App** card. Saves as you change it; applies on the next deploy. |
+| **Max instances** | **Overview** → **App** card. Saves as you change it; applies on the next deploy. |
 | **Sleeps after** | **Overview** → **App** card, or **Sleep, scaling, region**. |
-| **Always awake** (min instances), **Scaling windows** | **Overview** → **App** card → **Sleep, scaling, region**. |
+| **Min instances (always awake)** | **Overview** → **App** card, right under **Max instances**, or **Sleep, scaling, region**. |
+| **Scaling windows** | **Overview** → **App** card → **Sleep, scaling, region**. |
 | **Run jobs on their own instance**, **Keep the jobs instance awake**, **Worker mode** | **Overview** → **App** card → **Sleep, scaling, region**, under **Behaviour**. |
 
 Everything saves as you change it and applies on the next deploy. (These used to be on a separate **Container** page; its old link now opens **Overview**.)
@@ -48,7 +49,7 @@ A longer timeout means fewer cold starts and more billed time. The **Cost estima
 
 ## Keep instances awake
 
-Set **Always awake** in **Overview** → **App** card → **Sleep, scaling, region** to keep that many instances running at all times (0 to your maximum). Instances below the minimum never sleep, so those visitors never hit a cold start. `0` scales to zero when idle. dply checks every minute and starts any instance below the minimum, including one the platform restarted.
+Set **Min instances (always awake)** on the **App** card, under **Max instances**, to keep that many instances running at all times (0 to your maximum). Instances below the minimum never sleep, so those visitors never hit a cold start. `0` scales to zero when idle. dply checks every minute and starts any instance below the minimum, including one the platform restarted.
 
 The **Cost estimate** on the **App** card shows what always-awake instances cost.
 

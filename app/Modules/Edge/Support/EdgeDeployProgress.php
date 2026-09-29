@@ -43,6 +43,9 @@ final class EdgeDeployProgress
                 preg_match('/^#\d+ pushing layers/', $line) === 1 => 'Pushing image',
                 str_starts_with($line, 'Image pushed.') => 'Rolling out',
                 preg_match('/^Rollout in progress — (\d+)%/u', $line, $m) === 1 => 'Rolling out '.$m[1].'%',
+                str_starts_with($line, 'Checking the new version on its own') => 'Checking the new version',
+                str_starts_with($line, 'Running migrations') => 'Migrating',
+                str_starts_with($line, 'The new version works.') => 'Switching traffic',
                 str_starts_with($line, 'Checking ') && str_ends_with($line, ' answers.') => 'Checking the app answers',
                 default => $label,
             };

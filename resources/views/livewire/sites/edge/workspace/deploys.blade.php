@@ -169,10 +169,10 @@
                     @if ($canDeploy)
                         <span class="flex gap-2">
                             @if ($o->git_commit && $refMissing === null)
-                                <x-sheet.button type="button" wire:click="rebuildFrom(@js((string) $o->id))">{{ __('Rebuild from this commit') }}</x-sheet.button>
+                                <x-sheet.button type="button" wire:click="rebuildFrom({{ \Illuminate\Support\Js::from((string) $o->id) }})">{{ __('Rebuild from this commit') }}</x-sheet.button>
                             @endif
                             @if ($canRollBack($o))
-                                <x-sheet.button type="button" variant="primary" x-on:click="$dispatch('close-modal', 'deploy-detail')" wire:click="confirmRollbackEdgeDeployment(@js((string) $o->id))">{{ __('Roll back to this') }}</x-sheet.button>
+                                <x-sheet.button type="button" variant="primary" x-on:click="$dispatch('close-modal', 'deploy-detail')" wire:click="confirmRollbackEdgeDeployment({{ \Illuminate\Support\Js::from((string) $o->id) }})">{{ __('Roll back to this') }}</x-sheet.button>
                             @endif
                         </span>
                     @endif

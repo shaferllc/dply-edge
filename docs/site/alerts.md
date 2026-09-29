@@ -22,7 +22,8 @@ Below it, **When something happens** lists the app's events grouped into rules, 
 - When a real-user metric crosses a threshold
 - When usage goes over budget
 - When queue jobs fail or workers keep exiting
-- When a database fills up or nears its connection limit
+- When a database fills up, nears its connection or memory limit, or a resize is suggested or done
+- When a smaller app size would do
 
 Each rule shows the channels it reaches, or **Nobody** when no channel receives any of its events. **Manage channels** opens your **Notification channels** page.
 
@@ -53,6 +54,11 @@ Subscriptions are per app. To send the same events from several apps to a channe
 | **Queue workers keep exiting (action required)** | Queue workers crash repeatedly |
 | **Database disk over 80% full (action required)** | A database is filling its disk |
 | **Database near its connection limit (action required)** | A database is close to its connection cap |
+| **Database near its memory limit (action required)** | A database holds over 90% of its memory |
+| **A different database size is suggested (needs approval)** | A bigger or smaller size would fit better. Opens the suggestion to approve |
+| **Database resized** | A resize you approved ran |
+| **Database resize failed (action required)** | A resize you approved could not run |
+| **A smaller app size would do** | A week of memory peaks says a container app can run on a smaller size |
 
 People who receive in-app notifications still see these events in the dply inbox, even when no channel is subscribed.
 

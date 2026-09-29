@@ -18,13 +18,13 @@ use Carbon\CarbonInterface;
  * with a monthly cap per app instance (capMillicents) that never goes
  * below cost.
  *
- * Container egress (tx_bytes) is recorded but NOT billed. Every visitor
- * request to a container app goes through its Worker on the site's
- * hostname, so the response bytes are already in the zone's
- * edgeResponseBytes and billed once as delivery bandwidth ($0.06/GB,
- * EdgeUsageCostCalculator). tx_bytes counts the same bytes again on their
- * way from the container to the Worker, plus the container's own outbound
- * calls, which Cloudflare covers with 1 TB/month included (NA/EU).
+ * Outbound traffic (ruling r-48pkfdnq9f75j8mw): container egress
+ * (tx_bytes, what Cloudflare bills) minus the reply bytes the app's Worker
+ * counted (reply_bytes), per app per day, never below zero. That is the
+ * app's own calls out (APIs, S3); replies to visitors already bill as
+ * delivery bandwidth. Priced at Cloudflare's cost + margin
+ * (container_outbound_millicents_per_gb), outside the compute cap. A row
+ * with reply_bytes null (Worker predates the counter) bills no outbound.
  */
 class EdgeContainerComputeCost
 {
@@ -32,7 +32,7 @@ class EdgeContainerComputeCost
      * The period's compute, each app capped (capMillicents) and the total
      * rounded once.
      *
-     * @return array{cpu_seconds: float, memory_gib_seconds: float, disk_gb_seconds: float, tx_bytes: int, cents: int}
+     * @return array{cpu_seconds: float, memory_gib_seconds: float, disk_gb_seconds: float, tx_bytes: int, outbound_bytes: int, cents: int}
      */
     public function forOrganization(Organization $organization, CarbonInterface $from, CarbonInterface $to): array
     {
@@ -40,22 +40,34 @@ class EdgeContainerComputeCost
             ->where('organization_id', $organization->id)
             ->whereBetween('date', [$from->toDateString(), $to->toDateString()])
             ->groupBy('site_id')
-            ->selectRaw('site_id, COALESCE(SUM(cpu_seconds), 0) AS cpu, COALESCE(SUM(memory_gib_seconds), 0) AS memory, COALESCE(SUM(disk_gb_seconds), 0) AS disk, COALESCE(SUM(tx_bytes), 0) AS tx')
+            ->selectRaw('site_id, COALESCE(SUM(cpu_seconds), 0) AS cpu, COALESCE(SUM(memory_gib_seconds), 0) AS memory, COALESCE(SUM(disk_gb_seconds), 0) AS disk, COALESCE(SUM(tx_bytes), 0) AS tx, '.self::OUTBOUND_SQL.' AS outbound')
             ->toBase()
             ->get();
         $sites = Site::query()->whereIn('id', $rows->pluck('site_id')->filter()->all())->get()->keyBy('id');
 
-        $totals = ['cpu_seconds' => 0.0, 'memory_gib_seconds' => 0.0, 'disk_gb_seconds' => 0.0, 'tx_bytes' => 0];
+        $totals = ['cpu_seconds' => 0.0, 'memory_gib_seconds' => 0.0, 'disk_gb_seconds' => 0.0, 'tx_bytes' => 0, 'outbound_bytes' => 0];
         $millicents = 0.0;
         foreach ($rows as $row) {
             $totals['cpu_seconds'] += (float) $row->cpu;
             $totals['memory_gib_seconds'] += (float) $row->memory;
             $totals['disk_gb_seconds'] += (float) $row->disk;
             $totals['tx_bytes'] += (int) $row->tx;
-            $millicents += $this->siteMillicents($sites->get($row->site_id), (float) $row->cpu, (float) $row->memory, (float) $row->disk);
+            $outbound = (int) $row->outbound;
+            $totals['outbound_bytes'] += $outbound;
+            $millicents += $this->siteMillicents($sites->get($row->site_id), (float) $row->cpu, (float) $row->memory, (float) $row->disk)
+                + $this->outboundMillicents($outbound);
         }
 
         return $totals + ['cents' => (int) round(round($millicents, 6) / 1000)];
+    }
+
+    /** Outbound bytes summed over rows: each app-day's tx minus replies, floored at 0; unmeasured rows add nothing. */
+    public const OUTBOUND_SQL = 'COALESCE(SUM(CASE WHEN reply_bytes IS NULL THEN 0 WHEN tx_bytes > reply_bytes THEN tx_bytes - reply_bytes ELSE 0 END), 0)';
+
+    /** Customer millicents for outbound bytes: Cloudflare's container egress cost + margin. */
+    public function outboundMillicents(int $bytes): float
+    {
+        return UsagePrice::customer($bytes / 1024 ** 3 * UsagePrice::cost('container_outbound_millicents_per_gb'));
     }
 
     /** Customer cents for one app's usage, capped. */
@@ -108,7 +120,7 @@ class EdgeContainerComputeCost
         return UsagePrice::cents($this->costMillicents($cpuSeconds, $memoryGibSeconds, $diskGbSeconds, $txBytes));
     }
 
-    /** $txBytes is accepted for the callers' totals but not billed (see the class doc). */
+    /** $txBytes is accepted for the callers' totals; outbound egress is priced by outboundMillicents(). */
     public function costMillicents(float $cpuSeconds, float $memoryGibSeconds, float $diskGbSeconds, int $txBytes = 0): float
     {
         return $cpuSeconds * UsagePrice::cost('container_vcpu_millicents_per_second')

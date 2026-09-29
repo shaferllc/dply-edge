@@ -16,6 +16,7 @@ use App\Modules\Edge\Services\EdgeDeliveryContextResolver;
 use App\Modules\Edge\Services\EdgeProductionEnv;
 use App\Modules\Edge\Support\EdgeBuildSlots;
 use App\Modules\Edge\Support\EdgeContainerConnections;
+use App\Modules\Edge\Support\EdgeDeployProgress;
 use App\Modules\Edge\Support\EdgeLiveBuildLog;
 use App\Modules\Edge\Support\EdgeRepoRoot;
 use App\Modules\Notifications\Services\NotificationPublisher;
@@ -79,6 +80,12 @@ class BuildEdgeSiteJob implements ShouldQueue
         $deployment = EdgeDeployment::query()->find($this->deploymentId);
         $site = $deployment ? Site::find($deployment->site_id) : null;
         $organization = $site?->organization;
+        // Which process runs this, so a restart that kills it fails the deploy
+        // in a minute (CancelStuckEdgeDeployment::reapOrphaned), not at the timeout.
+        if ($deployment !== null) {
+            EdgeDeployProgress::setMeta((string) $deployment->id, 'worker', gethostname().'|'.getmypid().'|'.time());
+            $deployment->refresh(); // later meta saves from this copy keep it
+        }
         if ($organization === null) {
             $this->runBuild($runner, null);
 

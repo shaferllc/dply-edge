@@ -52,7 +52,38 @@ test('schedules are added in a modal and ones past the fifth are flagged', funct
         $page->call('newCron')->set('new_schedule', $cron)->call('saveCron');
     }
 
-    $page->assertSee('1 won’t run')->assertSee('6 of 5 used');
+    // An SSR Worker's own scheduled() branches on the schedule: Cloudflare's 5 still apply.
+    $page->assertSee('1 won’t run')->assertSee('6 of 5 schedules used')
+        ->assertSee('Won’t run: Cloudflare allows 5 schedules per Worker.');
+});
+
+test('a container app runs more than 5 schedules and refuses syntax the Worker can’t read', function () {
+    $org = Organization::factory()->create();
+    $user = User::factory()->create();
+    $org->users()->attach($user->id, ['role' => 'owner']);
+    session(['current_organization_id' => $org->id]);
+    $server = Server::factory()->create(['organization_id' => $org->id, 'user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]]);
+    $site = Site::factory()->create([
+        'organization_id' => $org->id, 'server_id' => $server->id, 'user_id' => $user->id,
+        'type' => SiteType::Static, 'edge_backend' => 'dply_edge', 'status' => Site::STATUS_EDGE_ACTIVE,
+        'meta' => ['edge' => ['runtime_mode' => 'container']],
+    ]);
+
+    $page = Livewire::actingAs($user)->test(Crons::class, ['server' => $server, 'site' => $site]);
+    foreach (range(1, 7) as $hour) {
+        $page->call('newCron')->set('new_schedule', "0 {$hour} * * *")->set('new_handler', "report:{$hour}")->call('saveCron')->assertHasNoErrors();
+    }
+    $page->assertSee('7 tasks')->assertDontSee('won’t run');
+
+    $page->call('newCron')->set('new_schedule', '0 6 L * *')->call('saveCron')
+        ->assertHasErrors('new_schedule');
+    expect($site->fresh()->edgeMeta()['crons_overrides'])->toHaveCount(7);
+
+    // A repo schedule the Worker can't read is shown, marked, and not deployed.
+    $site->mergeEdgeMeta(['crons_overrides' => [...$site->fresh()->edgeMeta()['crons_overrides'], ['schedule' => '0 6 * * MON#2', 'handler' => 'x']]]);
+    $site->save();
+    $rows = Crons::schedule($site->fresh())['rows'];
+    expect(collect($rows)->where('dropped', true)->pluck('dropped_reason')->all())->toBe(['unsupported']);
 });
 
 test('run now calls the container schedule route for any app and explains a missing route', function () {
@@ -110,4 +141,59 @@ test('scheduled tasks live on Overview: a map box and an Add-resource row, and t
     Livewire::actingAs($user)
         ->test(\App\Livewire\Sites\EdgeSettings::class, ['server' => $server, 'site' => $site, 'section' => 'crons'])
         ->assertRedirect(route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'general']));
+});
+
+test('run now shows the command’s error when it fails in the app', function () {
+    Http::fake(['*/_dply/schedule' => Http::response(['command' => 'booking:create-admin', 'error' => 'Not enough arguments (missing: "email").'], 500)]);
+    $org = Organization::factory()->create();
+    $user = User::factory()->create();
+    $org->users()->attach($user->id, ['role' => 'owner']);
+    session(['current_organization_id' => $org->id]);
+    $server = Server::factory()->create(['organization_id' => $org->id, 'user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]]);
+    $site = Site::factory()->create([
+        'organization_id' => $org->id, 'server_id' => $server->id, 'user_id' => $user->id,
+        'type' => SiteType::Static, 'edge_backend' => 'dply_edge', 'status' => Site::STATUS_EDGE_ACTIVE,
+        'meta' => ['edge' => [
+            'runtime_mode' => 'container',
+            'live_url' => 'https://app.on-dply.site',
+            'crons_overrides' => [['schedule' => '0 6 * * *', 'handler' => 'booking:create-admin']],
+        ]],
+    ]);
+
+    Livewire::actingAs($user)->test(Crons::class, ['server' => $server, 'site' => $site])
+        // The button's argument is compiled (a raw @js here reached the browser and broke the click).
+        ->assertSeeHtml('wire:click="runNow(\'booking:create-admin\')"')
+        ->call('runNow', 'booking:create-admin')
+        ->assertSet('runOutput', 'Not enough arguments (missing: "email").')
+        ->assertSee('Not enough arguments (missing: &quot;email&quot;).', false)
+        // It asks for what's missing, runs with it, and can keep it on the task.
+        ->assertSet('runArgs', ['email' => ''])
+        ->assertSee('booking:create-admin needs these to run:')
+        ->set('runArgs.email', 'tom@example.com')
+        ->call('runWithArgs')
+        ->call('saveArgsToTask');
+
+    Http::assertSent(fn ($request) => $request['handler'] === 'booking:create-admin tom@example.com');
+    expect($site->fresh()->edgeMeta()['crons_overrides'][0]['handler'])->toBe('booking:create-admin tom@example.com');
+});
+
+test('arguments with spaces are quoted for Artisan', function () {
+    Http::fake(['*/_dply/schedule' => Http::response(['error' => 'Not enough arguments (missing: "name").'], 500)]);
+    $org = Organization::factory()->create();
+    $user = User::factory()->create();
+    $org->users()->attach($user->id, ['role' => 'owner']);
+    session(['current_organization_id' => $org->id]);
+    $server = Server::factory()->create(['organization_id' => $org->id, 'user_id' => $user->id, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]]);
+    $site = Site::factory()->create([
+        'organization_id' => $org->id, 'server_id' => $server->id, 'user_id' => $user->id,
+        'type' => SiteType::Static, 'edge_backend' => 'dply_edge', 'status' => Site::STATUS_EDGE_ACTIVE,
+        'meta' => ['edge' => ['runtime_mode' => 'container', 'live_url' => 'https://app.on-dply.site', 'crons_overrides' => [['schedule' => '0 6 * * *', 'handler' => 'greet']]]],
+    ]);
+
+    Livewire::actingAs($user)->test(Crons::class, ['server' => $server, 'site' => $site])
+        ->call('runNow', 'greet')
+        ->set('runArgs.name', 'Ada "the" Lovelace')
+        ->call('runWithArgs');
+
+    Http::assertSent(fn ($request) => $request['handler'] === 'greet "Ada \\"the\\" Lovelace"');
 });

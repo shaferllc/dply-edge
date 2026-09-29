@@ -15,6 +15,7 @@
     $betaInvitesActive = request()->routeIs('admin.beta-invites');
     $comingSoonAccessActive = request()->routeIs('admin.coming-soon-access');
     $connectionsActive = request()->routeIs('admin.connections');
+    $featureFlagsActive = request()->routeIs('admin.feature-flags');
 @endphp
 
 <nav aria-label="{{ __('Platform admin navigation') }}" class="dply-surface-nav sticky top-24 space-y-1">
@@ -59,4 +60,10 @@
         <x-heroicon-o-link class="{{ $navIcon }}" />
         {{ __('Connections') }}
     </a>
+    @if (app()->isLocal())
+        <a href="{{ route('admin.feature-flags') }}" wire:navigate @class([$navBase, $featureFlagsActive ? $navOn : $navOff])>
+            <x-heroicon-o-flag class="{{ $navIcon }}" />
+            {{ __('Feature flags') }}
+        </a>
+    @endif
 </nav>

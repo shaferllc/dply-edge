@@ -148,3 +148,25 @@ function deployment(bool $actingAs = false): array
         'status' => EdgeDeployment::STATUS_BUILDING, 'meta' => ['keep' => 'me'],
     ])];
 }
+
+test('a deploy whose worker process is gone fails within a minute, others are left alone', function () {
+    Event::fake([EdgeDeploymentProgressed::class]);
+    [, $orphan] = deployment();
+    $host = gethostname();
+    $old = now()->subMinutes(2)->getTimestamp();
+    EdgeDeployProgress::setMeta($orphan->id, 'worker', "{$host}|999999|{$old}");            // gone
+    [, $running] = deployment();
+    EdgeDeployProgress::setMeta($running->id, 'worker', "{$host}|".getmypid()."|{$old}");   // this process: alive
+    [, $elsewhere] = deployment();
+    EdgeDeployProgress::setMeta($elsewhere->id, 'worker', "another-host|999999|{$old}");     // not ours to judge
+    [, $justStarted] = deployment();
+    EdgeDeployProgress::setMeta($justStarted->id, 'worker', "{$host}|999999|".now()->getTimestamp());
+
+    expect(app(\App\Modules\Edge\Actions\CancelStuckEdgeDeployment::class)->reapOrphaned())->toBe(1)
+        ->and($orphan->fresh()->status)->toBe(EdgeDeployment::STATUS_FAILED)
+        ->and($orphan->fresh()->failure_reason)->toContain('worker running it restarted')
+        ->and($running->fresh()->status)->toBe(EdgeDeployment::STATUS_BUILDING)
+        ->and($elsewhere->fresh()->status)->toBe(EdgeDeployment::STATUS_BUILDING)
+        ->and($justStarted->fresh()->status)->toBe(EdgeDeployment::STATUS_BUILDING);
+    Event::assertDispatched(EdgeDeploymentProgressed::class, fn ($e) => $e->deployment['id'] === $orphan->id && $e->deployment['status'] === 'failed');
+});

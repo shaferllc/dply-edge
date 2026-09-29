@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 
 /**
- * Daily Workers CPU, Durable Objects and customer R2 bucket usage per Worker
+ * Daily Workers CPU, Workers Logs events, Durable Objects and customer R2 bucket usage per Worker
  * script or bucket. Written by EdgePlatformUsageCollector, read by
  * EdgePlatformUsageCost.
  *
@@ -28,6 +28,7 @@ use Illuminate\Support\Carbon;
  * @property int $r2_class_a_ops
  * @property int $r2_class_b_ops
  * @property int $images_transformations
+ * @property int $log_events
  */
 class EdgePlatformUsage extends Model
 {
@@ -52,6 +53,7 @@ class EdgePlatformUsage extends Model
             'r2_class_a_ops' => 'integer',
             'r2_class_b_ops' => 'integer',
             'images_transformations' => 'integer',
+            'log_events' => 'integer',
         ];
     }
 }

@@ -6,7 +6,10 @@
             @php
                 $visibleKinds = collect($connectionKinds)->filter(fn ($kind, $key) => in_array($key, $allowedKinds, true)
                     && ! in_array($key, \App\Modules\Edge\Support\EdgeContainerConnections::HIDDEN_FROM_BUILDER, true)
-                    && ! (in_array($key, ['redis', 'realtime'], true) && collect($connections)->contains('kind', $key)));
+                    // Behind a feature flag for this organization (dply:feature).
+                    && \App\Modules\Edge\Support\EdgeContainerConnections::flagOn($key, $site->organization)
+                    // One per app: hide once added.
+                    && ! (in_array($key, ['redis', 'realtime', ...\App\Modules\Edge\Support\EdgeContainerConnections::ENABLE], true) && collect($connections)->contains('kind', $key)));
                 $kindGroups = [
                     'background' => ['title' => __('Background work'), 'kinds' => ['queue']],
                     'data' => ['title' => __('Data & storage'), 'kinds' => ['sql', 'database_pool', 'key_value', 'durable_object', 'redis', 'object_storage']],
@@ -32,7 +35,7 @@
                                     <x-sheet.row wire:click="openPanel('')" wire:island="resources-connection" x-on:click="$dispatch('close-modal', 'resources-connection'); $dispatch('edge-cron-new')" :title="__('Scheduled task')" :hint="__('Run a command on a schedule. Add as many as you need.')"><x-slot:icon><x-heroicon-o-calendar-days /></x-slot:icon></x-sheet.row>
                                 @endif
                                 @if ($isContainer && ! ($workers['enabled'] ?? false))
-                                    <x-sheet.row wire:click="addWorkers" wire:island="resources-workers" x-on:click="$dispatch('close-modal', 'resources-connection')" :title="__('Queue workers')"><x-slot:icon><x-resource-kind-icon kind="queue" /></x-slot:icon></x-sheet.row>
+                                    <x-sheet.row wire:click="openWorkerSetup" wire:island="resources-worker-setup" x-on:click="$dispatch('close-modal', 'resources-connection'); $dispatch('open-modal', 'resources-worker-setup')" :title="__('Queue workers')" :hint="__('Run jobs in the background. Choose queues and when they run.')"><x-slot:icon><x-resource-kind-icon kind="queue" /></x-slot:icon></x-sheet.row>
                                 @endif
                             @endif
                             @if ($groupKey === 'data' && ! $databaseVisible)

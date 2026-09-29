@@ -98,7 +98,9 @@ When a deploy's health check or logs show the process was killed for memory, dpl
 
 ## Instances
 
-**Instances** on the **App** card is the most instances that run at once (1 to 20; the card offers 1, 2, 3, 4, 5, 8, 10 and 20). The first start runs only this many. A gradual deploy can briefly run one extra, so the new version starts before the old one stops.
+**Max instances** on the **App** card is the most instances that run at once (1 to 20; the card offers 1, 2, 3, 4, 5, 8, 10 and 20). The first start runs only this many. A gradual deploy can briefly run one extra, so the new version starts before the old one stops.
+
+**Min instances (always awake)**, right under it, is how many never sleep (0 to the maximum). `0` lets every instance sleep when idle.
 
 Requests are spread across instances as they fill up, and a cookie keeps a visitor on the same instance. See [Scaling & sleep](/docs/scaling-and-sleep) for how many requests an instance takes, minimum instances, scaling windows and sleep.
 
@@ -174,7 +176,7 @@ What your app, its queue workers and the routing Worker printed in the last 15 m
 
 ## How compute is billed
 
-Container compute is metered per second: vCPU while it works, memory and disk while an instance runs. Traffic your app sends to visitors bills once, as bandwidth, like any site. Usage is collected hourly and appears as **Apps and workers (compute)** on the billing page, for web instances, queue workers and preview containers alike. It bills at the rates above, less your plan's included usage credit. See [Plans & pricing](/docs/pricing).
+Container compute is metered per second: vCPU while it works, memory and disk while an instance runs. Traffic your app sends to visitors bills once, as bandwidth, like any site. Traffic your app sends out on its own (calls to outside APIs, S3, webhooks) bills as **App outbound traffic** at the rate above. Log lines your app writes, plus one per request, bill as Workers **Log events**. Usage is collected hourly and appears as **Apps and workers (compute)** on the billing page, for web instances, queue workers and preview containers alike. It bills at the rates above, less your plan's included usage credit. See [Plans & pricing](/docs/pricing).
 
 The **App** card's **Cost estimate** shows the running rate per second, minute, hour and day (every vCPU busy) for your size and instance count, the always-on month at typical CPU, the monthly cap, and what a given number of **Hours awake each day** costs.
 

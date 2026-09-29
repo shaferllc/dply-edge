@@ -16,8 +16,10 @@ dply has two ways to resize and reformat images. They are separate features:
 ### Turn it on
 
 1. Open your app. On **Overview**, choose **Add resource**, then **Images**.
-2. There is nothing to name or create. The resource is added right away: "Connected. It applies on the next deploy."
+2. There is nothing to name or create. The resource is added right away and its sheet opens, with the address, the two calls, and code you can copy.
 3. Redeploy the app.
+
+An app has at most one Images resource, so **Images** no longer shows under **Add resource** once it is added. Select the **Images** box on **Overview** to open its sheet again.
 
 During the trial, **Images** is greyed out with "Needs a paid plan. Not included in the trial."
 
@@ -34,7 +36,7 @@ An image can be up to 20 MB.
 
 ### Container apps
 
-POST the image bytes to the app's private Images host. Choose **Settings** on the Images card to see the exact host, and copy it from there. Reload the **Overview** page once after adding Images before you copy it: a new Images resource starts with a short host, `images.internal`, which changes to `dply.{app}.images.internal` the next time the page loads.
+POST the image bytes to the app's private Images host. Select the **Images** box on **Overview** to see the exact host, and choose **Copy** next to it.
 
 - `POST http://{host}/info` returns the image's format, width, height, and file size as JSON.
 - `POST http://{host}/?width=800&format=webp` returns the new image.
@@ -64,7 +66,11 @@ const res = await fetch(`${host}/?width=800&format=webp&quality=80`, { method: '
 await writeFile('photo.webp', Buffer.from(await res.arrayBuffer()));
 ```
 
-The **Try it** tab in the sheet builds the resize URL and a `curl` command from the options you pick. Only the app can reach the host, so the dashboard cannot run it for you.
+### Try it on your app
+
+**Build a call** in the sheet turns the options you pick into code. Choose **Resize** or **Details**, then **curl**, **Laravel** or **Rails** (Laravel and Rails show when dply detects that framework), and **Copy**.
+
+**Run it on the app** sends a sample picture through your live app's Images resource with those options. For **Resize** it shows the original and the returned picture side by side, with the round-trip time, both sizes and how much smaller it got. For **Details** it shows the JSON your app would get. The demo runs on container apps and needs a deploy made after Images was added. On an older deploy it says so. You need permission to edit the app. Each run is one transformation and is billed like any other.
 
 ### Worker apps (SSR and hybrid)
 
@@ -99,7 +105,7 @@ Usage is collected daily and billed to your organization. This bills at the invo
 
 ### Remove it
 
-Choose **Remove from this app** under **Turn off** in the sheet, or **Delete** on the card, then **Remove**. The app loses Images on the next deploy. There is nothing stored to lose.
+Open the **Images** box on **Overview** and choose **Remove from this app** under **Turn off**, then **Remove**. The app loses Images on the next deploy. There is nothing stored to lose.
 
 ## Image optimization (Delivery)
 

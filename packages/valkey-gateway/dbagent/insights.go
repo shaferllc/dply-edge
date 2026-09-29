@@ -51,6 +51,8 @@ func liveInsights(in insighter) (map[string]any, error) {
 		return nil, err
 	}
 	out["disk_bytes"], out["disk_used_bytes"] = diskUsage("/data")
+	// Only while awake: asleep, the pod's numbers are the parked shell's.
+	out["memory_bytes"], out["memory_anon_bytes"], out["memory_file_bytes"], out["memory_peak_bytes"] = memoryUsage()
 	out["taken_at"] = time.Now().UTC().Format(time.RFC3339)
 	out["awake"] = true
 	if b, err := json.Marshal(out); err == nil {

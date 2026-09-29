@@ -364,10 +364,10 @@ domains:
                     >{{ __('Remove') }}</button>
                     <div class="flex gap-2">
                         @if ($isReady && $primaryDomain !== $openDomain)
-                            <x-sheet.button type="button" wire:click="makeEdgeDomainPrimary(@js($openDomain))">{{ __('Make primary') }}</x-sheet.button>
+                            <x-sheet.button type="button" wire:click="makeEdgeDomainPrimary({{ \Illuminate\Support\Js::from($openDomain) }})">{{ __('Make primary') }}</x-sheet.button>
                         @endif
                         @unless ($isReady)
-                            <x-sheet.button type="button" variant="primary" wire:click="verifyEdgeDomain(@js($openDomain))" wire:loading.attr="disabled" wire:target="verifyEdgeDomain">
+                            <x-sheet.button type="button" variant="primary" wire:click="verifyEdgeDomain({{ \Illuminate\Support\Js::from($openDomain) }})" wire:loading.attr="disabled" wire:target="verifyEdgeDomain">
                                 <span wire:loading.remove wire:target="verifyEdgeDomain">{{ __('Check DNS now') }}</span>
                                 <span wire:loading wire:target="verifyEdgeDomain">{{ __('Checking…') }}</span>
                             </x-sheet.button>

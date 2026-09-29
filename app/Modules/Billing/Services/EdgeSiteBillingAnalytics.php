@@ -152,7 +152,7 @@ final class EdgeSiteBillingAnalytics
         $lines = [];
 
         $c = EdgeContainerUsage::query()->where('site_id', $site->id)->whereBetween('date', $dates)
-            ->selectRaw('COALESCE(SUM(cpu_seconds), 0) AS cpu, COALESCE(SUM(memory_gib_seconds), 0) AS memory, COALESCE(SUM(disk_gb_seconds), 0) AS disk')
+            ->selectRaw('COALESCE(SUM(cpu_seconds), 0) AS cpu, COALESCE(SUM(memory_gib_seconds), 0) AS memory, COALESCE(SUM(disk_gb_seconds), 0) AS disk, '.EdgeContainerComputeCost::OUTBOUND_SQL.' AS outbound')
             ->toBase()->first();
         if ((float) ($c->memory ?? 0) > 0 || (float) ($c->cpu ?? 0) > 0) {
             $lines[] = [
@@ -164,6 +164,16 @@ final class EdgeSiteBillingAnalytics
                     'disk' => number_format((float) $c->disk / 3600, 1),
                 ]),
                 'cents' => $this->computeCost->siteCents($site, (float) $c->cpu, (float) $c->memory, (float) $c->disk),
+            ];
+        }
+
+        $outbound = (int) ($c->outbound ?? 0);
+        if ($outbound > 0) {
+            $lines[] = [
+                'key' => 'container_egress',
+                'label' => __('App outbound traffic'),
+                'detail' => __(':gb GB the app sent out (not replies to visitors)', ['gb' => number_format($outbound / 1024 ** 3, 2)]),
+                'cents' => (int) round($this->computeCost->outboundMillicents($outbound) / 1000),
             ];
         }
 

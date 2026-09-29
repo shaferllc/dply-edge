@@ -97,7 +97,7 @@ return [
                 'concurrent_builds' => 1, 'build_timeout_minutes' => 20, 'custom_domains' => 3,
                 'databases' => 2, 'queues' => 2, 'queue_concurrency' => 5, 'queue_batch_wait_seconds' => 2,
                 // Container apps: one instance per app; queue workers: one, no autoscaling.
-                'app_instances' => 1, 'worker_instances' => 1, 'worker_autoscale' => false, 'worker_groups' => 0,
+                'app_instances' => 1, 'worker_instances' => 1, 'worker_autoscale' => true, 'worker_groups' => 0, // one worker that can start when jobs arrive (0→1)
                 'realtime_max_connections' => 200,
             ],
             'pro' => [

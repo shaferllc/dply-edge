@@ -1,0 +1,139 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Feature\EdgeContainerCandidateTest;
+
+use App\Models\EdgeDeployment;
+use App\Models\Organization;
+use App\Models\Server;
+use App\Models\Site;
+use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Process;
+use Illuminate\Support\Sleep;
+use RuntimeException;
+
+uses(RefreshDatabase::class);
+
+beforeEach(function () {
+    config([
+        'edge.fake.enabled' => true, 'edge.fake.allowed_environments' => ['testing'], // host map in the cache
+        'edge.cloudflare.account_id' => 'acct', 'edge.cloudflare.api_token' => 'tok',
+    ]);
+    Sleep::fake();
+    Process::fake();
+    $org = Organization::factory()->create();
+    $this->site = Site::factory()->create([
+        'organization_id' => $org->id,
+        'server_id' => Server::factory()->create(['organization_id' => $org->id])->id,
+        'edge_backend' => 'dply_edge',
+        'meta' => ['edge' => ['runtime_mode' => 'container', 'build' => ['framework' => 'laravel'], 'routing' => ['hostname' => 'shop-ab12cd.on-dply.live'], 'live_url' => 'https://shop-ab12cd.on-dply.live']],
+    ]);
+    EdgeDeployment::query()->create(['site_id' => $this->site->id, 'organization_id' => $org->id, 'status' => EdgeDeployment::STATUS_LIVE]);
+    $this->deployment = EdgeDeployment::query()->create(['site_id' => $this->site->id, 'organization_id' => $org->id, 'status' => EdgeDeployment::STATUS_BUILDING]);
+    $this->script = EdgeContainerDeployer::candidateScript($this->site);
+
+    // The real project the candidate copies.
+    $this->work = sys_get_temp_dir().'/dply-candidate-'.bin2hex(random_bytes(4));
+    File::ensureDirectoryExists($this->work.'/container-worker/src');
+    File::put($this->work.'/container-worker/wrangler.jsonc', json_encode([
+        'name' => EdgeContainerDeployer::scriptName($this->site),
+        'containers' => [['class_name' => 'App', 'max_instances' => 3]],
+        'queues' => ['producers' => [['binding' => 'JOBS', 'queue' => 'jobs']], 'consumers' => [['queue' => 'jobs']]],
+        'triggers' => ['crons' => ['* * * * *']],
+    ]));
+    File::put($this->work.'/container-worker/package.json', json_encode(['name' => EdgeContainerDeployer::scriptName($this->site)]));
+    File::put($this->work.'/container-worker/secrets.json', '{}');
+});
+
+afterEach(fn () => File::deleteDirectory($this->work));
+
+/** Cloudflare says the candidate's container is up; the candidate answers $status. */
+function fakeCloudflare(string $script, int $status, array $release = ['exit' => 0, 'output' => '  2026_09_29_000000_create_cache_table ....... DONE']): void
+{
+    Http::fake(function (Request $r) use ($script, $status, $release) {
+        return match (true) {
+            str_ends_with($r->url(), '/containers/applications') && $r->method() === 'GET' => Http::response(['success' => true, 'result' => [['id' => 'cand-app', 'name' => $script.'-app']]]),
+            str_ends_with($r->url(), '/containers/applications/cand-app') && $r->method() === 'GET' => Http::response(['success' => true, 'result' => ['version' => 1, 'health' => ['instances' => ['healthy' => 1, 'starting' => 0, 'failed' => 0]]]]),
+            str_contains($r->url(), '/containers/applications/cand-app/rollouts') => Http::response(['success' => true, 'result' => [['status' => 'completed', 'progress' => ['percentage' => 100]]]]),
+            str_ends_with($r->url(), '/_dply/command') => Http::response($release, ($release['exit'] ?? 0) === 0 ? 200 : 500),
+            str_ends_with($r->url(), '/_dply/schedule') => Http::response(['output' => '[2026-09-29] production.ERROR: SQLSTATE[42P01]: relation "cache" does not exist']),
+            str_starts_with($r->url(), 'https://shop-ab12cd--next.on-dply.live') => Http::response($status >= 500 ? '<title>500 — Server Error</title>' : 'ok', $status),
+            $r->method() === 'DELETE' => Http::response(['success' => true, 'result' => null]),
+            default => Http::response(['success' => true, 'result' => []]),
+        };
+    });
+}
+
+function runCandidate(object $test): array
+{
+    $lines = [];
+    $logger = function (string $line) use (&$lines): void {
+        $lines[] = $line;
+    };
+    $site = $test->site;
+    $deployment = $test->deployment;
+    $work = $test->work;
+    (function () use ($site, $deployment, $work, $logger): void {
+        $this->deployCandidate($site, $deployment, $work.'/container-worker', $work, 'ns', $logger, 60, true);
+    })->call(new EdgeContainerDeployer);
+
+    return $lines;
+}
+
+test('the candidate is its own script, without production’s queue consumer or cron trigger', function () {
+    File::copyDirectory($this->work.'/container-worker', $this->work.'/copy');
+    EdgeContainerDeployer::asCandidate($this->work.'/copy', $this->script);
+    $config = json_decode(File::get($this->work.'/copy/wrangler.jsonc'), true);
+
+    expect($config['name'])->toBe($this->script)
+        ->and($config)->not->toHaveKey('triggers')
+        ->and($config['queues'])->toBe(['producers' => [['binding' => 'JOBS', 'queue' => 'jobs']]])
+        ->and($config['containers'][0]['max_instances'])->toBe(1)
+        ->and(EdgeContainerDeployer::candidateHost($this->site))->toBe('shop-ab12cd--next.on-dply.live')
+        ->and(EdgeContainerDeployer::checksCandidate($this->site))->toBeTrue();
+});
+
+test('a healthy candidate migrates, passes, and is removed before production switches', function () {
+    fakeCloudflare($this->script, 200);
+
+    $log = implode('', runCandidate($this));
+
+    expect($log)->toContain('Checking the new version on its own')
+        ->toContain('Running migrations')
+        ->toContain('create_cache_table')
+        ->toContain('The new version works. Switching production to it.');
+    Process::assertRan(fn ($process) => in_array($this->work.'/container-next', (array) $process->command, true));
+    Http::assertSent(fn (Request $r) => $r->url() === 'https://shop-ab12cd--next.on-dply.live/_dply/command' && $r['command'] === 'release');
+    Http::assertSent(fn (Request $r) => $r->method() === 'DELETE' && str_contains($r->url(), '/scripts/'.$this->script));
+    Http::assertSent(fn (Request $r) => $r->method() === 'DELETE' && str_ends_with($r->url(), '/containers/applications/cand-app'));
+    expect(Cache::get('edge:fake:host-map', []))->not->toHaveKey('shop-ab12cd--next.on-dply.live')
+        ->and(File::exists($this->work.'/container-next'))->toBeFalse();
+});
+
+test('a candidate that answers 500 stops the deploy with its error, and production is never touched', function () {
+    fakeCloudflare($this->script, 500);
+
+    $lines = [];
+    expect(function () use (&$lines) {
+        $lines = runCandidate($this);
+    })->toThrow(RuntimeException::class, 'Production still runs the previous version.');
+
+    Http::assertSent(fn (Request $r) => $r->url() === 'https://shop-ab12cd--next.on-dply.live/_dply/schedule');
+    Http::assertNotSent(fn (Request $r) => str_starts_with($r->url(), 'https://shop-ab12cd.on-dply.live'));
+    Http::assertSent(fn (Request $r) => $r->method() === 'DELETE' && str_contains($r->url(), '/scripts/'.$this->script));
+});
+
+test('failed migrations stop the deploy before the check', function () {
+    fakeCloudflare($this->script, 200, ['exit' => 1, 'error' => 'SQLSTATE[42P07]: Duplicate table: relation "users" already exists']);
+
+    expect(fn () => runCandidate($this))->toThrow(RuntimeException::class, 'migrations failed: SQLSTATE[42P07]');
+    // The root was asked once, by the address wait: no health check after the failure. The copy was still removed.
+    expect(collect(Http::recorded())->filter(fn ($pair) => $pair[0]->url() === 'https://shop-ab12cd--next.on-dply.live')->count())->toBe(1);
+    Http::assertSent(fn (Request $r) => $r->method() === 'DELETE' && str_contains($r->url(), '/scripts/'.$this->script));
+});

@@ -302,9 +302,4 @@ class Environment extends Component
             ],
         ));
     }
-
-    protected function currentEdgeSection(): ?string
-    {
-        return 'environment';
-    }
 }

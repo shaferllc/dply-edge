@@ -29,6 +29,9 @@ use Throwable;
  * browserRendering* datasets have no script dimension, so they are metered
  * per call by dply's proxy instead (EdgeMeter). Vectorize queries are too;
  * what an org's indexes store is read here (vectorize:{index} rows).
+ * Workers Logs events come from the telemetry query API per service; a
+ * container's stdout is logged under its application id, so those rows are
+ * folded into the app's dply-ctr-{site} resource.
  *
  * Each dataset is its own query. A failed one is logged and reported, and
  * leaves its columns as they were; it never zeroes what an earlier run found.
@@ -68,6 +71,7 @@ final class EdgePlatformUsageCollector
             'r2' => fn () => $this->r2($client, $vars),
             'images' => fn () => $this->images($client, $vars),
             'vectorize' => fn () => $this->vectorize($client, $day),
+            'logs' => fn () => $this->logs($client, $day),
         ];
         foreach ($datasets as $dataset => $read) {
             try {
@@ -127,6 +131,29 @@ final class EdgePlatformUsageCollector
                 continue;
             }
             $out[$script]['cpu_ms'] = ($out[$script]['cpu_ms'] ?? 0) + (int) round((float) data_get($group, 'sum.cpuTimeUs', 0) / 1000);
+        }
+
+        return $out;
+    }
+
+    /**
+     * @return array<string, array{log_events: int}>
+     */
+    private function logs(EdgeCloudflareClient $client, CarbonInterface $day): array
+    {
+        $counts = $client->logEventCounts($day, $day->copy()->addDay());
+        $scriptByApp = [];
+        foreach ($client->listContainerApplications() as $app) {
+            // Same naming as EdgeContainerUsageCollector: dply-ctr-<site>[-group].
+            if (preg_match('/^dply-ctr-([0-9a-z]{26})/', strtolower($app['name']), $m) === 1) {
+                $scriptByApp[$app['id']] = 'dply-ctr-'.$m[1];
+            }
+        }
+
+        $out = [];
+        foreach ($counts as $service => $events) {
+            $script = $scriptByApp[$service] ?? (string) $service;
+            $out[$script]['log_events'] = ($out[$script]['log_events'] ?? 0) + $events;
         }
 
         return $out;

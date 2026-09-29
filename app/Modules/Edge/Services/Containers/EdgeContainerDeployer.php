@@ -9,9 +9,11 @@ use App\Models\Site;
 use App\Modules\Billing\Services\StarterTrafficGate;
 use App\Modules\Edge\Services\EdgeBuildRunner;
 use App\Modules\Edge\Services\EdgeDeliveryContextResolver;
+use App\Modules\Edge\Services\EdgeHostMapPublisher;
 use App\Modules\Edge\Services\EdgeQueueConsumers;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeContainerSettings;
+use App\Modules\Edge\Support\EdgeCronExpression;
 use App\Modules\Edge\Support\EdgeEffectiveBindings;
 use App\Modules\Edge\Support\EdgeEffectiveCrons;
 use App\Modules\Edge\Support\EdgeLogCopy;
@@ -23,6 +25,7 @@ use Illuminate\Process\PendingProcess;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Process;
+use Illuminate\Support\Sleep;
 use RuntimeException;
 use Throwable;
 
@@ -60,6 +63,9 @@ class EdgeContainerDeployer
     public const QUEUE_SEND_PATH = '/_dply/queue/send';
 
     public const SCHEDULE_PATH = '/_dply/schedule';
+
+    /** Analytics Engine dataset of container reply bytes (countReply in the Worker). */
+    public const REPLY_BYTES_DATASET = 'dply_container_bytes';
 
     public static function scriptName(Site $site): string
     {
@@ -323,7 +329,7 @@ class EdgeContainerDeployer
      *
      * @return list<array{at: ?string, level: string, message: string, service: string, source: string, worker: ?string}>
      */
-    public static function appLogLines(Site $site, int $minutes = 15): array
+    public static function appLogLines(Site $site, int $minutes = 15, ?string $contains = null): array
     {
         $client = EdgeCloudflareClient::fromConfig();
         $script = self::scriptName($site);
@@ -332,7 +338,7 @@ class EdgeContainerDeployer
             $worker = preg_match('/^\[dply-worker ([^\]]+)\]/', $line['message'], $m) === 1 ? $m[1] : null;
 
             return $line + ['source' => $line['service'] === $script ? 'routing' : ($worker !== null ? 'workers' : 'app'), 'worker' => $worker];
-        }, array_reverse($client->workerLogs(self::logServices($site, $client), $minutes)));
+        }, array_reverse($client->workerLogs(self::logServices($site, $client), $minutes, contains: $contains !== null && $contains !== '' ? $contains : null)));
     }
 
     /**
@@ -474,6 +480,15 @@ class EdgeContainerDeployer
         self::ensureBuilderNetwork();
 
         $namespace = (string) config('edge.cloudflare.dispatch_namespace_name');
+        // Migrations run in a release step (dply's own SQLite migrates on boot).
+        $release = ! $platformSqlite && ($site->isLaravelFrameworkDetected() || $site->isRailsFrameworkDetected());
+        // Production already serves a version: prove the new one works on
+        // its own before it takes that traffic. The real deploy below then
+        // reuses the image layers this one pushed.
+        $candidate = self::checksCandidate($site);
+        if ($candidate) {
+            $this->deployCandidate($site, $deployment, $project, $workRoot, $namespace, $log, $timeoutSeconds, $release);
+        }
         // wrangler goes quiet after the layer push while Cloudflare ingests the
         // image and rolls out the container — minutes, with no output at all.
         // Say so, or every deploy reads as a hang at exactly this point.
@@ -503,13 +518,21 @@ class EdgeContainerDeployer
         if (! is_string($url) || $url === '') {
             throw new RuntimeException('Container deploy failed: the app has no live URL to check.');
         }
+        if ($release && ! $candidate) {
+            $this->awaitHost($url, $log);
+            $this->runRelease($site, $url, $log);
+        }
         $log("Checking {$url} answers.\n");
+        $checkedAt = time();
         try {
             $response = Http::timeout(90)->withoutRedirecting()->get($url);
         } catch (Throwable $e) {
             throw new RuntimeException("Container deploy failed: {$url} did not answer: ".$e->getMessage(), previous: $e);
         }
         $log(sprintf("App answered HTTP %d.\n", $response->status()));
+        if ($response->serverError()) {
+            $this->logAppErrors($site, $checkedAt, $log);
+        }
         $unhealthy = self::unhealthyReason($url, $response->status(), $response->body());
         if ($unhealthy !== null) {
             throw new RuntimeException('Container deploy failed: '.$unhealthy);
@@ -538,6 +561,245 @@ class EdgeContainerDeployer
             'rollout' => $rollout,
             'fingerprint' => $fingerprint,
         ];
+    }
+
+    /** The pre-switch copy's Worker script: its own name, so production is untouched. */
+    public static function candidateScript(Site $site): string
+    {
+        return self::scriptName($site).'-next';
+    }
+
+    /** Where the pre-switch copy answers: the app's hostname with "--next" on its first label. */
+    public static function candidateHost(Site $site): string
+    {
+        [$label, $rest] = array_pad(explode('.', (string) $site->edgeHostname(), 2), 2, '');
+
+        return $label.'--next'.($rest !== '' ? '.'.$rest : '');
+    }
+
+    /**
+     * Check a copy first when production already serves this app: a failed
+     * check must not reach visitors. Previews have no production to protect.
+     */
+    public static function checksCandidate(Site $site): bool
+    {
+        return ! $site->isEdgePreview() && (string) $site->edgeHostname() !== ''
+            && EdgeDeployment::query()->where('site_id', $site->id)->where('status', EdgeDeployment::STATUS_LIVE)->exists();
+    }
+
+    /**
+     * The same Worker project, as the pre-switch copy: its own script name,
+     * one instance, and none of production's queue consumers (a queue has
+     * one) or its Cron Trigger (every task would run twice).
+     */
+    public static function asCandidate(string $dir, string $script): void
+    {
+        $config = json_decode((string) File::get($dir.'/wrangler.jsonc'), true, flags: JSON_THROW_ON_ERROR);
+        $config['name'] = $script;
+        unset($config['triggers'], $config['queues']['consumers']);
+        if (($config['queues'] ?? null) === []) {
+            unset($config['queues']);
+        }
+        if (isset($config['containers'][0])) {
+            $config['containers'][0]['max_instances'] = 1;
+        }
+        File::put($dir.'/wrangler.jsonc', json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+        $package = json_decode((string) File::get($dir.'/package.json'), true, flags: JSON_THROW_ON_ERROR);
+        $package['name'] = $script;
+        File::put($dir.'/package.json', json_encode($package, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
+     * Deploy the new version beside production on candidateHost(), run its
+     * migrations, and check it answers. Any failure throws before production
+     * is touched. The copy is removed whatever happens.
+     *
+     * @param  callable(string): void  $log
+     */
+    private function deployCandidate(Site $site, EdgeDeployment $deployment, string $project, string $workRoot, string $namespace, callable $log, ?int $timeoutSeconds, bool $release): void
+    {
+        $script = self::candidateScript($site);
+        $host = self::candidateHost($site);
+        $url = 'https://'.$host;
+        $dir = $workRoot.'/container-next';
+        File::deleteDirectory($dir);
+        File::copyDirectory($project, $dir);
+        self::asCandidate($dir, $script);
+        $log("Checking the new version on its own before it takes traffic.\n");
+        try {
+            // Routed first: KV reaches every location while the image builds.
+            app(EdgeHostMapPublisher::class)->publishScript($site, $deployment, $host, $script);
+            $result = $this->runWithHeartbeat($log, Process::timeout($timeoutSeconds ?? 1800), self::deployerCommand(
+                self::buildContainerName($deployment).'-next', $workRoot, $dir, $namespace, 'immediate',
+            ));
+            if (! $result->successful()) {
+                throw new RuntimeException('Container deploy failed: '.self::failureReason($result->errorOutput(), $result->output()));
+            }
+            $rollout = app(EdgeContainerRollout::class)->await($site, $log, application: $script.'-app');
+            if ($rollout['settled'] && ! $rollout['ok']) {
+                throw new RuntimeException('Container deploy failed: '.(string) $rollout['reason'].'. Production still runs the previous version.');
+            }
+            $this->awaitHost($url, $log);
+            if ($release) {
+                $this->runRelease($site, $url, $log);
+            }
+            $log("Checking the new version answers at {$url}.\n");
+            $checkedAt = time();
+            try {
+                $response = Http::timeout(90)->withoutRedirecting()->get($url);
+            } catch (Throwable $e) {
+                throw new RuntimeException("Container deploy failed: the new version did not answer: {$e->getMessage()}. Production still runs the previous version.", previous: $e);
+            }
+            $log(sprintf("The new version answered HTTP %d.\n", $response->status()));
+            if ($response->serverError()) {
+                $this->logAppErrors($site, $checkedAt, $log, url: $url);
+            }
+            $unhealthy = self::unhealthyReason($url, $response->status(), $response->body());
+            if ($unhealthy !== null) {
+                throw new RuntimeException('Container deploy failed: '.$unhealthy.' Production still runs the previous version.');
+            }
+            $log("The new version works. Switching production to it.\n");
+        } finally {
+            File::deleteDirectory($dir); // holds a copy of secrets.json
+            $this->removeCandidate($site, $script, $host, $namespace, $log);
+        }
+    }
+
+    /** The router may not know a new hostname for up to a minute (KV): wait until it does. */
+    private function awaitHost(string $url, callable $log, int $wait = 90): void
+    {
+        $deadline = time() + $wait;
+        do {
+            try {
+                $response = Http::timeout(60)->withoutRedirecting()->get($url);
+                if (! ($response->status() === 404 && str_contains($response->body(), 'Host not configured'))) {
+                    return;
+                }
+            } catch (Throwable) {
+                // Not answering yet; the check after this says so if it stays that way.
+            }
+            $log("Waiting for the new address to reach every location…\n");
+            Sleep::for(5)->seconds();
+        } while (time() < $deadline);
+    }
+
+    /**
+     * The release step: run the app's migrations once, in the new version,
+     * before it takes traffic (dply/laravel and dply-rails "release"). A
+     * failure stops the deploy.
+     *
+     * @param  callable(string): void  $log
+     */
+    private function runRelease(Site $site, string $url, callable $log): void
+    {
+        $log($site->isRailsFrameworkDetected() ? "Running migrations (rails db:migrate)…\n" : "Running migrations (php artisan migrate --force)…\n");
+        try {
+            $response = Http::timeout(900)->withHeaders(['x-dply-queue-token' => self::queueToken($site)])
+                ->post(rtrim($url, '/').'/_dply/command', ['command' => 'release']);
+        } catch (Throwable $e) {
+            throw new RuntimeException('Container deploy failed: migrations did not finish: '.$e->getMessage(), previous: $e);
+        }
+        if (in_array($response->status(), [404, 422], true)) {
+            $log("This app's dply package can't run migrations from a deploy yet, so they were skipped. Update dply/laravel or dply-rails.\n");
+
+            return;
+        }
+        $body = $response->json();
+        $output = trim((string) (is_array($body) ? ($body['output'] ?? $body['error'] ?? '') : $response->body()));
+        foreach (array_slice(preg_split('/\R/', $output) ?: [], -20) as $line) {
+            if (trim($line) !== '') {
+                $log('  '.mb_substr(rtrim($line), 0, 400)."\n");
+            }
+        }
+        if (! $response->successful()) {
+            throw new RuntimeException('Container deploy failed: migrations failed'.($output !== '' ? ': '.mb_substr(strtok($output, "\n") ?: $output, 0, 300) : '.'));
+        }
+    }
+
+    /** Take the pre-switch copy down: its hostname, Worker script and container. Best effort. */
+    private function removeCandidate(Site $site, string $script, string $host, string $namespace, callable $log): void
+    {
+        try {
+            app(EdgeHostMapPublisher::class)->unpublishHostname($site, $host);
+            $client = EdgeCloudflareClient::fromConfig();
+            $client->deleteDispatchScript($namespace, $script);
+            foreach ($client->listContainerApplications() as $application) {
+                if ($application['id'] !== '' && str_starts_with($application['name'], $script)) {
+                    $client->deleteContainerApplication($application['id']);
+                }
+            }
+        } catch (Throwable $e) {
+            // Left over, it only costs while awake and the next deploy replaces it; teardown removes it with the app.
+            $log('Could not remove the checked copy: '.$e->getMessage()."\n");
+        }
+    }
+
+    /** A log line that says what broke (Laravel, PHP, the database, nginx). */
+    private const APP_ERROR = '/\b(ERROR|CRITICAL|EMERGENCY|Exception|Fatal error|PHP (Fatal|Parse|Warning)|SQLSTATE|Traceback|panic:|No application encryption key|\[error\])\b/i';
+
+    /**
+     * The app answered 5xx: say why. First ask the app itself for the tail of
+     * its PHP-FPM and nginx logs (dply/laravel runs a shell command through
+     * /_dply/schedule), which is instant. Otherwise wait for Workers Logs,
+     * which arrive up to a minute late, saying so as it waits. Never fails
+     * the deploy: a 500 from the app's code is the app's answer.
+     *
+     * @param  callable(string): void  $log
+     */
+    private function logAppErrors(Site $site, int $since, callable $log, int $wait = 75, ?string $url = null): void
+    {
+        $log("Reading the app's logs for the error…\n");
+        $print = static function (array $messages) use ($log): void {
+            $log("The app logged:\n");
+            foreach (array_slice($messages, -8) as $message) {
+                $log('  '.mb_substr(trim($message), 0, 600)."\n");
+            }
+        };
+
+        try {
+            $url = rtrim($url ?? (string) $site->edgeLiveUrl(), '/');
+            $body = Http::timeout(30)->withHeaders(['x-dply-queue-token' => self::queueToken($site)])
+                ->post($url.self::SCHEDULE_PATH, ['handler' => 'tail -q -n 300 /tmp/php-fpm.log /tmp/nginx-error.log 2>/dev/null'])->json();
+            $direct = array_values(array_filter(
+                preg_split('/\R/', (string) ($body['output'] ?? '')) ?: [],
+                // Not stack frames (#0 …) or tail's file headers (==> x <==).
+                static fn (string $line): bool => preg_match(self::APP_ERROR, $line) === 1 && ! str_starts_with(ltrim($line), '#') && ! str_starts_with(ltrim($line), '==>'),
+            ));
+            if ($direct !== []) {
+                $print(array_values(array_unique($direct)));
+
+                return;
+            }
+        } catch (Throwable) {
+            // An app without the newer dply/laravel: fall back to Workers Logs.
+        }
+
+        $deadline = time() + $wait;
+        $started = time();
+        do {
+            try {
+                $errors = array_values(array_filter(
+                    self::appLogLines($site, 5),
+                    static fn (array $line): bool => ($line['source'] ?? '') !== 'routing'
+                        && strtotime((string) ($line['at'] ?? '')) >= $since - 5
+                        && preg_match(self::APP_ERROR, (string) ($line['message'] ?? '')) === 1,
+                ));
+            } catch (Throwable) {
+                $errors = [];
+            }
+            if ($errors !== []) {
+                $print(array_column($errors, 'message'));
+
+                return;
+            }
+            if (time() < $deadline) {
+                Sleep::for(10)->seconds();
+                if ((time() - $started) % 20 < 10) {
+                    $log(sprintf("Still waiting for the app's logs (%ds)…\n", time() - $started));
+                }
+            }
+        } while (time() < $deadline);
+        $log("No error reached the app's logs in time. Open Build & deploy logs → What your app is printing.\n");
     }
 
     /**
@@ -603,7 +865,10 @@ class EdgeContainerDeployer
         if ($status < 500) {
             return null;
         }
-        $detail = trim(mb_substr(strip_tags($body), 0, 300));
+        // A page's title, else its text: never the CSS or script inside it.
+        $title = preg_match('#<title[^>]*>(.*?)</title>#is', $body, $t) === 1 ? trim(html_entity_decode(strip_tags($t[1]))) : '';
+        $text = trim((string) preg_replace('/\s+/', ' ', strip_tags((string) preg_replace('#<(style|script)\b[^>]*>.*?</\1>#is', ' ', $body))));
+        $detail = mb_substr($title !== '' ? $title : $text, 0, 200);
 
         return preg_match('/not running|Failed to start container|Container crashed|suddenly disconnected|port \d+ is available/i', $body) === 1
             ? "the container did not start ({$url} answered HTTP {$status}: {$detail}). Check the container logs for why it exited."
@@ -734,6 +999,9 @@ class EdgeContainerDeployer
             // Workers Logs: Worker + container stdout/stderr, read back by the
             // Build & deploy logs through the telemetry query API.
             'observability' => ['enabled' => true],
+            // Reply bytes per site (countReply): outbound billing is container
+            // tx_bytes minus these (EdgeContainerComputeCost).
+            'analytics_engine_datasets' => [['binding' => 'DPLY_BYTES', 'dataset' => self::REPLY_BYTES_DATASET]],
         ];
         if ($queues !== []) {
             $config['queues'] = [
@@ -760,7 +1028,8 @@ class EdgeContainerDeployer
         }
 
         if ($crons !== []) {
-            $config['triggers'] = ['crons' => array_keys($crons)];
+            // One trigger for every task: scheduled() works out which are due.
+            $config['triggers'] = ['crons' => ['* * * * *']];
         }
 
         if ($kvNamespaceId !== '') {
@@ -822,6 +1091,7 @@ class EdgeContainerDeployer
             '__SCHEDULE_PATH__' => json_encode(self::SCHEDULE_PATH, JSON_UNESCAPED_SLASHES),
             // New per deploy: a schedule plan from older code is not trusted.
             '__BUILD_ID__' => json_encode(bin2hex(random_bytes(6))),
+            '__SITE_ID__' => json_encode(strtolower((string) $site->id)),
             '__CRON_HANDLERS__' => json_encode((object) $crons, JSON_UNESCAPED_SLASHES),
             '__PAUSE_KEY__' => json_encode(StarterTrafficGate::KEY_PREFIX.$site->id),
             '__CONNECTIONS__' => json_encode($this->workerConnections($site), JSON_UNESCAPED_SLASHES),
@@ -886,36 +1156,45 @@ const CONNECTIONS = __CONNECTIONS__;
 __DPLY_METER__
 
 const BUILD_ID = __BUILD_ID__;
+const SITE_ID = __SITE_ID__;
 
-// Whether a 5-field cron expression is due at `date` in time zone `tz`.
-// Anything it does not understand counts as due: waking early is safe,
-// skipping a task is not.
-function cronDue(expr, tz, date) {
+// Whether a 5-field cron expression is due at `date` in time zone `tz`:
+// numbers, *, ranges, lists, steps, and JAN-DEC / SUN-SAT names (the grammar
+// EdgeCronExpression checks in PHP). What it cannot read: lenient (the Laravel
+// scheduler's wake plan) counts it as due, since waking early is safe; strict
+// (scheduled tasks, one each minute) never runs it, and dply marks it Won't run.
+const CRON_NAMES = [null, null, null, ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'], ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']];
+function cronDue(expr, tz, date, strict = false) {
   try {
-    const f = String(expr).trim().split(/\s+/);
-    if (f.length !== 5) return true;
+    const f = String(expr).trim().toUpperCase().split(/\s+/);
+    if (f.length !== 5) return !strict;
     const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz || 'UTC', hour12: false, minute: 'numeric', hour: 'numeric', day: 'numeric', month: 'numeric', weekday: 'short' })
       .formatToParts(date).map((p) => [p.type, p.value]));
     const dow = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(parts.weekday);
     const now = [Number(parts.minute), Number(parts.hour) % 24, Number(parts.day), Number(parts.month), dow];
     const ranges = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 7]];
-    const hit = (field, value, [lo, hi]) => field.split(',').some((part) => {
+    const named = (field, i) => field.replace(/[A-Z]+/g, (name) => {
+      const at = CRON_NAMES[i]?.indexOf(name) ?? -1;
+      if (at < 0) throw new Error('unsupported');
+      return String(i === 3 ? at + 1 : at);
+    });
+    const hit = (i) => named(f[i], i).split(',').some((part) => {
+      const [lo, hi] = ranges[i];
       const [range, stepText] = part.split('/');
       const step = stepText === undefined ? 1 : Number(stepText);
       let [a, b] = range === '*' ? [lo, hi] : range.split('-').map(Number);
       if (b === undefined) b = stepText === undefined ? a : hi;
       if (![a, b, step].every(Number.isInteger) || step < 1) throw new Error('unsupported');
-      for (let v = a; v <= b; v += step) if (v === value || (value === 0 && v === 7 && hi === 7)) return true;
+      for (let v = a; v <= b; v += step) if (v === now[i] || (i === 4 && now[i] === 0 && v === 7)) return true;
       return false;
     });
-    const [m, h, dom, mon, dw] = f;
-    if (!hit(m, now[0], ranges[0]) || !hit(h, now[1], ranges[1]) || !hit(mon, now[3], ranges[3])) return false;
+    if (!hit(0) || !hit(1) || !hit(3)) return false;
     // Day of month and day of week: either matches when both are restricted.
-    const domAny = dom === '*', dowAny = dw === '*';
-    const domHit = hit(dom, now[2], ranges[2]), dowHit = hit(dw, now[4], ranges[4]);
+    const domAny = f[2] === '*', dowAny = f[4] === '*';
+    const domHit = hit(2), dowHit = hit(4);
     return domAny || dowAny ? domHit && dowHit : domHit || dowHit;
   } catch {
-    return true;
+    return !strict;
   }
 }
 
@@ -1380,6 +1659,29 @@ async function jobsTarget(env) {
   return { container, cookie: null };
 }
 
+// Ask the app to run one scheduled task (POST /_dply/schedule), where the
+// jobs run. The every-minute Laravel scheduler wakes the app only when one
+// of its own tasks is due (the app reports their crons after each run), so
+// an app with a nightly task sleeps the rest of the day.
+async function runScheduled(env, cron, handler, at) {
+  const plans = handler === 'schedule:run' && cron === '* * * * *' ? getContainer(env.APP, 'dply-schedule') : null;
+  if (plans) {
+    const saved = await plans.schedulePlan();
+    const trusted = saved && saved.build === BUILD_ID && Date.now() - saved.at < 86400000 && Array.isArray(saved.plan);
+    if (trusted && !saved.plan.some((p) => cronDue(p.cron, p.tz, at))) return;
+  }
+  const response = await proxy(env, new Request('http://app' + __SCHEDULE_PATH__, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-dply-queue-token': env.DPLY_QUEUE_TOKEN },
+    body: JSON.stringify({ cron, handler }),
+  }), await jobsTarget(env));
+  if (plans) {
+    const body = await response.clone().json().catch(() => ({}));
+    // No plan (sub-minute tasks, an older dply/laravel): keep waking every minute.
+    await plans.saveSchedulePlan({ build: BUILD_ID, at: Date.now(), plan: Array.isArray(body.plan) ? body.plan : null });
+  }
+}
+
 // Start whatever should be running now: min instances (from the current
 // window) and an always-on jobs instance. dply calls this after each deploy
 // and every few minutes, which also brings back one Cloudflare restarted.
@@ -1482,7 +1784,7 @@ async function proxy(env, request, target) {
   for (let attempt = 0; retryable && attempt < 2 && response.status >= 500; attempt++) {
     const preview = await response.clone().text();
     if (!/not running|Failed to start container|Container crashed|suddenly disconnected/.test(preview)) {
-      return revealAppErrors(env, response);
+      return countReply(env, revealAppErrors(env, response));
     }
     try {
       await container.startAndWaitForPorts({
@@ -1495,7 +1797,41 @@ async function proxy(env, request, target) {
     response = await container.fetch(fresh());
   }
   if (target.cookie !== null) response = withStickyCookie(response, target.cookie);
-  return revealAppErrors(env, response);
+  return countReply(env, revealAppErrors(env, response));
+}
+
+// Bytes the container sent back as this reply, to Analytics Engine. Billing
+// subtracts them from the container's tx_bytes, so only its own outbound
+// traffic (APIs, S3) is charged. A reply with Content-Length is counted from
+// the header and passes through untouched (a piped body would lose the
+// header); a chunked one is counted as it streams. A socket (101) cannot be
+// wrapped, and a stream the client drops (SSE, aborted download) never
+// reaches flush(), so those bytes count as outbound.
+function countReply(env, response) {
+  if (!env.DPLY_BYTES || !response.body || isSocket(response)) return response;
+  const record = (bytes) => {
+    try {
+      env.DPLY_BYTES.writeDataPoint({ indexes: [SITE_ID], blobs: [SITE_ID], doubles: [bytes] });
+    } catch {
+      // Metering never breaks a reply.
+    }
+  };
+  const length = Number(response.headers.get('content-length'));
+  if (Number.isFinite(length) && length > 0) {
+    record(length);
+    return response;
+  }
+  let bytes = 0;
+  const counter = new TransformStream({
+    transform(chunk, controller) {
+      bytes += chunk.byteLength;
+      controller.enqueue(chunk);
+    },
+    flush() {
+      record(bytes);
+    },
+  });
+  return new Response(response.body.pipeThrough(counter), response);
 }
 
 function revealAppErrors(env, response) {
@@ -1580,8 +1916,28 @@ export default {
           }
         })));
       }
+      // The Images sheet's demo: the same path the app's calls to images.internal take.
+      if ((url.pathname === '/_dply/images' || url.pathname === '/_dply/images/info') && request.method === 'POST') {
+        const images = CONNECTIONS.find((c) => c.kind === 'images');
+        if (!images) return new Response('Images is not attached to this app.', { status: 404 });
+        const target = new URL(request.url);
+        target.pathname = url.pathname.endsWith('/info') ? '/info' : '/';
+        return connectionFetch(images, new Request(target, request), env, ctx).catch(dplyRefusal);
+      }
+      // The Vector search sheet's demo: {host, vector, topK}, searched the way the app's /query calls are (metered).
+      if (url.pathname === '/_dply/vectors' && request.method === 'POST') {
+        const body = await request.json();
+        const index = CONNECTIONS.find((c) => c.kind === 'vectors' && c.host === body.host);
+        if (!index) return new Response('That index is not attached to this app.', { status: 404 });
+        const query = new Request(new URL('/query', request.url), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ vector: body.vector, topK: body.topK || 5 }) });
+        return connectionFetch(index, query, env, ctx).catch(dplyRefusal);
+      }
       if (url.pathname === '/_dply/command' && request.method === 'POST') {
         return proxy(env, request, await webTarget(env, request));
+      }
+      // "Run now" from the dashboard: same place the Cron Trigger runs it.
+      if (url.pathname === __SCHEDULE_PATH__ && request.method === 'POST') {
+        return proxy(env, request, await jobsTarget(env));
       }
       if (url.pathname === __QUEUE_SEND_PATH__ && request.method === 'POST') {
         const { queue = 'JOBS', body, delay = 0 } = await request.json();
@@ -1637,32 +1993,15 @@ export default {
     return stored;
   },
 
-  // Cron Triggers: ask the app to run each handler for this schedule.
+  // One Cron Trigger, every minute (no 5-schedule limit): run each task whose
+  // schedule is due now, in UTC. Nothing due means nothing wakes.
   async scheduled(controller, env, ctx) {
     if (!(await trafficOpen(env))) return;
-    for (const handler of CRON_HANDLERS[controller.cron] ?? [null]) {
-      // The every-minute Laravel scheduler: wake the app only when a task is
-      // due (the app reports its tasks' crons after each run), so an app
-      // with a nightly task sleeps the rest of the day.
-      const plans = handler === 'schedule:run' && controller.cron === '* * * * *' ? getContainer(env.APP, 'dply-schedule') : null;
-      if (plans) {
-        const saved = await plans.schedulePlan();
-        const trusted = saved && saved.build === BUILD_ID && Date.now() - saved.at < 86400000 && Array.isArray(saved.plan);
-        if (trusted && !saved.plan.some((p) => cronDue(p.cron, p.tz, new Date(controller.scheduledTime)))) continue;
+    const at = new Date(controller.scheduledTime);
+    for (const [cron, handlers] of Object.entries(CRON_HANDLERS)) {
+      if (cron === '* * * * *' || cronDue(cron, 'UTC', at, true)) {
+        for (const handler of handlers) ctx.waitUntil(runScheduled(env, cron, handler, at));
       }
-      ctx.waitUntil((async () => {
-        const response = await proxy(env, new Request('http://app' + __SCHEDULE_PATH__, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', 'x-dply-queue-token': env.DPLY_QUEUE_TOKEN },
-          body: JSON.stringify({ cron: controller.cron, handler }),
-        }), await jobsTarget(env));
-        if (plans) {
-          const body = await response.clone().json().catch(() => ({}));
-          // No plan (sub-minute tasks, an older dply/laravel): keep waking every minute.
-          await plans.saveSchedulePlan({ build: BUILD_ID, at: Date.now(), plan: Array.isArray(body.plan) ? body.plan : null });
-        }
-        return response;
-      })());
     }
   },
 
@@ -1694,9 +2033,13 @@ JS, $replace);
     }
 
     /**
-     * Cron Triggers for the site: Crons tab / dply.yaml entries (handler =
-     * artisan command or rake task) plus `schedule:run` every minute when the
-     * scheduler is on. Cloudflare allows 5 schedules per Worker.
+     * Scheduled tasks for the site: dashboard / dply.yaml entries (handler =
+     * artisan command, rake task or shell command) plus `schedule:run` every
+     * minute when the scheduler is on. They share one every-minute Cron
+     * Trigger and the Worker runs whichever are due, so Cloudflare's
+     * 5-schedule limit does not apply: up to EdgeCronExpression::MAX_TASKS,
+     * and an expression the Worker cannot read is left out (the dashboard
+     * marks it Won't run).
      *
      * @return array<string, list<?string>>
      */
@@ -1713,11 +2056,16 @@ JS, $replace);
         if (EdgeContainerSettings::for($site)['scheduler'] && ! EdgeQueueWorkers::runsScheduler($site)) {
             $crons['* * * * *'][] = 'schedule:run';
         }
+        $tasks = 0;
         foreach (EdgeEffectiveCrons::for($site, $deployment) as $cron) {
+            if ($tasks >= EdgeCronExpression::MAX_TASKS || ! EdgeCronExpression::supported($cron['schedule'])) {
+                continue;
+            }
             $crons[$cron['schedule']][] = $cron['handler'];
+            $tasks++;
         }
 
-        return array_slice($crons, 0, 5, true);
+        return $crons;
     }
 
     /**

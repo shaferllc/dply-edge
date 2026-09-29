@@ -628,6 +628,22 @@ test('overview re-renders only when its own app’s deploy starts or ends', func
     expect($mapQueries())->toBeGreaterThan(0);
 });
 
+test('the map’s App box says Deploying while a deploy runs', function () {
+    [$user, $server, $site] = makeEdgeSiteForSettings();
+    $site->mergeEdgeMeta(['runtime_mode' => 'container']);
+    $site->save();
+    $lw = Livewire::actingAs($user)->test(\App\Livewire\Sites\Edge\Workspace\Resources::class, ['server' => $server, 'site' => $site])
+        ->assertDontSee('Deploying');
+
+    EdgeDeployment::query()->forceCreate([
+        'site_id' => $site->id,
+        'organization_id' => $site->organization_id,
+        'status' => EdgeDeployment::STATUS_BUILDING,
+        'storage_prefix' => 'edge/test/badge',
+    ]);
+    $lw->dispatch('edge-deploy-changed', siteId: (string) $site->id)->assertSee('Deploying');
+});
+
 test('overview observability cards skip the deployments context', function () {
     [$user, $server, $site] = makeEdgeSiteForSettings();
 

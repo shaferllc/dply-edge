@@ -15,15 +15,26 @@ If you would rather not run workers at all, a [Queues](/docs/resources/queues) r
 - The app uses **Container** delivery and is a Laravel app.
 - The app has a queue store both it and the workers can reach: [dply Valkey](/docs/resources/valkey), or a dply [Postgres or MySQL database](/docs/resources/databases). SQLite lives inside one container and cannot be shared.
 
-If a requirement is missing, the **Queue workers** sheet says which one.
+If the app has no shared queue store, adding workers offers to start one for you (below). Workers you added earlier show **Needs setup** with an **Add dply Valkey for the queue** button that starts it and deploys.
 
 ## Add queue workers
 
 1. Open your app's **Overview** and select **Add resource**.
-2. Choose **Queue workers**.
-3. Adjust the settings below, then select **Redeploy** in the banner to start them.
+2. Choose **Queue workers**. The **Queue workers** sheet opens with three choices:
+   - **Queues**: prefilled with the queue names dply found in your code at the last build, most urgent first. It reads `config/horizon.php`, the `queue` values in `config/queue.php`, and `onQueue('…')` or `$queue = '…'` in `app/` and `routes/`. Edit the list as you like. If Horizon defines several supervisors and your plan has worker groups, each extra supervisor gets its own workers.
+   - **When workers run**: **Start when jobs arrive** (nothing runs while the queue is empty, and a waiting job starts a worker in a few seconds) or **Always on** (one worker runs all the time). Each shows its monthly cost.
+   - **Processes**: jobs each worker runs at once, prefilled for the app's size: one per 96 MB after a 192 MB reserve (1 to 8; 8 on 1 GB).
+3. If the app uses SQLite, the sheet adds **dply Valkey for the queue**: the smallest size, which sleeps when idle. Choose **Use a Postgres or MySQL database instead** to use a database.
+4. Choose **Add and deploy**, or **Add, deploy later** to deploy yourself.
 
-The first time, **Processes** is set from the app's memory: one per 96 MB after a 192 MB reserve (1 to 8; 8 on 1 GB).
+Timeouts, tries, memory and the other options below keep their defaults. Change them in the workers' settings afterwards.
+
+| Plan | Start when jobs arrive | Most workers |
+|---|---|---|
+| Trial | Not available: one worker, always on | 1 |
+| Starter | Yes, its one worker | 1 |
+| Pro | Yes, up to 2 when first added | 5 |
+| Team | Yes, up to 2 when first added | 10 |
 
 When workers are running, dply sets `QUEUE_CONNECTION` to the connection they pull from, unless you set it yourself under **Environment**, so the jobs your app dispatches reach the workers.
 
@@ -82,7 +93,7 @@ Limits apply per app, across the main group and every extra group.
 | Build timeout | 20 min | 45 min | 60 min |
 | Custom domains (per organization) | 3 | 20 | 100 |
 | Container app instances | 1 per app | Autoscaling | Autoscaling |
-| Queue workers per app | 1 | 5, autoscaling | 10, autoscaling |
+| Queue workers per app | 1, starts when jobs arrive | 5, autoscaling | 10, autoscaling |
 | SQL databases (D1) | 2 | 10 | 50 |
 | Queues | 2 | 10 | 50 |
 | Realtime connections per app | 200 | 1,000 | 5,000 |

@@ -57,7 +57,7 @@ class CancelStuckEdgeDeployment
      */
     public function reapStuck(): int
     {
-        $reaped = 0;
+        $reaped = $this->reapOrphaned();
         $inFlight = EdgeDeployment::query()
             ->whereIn('status', [EdgeDeployment::STATUS_BUILDING, EdgeDeployment::STATUS_PUBLISHING])
             ->whereNotNull('build_started_at')
@@ -78,6 +78,58 @@ class CancelStuckEdgeDeployment
         }
 
         return $reaped;
+    }
+
+    /**
+     * A deploy whose worker process is gone (Horizon restarted, the process
+     * was killed): its job never resumes (one try), so fail it now instead
+     * of after the build timeout. Only for this host's own workers (a pid
+     * means nothing on another machine), and only once the job has run a
+     * minute, so a worker that just picked it up is never mistaken for gone.
+     */
+    public function reapOrphaned(): int
+    {
+        $reaped = 0;
+        $host = (string) gethostname();
+        $inFlight = EdgeDeployment::query()
+            ->whereIn('status', [EdgeDeployment::STATUS_BUILDING, EdgeDeployment::STATUS_PUBLISHING])
+            ->whereNotNull('meta->worker')
+            ->get();
+
+        foreach ($inFlight as $deployment) {
+            [$workerHost, $pid, $since] = array_pad(explode('|', (string) ($deployment->meta['worker'] ?? '')), 3, '');
+            if ($workerHost !== $host || ! ctype_digit($pid) || (int) $since > now()->subMinute()->getTimestamp() || self::processAlive((int) $pid)) {
+                continue;
+            }
+            $site = Site::find($deployment->site_id);
+            $deployment->update([
+                'status' => EdgeDeployment::STATUS_FAILED,
+                'failed_at' => now(),
+                'failure_reason' => __('The build stopped: the worker running it restarted or exited. Deploy again.'),
+            ]);
+            $this->killBuildContainer($deployment);
+            if ($site !== null) {
+                EdgeBuildSlots::releaseFor($site->organization);
+                self::restoreSiteStatus($site);
+            }
+            $reaped++;
+        }
+
+        return $reaped;
+    }
+
+    /** Whether a process exists on this host (signal 0 only asks). */
+    public static function processAlive(int $pid): bool
+    {
+        if ($pid <= 0) {
+            return false;
+        }
+        if (! function_exists('posix_kill')) {
+            return true; // can't tell: leave it to the timeout rule below
+        }
+
+        // EPERM means it exists but belongs to someone else: still alive.
+        return posix_kill($pid, 0) || posix_get_last_error() === 1;
     }
 
     /**

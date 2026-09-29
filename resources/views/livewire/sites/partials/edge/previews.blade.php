@@ -216,7 +216,7 @@
                                 {{ __('Replay recent production requests against this preview') }}
                             @endif
                         </span>
-                        <x-sheet.button type="button" wire:click="queueEdgeDeployReplay(@js((string) $open->id))" wire:loading.attr="disabled" wire:target="queueEdgeDeployReplay">{{ $replay ? __('Run again') : __('Run replay') }}</x-sheet.button>
+                        <x-sheet.button type="button" wire:click="queueEdgeDeployReplay({{ \Illuminate\Support\Js::from((string) $open->id) }})" wire:loading.attr="disabled" wire:target="queueEdgeDeployReplay">{{ $replay ? __('Run again') : __('Run replay') }}</x-sheet.button>
                     </div>
                     @include('livewire.sites.partials.edge.deploy-contract-panel', [
                         'preview' => $open,
@@ -241,7 +241,7 @@
                 <div class="flex flex-wrap items-center justify-between gap-2 border-t border-brand-ink/10 pt-4">
                     <button type="button" x-on:click="$dispatch('close-modal', 'preview-detail')" wire:click="confirmTearDownEdgePreview(@js((string) $open->id))" class="text-xs font-medium text-rose-600 hover:underline dark:text-rose-300">{{ __('Tear down') }}</button>
                     @if ($d['live'])
-                        <x-sheet.button type="button" variant="primary" x-on:click="$dispatch('close-modal', 'preview-detail')" wire:click="confirmPromoteEdgePreview(@js((string) $open->id))">{{ __('Promote to production') }}</x-sheet.button>
+                        <x-sheet.button type="button" variant="primary" x-on:click="$dispatch('close-modal', 'preview-detail')" wire:click="confirmPromoteEdgePreview({{ \Illuminate\Support\Js::from((string) $open->id) }})">{{ __('Promote to production') }}</x-sheet.button>
                     @endif
                 </div>
             @endif

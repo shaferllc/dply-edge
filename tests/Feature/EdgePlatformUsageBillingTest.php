@@ -45,6 +45,19 @@ function fakeAnalytics(array $datasets): void
 
             return Http::response(['success' => true, 'result' => array_map(static fn (string $name): array => ['name' => $name], array_keys($indexes))]);
         }
+        // Workers Logs is the telemetry REST API: 'logs' => [service => events], 'apps' => [app id => name].
+        if (str_contains($request->url(), '/telemetry/query')) {
+            return Http::response(['success' => true, 'result' => ['calculations' => [['aggregates' => array_map(
+                static fn (string $service, int $events): array => ['groupKey' => $service, 'value' => $events, 'count' => $events],
+                array_keys((array) ($datasets['logs'] ?? [])), (array) ($datasets['logs'] ?? []),
+            )]]]]);
+        }
+        if (str_contains($request->url(), '/containers/applications')) {
+            return Http::response(['success' => true, 'result' => array_map(
+                static fn (string $id, string $name): array => ['id' => $id, 'name' => $name],
+                array_keys((array) ($datasets['apps'] ?? [])), (array) ($datasets['apps'] ?? []),
+            )]);
+        }
         $query = (string) $request['query'];
         $account = [];
         foreach ($datasets as $name => $groups) {
@@ -130,6 +143,19 @@ test('usage lands on the org and site that own the script or bucket', function (
 
     // The artifact bucket and platform router are ours; nothing on the other org.
     expect(EdgePlatformUsage::query()->where('organization_id', $other->organization_id)->exists())->toBeFalse();
+});
+
+test('log events bill per script, container stdout folded into its app', function () {
+    $site = Site::factory()->create();
+    $ctr = 'dply-ctr-'.strtolower((string) $site->id);
+    fakeAnalytics(['logs' => [$ctr => 600_000, 'a0395512-caf8' => 400_000, 'someone-elses-worker' => 9_000_000], 'apps' => ['a0395512-caf8' => $ctr.'-jobs']]);
+
+    app(EdgePlatformUsageCollector::class)->collectForDate(now());
+
+    expect(EdgePlatformUsage::query()->where('resource', $ctr)->value('log_events'))->toBe(1_000_000)
+        ->and(EdgePlatformUsage::query()->count())->toBe(1)
+        // $0.60 per million (margin 0 in this file).
+        ->and(app(EdgePlatformUsageCost::class)->cents(['log_events' => 1_000_000]))->toBe(60);
 });
 
 test('re-running a day overwrites instead of adding', function () {

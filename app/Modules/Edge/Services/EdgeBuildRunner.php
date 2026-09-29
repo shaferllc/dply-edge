@@ -13,6 +13,7 @@ use App\Modules\Edge\Support\EdgeBuildDockerBootstrap;
 use App\Modules\Edge\Support\EdgeEffectiveBindings;
 use App\Modules\Edge\Support\EdgeDeployProgress;
 use App\Modules\Edge\Support\EdgeLiveBuildLog;
+use App\Modules\Edge\Support\EdgeQueueNames;
 use App\Modules\Edge\Support\EdgeLogCopy;
 use App\Modules\Edge\Support\EdgeRepoRoot;
 use App\Modules\Edge\Support\FakeEdgeProvision;
@@ -207,6 +208,15 @@ class EdgeBuildRunner
             // ship in the same deploy. Snapshot persists on the
             // deployment row so the worker payload can read it later.
             $repoConfig = app(EdgeRepoConfigLoader::class)->loadFromDirectory($checkout);
+
+            // Queue names the code uses, for the "Add queue workers" sheet.
+            if (is_file($checkout.'/artisan')) {
+                try {
+                    EdgeQueueNames::record((string) $deployment->id, EdgeQueueNames::scan($checkout));
+                } catch (\Throwable $e) {
+                    report($e); // Suggestions only; never fail a build over them.
+                }
+            }
             $lint = app(EdgeRepoConfigLinter::class)->lint($repoConfig);
             $this->appendBuildLog($buildLog, 'Config lint: '.($lint['ok'] ? 'ok' : 'FAILED')."\n");
             foreach ($lint['warnings'] as $warning) {

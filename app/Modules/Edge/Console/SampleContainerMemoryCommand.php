@@ -7,6 +7,8 @@ namespace App\Modules\Edge\Console;
 use App\Models\Site;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Support\EdgeContainerSettings;
+use App\Modules\Edge\Support\EdgeDatabaseResize;
+use App\Modules\Edge\Support\EdgeSizeLadder;
 use App\Modules\Edge\Support\EdgeQueueWorkers;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
@@ -67,7 +69,35 @@ class SampleContainerMemoryCommand extends Command
         $site->mergeEdgeMeta(['memory' => [
             'samples' => $samples,
             'type' => $type, // what the peaks were measured on
+            'notified' => $meta['notified'] ?? null,
         ]]);
+        $site->save();
+        $this->suggest($site);
+    }
+
+    /**
+     * Tell the app's people when a smaller size would do (the App sheet's
+     * suggestion, where "Use it" applies it), once per suggested size.
+     */
+    private function suggest(Site $site): void
+    {
+        $suggestion = EdgeContainerSettings::sizeSuggestion($site);
+        $told = $site->edgeMeta()['memory']['notified'] ?? null;
+        if ($suggestion === null || $told === $suggestion['type']) {
+            return;
+        }
+        $label = EdgeSizeLadder::containerLabel($suggestion['type']);
+        EdgeDatabaseResize::notify($site, 'edge.app.resize_suggested',
+            __(':app could run on a smaller size', ['app' => $site->name]),
+            __('Its memory peaked at :peak MB over :n hours awake. :size leaves room and saves about $:save a month. Review it on the App card; it applies on the next deploy.', [
+                'peak' => (int) round($suggestion['peak_mb']),
+                'n' => $suggestion['samples'],
+                'size' => $label,
+                'save' => number_format($suggestion['save_per_hour'] * 730, 2),
+            ]),
+            $suggestion,
+            'app');
+        $site->mergeEdgeMeta(['memory' => array_merge((array) ($site->edgeMeta()['memory'] ?? []), ['notified' => $suggestion['type']])]);
         $site->save();
     }
 }

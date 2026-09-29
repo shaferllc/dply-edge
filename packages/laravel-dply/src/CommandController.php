@@ -21,6 +21,10 @@ class CommandController
     /** @var array<string, array{0: string, 1: array<string, bool>}> */
     private const COMMANDS = [
         'migrate' => ['migrate', ['--force' => true, '--isolated' => true]],
+        // The deploy's release step, in the one pre-switch copy of the new
+        // version: nothing runs beside it, and --isolated's cache lock would
+        // fail before the migration that creates the cache table has run.
+        'release' => ['migrate', ['--force' => true]],
         'status' => ['migrate:status', []],
         'seed' => ['db:seed', ['--force' => true]],
         'rollback' => ['migrate:rollback', ['--force' => true]],

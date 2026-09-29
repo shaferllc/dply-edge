@@ -1,0 +1,16 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-09-29",
+  "id": "r-48pkfdnq9f75j8mw",
+  "recordedBy": {
+    "client": "claude",
+    "id": "83d1b381-88e4-47a3-933e-9fbc89f87100"
+  },
+  "scopeTags": [
+    "billing",
+    "containers",
+    "pricing"
+  ],
+  "supersedes": null,
+  "text": "Container outbound traffic (bytes a container sends that are not replies to visitors, e.g. calls to outside APIs): \"we need to charge a little for this\" — rate: \"Cloudflare's cost + margin\". Cost = Cloudflare container egress $0.025/GB (config dply.edge.usage_billing.container_outbound_millicents_per_gb), customer price = cost × (1 + margin_percent/100) through UsagePrice, like every non-fixed meter. Outbound = container tx_bytes minus the reply bytes the container Worker counted, per app per day, never below zero. (Owner answers, 2026-09-29.)"
+}

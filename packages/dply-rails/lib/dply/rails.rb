@@ -10,6 +10,7 @@ module Dply
     COMMAND_PATH = "/_dply/command".freeze
     COMMANDS = {
       "migrate" => "db:migrate",
+      "release" => "db:migrate", # the deploy's release step, before traffic switches
       "status" => "db:migrate:status",
       "seed" => "db:seed",
       "rollback" => "db:rollback",

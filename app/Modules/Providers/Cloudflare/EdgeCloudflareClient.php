@@ -1644,6 +1644,38 @@ class EdgeCloudflareClient
     }
 
     /**
+     * Workers Logs events per service over a window (what Workers Logs bills:
+     * invocation, console and system logs). A container's stdout counts under
+     * its container application id, not the script name.
+     *
+     * @return array<string, int> service => events
+     */
+    public function logEventCounts(CarbonInterface $from, CarbonInterface $to): array
+    {
+        $payload = $this->decode(Http::withToken($this->apiToken)->post(self::BASE.'/accounts/'.$this->accountId.'/workers/observability/telemetry/query', [
+            'queryId' => 'dply-log-counts',
+            'view' => 'calculations',
+            'timeframe' => ['from' => $from->getTimestampMs(), 'to' => $to->getTimestampMs()],
+            'parameters' => [
+                'calculations' => [['operator' => 'count', 'alias' => 'events']],
+                'groupBys' => [['type' => 'string', 'value' => '$metadata.service']],
+                // ponytail: the API caps a query at 1,000 groups; page by service prefix past that.
+                'limit' => 1000,
+            ],
+        ]));
+        $out = [];
+        foreach ((array) data_get($payload, 'calculations.0.aggregates', []) as $row) {
+            $service = (string) data_get($row, 'groupKey', '');
+            if ($service !== '') {
+                // value is the sampling-corrected estimate; count the rows read.
+                $out[$service] = ($out[$service] ?? 0) + (int) round((float) data_get($row, 'value', data_get($row, 'count', 0)));
+            }
+        }
+
+        return $out;
+    }
+
+    /**
      * Container applications on the account (Containers Read).
      *
      * @return list<array{id: string, name: string}>
@@ -1983,6 +2015,17 @@ class EdgeCloudflareClient
         return $this->decode(Http::withToken($this->apiToken)
             ->withBody($ndjson, 'application/x-ndjson')
             ->post($this->vectorizeUrl($name).'/upsert'));
+    }
+
+    /**
+     * Delete vectors by id. Applied asynchronously: returns {mutationId}.
+     *
+     * @param  list<string>  $ids
+     * @return array<string, mixed>
+     */
+    public function deleteVectorsByIds(string $name, array $ids): array
+    {
+        return $this->decode(Http::withToken($this->apiToken)->post($this->vectorizeUrl($name).'/delete_by_ids', ['ids' => $ids]));
     }
 
     private function vectorizeUrl(string $name = ''): string

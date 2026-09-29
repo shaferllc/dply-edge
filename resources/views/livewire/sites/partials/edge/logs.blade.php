@@ -73,6 +73,11 @@
         </div>
 
         @if ($isContainer)
+            @php
+                // The window and search the output was loaded with (Logs::$appMinutes / $appSearch).
+                $appWindow = __(\App\Livewire\Sites\Edge\Workspace\Logs::APP_WINDOWS[$appMinutes] ?? '15 minutes');
+                $appScope = $appSearch !== '' ? __('in the last :window matching “:text”', ['window' => $appWindow, 'text' => $appSearch]) : __('in the last :window', ['window' => $appWindow]);
+            @endphp
             <div>
                 <p class="border-b border-brand-ink/10 pb-2 text-sm font-semibold text-brand-ink">{{ __('What your app is printing') }}</p>
                 @if ($appLogsError !== null)
@@ -83,9 +88,9 @@
                             @if ($appLogs === null)
                                 <span class="inline-block h-4 w-64 rounded bg-brand-ink/10 align-middle motion-safe:animate-pulse"></span>
                             @elseif ($appErrors === [])
-                                {{ __('No errors in the last 15 minutes') }}
+                                {{ __('No errors :scope', ['scope' => $appScope]) }}
                             @else
-                                {{ trans_choice(':count error in the last 15 minutes, most recent:|:count errors in the last 15 minutes, most recent:', count($appErrors)) }}
+                                {{ trans_choice(':count error :scope, most recent:|:count errors :scope, most recent:', count($appErrors), ['scope' => $appScope]) }}
                                 <span class="font-mono text-sm">{{ Str::limit((string) end($appErrors)['message'], 70) }}</span>
                             @endif
                         </span>
@@ -95,7 +100,7 @@
                         @endif
                     </button>
                     <button type="button" wire:click="openAppLogs('all')" class="{{ $row }}" @disabled($appLogs === null)>
-                        <span class="flex-1 text-sm text-brand-ink sm:text-base">{{ __('Everything it printed in the last 15 minutes') }}</span>
+                        <span class="flex-1 text-sm text-brand-ink sm:text-base">{{ __('Everything it printed :scope', ['scope' => $appScope]) }}</span>
                         <span class="shrink-0 font-mono text-xs text-brand-moss">{{ $appLogs === null ? '' : trans_choice(':count line|:count lines', count($appLogs)) }}</span>
                         <x-heroicon-m-chevron-right class="h-4 w-4 shrink-0 text-brand-mist" aria-hidden="true" />
                     </button>
@@ -204,7 +209,7 @@
                         <p class="text-zinc-400">{{ $stillBuilding ? __('Waiting for build output…') : __('No build log stored for this deploy.') }}</p>
                     @else
                         @foreach (preg_split('/\r?\n/', (string) $openLog) as $i => $line)
-                            <div data-line x-show="q === '' || $el.textContent.toLowerCase().includes(q.toLowerCase())" class="whitespace-pre-wrap break-words">{!! \App\Modules\Edge\Support\AnsiHtml::toHtml($line) !!}&#8203;</div>
+                            <div data-line x-show="q === '' || $el.textContent.toLowerCase().includes(q.toLowerCase())" class="whitespace-pre-wrap break-words {{ \App\Support\LogLineTone::classes($line) }}">{!! \App\Modules\Edge\Support\AnsiHtml::toHtml($line) !!}&#8203;</div>
                         @endforeach
                     @endif
                 </div>
@@ -224,7 +229,7 @@
                 <div class="flex items-start justify-between gap-4">
                     <div>
                         <h2 class="text-lg font-semibold text-brand-ink">{{ __('What your app printed') }}</h2>
-                        <p class="mt-0.5 text-sm text-brand-moss">{{ __('Last 15 minutes: your app, queue workers, and the router in front.') }}</p>
+                        <p class="mt-0.5 text-sm text-brand-moss">{{ \Illuminate\Support\Str::ucfirst($appScope) }}: {{ __('your app, queue workers, and the router in front.') }}</p>
                     </div>
                     <button type="button" x-on:click="$dispatch('close-modal', 'app-logs')" class="dply-icon-btn h-9 w-9 shrink-0" aria-label="{{ __('Close') }}">
                         <x-heroicon-o-x-mark class="h-5 w-5" aria-hidden="true" />
@@ -248,7 +253,13 @@
                             @endforeach
                         </select>
                     @endif
-                    <input type="search" x-model="q" placeholder="{{ __('Find') }}" aria-label="{{ __('Find in output') }}" class="dply-input mt-0 min-w-0 flex-1 text-xs" />
+                    <select wire:model.live="appMinutes" class="rounded-full border-brand-ink/15 py-0.5 pl-2.5 pr-7 text-xs text-brand-moss" aria-label="{{ __('How far back') }}">
+                        @foreach (\App\Livewire\Sites\Edge\Workspace\Logs::APP_WINDOWS as $minutes => $label)
+                            <option value="{{ $minutes }}">{{ __('Last :window', ['window' => __($label)]) }}</option>
+                        @endforeach
+                    </select>
+                    {{-- Typing filters what's loaded; Enter asks Cloudflare for every matching line in the window. --}}
+                    <input type="search" x-model="q" x-init="q = @js($appSearch)" x-on:keydown.enter.prevent="$wire.searchAppLogs(q)" placeholder="{{ __('Find, or press Enter to search all') }}" aria-label="{{ __('Find in output') }}" class="dply-input mt-0 min-w-0 flex-1 text-xs" />
                     <x-sheet.button type="button" wire:click="loadAppLogs" wire:loading.attr="disabled" wire:target="loadAppLogs">
                         <span wire:loading.remove wire:target="loadAppLogs">{{ __('Refresh') }}</span>
                         <span wire:loading wire:target="loadAppLogs">{{ __('Loading…') }}</span>
@@ -259,14 +270,14 @@
                         @php $err = Logs::isErrorLine($line); @endphp
                         <div
                             x-show="(only === 'all' || {{ $err ? 'true' : 'false' }}) && (source === 'all' || source === @js($line['source'])) && (! worker || worker === @js($line['worker'])) && (q === '' || $el.textContent.toLowerCase().includes(q.toLowerCase()))"
-                            @class(['grid grid-cols-[5.5rem_4.5rem_minmax(0,1fr)] gap-3', 'bg-rose-500/10 text-rose-200' => $err])
+                            @class(['grid grid-cols-[5.5rem_4.5rem_minmax(0,1fr)] gap-3', 'bg-rose-500/10 text-rose-200' => $err, \App\Support\LogLineTone::classes((string) $line['message']) => ! $err])
                         >
                             <span class="text-zinc-500">{{ $line['at'] ? \Illuminate\Support\Carbon::parse($line['at'])->timezone(config('app.timezone'))->format('H:i:s') : '' }}</span>
                             <span class="text-zinc-500">{{ $line['worker'] ?? $line['source'] }}</span>
                             <span class="whitespace-pre-wrap break-words">{{ $line['message'] }}</span>
                         </div>
                     @empty
-                        <p class="text-zinc-400">{{ __('Nothing printed in the last 15 minutes. Containers log to stdout and stderr.') }}</p>
+                        <p class="text-zinc-400">{{ $appSearch !== '' ? __('Nothing :scope.', ['scope' => $appScope]) : __('Nothing printed :scope. Containers log to stdout and stderr.', ['scope' => $appScope]) }}</p>
                     @endforelse
                 </div>
             </div>

@@ -59,6 +59,21 @@ Disks come in `1 GB`, `5 GB`, `10 GB`, and `25 GB`. You can change the size and 
 
 Each size is tuned for its memory. Postgres gets a quarter of it for shared buffers and caps the write-ahead log at a quarter of the disk. MySQL gives the buffer pool half the memory. MongoDB sizes the WiredTiger cache to the plan.
 
+### Suggested resizes
+
+dply watches each database's memory and how many reads come from memory, and suggests a different size when it would help. It never resizes on its own, because a resize restarts the database.
+
+- **Bigger**: when the database has held over 85% of its memory, or served under 90% of reads from memory, for the last 6 hours it ran.
+- **Smaller**: when it has used under 35% of its memory for 7 days, with nearly every read from memory.
+
+The suggestion appears at the top of the database's sheet with the reason and the price change, and you get a notification that links to it. Choose one:
+
+- **Resize now**: the database restarts at the new size the next time the app connects. Open connections drop once.
+- **Resize tonight**: at 03:00 in your organization's time zone. Choose **Cancel** on the sheet to undo it before then.
+- **Dismiss for 30 days**: the same suggestion stays hidden for 30 days.
+
+Only people who can change the app see these buttons. Trials keep the smallest size, so they get no suggestions.
+
 ## Sleep and wake
 
 Pick how long the database waits after the last connection closes before it sleeps: **1 minute**, **5 minutes**, **15 minutes**, or **Stays on**. A sleeping database stops its compute and keeps its data on its disk. The next connection wakes it in about a third of a second; the client waits while it does.

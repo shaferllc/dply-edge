@@ -29,7 +29,7 @@
         [__('Build timeout'), fn ($t) => __(':m min', ['m' => $t['build_timeout_minutes']])],
         [__('Custom domains'), fn ($t) => $num($t['custom_domains'])],
         [__('Container apps (PHP, Rails, Node)'), fn ($t) => ! $t['containers'] ? '—' : ($t['app_instances'] === null ? __('Autoscaling') : trans_choice(':count instance per app|:count instances per app', (int) $t['app_instances']))],
-        [__('Queue workers per app'), fn ($t) => ! $t['containers'] ? '—' : trim(($t['worker_instances'] === null ? __('Unlimited') : trans_choice(':count worker|:count workers', (int) $t['worker_instances'])).($t['worker_autoscale'] ? __(' · autoscaling') : ''))],
+        [__('Queue workers per app'), fn ($t) => ! $t['containers'] ? '—' : trim(($t['worker_instances'] === null ? __('Unlimited') : trans_choice(':count worker|:count workers', (int) $t['worker_instances'])).($t['worker_autoscale'] ? ($t['worker_instances'] === 1 ? __(' · starts when jobs arrive') : __(' · autoscaling')) : ''))],
         [__('Edge SQL databases (D1)'), fn ($t) => $num($t['databases'])],
         [__('Managed queues'), fn ($t) => $num($t['queues'])],
         [__('Realtime connections per app'), fn ($t) => $num($t['realtime_max_connections'])],

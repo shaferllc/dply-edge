@@ -62,7 +62,8 @@ class Alerts extends Component
         'rum' => 'When a real-user metric crosses a threshold',
         'usage' => 'When usage goes over budget',
         'workers' => 'When queue jobs fail or workers keep exiting',
-        'database' => 'When a database fills up or nears its connection limit',
+        'database' => 'When a database fills up, nears its connection or memory limit, or a resize is suggested or done',
+        'app' => 'When a smaller app size would do',
         'other' => 'Other Edge events',
     ];
 

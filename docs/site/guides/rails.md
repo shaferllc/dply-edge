@@ -86,7 +86,7 @@ Rails apps can run jobs with a Queue resource and the `dply-rails` gem:
 
 ## Scheduled work
 
-Add cron schedules on **Overview** → **Add resource** → **Scheduled task**; each runs its handler as a rake task. **Run now** runs a listed task once in the live app (rake tasks print no output). Cloudflare allows 5 schedules per app. See [Scheduled tasks](/docs/scheduled-tasks).
+Add cron schedules on **Overview** → **Add resource** → **Scheduled task**; each runs its handler as a rake task. **Run now** runs a listed task once in the live app (rake tasks print no output). A container app can have up to 50. See [Scheduled tasks](/docs/scheduled-tasks).
 
 ## Logs
 

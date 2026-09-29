@@ -17,6 +17,14 @@ Starting a new deploy cancels any deploy of the same app that is still building 
 
 ### Container apps
 
+Container apps are checked before they take traffic. Once the app has a live version, each deploy first starts the new version on its own, at your app's address with `--next` added to the first part (for example `shop--next.on-dply.live`), with no visitors and without your queues or scheduled tasks. dply then:
+
+1. Runs your migrations there: `php artisan migrate --force` for Laravel, `rails db:migrate` for Rails. This is the release step, so you don't run them yourself.
+2. Requests the new version. If migrations fail, or it answers with a server error, the deploy fails with the error your app logged, and production keeps running the previous version.
+3. Only when it works, moves production to the new version and removes the checked copy.
+
+The checked copy runs for a minute or two per deploy and is billed like any container time. Migrations run before the switch, so for a moment the previous version runs against the new schema: add columns and tables in one deploy and remove old ones in a later one. An app's first deploy has nothing to protect, so it migrates and checks in place.
+
 Container apps roll out new instances instead of switching files. By default the rollout is gradual: a new instance starts before an old one stops. After the rollout, dply waits up to three minutes for the new instances to report healthy, then requests the live URL. If an instance fails, the deploy fails. You can change the rollout strategy on **Overview**: select the **App** card, then **Sleep, scaling, region**. See [Container apps](/docs/containers).
 
 ## Watch a deploy

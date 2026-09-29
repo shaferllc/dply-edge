@@ -13,6 +13,7 @@ use App\Models\Site;
 use App\Modules\Edge\Services\Realtime\EdgeRealtimeApps;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Http\Client\ConnectionException;
+use Laravel\Pennant\Feature;
 
 /**
  * Container connections. Called from EdgeContainerDeployer::scaffold and
@@ -60,6 +61,25 @@ final class EdgeContainerConnections
     public const VECTOR_DIMENSIONS = [384, 768, 1024, 1536];
 
     public const VECTOR_METRICS = ['cosine', 'euclidean', 'dot-product'];
+
+    /**
+     * Kinds behind a Pennant feature flag, per organization (off unless
+     * turned on: /admin/feature-flags on localhost, or php artisan dply:feature). Only adding one is gated:
+     * an app that already has it keeps it.
+     */
+    public const FLAGGED = ['sql', 'database_pool', 'key_value', 'durable_object', 'ai', 'vectors', 'images', 'service'];
+
+    public static function flag(string $kind): string
+    {
+        return 'resource-'.str_replace('_', '-', $kind);
+    }
+
+    /** Whether this organization may add $kind (Add a resource). */
+    public static function flagOn(string $kind, ?Organization $organization): bool
+    {
+        return ! in_array($kind, self::FLAGGED, true)
+            || ($organization !== null && Feature::for($organization)->active(self::flag($kind)));
+    }
 
     /** Account capabilities. There is nothing to name or attach. */
     public const ENABLE = ['ai', 'images'];

@@ -7,6 +7,38 @@ What changed in dply, newest first. Each entry links to the page that covers the
 
 ## 2026-09-29
 
+### Outbound traffic and log events are metered
+
+Traffic a container app sends out on its own, like calls to outside APIs or S3, now bills as **App outbound traffic**. Replies to your visitors still bill once, as bandwidth. Log events (one per request, plus each line your app logs) now bill under **Workers**. Outbound counting starts with each app's next deploy. See [Plans & pricing](/docs/pricing).
+
+### Vector search: a live demo and a sheet that explains itself
+
+Creating a **Vector search** index now opens its sheet right away. The **Vector search** box on **Overview** opens it too. The sheet is one page: the address or binding with **Copy**, the index's size and vector count, code for your app type, usage against your limit, and **Sleep**, **Detach** and **Delete**. **Try it** adds six sample documents with real embeddings, then searches them with your question; on a container app the search runs through your live app. Sleeping an index now says plainly that stored vectors keep billing. See [Vector search](/docs/resources/vector-search#try-it).
+
+### Images opens ready to use, and runs a live demo
+
+Adding **Images** now opens its sheet right away. The sheet is one page: the address with **Copy**, the two calls, a call builder that writes curl, Laravel or Rails code, and the options at a glance. **Run it on the app** sends a sample picture through your live app and shows what came back. The **Images** box on **Overview** opens the sheet, and **Images** and **AI** leave **Add resource** once the app has them. See [Images](/docs/resources/images#try-it-on-your-app).
+
+### Min and max instances side by side
+
+The **App** sheet now shows **Max instances** with **Min instances (always awake)** right under it, instead of keeping the minimum under **Sleep, scaling, region**. See [Scaling and sleep](/docs/scaling-and-sleep).
+
+### Container deploys are checked before they take traffic
+
+A container deploy now starts the new version on its own first, runs your migrations there (`php artisan migrate --force` or `rails db:migrate`), and requests it. Only a version that answers moves into production. A failed migration or a server error stops the deploy with the error your app logged, and visitors keep the previous version. See [Deployments](/docs/deployments).
+
+### Suggested database resizes, with your approval
+
+dply now watches each database's memory and cache hit rate and suggests a bigger or smaller size when it would help, with the reason and the price change. Nothing resizes on its own: choose **Resize now**, **Resize tonight** (03:00 in your organization's time zone) or **Dismiss** on the database's sheet. New notifications cover a suggested resize, a finished or failed resize, a database near its memory limit, and a container app that could run on a smaller size. See [Databases](/docs/resources/databases#suggested-resizes).
+
+### Adding queue workers asks what they need
+
+**Add resource** → **Queue workers** now opens a short sheet instead of adding workers with defaults. It prefills the queue names found in your code, lets you choose **Start when jobs arrive** or **Always on** with the cost of each, and sets the number of processes. An app on SQLite gets dply Valkey for the queue in the same step, and **Add and deploy** starts them. Starter plans can now run their one worker as start-when-jobs-arrive. See [Queue workers](/docs/queue-workers#add-queue-workers).
+
+### More than 5 scheduled tasks
+
+Container apps can now have up to 50 scheduled tasks instead of 5. They share one trigger that checks every minute and wakes the app only when a task is due, and the Laravel scheduler no longer uses up a slot. Month and weekday names such as `MON` and `JAN` work. Worker SSR and middleware apps keep Cloudflare's limit of 5 schedules. See [Scheduled tasks](/docs/scheduled-tasks#how-many-you-can-have).
+
 ### Deploy progress follows you
 
 A running deploy now shows in a bar at the bottom of every page instead of a card on **Overview** and **Deploys**. It shows the step the deploy is on, including the container rollout percentage, for every deploy in your organization you can see. Open it for the last few log lines, **Full log**, **Open app** and **Cancel**. When it finishes you get a notification if you started it or are on that app's pages. See [Deployments](/docs/deployments#watch-a-deploy).

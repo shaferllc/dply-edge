@@ -55,6 +55,9 @@ test('laravel gets a php-fpm image with assets, migrations on boot and port 8080
         ->and($dockerfile)->toContain('FROM php:8.4-fpm-alpine')
         ->and($dockerfile)->toContain('pm = ondemand')
         ->and($dockerfile)->toContain('php-fpm -F -y /tmp/php-fpm.conf')
+        // Laravel's stderr and FPM's log reach the container's logs (a 500 is explained, not silent).
+        ->and($dockerfile)->toContain('catch_workers_output = yes')
+        ->and($dockerfile)->toContain('tail -qF /tmp/php-fpm.log /tmp/nginx-error.log &')
         // nginx must not open 8080 before php-fpm listens, or cold starts 502.
         ->and(strpos($dockerfile, 'fsockopen(\\"127.0.0.1\\", 9000)'))->toBeInt()->toBeLessThan(strpos($dockerfile, 'exec nginx'))
         ->and($dockerfile)->toContain('pid /tmp/nginx.pid')
@@ -413,10 +416,32 @@ test('crons become cron triggers and a scheduled() handler posting to /_dply/sch
     (new EdgeContainerDeployer)->scaffold($dir, $site, '/x/Dockerfile', 8080, [], $crons);
 
     expect($crons)->toBe(['* * * * *' => ['schedule:run'], '0 3 * * *' => ['reports:send']])
-        ->and(json_decode(File::get($dir.'/wrangler.jsonc'), true)['triggers'])->toBe(['crons' => ['* * * * *', '0 3 * * *']])
+        // One trigger for every task: scheduled() works out which are due.
+        ->and(json_decode(File::get($dir.'/wrangler.jsonc'), true)['triggers'])->toBe(['crons' => ['* * * * *']])
         ->and(File::get($dir.'/src/index.js'))->toContain('async scheduled(controller, env, ctx)')
         ->and(File::get($dir.'/src/index.js'))->toContain('"/_dply/schedule"')
-        ->and(File::get($dir.'/src/index.js'))->toContain("url.pathname === '/_dply/command'");
+        ->and(File::get($dir.'/src/index.js'))->toContain("url.pathname === '/_dply/command'")
+        // Run now reaches the app through the Worker, not only the Cron Trigger.
+        ->and(File::get($dir.'/src/index.js'))->toContain('url.pathname === "/_dply/schedule" && request.method === \'POST\'');
+});
+
+test('a container app runs more than 5 schedules, and leaves out what the Worker can’t read', function () {
+    $tasks = array_map(fn (int $h) => ['schedule' => "0 {$h} * * *", 'handler' => "report:{$h}"], range(1, 7));
+    $tasks[] = ['schedule' => '0 6 L * *', 'handler' => 'month:end']; // Cloudflare-only syntax
+    $site = new Site(['meta' => ['edge' => ['crons_overrides' => $tasks]]]);
+    $site->id = '01MANYCRONS';
+    $dir = sys_get_temp_dir().'/dply-container-test-'.bin2hex(random_bytes(4));
+
+    $crons = EdgeContainerDeployer::cronHandlers($site, null);
+    (new EdgeContainerDeployer)->scaffold($dir, $site, '/x/Dockerfile', 8080, [], $crons);
+    $wrangler = json_decode(File::get($dir.'/wrangler.jsonc'), true);
+    $worker = File::get($dir.'/src/index.js');
+    File::deleteDirectory($dir);
+
+    expect($crons)->toHaveCount(7)->not->toHaveKey('0 6 L * *')
+        ->and($wrangler['triggers'])->toBe(['crons' => ['* * * * *']])
+        ->and($worker)->toContain('"0 7 * * *":["report:7"]')
+        ->and($worker)->toContain("cronDue(cron, 'UTC', at, true)");
 });
 
 test('previews enqueue but never consume queues or run crons', function () {
@@ -782,4 +807,29 @@ test('the key-value proxy pages keys, bulk-reads, and checks ttl, expiry, and me
         '400:x-dply-metadata must be 1024 bytes or less.',
         '[{"metadata":{"n":1}},{"expiration":'.$later.'}]',
     ]);
+});
+
+test('a 5xx after deploy prints the error the app logged, read from the app itself', function () {
+    \Illuminate\Support\Facades\Http::fake(['app.on-dply.live/_dply/schedule' => \Illuminate\Support\Facades\Http::response(['output' => implode("\n", [
+        '[29-Sep-2026 20:24:40] NOTICE: fpm is running',
+        '[2026-09-29 20:24:40] production.ERROR: SQLSTATE[42P01]: Undefined table: 7 ERROR:  relation "cache" does not exist',
+        '#0 /app/vendor/laravel/framework/src/Illuminate/Database/Connection.php(838): runQueryCallback()',
+        '[29-Sep-2026 20:24:41] WARNING: [pool www] server reached max_children setting (1)',
+    ])])]);
+    $site = new Site(['meta' => ['edge' => ['live_url' => 'https://app.on-dply.live']]]);
+    $site->id = '01ERRLOG';
+    $lines = [];
+
+    $logger = function (string $l) use (&$lines): void {
+        $lines[] = $l;
+    };
+    (function () use ($site, $logger): void {
+        $this->logAppErrors($site, time(), $logger);
+    })->call(new EdgeContainerDeployer);
+
+    expect(implode('', $lines))->toContain('The app logged:')
+        ->toContain('relation "cache" does not exist')
+        ->not->toContain('#0 /app/vendor')
+        ->not->toContain('max_children');
+    \Illuminate\Support\Facades\Http::assertSent(fn ($r) => str_starts_with((string) $r['handler'], 'tail -q -n 300 /tmp/php-fpm.log'));
 });

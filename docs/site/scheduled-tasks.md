@@ -21,8 +21,13 @@ crons:
 
 A schedule is a standard 5-field cron expression in **UTC**. In the form, pick **Minutes**, **Hourly**, **Daily**, **Weekly** or **Monthly** and a time to build one, or choose **Custom** and type any expression. Changes take effect on the next deploy. Once an app has a task, a **Scheduled tasks** box appears on the Overview map under the app. Select it to see every schedule, **Edit** or **Run now** one, or **Add** another. Scheduled tasks are available once the app has a Worker to schedule: a container app, a Worker SSR app, or a static or hybrid app with [edge middleware](/docs/edge-middleware). Static apps with middleware have no **Add resource** button, so they get an **Add a scheduled task** link under the app box instead.
 
-> [!IMPORTANT]
-> Cloudflare allows 5 schedules per Worker, so an app can have at most 5 distinct schedules. For container apps the Laravel scheduler uses one of them (`* * * * *`) unless it runs inside a queue worker. The **Scheduled tasks** sheet shows **N of 5 used**; schedules past the fifth are dropped at deploy and marked **Won't run**. Several commands can share one schedule.
+### How many you can have
+
+- **Container apps: up to 50 scheduled tasks.** Every task shares one trigger that fires each minute. The app's Worker checks which tasks are due and wakes the app only for those, so a task that runs at 06:00 wakes the app at 06:00 and not before. The Laravel scheduler doesn't take a slot.
+- **Worker SSR, hybrid, and static apps with edge middleware: up to 5 distinct schedules.** Each schedule is its own Cloudflare Cron Trigger, and Cloudflare allows 5 per Worker. Your `scheduled()` handler tells them apart by `controller.cron`. The sheet shows **N of 5 schedules used**. Schedules past the fifth are dropped at deploy and marked **Won't run**. Several commands can share one schedule.
+
+> [!NOTE]
+> On container apps a schedule can use numbers, `*`, ranges (`1-5`), lists (`1,15`), steps (`*/10`), and month and weekday names (`JAN`, `MON`). Cloudflare's extras `L`, `W`, `#` and `?` aren't supported: the form refuses them, and one in `dply.yaml` is marked **Won't run**.
 
 [Preview deployments](/docs/preview-deployments) never run scheduled tasks; only production does.
 

@@ -149,6 +149,25 @@ class EdgeHostMapPublisher
     }
 
     /**
+     * Route a hostname to a given container script, not the deployment's
+     * own: the candidate a deploy checks before it switches production
+     * (EdgeContainerDeployer). Remove it with unpublishHostname().
+     */
+    public function publishScript(Site $site, EdgeDeployment $deployment, string $hostname, string $script): void
+    {
+        $context = app(EdgeDeliveryContextResolver::class)->forSite($site);
+        $payload = ['runtime_mode' => 'container', 'ssr_worker_script' => $script] + $this->routingPayload($deployment, $site);
+        if (FakeEdgeProvision::enabled()) {
+            $map = Cache::get('edge:fake:host-map', []);
+            $map[strtolower($hostname)] = $payload;
+            Cache::put('edge:fake:host-map', $map, now()->addDay());
+
+            return;
+        }
+        $this->writeKv(strtolower($hostname), $payload, $context);
+    }
+
+    /**
      * @param  array<string, mixed>  $payload
      */
     private function writeKv(string $key, array $payload, EdgeDeliveryContext $context): void

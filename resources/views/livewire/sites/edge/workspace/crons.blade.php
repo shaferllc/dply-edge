@@ -23,10 +23,12 @@
                 @if ($rows === [] && ! $scheduler)
                     {{ $isContainer ? __('Nothing runs on a schedule in this app yet.') : __('Your Worker isn’t called on a schedule yet.') }}
                 @else
-                    {{ __(':used of :max used', ['used' => $usedSchedules, 'max' => $maxSchedules]) }} · {{ __('times are UTC, changes apply on the next deploy.') }}
+                    {{ $isContainer
+                        ? trans_choice(':count task|:count tasks', $usedSchedules).' · '.__('checked every minute, up to :max', ['max' => $maxSchedules])
+                        : __(':used of :max schedules used', ['used' => $usedSchedules, 'max' => $maxSchedules]) }} · {{ __('times are UTC, changes apply on the next deploy.') }}
                 @endif
                 @if ($dropped->isNotEmpty())
-                    <span class="block text-amber-600 dark:text-amber-300">{{ trans_choice(':count won’t run: Cloudflare allows :max schedules per Worker.|:count won’t run: Cloudflare allows :max schedules per Worker.', $dropped->count(), ['max' => $maxSchedules]) }}</span>
+                    <span class="block text-amber-600 dark:text-amber-300">{{ trans_choice(':count won’t run. See the marked row.|:count won’t run. See the marked rows.', $dropped->count()) }}</span>
                 @endif
             </p>
 
@@ -36,12 +38,12 @@
                         <span class="min-w-0 flex-1">
                             <span class="block text-sm font-semibold text-brand-ink">{{ __('Every minute, run') }} <span class="font-mono">schedule:run</span></span>
                             <span class="block text-2xs text-brand-mist">
-                                {{ $schedulerInWorker ? __('Laravel scheduler, in queue worker 0 so the web container isn’t woken.') : __('Laravel scheduler, one schedule slot.') }}
-                                {{ __('Turn it off on the Scheduler / Queue workers box.') }}
+                                {{ $schedulerInWorker ? __('Laravel scheduler, in queue worker 0 so the web container isn’t woken.') : __('Laravel scheduler. The app wakes only when one of its tasks is due.') }}
                             </span>
                         </span>
                         @if ($canRunNow && $canEdit)
-                            <x-sheet.button wire:click="runNow('schedule:run')">{{ __('Run now') }}</x-sheet.button>
+                            <x-sheet.button x-on:click="$dispatch('open-modal', 'edge-cron-run')" wire:click="runNow('schedule:run')">{{ __('Run now') }}</x-sheet.button>
+                            <x-sheet.button variant="danger" x-on:click="$dispatch('edge-scheduler-remove')">{{ __('Remove') }}</x-sheet.button>
                         @endif
                     </div>
                 @endif
@@ -56,12 +58,16 @@
                                 {{ $row['schedule'] }}@unless ($isContainer) · event.cron @endunless · {{ $row['source'] === 'repo' ? $sourcePath : __('dashboard') }}
                             </span>
                             @if ($row['dropped'])
-                                <span class="block text-2xs text-amber-600 dark:text-amber-300">{{ __('Won’t run — over the :max-schedule limit.', ['max' => $maxSchedules]) }}</span>
+                                <span class="block text-2xs text-amber-600 dark:text-amber-300">{{ $row['dropped_reason'] === 'unsupported'
+                                    ? __('Won’t run: use numbers, *, ranges, lists, steps and names like MON. L, W, # and ? aren’t supported.')
+                                    : ($isContainer
+                                        ? __('Won’t run: an app runs up to :max scheduled tasks.', ['max' => $maxSchedules])
+                                        : __('Won’t run: Cloudflare allows :max schedules per Worker.', ['max' => $maxSchedules])) }}</span>
                             @endif
                         </span>
                         <span class="flex shrink-0 items-center gap-1.5">
                             @if ($canRunNow && $canEdit && $row['handler'])
-                                <x-sheet.button wire:click="runNow(@js($row['handler']))">{{ __('Run now') }}</x-sheet.button>
+                                <x-sheet.button x-on:click="$dispatch('open-modal', 'edge-cron-run')" wire:click="runNow({{ \Illuminate\Support\Js::from($row['handler']) }})">{{ __('Run now') }}</x-sheet.button>
                             @endif
                             @if ($row['index'] !== null && $canEdit)
                                 <x-sheet.button wire:click="editCron({{ $row['index'] }})">{{ __('Edit') }}</x-sheet.button>
@@ -292,10 +298,33 @@ crons:
     <x-sheet name="edge-cron-run" maxWidth="xl">
         <x-sheet.header :eyebrow="__('Scheduled tasks')" :title="__('Run :command', ['command' => (string) $runCommand])" />
         <x-sheet.body>
-            @if ($runOutput === null)
-                <p class="inline-flex items-center gap-2 text-sm text-brand-moss"><x-spinner size="sm" variant="muted" />{{ __('Running in the live app…') }}</p>
-            @else
-                <pre class="max-h-96 overflow-auto rounded-lg bg-brand-sand/15 p-3 font-mono text-xs leading-relaxed text-brand-ink dark:bg-zinc-950">{{ $runOutput }}</pre>
+            {{-- The sheet opens on click; this shows until the app answers (a sleeping app wakes first). --}}
+            <p wire:loading.flex wire:target="runNow,runWithArgs" class="items-center gap-2 text-sm text-brand-moss"><x-spinner size="sm" variant="muted" />{{ __('Running in the live app… (wakes it if asleep)') }}</p>
+            <div wire:loading.remove wire:target="runNow,runWithArgs">
+                @if ($runOutput === null)
+                    <p class="inline-flex items-center gap-2 text-sm text-brand-moss"><x-spinner size="sm" variant="muted" />{{ __('Running in the live app…') }}</p>
+                @else
+                    <pre class="max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-brand-sand/15 p-3 font-mono text-xs leading-relaxed text-brand-ink dark:bg-zinc-950 dark:text-raw-zinc-200">{{ $runOutput }}</pre>
+                @endif
+            </div>
+
+            {{-- The command said which arguments it is missing: ask for them. --}}
+            @if ($runArgs !== [])
+                <form wire:submit="runWithArgs" class="mt-4 grid gap-3">
+                    <p class="text-sm text-brand-ink">{{ __(':command needs these to run:', ['command' => $runCommand]) }}</p>
+                    @foreach (array_keys($runArgs) as $argName)
+                        <x-sheet.field :label="$argName" :for="'run-arg-'.$argName">
+                            <input id="run-arg-{{ $argName }}" type="text" wire:model="runArgs.{{ $argName }}" autocomplete="off" class="dply-input font-mono" @if ($loop->first) autofocus @endif />
+                        </x-sheet.field>
+                    @endforeach
+                    <div class="flex flex-wrap items-center gap-2">
+                        <x-sheet.button variant="primary" type="submit" wire:loading.attr="disabled" wire:target="runWithArgs">{{ __('Run with these') }}</x-sheet.button>
+                        @if ($runIsDashboardTask)
+                            <x-sheet.button type="button" wire:click="saveArgsToTask">{{ __('Save to the task') }}</x-sheet.button>
+                            <span class="text-2xs text-brand-mist">{{ __('so the scheduled run has them too') }}</span>
+                        @endif
+                    </div>
+                </form>
             @endif
         </x-sheet.body>
     </x-sheet>

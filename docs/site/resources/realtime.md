@@ -221,7 +221,7 @@ This bills at the invoice line **Realtime**. Connections per app are capped by p
 | Build timeout | 20 min | 45 min | 60 min |
 | Custom domains (per organization) | 3 | 20 | 100 |
 | Container app instances | 1 per app | Autoscaling | Autoscaling |
-| Queue workers per app | 1 | 5, autoscaling | 10, autoscaling |
+| Queue workers per app | 1, starts when jobs arrive | 5, autoscaling | 10, autoscaling |
 | SQL databases (D1) | 2 | 10 | 50 |
 | Queues | 2 | 10 | 50 |
 | Realtime connections per app | 200 | 1,000 | 5,000 |

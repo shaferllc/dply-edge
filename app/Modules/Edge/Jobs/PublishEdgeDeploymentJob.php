@@ -18,6 +18,7 @@ use App\Modules\Edge\Services\EdgeTestingHostnameProvisioner;
 use App\Modules\Edge\Services\EnsureEdgeRepoDomains;
 use App\Modules\Edge\Services\OriginHealthcheckRunner;
 use App\Modules\Edge\Support\EdgeContainerConnections;
+use App\Modules\Edge\Support\EdgeDeployProgress;
 use App\Modules\Edge\Support\FakeEdgeProvision;
 use App\Modules\Notifications\Services\NotificationPublisher;
 use App\Support\DplyRuntime;
@@ -75,6 +76,12 @@ class PublishEdgeDeploymentJob implements ShouldQueue
             return;
         }
 
+        // Which process runs this, so a restart that kills it fails the deploy
+        // in a minute (CancelStuckEdgeDeployment::reapOrphaned), not at the timeout.
+        if ($deployment !== null) {
+            EdgeDeployProgress::setMeta((string) $deployment->id, 'worker', gethostname().'|'.getmypid().'|'.time());
+            $deployment->refresh(); // later meta saves from this copy keep it
+        }
         $site = Site::find($deployment->site_id);
         if ($site === null) {
             $this->cleanupLocalArtifact();
