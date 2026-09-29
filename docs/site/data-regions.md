@@ -20,7 +20,7 @@ Most of what dply serves is global: your built files and routing are replicated 
 
 ## Container app placement
 
-Container apps run on Cloudflare Containers, in one of Cloudflare's placement regions. Set placement in **Overview** → **App** card → **Sleep, region, scheduler**:
+Container apps run on Cloudflare Containers, in one of Cloudflare's placement regions. Set placement in **Overview** → **App** card → **Sleep, scaling, region**:
 
 | **Run only in** | Regions allowed |
 |---|---|

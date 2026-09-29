@@ -39,7 +39,7 @@ Organization channels are the better default for shared alerts. They survive peo
 3. Pick a **Type**, give the channel a **Label** you'll recognize later, and fill in the destination.
 4. Choose **Create channel**.
 
-You can also create a channel without leaving an app: on the app's **Alerts** page, choose **Create a channel**.
+You can also create a channel without leaving an app: on the app's **Alerts** page, choose **Add channel**.
 
 ### Microsoft Teams
 

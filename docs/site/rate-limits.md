@@ -12,23 +12,23 @@ Rate limits are about one client sending too much. To cap the total number of pe
 
 ## Add rate limits
 
-1. Open your app and choose **Rate limits**.
-2. Turn **Enable rate limits** on.
-3. For each rule, set:
-   - **Path pattern**: `/api/*`, `/login`, or `/*` for every path.
-   - **Max requests**: requests allowed per IP in the window.
-   - **Window (seconds)**: the length of each counting window. The count starts again at zero when a new window begins.
-   - **When exceeded**: **Block (429)** or **Challenge (bot check)**.
-4. Choose **Add rule** for more rules, then **Save**.
+1. Open your app and choose **Rate limits**. The page opens with a sentence that sums up your rules.
+2. Choose **Add a rule**. Start from **Login**, **API**, **Forms** or **Whole site**, or set:
+   - **On**: the path, such as `/api/*`, `/login`, or `/*` for every path.
+   - **Allow** and **Requests every (seconds)**: how many requests one visitor (IP) gets per window. The count starts again at zero when a new window begins.
+   - **Then**: **Block (HTTP 429)** or **Ask to prove they're human** (a bot check).
 
-Rules take effect within about a minute, with no redeploy. The form starts with a suggested rule, 120 requests per 60 seconds on `/*`, which does nothing until you enable rate limits and save.
+   The dialog reads the rule back to you, for example "about one request a second per visitor; someone sending 2 a second is cut off after about 30 seconds".
+3. Choose **Save**. Your first rule turns rate limits on.
+
+Each rule then shows as a sentence, such as "On /api/*, one visitor gets 60 requests a minute", tagged **Then block** or **Then bot check**. Click one to change or remove it. **Rate limits are on** saves as soon as you tick or untick it. Changes take effect on the next request, with no redeploy.
 
 ### Limits on values
 
 | Setting | Allowed range |
 |---------|---------------|
-| **Max requests** | 1 to 10,000 |
-| **Window (seconds)** | 1 to 3,600 |
+| **Allow** | 1 to 10,000 |
+| **Requests every (seconds)** | 1 to 3,600 |
 
 Values outside these ranges are clamped when the rules are published.
 
@@ -76,7 +76,7 @@ Challenge uses your [Bot protection](/docs/bot-protection) keys. Without them, o
 
 ## Seeing rate-limited requests
 
-Open **Security** to see how many requests were rate-limited (HTTP 429) in the last 7 days, and the most recent ones.
+Open **Security** to see how many requests were rate-limited (HTTP 429) in the last 7 days. Choose the stopped-requests row to see the most recent ones.
 
 ## Related
 

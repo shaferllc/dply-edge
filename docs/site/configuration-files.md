@@ -47,7 +47,7 @@ previews:
 Every section is optional. dply validates the file before building:
 
 - **Errors stop the build.** A YAML or JSON syntax error, a file larger than 64 KB, or a file that is empty or holds only comments fails the build with `dply config lint failed: …`.
-- **Warnings do not.** A malformed rule, such as a redirect without `to`, is dropped and listed in the build log as `[dply.yaml] …`. Warnings from the latest deploy also appear on **Build** under **Advanced**.
+- **Warnings do not.** A malformed rule, such as a redirect without `to`, is dropped and listed in the build log as `[dply.yaml] …`. Warnings from the latest deploy also appear on **Build**, in the page's sentence and the file's row.
 - **Unknown keys are ignored** without a warning. Check spelling if a setting seems to have no effect.
 
 Settings in `dply.yaml` apply on each deploy that includes them. To change them, commit the change and deploy.

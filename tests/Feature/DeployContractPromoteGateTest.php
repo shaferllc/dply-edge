@@ -147,3 +147,31 @@ function deployContractPromoteFixtures(): array
 
     return [$user, $server, $parent, $preview];
 }
+
+test('previews read as a sentence, and a live preview opens its dialog and takes a traffic share', function () {
+    [$user, $server, $parent, $preview] = deployContractPromoteFixtures();
+    $preview->mergeEdgeMeta(['preview_pr_number' => 42, 'preview_branch' => 'feature/gate']);
+    $preview->save();
+    EdgeDeployment::query()->create([
+        'site_id' => $preview->id,
+        'organization_id' => $preview->organization_id,
+        'status' => EdgeDeployment::STATUS_LIVE,
+        'git_commit' => 'abc1234567890123456789012345678901234567890',
+        'git_branch' => 'feature/gate',
+        'storage_prefix' => 'edge/preview/live',
+        'published_at' => now(),
+    ]);
+
+    Livewire::actingAs($user)
+        ->test(Previews::class, ['server' => $server, 'site' => $parent])
+        ->assertSee('Every pull request gets its own URL.')
+        ->assertSee('1 preview is live')
+        ->assertSee('Anyone with a link can open them.')
+        ->call('openPreview', (string) $preview->id)
+        ->assertSee('Before you promote')
+        ->assertSee('Promote to production')
+        ->call('setPreviewSplit', (string) $preview->id, 10)
+        ->assertSee('10% of production traffic');
+
+    expect($parent->fresh()->edgeMeta()['split'])->toMatchArray(['enabled' => true, 'percentage' => 10, 'preview_site_id' => (string) $preview->id]);
+});

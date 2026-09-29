@@ -91,7 +91,7 @@ test('edge security section summarizes this app only', function () {
         ->assertSee('edge-app.on-dply.live')
         ->assertSee('www.example.com')
         ->assertSee('TLS active')
-        ->assertSee('1 country blocked')
+        ->assertSee('The firewall blocks visitors from 1 country')
         ->assertSee('Forms only')
         ->assertSee('/secret')
         ->assertDontSee('/ok');

@@ -11,17 +11,17 @@ Forms turns a path on your app, such as `/contact`, into a form endpoint handled
 ## Add a form endpoint
 
 1. Open your app and choose **Forms**.
-2. Turn on **Enable Edge forms**.
-3. Add an endpoint, or choose an example under **Examples**:
+2. Choose **Add a form**, then pick a starter below or **Blank form**.
+3. Fill in the endpoint:
    - **Path**: the path that accepts `POST`, such as `/contact`.
    - **Email to**: the inbox for submissions.
    - **Honeypot field**: the name of a hidden input that real visitors leave empty.
    - **Require bot check**: require a valid Turnstile token.
 4. Choose **Save**.
 
-The endpoint is live within about a minute, with no redeploy. **HTML example** shows form markup built from your first endpoint that you can copy into your site.
+The endpoint is live within about a minute, with no redeploy. Adding a form turns form submissions on. The page lists each endpoint as a sentence, such as "POSTs to /contact go to you@example.com". Click one to edit or remove it. Its **HTML for this form** section shows form markup built from that endpoint's path and honeypot and your app's live hostname, ready to copy into your site. **Accept form submissions on this site** turns every endpoint off or back on, and takes effect right away.
 
-| Example | Path | Honeypot | Bot check |
+| Starter | Path | Honeypot | Bot check |
 |---------|------|----------|-----------|
 | **Contact** | `/contact` | `company` | On |
 | **Newsletter** | `/newsletter` | `website` | On |
@@ -32,7 +32,7 @@ The endpoint is live within about a minute, with no redeploy. **HTML example** s
 
 After a submission passes the honeypot and bot checks, the edge forwards its fields to dply over a signed request. dply then:
 
-- stores the submission and shows the 20 most recent under **Recent submissions** on the app's **Forms** page
+- stores the submission and shows the 20 most recent under **Recent submissions** on the app's **Forms** page, where clicking one shows every field and when it arrived
 - emails the fields to the endpoint's **Email to** address, with the subject `[dply Edge] Form: <app> (<path>)`
 
 The honeypot field and the Turnstile token are removed before the fields are forwarded. The inbox always comes from your saved endpoint settings, never from the request. Each field value is capped at 10,000 characters, a submission at 50 fields, and the forwarded body at 64 KB.
@@ -83,7 +83,7 @@ Send the Turnstile token as `cf-turnstile-response` or `turnstile_token` when **
 | Missing or invalid Turnstile token | 403 | `{"ok":false,"error":"Bot check failed"}` |
 | Body can't be parsed | 400 | `{"ok":false,"error":"Invalid form body"}` |
 | dply refused or couldn't be reached | 502 | `{"ok":false,"error":"Could not deliver form"}` |
-| The app's edge config predates delivery. Choose **Save** on **Forms**, or redeploy. | 503 | `{"ok":false,"error":"Form delivery is not configured"}` |
+| The app's edge config predates delivery. Save any form on **Forms**, or redeploy. | 503 | `{"ok":false,"error":"Form delivery is not configured"}` |
 
 Only `POST` requests are handled. Other methods on the same path go to your app as normal. Endpoints accept `application/x-www-form-urlencoded`, `multipart/form-data` and `application/json`. File uploads are ignored.
 
@@ -102,7 +102,7 @@ forms:
       require_turnstile: true
 ```
 
-Up to 20 endpoints are read from the file. When you choose **Save** on the **Forms** page, the dashboard settings replace the repository's `forms` section.
+Up to 20 endpoints are read from the file. Once you save forms in the dashboard, the dashboard settings replace the repository's `forms` section.
 
 ## Tips
 

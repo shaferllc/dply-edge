@@ -1,118 +1,236 @@
-<div>
+@php
+    use App\Livewire\Sites\Edge\Workspace\Cache;
+    use Illuminate\Support\Js;
+
+    $modes = [
+        'off' => [__('Off'), __('Every request reaches your app.')],
+        'assets' => [__('Static assets'), __('Scripts, styles, images and fonts. Safe for any app.')],
+        'standard' => [__('Follow cache headers'), __('Stores what your app marks public with Cache-Control.')],
+        'everything' => [__('All public pages'), __('Every public GET that returns 200.')],
+    ];
+    // The edge keeps entries for at most a day; longer settings act as 1 day.
+    $edgeLabel = __(Cache::EDGE_TTLS[min((int) $edgeTtl, 86400)] ?? '1 day');
+    $notOnYet = ! $configured && (string) ($site->edgeMeta()['runtime_mode'] ?? 'static') !== 'static';
+    $browserLabel = __(Cache::BROWSER_TTLS[(int) $browserTtl] ?? '1 day');
+    $what = match ($mode) {
+        'assets' => __('static assets (scripts, styles, images, fonts)'),
+        'standard' => __('what your app marks public'),
+        default => __('every public page'),
+    };
+    $canEdit = auth()->user()?->can('update', $site) ?? false;
+    $canPurge = auth()->user()?->can('deploy', $site) ?? false;
+    $row = 'flex min-h-12 w-full items-center gap-3 border-b border-brand-ink/10 py-3 text-left hover:bg-brand-sand/20 disabled:cursor-default disabled:hover:bg-transparent';
+    $state = 'shrink-0 font-mono text-xs text-brand-moss';
+    $close = fn (string $action) => '<button type="button" '.$action.' class="dply-icon-btn h-9 w-9" aria-label="'.e(__('Close')).'">'.svg('heroicon-o-x-mark', 'h-5 w-5', ['aria-hidden' => 'true'])->toHtml().'</button>';
+@endphp
+
+<div wire:init="loadEntries">
     <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
         @include('livewire.sites.edge.workspace.partials.feature-guide', [
             'what' => __('The edge cache stores public responses so the next visit does not wait on the app. Hashed files such as JavaScript, CSS, and images are kept. HTML that sets a session cookie is not.'),
             'steps' => [
-                __('A public GET that returns 200 with a cache lifetime is stored.'),
-                __('The next matching request is served from that copy.'),
+                __('Read the sentence, then click a row to change that setting.'),
+                __('A public GET that returns 200 with a cache lifetime is stored; the next matching request is served from that copy.'),
                 __('Purge a path or a cache tag when you need the following request to fetch a fresh copy.'),
             ],
         ])
+    </section>
 
-        <div class="grid gap-5">
-        <form wire:submit="saveOptions" class="grid gap-4 rounded-2xl border border-brand-ink/10 p-4 dark:border-brand-mist/15">
-            <x-sheet.section :title="__('Cache options')">
-                <p class="text-xs text-brand-moss">{{ __('These apply on the next request after you save. HTML that sets a session cookie is still skipped.') }}</p>
-            </x-sheet.section>
-            <x-sheet.field :label="__('What to store')">
-                <x-sheet.options>
-                    @foreach (['off' => __('Off'), 'assets' => __('Static assets'), 'standard' => __('Honor response cache headers'), 'everything' => __('Public GET responses')] as $value => $label)
-                        <x-sheet.option wire:click="$set('mode', '{{ $value }}')" :selected="$mode === $value" :title="$label" />
-                    @endforeach
-                </x-sheet.options>
-            </x-sheet.field>
-            <x-sheet.field :label="__('Query string')">
-                <x-sheet.segmented>
-                    @foreach (['ignore' => __('Ignore'), 'include' => __('Include in the cache key')] as $value => $label)
-                        <x-sheet.segment wire:click="$set('queryString', '{{ $value }}')" :active="$queryString === $value">{{ $label }}</x-sheet.segment>
-                    @endforeach
-                </x-sheet.segmented>
-            </x-sheet.field>
-            <div class="grid gap-3 sm:grid-cols-2">
-                <x-sheet.field :label="__('Edge TTL')" for="cache-edge-ttl">
-                    <select id="cache-edge-ttl" wire:model="edgeTtl" class="dply-input mt-0">
-                        @foreach (['60' => __('1 minute'), '300' => __('5 minutes'), '3600' => __('1 hour'), '14400' => __('4 hours'), '86400' => __('1 day'), '604800' => __('7 days'), '2592000' => __('30 days'), '31536000' => __('1 year')] as $value => $label)
-                            <option value="{{ $value }}" @selected($edgeTtl === (string) $value)>{{ $label }}</option>
-                        @endforeach
-                    </select>
-                </x-sheet.field>
-                <x-sheet.field :label="__('Browser TTL')" for="cache-browser-ttl">
-                    <select id="cache-browser-ttl" wire:model="browserTtl" class="dply-input mt-0">
-                        @foreach (['0' => __('Revalidate each visit'), '300' => __('5 minutes'), '3600' => __('1 hour'), '86400' => __('1 day'), '604800' => __('7 days'), '2592000' => __('30 days'), '31536000' => __('1 year')] as $value => $label)
-                            <option value="{{ $value }}" @selected($browserTtl === (string) $value)>{{ $label }}</option>
-                        @endforeach
-                    </select>
-                </x-sheet.field>
-            </div>
-            @can('update', $site)
-                <div>
-                    <x-sheet.button type="submit" variant="primary" wire:loading.attr="disabled" wire:target="saveOptions">
-                        <span wire:loading.remove wire:target="saveOptions">{{ __('Save') }}</span>
-                        <span wire:loading wire:target="saveOptions">{{ __('Saving…') }}</span>
-                    </x-sheet.button>
-                </div>
-            @endcan
-        </form>
+    <section class="space-y-8 border-b border-brand-ink/10 px-5 py-8 sm:px-10 sm:py-10">
+        <div>
+            <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Cache') }}</p>
+            <p class="mt-3 max-w-3xl text-2xl font-medium leading-snug tracking-tight text-brand-ink sm:text-3xl">
+                @if ($notOnYet)
+                    <span class="text-amber-600 dark:text-amber-300">{{ __('The edge cache isn’t on yet, so every request reaches your app.') }}</span>
+                    {{ __('Open a setting below and save it to turn it on.') }}
+                @elseif ($mode === 'off')
+                    {{ __('The edge doesn’t store anything, so every request reaches your app.') }}
+                @elseif ($mode === 'standard')
+                    {{ __('The edge keeps') }} <span class="text-brand-sage">{{ $what }}</span>{{ __(', for as long as your app says.') }}
+                @else
+                    {{ __('The edge keeps') }} <span class="text-brand-sage">{{ $what }}</span> {{ __('for') }} <span class="text-brand-sage">{{ $edgeLabel }}</span>,
+                    {{ (int) $browserTtl === 0 ? __('and browsers check back on every visit.') : __('and browsers keep them for :t.', ['t' => $browserLabel]) }}
+                @endif
+                @if ($entries === null)
+                    <span class="inline-block h-6 w-48 translate-y-1 rounded-md bg-brand-ink/10 align-baseline motion-safe:animate-pulse" aria-label="{{ __('Loading stored copies…') }}"></span>
+                @elseif ($listMessage === '')
+                    @if ($entries === [])
+                        {{ __('Nothing is stored right now.') }}
+                    @else
+                        <span class="text-brand-sage">{{ trans_choice(':count copy is|:count copies are', count($entries), ['count' => count($entries)]) }}</span> {{ __('stored right now.') }}
+                    @endif
+                @endif
+            </p>
+        </div>
 
-        <section class="grid gap-2" wire:init="loadEntries">
-            <div class="flex items-center justify-between gap-3">
-                <h3 class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Stored copies') }}</h3>
-            @can('deploy', $site)
-                    <x-sheet.button
-                        variant="danger"
-                        wire:click="openConfirmActionModal('clearAll', [], {{ \Illuminate\Support\Js::from(__('Clear all cache')) }}, {{ \Illuminate\Support\Js::from(__('Drop every stored copy for this app. The next visit fetches a fresh response.')) }}, {{ \Illuminate\Support\Js::from(__('Clear all')) }}, true)"
-                    >{{ __('Clear all') }}</x-sheet.button>
-            @endcan
-            </div>
-            @if ($entries === null)
-                <p class="text-xs text-brand-mist">{{ __('Loading stored copies…') }}</p>
-            @elseif ($listMessage !== '')
-                <x-sheet.note>{{ $listMessage }}</x-sheet.note>
-            @elseif ($entries === [])
-                <x-sheet.empty :message="__('Nothing stored yet. Cached responses show up here after visitors request them.')" />
+        <div>
+            <p class="border-b border-brand-ink/10 pb-2 text-sm font-semibold text-brand-ink">{{ __('How it’s set') }}</p>
+            @foreach ([
+                'mode' => [$mode === 'off' ? __('Nothing is stored') : ($mode === 'assets' ? __('Only static assets are stored') : ($mode === 'standard' ? __('Responses your app marks public are stored') : __('Every public page is stored'))), $modes[$mode][0]],
+                'edge' => [__('The edge keeps a copy for :t', ['t' => $edgeLabel]), $edgeLabel],
+                'browser' => [(int) $browserTtl === 0 ? __('Browsers check for a fresh copy on every visit') : __('Browsers keep their copy for :t', ['t' => $browserLabel]), $browserLabel],
+                'query' => [$queryString === 'ignore' ? __('/page?a=1 and /page?a=2 share one copy') : __('/page?a=1 and /page?a=2 are stored separately'), $queryString === 'ignore' ? __('Ignored') : __('In the key')],
+            ] as $setting => [$sentence, $value])
+                <button type="button" wire:click="editSetting('{{ $setting }}')" class="{{ $row }}" @disabled(! $canEdit)>
+                    <span class="flex-1 text-sm text-brand-ink sm:text-base">{{ $sentence }}</span>
+                    <span class="{{ $state }}">{{ $value }}</span>
+                    @if ($canEdit)
+                        <x-heroicon-m-chevron-right class="h-4 w-4 shrink-0 text-brand-mist" aria-hidden="true" />
+                    @endif
+                </button>
+            @endforeach
+            <p class="pt-3 text-xs text-brand-moss">{{ __('Pages that set a session cookie are never stored.') }}</p>
+        </div>
+
+        <div>
+            <p class="border-b border-brand-ink/10 pb-2 text-sm font-semibold text-brand-ink">{{ __('Stored copies') }}</p>
+            @if ($listMessage !== '')
+                <div class="border-b border-brand-ink/10 py-3"><x-sheet.note>{{ $listMessage }}</x-sheet.note></div>
             @else
-                <ul class="divide-y divide-brand-ink/10 rounded-xl border border-brand-ink/10 dark:divide-brand-mist/15 dark:border-brand-mist/15">
+                <button type="button" x-on:click="$dispatch('open-modal', 'cache-stored')" class="{{ $row }}" @disabled($entries === null)>
+                    <span class="flex-1 text-sm text-brand-ink sm:text-base">
+                        @if ($entries === null)
+                            <span class="inline-block h-4 w-44 rounded bg-brand-ink/10 align-middle motion-safe:animate-pulse"></span>
+                        @elseif ($entries === [])
+                            {{ __('Nothing stored yet') }}
+                        @else
+                            {{ trans_choice('See the stored copy|See the :count stored copies', count($entries), ['count' => count($entries)]) }}
+                        @endif
+                    </span>
+                    <span class="{{ $state }}">{{ $entries === null ? '' : count($entries) }}</span>
+                    <x-heroicon-m-chevron-right class="h-4 w-4 shrink-0 text-brand-mist" aria-hidden="true" />
+                </button>
+            @endif
+            @if ($canPurge)
+                <button type="button" x-on:click="$dispatch('open-modal', 'cache-purge')" class="{{ $row }}">
+                    <span class="flex-1 text-sm text-brand-ink sm:text-base">{{ __('Purge one path or a cache tag') }}</span>
+                    <x-heroicon-m-chevron-right class="h-4 w-4 shrink-0 text-brand-mist" aria-hidden="true" />
+                </button>
+                <button
+                    type="button"
+                    wire:click="openConfirmActionModal('clearAll', [], {{ Js::from(__('Clear all cache')) }}, {{ Js::from(__('Drop every stored copy for this app. The next visit fetches a fresh response.')) }}, {{ Js::from(__('Clear all')) }}, true)"
+                    class="{{ $row }}"
+                >
+                    <span class="flex-1 text-sm text-rose-600 sm:text-base dark:text-rose-300">{{ __('Clear everything the edge stored') }}</span>
+                    <x-heroicon-m-chevron-right class="h-4 w-4 shrink-0 text-brand-mist" aria-hidden="true" />
+                </button>
+            @endif
+        </div>
+    </section>
+
+    <x-modal name="cache-setting" maxWidth="xl" overlayClass="bg-brand-ink/40" focusable>
+        <form wire:submit="saveOptions" class="space-y-5 p-6 sm:p-7">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <h2 class="text-lg font-semibold text-brand-ink">
+                        {{ match ($editing) { 'edge' => __('How long the edge keeps a copy'), 'browser' => __('How long browsers keep a copy'), 'query' => __('Query strings'), default => __('What the edge keeps') } }}
+                    </h2>
+                    <p class="mt-0.5 text-sm text-brand-moss">{{ __('Applies on the next request after you save.') }}</p>
+                </div>
+                {!! $close('wire:click="closeSetting"') !!}
+            </div>
+
+            @if ($editing === 'edge' || $editing === 'browser')
+                @php $options = $editing === 'edge' ? Cache::EDGE_TTLS : Cache::BROWSER_TTLS; $model = $editing === 'edge' ? 'edgeTtl' : 'browserTtl'; @endphp
+                <x-sheet.field :label="$editing === 'edge' ? __('Keep for') : __('Browsers keep for')" for="cache-ttl">
+                    <select id="cache-ttl" wire:model="{{ $model }}" class="dply-input mt-0">
+                        @foreach ($options as $value => $label)
+                            <option value="{{ $value }}">{{ __($label) }}</option>
+                        @endforeach
+                    </select>
+                </x-sheet.field>
+                <p class="text-xs text-brand-moss">
+                    {{ $editing === 'edge'
+                        ? __('Used when your response doesn’t set its own lifetime. The edge keeps copies for at most 1 day, so longer values act as 1 day. A purge drops a copy early.')
+                        : __('Browsers can’t be purged, so keep this short for anything that changes without a new file name.') }}
+                </p>
+            @elseif ($editing === 'query')
+                <div class="grid gap-2">
+                    @foreach (['ignore' => [__('Ignore them'), __('/page?a=1 and /page?a=2 share one copy. Best for tracking parameters like utm_source.')], 'include' => [__('Include them in the key'), __('Each query string gets its own copy. Use when the query changes the page.')]] as $value => [$title, $help])
+                        <label @class(['flex cursor-pointer items-start gap-3 rounded-xl border px-4 py-3', 'border-brand-sage' => $queryString === $value, 'border-brand-ink/10' => $queryString !== $value])>
+                            <input type="radio" wire:model.live="queryString" value="{{ $value }}" class="mt-1 accent-brand-sage">
+                            <span><span class="block text-sm font-semibold text-brand-ink">{{ $title }}</span><span class="block text-xs text-brand-moss">{{ $help }}</span></span>
+                        </label>
+                    @endforeach
+                </div>
+            @else
+                <div class="grid gap-2">
+                    @foreach ($modes as $value => [$title, $help])
+                        <label @class(['flex cursor-pointer items-start gap-3 rounded-xl border px-4 py-3', 'border-brand-sage' => $mode === $value, 'border-brand-ink/10' => $mode !== $value])>
+                            <input type="radio" wire:model.live="mode" value="{{ $value }}" class="mt-1 accent-brand-sage">
+                            <span><span class="block text-sm font-semibold text-brand-ink">{{ $title }}</span><span class="block text-xs text-brand-moss">{{ $help }}</span></span>
+                        </label>
+                    @endforeach
+                </div>
+                <p class="text-xs text-brand-moss">{{ __('Pages that set a session cookie are never stored.') }}</p>
+            @endif
+
+            <div class="flex justify-end gap-2">
+                <x-sheet.button type="button" wire:click="closeSetting">{{ __('Cancel') }}</x-sheet.button>
+                <x-sheet.button type="submit" variant="primary" wire:loading.attr="disabled" wire:target="saveOptions">
+                    <span wire:loading.remove wire:target="saveOptions">{{ __('Save') }}</span>
+                    <span wire:loading wire:target="saveOptions">{{ __('Saving…') }}</span>
+                </x-sheet.button>
+            </div>
+        </form>
+    </x-modal>
+
+    <x-modal name="cache-stored" maxWidth="2xl" overlayClass="bg-brand-ink/40" focusable>
+        <div class="space-y-4 p-6 sm:p-7">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <h2 class="text-lg font-semibold text-brand-ink">{{ __('Stored copies') }}</h2>
+                    <p class="mt-0.5 text-sm text-brand-moss">{{ __('What the edge serves without asking your app.') }}</p>
+                </div>
+                {!! $close("x-on:click=\"\$dispatch('close-modal', 'cache-stored')\"") !!}
+            </div>
+            @if (($entries ?? []) === [])
+                <p class="text-sm text-brand-moss">{{ __('Nothing stored yet. Cached responses show up here after visitors request them.') }}</p>
+            @else
+                <ul class="max-h-96 divide-y divide-brand-ink/10 overflow-y-auto border-y border-brand-ink/10">
                     @foreach ($entries as $entry)
-                        <li class="flex items-center justify-between gap-3 px-3.5 py-2.5">
-                            <div class="min-w-0">
-                                <p class="truncate font-mono text-xs text-brand-ink">{{ $entry['path'] }}</p>
-                                <p class="text-2xs text-brand-mist">
-                                    @if ($entry['expires_at'])
-                                        {{ __('Expires :time', ['time' => \Illuminate\Support\Carbon::createFromTimestamp($entry['expires_at'])->diffForHumans()]) }}
-                                    @else
-                                        {{ __('No expiry recorded') }}
-                                    @endif
-                                </p>
-                            </div>
-                            @can('deploy', $site)
-                                <x-sheet.button wire:click="purgeStored({{ \Illuminate\Support\Js::from($entry['path']) }})" class="shrink-0">{{ __('Purge') }}</x-sheet.button>
-                            @endcan
+                        <li class="flex items-center gap-3 py-2.5" wire:key="cache-entry-{{ md5($entry['path']) }}">
+                            <span class="min-w-0 flex-1 truncate font-mono text-xs text-brand-ink" title="{{ $entry['path'] }}">{{ $entry['path'] }}</span>
+                            <span class="shrink-0 text-xs text-brand-moss">
+                                {{ $entry['expires_at'] ? __('Expires :time', ['time' => \Illuminate\Support\Carbon::createFromTimestamp($entry['expires_at'])->diffForHumans()]) : __('No expiry recorded') }}
+                            </span>
+                            @if ($canPurge)
+                                <x-sheet.button wire:click="purgeStored({{ Js::from($entry['path']) }})" wire:loading.attr="disabled" class="shrink-0">{{ __('Purge') }}</x-sheet.button>
+                            @endif
                         </li>
                     @endforeach
                 </ul>
             @endif
-        </section>
+        </div>
+    </x-modal>
 
-        <div class="grid gap-4 lg:grid-cols-2">
-            @foreach ([['purgeByPath', 'purgePath', __('Purge a path'), __('Drop the stored copy for one URL path. The next request fetches it again.'), '/build/assets/app.js'], ['purgeByTag', 'purgeTag', __('Purge a tag'), __('Send Cache-Tag: assets on the response, then purge that name. This drops the latest copy stored under the tag.'), 'article-42']] as [$action, $model, $title, $help, $placeholder])
-                <form wire:submit="{{ $action }}" class="grid gap-3 rounded-2xl border border-brand-ink/10 p-4 dark:border-brand-mist/15">
-                    <x-sheet.field :label="$title" :help="$help" for="cache-{{ $model }}">
-                        <div class="flex gap-2">
-                            <input id="cache-{{ $model }}" type="text" wire:model="{{ $model }}" autocomplete="off" spellcheck="false" placeholder="{{ $placeholder }}" class="dply-input mt-0 min-w-0 flex-1 font-mono text-xs" />
-                            @can('deploy', $site)
+    @if ($canPurge)
+        <x-modal name="cache-purge" maxWidth="xl" overlayClass="bg-brand-ink/40" focusable>
+            <div class="space-y-5 p-6 sm:p-7">
+                <div class="flex items-start justify-between gap-4">
+                    <div>
+                        <h2 class="text-lg font-semibold text-brand-ink">{{ __('Purge') }}</h2>
+                        <p class="mt-0.5 text-sm text-brand-moss">{{ __('The next request fetches a fresh copy from your app.') }}</p>
+                    </div>
+                    {!! $close("x-on:click=\"\$dispatch('close-modal', 'cache-purge')\"") !!}
+                </div>
+                @foreach ([['purgeByPath', 'purgePath', __('One path'), __('Drop the stored copy for one URL path.'), '/build/assets/app.js'], ['purgeByTag', 'purgeTag', __('A cache tag'), __('Send Cache-Tag: assets on the response, then purge that name. This drops the latest copy stored under the tag.'), 'article-42']] as [$action, $model, $title, $help, $placeholder])
+                    <form wire:submit="{{ $action }}" class="grid gap-2">
+                        <x-sheet.field :label="$title" :help="$help" for="cache-{{ $model }}">
+                            <div class="flex gap-2">
+                                <input id="cache-{{ $model }}" type="text" wire:model="{{ $model }}" autocomplete="off" spellcheck="false" placeholder="{{ $placeholder }}" class="dply-input mt-0 min-w-0 flex-1 font-mono text-xs" />
                                 <x-sheet.button type="submit" wire:loading.attr="disabled" wire:target="{{ $action }}" class="shrink-0">
                                     <span wire:loading.remove wire:target="{{ $action }}">{{ __('Purge') }}</span>
                                     <span wire:loading wire:target="{{ $action }}">{{ __('Purging…') }}</span>
                                 </x-sheet.button>
-                            @endcan
-                        </div>
-                    </x-sheet.field>
-                    @error($model) <x-sheet.note tone="danger">{{ $message }}</x-sheet.note> @enderror
-                </form>
-            @endforeach
-        </div>
-        </div>
-    </section>
+                            </div>
+                        </x-sheet.field>
+                        @error($model) <x-sheet.note tone="danger">{{ $message }}</x-sheet.note> @enderror
+                    </form>
+                @endforeach
+            </div>
+        </x-modal>
+    @endif
 
     @include('livewire.partials.confirm-action-modal')
 </div>

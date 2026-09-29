@@ -119,7 +119,12 @@ test('deploys table links deployment id to edge deployment detail', function () 
 
     $this->actingAs($user)
         ->get(route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'deploys']))
-        ->assertOk()
+        ->assertOk();
+
+    // The link lives in the deploy's dialog.
+    \Livewire\Livewire::actingAs($user)
+        ->test(\App\Livewire\Sites\Edge\Workspace\Deploys::class, ['server' => $server, 'site' => $site])
+        ->call('openDeploy', (string) $deployment->id)
         ->assertSee(route('sites.edge.deployments.show', [
             'server' => $server,
             'site' => $site,

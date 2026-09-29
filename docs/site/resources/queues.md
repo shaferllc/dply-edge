@@ -39,7 +39,7 @@ Every app a queue is attached to can send to it. Only one app runs its jobs: a C
 - A sleeping queue connection does not make an app the consumer.
 - If no production app consumes the queue, messages wait.
 
-The queue's sheet shows this under **Who runs the jobs** and on the **Consumers** tab.
+The queue's sheet shows this under **Who runs the jobs** and on the **Consumers** tab. Each app's **Jobs** section shows it too: **Runs here**, **Sends to {app}**, or **Nothing runs it**.
 
 ## Delivery settings
 

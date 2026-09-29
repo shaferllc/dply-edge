@@ -180,7 +180,15 @@
                 init() {
                     this.$nextTick(() => document.getElementById('ws-nav-groups')?.remove());
                 },
-                toggle(g) { this.collapsed[g] = ! this.collapsed[g]; localStorage.setItem(this._k, JSON.stringify(this.collapsed)); },
+                {{-- The sidebar is @persist'd, so init() runs once: after a
+                     wire:navigate the pre-boot script below can re-add its
+                     display:none!important style and nothing removes it, which
+                     left collapsed groups impossible to open. Drop it on toggle. --}}
+                toggle(g) {
+                    document.getElementById('ws-nav-groups')?.remove();
+                    this.collapsed[g] = ! this.collapsed[g];
+                    localStorage.setItem(this._k, JSON.stringify(this.collapsed));
+                },
             }"
         >
             {{-- Hide collapsed groups before Alpine boots. x-show starts true

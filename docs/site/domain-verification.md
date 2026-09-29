@@ -50,7 +50,7 @@ www.example.com.                    CNAME  <CNAME target from the row>
 _dply-verify.www.example.com.       TXT    "dply-verify=<token from the row>"
 ```
 
-Then choose **Verify DNS**. When it succeeds, you see "DNS verified — www.example.com is live on Edge."
+Then choose **Check DNS now** (in the domain's dialog). When it succeeds, you see "DNS verified — www.example.com is live on Edge."
 
 ## Apex domains
 
@@ -73,7 +73,7 @@ If `example.com` is an active zone in your organization's Cloudflare account, dp
 ## If your DNS is on Cloudflare
 
 - If your organization has a Cloudflare credential that can see the zone, and the zone is **active**, dply creates the CNAME for you. There's nothing to add by hand. See [Domains](/docs/domains).
-- If you add the CNAME yourself, set it to **DNS only** (gray cloud). A proxied record answers with Cloudflare IP addresses instead of the CNAME, so **Verify DNS** can't see it.
+- If you add the CNAME yourself, set it to **DNS only** (gray cloud). A proxied record answers with Cloudflare IP addresses instead of the CNAME, so **Check DNS now** (in the domain's dialog) can't see it.
 - TXT records are never proxied. Add them as normal TXT records.
 
 ## Check your records from a terminal
@@ -101,7 +101,7 @@ No output means the record is missing, or hasn't propagated yet. Propagation usu
 
 ### "No DNS records found for …"
 
-dply didn't find a CNAME, A or AAAA record for the hostname. Check the record name. A common mistake is entering `www.example.com` in a field that already appends `example.com`, which creates `www.example.com.example.com`. Wait for propagation, then choose **Verify DNS**.
+dply didn't find a CNAME, A or AAAA record for the hostname. Check the record name. A common mistake is entering `www.example.com` in a field that already appends `example.com`, which creates `www.example.com.example.com`. Wait for propagation, then choose **Check DNS now** (in the domain's dialog).
 
 ### "Hostname resolves to …, expected …"
 
@@ -117,7 +117,7 @@ A hostname can belong to only one app across all dply organizations. Remove it f
 
 ### The domain shows Failed after I fixed DNS
 
-dply keeps re-checking a **Failed** domain for 72 hours after you attach it: every 15 minutes for the first hour, hourly for the rest of the first day, then every 6 hours. It turns **Ready** on its own once your records resolve. After 72 hours, or to skip the wait, choose **Verify DNS**.
+dply keeps re-checking a **Failed** domain for 72 hours after you attach it: every 15 minutes for the first hour, hourly for the rest of the first day, then every 6 hours. It turns **Ready** on its own once your records resolve. After 72 hours, or to skip the wait, choose **Check DNS now** (in the domain's dialog).
 
 ### Apex domain won't verify
 

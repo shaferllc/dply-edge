@@ -1,208 +1,253 @@
+{{-- Deploy triggers: one sentence about what starts a deploy, then a row per trigger; each opens a dialog. --}}
 @php
+    use App\Modules\Edge\Support\EdgePreviewPolicy;
+
     $hooks = (! $site->isEdgePreview()) ? $this->edgeDeployHooks() : collect();
+    $canEdit = auth()->user()?->can('update', $site) ?? false;
+    $previews = EdgePreviewPolicy::for($site);
+    $lastEvent = $edgeWebhookLastEventAt ? \Illuminate\Support\Carbon::parse($edgeWebhookLastEventAt) : null;
+    $lastHook = $hooks->filter(fn ($h) => $h->last_used_at)->sortByDesc('last_used_at')->first();
+    $openHook = $openHookId ? $hooks->firstWhere('id', $openHookId) : null;
+    $githubAccounts = collect($linkedSourceControlAccounts ?? [])->filter(fn ($a) => ($a['provider'] ?? '') === 'github');
+    $accountLabel = $githubAccounts->firstWhere('id', $buildForm->edge_webhook_account_id)['label'] ?? null;
+    $pushDeploys = $edgeGithubWebhookConnected && $edgeDeployOnPush;
+    $buildUrl = route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'build']);
+    $row = 'flex min-h-12 w-full items-center gap-3 border-b border-brand-ink/10 py-3 text-left hover:bg-brand-sand/20';
+    $close = fn (string $m) => '<button type="button" x-on:click="$dispatch(\'close-modal\', \''.$m.'\')" class="dply-icon-btn h-9 w-9 shrink-0" aria-label="'.e(__('Close')).'">'.svg('heroicon-o-x-mark', 'h-5 w-5', ['aria-hidden' => 'true'])->toHtml().'</button>';
+    $copy = fn (string $value) => '<button type="button" x-data="{ c: false }" x-on:click="navigator.clipboard.writeText('.e(json_encode($value)).'); c = true; setTimeout(() => c = false, 1500)" class="shrink-0 rounded-md border border-brand-ink/15 px-2 py-1 text-xs font-medium text-brand-moss hover:bg-brand-sand/40"><span x-show="! c">'.e(__('Copy')).'</span><span x-show="c" x-cloak>'.e(__('Copied')).'</span></button>';
 @endphp
 
-{{-- Primary: GitHub auto-deploy status + enable. Hooks next. Manual/notifications under Advanced. --}}
-@if (! $edgeIsPreviewChild)
-    <section class="border-b border-brand-ink/10">
-        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-brand-ink/10 bg-brand-sand/15 px-5 py-3 sm:px-6">
-            <div class="min-w-0">
-                <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('GitHub') }}</p>
-                <p class="mt-0.5 text-sm font-semibold text-brand-ink">
-                    {{ $edgeGithubWebhookConnected ? __('Auto-deploy connected') : __('Auto-deploy off') }}
-                </p>
-                @if ($edgeWebhookLastEventAt)
-                    <p class="mt-0.5 text-xs text-brand-moss">{{ __('Last event :time', ['time' => $edgeWebhookLastEventAt]) }}</p>
+<section class="space-y-8 px-5 py-8 sm:px-10 sm:py-10">
+    <div>
+        <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Deploy triggers') }}</p>
+        <p class="mt-3 max-w-3xl text-2xl font-medium leading-snug tracking-tight text-brand-ink sm:text-3xl">
+            @if ($edgeIsPreviewChild)
+                {{ __('This is a preview. Pushes to its pull request update it.') }}
+            @elseif ($pushDeploys)
+                {{ __('Pushing to') }} <span class="font-mono text-brand-sage">{{ $edgeBranch }}</span>@if ($edgeRepo) {{ __('on :repo', ['repo' => $edgeRepo]) }}@endif {{ __('deploys to production.') }}
+                @if ($previews['enabled']) {{ __('Pull requests get a preview.') }} @endif
+            @elseif ($edgeGithubWebhookConnected)
+                <span class="text-amber-600 dark:text-amber-300">{{ __('GitHub is connected, but pushes don’t deploy:') }}</span> {{ __('Deploy on push is off in Build.') }}
+            @else
+                <span class="text-amber-600 dark:text-amber-300">{{ __('Pushes don’t deploy yet.') }}</span> {{ __('Connect GitHub, or deploy from the dashboard or CLI.') }}
+            @endif
+            @unless ($site->isEdgePreview())
+                @if ($hooks->isNotEmpty())
+                    <span class="text-brand-sage">{{ trans_choice(':count deploy hook|:count deploy hooks', $hooks->count()) }}</span>
+                    {{ $hooks->count() === 1 ? __('can start a deploy too') : __('can start deploys too') }}{{ $lastHook ? __('; the last one fired :when.', ['when' => $lastHook->last_used_at->diffForHumans()]) : __('; none has fired yet.') }}
                 @endif
-            </div>
-            <div class="flex shrink-0 flex-wrap items-center gap-2">
-                @if ($edgeGithubWebhookConnected)
-                    <button
-                        type="button"
-                        wire:click="disableEdgeGithubWebhook"
-                        wire:loading.attr="disabled"
-                        wire:target="disableEdgeGithubWebhook"
-                        class="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-900 shadow-sm hover:bg-rose-50 dark:border-raw-rose-900/40 dark:bg-zinc-900 dark:text-rose-300"
-                    >
-                        {{ __('Disable') }}
-                    </button>
-                @else
-                    <button
-                        type="button"
-                        wire:click="enableEdgeGithubWebhook"
-                        wire:loading.attr="disabled"
-                        wire:target="enableEdgeGithubWebhook"
-                        class="inline-flex items-center gap-1.5 rounded-lg bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-brand-ink/90 disabled:cursor-wait disabled:opacity-60"
-                    >
-                        <x-heroicon-o-bolt class="h-4 w-4" />
-                        <span wire:loading.remove wire:target="enableEdgeGithubWebhook">{{ __('Enable') }}</span>
-                        <span wire:loading wire:target="enableEdgeGithubWebhook">{{ __('Connecting…') }}</span>
-                    </button>
-                @endif
-            </div>
-        </div>
-
-        <div class="space-y-3 px-5 py-4 sm:px-6">
-            <label class="block text-sm">
-                <span class="block text-xs font-semibold uppercase tracking-[0.12em] text-brand-mist">{{ __('Linked GitHub account') }}</span>
-                <select
-                    wire:model.live="buildForm.edge_webhook_account_id"
-                    class="mt-1.5 w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm shadow-sm focus:border-brand-ink focus:ring-1 focus:ring-brand-ink dark:border-brand-mist/20 dark:bg-zinc-900"
-                >
-                    <option value="">{{ __('Select a linked GitHub account…') }}</option>
-                    @foreach (($linkedSourceControlAccounts ?? []) as $account)
-                        @if (($account['provider'] ?? '') === 'github')
-                            <option value="{{ $account['id'] }}">{{ $account['label'] }}</option>
-                        @endif
-                    @endforeach
-                </select>
-            </label>
-            @unless ($edgeGithubWebhookConnected)
-                <x-quick-deploy-oauth-hint provider="github" class="text-xs leading-relaxed text-brand-mist" />
             @endunless
+        </p>
+    </div>
+
+    @unless ($edgeIsPreviewChild)
+        <div>
+            <p class="border-b border-brand-ink/10 pb-2 text-sm font-semibold text-brand-ink">{{ __('GitHub') }}</p>
+            <button type="button" x-on:click="$dispatch('open-modal', 'github-trigger')" class="{{ $row }}">
+                <span class="flex-1 text-sm text-brand-ink sm:text-base">
+                    {{ $edgeGithubWebhookConnected
+                        ? ($edgeRepo ? __('Pushes to :repo reach dply', ['repo' => $edgeRepo]) : __('GitHub pushes reach dply'))
+                        : __('GitHub isn’t connected, so pushes don’t reach dply') }}
+                </span>
+                <span @class(['shrink-0 text-xs', 'text-brand-sage' => $edgeGithubWebhookConnected, 'text-amber-600 dark:text-amber-300' => ! $edgeGithubWebhookConnected])>
+                    {{ $edgeGithubWebhookConnected ? ($lastEvent ? __('On · :when', ['when' => $lastEvent->diffForHumans(short: true)]) : __('On')) : __('Off') }}
+                </span>
+                <x-heroicon-m-chevron-right class="h-4 w-4 shrink-0 text-brand-mist" aria-hidden="true" />
+            </button>
+            <a href="{{ $buildUrl }}" wire:navigate class="{{ $row }}">
+                <span class="flex-1 text-sm text-brand-ink sm:text-base">
+                    {{ $edgeDeployOnPush ? __('A push to :branch deploys it', ['branch' => $edgeBranch]) : __('A push to :branch doesn’t deploy it', ['branch' => $edgeBranch]) }}
+                </span>
+                <span class="shrink-0 text-xs text-brand-moss">{{ __('Build settings') }}</span>
+                <x-heroicon-m-chevron-right class="h-4 w-4 shrink-0 text-brand-mist" aria-hidden="true" />
+            </a>
+            <a href="{{ route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'previews']) }}" wire:navigate class="{{ $row }}">
+                <span class="flex-1 text-sm text-brand-ink sm:text-base">{{ $previews['enabled'] ? __('Each pull request gets its own preview') : __('Pull requests don’t get previews') }}</span>
+                <span class="shrink-0 text-xs text-brand-moss">{{ __('Previews') }}</span>
+                <x-heroicon-m-chevron-right class="h-4 w-4 shrink-0 text-brand-mist" aria-hidden="true" />
+            </a>
         </div>
-    </section>
-@endif
+    @endunless
 
-@if (! $site->isEdgePreview())
-    <section class="border-b border-brand-ink/10">
-        <div class="border-b border-brand-ink/10 bg-brand-sand/15 px-5 py-3 sm:px-6">
-            <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Deploy hooks') }}</p>
-            <p class="mt-0.5 text-xs text-brand-moss">{{ __('POST URLs for CMS publish → redeploy.') }}</p>
-        </div>
-
-        @if ($edge_just_minted_deploy_hook_url !== null)
-            <div class="border-b border-emerald-300/60 bg-emerald-50 px-5 py-3 text-sm text-emerald-950 dark:border-raw-emerald-900/40 dark:bg-raw-emerald-950/30 dark:text-raw-emerald-100 sm:px-6">
-                <p class="font-semibold">{{ __('Copy this URL now — it won’t be shown again.') }}</p>
-                <div class="mt-2 flex flex-wrap items-center gap-2" x-data="{ copied: false }">
-                    <code class="min-w-0 flex-1 break-all rounded-lg bg-white px-3 py-2 font-mono text-xs text-brand-ink shadow-sm dark:bg-zinc-900">{{ $edge_just_minted_deploy_hook_url }}</code>
-                    <button
-                        type="button"
-                        class="rounded-lg border border-emerald-300/60 bg-white px-2.5 py-1.5 text-xs font-semibold text-emerald-900"
-                        @click="navigator.clipboard.writeText(@js($edge_just_minted_deploy_hook_url)); copied = true; setTimeout(() => copied = false, 2000)"
-                    >
-                        <span x-show="!copied">{{ __('Copy') }}</span>
-                        <span x-show="copied" x-cloak>{{ __('Copied') }}</span>
-                    </button>
-                    <button type="button" wire:click="dismissEdgeDeployHookUrl" class="text-xs font-semibold text-emerald-900 hover:underline dark:text-raw-emerald-200">{{ __('Dismiss') }}</button>
-                </div>
-            </div>
-        @endif
-
-        @can('update', $site)
-            <form wire:submit.prevent="mintEdgeDeployHook" class="flex flex-wrap items-end gap-2 border-b border-brand-ink/10 px-5 py-4 sm:px-6">
-                <label class="min-w-[14rem] flex-1">
-                    <span class="block text-xs font-semibold uppercase tracking-[0.12em] text-brand-mist">{{ __('Name') }}</span>
-                    <input
-                        type="text"
-                        wire:model="edge_new_deploy_hook_name"
-                        placeholder="Sanity prod publish"
-                        class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink shadow-sm focus:border-brand-sage focus:ring-1 focus:ring-brand-sage dark:border-brand-mist/20 dark:bg-zinc-900"
-                    />
-                </label>
-                <button
-                    type="submit"
-                    wire:loading.attr="disabled"
-                    wire:target="mintEdgeDeployHook"
-                    class="rounded-lg bg-brand-ink px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-ink/90 disabled:cursor-wait disabled:opacity-60"
-                >
-                    <span wire:loading.remove wire:target="mintEdgeDeployHook">{{ __('Create') }}</span>
-                    <span wire:loading wire:target="mintEdgeDeployHook">{{ __('Creating…') }}</span>
+    @unless ($site->isEdgePreview())
+        <div>
+            <p class="border-b border-brand-ink/10 pb-2 text-sm font-semibold text-brand-ink">{{ __('Deploy hooks') }}</p>
+            @foreach ($hooks as $hook)
+                <button type="button" wire:click="openHook(@js((string) $hook->id))" class="{{ $row }}" wire:key="hook-row-{{ $hook->id }}">
+                    <span class="flex-1 text-sm text-brand-ink sm:text-base">
+                        {{ $hook->last_used_at ? __('“:name” last fired :when', ['name' => $hook->name, 'when' => $hook->last_used_at->diffForHumans()]) : __('“:name” hasn’t fired yet', ['name' => $hook->name]) }}
+                    </span>
+                    <span class="shrink-0 font-mono text-xs text-brand-moss">{{ $hook->token_prefix }}…</span>
+                    <x-heroicon-m-chevron-right class="h-4 w-4 shrink-0 text-brand-mist" aria-hidden="true" />
                 </button>
-            </form>
-        @endcan
+            @endforeach
+            @if ($canEdit)
+                <button type="button" wire:click="openNewHook" class="{{ $row }} font-medium text-brand-sage">
+                    <x-heroicon-m-plus class="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span class="flex-1 text-sm sm:text-base">{{ __('Create a deploy hook') }}</span>
+                </button>
+            @elseif ($hooks->isEmpty())
+                <p class="border-b border-brand-ink/10 py-3 text-sm text-brand-moss">{{ __('No deploy hooks.') }}</p>
+            @endif
+            <p class="pt-3 text-xs text-brand-moss">{{ __('A URL a CMS or script can POST to when content changes. Each POST rebuilds the production branch.') }}</p>
+        </div>
+    @endunless
 
-        @if ($hooks->isEmpty())
-            <div class="px-5 py-5 text-center text-sm text-brand-moss sm:px-6">{{ __('No deploy hooks yet.') }}</div>
-        @else
-            <ul class="divide-y divide-brand-ink/8">
-                @foreach ($hooks as $hook)
-                    <li class="flex flex-wrap items-center justify-between gap-3 px-5 py-3 sm:px-6" wire:key="edge-hook-{{ $hook->id }}">
-                        <div class="min-w-0">
-                            <p class="text-sm font-medium text-brand-ink">{{ $hook->name }}</p>
-                            <p class="mt-0.5 font-mono text-xs text-brand-moss">
-                                {{ $hook->token_prefix }}…
-                                @if ($hook->last_used_at)
-                                    · {{ $hook->last_used_at->diffForHumans() }}
-                                @else
-                                    · {{ __('never fired') }}
-                                @endif
-                            </p>
-                        </div>
-                        @can('update', $site)
-                            <button
-                                type="button"
-                                wire:click="openConfirmActionModal('revokeEdgeDeployHook', @js([(string) $hook->id]), @js(__('Revoke deploy hook')), @js(__('Revoke this deploy hook? The URL will stop working immediately.')), @js(__('Revoke')), true)"
-                                class="text-xs font-medium text-rose-700 hover:text-rose-900 dark:text-rose-400"
-                            >
-                                {{ __('Revoke') }}
-                            </button>
-                        @endcan
-                    </li>
-                @endforeach
-            </ul>
-        @endif
-    </section>
-@endif
-
-@if (! $edgeIsPreviewChild)
-    <details class="group border-b border-brand-ink/10">
-        <summary class="flex cursor-pointer list-none items-center justify-between gap-3 bg-brand-sand/10 px-5 py-3.5 text-sm font-semibold text-brand-ink hover:bg-brand-sand/20 sm:px-6 [&::-webkit-details-marker]:hidden">
-            <span>{{ __('Advanced') }}</span>
-            <x-heroicon-m-chevron-down class="h-4 w-4 text-brand-mist transition group-open:rotate-180" />
-        </summary>
-
-        <div class="space-y-5 border-t border-brand-ink/10 px-5 py-5 sm:px-6" x-data="{ copiedHook: false, copiedSecret: false }">
-            <div>
-                <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Manual webhook') }}</p>
-                <p class="mt-1 text-xs text-brand-moss">{{ __('Use this if you register the GitHub webhook yourself.') }}</p>
-                <div class="mt-3 space-y-3">
-                    <div>
-                        <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Payload URL') }}</p>
-                        <div class="mt-1.5 flex flex-wrap items-center gap-2">
-                            <input type="text" readonly value="{{ $site->edgeGithubHookUrl() }}" class="block min-w-0 flex-1 rounded-lg border border-brand-ink/15 bg-brand-sand/20 px-3 py-2 font-mono text-xs text-brand-ink" onclick="this.select()" />
-                            <button
-                                type="button"
-                                class="inline-flex items-center gap-1 rounded-lg border border-brand-ink/10 bg-white px-3 py-2 text-xs font-medium text-brand-moss hover:bg-brand-sand/40"
-                                @click="navigator.clipboard.writeText(@js($site->edgeGithubHookUrl())); copiedHook = true; setTimeout(() => copiedHook = false, 2000)"
-                            >
-                                <span x-show="!copiedHook">{{ __('Copy') }}</span>
-                                <span x-show="copiedHook" x-cloak>{{ __('Copied') }}</span>
-                            </button>
-                        </div>
-                    </div>
-                    @if ($site->webhook_secret)
-                        <div>
-                            <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Secret') }}</p>
-                            <div class="mt-1.5 flex flex-wrap items-center gap-2">
-                                <input type="password" readonly value="{{ $site->webhook_secret }}" class="block min-w-0 flex-1 rounded-lg border border-brand-ink/15 bg-brand-sand/20 px-3 py-2 font-mono text-xs text-brand-ink" onclick="this.select()" />
-                                <button
-                                    type="button"
-                                    class="inline-flex items-center gap-1 rounded-lg border border-brand-ink/10 bg-white px-3 py-2 text-xs font-medium text-brand-moss hover:bg-brand-sand/40"
-                                    @click="navigator.clipboard.writeText(@js($site->webhook_secret)); copiedSecret = true; setTimeout(() => copiedSecret = false, 2000)"
-                                >
-                                    <span x-show="!copiedSecret">{{ __('Copy') }}</span>
-                                    <span x-show="copiedSecret" x-cloak>{{ __('Copied') }}</span>
-                                </button>
-                            </div>
-                        </div>
-                    @endif
-                </div>
-            </div>
-
+    @unless ($edgeIsPreviewChild)
+        <div>
+            <p class="border-b border-brand-ink/10 pb-2 text-sm font-semibold text-brand-ink">{{ __('More') }}</p>
+            <button type="button" x-on:click="$dispatch('open-modal', 'manual-webhook')" class="{{ $row }}">
+                <span class="flex-1 text-sm text-brand-ink sm:text-base">{{ __('Register the GitHub webhook yourself') }}</span>
+                <span class="shrink-0 text-xs text-brand-moss">{{ __('Manual') }}</span>
+                <x-heroicon-m-chevron-right class="h-4 w-4 shrink-0 text-brand-mist" aria-hidden="true" />
+            </button>
             @if ($site->organization)
-                <div class="border-t border-brand-ink/10 pt-4">
-                    <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Notifications') }}</p>
-                    <p class="mt-1 text-xs text-brand-moss">{{ __('Succeeded / failed Edge deploys use org notification channels.') }}</p>
-                    <a
-                        href="{{ route('organizations.notification-channels', $site->organization) }}"
-                        wire:navigate
-                        class="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-brand-sage hover:underline"
-                    >
-                        {{ __('Manage channels') }} →
-                    </a>
+                <a href="{{ route('organizations.notification-channels', $site->organization) }}" wire:navigate class="{{ $row }}">
+                    <span class="flex-1 text-sm text-brand-ink sm:text-base">{{ __('Get told when a deploy succeeds or fails') }}</span>
+                    <span class="shrink-0 text-xs text-brand-moss">{{ __('Notifications') }}</span>
+                    <x-heroicon-m-chevron-right class="h-4 w-4 shrink-0 text-brand-mist" aria-hidden="true" />
+                </a>
+            @endif
+        </div>
+    @endunless
+</section>
+
+{{-- GitHub auto-deploy --}}
+<x-modal name="github-trigger" maxWidth="xl" overlayClass="bg-brand-ink/40" focusable>
+    <div class="space-y-5 p-6 sm:p-7">
+        <div class="flex items-start justify-between gap-4">
+            <div>
+                <h2 class="text-lg font-semibold text-brand-ink">{{ __('Deploy from GitHub') }}</h2>
+                <p class="mt-0.5 text-sm text-brand-moss">
+                    {{ $edgeGithubWebhookConnected
+                        ? ($lastEvent ? __('Connected. GitHub last sent an event :when.', ['when' => $lastEvent->diffForHumans()]) : __('Connected. No events from GitHub yet.'))
+                        : __('dply adds a webhook to the repository so pushes and pull requests reach it.') }}
+                </p>
+            </div>
+            {!! $close('github-trigger') !!}
+        </div>
+        <x-sheet.field :label="__('Through this GitHub account')" for="gh-account">
+            <select id="gh-account" wire:model.live="buildForm.edge_webhook_account_id" class="dply-input mt-0" @disabled(! $canEdit)>
+                <option value="">{{ __('Select a linked GitHub account…') }}</option>
+                @foreach ($githubAccounts as $account)
+                    <option value="{{ $account['id'] }}">{{ $account['label'] }}</option>
+                @endforeach
+            </select>
+        </x-sheet.field>
+        @unless ($edgeGithubWebhookConnected)
+            <x-quick-deploy-oauth-hint provider="github" class="text-xs leading-relaxed text-brand-mist" />
+        @endunless
+        @if ($canEdit)
+            <div class="flex justify-end gap-2">
+                @if ($edgeGithubWebhookConnected)
+                    <x-sheet.button type="button" variant="danger" wire:click="disableEdgeGithubWebhook" wire:loading.attr="disabled" wire:target="disableEdgeGithubWebhook">{{ __('Disconnect') }}</x-sheet.button>
+                @else
+                    <x-sheet.button type="button" variant="primary" wire:click="enableEdgeGithubWebhook" wire:loading.attr="disabled" wire:target="enableEdgeGithubWebhook">
+                        <span wire:loading.remove wire:target="enableEdgeGithubWebhook">{{ __('Connect') }}</span>
+                        <span wire:loading wire:target="enableEdgeGithubWebhook">{{ __('Connecting…') }}</span>
+                    </x-sheet.button>
+                @endif
+            </div>
+        @endif
+    </div>
+</x-modal>
+
+{{-- One deploy hook --}}
+<x-modal name="deploy-hook" maxWidth="xl" overlayClass="bg-brand-ink/40" focusable>
+    @if ($openHook)
+        <div class="space-y-5 p-6 sm:p-7">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <h2 class="text-lg font-semibold text-brand-ink">“{{ $openHook->name }}”</h2>
+                    <p class="mt-0.5 text-sm text-brand-moss">
+                        {{ $openHook->last_used_at ? __('Last fired :when.', ['when' => $openHook->last_used_at->diffForHumans()]) : __('Hasn’t fired yet.') }}
+                        {{ __('Created :when.', ['when' => $openHook->created_at?->diffForHumans()]) }}
+                    </p>
+                </div>
+                {!! $close('deploy-hook') !!}
+            </div>
+            <p class="text-sm text-brand-moss">{{ __('Its URL starts with :prefix… and was shown once when it was created. Lost it? Revoke this hook and create a new one.', ['prefix' => $openHook->token_prefix]) }}</p>
+            @if ($canEdit)
+                <div class="flex justify-end">
+                    <x-sheet.button type="button" variant="danger" wire:click="revokeOpenHook" wire:confirm="{{ __('Revoke this hook? Its URL stops working immediately.') }}">{{ __('Revoke') }}</x-sheet.button>
                 </div>
             @endif
         </div>
-    </details>
-@endif
+    @endif
+</x-modal>
+
+{{-- Create a deploy hook: name it, then show the URL once --}}
+<x-modal name="deploy-hook-new" maxWidth="xl" overlayClass="bg-brand-ink/40" focusable>
+    <div class="space-y-5 p-6 sm:p-7">
+        @if ($edge_just_minted_deploy_hook_url === null)
+            <form wire:submit="mintEdgeDeployHook" class="space-y-5">
+                <div class="flex items-start justify-between gap-4">
+                    <div>
+                        <h2 class="text-lg font-semibold text-brand-ink">{{ __('Create a deploy hook') }}</h2>
+                        <p class="mt-0.5 text-sm text-brand-moss">{{ __('Name it after what will call it, so you can tell hooks apart later.') }}</p>
+                    </div>
+                    {!! $close('deploy-hook-new') !!}
+                </div>
+                <x-sheet.field :label="__('Name')" for="hook-name">
+                    <input id="hook-name" type="text" wire:model="edge_new_deploy_hook_name" placeholder="Sanity publish" class="dply-input mt-0" autocomplete="off" />
+                </x-sheet.field>
+                <div class="flex justify-end gap-2">
+                    <x-sheet.button type="button" x-on:click="$dispatch('close-modal', 'deploy-hook-new')">{{ __('Cancel') }}</x-sheet.button>
+                    <x-sheet.button type="submit" variant="primary" wire:loading.attr="disabled" wire:target="mintEdgeDeployHook">{{ __('Create') }}</x-sheet.button>
+                </div>
+            </form>
+        @else
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <h2 class="text-lg font-semibold text-brand-ink">{{ __('Your hook is ready') }}</h2>
+                    <p class="mt-0.5 text-sm text-amber-700 dark:text-amber-300">{{ __('Copy the URL now. It won’t be shown again.') }}</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-2 rounded-lg bg-brand-sand/30 px-3 py-2">
+                <code class="min-w-0 flex-1 break-all font-mono text-xs text-brand-ink">{{ $edge_just_minted_deploy_hook_url }}</code>
+                {!! $copy($edge_just_minted_deploy_hook_url) !!}
+            </div>
+            <div>
+                <p class="text-sm font-semibold text-brand-ink">{{ __('Try it') }}</p>
+                <div class="mt-2 flex items-start gap-2 rounded-lg bg-zinc-950 px-3 py-2">
+                    <code class="min-w-0 flex-1 break-all font-mono text-xs text-zinc-200">curl -X POST {{ $edge_just_minted_deploy_hook_url }}</code>
+                    {!! $copy('curl -X POST '.$edge_just_minted_deploy_hook_url) !!}
+                </div>
+                <p class="mt-2 text-xs text-brand-moss">{{ __('Each POST rebuilds the production branch. In your CMS, paste the URL wherever it asks for a webhook or build hook.') }}</p>
+            </div>
+            <div class="flex justify-end">
+                <x-sheet.button type="button" variant="primary" wire:click="dismissEdgeDeployHookUrl" x-on:click="$dispatch('close-modal', 'deploy-hook-new')">{{ __('I’ve copied it') }}</x-sheet.button>
+            </div>
+        @endif
+    </div>
+</x-modal>
+
+{{-- Manual webhook --}}
+<x-modal name="manual-webhook" maxWidth="xl" overlayClass="bg-brand-ink/40" focusable>
+    <div class="space-y-5 p-6 sm:p-7">
+        <div class="flex items-start justify-between gap-4">
+            <div>
+                <h2 class="text-lg font-semibold text-brand-ink">{{ __('Register the GitHub webhook yourself') }}</h2>
+                <p class="mt-0.5 text-sm text-brand-moss">{{ __('Only if you can’t connect an account. In the repository, open Settings → Webhooks → Add webhook, choose application/json, and send push and pull request events.') }}</p>
+            </div>
+            {!! $close('manual-webhook') !!}
+        </div>
+        <div>
+            <p class="text-xs font-semibold text-brand-ink">{{ __('Payload URL') }}</p>
+            <div class="mt-1 flex items-center gap-2 rounded-lg bg-brand-sand/30 px-3 py-2">
+                <code class="min-w-0 flex-1 break-all font-mono text-xs text-brand-ink">{{ $site->edgeGithubHookUrl() }}</code>
+                {!! $copy($site->edgeGithubHookUrl()) !!}
+            </div>
+        </div>
+        @if ($site->webhook_secret && $canEdit)
+            <div x-data="{ show: false }">
+                <p class="text-xs font-semibold text-brand-ink">{{ __('Secret') }}</p>
+                <div class="mt-1 flex items-center gap-2 rounded-lg bg-brand-sand/30 px-3 py-2">
+                    <code class="min-w-0 flex-1 break-all font-mono text-xs text-brand-ink" x-text="show ? @js($site->webhook_secret) : '••••••••••••••••'"></code>
+                    <button type="button" x-on:click="show = ! show" class="shrink-0 text-xs font-medium text-brand-moss hover:underline" x-text="show ? @js(__('Hide')) : @js(__('Show'))"></button>
+                    {!! $copy($site->webhook_secret) !!}
+                </div>
+            </div>
+        @endif
+    </div>
+</x-modal>

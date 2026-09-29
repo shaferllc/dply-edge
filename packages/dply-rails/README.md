@@ -21,7 +21,8 @@ No Sidekiq or worker process to run:
   (Active Job's own `retry_on` still applies first).
 
 Crons added under **Crons** run their handler as a rake task (POST
-`/_dply/schedule` from a Cloudflare Cron Trigger).
+`/_dply/schedule` from a Cloudflare Cron Trigger). **Run now** on the Crons
+tab runs a listed task once in the live app; rake tasks print no output.
 
 ## Key-value store
 

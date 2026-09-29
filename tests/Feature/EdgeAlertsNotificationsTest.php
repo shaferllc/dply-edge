@@ -51,13 +51,21 @@ test('edge alerts page saves channel subscriptions for edge events', function ()
 
     Livewire::actingAs($user)
         ->test(Alerts::class, ['server' => $server, 'site' => $site])
-        ->assertSee('Where alerts go')
-        ->assertSee('Save subscriptions')
+        ->assertSee('No events are routed yet')
+        ->call('editRule', 'rum')
+        ->assertSet('editingRule', 'rum')
         ->set('channelEventSelections', [
             (string) $channel->id => ['edge.deploy.failed', 'edge.rum.breach'],
         ])
-        ->call('saveEdgeAlertNotificationSubscriptions')
-        ->assertHasNoErrors();
+        ->set('lcp_enabled', true)
+        ->set('lcp_threshold', 3000)
+        ->call('saveRule')
+        ->assertHasNoErrors()
+        ->assertSet('editingRule', null)
+        ->assertSee('2 of')
+        ->assertSee('When LCP p75 goes over 3,000 ms');
+
+    expect($site->fresh()->edgeMeta()['alerts']['lcp_p75_ms'])->toBe(['enabled' => true, 'threshold' => 3000]);
 
     $this->assertDatabaseHas('notification_subscriptions', [
         'notification_channel_id' => $channel->id,

@@ -1,14 +1,31 @@
+@php
+    $canEdit = auth()->user()?->can('update', $site) && $managedDelivery;
+    $formPaths = collect($dependents)->where('kind', 'form')->pluck('path');
+    $ratePaths = collect($dependents)->where('kind', 'rate')->pluck('path');
+    $relies = collect([
+        $formPaths->isNotEmpty() ? trans_choice('your :paths form|your :paths forms', $formPaths->count(), ['paths' => $formPaths->implode(', ')]) : null,
+        $ratePaths->isNotEmpty() ? trans_choice(':paths rate limit|:paths rate limits', $ratePaths->count(), ['paths' => $ratePaths->implode(', ')]) : null,
+    ])->filter()->implode(__(' and '));
+    $formsUrl = route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'forms']);
+    $ratesUrl = route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'rate-limits']);
+    $field = 'mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 font-mono text-sm text-brand-ink focus:border-brand-forest focus:ring-brand-forest dark:border-brand-mist/20 dark:bg-zinc-900';
+    $keysLine = match (true) {
+        ! $hasKeys => __('No keys yet'),
+        $keysGenerated && $keysGeneratedAt => __('Keys were generated for this app on :date', ['date' => \Illuminate\Support\Carbon::parse($keysGeneratedAt)->format('M j, Y')]),
+        $keysGenerated => __('Keys were generated for this app'),
+        default => __('Your own keys are in use'),
+    };
+@endphp
+
 <div>
-    {{-- Read-only for anyone who cannot configure this app (org Deployer, app Viewer/Deployer). --}}
-    <fieldset @disabled(! auth()->user()?->can('update', $site)) class="min-w-0">
     <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
         @include('livewire.sites.edge.workspace.partials.feature-guide', [
             'docSlug' => 'bot-protection',
             'what' => __('Bot protection uses a privacy-friendly challenge widget so bots can’t submit forms (or browse pages) as easily as real people.'),
             'steps' => [
-                __('Generate keys for this site (recommended), or paste a site key and secret from your challenge provider.'),
-                __('Pick Forms only (recommended) or All HTML pages, enable, then Save if you edited keys manually.'),
-                __('Dply republishes delivery — the widget appears on matching traffic within about a minute.'),
+                __('Tick “Bot protection is on” — keys are generated for this app if it has none — or paste your own under Keys.'),
+                __('Choose where to check: form posts only (recommended) or every page.'),
+                __('Changes go live on the next request.'),
             ],
             'setupLinks' => $canGenerateKeys ? [] : [
                 [
@@ -26,81 +43,134 @@
         ])
 
         @include('livewire.sites.edge.workspace.partials.managed-only-banner', ['managedDelivery' => $managedDelivery])
-
-        <div class="mt-4 space-y-4" @disabled(! $managedDelivery)>
-            <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-xl border border-brand-ink/10 bg-white px-3 py-2.5">
-                <span class="min-w-0 flex-1 basis-56">
-                    <span class="block text-sm font-medium text-brand-ink">{{ __('Enable bot protection') }}</span>
-                    <span class="mt-0.5 block text-xs leading-relaxed text-brand-moss">{{ __('When on, Edge injects the challenge on the mode you select below.') }}</span>
-                </span>
-                <x-toggle-switch
-                    :enabled="(bool) $enabled"
-                    wire:model.live="enabled" :disabled="! $managedDelivery"
-                    :on-label="__('On')"
-                    :off-label="__('Off')"
-                />
-            </div>
-
-            <div>
-                <x-input-label for="mode" :value="__('Where to challenge')" />
-                <select id="mode" wire:model="mode" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm dark:bg-zinc-900" @disabled(! $managedDelivery)>
-                    <option value="forms">{{ __('Forms only — contact and signup POSTs') }}</option>
-                    <option value="all">{{ __('All HTML pages — every document response') }}</option>
-                </select>
-                <p class="mt-1 text-xs text-brand-moss">{{ __('Start with Forms only unless you’re under heavy automated browsing.') }}</p>
-            </div>
-
-            @if ($canGenerateKeys)
-                <div class="rounded-lg border border-brand-ink/10 bg-brand-sand/20 px-4 py-3 dark:bg-zinc-900/50">
-                    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div class="min-w-0">
-                            <p class="text-sm font-medium text-brand-ink">{{ __('Generate keys') }}</p>
-                            <p class="mt-0.5 text-xs text-brand-moss">{{ __('Create a challenge widget for this site’s Edge hostnames and fill the keys below. Keys are saved and delivery is republished automatically.') }}</p>
-                        </div>
-                        <x-secondary-button
-                            type="button"
-                            class="shrink-0"
-                            wire:click="requestGenerateKeys"
-                            wire:loading.attr="disabled"
-                            :disabled="! $managedDelivery"
-                        >
-                            <span wire:loading.remove wire:target="requestGenerateKeys,generateKeys">{{ __('Generate keys') }}</span>
-                            <span wire:loading wire:target="requestGenerateKeys,generateKeys">{{ __('Generating…') }}</span>
-                        </x-secondary-button>
-                    </div>
-                </div>
-            @endif
-
-            <div>
-                <x-input-label for="site_key" :value="__('Site key (public)')" />
-                <x-text-input id="site_key" wire:model="site_key" type="text" class="mt-1 block w-full font-mono text-sm" placeholder="0x4AAAA…" autocomplete="off" :disabled="! $managedDelivery" />
-                <p class="mt-1 text-xs text-brand-moss">
-                    @if ($canGenerateKeys)
-                        {{ __('Filled by Generate keys, or paste a public site key. Safe to expose in HTML.') }}
-                    @else
-                        {{ __('Paste the public site key from your challenge provider. Safe to expose in HTML.') }}
-                        <a href="https://dash.cloudflare.com/?to=/:account/turnstile" target="_blank" rel="noopener noreferrer" class="font-medium text-brand-sage underline-offset-2 hover:underline">{{ __('Get keys') }}</a>
-                    @endif
-                </p>
-                <x-input-error :messages="$errors->get('site_key')" class="mt-2" />
-            </div>
-
-            <div>
-                <x-input-label for="secret_key" :value="__('Secret key')" />
-                <x-text-input id="secret_key" wire:model="secret_key" type="password" class="mt-1 block w-full font-mono text-sm" autocomplete="new-password" :disabled="! $managedDelivery" />
-                <p class="mt-1 text-xs text-brand-moss">{{ __('Used only on Dply-hosted Edge to verify tokens — never put this in your frontend repo.') }}</p>
-                <x-input-error :messages="$errors->get('secret_key')" class="mt-2" />
-            </div>
-
-            <div class="flex justify-end">
-                <x-primary-button type="button" wire:click="save" wire:loading.attr="disabled" :disabled="! $managedDelivery">
-                    <span wire:loading.remove wire:target="save">{{ __('Save') }}</span>
-                    <span wire:loading wire:target="save">{{ __('Saving…') }}</span>
-                </x-primary-button>
-            </div>
-        </div>
     </section>
 
-    @include('livewire.partials.confirm-action-modal')
-    </fieldset>
+    <section class="space-y-8 border-b border-brand-ink/10 px-5 py-8 sm:px-10 sm:py-10">
+        <div>
+            <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Bot protection') }}</p>
+            <p class="mt-3 max-w-3xl text-2xl font-medium leading-snug tracking-tight text-brand-ink sm:text-3xl">
+                @if (! $enabled)
+                    {{ __('Bot protection is off, so nobody is checked.') }}
+                    @if ($relies !== '')
+                        <span class="text-amber-600 dark:text-amber-300">{{ \Illuminate\Support\Str::ucfirst(__(':who ask for a check, which needs it on.', ['who' => $relies])) }}</span>
+                    @endif
+                @else
+                    {{ __('Visitors are checked') }} <span class="text-brand-sage">{{ $mode === 'all' ? __('on every page') : __('on your forms') }}</span>.
+                    @if ($relies !== '')
+                        {{ \Illuminate\Support\Str::ucfirst(__(':who rely on it.', ['who' => $relies])) }}
+                    @endif
+                @endif
+            </p>
+        </div>
+
+        <div>
+            <p class="border-b border-brand-ink/10 pb-2 text-sm font-semibold text-brand-ink">{{ __('Settings') }}</p>
+            @foreach ([
+                'mode' => [$mode === 'all' ? __('Check visitors on every page') : __('Check visitors on form posts only'), $mode === 'all' ? __('Every page') : __('Forms only')],
+                'keys' => [$keysLine, $hasKeys ? __('Ready') : __('Missing')],
+            ] as $key => [$sentence, $state])
+                <div class="border-b border-brand-ink/10" wire:key="bot-{{ $key }}">
+                    @if ($canEdit)
+                        <button type="button" wire:click="editSetting('{{ $key }}')" class="flex min-h-12 w-full items-center gap-3 py-3 text-left hover:bg-brand-sand/20">
+                            <span class="flex-1 text-sm text-brand-ink sm:text-base">{{ $sentence }}</span>
+                            <span @class(['shrink-0 text-xs', 'text-brand-moss' => $key !== 'keys' || $hasKeys, 'text-amber-600 dark:text-amber-300' => $key === 'keys' && ! $hasKeys])>{{ $state }}</span>
+                            <x-heroicon-m-chevron-right class="h-4 w-4 shrink-0 text-brand-mist" aria-hidden="true" />
+                        </button>
+                    @else
+                        <div class="flex min-h-12 items-center gap-3 py-3">
+                            <span class="flex-1 text-sm text-brand-ink sm:text-base">{{ $sentence }}</span>
+                            <span class="shrink-0 text-xs text-brand-moss">{{ $state }}</span>
+                        </div>
+                    @endif
+                </div>
+            @endforeach
+            <label class="flex min-h-12 cursor-pointer items-center gap-3 border-b border-brand-ink/10 py-3">
+                <span class="flex-1">
+                    <span class="block text-sm text-brand-ink sm:text-base">{{ __('Bot protection is on') }}</span>
+                    <span class="mt-0.5 block text-xs text-brand-moss">{{ $canGenerateKeys && ! $hasKeys ? __('Saves right away. Keys are generated for this app when you turn it on.') : __('Saves right away.') }}</span>
+                </span>
+                <input type="checkbox" wire:model.live="enabled" @disabled(! $canEdit) class="h-4 w-4 rounded border-brand-ink/30 text-brand-forest focus:ring-brand-forest" />
+            </label>
+        </div>
+
+        @if ($dependents !== [])
+            <div>
+                <p class="border-b border-brand-ink/10 pb-2 text-sm font-semibold text-brand-ink">{{ __('Also uses it') }}</p>
+                @foreach ($dependents as $d)
+                    <a href="{{ $d['kind'] === 'form' ? $formsUrl : $ratesUrl }}" wire:navigate class="flex min-h-12 items-center gap-3 border-b border-brand-ink/10 py-3 hover:bg-brand-sand/20">
+                        <span class="flex-1 text-sm text-brand-ink sm:text-base">
+                            @if ($d['kind'] === 'form')
+                                {{ __('The') }} <span class="font-mono">{{ $d['path'] }}</span> {{ __('form rejects posts without a passed check') }}
+                            @else
+                                {{ __('Past its limit,') }} <span class="font-mono">{{ $d['path'] }}</span> {{ __('asks visitors to prove they’re human') }}
+                            @endif
+                        </span>
+                        <span class="shrink-0 text-xs font-medium text-brand-sage">{{ $d['kind'] === 'form' ? __('Forms') : __('Rate limits') }}</span>
+                    </a>
+                @endforeach
+            </div>
+        @endif
+    </section>
+
+    <x-modal name="edge-bot-protection" maxWidth="xl" overlayClass="bg-brand-ink/40" focusable>
+        @if ($editingSetting)
+            <div class="space-y-5 p-6 sm:p-7">
+                <div class="flex items-start justify-between gap-4">
+                    <h2 class="text-lg font-semibold text-brand-ink">{{ $editingSetting === 'mode' ? __('Where to check') : __('Keys') }}</h2>
+                    <button type="button" wire:click="closeSetting" class="dply-icon-btn h-9 w-9" aria-label="{{ __('Close') }}">
+                        <x-heroicon-o-x-mark class="h-5 w-5" aria-hidden="true" />
+                    </button>
+                </div>
+
+                @if ($editingSetting === 'mode')
+                    <fieldset class="space-y-2">
+                        @foreach (['forms' => [__('Form posts only'), __('Contact and signup posts. Recommended for most sites.')], 'all' => [__('Every page'), __('Every HTML page. For when bots are browsing heavily.')]] as $value => [$label, $desc])
+                            <label @class(['flex cursor-pointer items-start gap-3 rounded-lg border px-4 py-3', 'border-brand-sage bg-brand-sage/5' => $mode === $value, 'border-brand-ink/10 hover:border-brand-ink/25' => $mode !== $value])>
+                                <input type="radio" wire:model.live="mode" value="{{ $value }}" class="mt-0.5 h-4 w-4 border-brand-ink/30 text-brand-forest focus:ring-brand-forest" />
+                                <span>
+                                    <span class="block text-sm font-semibold text-brand-ink">{{ $label }}</span>
+                                    <span class="block text-xs text-brand-moss">{{ $desc }}</span>
+                                </span>
+                            </label>
+                        @endforeach
+                    </fieldset>
+                @else
+                    @if ($canGenerateKeys)
+                        <div class="flex items-center justify-between gap-3 rounded-lg bg-brand-sand/25 px-4 py-3">
+                            <span>
+                                <span class="block text-sm font-semibold text-brand-ink">{{ $keysGenerated ? __('Generated by dply') : __('Let dply generate keys') }}</span>
+                                <span class="block text-xs text-brand-moss">{{ __('Made for this app’s addresses. Saved and live right away.') }}</span>
+                            </span>
+                            <button type="button" wire:click="generateKeys" @if ($hasKeys) wire:confirm="{{ __('Replace the current keys with new ones?') }}" @endif wire:loading.attr="disabled" wire:target="generateKeys" class="shrink-0 rounded-lg border border-brand-ink/15 px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-brand-sand/40">
+                                {{ $hasKeys ? __('Regenerate') : __('Generate keys') }}
+                            </button>
+                        </div>
+                        <p class="text-xs text-brand-moss">{{ __('Or use keys from your own challenge provider account:') }}</p>
+                    @else
+                        <p class="text-xs text-brand-moss">
+                            {{ __('Paste keys from your challenge provider.') }}
+                            <a href="https://dash.cloudflare.com/?to=/:account/turnstile" target="_blank" rel="noopener noreferrer" class="font-medium text-brand-sage hover:underline">{{ __('Get keys') }}</a>
+                        </p>
+                    @endif
+                    <div>
+                        <x-input-label for="bot-site-key" :value="__('Site key (public)')" />
+                        <input id="bot-site-key" type="text" wire:model="site_key" autocomplete="off" class="{{ $field }}" />
+                        <p class="mt-1 text-xs text-brand-mist">{{ __('Safe to show in your HTML.') }}</p>
+                        <x-input-error :messages="$errors->get('site_key')" class="mt-1" />
+                    </div>
+                    <div>
+                        <x-input-label for="bot-secret-key" :value="__('Secret key')" />
+                        <input id="bot-secret-key" type="password" wire:model="secret_key" autocomplete="off" class="{{ $field }}" />
+                        <p class="mt-1 text-xs text-brand-mist">{{ __('Stays on dply to verify checks. Never put it in your frontend code.') }}</p>
+                        <x-input-error :messages="$errors->get('secret_key')" class="mt-1" />
+                    </div>
+                @endif
+
+                <div class="flex justify-end gap-2">
+                    <button type="button" wire:click="closeSetting" class="rounded-lg border border-brand-ink/15 px-4 py-2 text-sm font-medium text-brand-ink hover:bg-brand-sand/40">{{ __('Cancel') }}</button>
+                    <x-primary-button type="button" wire:click="saveSetting" wire:loading.attr="disabled" wire:target="saveSetting">{{ __('Save') }}</x-primary-button>
+                </div>
+            </div>
+        @endif
+    </x-modal>
 </div>

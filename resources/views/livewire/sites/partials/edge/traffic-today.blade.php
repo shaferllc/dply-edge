@@ -22,19 +22,15 @@
     ];
 @endphp
 
-<section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
-    <div class="flex flex-wrap items-baseline justify-between gap-2">
-        <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Today') }}</p>
-        <p class="text-xs text-brand-mist">{{ __('UTC') }}</p>
-    </div>
-    <p class="mt-1 text-xs text-brand-moss">{{ __('Same-day requests counted at the edge. Daily charts above still update the next day.') }}</p>
+{{-- Body of the Traffic page's "Today" modal. --}}
+<div>
 
     @if (! $todayAvailable)
-        <p class="mt-3 text-sm text-brand-moss">{{ __('Same-day totals are not available yet.') }}</p>
+        <p class="text-sm text-brand-moss">{{ __('Same-day totals are not available yet.') }}</p>
     @elseif ($todayRequests < 1)
-        <p class="mt-3 text-sm text-brand-moss">{{ __('No requests yet today.') }}</p>
+        <p class="text-sm text-brand-moss">{{ __('No requests yet today.') }}</p>
     @else
-        <dl class="mt-4 grid grid-cols-2 gap-3">
+        <dl class="grid grid-cols-2 gap-3">
             <div>
                 <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Requests today') }}</dt>
                 <dd class="mt-1 text-xl font-semibold tabular-nums text-brand-ink">{{ number_format($todayRequests) }}</dd>
@@ -88,4 +84,4 @@
             </div>
         @endif
     @endif
-</section>
+</div>

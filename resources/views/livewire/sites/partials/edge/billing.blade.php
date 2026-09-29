@@ -1,115 +1,138 @@
 @php
     $billing = $edgeSiteBilling ?? null;
     $showBilling = ($edgeUsageBillingEnabled ?? false) || (($edgeManagedFee ?? 0) > 0) || $billing !== null;
-    $maxRequests = max(1, collect($billing['daily'] ?? [])->max('requests') ?? 1);
-    $maxEgress = max(1, collect($billing['daily'] ?? [])->max('bytes_egress') ?? 1);
+    $money = static fn (int|float $cents): string => '$'.number_format($cents / 100, 2);
 @endphp
 
 @if (! $showBilling)
     <p class="px-5 py-10 text-center text-sm text-brand-moss sm:px-6">{{ __('Billing details for this Edge site are not available yet.') }}</p>
 @else
     <div>
-        @include('livewire.sites.partials.edge.guardrail-card')
-
         @if ($billing !== null)
-            <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
-                <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('This site') }}</p>
-                <dl class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                    <div>
-                        <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Usage this period') }}</dt>
-                        <dd class="mt-1 text-xl font-semibold tabular-nums text-brand-ink">${{ number_format(($billing['usage_cents'] ?? 0) / 100, 2) }}</dd>
-                    </div>
-                    <div>
-                        <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Requests') }}</dt>
-                        <dd class="mt-1 text-xl font-semibold tabular-nums text-brand-ink">{{ number_format($billing['requests'] ?? 0) }}</dd>
-                    </div>
-                    <div>
-                        <dt class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Egress') }}</dt>
-                        <dd class="mt-1 text-xl font-semibold tabular-nums text-brand-ink">{{ number_format(($billing['bytes_egress'] ?? 0) / (1024 ** 3), 2) }} GB</dd>
-                    </div>
-                </dl>
+            @php
+                // Plain-language summary: this site's usage, then how it sits against the
+                // workspace's included usage credit (org-wide, applied at invoice time).
+                $orgState = app(\App\Modules\Billing\Services\OrganizationBillingStateComputer::class)->compute($site->organization);
+                $siteCents = (int) ($billing['usage_cents'] ?? 0);
+                $orgCents = max($siteCents, $orgState->usageLineCents());
+                $creditCents = $orgState->usageCreditCents;
+                $periodStart = $orgState->edgeUsageEstimate['period_start'] ?? null;
+                $periodEnd = $orgState->edgeUsageEstimate['period_end'] ?? null;
 
-                <div class="mt-4">@include('livewire.billing.partials.edge-site-usage-lines', ['billing' => $billing])</div>
-                <p class="mt-3 text-xs text-brand-moss">{{ __('Customer price before your plan’s included usage credit. Databases are billed per project, on the org billing page.') }}</p>
-            </section>
+                $items = collect([[
+                    'label' => __('Delivery'),
+                    'detail' => __(':r requests · :e GB egress', ['r' => number_format($billing['requests'] ?? 0), 'e' => number_format(($billing['bytes_egress'] ?? 0) / (1024 ** 3), 2)])
+                        .(($billing['r2_storage_bytes'] ?? 0) > 0 ? ' · '.__(':s GB storage', ['s' => number_format($billing['r2_storage_bytes'] / (1024 ** 3), 2)]) : ''),
+                    'cents' => (int) ($billing['delivery_cents'] ?? 0),
+                ]])->concat($billing['lines'] ?? []);
 
-            @if (($billing['daily'] ?? []) !== [])
-                @php
-                    $billingDaily = $billing['daily'];
-                    $billingLastIdx = count($billingDaily) - 1;
-                    $billingMidIdx = (int) floor($billingLastIdx / 2);
-                    $maxEgressMb = ($maxEgress / (1024 ** 2));
-                @endphp
-                <div class="grid border-b border-brand-ink/10 lg:grid-cols-2 lg:divide-x lg:divide-brand-ink/10">
-                    <section class="px-5 py-4 sm:px-6">
-                        <div class="flex items-baseline justify-between gap-2">
-                            <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Daily requests') }}</p>
-                            <span class="font-mono text-2xs text-brand-mist">{{ __('max :n', ['n' => number_format((int) $maxRequests)]) }}</span>
-                        </div>
-                        <div class="mt-3 flex h-20 items-end gap-0.5">
-                            @foreach ($billingDaily as $day)
-                                <div class="group relative flex h-full min-w-0 flex-1 cursor-help items-end">
-                                    <div
-                                        class="w-full rounded-t bg-brand-sage/70 transition-colors group-hover:bg-brand-forest"
-                                        style="height: {{ max(4, round(($day['requests'] / $maxRequests) * 100)) }}%"
-                                    ></div>
-                                    <div class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 hidden -translate-x-1/2 whitespace-nowrap rounded bg-brand-ink px-2 py-1 text-xs font-medium text-white shadow-lg group-hover:block">
-                                        <span class="font-semibold">{{ $day['label'] ?? '' }}</span> · {{ number_format($day['requests'] ?? 0) }}
-                                    </div>
-                                </div>
-                            @endforeach
-                        </div>
-                        <div class="mt-2 flex justify-between text-2xs text-brand-mist">
-                            <span>{{ $billingDaily[0]['label'] ?? '' }}</span>
-                            @if ($billingMidIdx > 0 && $billingMidIdx < $billingLastIdx)
-                                <span>{{ $billingDaily[$billingMidIdx]['label'] ?? '' }}</span>
-                            @endif
-                            @if ($billingLastIdx > 0)
-                                <span>{{ $billingDaily[$billingLastIdx]['label'] ?? '' }}</span>
-                            @endif
-                        </div>
-                    </section>
+                $top = $items->sortByDesc('cents')->first();
+                $mix = match (true) {
+                    $siteCents <= 0 || $top === null => '',
+                    $top['cents'] >= $siteCents => __(' — all of it :label', ['label' => \Illuminate\Support\Str::lower($top['label'])]),
+                    $top['cents'] * 2 > $siteCents => __(' — mostly :label', ['label' => \Illuminate\Support\Str::lower($top['label'])]),
+                    default => '',
+                };
+                $creditSentence = match (true) {
+                    $creditCents <= 0 => __('Usage is billed on the organization plan.'),
+                    $orgCents <= $creditCents => __('Your :plan plan’s usage credit covers it, so you won’t be charged for it.', ['plan' => $orgState->planLabel]),
+                    default => __('Your workspace is past its :plan usage credit, so usage from here is billed at the end of the period.', ['plan' => $orgState->planLabel]),
+                };
+                $sitePct = $creditCents > 0 ? min(100, $siteCents / $creditCents * 100) : 0;
+                $othersPct = $creditCents > 0 ? min(100 - $sitePct, ($orgCents - $siteCents) / $creditCents * 100) : 0;
 
-                    <section class="border-t border-brand-ink/10 px-5 py-4 sm:px-6 lg:border-t-0">
-                        <div class="flex items-baseline justify-between gap-2">
-                            <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Daily egress') }}</p>
-                            <span class="font-mono text-2xs text-brand-mist">{{ __('max :n MB', ['n' => number_format($maxEgressMb, 1)]) }}</span>
-                        </div>
-                        <div class="mt-3 flex h-20 items-end gap-0.5">
-                            @foreach ($billingDaily as $day)
-                                <div class="group relative flex h-full min-w-0 flex-1 cursor-help items-end">
-                                    <div
-                                        class="w-full rounded-t bg-sky-500/70 transition-colors group-hover:bg-sky-600"
-                                        style="height: {{ max(4, round(($day['bytes_egress'] / $maxEgress) * 100)) }}%"
-                                    ></div>
-                                    <div class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 hidden -translate-x-1/2 whitespace-nowrap rounded bg-brand-ink px-2 py-1 text-xs font-medium text-white shadow-lg group-hover:block">
-                                        <span class="font-semibold">{{ $day['label'] ?? '' }}</span> · {{ number_format(($day['bytes_egress'] ?? 0) / (1024 ** 2), 1) }} MB
-                                    </div>
-                                </div>
-                            @endforeach
-                        </div>
-                        <div class="mt-2 flex justify-between text-2xs text-brand-mist">
-                            <span>{{ $billingDaily[0]['label'] ?? '' }}</span>
-                            @if ($billingMidIdx > 0 && $billingMidIdx < $billingLastIdx)
-                                <span>{{ $billingDaily[$billingMidIdx]['label'] ?? '' }}</span>
-                            @endif
-                            @if ($billingLastIdx > 0)
-                                <span>{{ $billingDaily[$billingLastIdx]['label'] ?? '' }}</span>
-                            @endif
-                        </div>
-                    </section>
+                $guardrail = $site->edgeGuardrail();
+                $billingDaily = $billing['daily'] ?? [];
+            @endphp
+
+            <section class="space-y-8 px-5 py-8 sm:px-10 sm:py-10">
+                <div>
+                    <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">
+                        {{ __('Usage this period') }}
+                        @if ($periodStart && $periodEnd)
+                            · {{ \Illuminate\Support\Carbon::parse($periodStart)->format('M j') }} – {{ \Illuminate\Support\Carbon::parse($periodEnd)->format('M j') }}
+                        @endif
+                    </p>
+                    <p class="mt-3 max-w-3xl text-2xl font-medium leading-snug tracking-tight text-brand-ink sm:text-3xl">
+                        {{ __('This site has used') }} <span class="text-brand-sage">{{ $money($siteCents) }}</span>{{ __(' so far') }}{{ $mix }}.
+                        {{ $creditSentence }}
+                    </p>
                 </div>
-            @elseif (! ($billing['has_snapshots'] ?? false))
-                <p class="border-b border-brand-ink/10 px-5 py-6 text-sm text-brand-moss sm:px-6">
-                    {{ __('No daily snapshots yet this month. Stats appear after nightly collection.') }}
-                </p>
-            @endif
 
-            @if (($billing['daily_compute'] ?? []) !== [])
-                <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
-                    @include('livewire.billing.partials.edge-site-daily-compute', ['billing' => $billing])
-                </section>
-            @endif
+                @if ($creditCents > 0)
+                    <div>
+                        <div class="flex flex-wrap items-baseline justify-between gap-2 text-sm">
+                            <span class="text-brand-moss">{{ __(':plan usage credit, whole workspace', ['plan' => $orgState->planLabel]) }}</span>
+                            <span class="font-mono tabular-nums text-brand-ink">{{ $money($orgCents) }} <span class="text-brand-mist">{{ __('of :credit', ['credit' => $money($creditCents)]) }}</span></span>
+                        </div>
+                        <div class="mt-2 flex h-3 overflow-hidden rounded-full bg-brand-sand/80">
+                            <span class="h-full bg-brand-sage" style="width: {{ $siteCents > 0 ? max(0.6, $sitePct) : 0 }}%"></span>
+                            <span class="h-full bg-brand-sage/35" style="width: {{ $othersPct }}%"></span>
+                        </div>
+                        <div class="mt-2 flex gap-5 text-xs text-brand-moss">
+                            <span class="inline-flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-sm bg-brand-sage"></span>{{ __('This site') }}</span>
+                            <span class="inline-flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-sm bg-brand-sage/35"></span>{{ __('Other sites and projects') }}</span>
+                        </div>
+                    </div>
+                @endif
+
+                <div class="border-t border-brand-ink/10">
+                    @foreach ($items as $item)
+                        <div class="flex min-h-14 items-center gap-3 border-b border-brand-ink/10 py-3">
+                            <span class="flex-1 font-medium text-brand-ink">{{ $item['label'] }}</span>
+                            <span class="hidden text-sm text-brand-moss sm:inline">{{ $item['detail'] }}</span>
+                            <span class="w-20 text-right font-mono tabular-nums text-brand-ink">{{ $money($item['cents']) }}</span>
+                        </div>
+                    @endforeach
+
+                    <details class="group border-b border-brand-ink/10">
+                        <summary class="flex min-h-14 cursor-pointer list-none items-center gap-3 py-3 [&::-webkit-details-marker]:hidden">
+                            <span class="flex-1 font-medium text-brand-ink">{{ __('Monthly quota') }}</span>
+                            @if ($guardrail === null)
+                                <span class="text-sm text-brand-moss">{{ __('Not checked yet — runs daily') }}</span>
+                            @else
+                                @php
+                                    $quotaState = $guardrail['state'] ?? 'ok';
+                                @endphp
+                                <span @class([
+                                    'rounded-full px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide',
+                                    'bg-red-100 text-red-800 dark:bg-raw-red-950/40 dark:text-red-300' => $quotaState === 'over',
+                                    'bg-amber-100 text-amber-800 dark:bg-raw-amber-950/40 dark:text-amber-300' => $quotaState === 'warn',
+                                    'bg-emerald-100 text-emerald-800 dark:bg-raw-emerald-950/40 dark:text-emerald-300' => ! in_array($quotaState, ['over', 'warn'], true),
+                                ])>{{ match ($quotaState) { 'over' => __('Over'), 'warn' => __('Warn'), default => __('OK') } }}</span>
+                            @endif
+                            <x-heroicon-m-chevron-down class="h-4 w-4 text-brand-mist transition group-open:rotate-180" />
+                        </summary>
+                        <div class="pb-5">
+                            @include('livewire.sites.partials.edge.guardrail-card')
+                        </div>
+                    </details>
+
+                    @if ($billingDaily !== [] || ($billing['daily_compute'] ?? []) !== [])
+                        <details class="group border-b border-brand-ink/10">
+                            <summary class="flex min-h-14 cursor-pointer list-none items-center gap-3 py-3 [&::-webkit-details-marker]:hidden">
+                                <span class="flex-1 font-medium text-brand-ink">{{ __('Daily activity') }}</span>
+                                <x-heroicon-m-chevron-down class="h-4 w-4 text-brand-mist transition group-open:rotate-180" />
+                            </summary>
+                            <div class="space-y-6 pb-5">
+                                @if ($billingDaily !== [])
+                                    @include('livewire.sites.partials.edge.billing-daily-charts', ['billingDaily' => $billingDaily])
+                                @endif
+                                @if (($billing['daily_compute'] ?? []) !== [])
+                                    <div>@include('livewire.billing.partials.edge-site-daily-compute', ['billing' => $billing])</div>
+                                @endif
+                            </div>
+                        </details>
+                    @endif
+                </div>
+
+                <p class="text-xs text-brand-moss">
+                    @if ($billingDaily === [] && ! ($billing['has_snapshots'] ?? false))
+                        {{ __('Daily charts appear after the first nightly collection.') }}
+                    @endif
+                    {{ __('Prices are before the included usage credit. Databases bill per project, on the org billing page.') }}
+                </p>
+            </section>
         @else
             <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
                 <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Pricing') }}</p>
@@ -130,12 +153,10 @@
             </section>
         @endif
 
-        <div class="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5 sm:px-6">
+        <div class="flex flex-wrap items-center justify-between gap-3 border-t border-brand-ink/10 px-5 py-3.5 sm:px-6">
             {{--
               Callers: Edge workspace Billing tab (sites/partials/edge/billing).
               Points at merged org billing.show — analytics + invoices live there.
-              User: "we can probably merge …/billing and …/billing/analytics and
-              …/invoices to simplify billing, it shlu,ld be real easy to read"
             --}}
             <p class="text-xs text-brand-moss">{{ __('Compare all Edge sites and invoices for the workspace.') }}</p>
             <a

@@ -84,6 +84,14 @@ No platform API token was available, so none of this has touched Cloudflare:
 
 If (1) fails: deploy container Workers as normal scripts with a route or Custom Domain per site, and proxy from the Edge Worker by hostname. Only `EdgeContainerDeployer` (the `--dispatch-namespace` flag) and the `container` branch in `handler.ts` change.
 
+**dply-run DNS (2026-09-28).** Tested only against faked HTTP and fake mode; no zone has been created on Cloudflare. Still to see:
+- the platform token creating, reading and deleting zones (needs account-level Zone:Edit plus DNS:Edit and Zone Settings:Edit);
+- the record scan and `/dns_records/scan/review` accept/reject body shape;
+- `PATCH /zones/{id}/dns_settings` with `custom.account` once an account custom nameserver set exists (Business via support, or Enterprise);
+- **same-account serving**: a managed zone lives in dply's own account, and provisioning still adds a proxied CNAME plus a Custom Hostname on the worker zone. Cloudflare's O2O docs cover only zones in different accounts. If the pairing is refused, route the managed zone to the edge worker directly (`EdgeCustomDomainProvisioner::provisionManaged` is the one place to change).
+
+It is off until `DPLY_EDGE_DNS_ENABLED=true`. The step-by-step to turn it on, and to get `ns1/ns2.dply.io`, is in [EDGE_DNS_GO_LIVE.md](EDGE_DNS_GO_LIVE.md).
+
 ## Setup before it runs for real
 
 **Cloudflare API token** (`DPLY_EDGE_CF_API_TOKEN`) needs, in addition to what Edge already uses:
@@ -107,7 +115,6 @@ Then run `dply:billing:sync-all --dry-run` before the first real sweep, because 
 
 ## Known gaps
 
-- A queue can have only one consumer. Attaching it to two container projects fails the second deploy.
 - Free plan: the 1M requests / 10 GB egress allowance is advertised but not enforced — usage past it is neither billed nor throttled.
 - Previews are billed for everything they use (build minutes, traffic, container compute) but do not take a site slot; the pricing FAQ says so.
 - Full suite on this branch: 1165 passed, 15 failed, 5 skipped. All 15 fail identically on `main` (verified by checking `main` out and rerunning them): AdminDashboardTest (6 feature-flag tests), BillingApiTest billing flag, ContainerProviderCredentialsTest (2), CredentialTest provider grouping, EdgeCreatePageTest / EdgeIndexTest / EdgeNavLinkTest "surface edge inactive", EdgeDeploymentDetailPageTest promote diff, EdgePreviewReviewHubTest approval.

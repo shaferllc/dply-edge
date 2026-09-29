@@ -88,7 +88,7 @@ MongoDB sets `MONGODB_URI` instead. A value you save under **Environment** alway
 
 ### Run migrations
 
-There is no separate release step: containers start fresh each time. To migrate, turn on **Run migrations when a container starts** on the **Container** tab (also in the database's settings). Each start then runs `php artisan migrate --force --isolated`.
+There is no separate release step: containers start fresh each time. To migrate, turn on **Run migrations when a container starts** in **Overview** → **App** card → **Sleep, scaling, region** (also in the database's settings). Each start then runs `php artisan migrate --force --isolated`.
 
 You can also run **Migrate**, **Seed** and roll back from the database's **Settings** without redeploying.
 
@@ -125,7 +125,7 @@ Both paths rely on the `dply/laravel` package. dply adds it to the generated ima
 
 ## Run the scheduler
 
-On the **Container** tab, turn on **Run the Laravel scheduler every minute**, then choose **Save and redeploy**. dply calls `schedule:run` every minute. When queue workers are running, the first worker runs the scheduler instead. See [Scheduled tasks](/docs/scheduled-tasks).
+In **Overview** → **App** card → **Sleep, scaling, region**, turn on **Run the Laravel scheduler every minute**, then deploy. dply calls `schedule:run` every minute. When queue workers are running, the first worker runs the scheduler instead. To run a single artisan command on its own schedule, add it under **Crons**; **Run now** there runs it once in the live app and shows the output. See [Scheduled tasks](/docs/scheduled-tasks).
 
 ## Broadcasting
 
@@ -133,12 +133,12 @@ For Laravel Echo and Reverb, add a Realtime resource. dply runs the WebSocket se
 
 ## Size, scaling and sleep
 
-On the **Container** tab you set **Instance size**, **Min instances**, **Max instances** and **Sleep after idle** (5 minutes by default). An idle app sleeps and the next request wakes it, which adds a cold start to that request. Set **Min instances** above 0 to keep one warm. See [Scaling & sleep](/docs/scaling-and-sleep).
+On the **App** card on **Overview** you set the size, **Instances**, **Always awake** and **Sleeps after** (5 minutes by default). An idle app sleeps and the next request wakes it, which adds a cold start to that request. Set **Min instances** above 0 to keep one warm. See [Scaling & sleep](/docs/scaling-and-sleep).
 
 ## Logs
 
 - Build output: **Deploys**, then the deployment, or **Build & deploy logs**.
-- Application logs: **Container**, then **Logs**, then **Load last 15 minutes**. Laravel logs to `stderr`, so exceptions appear here.
+- Application logs: **Build & deploy logs**, then **Everything it printed in the last 15 minutes**. Laravel logs to `stderr`, so exceptions appear here.
 - Queue worker output: **Worker logs** in the queue workers panel.
 
 ## Custom domain

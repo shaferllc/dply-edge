@@ -15,6 +15,8 @@ Previews are managed from your production app's **Previews** page.
 > [!NOTE]
 > Previews are not billed as apps and do not count toward your plan's fair-use limit on apps. Their builds do count toward your build time and use your build concurrency. See [Builds](/docs/builds).
 
+The **Previews** page opens with a sentence such as "Every pull request gets its own URL. 2 previews are live, and #42 is getting 10% of production traffic." Each preview is a row; click one to open it, check it, send it traffic, promote it or tear it down.
+
 ## Pull request previews
 
 Pull request previews need a repository on GitHub with push-to-deploy turned on. See [Deploy triggers & hooks](/docs/deploy-triggers). Once connected:
@@ -48,18 +50,18 @@ previews:
 | `enabled` | `false` turns off pull request previews. |
 | `exclude_branches` | Branch names that never get a preview. Names must match exactly. |
 
-dply reads this section from the latest **production** deployment, so a change takes effect after it has been deployed to production, not from the pull request that changes it. The **Previews** page summarizes the active policy next to **Auto-deploy** and under **From dply.yaml**.
+dply reads this section from the latest **production** deployment, so a change takes effect after it has been deployed to production, not from the pull request that changes it. The **Previews** page states the active policy under **How previews work**; click it to see the full rules and an example.
 
 > [!NOTE]
 > `pr_only` and `branches` are also accepted, and the page shows **PRs + branches** when `pr_only` is `false`, but pushes to branches other than production never create previews today. Only pull requests do.
 
 ## Create a preview from a commit
 
-1. In your production app, open **Previews**.
-2. Under **Create preview from commit**, enter a commit SHA, or choose **Browse** to pick a branch tip, tag, or commit from your repository.
-3. Choose **Create preview**.
+1. In your production app, open **Previews** and choose **Preview a commit or branch**.
+2. Enter a commit SHA, or choose **Browse** to pick a branch tip, tag, or commit from your repository.
+3. Choose **Create preview**. The dialog shows the build as it runs; you can close it.
 
-The button shows **Building…**, then **Propagating…** for about 45 seconds after the build publishes, while the new hostname spreads across the edge. The URL appears in the list when it is safe to open.
+While it builds, a row at the top of the list says so. For about 45 seconds after the build publishes, the new hostname spreads across the edge. The preview's row says "is live" when its URL is safe to open.
 
 Creating a preview of the same commit again returns the existing preview. A different commit gets its own URL.
 
@@ -95,34 +97,34 @@ Previews copy the production app's build settings, repository root, routing, and
 
 ## Protect previews
 
-By default, anyone with a preview URL can open it. To restrict access, open **Previews** in your production app and find **Protection**:
+By default, anyone with a preview URL can open it. To restrict access, open **Previews** in your production app and click the protection row under **How previews work**:
 
 | Option | Visitors must |
 |--------|---------------|
-| **Off** | Nothing. The URL is public. |
-| **Password** | Enter a password you set. |
-| **Dply account** | Sign in to dply with an account that can view the app. Add addresses to **Allowed emails** to limit it further. Leave it empty to allow any member who can view the app. |
+| **Anyone with the link** | Nothing. The URL is public. |
+| **People with a password** | Enter a password you set. |
+| **People signed in to dply** | Sign in to dply with an account that can view the app. Add addresses to **Only these emails** to limit it further. Leave it empty to allow any member who can view the app. |
 
-Choose **Save protection**. It applies immediately, without a redeploy.
+Choose **Save**. It applies immediately, without a redeploy.
 
 > [!WARNING]
-> Protection applies to your live production site as well as to every preview. Turning on **Password** or **Dply account** puts the gate in front of production visitors too.
+> Protection applies to your live production site as well as to every preview. Turning on a password or a dply sign-in puts the gate in front of production visitors too.
 
 `dply.yaml` accepts a `previews.protection` block, but it has no effect today: previews always use the protection set on the production app.
 
 ## Review and comments
 
-**Comment widget on previews** adds a floating **Comments** button to preview pages, where reviewers leave notes tied to the page they are on. Turn it on under **Previews** and choose **Save**. It applies to previews built after you turn it on. You can also set `comment_widget.enabled: true` in `dply.yaml`.
+The comment widget adds a floating **Comments** button to preview pages, where reviewers leave notes tied to the page they are on. Click the comments row under **How previews work**, turn on **Show the comment widget on preview pages** and choose **Save**. It applies to previews built after you turn it on. You can also set `comment_widget.enabled: true` in `dply.yaml`.
 
-Choose **Review** on a preview to open the **Preview review hub**. There you can read and reply to threads, resolve them, start a thread on a path, and choose **Approve preview**.
+Click a preview, then **Review notes left on this preview**, to open the **Preview review hub**. There you can read and reply to threads, resolve them, start a thread on a path, and choose **Approve preview**.
 
 ## Promote a preview to production
 
 Promoting makes production serve exactly what the preview built, without rebuilding from your production branch. The preview keeps running.
 
 1. In your production app, open **Previews**.
-2. On a live preview, choose **Promote to prod**.
-3. Review the checks in the dialog and choose **Promote to production**.
+2. Click a live preview, and choose **Promote to production** in its dialog.
+3. Review the checks and confirm.
 
 Promote copies the preview's files into a new production deployment, which appears in the history on **Deploys** and can be rolled back like any other. For container apps, promote rebuilds the preview's commit on production with production's environment variables, so it takes as long as a normal deploy.
 
@@ -137,7 +139,7 @@ Before a preview can be promoted, it must pass its **Deploy contract**. On the p
 
 - **Edge preview build**: the preview built successfully.
 - **Preview review**: no unresolved review comments.
-- **Shadow replay**: a replay of recent production traffic against the preview matched at least 99% of responses. Choose **Run sample** under **Shadow replay** to run one. It replays up to 20 production `GET` and `HEAD` requests from the last hour. If production had no such traffic in the last hour, as with a new or quiet app, there is nothing to replay and the check passes with the note **No production traffic in the last hour to replay**.
+- **Shadow replay**: a replay of recent production traffic against the preview matched at least 99% of responses. Choose **Run replay** under **Before you promote** in the preview's dialog to run one. It replays up to 20 production `GET` and `HEAD` requests from the last hour. If production had no such traffic in the last hour, as with a new or quiet app, there is nothing to replay and the check passes with the note **No production traffic in the last hour to replay**.
 - Origin health checks, for hybrid apps.
 
 If the preview is redeployed, run the checks again. When a check fails and you have verified the change another way, enter a **Waiver reason** and choose **Record waiver**.
@@ -155,16 +157,16 @@ See [Configuration files](/docs/configuration-files).
 
 ## Split traffic
 
-To try a preview on a share of real production traffic before promoting it, enter a percentage from 1 to 99 under **Split** on a live preview and choose **Apply**. That share of visitors to your production URL is served the preview's build. A cookie keeps each visitor on the same version.
+To try a preview on a share of real production traffic before promoting it, click a live preview and pick a **Share of production traffic**: 5%, 10%, 25% or 50%, or type any percentage from 1 to 99. That share of visitors to your production URL is served the preview's build. A cookie keeps each visitor on the same version.
 
 - Only one preview can receive split traffic at a time.
 - The change applies immediately.
-- Choose **Off**, or set `0`, to send all traffic back to production.
+- Choose **Off** to send all traffic back to production.
 - To move all traffic, promote the preview.
 
 ## Remove previews
 
-Pull request previews are removed when the pull request closes. To remove any preview yourself, choose **Tear down** on it and confirm. Its files and hostname are deleted and the URL stops responding. Tearing down does not close the pull request, and pushing to the pull request again recreates the preview.
+Pull request previews are removed when the pull request closes. To remove any preview yourself, click it, choose **Tear down** and confirm. Its files and hostname are deleted and the URL stops responding. Tearing down does not close the pull request, and pushing to the pull request again recreates the preview.
 
 From the CLI, use `dply edge previews rm <preview-id>`.
 

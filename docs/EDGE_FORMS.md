@@ -15,7 +15,7 @@ Requires **Dply-hosted Edge delivery** and a working **outbound mail** config fo
 
 ## How it works
 
-1. You enable Forms and save an endpoint (path + inbox + spam defenses).
+1. You add a form and save its endpoint (path + inbox + spam defenses).
 2. Save republishes the Edge host map — the Worker starts accepting `POST` on that path.
 3. A visitor submits a form (or JSON) to `https://{your-edge-host}{path}`.
 4. The Worker:
@@ -35,18 +35,18 @@ Successful HTML submissions get a simple “Thanks” page. JSON clients get `{"
 | **Honeypot field** | Hidden input name; bots that fill it are discarded |
 | **Require bot check** | When on, submissions need a valid bot-protection token |
 
-## Dashboard examples
+## Dashboard starters
 
-The Forms page offers starter endpoints:
+**+ Add a form** offers starter endpoints, or **Blank form**:
 
-| Example | Path | Notes |
+| Starter | Path | Notes |
 |---------|------|--------|
 | Contact | `/contact` | Honeypot `company` + bot check |
 | Newsletter | `/newsletter` | Honeypot `website` + bot check |
 | Support | `/api/support` | Good pair with Rate limits |
 | Simple | `/feedback` | Honeypot only (no Turnstile) |
 
-The live **HTML example** on the page updates from your first endpoint (hostname, path, honeypot, bot check).
+The page lists endpoints as sentences ("POSTs to /contact go to you@example.com", tagged **Bot check** or **Honeypot only**). Click one to edit it; the modal's collapsible **HTML for this form** is built from that endpoint's path, honeypot and bot check plus the live hostname, with a Copy button. **Accept form submissions on this site** saves on click. Click a recent submission to see every field and when it arrived.
 
 ## HTML example
 
@@ -89,15 +89,15 @@ forms:
       require_turnstile: true
 ```
 
-Dashboard **Save** overrides the repo for the whole `forms` section. Ingest URL / HMAC key are injected by the platform at publish time (not in the file).
+Saving forms in the dashboard overrides the repo for the whole `forms` section. Ingest URL / HMAC key are injected by the platform at publish time (not in the file).
 
 ## How to use it
 
-1. Open **Forms**, enable Edge forms, and add an endpoint (or click an example).
+1. Open **Forms**, choose **+ Add a form**, and pick a starter or **Blank form** (adding one turns forms on).
 2. Set **Email to**, match honeypot / bot check to your HTML.
 3. Optional: configure **Bot protection**, then enable **Require bot check**.
 4. Optional: add a **Rate limit** on the same path.
-5. **Save**, then test a real POST from the live hostname.
+5. **Save** in the modal, then test a real POST from the live hostname.
 
 ## Tips
 

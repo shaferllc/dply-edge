@@ -10,27 +10,26 @@ A waiting room holds extra visitors in a queue when too many arrive at once, and
 
 ## Set up a waiting room
 
-1. Open your app and choose **Waiting room**.
-2. Turn **Enable waiting room** on.
-3. Set:
-   - **Max active visitors**: how many admitted visitors can use the app at once.
-   - **New admits / minute**: how fast the queue lets people in.
-   - **Session (minutes)**: how long an admitted visitor stays admitted.
-   - **Protected paths (one per line)**: the paths that use the room, such as `/checkout/*`. Leave it empty to protect the whole app (`/*`).
-4. Choose **Save**.
+1. Open your app and choose **Waiting room**. The page opens with a sentence that sums up the room, for example "Up to 200 people can use /checkout/* at once. Past that, visitors wait in line and 20 more get in each minute."
+2. Click a setting to change it, then choose **Save** in the dialog:
+   - **Only these pages can have a line** (protected paths, one per line), such as `/checkout/*`. Leave it empty to protect the whole app (`/*`).
+   - **Up to N people are let in at the same time** (max active visitors).
+   - **N more people get in each minute** (let in per minute). While you edit this or the max, the dialog estimates how long the last person in a rush would wait.
+   - **An admitted visitor keeps their spot for N minutes** (session length).
+3. Tick **Waiting room is on**. It saves as soon as you tick it.
 
-The room is live within about a minute. New apps start with 200 active visitors, 20 admits per minute, 30-minute sessions and `/*`.
+Changes go live on the next request. New apps start with 200 active visitors, 20 per minute, 30-minute sessions and `/*`. Choose **See what visitors see when it's full** to preview the line page.
 
 | Setting | Allowed range |
 |---------|---------------|
 | **Max active visitors** | 1 to 100,000 |
-| **New admits / minute** | 1 to 10,000 |
-| **Session (minutes)** | 1 to 1,440 |
+| **Let in per minute** | 1 to 10,000 |
+| **Session length (minutes)** | 1 to 1,440 |
 
 ## What visitors experience
 
 1. **Arrive.** A visitor requests a protected path.
-2. **Admit or wait.** If there's room under both **Max active visitors** and **New admits / minute**, they're let through and get a session cookie. Otherwise they see a **You're in line** page (HTTP 503 with `Retry-After`), which refreshes itself every few seconds.
+2. **Admit or wait.** If there's room under both the max active visitors and the let-in-per-minute rate, they're let through and get a session cookie. Otherwise they see a **You're in line** page (HTTP 503 with `Retry-After`), which refreshes itself every few seconds.
 3. **Enter.** Once admitted, the visitor uses the app normally until the session ends. After that they may queue again on their next protected request.
 
 The waiting page is served by dply and can't be branded yet:
@@ -41,7 +40,7 @@ The waiting page is served by dply and can't be branded yet:
 ## Choosing values
 
 - Protect only the paths that are expensive or limited, such as `/checkout/*` or `/tickets/*`. Leave marketing and content pages out so people can keep reading.
-- Set **New admits / minute** to what your app can absorb: a surge of new sessions is usually harder on an app than steady browsing.
+- Set **let in per minute** to what your app can absorb: a surge of new sessions is usually harder on an app than steady browsing.
 - Start with a low **Max active visitors** and raise it once you've seen the queue drain cleanly.
 
 ## How it works and its limits

@@ -37,6 +37,6 @@ Reserved names (`HOST_MAP`, `ASSETS`, `SITE_ID`, …) are blocked — the platfo
 
 ## Related sections
 
-- **Jobs** — default queue binding for enqueue
+- **Jobs** — Projects queues this app runs or sends to, and queue bindings for Worker code
 - **Environment** — plaintext env vars (not Cloudflare bindings)
 - **Build** / **Delivery** — where Worker context is configured

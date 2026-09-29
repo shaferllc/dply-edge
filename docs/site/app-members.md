@@ -8,11 +8,13 @@ App members are per-app roles. You pick someone who is already in the organizati
 ## Add an app member
 
 1. Open the app and choose **Members** in the app sidebar (under **Protect**).
-2. Under **Member**, pick a person from the organization who does not already have a role on this app.
-3. Under **Role**, choose **Viewer**, **Deployer**, or **Admin**.
-4. Choose **Add**.
+2. Choose **Give someone access**.
+3. Pick an organization member or deployer who doesn't have a role on this app yet.
+4. Choose **Viewer**, **Deployer**, or **Admin**. Each option says what it allows. Then choose **Save**.
 
-Only organization owners and admins, and people who hold the **Admin** role on this app, can add, change, or remove app members. The person must already be an organization member; invite them from **Members** first. See [Roles & permissions](/docs/roles-and-permissions#invite-someone).
+The page opens with a sentence that counts who can reach the app and what they can do, for example "5 people can reach this app. 2 can do anything, 2 can deploy and 1 can only look." Below it, everyone in the organization is listed with what they can do here and why ("Org owner", "Deployer on this app").
+
+Only organization owners and admins, and people who hold the **Admin** role on this app, can add, change, or remove app members. The person must already be an organization member. To add someone new, invite them from the organization's **Members** page first (the app's Members page links to it under **Invite to organization**); they appear here once they accept. See [Roles & permissions](/docs/roles-and-permissions#invite-someone).
 
 ## App roles
 
@@ -35,7 +37,7 @@ App roles do not let anyone delete the app. Deleting an app always needs an orga
 
 ## Change or remove a role
 
-In the member list, pick a new role to change it. Choose **Remove** to take away the app role. The person goes back to what their organization role allows on this app.
+Click an organization member or deployer in the list to open their access. Pick a different role and choose **Save**. To take the app role away, choose **Their org role** or **Remove app role**. The person goes back to what their organization role allows on this app. Owners, admins and organization viewers can't be clicked; change their organization role instead.
 
 App roles also go away when the person leaves or is removed from the organization, or becomes an organization viewer.
 

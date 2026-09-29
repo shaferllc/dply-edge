@@ -58,7 +58,7 @@ The workspace now splits that into **focused sections**. Each section has its ow
 | Section | What you do here |
 |---------|------------------|
 | **Overview** | Live URL, source repo, delivery summary, quick deploy |
-| **Members** | Who can access this site (when enabled) |
+| **Members** | Everyone in the org and what they can do on this app |
 | **Audit log** | Site activity history (when enabled) |
 
 **Deploy**
@@ -91,18 +91,19 @@ The workspace now splits that into **focused sections**. Each section has its ow
 
 | Section | What you do here |
 |---------|------------------|
-| **Firewall** | Geo allow/block by country |
-| **Bot protection** | Challenge widget on forms or all HTML pages |
-| **Rate limits** | Cap requests per IP on a path |
+| **Security** | One-sentence summary of HTTPS, which protections are on, and requests stopped in the last 7 days; each row opens its page |
+| **Firewall** | Who can reach the site by country: everyone, only these countries, or everyone except these |
+| **Bot protection** | Human check on form posts or every page; shows the forms and rate limits that rely on it |
+| **Rate limits** | Cap requests per IP on a path, then block or bot-check |
 | **Waiting room** | Queue visitors during launches |
-| **Members** | Who can access this site (when enabled) |
+| **Members** | Everyone in the org and what they can do on this app; give app roles (invite new people on the org Members page) |
 
 **Background**
 
 | Section | What you do here |
 |---------|------------------|
-| **Crons** | Scheduled worker invocations |
-| **Jobs** | Default queue binding for middleware/SSR |
+| **Crons** | UTC schedules (max 5 per Worker): commands in container apps, `scheduled()` in Worker apps |
+| **Jobs** | Projects queues this app runs or sends to, Laravel queue workers, queue bindings for Worker code |
 | **Bindings** | Attach KV, R2, D1, queues |
 
 **Observability**

@@ -7,11 +7,11 @@ Error pages let you replace dply's default 404 and 500 responses with your own H
 
 ## Edit error pages
 
-1. Open your app and choose **Error pages**.
-2. Paste full HTML into **404 page**, **500 page** or **Maintenance page**. Leave a field blank to keep dply's default.
-3. Choose **Save**.
+1. Open your app and choose **Error pages**. Each page (404, 500 and maintenance) is listed with its source: **Custom**, **From dply.yaml** or **Built-in**.
+2. Click a page. Paste full HTML, or start from **Minimal**, **Friendly** or **Enterprise**, which fill just that page. A live preview shows the result beside the editor; scripts don't run in the preview.
+3. Choose **Save**. The new page is live on the next request, with no redeploy.
 
-To start from a design, pick one under **Examples**. **Minimal**, **Friendly** and **Enterprise** fill all three pages at once, and **Per page** fills one. Edit the HTML, then choose **Save**.
+To go back to dply's default, open the page and choose **Use the built-in page**. **Cancel** discards unsaved edits.
 
 Each page can be up to 200,000 characters.
 
@@ -29,6 +29,10 @@ Shown with status `404` when a request doesn't match a file in your deploy, for 
 
 Without a custom 404 page, dply returns a plain-text `Object not found.`
 
+### Blocked-country page
+
+Shown with status `403` when your [Firewall](/docs/firewall) turns a visitor away by country. Without one, visitors get the plain-text `Forbidden — content is not available in this region (XX).` This page is set in the dashboard only; `dply.yaml` has no key for it.
+
 ### 500 page
 
 - **SSR and container apps**: when your app returns a `5xx` HTML response, dply replaces the body with your 500 page (or dply's default error page) and keeps the status code. JSON and other non-HTML error responses pass through unchanged.
@@ -40,7 +44,7 @@ For a hybrid app's origin, the **Failover HTML** under **Delivery** is shown ins
 
 ### Maintenance mode
 
-Turn on **Maintenance mode** and choose **Save** to answer every request with your maintenance page (or dply's default "We'll be right back." page):
+Turn on **Maintenance mode** to answer every request with your maintenance page (or dply's default "We'll be right back." page):
 
 ```http
 HTTP/1.1 503 Service Unavailable
@@ -48,7 +52,7 @@ Retry-After: 120
 Cache-Control: no-store, max-age=0
 ```
 
-Maintenance mode runs before every other rule, including the [firewall](/docs/firewall) and [access control](/docs/access-control). Turn it off and choose **Save** to bring the app back.
+Maintenance mode runs before every other rule, including the [firewall](/docs/firewall) and [access control](/docs/access-control). The checkbox takes effect right away. Turn it off to bring the app back.
 
 > [!NOTE]
 > If your organization is paused for billing, dply shows a billing notice in place of your app in the same way. Your own maintenance setting is left unchanged. See [Paused accounts](/docs/paused-accounts).

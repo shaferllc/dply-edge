@@ -35,11 +35,27 @@ class Previews extends Component
 
     public EdgeBuildSettingsForm $buildForm;
 
+    /** The preview open in its dialog. */
+    public ?string $openPreviewId = null;
+
     public function mount(Server $server, Site $site): void
     {
         $this->mountEdgeWorkspaceSection($server, $site);
         $this->site->loadMissing('edgeSiteAccessRule');
         $this->mountEdgeBuildSettings($site);
+    }
+
+    public function openPreview(string $previewSiteId): void
+    {
+        $this->openPreviewId = $previewSiteId;
+        $this->dispatch('open-modal', 'preview-detail');
+    }
+
+    /** Set this preview's share of production traffic (0 turns the split off). */
+    public function setPreviewSplit(string $previewSiteId, int $percentage): void
+    {
+        $this->saveEdgeSplitTraffic($previewSiteId, max(0, min(99, $percentage)), true);
+        $this->site->refresh();
     }
 
     public function render(): View

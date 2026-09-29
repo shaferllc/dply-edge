@@ -396,6 +396,12 @@ test('the domains pages show the verification txt record until the domain is rea
     $this->actingAs($user)
         ->get(route('sites.show', ['server' => $site->server_id, 'site' => $site->id, 'section' => 'routing', 'tab' => 'domains']))
         ->assertOk()
+        ->assertSee('www.example.com is waiting for its DNS records');
+
+    // The records to add live in the domain's dialog.
+    Livewire::actingAs($user)
+        ->test(Routing::class, ['server' => $site->server, 'site' => $site->fresh()])
+        ->call('openDomainDetail', 'www.example.com')
         ->assertSee($proof['name'])
         ->assertSee($proof['value']);
 

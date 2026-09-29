@@ -6,6 +6,7 @@ namespace App\Livewire\Sites\Edge\Workspace;
 
 use App\Livewire\Concerns\ConfirmsActionWithModal;
 use App\Livewire\Concerns\DispatchesToastNotifications;
+use App\Livewire\Concerns\Edge\ManagesEdgeDnsZones;
 use App\Livewire\Concerns\Edge\ManagesEdgeDomains;
 use App\Livewire\Concerns\Edge\MountsEdgeWorkspaceSection;
 use App\Models\EdgeDeployment;
@@ -28,6 +29,7 @@ class Routing extends Component
 {
     use ConfirmsActionWithModal;
     use DispatchesToastNotifications;
+    use ManagesEdgeDnsZones;
     use ManagesEdgeDomains;
     use MountsEdgeWorkspaceSection;
 
@@ -57,6 +59,11 @@ class Routing extends Component
     public string $new_header_for = '';
 
     public string $new_header_pairs = '';
+
+    /** The rule dialog: which list, and the row being edited (null = new). */
+    public string $ruleKind = 'redirects';
+
+    public ?int $editingRule = null;
 
     /** Pasted Cloudflare bulk-redirect CSV / Netlify _redirects block. */
     public string $bulk_redirects = '';
@@ -110,6 +117,79 @@ class Routing extends Component
         ));
     }
 
+    /** Open the rule dialog for a new rule, or with row $index filled in. */
+    public function openRule(string $kind, ?int $index = null): void
+    {
+        $this->authorize('update', $this->site);
+        if (! in_array($kind, ['redirects', 'rewrites', 'headers'], true)) {
+            return;
+        }
+        $this->resetErrorBag();
+        $this->ruleKind = $kind;
+        $this->editingRule = $index;
+        $rule = $index === null ? null : ($this->{'dashboard_'.$kind}[$index] ?? null);
+        if ($index !== null && $rule === null) {
+            return;
+        }
+
+        $this->new_redirect_from = $kind === 'redirects' ? (string) ($rule['from'] ?? '') : '';
+        $this->new_redirect_to = $kind === 'redirects' ? (string) ($rule['to'] ?? '') : '';
+        $this->new_redirect_status = $kind === 'redirects' ? (int) ($rule['status'] ?? 301) : 301;
+        $this->new_rewrite_from = $kind === 'rewrites' ? (string) ($rule['from'] ?? '') : '';
+        $this->new_rewrite_to = $kind === 'rewrites' ? (string) ($rule['to'] ?? '') : '';
+        $this->new_header_for = $kind === 'headers' ? (string) ($rule['for'] ?? '') : '';
+        $this->new_header_pairs = $kind === 'headers'
+            ? implode("\n", array_map(fn ($k, $v) => $k.': '.$v, array_keys($rule['values'] ?? []), $rule['values'] ?? []))
+            : '';
+        $this->dispatch('open-modal', 'routing-rule');
+    }
+
+    public function saveRule(): void
+    {
+        match ($this->ruleKind) {
+            'rewrites' => $this->addRewrite(),
+            'headers' => $this->addHeaderRule(),
+            default => $this->addRedirect(),
+        };
+        if ($this->getErrorBag()->isEmpty()) {
+            $this->editingRule = null;
+            $this->dispatch('close-modal', 'routing-rule');
+        }
+    }
+
+    /** Remove the rule open in the dialog. */
+    public function removeOpenRule(): void
+    {
+        if ($this->editingRule === null) {
+            return;
+        }
+        match ($this->ruleKind) {
+            'rewrites' => $this->removeRewrite($this->editingRule),
+            'headers' => $this->removeHeaderRule($this->editingRule),
+            default => $this->removeRedirect($this->editingRule),
+        };
+        $this->editingRule = null;
+        $this->dispatch('close-modal', 'routing-rule');
+    }
+
+    /**
+     * Append a rule, or replace the one being edited in the dialog.
+     *
+     * @param  array<string, mixed>  $rule
+     */
+    private function putRule(string $list, array $rule, string $action): void
+    {
+        $editing = $this->editingRule;
+        if ($editing !== null && isset($this->{$list}[$editing])) {
+            $this->{$list}[$editing] = $rule;
+            $this->persist(str_replace('added', 'updated', $action));
+
+            return;
+        }
+        $this->{$list}[] = $rule;
+        $this->persist($action);
+    }
+
     public function addRedirect(): void
     {
         $this->authorize('update', $this->site);
@@ -131,8 +211,7 @@ class Routing extends Component
             return;
         }
 
-        $this->dashboard_redirects[] = ['from' => $from, 'to' => $to, 'status' => $status];
-        $this->persist('redirect.added');
+        $this->putRule('dashboard_redirects', ['from' => $from, 'to' => $to, 'status' => $status], 'redirect.added');
         $this->new_redirect_from = '';
         $this->new_redirect_to = '';
         $this->new_redirect_status = 301;
@@ -176,6 +255,7 @@ class Routing extends Component
 
         $this->persist('redirects.imported');
         $this->bulk_redirects = '';
+        $this->dispatch('close-modal', 'redirect-import');
 
         $message = trans_choice('{1}Imported 1 redirect.|[2,*]Imported :count redirects.', $added, ['count' => $added]);
         if ($skipped > 0) {
@@ -239,8 +319,7 @@ class Routing extends Component
             return;
         }
 
-        $this->dashboard_rewrites[] = ['from' => $from, 'to' => $to];
-        $this->persist('rewrite.added');
+        $this->putRule('dashboard_rewrites', ['from' => $from, 'to' => $to], 'rewrite.added');
         $this->new_rewrite_from = '';
         $this->new_rewrite_to = '';
     }
@@ -272,8 +351,7 @@ class Routing extends Component
             return;
         }
 
-        $this->dashboard_headers[] = ['for' => $for, 'values' => $pairs];
-        $this->persist('headers.added');
+        $this->putRule('dashboard_headers', ['for' => $for, 'values' => $pairs], 'headers.added');
         $this->new_header_for = '';
         $this->new_header_pairs = '';
     }
@@ -416,6 +494,9 @@ class Routing extends Component
                 'repoRewrites' => $repoRewrites,
                 'repoHeaders' => $repoHeaders,
                 'sourcePath' => $sourcePath,
+                'addProvider' => preg_match('/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i', trim($this->addHost)) === 1
+                    ? self::dnsProviderFor($this->addHost)
+                    : null,
                 'templates' => self::templates(),
                 'bulkPreview' => trim($this->bulk_redirects) === ''
                     ? null

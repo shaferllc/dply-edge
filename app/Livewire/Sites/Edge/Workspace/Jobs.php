@@ -10,14 +10,28 @@ use App\Livewire\Concerns\Edge\ManagesEdgeDashboardBindings;
 use App\Livewire\Concerns\Edge\MountsEdgeWorkspaceSection;
 use App\Livewire\Concerns\Edge\PublishesEdgeHostMap;
 use App\Models\EdgeDeployment;
+use App\Models\EdgeQueue;
 use App\Models\Server;
 use App\Models\Site;
 use App\Modules\Edge\Services\EdgeDashboardBindingProvisioner;
+use App\Modules\Edge\Services\EdgeQueueConsumers;
+use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeEffectiveBindings;
+use App\Modules\Edge\Support\EdgeQueueWorkers;
 use App\Support\Sites\EdgeSiteViewData;
 use Illuminate\Contracts\View\View;
 use Livewire\Component;
 
+/**
+ * Background work for one app, told as it runs today: the Projects → Queues
+ * it is attached to (and which app consumes each — one per queue, see
+ * EdgeQueueConsumers), its Laravel queue:work workers, and the Edge Worker
+ * env.NAME queue bindings. Editing workers and attachments stays on
+ * Overview → Resources for now.
+ *
+ * The old `jobs` meta (enabled / default_queue) is still published in the
+ * host map but nothing reads it; the page no longer edits it.
+ */
 class Jobs extends Component
 {
     use ConfirmsActionWithModal;
@@ -66,17 +80,6 @@ class Jobs extends Component
         $this->addBinding($provisioner);
     }
 
-    public function useQueueBinding(string $name): void
-    {
-        $this->authorize('update', $this->site);
-        $name = trim($name);
-        if ($name === '' || preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $name) !== 1) {
-            return;
-        }
-        $this->default_queue = $name;
-        $this->toastSuccess(__('Default queue set to :name.', ['name' => $name]));
-    }
-
     protected function afterEdgeDashboardBindingAdded(string $name, string $kind): void
     {
         if ($kind === 'queue' && (trim($this->default_queue) === '' || trim($this->default_queue) === 'JOBS')) {
@@ -84,28 +87,74 @@ class Jobs extends Component
         }
     }
 
-    public function save(): void
-    {
-        $this->authorize('update', $this->site);
-        if (! $this->isManagedEdgeDelivery()) {
-            $this->toastError(__('Edge jobs require Dply-hosted Edge delivery.'));
+    /**
+     * Live worker state, read from the app after the page renders (HTTP to the
+     * container). Null until loaded; an error string when the app is unreachable.
+     *
+     * @var array{up: int, total: int, failed: ?int}|null
+     */
+    public ?array $live = null;
 
+    public ?string $liveError = null;
+
+    public function loadLive(): void
+    {
+        $this->authorize('view', $this->site);
+        if (EdgeQueueWorkers::runningInstances($this->site) === 0) {
             return;
         }
+        try {
+            $status = EdgeQueueWorkers::status($this->site);
+            $failed = null;
+            try {
+                $failed = (int) (EdgeQueueWorkers::command($this->site, 'failed-jobs')['total'] ?? 0);
+            } catch (\Throwable) {
+                // Failed-job store unreadable: the worker count still shows.
+            }
+            $this->live = [
+                'up' => collect($status)->where('status', 'running')->count(),
+                'total' => count($status),
+                'failed' => $failed,
+            ];
+        } catch (\Throwable $e) {
+            $this->liveError = $e->getMessage();
+        }
+    }
 
-        $this->validate([
-            'default_queue' => ['required', 'string', 'max:64', 'regex:/^[A-Za-z][A-Za-z0-9_]*$/'],
-        ]);
+    /**
+     * Each Projects queue this app is attached to, and who runs its jobs.
+     *
+     * @return list<array{name: string, queue: string, asleep: bool, role: string, owner: ?string, owner_url: ?string}>
+     */
+    private function attachedQueues(): array
+    {
+        $organization = $this->site->organization;
+        $rows = [];
+        foreach (EdgeContainerConnections::for($this->site) as $connection) {
+            if ($connection['kind'] !== 'queue') {
+                continue;
+            }
+            $owner = $organization ? EdgeQueueConsumers::owner($organization, $connection['target']) : null;
+            $label = $organization
+                ? EdgeQueue::query()->where('organization_id', $organization->id)->where('cloudflare_name', $connection['target'])->value('name')
+                : null;
+            $rows[] = [
+                'name' => $connection['name'],
+                'queue' => (string) ($label ?: $connection['target']),
+                'asleep' => (bool) $connection['asleep'],
+                'role' => match (true) {
+                    $owner === null => 'none',
+                    $owner->is($this->site) => 'runs',
+                    default => 'sends',
+                },
+                'owner' => $owner?->name,
+                'owner_url' => $owner && $owner->server_id
+                    ? route('sites.show', ['server' => $owner->server_id, 'site' => $owner, 'section' => 'jobs'])
+                    : null,
+            ];
+        }
 
-        $this->site->mergeEdgeMeta([
-            'jobs' => [
-                'enabled' => $this->enabled,
-                'default_queue' => $this->default_queue,
-            ],
-        ]);
-        $this->site->save();
-        $this->republishEdgeHostMap();
-        $this->toastSuccess(__('Edge jobs settings saved.'));
+        return $rows;
     }
 
     public function render(): View
@@ -137,6 +186,12 @@ class Jobs extends Component
                 'queueBindings' => $queues,
                 'dashboardQueueBindings' => $dashboardQueues,
                 'hasWorker' => $this->edgeSiteHasWorker(),
+                'attachedQueues' => $this->attachedQueues(),
+                'isContainer' => ($this->site->edgeMeta()['runtime_mode'] ?? '') === 'container',
+                'workers' => EdgeQueueWorkers::for($this->site),
+                'workersUnavailable' => EdgeQueueWorkers::unavailableReason($this->site),
+                'workerInstances' => EdgeQueueWorkers::runningInstances($this->site),
+                'runsScheduler' => EdgeQueueWorkers::runsScheduler($this->site),
                 'bindingsUrl' => route('sites.show', [
                     'server' => $this->server,
                     'site' => $this->site,

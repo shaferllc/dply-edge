@@ -158,8 +158,8 @@
             <x-sheet.row
                 wire:click="openPanel('sleep')"
                 x-on:click="$dispatch('open-modal', 'resources-sleep')"
-                :title="__('Sleep, region, scheduler')"
-                :hint="collect([$jurisdiction === '' ? __('Any region') : strtoupper($jurisdiction), __('rollout :mode', ['mode' => $rolloutMode]), $scheduler ? __('scheduler on') : __('scheduler off')])->implode(' · ')"
+                :title="__('Sleep, scaling, region')"
+                :hint="collect([$minInstances > 0 ? trans_choice(':count always awake|:count always awake', $minInstances) : null, $schedules !== [] ? trans_choice(':count window|:count windows', count($schedules)) : null, $jurisdiction === '' ? __('Any region') : strtoupper($jurisdiction), __('rollout :mode', ['mode' => $rolloutMode]), $scheduler ? __('scheduler on') : __('scheduler off')])->filter()->implode(' · ')"
             />
         </x-sheet.body>
 

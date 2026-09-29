@@ -7,8 +7,8 @@ Routing rules run at the edge, before a request reaches your files or your app. 
 
 You can define rules in two places:
 
-- **Dashboard.** Open your app, choose **Routing**, then the **Redirects**, **Rewrites** or **Headers** tab. Changes apply within about a minute, with no rebuild.
-- **`dply.yaml`.** Commit rules in your repository. They apply on the next deploy, and the dashboard shows them as read-only rows under **From dply.yaml**.
+- **Dashboard.** Open your app, choose **Routing**, then the **Redirects**, **Rewrites** or **Headers** tab. Each tab opens with a sentence that sums up its rules, then lists every rule as a row, such as "/old-page moves permanently to /new-page". Click a row to edit or remove it in a dialog. Changes apply within about a minute, with no rebuild.
+- **`dply.yaml`.** Commit rules in your repository. They apply on the next deploy, and the dashboard lists them as read-only rows marked with the file name.
 
 When both exist, repository rules come first and dashboard rules follow.
 
@@ -38,16 +38,16 @@ All three rule types use the same patterns:
 
 A redirect sends the visitor's browser to a new URL.
 
-1. Open **Routing**, then **Redirects**.
-2. Enter **From** (it must start with `/`) and **To** (a path or a full URL).
-3. Pick a **Status**: `301`, `302`, `307` or `308`.
-4. Choose **Add**.
+1. Open **Routing**, then **Redirects**, and choose **Add a redirect**.
+2. Enter **When someone visits** (it must start with `/`) and **Send them to** (a path or a full URL).
+3. Under **For good, or for now?**, pick permanent (`301` or `308`) or temporary (`302` or `307`). The `307` and `308` versions keep the request method, such as a `POST`.
+4. Choose **Save**.
 
 Redirects run before anything else in routing. The first matching rule wins. Redirect responses are sent with `Cache-Control: no-cache`, so a changed rule takes effect for returning visitors.
 
 ### Import redirects in bulk
 
-Under **Import in bulk**, paste many rules at once, one per line, in either format:
+Choose **Import many at once from a CSV or _redirects file** and paste many rules, one per line, in either format:
 
 ```text
 /old-page,/new-page,301
@@ -67,7 +67,7 @@ A rewrite serves different content without changing the URL in the browser.
 - **To a path** (`/app/*` → `/index.html`): dply serves that file instead.
 - **To a full URL** (`/api/*` → `https://api.example.com/:splat`): dply proxies the request to that origin and returns its response.
 
-Add one under **Routing** → **Rewrites** with **From** and **To**, then choose **Add**. The first matching rewrite wins.
+Under **Routing** → **Rewrites**, choose **Add a rewrite**, fill in **When someone visits** and **Serve it from**, then choose **Save**. The first matching rewrite wins.
 
 > [!NOTE]
 > Rewrites apply to static and hybrid apps. For SSR and container apps, requests go straight to your app after redirects, and your framework's own routing handles rewrites.
@@ -76,16 +76,16 @@ Add one under **Routing** → **Rewrites** with **From** and **To**, then choose
 
 Header rules add or replace response headers on matching paths.
 
-1. Open **Routing**, then **Headers**.
-2. Enter a **Path pattern**, such as `/assets/*`.
-3. Enter **Headers (one per line, Name: value)**:
+1. Open **Routing**, then **Headers**, and choose **Add a header rule**.
+2. Enter **For paths matching**, such as `/assets/*`.
+3. Enter **Add these headers**, one per line as `Name: value`:
 
    ```text
    Cache-Control: public, max-age=31536000, immutable
    X-Robots-Tag: noindex
    ```
 
-4. Choose **Add rule**.
+4. Choose **Save**.
 
 Every matching header rule applies, in order. A later rule overwrites a header set by an earlier one. Header rules apply to responses from every app type, including SSR and container apps.
 
@@ -105,7 +105,7 @@ For SSR and container apps, your app sets its own headers.
 
 ## Templates
 
-Each tab has a **Templates** list under **Advanced** that adds a set of rules in one click. You can then edit or remove the rules it added.
+Each tab lists its templates as rows starting **Start from**. Choosing one adds its rules in one step, after you confirm. You can then edit or remove the rules it added.
 
 | Template | Adds |
 |----------|------|

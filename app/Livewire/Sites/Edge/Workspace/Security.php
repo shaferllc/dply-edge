@@ -25,8 +25,6 @@ class Security extends Component
     use ManagesEdgeRedeploy;
     use MountsEdgeWorkspaceSection;
 
-    public bool $confirmRemoveCertificate = false;
-
     public function mount(Server $server, Site $site): void
     {
         $this->mountEdgeWorkspaceSection($server, $site);
@@ -68,12 +66,6 @@ class Security extends Component
         $this->toastSuccess(__('Certificate created. Deploy the app to present it.'));
     }
 
-    public function askRemoveOutboundCertificate(): void
-    {
-        $this->authorize('update', $this->site);
-        $this->confirmRemoveCertificate = true;
-    }
-
     public function removeOutboundCertificate(): void
     {
         $this->authorize('update', $this->site);
@@ -90,8 +82,7 @@ class Security extends Component
 
         $this->site->mergeEdgeMeta(['client_certificate' => null]);
         $this->site->save();
-        $this->confirmRemoveCertificate = false;
-        $this->dispatch('close-modal', 'security-remove-certificate');
+        $this->dispatch('close-modal', 'security-certificate');
         $this->toastSuccess(__('Certificate removed. Deploy the app to stop presenting it.'));
     }
 
@@ -169,7 +160,7 @@ class Security extends Component
 
     /**
      * @param  array<string, mixed>  $meta
-     * @return list<array{label: string, detail: string, href: string, on: bool}>
+     * @return list<array{label: string, detail: string, sentence: string, href: string, on: bool}>
      */
     private function controls(array $meta): array
     {
@@ -196,6 +187,11 @@ class Security extends Component
                     $mode === 'block' => trans_choice(':count country blocked|:count countries blocked', $countries, ['count' => $countries]),
                     default => __('Not checking countries'),
                 },
+                'sentence' => match (true) {
+                    $mode === 'allow' => trans_choice('The firewall only lets in visitors from :count country|The firewall only lets in visitors from :count countries', $countries, ['count' => $countries]),
+                    $mode === 'block' => trans_choice('The firewall blocks visitors from :count country|The firewall blocks visitors from :count countries', $countries, ['count' => $countries]),
+                    default => __('The country firewall isn’t checking anyone'),
+                },
                 'href' => $this->sectionUrl('firewall'),
                 'on' => $firewallOn,
             ],
@@ -204,6 +200,9 @@ class Security extends Component
                 'detail' => $botOn
                     ? ($botMode === 'all' ? __('Every HTML page') : __('Forms only'))
                     : __('No challenge'),
+                'sentence' => $botOn
+                    ? ($botMode === 'all' ? __('Bot protection checks every page') : __('Bot protection checks form posts'))
+                    : __('Bot protection is off'),
                 'href' => $this->sectionUrl('bot-protection'),
                 'on' => $botOn,
             ],
@@ -212,6 +211,9 @@ class Security extends Component
                 'detail' => $rateOn
                     ? trans_choice(':count rule|:count rules', $rules, ['count' => $rules])
                     : __('Not capping requests'),
+                'sentence' => $rateOn
+                    ? trans_choice(':count rate limit caps how fast one visitor can go|:count rate limits cap how fast one visitor can go', $rules, ['count' => $rules])
+                    : __('No rate limits are capping requests'),
                 'href' => $this->sectionUrl('rate-limits'),
                 'on' => $rateOn,
             ],

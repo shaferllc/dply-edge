@@ -8,7 +8,7 @@ A deployed app can fail in a few distinct ways: the platform refuses the request
 ## Where to look
 
 - **Traffic & analytics** shows requests by status code, so you can see when errors started and which paths return them. See [Traffic & analytics](/docs/traffic).
-- **Container**, then **Logs**, then **Load last 15 minutes** shows what a container app printed to stdout and stderr: stack traces, boot errors, framework logs.
+- **Build & deploy logs**, then **What your app is printing**, shows what a container app printed to stdout and stderr: stack traces, boot errors, framework logs.
 - **Deploys** shows whether the error started with a particular deployment. Roll back from there if it did. See [Deployments](/docs/deployments).
 
 ## "This site is paused" (503)
@@ -45,8 +45,8 @@ Your app answered with an error, or crashed. Open the container logs.
 |---|---|
 | A stack trace for a missing environment variable or config | Add it under **Environment** and redeploy. |
 | `SQLSTATE` connection errors | Check a database is attached under **Add resource**, **Database**, and that you redeployed after attaching it. A sleeping database wakes on the next connection; the first query waits for it. |
-| Missing table errors | Migrations have not run. Turn on **Run migrations when a container starts** on **Container**, or run **Migrate** from the database's settings. |
-| Out of memory, or the container restarting | Choose a larger **Instance size** on **Container**. |
+| Missing table errors | Migrations have not run. Turn on **Run migrations when a container starts** in **Overview** → **App** card → **Sleep, scaling, region**, or run **Migrate** from the database's settings. |
+| Out of memory, or the container restarting | Choose a larger size on the **App** card on **Overview**. |
 | Laravel: "No application encryption key" | Restore `APP_KEY` under **Environment**; dply generates one only when none is set. |
 
 After each container deploy dply requests the app's URL and marks the deploy failed if it answers with a 5xx. See [Troubleshooting builds](/docs/guides/troubleshooting-builds).
@@ -55,7 +55,7 @@ After each container deploy dply requests the app's URL and marks the deploy fai
 
 Container apps sleep after the **Sleep after idle** period (5 minutes by default). The next request starts a container and waits for it to boot, which is the cold start. It is longer when **Run migrations when a container starts** is on, because every start runs migrations first.
 
-- Set **Min instances** to 1 on **Container** to keep one instance warm. It bills compute all month.
+- Set **Always awake** to 1 in **Overview** → **App** card → **Sleep, scaling, region** to keep one instance warm. It bills compute all month.
 - Use a longer **Sleep after idle** for fewer cold starts.
 - Use **Scaling windows** to keep instances warm only during business hours.
 

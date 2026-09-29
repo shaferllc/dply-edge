@@ -1,16 +1,16 @@
 <div class="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
+    <x-breadcrumb-trail
+        :items="$settingsBreadcrumbs"
+        :site="$site"
+        doc-contextual
+        :contextual-doc-slug="$contextualDocSlug"
+        class="mb-6"
+    />
+
     <div class="lg:grid lg:grid-cols-12 lg:gap-10">
         @include('livewire.sites.settings.partials.sidebar')
 
         <div class="min-w-0 lg:col-span-9">
-            <x-breadcrumb-trail
-                :items="$settingsBreadcrumbs"
-                :site="$site"
-                doc-contextual
-                :contextual-doc-slug="$contextualDocSlug"
-                class="mb-6"
-            />
-
             {{-- Merged chrome: one outer card, sand identity header, children as strips.
                  Matches BYO site Settings — Overview owns its own identity strip
                  (like general-tab); other sections get the shell sand header. --}}
@@ -77,8 +77,6 @@
                         @livewire('sites.edge.workspace.jobs', ['server' => $server, 'site' => $site], key('edge-section-jobs-'.$site->id))
                     @elseif ($section === 'snippets')
                         @livewire('sites.edge.workspace.snippets', ['server' => $server, 'site' => $site], key('edge-section-snippets-'.$site->id))
-                    @elseif ($section === 'container')
-                        @livewire('sites.edge.workspace.container', ['server' => $server, 'site' => $site], key('edge-section-container-'.$site->id))
                     @elseif ($section === 'tags')
                         @livewire('sites.edge.workspace.tags', ['server' => $server, 'site' => $site], key('edge-section-tags-'.$site->id))
                     @elseif ($section === 'members')

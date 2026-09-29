@@ -26,6 +26,7 @@ final class EdgeEffectiveErrorPages
      * @return array{
      *     html_404: ?string,
      *     html_500: ?string,
+     *     html_403: ?string,
      *     maintenance_enabled: bool,
      *     maintenance_html: ?string,
      *     sources: array{repo: bool, dashboard: bool}
@@ -45,6 +46,8 @@ final class EdgeEffectiveErrorPages
         $repo500 = is_string($repoErrors['html_500'] ?? null) ? trim((string) $repoErrors['html_500']) : '';
         $dash404 = is_string($dashErrors['html_404'] ?? null) ? trim((string) $dashErrors['html_404']) : '';
         $dash500 = is_string($dashErrors['html_500'] ?? null) ? trim((string) $dashErrors['html_500']) : '';
+        // Geo-blocked 403 page is dashboard-only (no dply.yaml key).
+        $dash403 = is_string($dashErrors['html_403'] ?? null) ? trim((string) $dashErrors['html_403']) : '';
 
         $repoMaintHtml = is_string($repoMaint['html'] ?? null) ? trim((string) $repoMaint['html']) : '';
         $dashMaintHtml = is_string($dashMaint['html'] ?? null) ? trim((string) $dashMaint['html']) : '';
@@ -54,6 +57,7 @@ final class EdgeEffectiveErrorPages
         return [
             'html_404' => $dash404 !== '' ? $dash404 : ($repo404 !== '' ? $repo404 : null),
             'html_500' => $dash500 !== '' ? $dash500 : ($repo500 !== '' ? $repo500 : null),
+            'html_403' => $dash403 !== '' ? $dash403 : null,
             'maintenance_enabled' => $dashMaintOn || $repoMaintOn,
             'maintenance_html' => $dashMaintHtml !== '' ? $dashMaintHtml : ($repoMaintHtml !== '' ? $repoMaintHtml : null),
             'sources' => [

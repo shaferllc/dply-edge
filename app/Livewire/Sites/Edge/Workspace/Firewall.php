@@ -34,16 +34,48 @@ class Firewall extends Component
     /** @var list<string> ISO 3166-1 alpha-2, uppercase. */
     public array $selected_codes = [];
 
+    /** The rule modal is open. */
+    public bool $editing = false;
+
     public function mount(Server $server, Site $site): void
     {
         $this->mountEdgeWorkspaceSection($server, $site);
+        $this->loadFromSite();
+    }
 
-        $firewall = is_array($site->edgeMeta()['firewall'] ?? null) ? $site->edgeMeta()['firewall'] : [];
+    /** Saved config → component state; drops unsaved edits. */
+    private function loadFromSite(): void
+    {
+        $firewall = is_array($this->site->edgeMeta()['firewall'] ?? null) ? $this->site->edgeMeta()['firewall'] : [];
         $mode = strtolower((string) ($firewall['country_mode'] ?? 'off'));
         $this->country_mode = in_array($mode, ['off', 'allow', 'block'], true) ? $mode : 'off';
 
         $countries = is_array($firewall['countries'] ?? null) ? $firewall['countries'] : [];
         $this->selected_codes = $this->sanitize($countries);
+    }
+
+    public function editRule(): void
+    {
+        $this->authorize('update', $this->site);
+        $this->loadFromSite();
+        $this->resetErrorBag();
+        $this->editing = true;
+        $this->dispatch('open-modal', 'edge-firewall');
+    }
+
+    public function closeRule(): void
+    {
+        $this->loadFromSite();
+        $this->editing = false;
+        $this->dispatch('close-modal', 'edge-firewall');
+    }
+
+    public function saveRule(): void
+    {
+        if ($this->save()) {
+            $this->editing = false;
+            $this->dispatch('close-modal', 'edge-firewall');
+        }
     }
 
     public function addCountry(string $code): void
@@ -68,12 +100,18 @@ class Firewall extends Component
         ));
     }
 
-    public function save(): void
+    public function save(): bool
     {
         $this->authorize('update', $this->site);
         $this->validate();
 
         $codes = $this->sanitize($this->selected_codes);
+        // An empty list never enforces: say so instead of saving a rule that does nothing.
+        if ($this->country_mode !== 'off' && $codes === []) {
+            $this->addError('selected_codes', __('Add at least one country, or choose Everyone.'));
+
+            return false;
+        }
         $this->selected_codes = $codes;
 
         $previousFirewall = is_array($this->site->edgeMeta()['firewall'] ?? null) ? $this->site->edgeMeta()['firewall'] : [];
@@ -109,6 +147,8 @@ class Firewall extends Component
         );
 
         $this->toastSuccess(__('Firewall updated.'));
+
+        return true;
     }
 
     public function render(): View

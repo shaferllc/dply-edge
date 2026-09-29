@@ -9,15 +9,32 @@ To open it, go to your app and choose **Alerts** in the **Manage** group of the 
 
 ## Before you start
 
-You need at least one notification channel. Create one from the **Alerts** page with **Create a channel**, or ahead of time under **Profile** → **Notification channels** or your organization's **Notification channels**. See [Notification channels](/docs/notifications).
+You need at least one notification channel. Create one from the **Alerts** page with **Add channel**, or ahead of time under **Profile** → **Notification channels** or your organization's **Notification channels**. See [Notification channels](/docs/notifications).
+
+## What the page shows
+
+The page opens with one sentence that sums up the current setup, in the form "N of 11 events reach someone, through <channels>. The last alert was <time> ago." If nothing is routed yet, it says so.
+
+Below it, **When something happens** lists the app's events grouped into rules, one sentence each:
+
+- When a deploy fails, slows down or succeeds
+- When a custom domain verifies or starts failing
+- When a real-user metric crosses a threshold
+- When usage goes over budget
+- When queue jobs fail or workers keep exiting
+- When a database fills up or nears its connection limit
+
+Each rule shows the channels it reaches, or **Nobody** when no channel receives any of its events. **Manage channels** opens your **Notification channels** page.
+
+**Recent alerts** lists the last five alerts sent for the app in the past 30 days.
 
 ## Route events to channels
 
-The **Channels** section lists every channel you can route to: your personal channels, the organization's channels if you are an owner or admin, and the channels of teams you manage. The **My channels** and **Organization channels** buttons open those pages.
+1. Choose a rule.
+2. In the dialog, tick the events each channel should receive. Each row is one of the rule's events and each column is one of your channels.
+3. Choose **Save**.
 
-1. Expand a channel.
-2. Tick the events it should receive.
-3. Choose **Save subscriptions**.
+**Cancel** or closing the dialog discards your changes. The channels you can route to are your personal channels, the organization's channels if you are an owner or admin, and the channels of teams you manage.
 
 Subscriptions are per app. To send the same events from several apps to a channel at once, use **Bulk assign** on your **Notification channels** page.
 
@@ -41,7 +58,7 @@ People who receive in-app notifications still see these events in the dply inbox
 
 ## Set thresholds
 
-Under **Thresholds**, turn on any of three checks and set a value, then choose **Save thresholds**.
+Thresholds live on the **When a real-user metric crosses a threshold** rule. Choose it, turn on any of the three checks and set a value, then choose **Save**. The same **Save** stores the rule's channels and its thresholds together. Once a check is on, the rule's sentence reads from it, for example "When LCP p75 goes over 2,500 ms or the 5xx rate goes over 5%".
 
 | Check | Threshold | Allowed range | Starting value |
 |-------|-----------|---------------|----------------|
@@ -73,7 +90,7 @@ alerts:
     threshold: 50
 ```
 
-The **Repo** column on the **Alerts** page shows what the live deploy's file declares. Once you save thresholds in the dashboard, the dashboard values take precedence over the file. See [Configuration files](/docs/configuration-files).
+The **Advanced** panel at the bottom of the **Alerts** page shows what the live deploy's file declares, marked **Repo**. Once you save thresholds in the dashboard, the dashboard values take precedence over the file. See [Configuration files](/docs/configuration-files).
 
 ## Who can change alerts
 

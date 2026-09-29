@@ -19,14 +19,14 @@ After keys are saved and the feature is enabled, Edge republishes delivery confi
 
 | Mode | Behavior |
 |------|----------|
-| **Forms only** (recommended) | Challenge on form / POST surfaces |
-| **All HTML pages** | Challenge on every HTML document response |
+| **Form posts only** (recommended) | Challenge on form / POST surfaces |
+| **Every page** | Challenge on every HTML document response |
 
 ## How to set it up
 
 ### Generate keys (recommended)
 
-On **Bot protection**, choose a mode and click **Generate keys**. Dply creates a challenge widget for this site’s Edge hostnames, fills the site + secret keys, enables protection, and republishes delivery.
+Tick **Bot protection is on** (or open **Keys** → **Generate keys** / **Regenerate**). Dply creates a challenge widget for this site’s Edge hostnames, saves the site + secret keys, enables protection, and republishes delivery. The page opens with a summary sentence, rows for where to check and keys (each opens a dialog), and an **Also uses it** list of forms requiring a bot check and rate-limit rules that challenge.
 
 If keys already exist, confirm before replacing them.
 
@@ -34,7 +34,7 @@ If keys already exist, confirm before replacing them.
 
 1. Create a widget in your challenge provider console (for Dply’s managed path: [Cloudflare Turnstile](https://dash.cloudflare.com/?to=/:account/turnstile)).
 2. Copy the **Site Key** (public) and **Secret Key**.
-3. Paste both keys, choose a mode, enable, and **Save**.
+3. Open **Keys**, paste both keys and **Save**, then tick **Bot protection is on**.
 
 Wait for delivery republish (usually under a minute), then verify a form page in a private window.
 
@@ -46,7 +46,7 @@ Managed key generation calls Cloudflare `POST /accounts/{account_id}/challenges/
 
 ## Tips
 
-- Start with **Forms only** unless you need a site-wide challenge.
+- Start with **Form posts only** unless you need a site-wide challenge.
 - Pair with **Forms → Require bot check** so Edge form endpoints reject submissions without a valid challenge token.
 - Never commit the secret key to your frontend repo — it stays on Dply-hosted Edge only.
 - The site key is safe to embed in HTML (it identifies the widget publicly).

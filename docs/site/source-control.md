@@ -75,7 +75,7 @@ If the account loses access to the repository, or the token is revoked, the buil
 
 On **Source control**, choose **Unlink** next to the account, or **Remove** next to a token. Unlinking does not remove webhooks that dply already registered on your repositories. To stop push deploys for an app, open the app's **Deploy triggers** and choose **Disable** before you unlink. See [Deploy triggers & hooks](/docs/deploy-triggers).
 
-After you unlink, the dashboard can no longer browse that repository's branches and commits for **Deploy ref**, and it prompts you to connect the provider again. Builds of a private repository fail until another linked account can read it.
+After you unlink, the dashboard can no longer browse that repository's branches and commits for **Deploy a specific commit, branch or tag**, and it prompts you to connect the provider again. Builds of a private repository fail until another linked account can read it.
 
 ## Related
 

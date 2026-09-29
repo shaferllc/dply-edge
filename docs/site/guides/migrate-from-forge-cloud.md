@@ -74,7 +74,7 @@ See [Postgres, MySQL & MongoDB](/docs/resources/databases).
 
 ## 5. Test on the dply address
 
-Open the app on its dply address and check logins, queued jobs, scheduled tasks and uploads. Application logs are on the **Container** tab under **Logs**.
+Open the app on its dply address and check logins, queued jobs, scheduled tasks and uploads. Application logs are on **Build & deploy logs** under **What your app is printing**.
 
 ## 6. Switch the domain
 

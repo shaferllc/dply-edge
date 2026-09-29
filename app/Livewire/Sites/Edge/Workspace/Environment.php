@@ -116,11 +116,23 @@ class Environment extends Component
         $this->envRows = null;
         $this->edgeEnvText = $this->envText();
         $this->pending = false;
+        $this->dispatch('close-modal', 'env-edit');
         if (! $quiet) {
             $this->toastSuccess(__('Saved. Redeploy to apply these settings.'));
         }
 
         return true;
+    }
+
+    /** Open the editor with an empty line for a key dply.yaml declares but has no value. */
+    public function openEnvForKey(string $key): void
+    {
+        $this->authorize('update', $this->site);
+        $key = strtoupper(trim($key));
+        if ($key !== '' && preg_match('/^'.preg_quote($key, '/').'=/m', $this->edgeEnvText) !== 1) {
+            $this->edgeEnvText = rtrim($this->edgeEnvText)."\n".$key.'=';
+        }
+        $this->dispatch('open-modal', 'env-edit');
     }
 
     public function discardEdgeEnv(): void
@@ -285,6 +297,7 @@ class Environment extends Component
                 'repoEnv' => $repoEnv,
                 'sourcePath' => $sourcePath,
                 'missingSecrets' => $missingSecrets,
+                'envKeys' => $dashboardKeys,
                 'resourceInjections' => $this->resourceInjections($dashboardKeys),
             ],
         ));

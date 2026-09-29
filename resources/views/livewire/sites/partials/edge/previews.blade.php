@@ -1,415 +1,305 @@
+{{-- Previews: a sentence, a row per preview, and dialogs for one preview, a new preview, and settings. --}}
 @php
-    $previews = $edgeIsPreviewChild ? collect() : \App\Modules\Edge\Actions\CreateEdgePreviewSite::listForParent($site);
+    use App\Models\EdgeDeployment;
+    use App\Models\EdgeDeployReplay;
+    use App\Models\Site;
+    use App\Modules\Edge\Actions\CreateEdgePreviewSite;
+    use Illuminate\Support\Str;
+
+    $previews = $edgeIsPreviewChild ? collect() : CreateEdgePreviewSite::listForParent($site);
+    $canDeploy = auth()->user()?->can('deploy', $site) ?? false;
+    $canEdit = auth()->user()?->can('update', $site) ?? false;
+    $split = is_array($site->edgeMeta()['split'] ?? null) && ($site->edgeMeta()['split']['enabled'] ?? false) ? $site->edgeMeta()['split'] : null;
+    $protection = (string) ($site->edgeSiteAccessRule?->mode ?? 'off');
+    $commentsOn = (bool) ($site->edgeMeta()['comment_widget']['enabled'] ?? false);
+    $adhocPending = ! $edgeIsPreviewChild && $canDeploy && $this->adhocPreviewIsPending();
+
+    // One plain description per preview, shared by its row and its dialog.
+    $describe = function (Site $preview) use ($split, $edge_adhoc_preview_pending_site_id): array {
+        $meta = $preview->edgeMeta();
+        $deployment = $preview->relationLoaded('edgeDeployments') ? $preview->edgeDeployments->first() : $preview->edgeDeployments()->latest()->first();
+        $commit = is_array($deployment?->meta['commit'] ?? null) ? $deployment->meta['commit'] : [];
+        $pr = $meta['preview_pr_number'] ?? null;
+        $sha = substr((string) ($meta['preview_head_sha'] ?? ''), 0, 7);
+        $name = ($pr !== null && $pr !== '') ? '#'.$pr : (string) ($meta['preview_branch'] ?? $sha);
+        $subject = (string) ($commit['subject'] ?? '');
+        $live = $preview->status === Site::STATUS_EDGE_ACTIVE && $deployment?->status === EdgeDeployment::STATUS_LIVE && $deployment->storage_prefix !== null;
+        $failed = $preview->status === Site::STATUS_EDGE_FAILED || $deployment?->status === EdgeDeployment::STATUS_FAILED;
+        $pending = $edge_adhoc_preview_pending_site_id !== null && $edge_adhoc_preview_pending_site_id === (string) $preview->id;
+        $pct = $split !== null && ($split['preview_site_id'] ?? null) === (string) $preview->id ? (int) ($split['percentage'] ?? 0) : 0;
+
+        return [
+            'name' => $name,
+            'title' => trim($name.' '.($subject !== '' ? $subject : '')),
+            'branch' => (string) ($meta['preview_branch'] ?? ''),
+            'sha' => $sha,
+            'kind' => $pr !== null && $pr !== '' ? __('Pull request') : (($meta['preview_ref_kind'] ?? null) === 'tag' ? __('Tag') : __('Ad-hoc')),
+            'author' => (string) ($commit['author'] ?? ''),
+            'deployment' => $deployment,
+            'live' => $live && ! $pending,
+            'failed' => $failed,
+            'pending' => $pending || (! $live && ! $failed),
+            'url' => $preview->edgeLiveUrl(),
+            'reason' => trim((string) ($deployment?->failure_reason ?: ($meta['last_error'] ?? ''))),
+            'pct' => $pct,
+            'log' => $deployment !== null
+                ? route('sites.edge.deployments.show', ['server' => $preview->server_id, 'site' => $preview, 'deployment' => $deployment, 'tab' => 'log'])
+                : route('sites.show', ['server' => $preview->server_id, 'site' => $preview, 'section' => 'logs']),
+        ];
+    };
+    $described = $previews->mapWithKeys(fn ($p) => [(string) $p->id => $describe($p)]);
+    $liveCount = $described->where('live', true)->count();
+    $splitPreview = $split !== null ? $described->get((string) ($split['preview_site_id'] ?? '')) : null;
+    $row = 'flex min-h-12 w-full items-center gap-3 border-b border-brand-ink/10 py-3 text-left hover:bg-brand-sand/20';
+    $close = fn (string $m) => '<button type="button" x-on:click="$dispatch(\'close-modal\', \''.$m.'\')" class="dply-icon-btn h-9 w-9 shrink-0" aria-label="'.e(__('Close')).'">'.svg('heroicon-o-x-mark', 'h-5 w-5', ['aria-hidden' => 'true'])->toHtml().'</button>';
 @endphp
 
-<section class="border-b border-brand-ink/10">
-    @unless ($edgeIsPreviewChild)
-        @can('deploy', $site)
-            @php
-                $adhocPending = $this->adhocPreviewIsPending();
-            @endphp
-            {{-- Poll every 5s. adhocPreviewIsPending() short-circuits to false
-                 when there's no pending preview, so steady-state cost is one
-                 cheap DB lookup. Inline @if(...) ... @endif inside an HTML
-                 attribute trips the Blade parser, so keep the attribute flat. --}}
-            <div
-                class="border-b border-brand-ink/10 px-6 py-3 sm:px-8"
-                wire:poll.5s="adhocPreviewIsPending"
-            >
-                <form wire:submit.prevent="createAdhocEdgePreview" class="space-y-0">
-                    <div class="flex flex-wrap items-end gap-2">
-                        <div class="min-w-[16rem] flex-1">
-                            <label for="edge_preview_commit_sha" class="text-xs font-semibold uppercase tracking-[0.14em] text-brand-mist">
-                                {{ __('Create preview from commit') }}
-                            </label>
-                            <div class="mt-1 flex gap-2">
-                                <input
-                                    id="edge_preview_commit_sha"
-                                    type="text"
-                                    wire:model="edge_deploy_commit_sha"
-                                    placeholder="{{ __('Commit SHA, or browse below') }}"
-                                    autocomplete="off"
-                                    spellcheck="false"
-                                    @disabled($adhocPending)
-                                    class="min-w-0 flex-1 rounded-lg border border-brand-ink/15 bg-white px-3 py-1.5 font-mono text-xs text-brand-ink focus:border-brand-sage focus:ring-1 focus:ring-brand-sage disabled:cursor-not-allowed disabled:opacity-60"
-                                />
-                                <button
-                                    type="button"
-                                    wire:click="openEdgeDeployRefPicker"
-                                    @disabled($adhocPending)
-                                    class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-brand-ink/15 bg-brand-sand/30 px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-brand-sand/60 disabled:cursor-not-allowed disabled:opacity-60"
-                                >
-                                    <x-heroicon-o-magnifying-glass class="h-4 w-4" />
-                                    {{ __('Browse') }}
-                                </button>
-                            </div>
-                        </div>
-                        <button
-                            type="submit"
-                            wire:loading.attr="disabled"
-                            wire:target="createAdhocEdgePreview"
-                            @disabled($adhocPending)
-                            class="inline-flex items-center gap-1.5 rounded-lg bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-brand-ink/90 disabled:cursor-wait disabled:opacity-60"
-                        >
-                            @if ($adhocPending)
-                                @php
-                                    // adhocPreviewIsPending() keeps us pending for 45s past
-                                    // publish so the URL doesn't get hit during Cloudflare's
-                                    // KV negative-cache window. Surface that distinct phase
-                                    // here so the label matches what's happening.
-                                    $pendingPreviewForLabel = \App\Models\Site::query()->find($edge_adhoc_preview_pending_site_id);
-                                    $isPropagating = $pendingPreviewForLabel
-                                        && $pendingPreviewForLabel->status === \App\Models\Site::STATUS_EDGE_ACTIVE;
-                                @endphp
-                                <x-spinner variant="white" size="sm" />
-                                <span>{{ $isPropagating ? __('Propagating…') : __('Building…') }}</span>
-                            @else
-                                <x-spinner variant="white" size="sm" wire:loading wire:target="createAdhocEdgePreview" />
-                                <span wire:loading.remove wire:target="createAdhocEdgePreview">{{ __('Create preview') }}</span>
-                                <span wire:loading wire:target="createAdhocEdgePreview">{{ __('Queueing…') }}</span>
-                            @endif
-                        </button>
-                    </div>
-                    @if ($adhocPending)
-                        @php
-                            // Re-use the same provisioning-journey calculator the
-                            // real edge-site dashboard uses, but scoped to the
-                            // pending preview so the progress bar + steps reflect
-                            // build → publish → live for THIS specific deploy.
-                            $pendingPreview = \App\Models\Site::query()->find($edge_adhoc_preview_pending_site_id);
-                            $journey = $pendingPreview
-                                ? \App\Support\Sites\SiteShowViewData::edgeProvisioningJourney($pendingPreview)
-                                : null;
-                            $pendingSha = $pendingPreview
-                                ? substr((string) ($pendingPreview->edgeMeta()['preview_head_sha'] ?? ''), 0, 7)
-                                : '';
-                        @endphp
-                        @if ($journey !== null)
-                            @php
-                                // While the deployment row already reads "live", we still
-                                // hold the pending state for ~45s to outlive Cloudflare's KV
-                                // negative-cache window. Render that as a distinct phase
-                                // so the user understands why the URL isn't shown yet
-                                // and the button still spins.
-                                $isPropagating = $journey['edgeJourneyIsDone'];
-                                $pendingDeployment = $journey['edgeLatestDeployment'] ?? null;
-                            @endphp
-                            <div class="mt-3 overflow-hidden rounded-2xl border border-indigo-200/80 bg-gradient-to-br from-indigo-50/95 to-white">
-                                <div class="flex flex-wrap items-center justify-between gap-2 border-b border-indigo-100/80 px-4 py-3">
-                                    <div class="min-w-0">
-                                        <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-indigo-700">{{ __('Preview build') }}</p>
-                                        <p class="mt-0.5 font-mono text-xs text-brand-moss">
-                                            @if ($pendingSha !== '')
-                                                {{ __('Preview from commit :sha', ['sha' => $pendingSha]) }}
-                                            @else
-                                                {{ __('Building preview…') }}
-                                            @endif
-                                        </p>
-                                    </div>
-                                    @if ($pendingDeployment !== null)
-                                        <a
-                                            href="{{ route('sites.edge.deployments.show', ['server' => $pendingPreview->server_id, 'site' => $pendingPreview, 'deployment' => $pendingDeployment, 'tab' => 'log']) }}"
-                                            wire:navigate
-                                            class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-indigo-800 shadow-sm hover:bg-indigo-50"
-                                        >
-                                            <x-heroicon-o-clipboard-document-list class="h-3.5 w-3.5" aria-hidden="true" />
-                                            {{ __('Open full log') }}
-                                        </a>
-                                    @endif
-                                </div>
+<section class="space-y-8 px-5 py-8 sm:px-10 sm:py-10">
+    <div>
+        <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Previews') }}</p>
+        <p class="mt-3 max-w-3xl text-2xl font-medium leading-snug tracking-tight text-brand-ink sm:text-3xl">
+            @if (! $previewPolicy['enabled'])
+                <span class="text-amber-600 dark:text-amber-300">{{ __('Pull requests don’t get previews.') }}</span>
+            @elseif ($previewPolicy['pr_only'])
+                {{ __('Every pull request gets its own URL.') }}
+            @else
+                {{ __('Pull requests and matching branches get their own URL.') }}
+            @endif
+            @if ($liveCount > 0)
+                <span class="text-brand-sage">{{ trans_choice(':count preview is live|:count previews are live', $liveCount) }}</span>@if ($splitPreview), {{ __('and') }} {{ $splitPreview['name'] }} {{ __('is getting') }} <span class="text-amber-600 dark:text-amber-300">{{ __(':pct% of production traffic', ['pct' => $splitPreview['pct']]) }}</span>@endif.
+            @else
+                {{ __('No previews are live right now.') }}
+            @endif
+            {{ match ($protection) {
+                'password' => __('Opening one takes a password.'),
+                'dply_account' => __('Opening one takes a dply sign-in.'),
+                default => __('Anyone with a link can open them.'),
+            } }}
+        </p>
+    </div>
 
-                                @if ($pendingDeployment !== null)
-                                    {{-- Same streaming BuildJourney as Edge provisioning / deploy detail. --}}
-                                    <div class="bg-white/60">
-                                        @livewire('edge.build-journey', ['deploymentId' => (string) $pendingDeployment->id], key('edge-adhoc-preview-build-'.$pendingDeployment->id))
-                                    </div>
-                                @else
-                                    <div class="px-4 py-6 text-center text-xs text-brand-moss">
-                                        <span class="inline-flex h-5 w-5 animate-spin items-center justify-center rounded-full border-2 border-indigo-200 border-t-indigo-600" aria-hidden="true"></span>
-                                        <p class="mt-2">{{ __('Waiting for the build to start…') }}</p>
-                                    </div>
-                                @endif
-
-                                <div class="border-t border-indigo-100/80 px-4 py-2.5 space-y-1.5">
-                                    @if ($isPropagating && ! $journey['edgeJourneyHasFailed'])
-                                        <p class="text-xs text-brand-moss">
-                                            {{ __('Build finished — propagating to edge. Create unlocks once the URL is safe to open.') }}
-                                        </p>
-                                    @else
-                                        <p class="text-xs text-brand-moss">
-                                            {{ __('Live build output below. Auto-refreshes; Create unlocks once the URL is safe to open.') }}
-                                        </p>
-                                    @endif
-                                    @if (\App\Modules\Edge\Support\FakeEdgeProvision::enabled())
-                                        <p class="text-xs text-amber-800 dark:text-raw-amber-200">
-                                            {{ __('Local Fake Edge: the preview URL must resolve to this app (e.g. *.edge.test / *.dply.test via Valet). Public on-dply.live hostnames hit the public edge and will not see this build.') }}
-                                        </p>
-                                    @endif
-                                </div>
-                            </div>
-                        @endif
-                    @elseif ($edge_deploy_commit_branch !== null)
-                        <p class="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-brand-moss">
-                            <span>{{ __('Will preview from branch') }}</span>
-                            <span class="inline-flex items-center gap-1 rounded-md bg-brand-sand/40 px-1.5 py-0.5 font-mono text-xs font-semibold text-brand-ink">
-                                {{ $edge_deploy_commit_branch }}
-                                <button type="button" wire:click="$set('edge_deploy_commit_branch', null)" class="text-brand-mist hover:text-brand-ink" title="{{ __('Clear branch override.') }}">
-                                    <x-heroicon-m-x-mark class="h-3 w-3" aria-hidden="true" />
-                                </button>
-                            </span>
-                        </p>
+    <div>
+        <p class="border-b border-brand-ink/10 pb-2 text-sm font-semibold text-brand-ink">{{ __('Previews') }}</p>
+        @if ($adhocPending)
+            @php $pendingPreview = Site::query()->find($edge_adhoc_preview_pending_site_id); @endphp
+            <button type="button" x-on:click="$dispatch('open-modal', 'preview-new')" class="{{ $row }}" wire:poll.5s="adhocPreviewIsPending">
+                <span class="inline-flex h-2 w-2 shrink-0 animate-pulse rounded-full bg-amber-500"></span>
+                <span class="flex-1 text-sm text-brand-ink sm:text-base">
+                    {{ $pendingPreview?->status === Site::STATUS_EDGE_ACTIVE
+                        ? __('A new preview is going out to the edge. Its URL appears when it’s safe to open.')
+                        : __('Building a preview of :sha…', ['sha' => substr((string) ($pendingPreview?->edgeMeta()['preview_head_sha'] ?? ''), 0, 7)]) }}
+                </span>
+                <span class="shrink-0 text-xs text-brand-moss">{{ __('Watch') }}</span>
+                <x-heroicon-m-chevron-right class="h-4 w-4 shrink-0 text-brand-mist" aria-hidden="true" />
+            </button>
+        @endif
+        @foreach ($previews as $preview)
+            @php $d = $described[(string) $preview->id]; @endphp
+            <button type="button" wire:click="openPreview(@js((string) $preview->id))" class="{{ $row }}" wire:key="preview-row-{{ $preview->id }}">
+                <span class="min-w-0 flex-1 text-sm text-brand-ink sm:text-base">
+                    <span class="font-mono">{{ $d['name'] }}</span>
+                    @if ($d['title'] !== $d['name']) {{ Str::after($d['title'], $d['name'].' ') }} @endif
+                    @if ($d['failed'])
+                        {{ __('failed to build') }}
+                    @elseif ($d['live'] && $d['pct'] > 0)
+                        {{ __('is live and getting :pct% of traffic', ['pct' => $d['pct']]) }}
+                    @elseif ($d['live'])
+                        {{ __('is live') }}
                     @else
-                        <p class="mt-2 text-xs text-brand-moss">{{ __('Same SHA reuses the preview; different SHAs get their own URL.') }}</p>
+                        {{ __('is building') }}
                     @endif
-                    @if ($edge_deploy_ref_picker_open)
-                        @include('livewire.sites.partials.edge.deploy-ref-picker')
-                    @endif
-                </form>
-            </div>
-        @endcan
-    @endunless
+                </span>
+                <span @class(['shrink-0 text-xs', 'text-rose-600 dark:text-rose-300' => $d['failed'], 'text-brand-sage' => $d['live'], 'text-amber-600 dark:text-amber-300' => ! $d['failed'] && ! $d['live']])>
+                    {{ $d['failed'] ? __('Failed') : ($d['live'] ? ($d['pct'] > 0 ? __(':pct% traffic', ['pct' => $d['pct']]) : __('Live')) : __('Building')) }}
+                </span>
+                <x-heroicon-m-chevron-right class="h-4 w-4 shrink-0 text-brand-mist" aria-hidden="true" />
+            </button>
+        @endforeach
+        @if ($previews->isEmpty() && ! $adhocPending)
+            <p class="border-b border-brand-ink/10 py-3 text-sm text-brand-moss">{{ __('No previews yet. Open a pull request against :branch, or preview a commit below.', ['branch' => $edgeBranch]) }}</p>
+        @endif
+        @if ($canDeploy && ! $edgeIsPreviewChild)
+            <button type="button" x-on:click="$dispatch('open-modal', 'preview-new')" class="{{ $row }} font-medium text-brand-sage">
+                <x-heroicon-m-plus class="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span class="flex-1 text-sm sm:text-base">{{ __('Preview a commit or branch') }}</span>
+            </button>
+        @endif
+    </div>
 
-    @if ($previews->isEmpty())
-        <div class="px-6 py-8 text-center text-sm text-brand-moss sm:px-8">
-            <x-heroicon-o-sparkles class="mx-auto h-8 w-8 text-brand-mist" />
-            <p class="mt-3 font-medium text-brand-ink">{{ __('No active previews') }}</p>
-            <p class="mt-1">{{ __('Pick a commit above to spin up a one-off preview, or open a pull request against :branch to have the GitHub webhook create one.', ['branch' => $edgeBranch]) }}</p>
-            <a href="{{ route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'deploy-triggers']) }}" wire:navigate class="mt-3 inline-block text-sm font-medium text-brand-forest hover:underline dark:text-brand-sage">
-                {{ __('View webhook setup →') }}
-            </a>
+    @unless ($edgeIsPreviewChild)
+        <div>
+            <p class="border-b border-brand-ink/10 pb-2 text-sm font-semibold text-brand-ink">{{ __('How previews work') }}</p>
+            <button type="button" x-on:click="$dispatch('open-modal', 'preview-policy')" class="{{ $row }}">
+                <span class="flex-1 text-sm text-brand-ink sm:text-base">
+                    @if (! $previewPolicy['enabled'])
+                        {{ __('Pull requests don’t get previews') }}
+                    @elseif ($previewPolicy['pr_only'])
+                        {{ __('Pull requests get a preview; pushes to other branches don’t') }}
+                    @else
+                        {{ __('Pull requests and :branches get a preview', ['branches' => implode(', ', $previewPolicy['branches'] ?: [__('every branch')])]) }}
+                    @endif
+                    @if (($previewPolicy['exclude_branches'] ?? []) !== [])
+                        <span class="text-brand-moss">· {{ __('except :list', ['list' => implode(', ', $previewPolicy['exclude_branches'])]) }}</span>
+                    @endif
+                </span>
+                <span class="shrink-0 text-xs text-brand-moss">{{ $sourcePath }}</span>
+                <x-heroicon-m-chevron-right class="h-4 w-4 shrink-0 text-brand-mist" aria-hidden="true" />
+            </button>
+            <button type="button" x-on:click="$dispatch('open-modal', 'preview-protection')" class="{{ $row }}">
+                <span class="flex-1 text-sm text-brand-ink sm:text-base">
+                    {{ match ($protection) {
+                        'password' => __('Previews and the live site ask for a password'),
+                        'dply_account' => __('Previews and the live site ask visitors to sign in to dply'),
+                        default => __('Anyone with the link can open a preview'),
+                    } }}
+                </span>
+                <span @class(['shrink-0 text-xs', 'text-brand-moss' => $protection === 'off', 'text-brand-sage' => $protection !== 'off'])>{{ $protection === 'off' ? __('Protection off') : __('Protected') }}</span>
+                <x-heroicon-m-chevron-right class="h-4 w-4 shrink-0 text-brand-mist" aria-hidden="true" />
+            </button>
+            <button type="button" x-on:click="$dispatch('open-modal', 'preview-comments')" class="{{ $row }}">
+                <span class="flex-1 text-sm text-brand-ink sm:text-base">{{ $commentsOn ? __('Reviewers can leave notes on preview pages') : __('Reviewers can’t leave notes on preview pages') }}</span>
+                <span class="shrink-0 text-xs text-brand-moss">{{ $commentsOn ? __('Comments on') : __('Comments off') }}</span>
+                <x-heroicon-m-chevron-right class="h-4 w-4 shrink-0 text-brand-mist" aria-hidden="true" />
+            </button>
         </div>
-    @else
-        <ul class="divide-y divide-brand-ink/8">
-            @foreach ($previews as $preview)
-                @php
-                    $previewMeta = $preview->edgeMeta();
-                    $previewBranch = (string) ($previewMeta['preview_branch'] ?? '—');
-                    $previewPrNumber = $previewMeta['preview_pr_number'] ?? null;
-                    // Legacy rows (created before preview_kind existed) all came
-                    // from the PR webhook flow, so default to 'pr' for safety.
-                    $previewKind = (string) ($previewMeta['preview_kind'] ?? \App\Modules\Edge\Actions\CreateEdgePreviewSite::KIND_PR);
-                    $previewRefKind = $previewMeta['preview_ref_kind'] ?? null;
-                    $previewHeadSha = (string) ($previewMeta['preview_head_sha'] ?? '');
-                    $previewUrl = $preview->edgeLiveUrl();
-                    // Pull commit subject/author off the latest deployment.meta —
-                    // populated by EdgeBuildRunner so it works for any provider
-                    // (no extra GitHub/GitLab API call needed).
-                    $latestPreviewDeployment = $preview->relationLoaded('edgeDeployments')
-                        ? $preview->edgeDeployments->first()
-                        : $preview->edgeDeployments()->latest()->first();
-                    $previewCommitMeta = is_array($latestPreviewDeployment?->meta['commit'] ?? null)
-                        ? $latestPreviewDeployment->meta['commit']
-                        : [];
-                    $previewCommitSubject = isset($previewCommitMeta['subject']) ? (string) $previewCommitMeta['subject'] : '';
-                    $previewCommitAuthor = isset($previewCommitMeta['author']) ? (string) $previewCommitMeta['author'] : '';
-                    // live_url is assigned at create time — only treat the hostname
-                    // as openable after a successful publish (not while building/failed).
-                    $previewIsLive = $preview->status === \App\Models\Site::STATUS_EDGE_ACTIVE
-                        && $latestPreviewDeployment !== null
-                        && $latestPreviewDeployment->status === \App\Models\EdgeDeployment::STATUS_LIVE
-                        && $latestPreviewDeployment->storage_prefix !== null;
-                    $previewFailed = $preview->status === \App\Models\Site::STATUS_EDGE_FAILED
-                        || ($latestPreviewDeployment !== null
-                            && $latestPreviewDeployment->status === \App\Models\EdgeDeployment::STATUS_FAILED);
-                    $previewFailureReason = trim((string) (
-                        $latestPreviewDeployment?->failure_reason
-                        ?: ($preview->edgeMeta()['last_error'] ?? '')
-                    ));
-                    // Suppress the URL while THIS row is the one we're still
-                    // holding in the pending-grace window — Cloudflare's KV
-                    // negative-cache window can serve "Host not configured"
-                    // for the first ~30–60s after publish.
-                    $rowIsPending = $edge_adhoc_preview_pending_site_id !== null
-                        && $edge_adhoc_preview_pending_site_id === (string) $preview->id;
-                    $previewLogUrl = $latestPreviewDeployment !== null
-                        ? route('sites.edge.deployments.show', [
-                            'server' => $preview->server_id,
-                            'site' => $preview,
-                            'deployment' => $latestPreviewDeployment,
-                            'tab' => 'log',
-                        ])
-                        : route('sites.show', [
-                            'server' => $preview->server_id,
-                            'site' => $preview,
-                            'section' => 'logs',
-                        ]);
-                @endphp
-                <li class="flex flex-wrap items-center justify-between gap-4 px-6 py-4 sm:px-8">
-                    <div class="min-w-0">
-                        <p class="font-mono text-sm font-medium text-brand-ink">
-                            {{ $previewBranch }}
-                            @if ($previewRefKind === 'tag')
-                                <span class="ms-1 inline-flex items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide text-amber-900 dark:bg-raw-amber-950/40 dark:text-amber-300">{{ __('Tag') }}</span>
-                            @elseif ($previewRefKind === 'branch')
-                                <span class="ms-1 inline-flex items-center gap-1 rounded-md bg-sky-100 px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide text-sky-800 dark:bg-sky-950/40 dark:text-sky-300">{{ __('Branch tip') }}</span>
-                            @endif
-                            @if (is_int($previewPrNumber) || (is_string($previewPrNumber) && $previewPrNumber !== ''))
-                                <span class="ms-1 text-xs font-normal text-brand-moss">· PR #{{ $previewPrNumber }}</span>
-                            @elseif ($previewKind === \App\Modules\Edge\Actions\CreateEdgePreviewSite::KIND_ADHOC && $previewHeadSha !== '')
-                                <span class="ms-1 inline-flex items-center gap-1 rounded-md bg-violet-100 px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide text-violet-800 dark:bg-violet-950/40 dark:text-violet-300">{{ __('Ad-hoc') }}</span>
-                                <span class="ms-1 text-xs font-normal text-brand-moss">· {{ substr($previewHeadSha, 0, 7) }}</span>
-                            @endif
-                            @if ($previewFailed)
-                                <span class="ms-1 inline-flex items-center gap-1 rounded-md bg-rose-100 px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide text-rose-900 dark:bg-rose-950/40 dark:text-rose-300">{{ __('Failed') }}</span>
-                            @elseif (! $previewIsLive && ! $rowIsPending)
-                                <span class="ms-1 inline-flex items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide text-amber-900 dark:bg-raw-amber-950/40 dark:text-amber-300">{{ __('Building') }}</span>
-                            @endif
-                        </p>
-                        @if ($previewCommitSubject !== '')
-                            <p class="mt-1 truncate text-xs text-brand-moss" title="{{ $previewCommitSubject }}{{ $previewCommitAuthor !== '' ? ' — '.$previewCommitAuthor : '' }}">
-                                {{ \Illuminate\Support\Str::limit($previewCommitSubject, 100) }}
-                                @if ($previewCommitAuthor !== '')
-                                    <span class="text-brand-mist">— {{ $previewCommitAuthor }}</span>
-                                @endif
-                            </p>
-                        @endif
-                        @if ($rowIsPending)
-                            <p class="mt-1 inline-flex items-center gap-1.5 text-xs text-brand-moss">
-                                <span class="inline-flex h-2 w-2 animate-pulse rounded-full bg-indigo-600"></span>
-                                {{ __('Propagating to edge — URL will appear when safe to open') }}
-                            </p>
-                        @elseif ($previewFailed)
-                            <p class="mt-1 text-xs text-rose-800 dark:text-rose-300">
-                                {{ $previewFailureReason !== '' ? \Illuminate\Support\Str::limit($previewFailureReason, 160) : __('Preview build failed.') }}
-                            </p>
-                            <a href="{{ $previewLogUrl }}" wire:navigate class="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-rose-900 hover:underline dark:text-rose-300">
-                                <x-heroicon-o-clipboard-document-list class="h-3.5 w-3.5" aria-hidden="true" />
-                                {{ __('View build log') }}
-                            </a>
-                        @elseif ($previewIsLive && $previewUrl)
-                            <a href="{{ $previewUrl }}" target="_blank" rel="noopener noreferrer" class="mt-1 inline-flex items-center gap-1 font-mono text-xs text-brand-forest hover:underline dark:text-brand-sage">
-                                {{ $previewUrl }}
-                                <x-heroicon-o-arrow-top-right-on-square class="h-3 w-3" />
-                            </a>
-                        @else
-                            <p class="mt-1 inline-flex items-center gap-1.5 text-xs text-brand-moss">
-                                <span class="inline-flex h-2 w-2 animate-pulse rounded-full bg-amber-500"></span>
-                                {{ __('Build in progress — URL unlocks when the deploy is live.') }}
-                            </p>
-                            <a href="{{ $previewLogUrl }}" wire:navigate class="mt-1 inline-flex items-center gap-1 text-xs font-medium text-brand-sage hover:underline">
-                                {{ __('View build log') }}
-                            </a>
-                        @endif
-                    </div>
-                    @can('deploy', $site)
-                        @php
-                            $parentSplit = is_array($site->edgeMeta()['split'] ?? null) ? $site->edgeMeta()['split'] : null;
-                            $splitTargetsThisPreview = is_array($parentSplit)
-                                && ($parentSplit['enabled'] ?? false)
-                                && ($parentSplit['preview_site_id'] ?? null) === (string) $preview->id;
-                            $splitInputName = 'edge_split_pct_'.$preview->id;
-                            $currentSplitPct = $splitTargetsThisPreview ? (int) ($parentSplit['percentage'] ?? 0) : 0;
-                        @endphp
-                        <div class="flex flex-col items-end gap-2">
-                            <div class="flex items-center gap-3">
-                                <a
-                                    href="{{ route('sites.preview-comments', ['server' => $preview->server_id, 'site' => $preview]) }}"
-                                    wire:navigate
-                                    class="inline-flex items-center gap-1 text-xs font-medium text-brand-moss hover:text-brand-ink"
-                                >
-                                    <x-heroicon-o-chat-bubble-left-right class="h-4 w-4" aria-hidden="true" />
-                                    {{ __('Review') }}
-                                </a>
-                                @if ($previewIsLive)
-                                    <button
-                                        type="button"
-                                        wire:click="confirmPromoteEdgePreview('{{ $preview->id }}')"
-                                        wire:loading.attr="disabled"
-                                        wire:target="confirmPromoteEdgePreview('{{ $preview->id }}'),promoteEdgePreview('{{ $preview->id }}')"
-                                        class="inline-flex items-center gap-1 text-xs font-medium text-brand-forest hover:text-brand-ink disabled:cursor-wait disabled:opacity-60 dark:text-brand-sage"
-                                        title="{{ __('Copy this preview\'s artifacts into a new production deployment and flip the host map. The preview keeps running.') }}"
-                                    >
-                                        <x-heroicon-o-arrow-up-tray class="h-4 w-4" aria-hidden="true" />
-                                        {{ __('Promote to prod') }}
-                                    </button>
-                                @endif
-                                <button
-                                    type="button"
-                                    wire:click="confirmTearDownEdgePreview('{{ $preview->id }}')"
-                                    wire:loading.attr="disabled"
-                                    wire:target="confirmTearDownEdgePreview('{{ $preview->id }}')"
-                                    class="text-xs font-medium text-rose-700 hover:text-rose-900 disabled:cursor-wait disabled:opacity-60 dark:text-rose-400"
-                                >
-                                    {{ __('Tear down') }}
-                                </button>
-                            </div>
-                            @if ($previewIsLive)
-                                <div x-data="{ pct: {{ $currentSplitPct }} }" class="flex items-center gap-2 text-xs text-brand-moss">
-                                    <label for="{{ $splitInputName }}" class="inline-flex items-center gap-1" title="{{ __('Route a % of production traffic to this preview (sticky via cookie).') }}">
-                                        <x-heroicon-o-beaker class="h-3 w-3" aria-hidden="true" />
-                                        {{ __('Split') }}
-                                    </label>
-                                    <input
-                                        id="{{ $splitInputName }}"
-                                        type="number"
-                                        min="0" max="99" step="1"
-                                        x-model.number="pct"
-                                        class="w-14 rounded-md border border-brand-ink/15 bg-white px-1.5 py-0.5 font-mono text-xs text-brand-ink focus:border-brand-sage focus:ring-1 focus:ring-brand-sage dark:border-brand-mist/20 dark:bg-zinc-900" />
-                                    <span>%</span>
-                                    <button
-                                        type="button"
-                                        x-on:click="$wire.saveEdgeSplitTraffic('{{ $preview->id }}', pct, true)"
-                                        class="rounded-md border border-brand-ink/15 bg-white px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide text-brand-ink hover:bg-brand-sand/40 dark:border-brand-mist/20 dark:bg-zinc-900">
-                                        {{ $splitTargetsThisPreview ? __('Update') : __('Apply') }}
-                                    </button>
-                                    @if ($splitTargetsThisPreview)
-                                        <button
-                                            type="button"
-                                            x-on:click="pct = 0; $wire.saveEdgeSplitTraffic('{{ $preview->id }}', 0, true)"
-                                            class="text-2xs font-semibold uppercase tracking-wide text-rose-700 hover:underline dark:text-rose-400">
-                                            {{ __('Off') }}
-                                        </button>
-                                    @endif
-                                </div>
-                                @include('livewire.sites.partials.edge.deploy-contract-panel', [
-                                    'preview' => $preview,
-                                    'previewIsLive' => $previewIsLive,
-                                    'deployContractEnabled' => $deployContractEnabled ?? false,
-                                    'deployContract' => ($deployContracts ?? collect())->get((string) $preview->id, []),
-                                ])
-                                @if (($deployReplayEnabled ?? false) && $previewIsLive)
-                                    @php
-                                        $replay = ($latestReplays ?? collect())->get((string) $preview->id);
-                                    @endphp
-                                    <div class="w-full max-w-md space-y-2 rounded-lg border border-brand-ink/10 bg-brand-sand/20 px-3 py-2 text-xs text-brand-moss">
-                                        <div class="flex flex-wrap items-center justify-between gap-2">
-                                            <span class="inline-flex items-center gap-1 font-semibold text-brand-ink">
-                                                <x-heroicon-o-arrow-path class="h-3 w-3" aria-hidden="true" />
-                                                {{ __('Shadow replay') }}
-                                            </span>
-                                            <button
-                                                type="button"
-                                                wire:click="queueEdgeDeployReplay('{{ $preview->id }}')"
-                                                wire:loading.attr="disabled"
-                                                wire:target="queueEdgeDeployReplay('{{ $preview->id }}')"
-                                                class="rounded-md border border-brand-ink/15 bg-white px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide text-brand-ink hover:bg-brand-sand/40 disabled:opacity-60"
-                                            >
-                                                {{ __('Run sample') }}
-                                            </button>
-                                        </div>
-                                        @if ($replay)
-                                            <p class="text-brand-moss">
-                                                @if ($replay->status === \App\Models\EdgeDeployReplay::STATUS_COMPLETED)
-                                                    {{ __('Last run: :rate% status match · :reg regressions', [
-                                                        'rate' => data_get($replay->summary, 'pass_rate', 0),
-                                                        'reg' => data_get($replay->summary, 'regressions', 0),
-                                                    ]) }}
-                                                @elseif (in_array($replay->status, [\App\Models\EdgeDeployReplay::STATUS_QUEUED, \App\Models\EdgeDeployReplay::STATUS_RUNNING], true))
-                                                    {{ __('Replay in progress…') }}
-                                                @else
-                                                    {{ $replay->error_message ?: __('Last replay failed.') }}
-                                                @endif
-                                            </p>
-                                        @else
-                                            <p>{{ __('Replays recent production GET/HEAD paths against this preview before you promote or split traffic.') }}</p>
-                                        @endif
-                                    </div>
-                                @endif
-                            @endif
-                        </div>
-                    @endcan
-                </li>
-            @endforeach
-        </ul>
-    @endif
+    @endunless
 </section>
+
+{{-- One preview --}}
+<x-modal name="preview-detail" maxWidth="2xl" overlayClass="bg-brand-ink/40" focusable>
+    @php
+        $open = $openPreviewId ? $previews->firstWhere('id', $openPreviewId) : null;
+        $d = $open ? $described[(string) $open->id] : null;
+    @endphp
+    @if ($open && $d)
+        <div class="space-y-5 p-6 sm:p-7">
+            <div class="flex items-start justify-between gap-4">
+                <div class="min-w-0">
+                    <h2 class="text-lg font-semibold text-brand-ink">{{ $d['title'] }}</h2>
+                    <p class="mt-0.5 text-sm text-brand-moss">
+                        {{ collect([$d['kind'], $d['branch'], $d['sha'], $d['author'], $d['deployment']?->created_at?->diffForHumans()])->filter()->implode(' · ') }}
+                    </p>
+                </div>
+                {!! $close('preview-detail') !!}
+            </div>
+
+            @if ($d['failed'])
+                <x-sheet.note tone="danger">{{ $d['reason'] !== '' ? Str::limit($d['reason'], 240) : __('The preview build failed.') }}</x-sheet.note>
+                <a href="{{ $d['log'] }}" wire:navigate class="text-sm font-medium text-brand-sage hover:underline">{{ __('Open the build log') }}</a>
+            @elseif (! $d['live'])
+                <p class="flex items-center gap-2 text-sm text-brand-moss"><span class="inline-flex h-2 w-2 animate-pulse rounded-full bg-amber-500"></span>{{ __('Still building. Its URL appears when the deploy is live.') }} <a href="{{ $d['log'] }}" wire:navigate class="font-medium text-brand-sage hover:underline">{{ __('Build log') }}</a></p>
+            @elseif ($d['url'])
+                <a href="{{ $d['url'] }}" target="_blank" rel="noopener noreferrer" class="flex items-center justify-between gap-3 rounded-lg bg-brand-sand/30 px-3 py-2.5 font-mono text-sm text-brand-forest hover:bg-brand-sand/50 dark:text-brand-sage">
+                    <span class="min-w-0 truncate">{{ $d['url'] }}</span>
+                    <span class="shrink-0 font-sans text-xs font-medium">{{ __('Open') }} ↗</span>
+                </a>
+            @endif
+
+            <a href="{{ route('sites.preview-comments', ['server' => $open->server_id, 'site' => $open]) }}" wire:navigate class="flex min-h-11 items-center justify-between border-y border-brand-ink/10 text-sm text-brand-ink hover:bg-brand-sand/20">
+                <span>{{ __('Review notes left on this preview') }}</span>
+                <x-heroicon-m-chevron-right class="h-4 w-4 text-brand-mist" aria-hidden="true" />
+            </a>
+
+            @if ($d['live'] && $canDeploy)
+                <div class="space-y-3">
+                    <p class="text-sm font-semibold text-brand-ink">{{ __('Before you promote') }}</p>
+                    @php $replay = ($latestReplays ?? collect())->get((string) $open->id); @endphp
+                    <div class="flex flex-wrap items-center justify-between gap-2 border-b border-brand-ink/10 pb-3 text-sm">
+                        <span class="text-brand-ink">
+                            @if ($replay && $replay->status === EdgeDeployReplay::STATUS_COMPLETED)
+                                {{ __('Replay: :rate% of recent production paths matched · :reg regressions', ['rate' => data_get($replay->summary, 'pass_rate', 0), 'reg' => data_get($replay->summary, 'regressions', 0)]) }}
+                            @elseif ($replay && in_array($replay->status, [EdgeDeployReplay::STATUS_QUEUED, EdgeDeployReplay::STATUS_RUNNING], true))
+                                {{ __('Replay is running…') }}
+                            @elseif ($replay)
+                                {{ $replay->error_message ?: __('The last replay failed.') }}
+                            @else
+                                {{ __('Replay recent production requests against this preview') }}
+                            @endif
+                        </span>
+                        <x-sheet.button type="button" wire:click="queueEdgeDeployReplay(@js((string) $open->id))" wire:loading.attr="disabled" wire:target="queueEdgeDeployReplay">{{ $replay ? __('Run again') : __('Run replay') }}</x-sheet.button>
+                    </div>
+                    @include('livewire.sites.partials.edge.deploy-contract-panel', [
+                        'preview' => $open,
+                        'previewIsLive' => true,
+                        'deployContractEnabled' => $deployContractEnabled ?? false,
+                        'deployContract' => ($deployContracts ?? collect())->get((string) $open->id, []),
+                    ])
+                    <div class="flex flex-wrap items-center justify-between gap-2 text-sm" x-data="{ pct: {{ $d['pct'] }} }">
+                        <span class="text-brand-ink">{{ __('Share of production traffic') }}</span>
+                        <span class="flex flex-wrap items-center gap-1.5">
+                            @foreach ([0, 5, 10, 25, 50] as $p)
+                                <button type="button" wire:click="setPreviewSplit(@js((string) $open->id), {{ $p }})" @class(['rounded-full border px-3 py-1 text-xs', 'border-brand-sage text-brand-sage' => $d['pct'] === $p, 'border-brand-ink/15 text-brand-moss hover:text-brand-ink' => $d['pct'] !== $p])>{{ $p === 0 ? __('Off') : $p.'%' }}</button>
+                            @endforeach
+                            <input type="number" min="0" max="99" x-model.number="pct" aria-label="{{ __('Other percentage') }}" class="dply-input mt-0 w-16 py-1 text-xs" x-on:change="$wire.setPreviewSplit(@js((string) $open->id), pct)" />
+                        </span>
+                    </div>
+                    <p class="text-xs text-brand-moss">{{ __('Visitors in the split stay on the preview through a cookie. Only one preview can take traffic at a time.') }}</p>
+                </div>
+            @endif
+
+            @if ($canDeploy)
+                <div class="flex flex-wrap items-center justify-between gap-2 border-t border-brand-ink/10 pt-4">
+                    <button type="button" x-on:click="$dispatch('close-modal', 'preview-detail')" wire:click="confirmTearDownEdgePreview(@js((string) $open->id))" class="text-xs font-medium text-rose-600 hover:underline dark:text-rose-300">{{ __('Tear down') }}</button>
+                    @if ($d['live'])
+                        <x-sheet.button type="button" variant="primary" x-on:click="$dispatch('close-modal', 'preview-detail')" wire:click="confirmPromoteEdgePreview(@js((string) $open->id))">{{ __('Promote to production') }}</x-sheet.button>
+                    @endif
+                </div>
+            @endif
+        </div>
+    @endif
+</x-modal>
+
+{{-- Preview a commit or branch --}}
+@if ($canDeploy && ! $edgeIsPreviewChild)
+    <x-modal name="preview-new" maxWidth="2xl" overlayClass="bg-brand-ink/40" focusable>
+        <div class="space-y-4 p-6 sm:p-7">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <h2 class="text-lg font-semibold text-brand-ink">{{ __('Preview a commit or branch') }}</h2>
+                    <p class="mt-0.5 text-sm text-brand-moss">{{ __('It gets its own URL. The same commit reuses its preview; a new one gets a new URL.') }}</p>
+                </div>
+                {!! $close('preview-new') !!}
+            </div>
+            <form wire:submit.prevent="createAdhocEdgePreview" class="space-y-3">
+                <div class="flex gap-2">
+                    <input type="text" wire:model="edge_deploy_commit_sha" placeholder="{{ __('Commit SHA, or browse') }}" aria-label="{{ __('Commit SHA') }}" autocomplete="off" spellcheck="false" @disabled($adhocPending) class="dply-input mt-0 min-w-0 flex-1 font-mono text-xs" />
+                    <x-sheet.button type="button" wire:click="openEdgeDeployRefPicker" :disabled="$adhocPending">{{ __('Browse') }}</x-sheet.button>
+                    <x-sheet.button type="submit" variant="primary" :disabled="$adhocPending" wire:loading.attr="disabled" wire:target="createAdhocEdgePreview">
+                        <span wire:loading.remove wire:target="createAdhocEdgePreview">{{ $adhocPending ? __('Building…') : __('Create preview') }}</span>
+                        <span wire:loading wire:target="createAdhocEdgePreview">{{ __('Queueing…') }}</span>
+                    </x-sheet.button>
+                </div>
+                @if ($edge_deploy_commit_branch !== null && ! $adhocPending)
+                    <p class="flex items-center gap-1.5 text-xs text-brand-moss">
+                        {{ __('Will preview the tip of') }} <span class="font-mono font-semibold text-brand-ink">{{ $edge_deploy_commit_branch }}</span>
+                        <button type="button" wire:click="$set('edge_deploy_commit_branch', null)" class="text-brand-mist hover:text-brand-ink" aria-label="{{ __('Clear branch') }}">×</button>
+                    </p>
+                @endif
+                @if ($edge_deploy_ref_picker_open)
+                    @include('livewire.sites.partials.edge.deploy-ref-picker')
+                @endif
+            </form>
+
+            @if ($adhocPending)
+                @php
+                    $pendingPreview = Site::query()->find($edge_adhoc_preview_pending_site_id);
+                    $journey = $pendingPreview ? \App\Support\Sites\SiteShowViewData::edgeProvisioningJourney($pendingPreview) : null;
+                    $pendingDeployment = $journey['edgeLatestDeployment'] ?? null;
+                @endphp
+                <div class="overflow-hidden rounded-xl border border-brand-ink/10">
+                    @if ($pendingDeployment !== null)
+                        @livewire('edge.build-journey', ['deploymentId' => (string) $pendingDeployment->id], key('edge-adhoc-preview-build-'.$pendingDeployment->id))
+                    @else
+                        <p class="px-4 py-6 text-center text-xs text-brand-moss">{{ __('Waiting for the build to start…') }}</p>
+                    @endif
+                </div>
+                <p class="text-xs text-brand-moss">
+                    {{ ($journey['edgeJourneyIsDone'] ?? false) ? __('Built. Going out to the edge now; the URL appears when it’s safe to open.') : __('Live build output. You can close this; the preview keeps building.') }}
+                </p>
+                @if (\App\Modules\Edge\Support\FakeEdgeProvision::enabled())
+                    <p class="text-xs text-amber-800 dark:text-raw-amber-200">{{ __('Local Fake Edge: the preview URL must resolve to this app (e.g. *.edge.test / *.dply.test via Valet).') }}</p>
+                @endif
+            @endif
+        </div>
+    </x-modal>
+@endif

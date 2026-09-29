@@ -11,24 +11,24 @@ group: edge
 
 The **Deploy triggers** section controls **what starts a deploy** without opening the dashboard: inbound webhooks and GitHub push/PR events.
 
-Build settings still has a **Deploy on push** checkbox; this section is where you connect GitHub and manage hook URLs.
+The page opens with a sentence built from the webhook, **Deploy on push** (Build), `EdgePreviewPolicy::for()` and the hooks, then rows: GitHub, deploy on push (links to Build), pull request previews (links to Previews), each deploy hook, the manual webhook and notifications. Build settings still owns the **Deploy on push** checkbox.
 
 ## Deploy hooks
 
 **Deploy hooks** are per-site URLs you POST to trigger a redeploy — useful for CMS publish flows (Sanity, Contentful, Strapi, etc.).
 
-1. Enter a **Hook name** and click **Create hook**.
-2. Copy the full URL when shown (**dply only displays it once**).
+1. Choose **Create a deploy hook**, enter a name and choose **Create** (`openNewHook` → `mintEdgeDeployHook`).
+2. The same dialog shows the full URL once, with a `curl` command to try it.
 3. Configure your external system to POST to that URL on content changes.
 
-Revoke a hook from the list when the URL should stop working.
+Each hook is a row ("“Sanity publish” last fired 2 days ago"); clicking it opens a dialog with **Revoke** (`openHook` / `revokeOpenHook`).
 
 ## GitHub auto-deploy
 
 When your repo is on GitHub:
 
-1. Pick a **Linked GitHub account** (OAuth-connected under Profile → Source control).
-2. Click **Enable auto-deploy webhook** to register push and pull-request webhooks.
+1. Click the GitHub row, pick an account in **Through this GitHub account** (OAuth-connected under Profile → Source control).
+2. Choose **Connect** to register push and pull-request webhooks (**Disconnect** removes it).
 3. Ensure **Deploy on push** is enabled under **Build** for production branch deploys.
 
 Pull requests get a GitHub Check Run and a summary comment (updated in place on each push) with the preview URL when the deploy lands.

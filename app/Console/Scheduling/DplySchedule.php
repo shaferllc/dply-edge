@@ -38,6 +38,7 @@ use App\Modules\Edge\Console\SampleEdgeDatabasesCommand;
 use App\Modules\Edge\Console\ScaleEdgeQueueWorkersCommand;
 use App\Modules\Edge\Console\WarmEdgeBuildImagesCommand;
 use App\Modules\Edge\Console\WarmEdgeContainersCommand;
+use App\Modules\Edge\Jobs\CheckEdgeDnsZonesJob;
 use App\Modules\Edge\Jobs\VerifyEdgeCustomDomainsJob;
 use App\Modules\Edge\Services\Realtime\EdgeRealtimeMonitor;
 use App\Modules\Secrets\Console\SecretsEscrowCommand;
@@ -218,6 +219,7 @@ final class DplySchedule
         $schedule->command(CheckEdgeRumAlertsCommand::class)->hourly()->withoutOverlapping();
 
         $schedule->job(new VerifyEdgeCustomDomainsJob)->everyFifteenMinutes();
+        $schedule->job(new CheckEdgeDnsZonesJob)->everyFiveMinutes();
 
         // Capture failed operations into the dedicated error stream, then cap
         // its growth nightly. The sweeper polls the source tables (failures are

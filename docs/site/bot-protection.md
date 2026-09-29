@@ -11,24 +11,25 @@ Bot protection uses [Cloudflare Turnstile](https://developers.cloudflare.com/tur
 ## Turn on bot protection
 
 1. Open your app and choose **Bot protection**.
-2. Choose **Generate keys**. dply creates a Turnstile widget for your app's hostnames, fills in **Site key (public)** and **Secret key**, turns protection on, and saves.
-3. Under **Where to challenge**, pick **Forms only — contact and signup POSTs** (recommended) or **All HTML pages — every document response**.
-4. Choose **Save**.
+2. Tick **Bot protection is on**. If the app has no keys yet, dply creates a Turnstile widget for your app's hostnames, saves its keys, and turns protection on.
+3. Click **Check visitors on form posts only** to choose where to check: **Form posts only** (recommended) or **Every page**. Choose **Save** in the dialog.
+
+The page opens with a sentence such as "Visitors are checked on your forms. Your /contact form and /login rate limit rely on it." Under **Also uses it**, each form that requires a bot check and each rate-limit rule that challenges is listed, with a link to its page.
 
 The widget appears on matching pages within about a minute.
 
 ### Use your own keys
 
-To use keys from your own Cloudflare account, create a Turnstile widget in the Cloudflare dashboard, then paste its **Site key (public)** and **Secret key**, turn on **Enable bot protection**, and choose **Save**.
+To use keys from your own Cloudflare account, create a Turnstile widget in the Cloudflare dashboard, then open **Keys**, paste its **Site key (public)** and **Secret key**, choose **Save**, and tick **Bot protection is on**.
 
 The site key is public and safe in HTML. The secret key is used only at the edge to verify tokens. Don't put it in your frontend code. Only members who can edit the app can see the secret key on this page.
 
 ### Regenerate keys
 
-Choosing **Generate keys** when keys already exist asks you to confirm **Replace bot protection keys?**, then creates a new widget and replaces both keys.
+Open **Keys** and choose **Regenerate**. You're asked to confirm, then dply creates a new widget and replaces both keys.
 
 > [!IMPORTANT]
-> Generated keys are tied to the hostnames and domains your app had when you generated them. If you later attach a [custom domain](/docs/domains) on a domain the app didn't use before, choose **Generate keys** again so the widget accepts it.
+> Generated keys are tied to the hostnames and domains your app had when you generated them. If you later attach a [custom domain](/docs/domains) on a domain the app didn't use before, open **Keys** and choose **Regenerate** so the widget accepts it.
 
 ## What each mode does
 
@@ -36,8 +37,8 @@ When the mode applies, dply adds the Turnstile script to your static HTML pages,
 
 | Mode | When it applies |
 |------|-----------------|
-| **Forms only** | Only while [Forms](/docs/forms) is enabled for the app. |
-| **All HTML pages** | Always, whether or not Forms is enabled. |
+| **Form posts only** | Only while [Forms](/docs/forms) is enabled for the app. |
+| **Every page** | Always, whether or not Forms is enabled. |
 
 Neither mode blocks page views on its own. A token is only checked where something asks for it:
 

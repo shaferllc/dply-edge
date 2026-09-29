@@ -20,7 +20,7 @@ Active previews for this production site appear in a table with branch, commit, 
 For each live preview you can:
 
 - **Open** — visit the preview hostname
-- **Promote to prod** — copy this preview’s build into production (see below)
+- **Promote to production** (in the preview's dialog) — copy this preview’s build into production (see below)
 - **Split** — send a percentage of **production** traffic to this preview (see below)
 - **Tear down** — delete the preview site and its routing (does not merge or close the Git PR)
 
@@ -28,7 +28,7 @@ Org-wide preview inventory also lives under **Edge fleet → Previews**.
 
 ## Promote to production
 
-**Promote to prod** copies the preview’s **live deployment artifacts** into a fresh production prefix and flips the host map so your **production hostname** serves that build.
+**Promote to production** copies the preview’s **live deployment artifacts** into a fresh production prefix and flips the host map so your **production hostname** serves that build.
 
 - The preview **keeps running** — promote does not delete or consume it
 - Production deploy history records the promoted commit/branch
@@ -49,7 +49,7 @@ To send only part of production traffic first, use **Split** instead (or before 
 - Only **one** active split per production site at a time
 - Takes effect immediately after the host map republishes — no full redeploy required
 
-Split is for canary-style validation on real production traffic. When you are satisfied, **Promote to prod** moves 100% to the preview build.
+Split is for canary-style validation on real production traffic. When you are satisfied, **Promote to production** moves 100% to the preview build.
 
 ## Production vs preview
 
@@ -66,7 +66,7 @@ On the **parent** site → **Previews** → **Preview protection**:
 
 - **Off** — anyone with a preview or alias URL can view the deploy
 - **Shared password** — visitors enter one site-wide password at the edge
-- **Dply account** — visitors sign in; optionally restrict to an email allow list
+- **People signed in to dply** — visitors sign in; optionally restrict to an email allow list
 
 Production URLs and custom domains stay public; protection applies to preview and deploy-alias hostnames only.
 

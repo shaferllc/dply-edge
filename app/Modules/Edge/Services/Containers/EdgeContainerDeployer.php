@@ -317,6 +317,25 @@ class EdgeContainerDeployer
     }
 
     /**
+     * The app's recent output, oldest first, each line tagged with where it
+     * came from: the site Worker in front (routing, wake, scaling), a queue
+     * worker ("[dply-worker NAME] …"), or the app itself.
+     *
+     * @return list<array{at: ?string, level: string, message: string, service: string, source: string, worker: ?string}>
+     */
+    public static function appLogLines(Site $site, int $minutes = 15): array
+    {
+        $client = EdgeCloudflareClient::fromConfig();
+        $script = self::scriptName($site);
+
+        return array_map(static function (array $line) use ($script): array {
+            $worker = preg_match('/^\[dply-worker ([^\]]+)\]/', $line['message'], $m) === 1 ? $m[1] : null;
+
+            return $line + ['source' => $line['service'] === $script ? 'routing' : ($worker !== null ? 'workers' : 'app'), 'worker' => $worker];
+        }, array_reverse($client->workerLogs(self::logServices($site, $client), $minutes)));
+    }
+
+    /**
      * Where a container app's logs are: its Worker script, and the container
      * applications wrangler named after it (their stdout/stderr).
      *

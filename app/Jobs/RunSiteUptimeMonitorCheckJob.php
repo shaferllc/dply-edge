@@ -9,6 +9,8 @@ use App\Models\Site;
 use App\Models\SiteUptimeCheckResult;
 use App\Models\SiteUptimeIncident;
 use App\Models\SiteUptimeMonitor;
+use App\Modules\Edge\Support\EdgeContainerInstances;
+use App\Modules\Edge\Support\EdgeContainerSettings;
 use App\Modules\Notifications\Services\NotificationPublisher;
 use App\Services\ConsoleActions\ConsoleEmitter;
 use App\Services\Sites\SiteUptimeCheckUrlResolver;
@@ -124,6 +126,15 @@ class RunSiteUptimeMonitorCheckJob implements ShouldBeUnique, ShouldQueue
         if (! $site instanceof Site) {
             return;
         }
+
+        // A container app that may sleep: loading its page would wake it, and
+        // a check every 5 minutes kept it from ever reaching its sleep timeout.
+        // Asleep means nothing to check this round; keep the last result.
+        if (! $monitor->isSslCheck() && self::containerAsleep($site)) {
+            $monitor->forceFill(['last_checked_at' => now()])->save();
+
+            return;
+        }
         $previousState = $this->previousState($monitor);
 
         $emit = $this->beginConsoleAction();
@@ -160,6 +171,21 @@ class RunSiteUptimeMonitorCheckJob implements ShouldBeUnique, ShouldQueue
 
         $this->syncIncident($monitor, $site, $previousState, $outcome);
         $this->maybePublishTransition($monitor->fresh(), $site, $previousState, $outcome, $notificationPublisher);
+    }
+
+    /**
+     * True when the site is a container app with no always-awake instance and
+     * none running now. Asking the Worker which instances run never wakes one.
+     */
+    private static function containerAsleep(Site $site): bool
+    {
+        if (($site->edgeMeta()['runtime_mode'] ?? '') !== 'container'
+            || EdgeContainerSettings::for($site)['min_instances'] > 0) {
+            return false;
+        }
+        $snapshot = EdgeContainerInstances::snapshot($site);
+
+        return $snapshot['instances'] !== null && $snapshot['running'] === 0;
     }
 
     /**

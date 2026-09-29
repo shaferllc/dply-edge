@@ -48,14 +48,15 @@ trait ManagesEdgeAlertsNotifications
         );
     }
 
-    public function saveEdgeAlertNotificationSubscriptions(): void
+    /** Save the matrix without a toast; false (after an error toast) when the user may not. */
+    protected function persistEdgeAlertNotificationSubscriptions(): bool
     {
         $this->authorize('update', $this->site);
 
         if (auth()->user()?->currentOrganization()?->userIsDeployer(auth()->user())) {
             $this->toastError(__('Deployers cannot change notification subscriptions.'));
 
-            return;
+            return false;
         }
 
         $changed = NotificationSubscriptionMatrix::save(
@@ -83,6 +84,6 @@ trait ManagesEdgeAlertsNotifications
             );
         }
 
-        $this->toastSuccess(__('Notification subscriptions saved.'));
+        return true;
     }
 }

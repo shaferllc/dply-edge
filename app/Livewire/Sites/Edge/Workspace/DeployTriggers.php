@@ -25,10 +25,38 @@ class DeployTriggers extends Component
 
     public EdgeBuildSettingsForm $buildForm;
 
+    /** The hook open in its dialog. */
+    public ?string $openHookId = null;
+
     public function mount(Server $server, Site $site): void
     {
         $this->mountEdgeWorkspaceSection($server, $site);
         $this->mountEdgeBuildSettings($site);
+    }
+
+    public function openHook(string $hookId): void
+    {
+        $this->openHookId = $hookId;
+        $this->dispatch('open-modal', 'deploy-hook');
+    }
+
+    public function openNewHook(): void
+    {
+        $this->authorize('update', $this->site);
+        $this->edge_new_deploy_hook_name = '';
+        $this->edge_just_minted_deploy_hook_url = null;
+        $this->dispatch('open-modal', 'deploy-hook-new');
+    }
+
+    /** Revoke the hook open in its dialog. */
+    public function revokeOpenHook(): void
+    {
+        if ($this->openHookId === null) {
+            return;
+        }
+        $this->revokeEdgeDeployHook($this->openHookId);
+        $this->openHookId = null;
+        $this->dispatch('close-modal', 'deploy-hook');
     }
 
     public function render(): View

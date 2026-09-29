@@ -29,10 +29,21 @@ class WaitingRoom extends Component
 
     public string $paths = '/*';
 
+    /** Setting open in the edit modal: paths, active, rate or session. */
+    public ?string $editingSetting = null;
+
+    private const SETTINGS = ['paths', 'active', 'rate', 'session'];
+
     public function mount(Server $server, Site $site): void
     {
         $this->mountEdgeWorkspaceSection($server, $site);
-        $cfg = is_array($site->edgeMeta()['waiting_room'] ?? null) ? $site->edgeMeta()['waiting_room'] : [];
+        $this->loadFromSite();
+    }
+
+    /** Saved config → component state; drops unsaved edits. */
+    private function loadFromSite(): void
+    {
+        $cfg = is_array($this->site->edgeMeta()['waiting_room'] ?? null) ? $this->site->edgeMeta()['waiting_room'] : [];
         $this->enabled = (bool) ($cfg['enabled'] ?? false);
         $this->total_active_users = max(1, (int) ($cfg['total_active_users'] ?? 200));
         $this->new_users_per_minute = max(1, (int) ($cfg['new_users_per_minute'] ?? 20));
@@ -41,13 +52,43 @@ class WaitingRoom extends Component
         $this->paths = implode("\n", array_map('strval', $paths));
     }
 
-    public function save(): void
+    public function editSetting(string $setting): void
+    {
+        abort_unless(in_array($setting, self::SETTINGS, true), 404);
+        $this->authorize('update', $this->site);
+        $this->loadFromSite();
+        $this->resetErrorBag();
+        $this->editingSetting = $setting;
+        $this->dispatch('open-modal', 'edge-waiting-room');
+    }
+
+    public function closeSetting(): void
+    {
+        $this->loadFromSite();
+        $this->editingSetting = null;
+        $this->dispatch('close-modal', 'edge-waiting-room');
+    }
+
+    public function saveSetting(): void
+    {
+        if ($this->save()) {
+            $this->editingSetting = null;
+            $this->dispatch('close-modal', 'edge-waiting-room');
+        }
+    }
+
+    public function updatedEnabled(): void
+    {
+        $this->save();
+    }
+
+    public function save(): bool
     {
         $this->authorize('update', $this->site);
         if (! $this->isManagedEdgeDelivery()) {
             $this->toastError(__('Waiting room requires Dply-hosted Edge delivery.'));
 
-            return;
+            return false;
         }
 
         $this->validate([
@@ -74,6 +115,8 @@ class WaitingRoom extends Component
         $this->site->save();
         $this->republishEdgeHostMap();
         $this->toastSuccess(__('Waiting room saved.'));
+
+        return true;
     }
 
     public function render(): View

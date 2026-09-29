@@ -1,6 +1,6 @@
 ---
 title: "Scheduled tasks"
-description: "Run code on a cron schedule: a scheduled() handler for static, hybrid and Worker SSR apps, and the Laravel scheduler or artisan and rake commands for container apps."
+description: "Run code on a cron schedule: a scheduled() handler for static, hybrid and Worker SSR apps, and the Laravel scheduler or a command (artisan, rake or your own Node route) for container apps."
 ---
 
 Scheduled tasks run your code on a cron schedule without a request coming in. How you write them depends on the app's delivery mode: apps that run on the edge network call a `scheduled()` handler in your Worker code, and container apps run the Laravel scheduler or a command you name.
@@ -22,7 +22,7 @@ crons:
 A schedule is a standard 5-field cron expression in **UTC**. Changes take effect on the next deploy. The **Crons** section appears once the app has a Worker to schedule: a container app, a Worker SSR app, or a static or hybrid app with [edge middleware](/docs/edge-middleware).
 
 > [!IMPORTANT]
-> An app can have at most 5 distinct schedules. For container apps the Laravel scheduler uses one of them (`* * * * *`). Schedules past the fifth are dropped at deploy without an error, so keep the list short.
+> Cloudflare allows 5 schedules per Worker, so an app can have at most 5 distinct schedules. For container apps the Laravel scheduler uses one of them (`* * * * *`) unless it runs inside a queue worker. The **Crons** section shows **N of 5 used**; schedules past the fifth are dropped at deploy and marked **Won't run**. Several commands can share one schedule.
 
 [Preview deployments](/docs/preview-deployments) never run scheduled tasks; only production does.
 
@@ -48,7 +48,7 @@ export default {
 };
 ```
 
-Every schedule calls the same `scheduled` export; the **Handler** field is not used for these apps. Your environment variables are available on `env`. Without middleware there is nothing to schedule.
+Every schedule calls the same `scheduled` export, so there is no command field for these apps; branch on `controller.cron`. Your environment variables are available on `env`. Without middleware there is nothing to schedule.
 
 ## Worker SSR apps
 
@@ -58,7 +58,7 @@ Each schedule calls the `scheduled` export of your app's Worker entry. Next.js (
 
 ### The Laravel scheduler
 
-To run `schedule:run` every minute, open **Overview**, select **Add resource**, then **Scheduler**, and redeploy. You can also turn on **Run the Laravel scheduler every minute** in **Sleep, region, scheduler** or in the **Container** section. dply adds the `dply/laravel` package to the image if your app does not require it (add it yourself if you ship your own `Dockerfile`).
+To run `schedule:run` every minute, open **Overview**, select **Add resource**, then **Scheduler**, and redeploy. You can also turn on **Run the Laravel scheduler every minute** in **Sleep, scaling, region**. dply adds the `dply/laravel` package to the image if your app does not require it (add it yourself if you ship your own `Dockerfile`).
 
 Where the scheduler runs depends on whether the app has [queue workers](/docs/queue-workers):
 
@@ -75,12 +75,26 @@ Select the **Scheduler** card on **Overview** (or the **Queue workers** card whe
 
 ### Commands on a schedule
 
-For anything other than the Laravel scheduler, add a schedule in the **Crons** section (or `dply.yaml`) with a **Handler**:
+For anything other than the Laravel scheduler, add a schedule in the **Crons** section (or `dply.yaml`) with a command. Each run POSTs the command to `/_dply/schedule` in the live app:
 
-- Laravel: an artisan command, for example `reports:send --daily`. A blank handler runs `schedule:run`.
-- Rails: a rake task, for example `reports:daily`.
+- Laravel (**Artisan command**): runs through `dply/laravel`, for example `reports:send --daily`. A blank handler runs `schedule:run`.
+- Rails (**Rake task**): runs through `dply-rails`, for example `reports:daily`.
+- Node (**Command**): your app handles `POST /_dply/schedule` itself. The body is JSON `{cron, handler}`; check that the `x-dply-queue-token` header equals `DPLY_QUEUE_TOKEN` from the app's environment, and answer JSON `{output}`:
 
-Each run wakes the app if it is asleep. With **Run queued jobs and scheduled tasks on their own instance** on in the **Container** section, scheduled runs go to a separate jobs instance instead of a web instance.
+```js
+app.post("/_dply/schedule", express.json(), async (req, res) => {
+  if (req.get("x-dply-queue-token") !== process.env.DPLY_QUEUE_TOKEN) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  const { handler, cron } = req.body; // e.g. "reports:daily", "0 6 * * *"
+  // run the task for `handler` here
+  res.json({ output: `ran ${handler}` });
+});
+```
+
+**Run now** next to a listed command runs it once in the live app and shows the output, for Laravel, Rails and Node apps alike. Only commands already on the list can run, and you need edit rights. Rails tasks print no output; a Node app without the route gets a message saying so.
+
+Each run wakes the app if it is asleep. With **Run queued jobs and scheduled tasks on their own instance** on in **Overview** → **App** card → **Sleep, scaling, region**, scheduled runs go to a separate jobs instance instead of a web instance.
 
 ## When a run does not happen
 

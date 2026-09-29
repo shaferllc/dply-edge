@@ -22,6 +22,7 @@ import {
 } from './feedback.js';
 import { registerDplyTooltips } from './tooltip.js';
 import { registerMarkdownEditor } from './markdown-editor.js';
+import './edge-live-tail.js';
 
 window.dplyEnsureDocsProseStyles = dplyEnsureDocsProseStyles;
 

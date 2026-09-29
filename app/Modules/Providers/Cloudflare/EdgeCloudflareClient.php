@@ -1209,6 +1209,111 @@ class EdgeCloudflareClient
         );
     }
 
+    /**
+     * Add a domain as a full-setup zone in dply's account. Returns the zone,
+     * including `name_servers` (what the customer sets at their registrar)
+     * and `original_name_servers`. It stays `pending` until they do.
+     *
+     * @return array<string, mixed>
+     */
+    public function createZone(string $name): array
+    {
+        return $this->decode(Http::withToken($this->apiToken)->post(self::BASE.'/zones', [
+            'account' => ['id' => $this->accountId],
+            'name' => $name,
+            'type' => 'full',
+        ]));
+    }
+
+    /** @return array<string, mixed> */
+    public function getZone(string $zoneId): array
+    {
+        return $this->decode(Http::withToken($this->apiToken)->get(self::BASE.'/zones/'.$zoneId));
+    }
+
+    public function deleteZone(string $zoneId): void
+    {
+        $response = Http::withToken($this->apiToken)->delete(self::BASE.'/zones/'.$zoneId);
+        if ($response->status() !== 404) {
+            $this->decode($response);
+        }
+    }
+
+    /** Ask Cloudflare to re-check the nameservers now instead of on its own schedule. */
+    public function requestZoneActivationCheck(string $zoneId): void
+    {
+        Http::withToken($this->apiToken)->put(self::BASE.'/zones/'.$zoneId.'/activation_check');
+    }
+
+    /**
+     * Serve the zone from an account custom nameserver set (ns1/ns2.dply.io).
+     *
+     * @return array<string, mixed>
+     */
+    public function useAccountNameserverSet(string $zoneId, int $set): array
+    {
+        return $this->decode(Http::withToken($this->apiToken)->patch(self::BASE.'/zones/'.$zoneId.'/dns_settings', [
+            'nameservers' => ['type' => 'custom.account', 'ns_set' => $set],
+        ]));
+    }
+
+    /** Start Cloudflare's scan for the domain's existing records (async; results await review). */
+    public function triggerDnsScan(string $zoneId): void
+    {
+        $this->decode(Http::withToken($this->apiToken)->post(self::BASE.'/zones/'.$zoneId.'/dns_records/scan/trigger'));
+    }
+
+    /**
+     * Records the scan found, not yet in the zone until accepted.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function scannedDnsRecords(string $zoneId): array
+    {
+        $result = $this->decode(Http::withToken($this->apiToken)->get(self::BASE.'/zones/'.$zoneId.'/dns_records/scan/review'));
+
+        return array_values(array_filter(array_is_list($result) ? $result : [], 'is_array'));
+    }
+
+    /**
+     * Accept scanned records into the zone and drop the rest.
+     *
+     * @param  list<array<string, mixed>>  $accepts
+     * @param  list<array<string, mixed>>  $rejects
+     */
+    public function reviewScannedDnsRecords(string $zoneId, array $accepts, array $rejects): void
+    {
+        $this->decode(Http::withToken($this->apiToken)->post(self::BASE.'/zones/'.$zoneId.'/dns_records/scan/review', [
+            'accepts' => $accepts,
+            'rejects' => $rejects,
+        ]));
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function listZoneDnsRecords(string $zoneId): array
+    {
+        $result = $this->decode(Http::withToken($this->apiToken)->get(self::BASE.'/zones/'.$zoneId.'/dns_records', ['per_page' => 500]));
+
+        return array_values(array_filter(array_is_list($result) ? $result : [], 'is_array'));
+    }
+
+    /**
+     * @param  array<string, mixed>  $record  type, name, content, ttl, proxied, priority
+     * @return array<string, mixed>
+     */
+    public function createZoneDnsRecord(string $zoneId, array $record): array
+    {
+        return $this->decode(Http::withToken($this->apiToken)->post(self::BASE.'/zones/'.$zoneId.'/dns_records', $record));
+    }
+
+    public function deleteZoneDnsRecord(string $zoneId, string $recordId): void
+    {
+        $response = Http::withToken($this->apiToken)->delete(self::BASE.'/zones/'.$zoneId.'/dns_records/'.$recordId);
+        if ($response->status() !== 404) {
+            $this->decode($response);
+        }
+    }
+
     public function activeZoneId(string $zoneName): ?string
     {
         return $this->resolveZoneId($zoneName);

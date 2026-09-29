@@ -95,7 +95,7 @@ class CheckEdgeContainerHealthJob implements ShouldQueue
                 subject: $site,
                 title: "Container app unhealthy after deploy: {$site->name}",
                 body: $status !== null ? "{$url} answered HTTP {$status}." : "{$url} did not answer: {$error}",
-                url: route('sites.show', ['server' => $site->server_id, 'site' => $site->id, 'section' => 'container']),
+                url: route('sites.show', ['server' => $site->server_id, 'site' => $site->id, 'section' => 'general']),
                 metadata: ['deployment_id' => (string) $deployment->id, 'status' => $status, 'phase' => 'health'],
             );
         } catch (Throwable) {

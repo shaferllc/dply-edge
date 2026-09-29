@@ -18,25 +18,29 @@ Requires **Dply-hosted Edge delivery**.
 | Field | Purpose |
 |-------|---------|
 | **Name** | Label in the dashboard |
-| **Inject** | Before `</head>` or before `</body>` |
-| **Path** | Pattern (`/*` for all pages, or `/blog/*`) |
+| **Add it** | In the head (before `</head>`) or at the end of the body (before `</body>`) |
+| **On pages matching** | Pattern (`/*` for all pages, or `/blog/*`) |
 | **HTML** | Markup to inject (keep small and trusted) |
 
 ## How to use it
 
-1. Enable snippets (or click an **Example** — that enables it for you).
-2. Choose head vs body, set a path, paste HTML — or start from an example chip.
+The page draws `<html>` → `<head>` → end of `<body>`, with each snippet in its slot and its path ("every page" or e.g. `/blog/*`).
+
+1. Click **+ Add to head** or **+ Add to end of body** (or click an existing snippet to edit it).
+2. Set a path and paste HTML — or start from an example (offered on new snippets).
 3. Replace placeholders (`G-XXXXXXXXXX`, `your-domain.com`, etc.) before Save.
-4. **Save** — delivery republishes; visitors see the inject on the next request.
+4. **Save** in the modal — delivery republishes; visitors see the inject on the next request. The first snippet saved turns snippets on.
+
+The footer checkbox (**Snippets on · N added at the Edge, no redeploy**) turns them all off/on and saves on click.
 
 ## Example starters
 
 | Example | Inject | What it does |
 |---------|--------|----------------|
-| Meta | `</head>` | Description + Open Graph tags |
+| Basic SEO meta | `</head>` | Description + Open Graph tags |
 | Noindex | `</head>` | `noindex, nofollow` for staging-like hosts |
-| Banner | `</body>` | Simple announcement bar |
-| JSON-LD | `</head>` | Organization structured data |
+| Announcement banner | `</body>` | Simple announcement bar |
+| JSON-LD Organization | `</head>` | Organization structured data |
 
 ## `dply.yaml`
 
@@ -50,12 +54,12 @@ snippets:
       html: '<meta name="description" content="Acme — ship faster.">'
 ```
 
-Dashboard **Save** overrides the repo for the whole `snippets` section.
+Saving snippets in the dashboard overrides the repo for the whole `snippets` section.
 
 ## Tips
 
 - Prefer **Tags** for analytics, pixels and third-party scripts (it writes the vendor setup code and handles consent); use Snippets for other inline markup.
-- Empty HTML rows are ignored on Save.
+- A snippet needs HTML to save.
 - Narrow paths keep marketing scripts off app routes.
 - Only inject HTML you trust — this runs in every matching visitor’s page.
 

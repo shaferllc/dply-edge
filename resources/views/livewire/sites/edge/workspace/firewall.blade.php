@@ -2,11 +2,6 @@
     $repoMode = is_string($repoFirewall['country_mode'] ?? null) ? strtoupper((string) $repoFirewall['country_mode']) : 'OFF';
     $repoCountries = is_array($repoFirewall['countries'] ?? null) ? $repoFirewall['countries'] : [];
     $hasRepoFirewall = $repoFirewall !== [] && $repoCountries !== [];
-    $modeHelp = match ($country_mode) {
-        'allow' => __('Only the countries below can reach this site. Every other country gets HTTP 403.'),
-        'block' => __('Countries below are denied with HTTP 403. Everyone else passes through.'),
-        default => __('Geo rules are off — every country can reach the site. Add countries and switch mode when you need a fence.'),
-    };
 @endphp
 
 <div>
@@ -15,9 +10,9 @@
             'docSlug' => 'firewall',
             'what' => __('Geo firewall allows or blocks visitors by country at the Edge — using the request’s country code — before your pages, forms, or origin see the traffic. Blocked visitors get a plain HTTP 403 on the same URL.'),
             'steps' => [
-                __('Pick a mode: Off (everyone), Allow listed only (hard allowlist), or Block listed (deny these countries).'),
-                __('Search and add ISO country codes (e.g. US, DE). Remove chips to drop a country.'),
-                __('Save — Edge republishes the host map; blocked traffic is rejected immediately at the Worker.'),
+                __('Click the rule and pick who can reach the site: everyone, only listed countries, or everyone except listed countries.'),
+                __('Search and add countries by name or code (e.g. US, DE). Remove a chip to drop one.'),
+                __('Save — the rule applies on the next request.'),
             ],
             'setupLinks' => [
                 [
@@ -31,82 +26,100 @@
             ],
             'tips' => [
                 __('Country comes from Edge geo (ISO alpha-2). VPNs and privacy proxies can look like another country.'),
-                __('Allow listed only with an empty list does nothing — add at least one country or leave mode Off.'),
+                __('A country rule needs at least one country; otherwise choose Everyone.'),
                 __('Geo is coarse; pair with Rate limits / Bot protection for abuse that isn’t country-shaped.'),
                 __('Requires Dply-hosted Edge delivery for Worker enforcement.'),
             ],
         ])
 
-        <div class="mb-5 rounded-2xl border border-brand-ink/10 bg-white px-4 py-4 dark:bg-brand-ink/95/40 sm:px-5">
-            <p class="text-xs font-semibold uppercase tracking-[0.16em] text-brand-sage">{{ __('Modes') }}</p>
-            <div class="mt-3 grid gap-3 sm:grid-cols-3">
-                <div @class([
-                    'rounded-xl border px-3 py-3',
-                    'border-brand-forest/40 bg-brand-forest/5' => $country_mode === 'off',
-                    'border-brand-ink/10 bg-brand-sand/20' => $country_mode !== 'off',
-                ])>
-                    <p class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Off') }}</p>
-                    <p class="mt-1 text-sm font-medium text-brand-ink">{{ __('Allow all') }}</p>
-                    <p class="mt-1 text-xs leading-relaxed text-brand-moss">{{ __('No country checks. Default for most sites.') }}</p>
-                </div>
-                <div @class([
-                    'rounded-xl border px-3 py-3',
-                    'border-brand-forest/40 bg-brand-forest/5' => $country_mode === 'allow',
-                    'border-brand-ink/10 bg-brand-sand/20' => $country_mode !== 'allow',
-                ])>
-                    <p class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Allow listed only') }}</p>
-                    <p class="mt-1 text-sm font-medium text-brand-ink">{{ __('Hard allowlist') }}</p>
-                    <p class="mt-1 text-xs leading-relaxed text-brand-moss">{{ __('Only listed countries enter. Everyone else is 403’d — easy to lock yourself out if the list is wrong.') }}</p>
-                </div>
-                <div @class([
-                    'rounded-xl border px-3 py-3',
-                    'border-brand-forest/40 bg-brand-forest/5' => $country_mode === 'block',
-                    'border-brand-ink/10 bg-brand-sand/20' => $country_mode !== 'block',
-                ])>
-                    <p class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Block listed') }}</p>
-                    <p class="mt-1 text-sm font-medium text-brand-ink">{{ __('Deny these countries') }}</p>
-                    <p class="mt-1 text-xs leading-relaxed text-brand-moss">{{ __('Safer default for geo fences: block a few countries; the rest of the world still works.') }}</p>
-                </div>
-            </div>
+    </section>
 
-            <div class="mt-4 rounded-xl border border-dashed border-brand-ink/15 bg-brand-sand/15 px-4 py-3">
-                <p class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('What blocked visitors see') }}</p>
-                <div class="mt-2 rounded-lg border border-brand-ink/10 bg-brand-ink/95 px-3 py-3 font-mono text-xs leading-relaxed">
-                    <span class="font-semibold text-rose-300 dark:text-rose-950">HTTP/1.1 403 Forbidden</span><br>
-                    <span class="text-zinc-300 dark:text-zinc-800">Forbidden — content is not available in this region (XX).</span>
+    @php
+        $canEdit = auth()->user()?->can('update', $site);
+        $names = collect($selected_codes)->map(fn ($c) => $allCountries[$c] ?? $c);
+        $nameList = $names->count() > 4
+            ? $names->take(3)->implode(', ').' '.__('and :n more', ['n' => $names->count() - 3])
+            : ($names->count() > 1 ? $names->slice(0, -1)->implode(', ').' '.__('and').' '.$names->last() : $names->implode(''));
+        $ruleSentence = match ($country_mode) {
+            'allow' => trans_choice('Only let in visitors from :count country|Only let in visitors from :count countries', count($selected_codes)),
+            'block' => trans_choice('Block visitors from :count country|Block visitors from :count countries', count($selected_codes)),
+            default => __('No country rule — everyone gets in'),
+        };
+    @endphp
+
+    <section class="space-y-8 border-b border-brand-ink/10 px-5 py-8 sm:px-10 sm:py-10">
+        <div>
+            <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Firewall') }}</p>
+            <p class="mt-3 max-w-3xl text-2xl font-medium leading-snug tracking-tight text-brand-ink sm:text-3xl">
+                @if ($country_mode === 'allow' && $names->isNotEmpty())
+                    {{ __('Only visitors from') }} <span class="text-brand-sage">{{ $nameList }}</span> {{ __('can reach this site. Everyone else gets a “403 Forbidden”.') }}
+                @elseif ($country_mode === 'block' && $names->isNotEmpty())
+                    {{ __('Everyone can reach this site') }} <span class="text-amber-600 dark:text-amber-300">{{ __('except visitors from :names', ['names' => $nameList]) }}</span>{{ __(', who get a “403 Forbidden”.') }}
+                @else
+                    {{ __('Everyone can reach this site — there’s no country rule.') }}
+                @endif
+            </p>
+        </div>
+
+        <div>
+            <p class="border-b border-brand-ink/10 pb-2 text-sm font-semibold text-brand-ink">{{ __('Rule') }}</p>
+            @if ($canEdit)
+                <button type="button" wire:click="editRule" class="flex min-h-12 w-full items-center gap-3 border-b border-brand-ink/10 py-3 text-left hover:bg-brand-sand/20">
+                    <span class="flex-1 text-sm text-brand-ink sm:text-base">{{ $ruleSentence }}</span>
+                    <span class="max-w-[40%] truncate font-mono text-xs text-brand-moss">{{ implode(' ', $selected_codes) }}</span>
+                    <x-heroicon-m-chevron-right class="h-4 w-4 shrink-0 text-brand-mist" aria-hidden="true" />
+                </button>
+            @else
+                <div class="flex min-h-12 items-center gap-3 border-b border-brand-ink/10 py-3">
+                    <span class="flex-1 text-sm text-brand-ink sm:text-base">{{ $ruleSentence }}</span>
+                    <span class="max-w-[40%] truncate font-mono text-xs text-brand-moss">{{ implode(' ', $selected_codes) }}</span>
                 </div>
-                <p class="mt-2 text-xs text-brand-moss">{{ __('Plain text from Edge (not your build). Custom branded block pages are not available yet.') }}</p>
+            @endif
+            <div class="flex min-h-12 items-center gap-3 border-b border-brand-ink/10 py-3">
+                <span class="flex-1 text-sm text-brand-moss sm:text-base">
+                    @if ($hasRepoFirewall)
+                        {{ __(':file also sets :mode for :codes — the two merge on deploy.', ['file' => $sourcePath, 'mode' => strtolower($repoMode), 'codes' => implode(' ', $repoCountries)]) }}
+                    @else
+                        {{ __(':file doesn’t set a country rule', ['file' => $sourcePath]) }}
+                    @endif
+                </span>
             </div>
         </div>
 
-        <div class="mt-4 space-y-4">
-            <div>
-                <div class="flex items-center justify-between gap-2">
-                    <label class="text-2xs font-semibold uppercase tracking-wide text-brand-mist" for="country-mode">{{ __('Mode') }}</label>
-                    <span wire:loading.inline-flex wire:target="country_mode" class="inline-flex items-center gap-1.5 text-xs text-brand-moss">
-                        <x-spinner size="sm" variant="muted" />
-                        {{ __('Updating…') }}
-                    </span>
-                </div>
-                <select id="country-mode" wire:model.live="country_mode" wire:loading.attr="disabled" wire:target="country_mode" class="mt-1 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 text-sm text-brand-ink focus:border-brand-forest focus:ring-brand-forest disabled:opacity-60 dark:border-brand-mist/20 dark:bg-brand-ink/95">
-                    <option value="off">{{ __('Off — allow all') }}</option>
-                    <option value="allow">{{ __('Allow listed only') }}</option>
-                    <option value="block">{{ __('Block listed') }}</option>
-                </select>
-                <p class="mt-1.5 text-xs text-brand-moss">{{ $modeHelp }}</p>
-            </div>
+        <p class="text-xs text-brand-moss">
+            {{ __('Blocked visitors see a plain “403 Forbidden — content is not available in this region” from the Edge, or your own page if you set one under Error pages. Country comes from their connection, so VPNs can get around it.') }}
+        </p>
+    </section>
 
-            <div>
-                <label class="text-2xs font-semibold uppercase tracking-wide text-brand-mist">{{ __('Countries') }}</label>
-                <p class="mt-0.5 text-xs text-brand-moss">
-                    @if ($country_mode === 'allow')
-                        {{ __('These countries are allowed. Add every market you serve before enabling Allow listed only.') }}
-                    @elseif ($country_mode === 'block')
-                        {{ __('These countries are blocked. Leave the list empty only while drafting — empty + Block does not enforce yet.') }}
-                    @else
-                        {{ __('Optional until you switch mode. Search by name or ISO code, then Save.') }}
-                    @endif
-                </p>
+    <x-modal name="edge-firewall" maxWidth="2xl" overlayClass="bg-brand-ink/40" focusable>
+        @if ($editing)
+            <div class="space-y-5 p-6 sm:p-7">
+                <div class="flex items-start justify-between gap-4">
+                    <h2 class="text-lg font-semibold text-brand-ink">{{ __('Who can reach this site') }}</h2>
+                    <button type="button" wire:click="closeRule" class="dply-icon-btn h-9 w-9" aria-label="{{ __('Close') }}">
+                        <x-heroicon-o-x-mark class="h-5 w-5" aria-hidden="true" />
+                    </button>
+                </div>
+
+                <fieldset class="space-y-2">
+                    @foreach ([
+                        'off' => [__('Everyone'), __('No country checks. The default for most sites.')],
+                        'allow' => [__('Only these countries'), __('Everyone else gets a 403. Check the country you work from is on the list, or you’ll lock yourself out.')],
+                        'block' => [__('Everyone except these countries'), __('The listed countries get a 403. The rest of the world works.')],
+                    ] as $value => [$label, $desc])
+                        <label @class(['flex cursor-pointer items-start gap-3 rounded-lg border px-4 py-3', 'border-brand-sage bg-brand-sage/5' => $country_mode === $value, 'border-brand-ink/10 hover:border-brand-ink/25' => $country_mode !== $value])>
+                            <input type="radio" wire:model.live="country_mode" value="{{ $value }}" class="mt-0.5 h-4 w-4 border-brand-ink/30 text-brand-forest focus:ring-brand-forest" />
+                            <span>
+                                <span class="block text-sm font-semibold text-brand-ink">{{ $label }}</span>
+                                <span class="block text-xs text-brand-moss">{{ $desc }}</span>
+                            </span>
+                        </label>
+                    @endforeach
+                </fieldset>
+
+                @if ($country_mode !== 'off')
+                    <div>
+                        <p class="text-2xs font-semibold uppercase tracking-[0.14em] text-brand-mist">{{ $country_mode === 'allow' ? __('Allowed countries') : __('Blocked countries') }}</p>
                 <div
                     x-data="{
                         query: '',
@@ -183,7 +196,7 @@
                         x-show="open && filtered.length > 0"
                         x-cloak
                         x-transition.opacity
-                        class="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-brand-ink/10 bg-white py-1 shadow-lg dark:bg-brand-ink/95"
+                        class="mt-1 max-h-64 w-full overflow-auto rounded-lg border border-brand-ink/10 bg-white py-1 dark:bg-brand-ink/95"
                     >
                         <template x-for="(entry, index) in filtered" :key="entry[0]">
                             <li
@@ -201,32 +214,23 @@
                     <p
                         x-show="open && query.trim() !== '' && filtered.length === 0"
                         x-cloak
-                        class="absolute z-20 mt-1 w-full rounded-lg border border-brand-ink/10 bg-white px-3 py-2 text-xs text-brand-mist shadow-lg dark:bg-brand-ink/95"
+                        class="mt-1 w-full rounded-lg border border-brand-ink/10 bg-white px-3 py-2 text-xs text-brand-mist dark:bg-brand-ink/95"
                     >
                         {{ __('No country matches that.') }}
                     </p>
                 </div>
-                <p class="mt-1 text-xs text-brand-mist">{{ __('↑/↓ navigate · Enter add · Backspace remove last') }}</p>
-                @if ($country_mode !== 'off' && count($selected_codes) === 0)
-                    <p class="mt-2 rounded-lg border border-amber-500/25 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-raw-amber-950/40 dark:text-raw-amber-100">
-                        {{ __('No countries selected — this mode will not enforce until you add at least one code and Save.') }}
-                    </p>
+                        <p class="mt-1 text-xs text-brand-mist">{{ __('↑/↓ navigate · Enter add · Backspace remove last') }}</p>
+                        <x-input-error :messages="$errors->get('selected_codes')" class="mt-1" />
+                    </div>
                 @endif
-            </div>
-        </div>
-    </section>
 
-    <div class="flex items-center justify-end gap-3 border-b border-brand-ink/10 bg-brand-sand/25 px-5 py-3 sm:px-6">
-        <span wire:loading.inline-flex wire:target="save" class="inline-flex items-center gap-1.5 text-xs text-brand-moss">
-            <x-spinner size="sm" variant="muted" />
-            {{ __('Saving…') }}
-        </span>
-        @can('update', $site)
-            <button type="button" wire:click="save" wire:loading.attr="disabled" wire:target="save" class="rounded-lg bg-brand-ink px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-ink/90 disabled:cursor-wait disabled:opacity-60">
-                {{ __('Save') }}
-            </button>
-        @endcan
-    </div>
+                <div class="flex justify-end gap-2">
+                    <button type="button" wire:click="closeRule" class="rounded-lg border border-brand-ink/15 px-4 py-2 text-sm font-medium text-brand-ink hover:bg-brand-sand/40">{{ __('Cancel') }}</button>
+                    <x-primary-button type="button" wire:click="saveRule" wire:loading.attr="disabled" wire:target="saveRule">{{ __('Save') }}</x-primary-button>
+                </div>
+            </div>
+        @endif
+    </x-modal>
 
     <details class="group" @if ($hasRepoFirewall) open @endif>
         <summary class="flex cursor-pointer list-none items-center justify-between gap-3 bg-brand-sand/10 px-5 py-3.5 text-sm font-semibold text-brand-ink hover:bg-brand-sand/20 sm:px-6 [&::-webkit-details-marker]:hidden">

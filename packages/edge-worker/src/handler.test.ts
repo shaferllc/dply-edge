@@ -280,6 +280,30 @@ describe('handleRequest', () => {
     expect(response.status).toBe(404);
   });
 
+  it('serves the custom 403 page when the geo firewall blocks the country', async () => {
+    const geoEntry: HostMapEntry = { ...hostEntry, firewall_country_mode: 'allow', firewall_countries: ['AM'] };
+    const blocked = () => {
+      const req = new Request('https://geo.example.test/');
+      Object.defineProperty(req, 'cf', { value: { country: 'US' } });
+      return req;
+    };
+
+    const plain = await handleRequest(blocked(), {
+      HOST_MAP: createMockKv({ 'geo.example.test': geoEntry }),
+      ARTIFACTS: createMockR2({}),
+    });
+    expect(plain.status).toBe(403);
+    expect(await plain.text()).toContain('not available in this region (US)');
+
+    const custom = await handleRequest(blocked(), {
+      HOST_MAP: createMockKv({ 'geo.example.test': { ...geoEntry, error_403_html: '<h1>Nope</h1>' } }),
+      ARTIFACTS: createMockR2({}),
+    });
+    expect(custom.status).toBe(403);
+    expect(custom.headers.get('Content-Type')).toContain('text/html');
+    expect(await custom.text()).toBe('<h1>Nope</h1>');
+  });
+
   it('sends the Cloudflare Access service token to an Access-protected origin', async () => {
     const hybridEntry: HostMapEntry = {
       ...hostEntry,

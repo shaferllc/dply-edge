@@ -69,23 +69,80 @@ class Forms extends Component
         ];
     }
 
+    /** Index into $endpoints open in the edit modal, or null. */
+    public ?int $editingEndpoint = null;
+
+    /** The modal is showing the starter picker (Add a form). */
+    public bool $pickingEndpoint = false;
+
     public function mount(Server $server, Site $site): void
     {
         $this->mountEdgeWorkspaceSection($server, $site);
-        $cfg = is_array($site->edgeMeta()['forms'] ?? null) ? $site->edgeMeta()['forms'] : [];
+        $this->loadFromSite();
+    }
+
+    /** Saved config → component state; drops unsaved edits. */
+    private function loadFromSite(): void
+    {
+        $cfg = is_array($this->site->edgeMeta()['forms'] ?? null) ? $this->site->edgeMeta()['forms'] : [];
         $this->enabled = (bool) ($cfg['enabled'] ?? false);
-        $endpoints = is_array($cfg['endpoints'] ?? null) ? $cfg['endpoints'] : [];
-        $this->endpoints = $endpoints !== [] ? array_values(array_map(fn ($e) => [
+        $this->endpoints = array_values(array_map(fn ($e) => [
             'path' => (string) ($e['path'] ?? '/contact'),
             'to_email' => (string) ($e['to_email'] ?? ''),
             'honeypot' => (string) ($e['honeypot'] ?? 'company'),
             'require_turnstile' => (bool) ($e['require_turnstile'] ?? true),
-        ], $endpoints)) : [[
-            'path' => '/contact',
-            'to_email' => (string) (auth()->user()->email ?? ''),
-            'honeypot' => 'company',
-            'require_turnstile' => true,
-        ]];
+        ], is_array($cfg['endpoints'] ?? null) ? $cfg['endpoints'] : []));
+    }
+
+    public function openPicker(): void
+    {
+        $this->loadFromSite();
+        $this->resetErrorBag();
+        $this->editingEndpoint = null;
+        $this->pickingEndpoint = true;
+        $this->dispatch('open-modal', 'edge-form-endpoint');
+    }
+
+    public function editEndpoint(int $index): void
+    {
+        $this->loadFromSite();
+        abort_unless(isset($this->endpoints[$index]), 404);
+        $this->resetErrorBag();
+        $this->pickingEndpoint = false;
+        $this->editingEndpoint = $index;
+        $this->dispatch('open-modal', 'edge-form-endpoint');
+    }
+
+    public function closeEndpoint(): void
+    {
+        $this->loadFromSite();
+        $this->editingEndpoint = null;
+        $this->pickingEndpoint = false;
+        $this->dispatch('close-modal', 'edge-form-endpoint');
+    }
+
+    /** Modal Save: persists every endpoint (the edited one included) and closes. */
+    public function saveEndpoint(): void
+    {
+        if ($this->save()) {
+            $this->editingEndpoint = null;
+            $this->dispatch('close-modal', 'edge-form-endpoint');
+        }
+    }
+
+    public function removeEditingEndpoint(): void
+    {
+        if ($this->editingEndpoint === null) {
+            return;
+        }
+        unset($this->endpoints[$this->editingEndpoint]);
+        $this->endpoints = array_values($this->endpoints);
+        $this->saveEndpoint();
+    }
+
+    public function updatedEnabled(): void
+    {
+        $this->save();
     }
 
     public function addEndpoint(): void
@@ -96,6 +153,9 @@ class Forms extends Component
             'honeypot' => 'company',
             'require_turnstile' => true,
         ];
+        $this->enabled = true;
+        $this->pickingEndpoint = false;
+        $this->editingEndpoint = array_key_last($this->endpoints);
     }
 
     public function addExample(string $key): void
@@ -105,42 +165,47 @@ class Forms extends Component
             return;
         }
 
-        $defaultEmail = trim((string) ($this->endpoints[0]['to_email'] ?? ''))
-            ?: (string) (auth()->user()->email ?? '');
-
-        $row = [
+        $this->endpoints[] = [
             'path' => (string) $example['path'],
-            'to_email' => $defaultEmail,
+            'to_email' => trim((string) ($this->endpoints[0]['to_email'] ?? '')) ?: (string) (auth()->user()->email ?? ''),
             'honeypot' => (string) $example['honeypot'],
             'require_turnstile' => (bool) $example['require_turnstile'],
         ];
+        $this->enabled = true;
+        $this->pickingEndpoint = false;
+        $this->editingEndpoint = array_key_last($this->endpoints);
+    }
 
-        $onlyDefaultPlaceholder = count($this->endpoints) === 1
-            && trim((string) $this->endpoints[0]['path']) === '/contact'
-            && trim((string) $this->endpoints[0]['to_email']) === '';
+    /** Copy-paste HTML for one endpoint, posting to the live Edge hostname. */
+    private function sampleHtml(array $endpoint): string
+    {
+        $liveUrl = rtrim((string) ($this->site->edgeLiveUrl() ?? ''), '/');
+        $path = '/'.ltrim((string) $endpoint['path'], '/');
+        $action = ($liveUrl !== '' ? $liveUrl : 'https://your-site.on-dply.live').$path;
+        $honeypot = trim((string) $endpoint['honeypot']) ?: 'company';
 
-        if ($onlyDefaultPlaceholder) {
-            $this->endpoints = [$row];
-        } else {
-            $this->endpoints[] = $row;
+        $html = '<form method="POST" action="'.e($action).'">'."\n"
+            .'  <label>Name <input type="text" name="name" required></label>'."\n"
+            .'  <label>Email <input type="email" name="email" required></label>'."\n"
+            .'  <label>Message <textarea name="message" required></textarea></label>'."\n"
+            .'  <!-- Honeypot: leave empty; hide from humans -->'."\n"
+            .'  <input type="text" name="'.e($honeypot).'" tabindex="-1" autocomplete="off" style="position:absolute;left:-9999px" aria-hidden="true">'."\n";
+        if ($endpoint['require_turnstile'] ?? false) {
+            $html .= '  <!-- Require bot check: add Turnstile widget (Bot protection) -->'."\n"
+                .'  <div class="cf-turnstile" data-sitekey="YOUR_TURNSTILE_SITE_KEY"></div>'."\n"
+                .'  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>'."\n";
         }
 
-        $this->enabled = true;
+        return $html.'  <button type="submit">Send</button>'."\n".'</form>';
     }
 
-    public function removeEndpoint(int $index): void
-    {
-        unset($this->endpoints[$index]);
-        $this->endpoints = array_values($this->endpoints);
-    }
-
-    public function save(): void
+    public function save(): bool
     {
         $this->authorize('update', $this->site);
         if (! $this->isManagedEdgeDelivery()) {
             $this->toastError(__('Forms require Dply-hosted Edge delivery.'));
 
-            return;
+            return false;
         }
 
         $this->validate([
@@ -158,22 +223,12 @@ class Forms extends Component
         $this->site->save();
         $this->republishEdgeHostMap();
         $this->toastSuccess(__('Forms saved.'));
+
+        return true;
     }
 
     public function render(): View
     {
-        $liveUrl = rtrim((string) ($this->site->edgeLiveUrl() ?? ''), '/');
-        $primary = $this->endpoints[0] ?? null;
-        $samplePath = is_array($primary) ? (string) $primary['path'] : '/contact';
-        if ($samplePath === '' || ! str_starts_with($samplePath, '/')) {
-            $samplePath = '/'.$samplePath;
-        }
-        $sampleHoneypot = is_array($primary)
-            ? (trim((string) $primary['honeypot']) ?: 'company')
-            : 'company';
-        $sampleRequireBot = is_array($primary) ? (bool) $primary['require_turnstile'] : false;
-        $sampleAction = $liveUrl !== '' ? $liveUrl.$samplePath : 'https://your-site.on-dply.live'.$samplePath;
-
         $repo = $this->edgeRepoConfigSection('forms');
 
         return view('livewire.sites.edge.workspace.forms', array_merge(
@@ -183,11 +238,9 @@ class Forms extends Component
                 'site' => $this->site,
                 'managedDelivery' => $this->isManagedEdgeDelivery(),
                 'examples' => self::exampleCatalog(),
-                'sampleAction' => $sampleAction,
-                'samplePath' => $samplePath,
-                'sampleHoneypot' => $sampleHoneypot,
-                'sampleRequireBot' => $sampleRequireBot,
-                'liveHostname' => $liveUrl !== '' ? preg_replace('#^https?://#', '', $liveUrl) : null,
+                'editingSampleHtml' => isset($this->endpoints[$this->editingEndpoint ?? -1])
+                    ? $this->sampleHtml($this->endpoints[$this->editingEndpoint])
+                    : null,
                 'sourcePath' => $repo['source_path'],
                 'repoForms' => $repo['section'],
                 'submissions' => EdgeFormSubmission::query()

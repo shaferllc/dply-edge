@@ -90,72 +90,112 @@ HTML,
         ];
     }
 
+    /** Index into $items open in the edit modal, or null. */
+    public ?int $editingItem = null;
+
     public function mount(Server $server, Site $site): void
     {
         $this->mountEdgeWorkspaceSection($server, $site);
-        $cfg = is_array($site->edgeMeta()['snippets'] ?? null) ? $site->edgeMeta()['snippets'] : [];
+        $this->loadFromSite();
+    }
+
+    /** Saved config → component state; drops unsaved edits. */
+    private function loadFromSite(): void
+    {
+        $cfg = is_array($this->site->edgeMeta()['snippets'] ?? null) ? $this->site->edgeMeta()['snippets'] : [];
         $this->enabled = (bool) ($cfg['enabled'] ?? false);
-        $items = is_array($cfg['items'] ?? null) ? $cfg['items'] : [];
-        $this->items = $items !== [] ? array_values(array_map(fn ($i) => [
+        $this->items = array_values(array_map(fn ($i) => [
             'name' => (string) ($i['name'] ?? 'snippet'),
             'phase' => in_array(($i['phase'] ?? 'head'), ['head', 'body'], true) ? (string) $i['phase'] : 'head',
             'path' => (string) ($i['path'] ?? '/*'),
             'html' => (string) ($i['html'] ?? ''),
-        ], $items)) : [[
-            'name' => 'custom',
-            'phase' => 'head',
-            'path' => '/*',
-            'html' => '',
-        ]];
+        ], is_array($cfg['items'] ?? null) ? $cfg['items'] : []));
     }
 
-    public function addItem(): void
+    /** "+ Add to head / body": a blank snippet in that slot, opened in the modal. */
+    public function newItem(string $phase): void
     {
-        $this->items[] = ['name' => 'snippet', 'phase' => 'head', 'path' => '/*', 'html' => ''];
+        $this->loadFromSite();
+        $this->resetErrorBag();
+        $this->items[] = ['name' => '', 'phase' => $phase === 'body' ? 'body' : 'head', 'path' => '/*', 'html' => ''];
+        $this->editingItem = array_key_last($this->items);
+        $this->dispatch('open-modal', 'edge-snippet');
     }
 
-    public function addExample(string $key): void
+    public function editItem(int $index): void
+    {
+        $this->loadFromSite();
+        abort_unless(isset($this->items[$index]), 404);
+        $this->resetErrorBag();
+        $this->editingItem = $index;
+        $this->dispatch('open-modal', 'edge-snippet');
+    }
+
+    /** Fill the snippet being edited from a starter example. */
+    public function useExample(string $key): void
     {
         $example = collect(self::exampleCatalog())->firstWhere('key', $key);
-        if (! is_array($example)) {
+        if (! is_array($example) || $this->editingItem === null) {
             return;
         }
 
-        $row = [
+        $this->items[$this->editingItem] = [
             'name' => (string) $example['name'],
-            'phase' => in_array($example['phase'], ['head', 'body'], true)
-                ? (string) $example['phase']
-                : 'head',
+            'phase' => (string) $example['phase'],
             'path' => (string) $example['path'],
             'html' => (string) $example['html'],
         ];
+    }
 
-        $onlyBlankPlaceholder = count($this->items) === 1
-            && trim((string) $this->items[0]['html']) === ''
-            && in_array(trim((string) $this->items[0]['name']), ['', 'custom', 'snippet'], true);
+    public function closeItem(): void
+    {
+        $this->loadFromSite();
+        $this->editingItem = null;
+        $this->dispatch('close-modal', 'edge-snippet');
+    }
 
-        if ($onlyBlankPlaceholder) {
-            $this->items = [$row];
-        } else {
-            $this->items[] = $row;
+    /** Modal Save: persists every snippet (the edited one included) and closes. */
+    public function saveItem(): void
+    {
+        if ($this->editingItem !== null) {
+            $this->validate(["items.{$this->editingItem}.html" => ['required']], [], ["items.{$this->editingItem}.html" => __('HTML')]);
+            // A new site's first snippet should actually load.
+            if (collect($this->site->edgeMeta()['snippets']['items'] ?? [])->isEmpty()) {
+                $this->enabled = true;
+            }
         }
 
-        $this->enabled = true;
+        if ($this->save()) {
+            $this->editingItem = null;
+            $this->dispatch('close-modal', 'edge-snippet');
+        }
     }
 
-    public function removeItem(int $index): void
+    public function removeEditingItem(): void
     {
-        unset($this->items[$index]);
+        if ($this->editingItem === null) {
+            return;
+        }
+        unset($this->items[$this->editingItem]);
         $this->items = array_values($this->items);
+        $this->editingItem = null;
+        if ($this->save()) {
+            $this->dispatch('close-modal', 'edge-snippet');
+        }
     }
 
-    public function save(): void
+    public function updatedEnabled(): void
+    {
+        $this->save();
+    }
+
+    public function save(): bool
     {
         $this->authorize('update', $this->site);
         if (! $this->isManagedEdgeDelivery()) {
             $this->toastError(__('Snippets require Dply-hosted Edge delivery.'));
 
-            return;
+            return false;
         }
 
         $this->validate([
@@ -177,6 +217,8 @@ HTML,
         $this->site->save();
         $this->republishEdgeHostMap();
         $this->toastSuccess(__('Snippets saved.'));
+
+        return true;
     }
 
     public function render(): View

@@ -204,7 +204,7 @@ test('the environment page lists the realtime keys with the secret masked', func
     [$site, $user, $app] = rtSheetSite($runtime);
 
     $page = Livewire::actingAs($user)->test(Environment::class, ['server' => $site->server, 'site' => $site])
-        ->assertSee('From resources')
+        ->assertSee('Added from resources')
         ->assertSee('REVERB_APP_KEY='.$app->app_key)
         ->assertSee('REVERB_APP_SECRET=••••')
         ->assertSee('PUSHER_APP_SECRET=••••');

@@ -3,36 +3,27 @@ title: "Edge routing"
 slug: edge-routing
 category: "Edge"
 order: 110
-description: "Read-only view of redirects, rewrites, and header rules parsed from your repo's dply.yaml config on the latest Edge deploy."
+description: "Domains, redirects, rewrites and header rules for an Edge site, from the dashboard or dply.yaml."
 group: edge
 ---
 
 # Edge routing
 
-The **Routing** section is a read-only view of **redirects, rewrites, and header rules** from your repo’s `dply.yaml` (or `dply.toml`) on the latest deploy.
+**Routing** has four tabs: **Domains** (see [Edge domains](EDGE_DOMAINS.md)), **Redirects**, **Rewrites** and **Headers**.
 
-In v1 you **edit routing in Git**, not in the dashboard. After changing the file, redeploy so the edge Worker picks up new rules.
+Each rules tab opens with one sentence that sums it up ("2 redirects send visitors to a new address for good") and lists every rule as a row in plain words ("/old-page moves permanently to /new-page"). Rules from `dply.yaml` are read-only rows marked with the file name. Dashboard rules open the rule dialog (`openRule` / `saveRule` / `removeOpenRule` in `Routing`), which edits in place. Changes are stored in `routing_overrides` and the host map is republished, so they apply without a deploy.
 
-## Where rules come from
-
-Rules are parsed from the repo config file at build time. A compact summary also appears on **Build** under **Redirects, rewrites & headers**.
+Other rows on the tabs:
+- **Import many at once** (Redirects) opens a dialog that takes a bulk-redirects CSV or a `_redirects` block; duplicates are skipped.
+- **Start from "…"** applies a template after a confirm: Security headers, Long-cache static assets, Proxy /api/*, Blog URL migration.
+- **Keep these in dply.yaml** shows the matching YAML.
 
 ## Rule types
 
 | Type | Typical use |
 |------|-------------|
-| **Redirects** | Permanent or temporary URL moves (301/302) |
-| **Rewrites** | Serve a different path internally (SPA fallbacks, proxy paths) |
+| **Redirects** | Permanent (301/308) or temporary (302/307) URL moves |
+| **Rewrites** | Serve a different path internally, or proxy to a full URL |
 | **Headers** | Security or cache headers on path patterns |
 
-## Empty state
-
-If no deploy has shipped a config file yet, Routing shows starter `dply.yaml` examples you can copy into your repo root.
-
-Use `dply edge lint` locally or check **Build & deploy logs** if a deploy fails config validation.
-
-## Related sections
-
-- **Build** — repo config snapshot and build overrides
-- **Delivery** — hybrid proxy routes (origin fetch) vs static routing rules in `dply.yaml`
-- **Domains** — custom hostnames attached to this site
+Repo rules come first, dashboard rules after. See the public [Routing](site/routing.md) page for matching and evaluation order.

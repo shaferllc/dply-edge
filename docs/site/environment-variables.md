@@ -7,9 +7,9 @@ Environment variables hold configuration that changes between environments and s
 
 ## Set variables
 
-1. In your app, open **Environment**.
-2. Edit the **Environment** field. It holds one `KEY=value` per line, like a `.env` file.
-3. Choose **Save and redeploy** in the bar at the bottom of the page.
+1. In your app, open **Environment**. The page opens with a sentence such as "Your app gets 14 variables on its next deploy: 9 you set, 2 org secrets and 3 from its resources."
+2. Click the row for the variables you set. A dialog opens with one `KEY=value` per line, like a `.env` file.
+3. Edit it and choose **Save and redeploy**, or **Save** to deploy later.
 
 ```env
 APP_ENV=production
@@ -29,7 +29,7 @@ The field works like a whole file, not a list of separate entries:
 Members who can update the app see the field with values in plain text. Other members see only the list of keys. Values are encrypted at rest.
 
 > [!IMPORTANT]
-> Saving does not change the running app. Variables apply on the next deploy. **Save and redeploy** does both. If you save without deploying, open **Deploys** and choose **Redeploy now**. Rolling back or deploying an earlier commit that was already built does not pick up new values, because it reuses that build as it was.
+> Saving does not change the running app. Variables apply on the next deploy. **Save and redeploy** does both. If you save without deploying, open **Deploys** and choose **Redeploy the latest**. Rolling back or deploying an earlier commit that was already built does not pick up new values, because it reuses that build as it was.
 
 ### Reserved names
 
@@ -66,18 +66,18 @@ Frameworks such as Vite, Next.js, and Astro copy some variables into the JavaScr
 
 ## Variables dply adds for you
 
-Some resources add variables to the next deploy. They appear under **From resources** on the **Environment** page, with secret values masked.
+Some resources add variables to the next deploy. Click **added from resources** on the **Environment** page to see them, with secret values masked.
 
 - **Realtime.** A [Realtime](/docs/resources/realtime) resource adds `REVERB_APP_ID`, `REVERB_APP_KEY`, `REVERB_APP_SECRET`, `REVERB_HOST`, `REVERB_PORT`, and `REVERB_SCHEME`, the same set with a `PUSHER_` prefix, `PUSHER_APP_CLUSTER`, and `VITE_REVERB_*` and `VITE_PUSHER_*` for the browser. Laravel apps also get `BROADCAST_CONNECTION=reverb`. The `VITE_*` values reach the build; the rest reach server-rendered and container apps at runtime.
-- **Redis.** A Redis connection adds `REDIS_URL`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_USERNAME`, and `REDIS_PASSWORD`. dply manages these: they are hidden from the **Environment** field and cannot be overridden there. They are left out while the Redis resource is asleep. See [Valkey (Redis)](/docs/resources/valkey).
+- **Redis.** A Redis connection adds `REDIS_URL`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_USERNAME`, and `REDIS_PASSWORD`. dply manages these: they are hidden from your variables and cannot be overridden there. They are left out while the Redis resource is asleep. See [Valkey (Redis)](/docs/resources/valkey).
 - **Databases (container apps).** Attaching a dply Postgres or MySQL database writes `DB_CONNECTION`, `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD`, `DB_SSLMODE`, and `DATABASE_URL` into your variables, where you can see and edit them. A container app with no database gets SQLite at `/tmp/database.sqlite` unless you set `DB_CONNECTION`, `DB_URL`, or `DATABASE_URL`. See [Postgres, MySQL & MongoDB](/docs/resources/databases).
 - **Container app defaults.** Container apps get `APP_URL` and `ASSET_URL` set to the app's URL, and generated defaults when first deployed: `APP_KEY` for Laravel, `SECRET_KEY_BASE` for Rails, `NODE_ENV` for Node. Generated defaults are saved into your variables, so you can change them.
 
-A line in the **Environment** field with the same key replaces a value from resources, and the list marks it **replaced above**. Two exceptions: the Redis keys above, and `DPLY_APP_URL` and `DPLY_MIGRATE_ON_BOOT` on container apps, which the platform always sets.
+A line in your own variables with the same key replaces a value from resources, and the resources dialog marks it **replaced by your value**. Two exceptions: the Redis keys above, and `DPLY_APP_URL` and `DPLY_MIGRATE_ON_BOOT` on container apps, which the platform always sets.
 
 ## Linked secrets
 
-Organization secrets let you store a value once and link it onto several apps. Linked secrets appear in the **Linked secrets** panel on the **Environment** page and are added to the next deploy. If the **Environment** field also defines the same key, the value in the field wins. See [Secrets](/docs/secrets).
+Organization secrets let you store a value once and link it onto several apps. Click the org secrets row on the **Environment** page to see and unlink them, or choose **Link a secret from the org vault**. They are added to the next deploy. If the app's own variables define the same key, that value wins. See [Secrets](/docs/secrets).
 
 ## Declare variables in `dply.yaml`
 
@@ -93,7 +93,7 @@ env:
 ```
 
 - `env.public` values are added to the build. A value set on the **Environment** page wins over the file.
-- `env.secret` lists names only. The build log warns about any name with no value set, and the **Environment** page lists them under **From dply.yaml** marked **Missing** or **Set**. A missing secret does not fail the build.
+- `env.secret` lists names only. The build log warns about any name with no value set, and the **Environment** page names them in its sentence and gives each missing one its own row. Click it to open the editor with a line ready for its value. A missing secret does not fail the build.
 - `build.env_files` loads `.env`-style files from the repository into the build. Values from the dashboard win.
 
 `dply.yaml` values reach the build, and for container apps the container too. Server-rendered Workers do not receive them at runtime. See [Configuration files](/docs/configuration-files).

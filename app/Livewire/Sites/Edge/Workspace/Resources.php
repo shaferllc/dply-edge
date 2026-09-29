@@ -57,6 +57,7 @@ use App\Support\Http\UnsafeOutboundUrlException;
 use App\Support\Sites\EdgeServiceMap;
 use App\Support\Sites\EdgeSiteViewData;
 use Illuminate\Contracts\View\View;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -112,6 +113,18 @@ class Resources extends Component
     public bool $stickySessions = true;
 
     public bool $dedicatedJobs = false;
+
+    /** Instances kept awake at all times (no cold starts for these). */
+    public int $minInstances = 0;
+
+    /** Keep the dedicated jobs instance awake instead of sleeping with the app. */
+    public bool $jobsAlwaysOn = false;
+
+    /** Octane on FrankenPHP: the app stays booted between requests. */
+    public bool $workerMode = false;
+
+    /** @var list<array{days: string, start: string, end: string, timezone: string, min: int, max: int}> */
+    public array $schedules = [];
 
     /**
      * Queue workers draft (EdgeQueueWorkers): saved with Save and redeploy.
@@ -1134,6 +1147,10 @@ class Resources extends Component
             $this->scheduler = $settings['scheduler'];
             $this->stickySessions = $settings['sticky_sessions'];
             $this->dedicatedJobs = $settings['dedicated_jobs'];
+            $this->minInstances = (int) $settings['min_instances'];
+            $this->jobsAlwaysOn = (bool) $settings['jobs_always_on'];
+            $this->workerMode = (bool) $settings['worker_mode'];
+            $this->schedules = $settings['schedules'];
             $this->workers = EdgeQueueWorkers::for($this->site);
             $this->migrateOnBoot = $settings['migrate_on_boot'];
             $this->rolloutMode = $settings['rollout_mode'];
@@ -1165,7 +1182,7 @@ class Resources extends Component
             $this->validateOnly($name, $this->runtimeRules());
         }
 
-        if (in_array($name, ['draftInstanceType', 'sleepAfter', 'jurisdiction', 'scheduler', 'stickySessions', 'dedicatedJobs', 'migrateOnBoot', 'customVcpu', 'customMemoryGib', 'customDiskGb', 'rolloutMode', 'rolloutSteps', 'rolloutGraceSeconds'], true) || str_starts_with($name, 'regions') || str_starts_with($name, 'workers.')) {
+        if (in_array($name, ['draftInstanceType', 'sleepAfter', 'jurisdiction', 'scheduler', 'stickySessions', 'dedicatedJobs', 'migrateOnBoot', 'customVcpu', 'customMemoryGib', 'customDiskGb', 'rolloutMode', 'rolloutSteps', 'rolloutGraceSeconds', 'minInstances', 'jobsAlwaysOn', 'workerMode'], true) || str_starts_with($name, 'regions') || str_starts_with($name, 'workers.') || str_starts_with($name, 'schedules')) {
             $this->refreshPending();
         }
     }
@@ -2891,6 +2908,10 @@ class Resources extends Component
             'scheduler' => (bool) ($settings['scheduler'] ?? false),
             'sticky_sessions' => (bool) ($settings['sticky_sessions'] ?? true),
             'dedicated_jobs' => (bool) ($settings['dedicated_jobs'] ?? false),
+            'min_instances' => (int) ($settings['min_instances'] ?? 0),
+            'jobs_always_on' => (bool) ($settings['jobs_always_on'] ?? false),
+            'worker_mode' => (bool) ($settings['worker_mode'] ?? false),
+            'schedules' => $settings['schedules'] ?? [],
             'workers' => EdgeQueueWorkers::for($this->site),
             'migrate_on_boot' => (bool) ($settings['migrate_on_boot'] ?? false),
             'custom_vcpu' => (int) ($container['custom_vcpu'] ?? 1),
@@ -2925,6 +2946,10 @@ class Resources extends Component
             'scheduler' => $this->scheduler,
             'sticky_sessions' => $this->stickySessions,
             'dedicated_jobs' => $this->dedicatedJobs,
+            'min_instances' => $this->minInstances,
+            'jobs_always_on' => $this->jobsAlwaysOn,
+            'worker_mode' => $this->workerMode,
+            'schedules' => EdgeContainerSettings::normalizeSchedules($this->schedules),
             'workers' => EdgeQueueWorkers::normalize($this->workers),
             'migrate_on_boot' => $this->migrateOnBoot,
             'custom_vcpu' => $custom ? $this->customVcpu : $saved['custom_vcpu'],
@@ -2942,6 +2967,72 @@ class Resources extends Component
         ];
     }
 
+    /**
+     * Min instances, scaling windows and worker mode: the rules the old
+     * Container page applied before saving (they now live in this sheet).
+     */
+    private function validScaling(): bool
+    {
+        // Clear last round's messages so a value fixed since then stops showing.
+        $this->resetErrorBag(array_values(array_filter(
+            array_keys($this->getErrorBag()->messages()),
+            static fn (string $key): bool => in_array($key, ['minInstances', 'workerMode'], true) || str_starts_with($key, 'schedules.'),
+        )));
+        $validator = Validator::make([
+            'minInstances' => $this->minInstances,
+            'draftMaxInstances' => $this->draftMaxInstances,
+            'schedules' => $this->schedules,
+        ], [
+            'minInstances' => ['required', 'integer', 'min:0', 'lte:draftMaxInstances'],
+            'schedules.*.days' => ['required', fn (string $attribute, mixed $value, \Closure $fail) => EdgeContainerSettings::isScheduleDays((string) $value) ? null : $fail(__('Pick days or a date.'))],
+            'schedules.*.start' => ['required', 'date_format:H:i'],
+            'schedules.*.end' => ['required', 'date_format:H:i', 'after:schedules.*.start'],
+            'schedules.*.timezone' => ['required', 'timezone'],
+            'schedules.*.max' => ['required', 'integer', 'between:1,'.EdgeContainerSettings::MAX_INSTANCES],
+            'schedules.*.min' => ['required', 'integer', 'min:0', 'lte:schedules.*.max'],
+        ], [
+            'minInstances.lte' => __('Always-awake instances can’t be more than the instance count.'),
+            'schedules.*.end.after' => __('A window ends later the same day. For overnight, add two windows.'),
+        ]);
+        if ($validator->fails()) {
+            foreach ($validator->errors()->messages() as $key => $messages) {
+                $this->addError($key, $messages[0]);
+            }
+
+            return false;
+        }
+        if ($this->workerMode && ! ($this->site->edgeMeta()['worker_mode_supported'] ?? false)) {
+            $this->workerMode = false;
+            $this->addError('workerMode', __('Worker mode needs laravel/octane and FrankenPHP. Add them and deploy first.'));
+
+            return false;
+        }
+
+        return true;
+    }
+
+    public function addSchedule(): void
+    {
+        $this->authorize('update', $this->site);
+        $this->schedules[] = [
+            'days' => 'weekdays',
+            'start' => '09:00',
+            'end' => '17:00',
+            'timezone' => auth()->user()?->timezone ?: config('app.timezone', 'UTC'),
+            'min' => max(1, $this->minInstances),
+            'max' => $this->draftMaxInstances,
+        ];
+        $this->refreshPending();
+    }
+
+    public function removeSchedule(int $index): void
+    {
+        $this->authorize('update', $this->site);
+        unset($this->schedules[$index]);
+        $this->schedules = array_values($this->schedules);
+        $this->refreshPending();
+    }
+
     private function persistPending(bool $quiet): bool
     {
         $this->authorize('update', $this->site);
@@ -2949,6 +3040,9 @@ class Resources extends Component
         if ($stepsError !== null) {
             $this->addError('rolloutSteps', $stepsError);
 
+            return false;
+        }
+        if (! $this->validScaling()) {
             return false;
         }
         if ($this->draftInstanceType === 'custom') {
@@ -2980,6 +3074,10 @@ class Resources extends Component
             $current['scheduler'] = $this->scheduler;
             $current['sticky_sessions'] = $this->stickySessions;
             $current['dedicated_jobs'] = $this->dedicatedJobs;
+            $current['min_instances'] = $this->minInstances;
+            $current['jobs_always_on'] = $this->jobsAlwaysOn;
+            $current['worker_mode'] = $this->workerMode;
+            $current['schedules'] = EdgeContainerSettings::normalizeSchedules($this->schedules);
             $current['workers'] = EdgeQueueWorkers::normalize($this->workers);
             $current['migrate_on_boot'] = $this->migrateOnBoot;
             $current['rollout_mode'] = $this->rolloutMode;

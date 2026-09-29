@@ -25,6 +25,8 @@ Requires **Dply-hosted Edge delivery**.
 | Plausible | Domain, e.g. `example.com` | analytics |
 | Custom script | Any `https://` URL | analytics |
 
+**+ Add a tool** opens the catalog; pick a tool, fill in its settings, and **Save**. Each tool is listed as a sentence ("Google Analytics on every page", "Meta Pixel on /checkout/*"); click one to edit it or **Remove tool**. **Load tags on this site** saves on click.
+
 IDs are checked against each vendor's format on Save and on deploy. An invalid ID is rejected, never published.
 
 Each tool also has:
@@ -33,11 +35,11 @@ Each tool also has:
 |-------|---------|
 | **Fire on path** | Page trigger: `/*` (all pages), `/checkout/*`, or an exact path |
 | **Consent purpose** | `necessary`, `analytics` or `marketing` (see below) |
-| **Async** | Custom scripts only |
+| **Load async** | Custom scripts only |
 
 ## Consent
 
-With **Require consent** on, tools whose purpose isn't `necessary` are held back until the visitor consents. Wire your banner to:
+With **Wait for consent before loading analytics and marketing tools** on (saves on click, and also turns tags on), tools whose purpose isn't `necessary` are held back until the visitor consents. Wire your banner to:
 
 ```js
 window.__dplyTags.grant();                 // everything
@@ -74,7 +76,7 @@ tags:
       src: "https://widget.example.com/chat.js"   # no vendor = custom
 ```
 
-Dashboard **Save** replaces the repo's whole `tags` section. Older configs that list only `name` / `src` / `async` still work as custom scripts.
+Saving tags in the dashboard replaces the repo's whole `tags` section. Older configs that list only `name` / `src` / `async` still work as custom scripts.
 
 ## Not included
 

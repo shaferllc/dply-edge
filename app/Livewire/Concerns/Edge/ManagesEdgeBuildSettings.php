@@ -490,6 +490,7 @@ trait ManagesEdgeBuildSettings
         }
 
         $this->toastSuccess(__('Preview protection updated.'));
+        $this->dispatch('edge-preview-protection-saved');
     }
 
     /** @return list<string> */

@@ -8,9 +8,9 @@
             'docSlug' => 'error-pages',
             'what' => __('Error pages and maintenance let you brand 404/500 responses and take the site offline with a 503 — all at the Edge, without touching your repo.'),
             'steps' => [
-                __('Paste full HTML for 404 and/or 500, or leave blank to keep the built-in defaults.'),
-                __('Turn on Maintenance mode when you need a hard stop; visitors get 503 until you turn it off and Save.'),
-                __('Save to republish delivery. Changes apply on the next request — no rebuild required.'),
+                __('Click a page to paste your own HTML or start from a template. Blank keeps the built-in page.'),
+                __('Turn on Maintenance mode when you need a hard stop; visitors get a 503 until you turn it off.'),
+                __('Changes apply on the next request — no rebuild required.'),
             ],
             'tips' => [
                 __('Keep error HTML self-contained (inline CSS). External assets may fail if the site is broken.'),
@@ -19,115 +19,137 @@
         ])
     </section>
 
-    {{-- Starters — same pattern as Tags / Snippets examples. --}}
-    <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
-        <div class="rounded-xl border border-brand-ink/10 bg-brand-sand/20 px-3 py-3 dark:bg-brand-sand/10 sm:px-4">
-            <p class="text-xs font-semibold uppercase tracking-[0.16em] text-brand-sage">{{ __('Examples') }}</p>
-            <p class="mt-1 text-xs leading-relaxed text-brand-moss">{{ __('Fill 404, 500, and maintenance at once — then edit before Save. Self-contained HTML with inline CSS.') }}</p>
-            <div class="mt-3 flex flex-wrap gap-2">
-                @foreach ($templates as $key => $template)
-                    <button
-                        type="button"
-                        wire:click="applyAllTemplates('{{ $key }}')"
-                        class="inline-flex items-center gap-1.5 rounded-lg border border-brand-ink/15 bg-white px-2.5 py-1.5 text-xs font-semibold text-brand-ink shadow-sm transition hover:border-brand-sage/40 hover:bg-brand-sage/5 dark:bg-zinc-900"
-                        title="{{ $template['hint'] }}"
-                    >
-                        {{ $template['label'] }}
-                        <span class="font-normal text-brand-mist">+</span>
-                    </button>
+    @php
+        $inRepo = [
+            'html_404' => ! empty($repoErrors['html_404']) || ! empty($repoErrors['html_404_path']),
+            'html_500' => ! empty($repoErrors['html_500']) || ! empty($repoErrors['html_500_path']),
+            'html_403' => false, // dashboard-only; dply.yaml has no key for it
+            'maintenance' => ! empty($repoMaint['html']) || ! empty($repoMaint['html_path']),
+        ];
+        $source = fn (string $k): string => $saved[$k] ? 'custom' : ($inRepo[$k] ? 'repo' : 'builtin');
+        $whose = fn (string $k): string => match ($source($k)) {
+            'custom' => __('your own'),
+            'repo' => __('your :file', ['file' => $sourcePath]),
+            default => __('the built-in'),
+        };
+        $stateLabel = fn (string $k): string => match ($source($k)) {
+            'custom' => __('Custom'),
+            'repo' => __('From :file', ['file' => $sourcePath]),
+            default => __('Built-in'),
+        };
+        $pages = [
+            'html_404' => ['title' => __('404 page'), 'sentence' => __('A missing page shows :whose 404 page', ['whose' => $whose('html_404')]), 'model' => 'error_404_html', 'status' => '404 Not Found'],
+            'html_500' => ['title' => __('500 page'), 'sentence' => __('An unexpected error shows :whose 500 page', ['whose' => $whose('html_500')]), 'model' => 'error_500_html', 'status' => '500 Internal Server Error'],
+            'html_403' => ['title' => __('Blocked-country page'), 'sentence' => __('A visitor your Firewall blocks by country sees :whose 403 page', ['whose' => $whose('html_403')]), 'model' => 'error_403_html', 'status' => '403 Forbidden'],
+            'maintenance' => ['title' => __('Maintenance page'), 'sentence' => __('Maintenance mode shows :whose maintenance page', ['whose' => $whose('maintenance')]), 'model' => 'maintenance_html', 'status' => '503 Service Unavailable'],
+        ];
+        $editing = $editingPage !== null ? ($pages[$editingPage] ?? null) : null;
+        $canEdit = auth()->user()?->can('update', $site);
+    @endphp
+
+    <section class="space-y-8 border-b border-brand-ink/10 px-5 py-8 sm:px-10 sm:py-10">
+        <div>
+            <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Error pages') }}</p>
+            <p class="mt-3 max-w-3xl text-2xl font-medium leading-snug tracking-tight text-brand-ink sm:text-3xl">
+                {{ __('Visitors see') }}
+                <span @class(['text-brand-sage' => $source('html_404') !== 'builtin'])>{{ __(':whose 404 page', ['whose' => $whose('html_404')]) }}</span>
+                {{ __('and') }}
+                <span @class(['text-brand-sage' => $source('html_500') !== 'builtin'])>{{ __(':whose 500 page', ['whose' => $whose('html_500')]) }}</span>.
+                @if ($maintenance_enabled)
+                    <span class="text-amber-600 dark:text-amber-300">{{ __('Maintenance is on — every visitor gets a 503.') }}</span>
+                @else
+                    {{ __('The site is live — maintenance is off.') }}
+                @endif
+            </p>
+        </div>
+
+        <div>
+            <p class="border-b border-brand-ink/10 pb-2 text-sm font-semibold text-brand-ink">{{ __('When something goes wrong') }}</p>
+            <ul>
+                @foreach ($pages as $key => $page)
+                    <li class="border-b border-brand-ink/10" wire:key="error-page-{{ $key }}">
+                        <button type="button" wire:click="editPage('{{ $key }}')" class="flex min-h-12 w-full items-center gap-3 py-3 text-left hover:bg-brand-sand/20">
+                            <span class="flex-1 text-sm text-brand-ink sm:text-base">{{ $page['sentence'] }}</span>
+                            <span class="text-xs text-brand-moss">{{ $stateLabel($key) }}</span>
+                            <x-heroicon-m-chevron-right class="h-4 w-4 shrink-0 text-brand-mist" aria-hidden="true" />
+                        </button>
+                    </li>
                 @endforeach
-            </div>
-            <div class="mt-3 flex flex-wrap gap-2 border-t border-brand-ink/10 pt-3">
-                <span class="w-full text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Per page') }}</span>
-                @foreach ($templates as $key => $template)
-                    <button type="button" wire:click="applyTemplate('html_404', '{{ $key }}')" class="rounded-lg border border-brand-ink/15 bg-white px-2 py-1 text-xs font-semibold text-brand-ink hover:bg-brand-sand/40 dark:bg-zinc-900" title="{{ $template['hint'] }}">{{ __('404') }} · {{ $template['label'] }}</button>
-                    <button type="button" wire:click="applyTemplate('html_500', '{{ $key }}')" class="rounded-lg border border-brand-ink/15 bg-white px-2 py-1 text-xs font-semibold text-brand-ink hover:bg-brand-sand/40 dark:bg-zinc-900">{{ __('500') }} · {{ $template['label'] }}</button>
-                    <button type="button" wire:click="applyTemplate('maintenance', '{{ $key }}')" class="rounded-lg border border-brand-ink/15 bg-white px-2 py-1 text-xs font-semibold text-brand-ink hover:bg-brand-sand/40 dark:bg-zinc-900">{{ __('Maint') }} · {{ $template['label'] }}</button>
-                @endforeach
-            </div>
+            </ul>
+            <label class="flex min-h-12 cursor-pointer items-center gap-3 border-b border-brand-ink/10 py-3">
+                <span class="flex-1">
+                    <span class="block text-sm text-brand-ink sm:text-base">{{ __('Maintenance mode') }}</span>
+                    <span class="mt-0.5 block text-xs text-brand-moss">{{ __('Every request gets a 503 and your maintenance page. Takes effect right away.') }}</span>
+                </span>
+                <input type="checkbox" wire:model.live="maintenance_enabled" @disabled(! $canEdit) class="h-4 w-4 rounded border-brand-ink/30 text-amber-600 focus:ring-amber-500" />
+            </label>
         </div>
     </section>
 
-    {{-- Maintenance — primary ops control (live host-map republish). --}}
-    <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
-        <label class="flex items-start gap-3">
-            <input
-                type="checkbox"
-                wire:model.live="maintenance_enabled"
-                class="mt-1 h-4 w-4 rounded border-brand-ink/30 text-brand-forest focus:ring-brand-forest"
-            />
-            <span class="min-w-0">
-                <span class="block text-sm font-semibold text-brand-ink">{{ __('Maintenance mode') }}</span>
-                <span class="mt-0.5 block text-xs text-brand-moss">{{ __('Visitors get a 503 until you turn this off. Takes effect immediately after Save.') }}</span>
-            </span>
-        </label>
-    </section>
+    <x-modal name="edge-error-page" maxWidth="5xl" overlayClass="bg-brand-ink/40" focusable>
+        @if ($editing)
+            <div class="space-y-5 p-6 sm:p-7" wire:key="error-edit-{{ $editingPage }}">
+                <div class="flex items-start justify-between gap-4">
+                    <div class="min-w-0">
+                        <h2 class="text-lg font-semibold text-brand-ink">{{ $editing['title'] }}</h2>
+                        <p class="mt-0.5 font-mono text-xs text-brand-mist">{{ $editing['status'] }}</p>
+                    </div>
+                    <button type="button" wire:click="closePage" class="dply-icon-btn h-9 w-9" aria-label="{{ __('Close') }}">
+                        <x-heroicon-o-x-mark class="h-5 w-5" aria-hidden="true" />
+                    </button>
+                </div>
 
-    <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
-        <label class="block" for="error-404">
-            <span class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('404 page') }}</span>
-            <span class="mt-0.5 block text-xs text-brand-moss">{{ __('Shown when a path isn’t found. Blank = built-in default.') }}</span>
-        </label>
-        <textarea
-            id="error-404"
-            wire:model="error_404_html"
-            rows="5"
-            spellcheck="false"
-            class="mt-2 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 font-mono text-xs text-brand-ink focus:border-brand-forest focus:ring-brand-forest dark:border-brand-mist/20 dark:bg-zinc-900"
-            placeholder="<!doctype html>…"
-        ></textarea>
-        @error('error_404_html') <p class="mt-1 text-xs text-rose-600">{{ $message }}</p> @enderror
-    </section>
+                @if ($canEdit)
+                    <div class="flex flex-wrap items-center gap-2 text-xs text-brand-moss">
+                        {{ __('Start from') }}
+                        @foreach ($templates as $tkey => $template)
+                            <button type="button" wire:click="applyTemplate('{{ $editingPage }}', '{{ $tkey }}')" title="{{ $template['hint'] }}" class="inline-flex min-h-8 items-center rounded-full border border-brand-ink/15 px-3 text-xs font-medium text-brand-ink hover:bg-brand-sand/40">{{ $template['label'] }}</button>
+                        @endforeach
+                    </div>
+                @endif
 
-    <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
-        <label class="block" for="error-500">
-            <span class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('500 page') }}</span>
-            <span class="mt-0.5 block text-xs text-brand-moss">{{ __('Unexpected errors. Blank = built-in default.') }}</span>
-        </label>
-        <textarea
-            id="error-500"
-            wire:model="error_500_html"
-            rows="5"
-            spellcheck="false"
-            class="mt-2 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 font-mono text-xs text-brand-ink focus:border-brand-forest focus:ring-brand-forest dark:border-brand-mist/20 dark:bg-zinc-900"
-            placeholder="<!doctype html>…"
-        ></textarea>
-        @error('error_500_html') <p class="mt-1 text-xs text-rose-600">{{ $message }}</p> @enderror
-    </section>
+                @php $html = (string) $this->{$editing['model']}; @endphp
+                <div class="grid gap-4 lg:grid-cols-2">
+                    <div>
+                        <label for="error-page-html" class="sr-only">{{ __('HTML') }}</label>
+                        <textarea
+                            id="error-page-html"
+                            wire:model.live.debounce.500ms="{{ $editing['model'] }}"
+                            rows="16"
+                            spellcheck="false"
+                            @disabled(! $canEdit)
+                            placeholder="{{ __('Blank = the built-in page') }}"
+                            class="block h-80 w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 font-mono text-xs leading-relaxed text-brand-ink focus:border-brand-forest focus:ring-brand-forest dark:border-brand-mist/20 dark:bg-zinc-900"
+                        ></textarea>
+                        @error($editing['model']) <p class="mt-1 text-xs text-rose-600">{{ $message }}</p> @enderror
+                        <p class="mt-1 text-xs text-brand-mist">{{ __('Keep CSS inline — the site may be half-broken when this page shows.') }}</p>
+                    </div>
+                    <div class="h-80 overflow-hidden rounded-lg border border-brand-ink/10 bg-white">
+                        @if (trim($html) !== '')
+                            {{-- sandbox with no allowances: no scripts, no navigation, no same-origin access. --}}
+                            <iframe sandbox="" srcdoc="{{ $html }}" title="{{ __('Preview') }}" class="h-full w-full"></iframe>
+                        @else
+                            <div class="flex h-full items-center justify-center px-6 text-center text-sm text-brand-mist">{{ __('No custom HTML — visitors get the built-in page.') }}</div>
+                        @endif
+                    </div>
+                </div>
 
-    <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
-        <label class="block" for="maintenance-html">
-            <span class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Maintenance page') }}</span>
-            <span class="mt-0.5 block text-xs text-brand-moss">{{ __('Optional HTML when maintenance mode is on.') }}</span>
-        </label>
-        <textarea
-            id="maintenance-html"
-            wire:model="maintenance_html"
-            rows="5"
-            spellcheck="false"
-            class="mt-2 block w-full rounded-lg border border-brand-ink/15 bg-white px-3 py-2 font-mono text-xs text-brand-ink focus:border-brand-forest focus:ring-brand-forest dark:border-brand-mist/20 dark:bg-zinc-900"
-            placeholder="<!doctype html>…"
-        ></textarea>
-        @error('maintenance_html') <p class="mt-1 text-xs text-rose-600">{{ $message }}</p> @enderror
-    </section>
-
-    <div class="flex items-center justify-end gap-3 border-b border-brand-ink/10 bg-brand-sand/25 px-5 py-3 sm:px-6">
-        <span wire:loading.inline-flex wire:target="save" class="inline-flex items-center gap-1.5 text-xs text-brand-moss">
-            <x-spinner size="sm" variant="muted" />
-            {{ __('Saving…') }}
-        </span>
-        @can('update', $site)
-            <button
-                type="button"
-                wire:click="save"
-                wire:loading.attr="disabled"
-                wire:target="save"
-                class="rounded-lg bg-brand-ink px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-ink/90 disabled:cursor-wait disabled:opacity-60"
-            >
-                {{ __('Save') }}
-            </button>
-        @endcan
-    </div>
+                <div class="flex items-center justify-between gap-2">
+                    @if ($canEdit && trim($html) !== '')
+                        <button type="button" wire:click="useBuiltInPage" class="text-sm font-semibold text-red-600 hover:underline">{{ __('Use the built-in page') }}</button>
+                    @else
+                        <span></span>
+                    @endif
+                    <span class="flex gap-2">
+                        <button type="button" wire:click="closePage" class="rounded-lg border border-brand-ink/15 px-4 py-2 text-sm font-medium text-brand-ink hover:bg-brand-sand/40">{{ __('Cancel') }}</button>
+                        @if ($canEdit)
+                            <x-primary-button type="button" wire:click="savePage" wire:loading.attr="disabled" wire:target="savePage">{{ __('Save') }}</x-primary-button>
+                        @endif
+                    </span>
+                </div>
+            </div>
+        @endif
+    </x-modal>
 
     <details class="group" @if ($hasRepoErrors) open @endif>
         <summary class="flex cursor-pointer list-none items-center justify-between gap-3 bg-brand-sand/10 px-5 py-3.5 text-sm font-semibold text-brand-ink hover:bg-brand-sand/20 sm:px-6 [&::-webkit-details-marker]:hidden">

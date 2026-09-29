@@ -31,9 +31,86 @@ class Members extends Component
 
     public string $member_role = EdgeSiteMember::ROLE_VIEWER;
 
+    /** Person open in the modal (user id), or null. */
+    public ?string $editingUserId = null;
+
+    /** The modal is adding someone (with a person picker). */
+    public bool $adding = false;
+
     public function mount(Server $server, Site $site): void
     {
         $this->mountEdgeWorkspaceSection($server, $site);
+    }
+
+    public function openAdd(): void
+    {
+        $this->authorize('manageMembers', $this->site);
+        $this->resetErrorBag();
+        $this->member_user_id = '';
+        $this->member_role = EdgeSiteMember::ROLE_VIEWER;
+        $this->editingUserId = null;
+        $this->adding = true;
+        $this->dispatch('open-modal', 'edge-member');
+    }
+
+    /** Open someone whose access this page can change: not an org owner/admin or viewer. */
+    public function editPerson(string $userId): void
+    {
+        $this->authorize('manageMembers', $this->site);
+        $org = $this->site->organization;
+        $role = $org?->users()->where('users.id', $userId)->first()?->pivot?->role;
+        abort_unless(in_array($role, ['member', 'deployer'], true), 404);
+
+        $this->resetErrorBag();
+        $this->editingUserId = $userId;
+        $this->adding = false;
+        // '' = no app role: their org role applies.
+        $this->member_role = (string) ($this->site->edgeSiteMembers()->where('user_id', $userId)->value('role') ?? '');
+        $this->dispatch('open-modal', 'edge-member');
+    }
+
+    public function closePerson(): void
+    {
+        $this->editingUserId = null;
+        $this->adding = false;
+        $this->dispatch('close-modal', 'edge-member');
+    }
+
+    public function savePerson(): void
+    {
+        $this->authorize('manageMembers', $this->site);
+
+        if ($this->adding) {
+            $this->addMember();
+            if ($this->getErrorBag()->isEmpty()) {
+                $this->closePerson();
+            }
+
+            return;
+        }
+        if ($this->editingUserId === null) {
+            return;
+        }
+
+        $member = $this->site->edgeSiteMembers()->where('user_id', $this->editingUserId)->first();
+        match (true) {
+            $this->member_role === '' && $member !== null => $this->removeMember((string) $member->id),
+            $this->member_role === '' => null,
+            $member !== null => $this->updateMemberRole((string) $member->id, $this->member_role),
+            default => (function (): void {
+                $this->member_user_id = (string) $this->editingUserId;
+                $this->addMember();
+            })(),
+        };
+        if ($this->getErrorBag()->isEmpty()) {
+            $this->closePerson();
+        }
+    }
+
+    public function removePerson(): void
+    {
+        $this->member_role = '';
+        $this->savePerson();
     }
 
     public function addMember(): void
@@ -119,30 +196,61 @@ class Members extends Component
         $this->toastSuccess(__('Member removed.'));
     }
 
+    /**
+     * What a person can do on this app, the way SitePolicy resolves it:
+     * org owner/admin → everything; an app role decides when one exists;
+     * otherwise the org role (member configures + deploys, deployer deploys,
+     * viewer looks).
+     */
+    private static function accessFor(string $orgRole, ?string $appRole): string
+    {
+        return match (true) {
+            in_array($orgRole, ['owner', 'admin'], true) => 'all',
+            $orgRole === Organization::VIEW_ONLY_ROLE => 'view',
+            $appRole === EdgeSiteMember::ROLE_ADMIN => 'admin',
+            $appRole === EdgeSiteMember::ROLE_DEPLOYER => 'deploy',
+            $appRole === EdgeSiteMember::ROLE_VIEWER => 'view',
+            $orgRole === 'member' => 'configure',
+            $orgRole === 'deployer' => 'deploy',
+            default => 'view',
+        };
+    }
+
     public function render(): View
     {
         $org = $this->site->organization;
         abort_if($org === null, 403);
 
-        $members = $this->site->edgeSiteMembers()
-            ->with(['user:id,name,email', 'invitedBy:id,name'])
-            ->orderBy('created_at')
-            ->get();
+        $appRoles = $this->site->edgeSiteMembers()->pluck('role', 'user_id');
+        $rank = ['all' => 0, 'admin' => 1, 'configure' => 2, 'deploy' => 3, 'view' => 4];
+        $people = $org->users()->orderBy('users.name')->get()
+            ->map(function (User $user) use ($appRoles): array {
+                $orgRole = (string) $user->pivot->role;
+                $appRole = $appRoles[$user->id] ?? null;
 
-        $eligibleUsers = $org->users()
-            ->wherePivot('role', '!=', Organization::VIEW_ONLY_ROLE)
-            ->orderBy('users.name')
-            ->get()
-            ->filter(fn (User $user): bool => ! $members->contains('user_id', $user->id))
+                return [
+                    'id' => (string) $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'org_role' => $orgRole,
+                    'app_role' => $appRole,
+                    'access' => self::accessFor($orgRole, $appRole),
+                    'editable' => in_array($orgRole, ['member', 'deployer'], true),
+                ];
+            })
+            ->sortBy(fn (array $p): int => $rank[$p['access']])
             ->values();
+
+        $editing = $this->editingUserId !== null ? $people->firstWhere('id', $this->editingUserId) : null;
 
         return view('livewire.sites.edge.workspace.members', array_merge(
             EdgeSiteViewData::context($this->site, 'members'),
             [
                 'server' => $this->server,
                 'site' => $this->site,
-                'members' => $members,
-                'eligibleUsers' => $eligibleUsers,
+                'people' => $people,
+                'editing' => $editing,
+                'eligibleUsers' => $people->filter(fn (array $p): bool => $p['editable'] && $p['app_role'] === null)->values(),
                 'roleOptions' => [
                     EdgeSiteMember::ROLE_VIEWER => __('Viewer'),
                     EdgeSiteMember::ROLE_DEPLOYER => __('Deployer'),

@@ -60,9 +60,11 @@ Timestamps are ISO 8601 in UTC. Passwords, secret values, and key material are n
 
 ## App audit log
 
-Open an app and choose **Audit log** in the app sidebar (under **Manage**). It shows the last 100 events for that app, newest first, with who made each change and a summary of the recorded values. Anyone who can see the app can see its audit log.
+Open an app and choose **Audit log** in the app sidebar (under **Manage**). It opens with a summary of recent activity, such as how many changes were made in the last 7 days, by whom, and what the most recent one was. Below that, the last 100 events for that app are grouped by day (**Today**, **Yesterday**, then the date, in your organization's time zone), newest first, each as one sentence worded the same way as on the organization's **Activity** page. Anyone who can see the app can see its audit log, and it is read-only.
 
-To download the app's full retained history, choose **CSV** or **JSON**. Downloads are available on Team and Enterprise.
+Choose an event to see its details: the raw action code, who made the change (name and email), when (full date, relative time, and ISO 8601 timestamp), the IP address, a **What changed** table of before and after values, and the full recorded before and after values.
+
+To download the app's full retained history, choose **Download CSV** or **Download JSON** at the bottom of the list. Downloads are available on Team and Enterprise.
 
 Deploy history is not part of the audit log. See [Deployments](/docs/deployments).
 

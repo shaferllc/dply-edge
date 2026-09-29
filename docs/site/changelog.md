@@ -5,6 +5,99 @@ description: "Notable changes to dply, newest first."
 
 What changed in dply, newest first. Each entry links to the page that covers the feature in full.
 
+## 2026-09-28
+
+### App pages that read like a sentence
+
+An app's **Billing & usage**, **Audit log**, **Alerts**, **Tags**, **Forms** and **Error pages** now open with one sentence that says where things stand, for example what the app has used against your plan's credit, or which events reach someone. Each item is a row you click to edit in a dialog, and the page-wide Save buttons are gone. **Snippets** shows where each snippet lands in your page's head or body. Breadcrumbs now sit above the whole workspace. See [Activity log](/docs/activity-log), [Alerts](/docs/alerts), [Forms](/docs/forms) and [Snippets](/docs/snippets).
+
+### Members shows everyone's access
+
+An app's **Members** page now lists everyone in the organization and what they can do on that app, including why ("Org owner", "Deployer on this app"). Click a member or deployer to give them an app role, change it, or return them to their organization role. See [App members](/docs/app-members).
+
+### Traffic in a sentence
+
+**Traffic & analytics** now opens with one sentence about the last seven days: requests, bandwidth, average response time, and today's failures. Rows open dialogs for the daily charts, today's response codes and top paths, response time, page speed in browsers, and live requests. See [Traffic & analytics](/docs/traffic).
+
+### Cache in a sentence
+
+**Cache** now says what the edge keeps and for how long, and how many copies are stored. Click a setting to change it in a dialog; stored copies, purging, and clearing each open from their own row. The page also says when the edge cache hasn't been turned on yet. See [Caching](/docs/caching).
+
+### Let dply run your DNS
+
+**Routing** → **Domains** now starts with **Use your own domain**, which tells you where the domain's DNS is hosted today and offers two ways to connect it. **Let dply run DNS** asks you to change two nameservers once. dply keeps your existing records, and every hostname under the domain goes live with nothing to copy. You can still point a domain yourself with a CNAME. Each address is a row that opens its records and actions in a dialog. See [Domains](/docs/domains#let-dply-run-dns).
+
+### Routing rules in plain words
+
+The **Redirects**, **Rewrites** and **Headers** tabs now sum up their rules in a sentence and list each rule as a row, such as "/old-page moves permanently to /new-page". Click a rule to edit it in place. Bulk import and templates open from their own rows. See [Routing](/docs/routing).
+
+### Logs in a sentence
+
+**Build & deploy logs** now says how your last deploy went, and whether the one before it failed. Each deploy opens its build log in a dialog with find, jump to error and download. Container apps also see what the app printed in the last 15 minutes, with errors counted up front. See [Logs](/docs/logs).
+
+### Deploy triggers in a sentence
+
+**Deploy triggers** now says what starts a deploy, such as pushing to your production branch, pull request previews and deploy hooks, and warns when pushes don't deploy. GitHub, each hook and the manual webhook open in dialogs. A new hook's URL appears once in its dialog with a `curl` command to try it. See [Deploy triggers & hooks](/docs/deploy-triggers).
+
+### Container settings moved to Overview
+
+The separate **Container** page is gone. Its settings were already on the **App** card on **Overview**. The ones that weren't, **Always awake** (min instances), **Scaling windows**, **Worker mode** and **Keep the jobs instance awake**, are now in the card's **Sleep, scaling, region** sheet. The app's output moved to **Build & deploy logs**, and old links to the Container page open **Overview**. See [Scaling & sleep](/docs/scaling-and-sleep).
+
+### Previews in a sentence
+
+**Previews** now says which changes get a preview, how many are live, which one is taking production traffic, and who can open them. Click a preview for its URL, a replay check, one-click traffic shares, **Promote to production** and **Tear down**. Previewing a commit, the auto-deploy rules, protection and review notes each open their own dialog. See [Preview deployments](/docs/preview-deployments).
+
+### Environment in a sentence
+
+**Environment** now says how many variables your app gets on its next deploy and where they come from: the ones you set, org secrets, resources and `dply.yaml`. It names any secret `dply.yaml` declares without a value. Each source is a row. Your own variables open in a `.env` editor with **Save** and **Save and redeploy**, and a missing secret opens it with a line ready to fill in. See [Environment variables](/docs/environment-variables).
+
+### Build in a sentence
+
+**Build** now says what happens on a push, which command runs, what gets published and how many releases are kept. Each setting is a row that opens its own dialog, and settings `dply.yaml` overrides are marked with the file name. The **Advanced** panel is gone. See [Builds](/docs/builds).
+
+### Deploys in a sentence
+
+**Deploys** now says what's live and for how long, whether a later deploy failed, and how many earlier builds you can roll back to. The history reads as rows. Click one for its URL, failure reason and build log, plus **Roll back to this** or **Rebuild from this commit**. Deploying a specific commit, branch or tag opens its own dialog. See [Deployments](/docs/deployments).
+
+### Fixes
+
+- **Open full guide** and other docs buttons were dark text on a dark button in dark mode. They're readable again.
+- Sidebar groups such as **Traffic** and **Protect** could stay closed after you moved between sections. They now open every time.
+- **Live requests** on **Traffic & analytics** could stay empty with console errors when the tab loaded. It now connects every time.
+- The country search on **Firewall** listed its results under the dialog's edge, so some were hidden. The list now opens inside the dialog.
+
+### Security at a glance
+
+An app's **Security** page now sums up its protection in a sentence: HTTPS, which protections are on and off, and how many requests were stopped in the last 7 days. Each row opens the page that controls it, and the stopped requests open in a dialog.
+
+### Firewall rule in one sentence
+
+**Firewall** now says who can reach your site, such as "Only visitors from Canada and United States can reach this site." Click the rule to change it; a country rule now needs at least one country. See [Firewall](/docs/firewall).
+
+### Bot protection shows what relies on it
+
+**Bot protection** now says where visitors are checked and lists the forms and rate limits that rely on it. Ticking **Bot protection is on** generates keys for the app when it has none. See [Bot protection](/docs/bot-protection).
+
+### Rate limits as sentences
+
+**Rate limits** now reads each rule as a sentence ("On /api/*, one visitor gets 60 requests a minute, then block"). Add a rule from a Login, API, Forms or Whole site starter, and the dialog tells you what the limit means for one visitor. See [Rate limits](/docs/rate-limits).
+
+### Waiting room in plain words
+
+The **Waiting room** page now sums itself up in one sentence and lists each setting as a row you click to change. While you set the capacity or the rate, it estimates how long the last person in a rush would wait. See [Waiting room](/docs/waiting-room).
+
+### Error pages go live on save
+
+A new 404, 500 or maintenance page is served on the next request after you save, with no redeploy. The editor shows a live preview next to the HTML. See [Error pages](/docs/error-pages).
+
+### Jobs shows who runs each queue
+
+An app's **Jobs** tab now lists the queues it's attached to and says whether this app runs each one, only sends to it, or whether nothing runs it yet. Each queue has one consumer: the first production app attached to it. The tab also sums up the app's Laravel queue workers. See [Queue workers](/docs/queue-workers).
+
+### Crons for every app, and Run now
+
+Schedules read in plain English and show how many of the 5 per-app schedules are used; any past the fifth are marked as not running. Container apps can **Run now** to test a command in the live app, for Laravel, Rails and Node. Node apps handle `POST /_dply/schedule` themselves. See [Scheduled tasks](/docs/scheduled-tasks).
+
 ## 2026-09-27
 
 ### Three plans, unlimited sites, pay for what runs

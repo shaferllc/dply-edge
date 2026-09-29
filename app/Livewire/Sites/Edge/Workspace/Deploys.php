@@ -27,9 +27,30 @@ class Deploys extends Component
     use ManagesEdgeRedeploy;
     use MountsEdgeWorkspaceSection;
 
+    /** The deploy open in its dialog. */
+    public ?string $openDeployId = null;
+
     public function mount(Server $server, Site $site): void
     {
         $this->mountEdgeWorkspaceSection($server, $site);
+    }
+
+    public function openDeploy(string $deploymentId): void
+    {
+        $this->openDeployId = $deploymentId;
+        $this->dispatch('open-modal', 'deploy-detail');
+    }
+
+    /** Open "deploy a commit" with this deploy's commit filled in. */
+    public function rebuildFrom(string $deploymentId): void
+    {
+        $this->authorize('deploy', $this->site);
+        $commit = EdgeDeployment::query()->where('site_id', $this->site->id)->whereKey($deploymentId)->value('git_commit');
+        if (is_string($commit) && $commit !== '') {
+            $this->edge_deploy_commit_sha = $commit;
+        }
+        $this->dispatch('close-modal', 'deploy-detail');
+        $this->dispatch('open-modal', 'deploy-ref');
     }
 
     public function render(): View

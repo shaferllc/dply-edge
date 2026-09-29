@@ -8,8 +8,8 @@
             'docSlug' => 'alerts',
             'what' => __('Route Edge events to notification channels, and set RUM / error thresholds that publish edge.rum.breach when crossed.'),
             'steps' => [
-                __('Subscribe channels to Edge events (deploys, domains, usage, RUM), then Save subscriptions.'),
-                __('Optionally enable LCP / 5xx thresholds — checked hourly against the last 60 minutes.'),
+                __('Click a rule to choose which channels hear about it.'),
+                __('The real-user metric rule holds the LCP / 5xx thresholds — checked hourly against the last 60 minutes.'),
                 __('Wire channels before a launch so failures and breaches reach someone.'),
             ],
             'setupLinks' => [
@@ -25,154 +25,162 @@
         ])
     </section>
 
-    <section class="border-b border-brand-ink/10">
-        <div class="flex flex-col gap-4 border-b border-brand-ink/10 bg-brand-sand/20 px-5 py-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6 sm:px-6">
-            <div class="flex min-w-0 items-start gap-3">
-                <x-icon-badge>
-                    <x-heroicon-o-bell class="h-5 w-5" aria-hidden="true" />
-                </x-icon-badge>
-                <div class="min-w-0">
-                    <p class="text-xs font-semibold uppercase tracking-[0.16em] text-brand-sage">{{ __('Channels') }}</p>
-                    <h3 class="mt-0.5 text-base font-semibold text-brand-ink">{{ __('Where alerts go') }}</h3>
-                    <p class="mt-1 max-w-2xl text-sm leading-relaxed text-brand-moss">
-                        {{ __('Subscribe Slack, email, and other channels to Edge deploys, domains, usage, and RUM breaches — the same channel system as BYO sites.') }}
-                    </p>
-                </div>
-            </div>
-            <div class="flex flex-wrap gap-2">
-                {{-- The copy above already promised "create channels inline", and the
-                     modal was rendered at the foot of this page — but nothing ever
-                     opened it, so the only route to a new channel was leaving for
-                     Settings. Same trigger as every server notifications tab, which
-                     is what makes the one-click Slack / Discord / Telegram connect
-                     flows reachable from here too. --}}
-                <button
-                    type="button"
-                    wire:click="openCreateChannelModal"
-                    class="inline-flex items-center gap-1.5 rounded-lg border border-brand-ink/15 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink shadow-sm hover:bg-brand-sand/40"
-                >
-                    <x-heroicon-m-plus-circle class="h-4 w-4 shrink-0" />
-                    {{ __('Create a channel') }}
-                </button>
-                <a
-                    href="{{ route('profile.notification-channels') }}"
-                    wire:navigate
-                    class="inline-flex items-center gap-1.5 rounded-lg border border-brand-ink/15 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink shadow-sm hover:bg-brand-sand/40"
-                >
-                    <x-heroicon-o-bell class="h-4 w-4 shrink-0" />
-                    {{ __('My channels') }}
-                </a>
-                @if ($site->organization_id)
-                    <a
-                        href="{{ route('organizations.notification-channels', $site->organization_id) }}"
-                        wire:navigate
-                        class="inline-flex items-center gap-1.5 rounded-lg border border-brand-ink/15 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink shadow-sm hover:bg-brand-sand/40"
-                    >
-                        <x-heroicon-o-building-office-2 class="h-4 w-4 shrink-0" />
-                        {{ __('Organization channels') }}
-                    </a>
+    @php
+        $join = fn ($names) => collect($names)->count() > 2
+            ? collect($names)->take(2)->implode(', ').' +'.(collect($names)->count() - 2)
+            : collect($names)->implode(__(' and '));
+        $lastAlert = $recentAlerts->first();
+        $rule = $editingRule !== null ? ($rules[$editingRule] ?? null) : null;
+        $input = 'block w-24 rounded-md border border-brand-ink/15 bg-white px-2 py-1.5 font-mono text-xs text-brand-ink focus:border-brand-forest focus:ring-brand-forest disabled:opacity-50 dark:border-brand-mist/20 dark:bg-zinc-900';
+    @endphp
+
+    <section class="space-y-8 border-b border-brand-ink/10 px-5 py-8 sm:px-10 sm:py-10">
+        <div>
+            <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Alerts') }}</p>
+            <p class="mt-3 max-w-3xl text-2xl font-medium leading-snug tracking-tight text-brand-ink sm:text-3xl">
+                @if ($assignableNotificationChannels->isEmpty())
+                    {{ __('Nothing reaches anyone yet. Add a channel, then pick what it hears about.') }}
+                @elseif ($routedCount === 0)
+                    {{ __('No events are routed yet. Pick a rule below to send it to a channel.') }}
+                @else
+                    {{ __(':n of :total events reach someone, through', ['n' => $routedCount, 'total' => $eventCount]) }}
+                    <span class="text-brand-sage">{{ $join($routedChannels) }}</span>.
                 @endif
+                @if ($lastAlert)
+                    {{ __('The last alert was :ago.', ['ago' => $lastAlert->created_at->diffForHumans()]) }}
+                @endif
+            </p>
+        </div>
+
+        <div>
+            <div class="flex items-center justify-between gap-3 border-b border-brand-ink/10 pb-2">
+                <p class="text-sm font-semibold text-brand-ink">{{ __('When something happens') }}</p>
+                <span class="flex items-center gap-4">
+                    <a href="{{ route('profile.notification-channels') }}" wire:navigate class="text-xs text-brand-moss hover:text-brand-ink hover:underline">{{ __('Manage channels') }}</a>
+                    <button type="button" wire:click="openCreateChannelModal" class="inline-flex min-h-9 items-center gap-1 text-sm font-medium text-brand-sage hover:underline">
+                        <x-heroicon-m-plus class="h-4 w-4" aria-hidden="true" />{{ __('Add channel') }}
+                    </button>
+                </span>
             </div>
+            <ul>
+                @foreach ($rules as $key => $r)
+                    <li class="border-b border-brand-ink/10" wire:key="alert-rule-{{ $key }}">
+                        <button type="button" wire:click="editRule('{{ $key }}')" class="flex min-h-12 w-full items-center gap-3 py-3 text-left hover:bg-brand-sand/20">
+                            <span class="flex-1 text-sm text-brand-ink sm:text-base">{{ $r['sentence'] }}</span>
+                            @if ($r['to'] === [])
+                                <span class="text-sm text-amber-600 dark:text-amber-300">{{ __('Nobody') }}</span>
+                            @else
+                                <span class="text-right text-sm text-brand-moss">{{ $join($r['to']) }}</span>
+                            @endif
+                            <x-heroicon-m-chevron-right class="h-4 w-4 shrink-0 text-brand-mist" aria-hidden="true" />
+                        </button>
+                    </li>
+                @endforeach
+            </ul>
         </div>
 
-        <div class="space-y-3 px-5 py-5 sm:px-6">
-            @include('livewire.partials.notification-channel-matrix', [
-                'channels' => $assignableNotificationChannels,
-                'eventGroups' => $notificationEventGroups,
-                'selections' => $channelEventSelections,
-                'model' => 'channelEventSelections',
-                'showFilter' => false,
-            ])
-        </div>
-
-        <div class="flex justify-end border-t border-brand-ink/10 bg-brand-sand/25 px-5 py-3 sm:px-6">
-            <span wire:loading.inline-flex wire:target="saveEdgeAlertNotificationSubscriptions" class="mr-3 inline-flex items-center gap-1.5 text-xs text-brand-moss">
-                <x-spinner size="sm" variant="muted" />
-                {{ __('Saving…') }}
-            </span>
-            @can('update', $site)
-                <x-primary-button
-                    type="button"
-                    wire:click="saveEdgeAlertNotificationSubscriptions"
-                    wire:loading.attr="disabled"
-                    wire:target="saveEdgeAlertNotificationSubscriptions"
-                >
-                    <span wire:loading.remove wire:target="saveEdgeAlertNotificationSubscriptions">{{ __('Save subscriptions') }}</span>
-                    <span wire:loading wire:target="saveEdgeAlertNotificationSubscriptions">{{ __('Saving…') }}</span>
-                </x-primary-button>
-            @endcan
-        </div>
+        @if ($recentAlerts->isNotEmpty())
+            <div>
+                <p class="border-b border-brand-ink/10 pb-2 text-sm font-semibold text-brand-ink">{{ __('Recent alerts') }}</p>
+                <ul>
+                    @foreach ($recentAlerts as $alert)
+                        <li class="flex min-h-12 items-center gap-3 border-b border-brand-ink/10 py-2.5" wire:key="alert-recent-{{ $alert->id }}">
+                            <span class="flex-1 text-sm text-brand-ink">{{ $alert->title }}</span>
+                            <time datetime="{{ $alert->created_at->toIso8601String() }}" title="{{ $alert->created_at->toDayDateTimeString() }}" class="shrink-0 font-mono text-xs text-brand-mist">{{ $alert->created_at->format('M j') }}</time>
+                        </li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
     </section>
 
-    <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
-        <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Thresholds') }}</p>
-        <p class="mt-1 text-sm text-brand-moss">{{ __('Checked hourly against the last 60 minutes. Breaches notify via the channels above (6h cooldown per kind).') }}</p>
+    <x-modal name="edge-alert-rule" maxWidth="2xl" overlayClass="bg-brand-ink/40" focusable>
+        @if ($rule)
+            <div class="space-y-6 p-6 sm:p-7">
+                <div class="flex items-start justify-between gap-4">
+                    <h2 class="text-lg font-semibold leading-snug text-brand-ink">{{ $rule['sentence'] }}</h2>
+                    <button type="button" wire:click="cancelRule" class="dply-icon-btn h-9 w-9" aria-label="{{ __('Close') }}">
+                        <x-heroicon-o-x-mark class="h-5 w-5" aria-hidden="true" />
+                    </button>
+                </div>
 
-        <div class="mt-4 divide-y divide-brand-ink/8 rounded-lg border border-brand-ink/10">
-            <div class="grid grid-cols-1 gap-3 px-4 py-3 sm:grid-cols-[1fr_9rem] sm:items-center">
-                <label class="flex items-start gap-3">
-                    <input type="checkbox" wire:model.live="lcp_enabled" class="mt-1 h-4 w-4 rounded border-brand-ink/30 text-brand-forest focus:ring-brand-forest" />
-                    <span class="text-sm">
-                        <span class="font-semibold text-brand-ink">{{ __('LCP p75') }}</span>
-                        <span class="mt-0.5 block text-xs text-brand-mist">{{ __('Good: ≤2500ms') }}</span>
-                    </span>
-                </label>
                 <div>
-                    <label class="sr-only" for="lcp">{{ __('Threshold (ms)') }}</label>
-                    <div class="relative">
-                        <input id="lcp" type="number" min="100" max="60000" step="50" wire:model="lcp_threshold" wire:key="lcp-threshold-{{ $lcp_enabled ? 'on' : 'off' }}" @disabled(! $lcp_enabled) class="block w-full rounded-md border border-brand-ink/15 bg-white px-3 py-1.5 pr-10 font-mono text-xs text-brand-ink focus:border-brand-forest focus:ring-brand-forest disabled:bg-brand-sand/20 dark:border-brand-mist/20 dark:bg-zinc-900" />
-                        <span class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-2xs text-brand-mist">ms</span>
+                    <p class="text-2xs font-semibold uppercase tracking-[0.14em] text-brand-mist">{{ __('Send to') }}</p>
+                    @if ($assignableNotificationChannels->isEmpty())
+                        <p class="mt-2 rounded-lg border border-dashed border-brand-ink/15 px-3 py-3 text-sm text-brand-moss">
+                            {{ __('No channels yet.') }}
+                            <button type="button" x-on:click="$wire.cancelRule().then(() => $wire.openCreateChannelModal())" class="font-medium text-brand-sage hover:underline">{{ __('Add one') }}</button>
+                        </p>
+                    @else
+                        <div class="mt-2 overflow-x-auto rounded-lg border border-brand-ink/10">
+                            <table class="w-full text-sm">
+                                <thead>
+                                    <tr class="text-left text-xs text-brand-mist">
+                                        <th class="px-3 py-2 font-normal"><span class="sr-only">{{ __('Event') }}</span></th>
+                                        @foreach ($assignableNotificationChannels as $channel)
+                                            <th class="px-3 py-2 text-center font-normal">
+                                                <span class="block text-brand-ink">{{ $channel->label }}</span>
+                                                <span class="block">{{ \App\Models\NotificationChannel::labelForType($channel->type) }}</span>
+                                            </th>
+                                        @endforeach
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach ($rule['events'] as $eventKey => $eventLabel)
+                                        <tr class="border-t border-brand-ink/10">
+                                            <td class="px-3 py-2 text-brand-ink">{{ $eventLabel }}</td>
+                                            @foreach ($assignableNotificationChannels as $channel)
+                                                <td class="px-3 py-1 text-center">
+                                                    <label class="inline-flex h-11 w-11 cursor-pointer items-center justify-center">
+                                                        <span class="sr-only">{{ __(':event to :channel', ['event' => $eventLabel, 'channel' => $channel->label]) }}</span>
+                                                        <input type="checkbox" value="{{ $eventKey }}" wire:model="channelEventSelections.{{ $channel->id }}" class="h-4 w-4 rounded border-brand-ink/30 text-brand-forest focus:ring-brand-forest" />
+                                                    </label>
+                                                </td>
+                                            @endforeach
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                    @endif
+                </div>
+
+                @if ($editingRule === 'rum')
+                    <div>
+                        <p class="text-2xs font-semibold uppercase tracking-[0.14em] text-brand-mist">{{ __('Fire when, over the last hour') }}</p>
+                        <div class="mt-2 space-y-2">
+                            @foreach ([
+                                ['lcp_enabled', 'lcp_threshold', __('LCP p75 is above'), 'ms', 100, 60000, 50, __('Good: ≤2500ms')],
+                                ['err_rate_enabled', 'err_rate_threshold', __('5xx error rate is above'), '%', 0.1, 100, 0.1, __('Healthy: under 1%')],
+                                ['err_count_enabled', 'err_count_threshold', __('5xx responses are above'), '/h', 1, 1000000, 1, __('Absolute last-hour total')],
+                            ] as [$toggle, $field, $label, $unit, $min, $max, $step, $hint])
+                                <div>
+                                    <div class="flex items-center gap-3">
+                                        <label class="flex flex-1 cursor-pointer items-center gap-3 text-sm text-brand-ink">
+                                            <input type="checkbox" wire:model="{{ $toggle }}" class="h-4 w-4 rounded border-brand-ink/30 text-brand-forest focus:ring-brand-forest" />
+                                            <span>{{ $label }} <span class="block text-xs text-brand-mist">{{ $hint }}</span></span>
+                                        </label>
+                                        <label class="sr-only" for="alert-{{ $field }}">{{ $label }}</label>
+                                        <input id="alert-{{ $field }}" type="number" min="{{ $min }}" max="{{ $max }}" step="{{ $step }}" wire:model="{{ $field }}" x-bind:disabled="! $wire.{{ $toggle }}" class="{{ $input }}" />
+                                        <span class="w-6 text-xs text-brand-mist">{{ $unit }}</span>
+                                    </div>
+                                    @error($field) <p class="mt-1 text-right text-xs text-rose-600">{{ $message }}</p> @enderror
+                                </div>
+                            @endforeach
+                        </div>
+                        <p class="mt-3 text-xs text-brand-moss">{{ __('Checked hourly. At most one alert per kind every 6 hours.') }}</p>
                     </div>
-                    @error('lcp_threshold') <p class="mt-1 text-xs text-rose-600">{{ $message }}</p> @enderror
+                @endif
+
+                <div class="flex items-center justify-end gap-2">
+                    <button type="button" wire:click="cancelRule" class="rounded-lg border border-brand-ink/15 px-4 py-2 text-sm font-medium text-brand-ink hover:bg-brand-sand/40">{{ __('Cancel') }}</button>
+                    @can('update', $site)
+                        <x-primary-button type="button" wire:click="saveRule" wire:loading.attr="disabled" wire:target="saveRule">{{ __('Save') }}</x-primary-button>
+                    @endcan
                 </div>
             </div>
-
-            <div class="grid grid-cols-1 gap-3 px-4 py-3 sm:grid-cols-[1fr_9rem] sm:items-center">
-                <label class="flex items-start gap-3">
-                    <input type="checkbox" wire:model.live="err_rate_enabled" class="mt-1 h-4 w-4 rounded border-brand-ink/30 text-brand-forest focus:ring-brand-forest" />
-                    <span class="text-sm">
-                        <span class="font-semibold text-brand-ink">{{ __('5xx error rate') }}</span>
-                        <span class="mt-0.5 block text-xs text-brand-mist">{{ __('Healthy: under 1%') }}</span>
-                    </span>
-                </label>
-                <div>
-                    <label class="sr-only" for="errrate">{{ __('Threshold (%)') }}</label>
-                    <div class="relative">
-                        <input id="errrate" type="number" min="0.1" max="100" step="0.1" wire:model="err_rate_threshold" wire:key="err-rate-threshold-{{ $err_rate_enabled ? 'on' : 'off' }}" @disabled(! $err_rate_enabled) class="block w-full rounded-md border border-brand-ink/15 bg-white px-3 py-1.5 pr-8 font-mono text-xs text-brand-ink focus:border-brand-forest focus:ring-brand-forest disabled:bg-brand-sand/20 dark:border-brand-mist/20 dark:bg-zinc-900" />
-                        <span class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-2xs text-brand-mist">%</span>
-                    </div>
-                    @error('err_rate_threshold') <p class="mt-1 text-xs text-rose-600">{{ $message }}</p> @enderror
-                </div>
-            </div>
-
-            <div class="grid grid-cols-1 gap-3 px-4 py-3 sm:grid-cols-[1fr_9rem] sm:items-center">
-                <label class="flex items-start gap-3">
-                    <input type="checkbox" wire:model.live="err_count_enabled" class="mt-1 h-4 w-4 rounded border-brand-ink/30 text-brand-forest focus:ring-brand-forest" />
-                    <span class="text-sm">
-                        <span class="font-semibold text-brand-ink">{{ __('5xx count') }}</span>
-                        <span class="mt-0.5 block text-xs text-brand-mist">{{ __('Absolute last-hour total') }}</span>
-                    </span>
-                </label>
-                <div>
-                    <label class="sr-only" for="errcnt">{{ __('Threshold') }}</label>
-                    <input id="errcnt" type="number" min="1" max="1000000" step="1" wire:model="err_count_threshold" wire:key="err-count-threshold-{{ $err_count_enabled ? 'on' : 'off' }}" @disabled(! $err_count_enabled) class="block w-full rounded-md border border-brand-ink/15 bg-white px-3 py-1.5 font-mono text-xs text-brand-ink focus:border-brand-forest focus:ring-brand-forest disabled:bg-brand-sand/20 dark:border-brand-mist/20 dark:bg-zinc-900" />
-                    @error('err_count_threshold') <p class="mt-1 text-xs text-rose-600">{{ $message }}</p> @enderror
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <div class="flex items-center justify-end gap-3 border-b border-brand-ink/10 bg-brand-sand/25 px-5 py-3 sm:px-6">
-        <span wire:loading.inline-flex wire:target="save" class="inline-flex items-center gap-1.5 text-xs text-brand-moss">
-            <x-spinner size="sm" variant="muted" />
-            {{ __('Saving…') }}
-        </span>
-        @can('update', $site)
-            <button type="button" wire:click="save" wire:loading.attr="disabled" wire:target="save" class="rounded-lg bg-brand-ink px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-ink/90 disabled:cursor-wait disabled:opacity-60">
-                {{ __('Save thresholds') }}
-            </button>
-        @endcan
-    </div>
+        @endif
+    </x-modal>
 
     <details class="group" @if ($hasRepoAlerts) open @endif>
         <summary class="flex cursor-pointer list-none items-center justify-between gap-3 bg-brand-sand/10 px-5 py-3.5 text-sm font-semibold text-brand-ink hover:bg-brand-sand/20 sm:px-6 [&::-webkit-details-marker]:hidden">
@@ -214,7 +222,7 @@
                 <p class="text-sm text-brand-moss">{{ __('None declared in :file yet.', ['file' => $sourcePath]) }}</p>
             @endif
 
-            <x-edge-yaml-example :file="$sourcePath" :hint="__('Commit thresholds in the repo, or set them above in the dashboard.')">
+            <x-edge-yaml-example :file="$sourcePath" :hint="__('Commit thresholds in the repo, or set them on the real-user metric rule above.')">
 alerts:
   lcp_p75_ms:
     enabled: true

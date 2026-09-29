@@ -66,7 +66,7 @@ The **Usage** page, reached from **Projects** on your dashboard, shows requests,
 
 ### A single project
 
-Each project's observability section has **Billing & usage**, with the project's usage this month. Resource sheets for key-value and object storage have their own **Usage** tab.
+Each project's observability section has **Billing & usage**. It opens with what the project has used this billing period and whether your plan's included usage credit covers it, shows a bar of the whole workspace's usage against that credit, and lists one row per cost line. **Monthly quota** and **Daily activity** expand for the soft cap and daily charts. Resource sheets for key-value and object storage have their own **Usage** tab.
 
 ### The API
 

@@ -31,10 +31,22 @@ class Tags extends Component
     /** @var list<array{name: string, vendor: string, id: string, src: string, async: bool, purpose: string, path: string}> */
     public array $tools = [];
 
+    /** Index into $tools open in the edit modal, or null. */
+    public ?int $editingTool = null;
+
+    /** The modal is showing the catalog picker (Add a tool). */
+    public bool $pickingTool = false;
+
     public function mount(Server $server, Site $site): void
     {
         $this->mountEdgeWorkspaceSection($server, $site);
-        $cfg = is_array($site->edgeMeta()['tags'] ?? null) ? $site->edgeMeta()['tags'] : [];
+        $this->loadFromSite();
+    }
+
+    /** Saved config → component state; drops unsaved edits. */
+    private function loadFromSite(): void
+    {
+        $cfg = is_array($this->site->edgeMeta()['tags'] ?? null) ? $this->site->edgeMeta()['tags'] : [];
         $this->enabled = (bool) ($cfg['enabled'] ?? false);
         $this->consent_required = (bool) ($cfg['consent_required'] ?? false);
         $this->tools = array_values(array_filter(array_map(
@@ -43,9 +55,66 @@ class Tags extends Component
         )));
     }
 
+    public function openPicker(): void
+    {
+        $this->loadFromSite();
+        $this->resetErrorBag();
+        $this->editingTool = null;
+        $this->pickingTool = true;
+        $this->dispatch('open-modal', 'edge-tag-tool');
+    }
+
+    public function editTool(int $index): void
+    {
+        $this->loadFromSite();
+        abort_unless(isset($this->tools[$index]), 404);
+        $this->resetErrorBag();
+        $this->pickingTool = false;
+        $this->editingTool = $index;
+        $this->dispatch('open-modal', 'edge-tag-tool');
+    }
+
+    public function closeTool(): void
+    {
+        $this->loadFromSite();
+        $this->editingTool = null;
+        $this->pickingTool = false;
+        $this->dispatch('close-modal', 'edge-tag-tool');
+    }
+
+    /** Modal Save: persists every tool (the one being edited included) and closes. */
+    public function saveTool(): void
+    {
+        if ($this->save()) {
+            $this->editingTool = null;
+            $this->dispatch('close-modal', 'edge-tag-tool');
+        }
+    }
+
+    public function removeEditingTool(): void
+    {
+        if ($this->editingTool === null) {
+            return;
+        }
+        $this->removeTool($this->editingTool);
+        $this->saveTool();
+    }
+
+    public function updatedEnabled(): void
+    {
+        $this->save();
+    }
+
+    public function updatedConsentRequired(): void
+    {
+        $this->save();
+    }
+
     public function addTool(): void
     {
-        $this->tools[] = ['name' => 'tag', 'vendor' => 'custom', 'id' => '', 'src' => '', 'async' => true, 'purpose' => 'analytics', 'path' => '/*'];
+        $this->tools[] = ['name' => 'Custom script', 'vendor' => 'custom', 'id' => '', 'src' => '', 'async' => true, 'purpose' => 'analytics', 'path' => '/*'];
+        $this->pickingTool = false;
+        $this->editingTool = array_key_last($this->tools);
     }
 
     public function addVendor(string $vendor): void
@@ -57,6 +126,8 @@ class Tags extends Component
 
         $this->tools[] = ['name' => $def['name'], 'vendor' => $vendor, 'id' => '', 'src' => '', 'async' => true, 'purpose' => $def['purpose'], 'path' => '/*'];
         $this->enabled = true;
+        $this->pickingTool = false;
+        $this->editingTool = array_key_last($this->tools);
     }
 
     public function removeTool(int $index): void
@@ -65,13 +136,13 @@ class Tags extends Component
         $this->tools = array_values($this->tools);
     }
 
-    public function save(): void
+    public function save(): bool
     {
         $this->authorize('update', $this->site);
         if (! $this->isManagedEdgeDelivery()) {
             $this->toastError(__('Tags require Dply-hosted Edge delivery.'));
 
-            return;
+            return false;
         }
 
         $this->validate([
@@ -104,6 +175,8 @@ class Tags extends Component
         $this->site->save();
         $this->republishEdgeHostMap();
         $this->toastSuccess(__('Tags saved.'));
+
+        return true;
     }
 
     public function render(): View

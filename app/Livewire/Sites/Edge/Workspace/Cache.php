@@ -44,10 +44,27 @@ class Cache extends Component
 
     public string $listMessage = '';
 
+    /** False until options are saved once; SSR and container apps cache nothing before that. */
+    public bool $configured = false;
+
+    /** Which setting the edit dialog shows: mode, edge, browser, query. */
+    public string $editing = '';
+
+    public const EDGE_TTLS = [60 => '1 minute', 300 => '5 minutes', 3600 => '1 hour', 14400 => '4 hours', 86400 => '1 day', 604800 => '7 days', 2592000 => '30 days', 31536000 => '1 year'];
+
+    public const BROWSER_TTLS = [0 => 'Revalidate each visit', 300 => '5 minutes', 3600 => '1 hour', 86400 => '1 day', 604800 => '7 days', 2592000 => '30 days', 31536000 => '1 year'];
+
     public function mount(Server $server, Site $site): void
     {
         $this->mountEdgeWorkspaceSection($server, $site);
+        $this->loadFromSite();
+    }
+
+    private function loadFromSite(): void
+    {
+        $site = $this->site;
         $cfg = is_array($site->edgeMeta()['cache'] ?? null) ? $site->edgeMeta()['cache'] : [];
+        $this->configured = $cfg !== [];
         $mode = (string) ($cfg['mode'] ?? 'assets');
         $this->mode = in_array($mode, ['off', 'assets', 'standard', 'everything'], true) ? $mode : 'assets';
         $edge = (int) ($cfg['edge_ttl_seconds'] ?? 86400);
@@ -59,6 +76,21 @@ class Cache extends Component
             ? (string) $browser
             : '86400';
         $this->queryString = ($cfg['query_string'] ?? 'ignore') === 'include' ? 'include' : 'ignore';
+    }
+
+    public function editSetting(string $setting): void
+    {
+        $this->loadFromSite();
+        $this->resetErrorBag();
+        $this->editing = in_array($setting, ['mode', 'edge', 'browser', 'query'], true) ? $setting : 'mode';
+        $this->dispatch('open-modal', 'cache-setting');
+    }
+
+    public function closeSetting(): void
+    {
+        $this->loadFromSite();
+        $this->editing = '';
+        $this->dispatch('close-modal', 'cache-setting');
     }
 
     public function saveOptions(): void
@@ -80,7 +112,10 @@ class Cache extends Component
             ],
         ]);
         $this->site->save();
+        $this->configured = true;
         $this->republishEdgeHostMap();
+        $this->editing = '';
+        $this->dispatch('close-modal', 'cache-setting');
         $this->toastSuccess(__('Cache options saved.'));
     }
 

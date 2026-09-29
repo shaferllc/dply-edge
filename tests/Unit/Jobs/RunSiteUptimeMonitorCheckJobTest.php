@@ -105,3 +105,26 @@ test('an http check does not fall back to https', function () {
     Http::assertSent(fn ($request) => $request->url() === 'http://app.example.test');
     Http::assertNotSent(fn ($request) => $request->url() === 'https://app.example.test');
 });
+
+test('a sleeping container app is not woken by its uptime check; an awake one is checked', function () {
+    $site = Site::factory()->create([
+        'status' => Site::STATUS_EDGE_ACTIVE,
+        'edge_backend' => 'dply_edge',
+        'meta' => ['edge' => ['runtime_mode' => 'container', 'live_url' => 'https://app.example.test']],
+    ]);
+    $monitor = SiteUptimeMonitor::factory()->create(['site_id' => $site->id, 'path' => null, 'last_ok' => true]);
+    $run = fn () => (new RunSiteUptimeMonitorCheckJob($monitor->id))->handle(app(SiteUptimeCheckUrlResolver::class), app(NotificationPublisher::class));
+
+    $status = 'stopped';
+    Http::fake(fn ($request) => str_contains($request->url(), '/_dply/instances')
+        ? Http::response([['name' => 'instance-0', 'status' => $status]])
+        : Http::response('ok', 200));
+    $run();
+    Http::assertNotSent(fn ($r) => ! str_contains($r->url(), '/_dply/instances') && str_contains($r->url(), 'app.example.test'));
+    expect($monitor->fresh()->last_checked_at)->not->toBeNull();
+
+    \Illuminate\Support\Facades\Cache::flush();
+    $status = 'running';
+    $run();
+    Http::assertSent(fn ($r) => ! str_contains($r->url(), '/_dply/instances') && str_contains($r->url(), 'app.example.test'));
+});

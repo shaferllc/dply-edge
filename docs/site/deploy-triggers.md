@@ -5,6 +5,8 @@ description: "Start deploys automatically on Git push, from a CMS or CI pipeline
 
 Most deploys start without anyone opening the dashboard. dply can deploy when you push to your production branch, when an external system calls a deploy hook URL, or when your CI pipeline calls the CLI or API. You manage push-to-deploy and deploy hooks in your app under **Deploy triggers**.
 
+The page opens with one sentence saying what starts a deploy, for example "Pushing to main on acme/web deploys to production. Pull requests get a preview." It also says how many deploy hooks you have and when one last fired. Each trigger is a row below it; click a row to manage it in a dialog.
+
 Every trigger creates a normal deployment. It builds, appears in the history on **Deploys**, and counts toward your build minutes. See [Deployments](/docs/deployments).
 
 ## Push to deploy
@@ -20,21 +22,21 @@ Pushes to any other branch are ignored.
 
 If the webhook was not registered at create, or you disconnected it:
 
-1. In your app, open **Deploy triggers**.
-2. Under **GitHub**, pick an account in **Linked GitHub account**. It needs permission to manage webhooks on the repository. See [Source control](/docs/source-control).
-3. Choose **Enable**.
+1. In your app, open **Deploy triggers** and click the row under **GitHub**.
+2. In **Through this GitHub account**, pick an account. It needs permission to manage webhooks on the repository. See [Source control](/docs/source-control).
+3. Choose **Connect**.
 
-The status changes to **Auto-deploy connected**, and **Last event** shows when dply last received a webhook from GitHub.
+The row changes to "Pushes to … reach dply" and shows when GitHub last sent an event.
 
 Checking **Deploy on push** on **Build** and saving also connects the webhook, using the account the repository was picked from or your GitHub login.
 
-If dply cannot register the webhook, usually because the account lacks admin access to the repository, the error explains why. You can register it yourself instead: expand **Advanced**, copy the **Payload URL** and **Secret** under **Manual webhook**, and add a webhook in the repository's GitHub settings with content type `application/json` and the **Pushes** and **Pull requests** events.
+If dply cannot register the webhook, usually because the account lacks admin access to the repository, the error explains why. You can register it yourself instead: choose **Register the GitHub webhook yourself** under **More**, copy the **Payload URL** and **Secret**, and add a webhook in the repository's GitHub settings with content type `application/json` and the **Pushes** and **Pull requests** events.
 
 ### Turn it off
 
 On **Build**, uncheck **Deploy on push** and save. Pushes to the production branch stop deploying, while the webhook stays connected so pull requests still get previews.
 
-To stop previews as well, choose **Disable** under **Deploy triggers**. dply removes the webhook from GitHub. Choosing **Enable** again turns **Deploy on push** back on.
+To stop previews as well, open the GitHub row under **Deploy triggers** and choose **Disconnect**. dply removes the webhook from GitHub. Choosing **Connect** again turns **Deploy on push** back on.
 
 ### Monorepos
 
@@ -50,9 +52,9 @@ A deploy hook is a secret URL that deploys the latest commit on your production 
 
 ### Create a deploy hook
 
-1. In your app, open **Deploy triggers**.
-2. Under **Deploy hooks**, enter a **Name**, such as `Sanity publish`, and choose **Create**.
-3. Copy the URL and choose **Dismiss**.
+1. In your app, open **Deploy triggers** and choose **Create a deploy hook**.
+2. Enter a **Name**, such as `Sanity publish`, and choose **Create**.
+3. Copy the URL from the dialog, which also gives a `curl` command to try it, then choose **I’ve copied it**.
 
 > [!WARNING]
 > dply shows the URL once. Anyone with the URL can deploy your app, so store it as a secret in the system that calls it. If you lose it, revoke the hook and create a new one.
@@ -85,11 +87,11 @@ A successful call queues a deploy and responds with `202`:
 
 A deploy hook always deploys the latest commit on the production branch. It does not accept a commit or branch parameter. To deploy a specific commit from CI, use the API or CLI instead.
 
-The list under **Deploy hooks** shows when each hook was last used, or **never fired**.
+Each hook's row under **Deploy hooks** says when it last fired, or that it hasn't fired yet.
 
 ### Revoke a deploy hook
 
-Choose **Revoke** next to the hook and confirm. The URL returns `404` immediately.
+Click the hook's row, choose **Revoke** and confirm. The URL returns `404` immediately.
 
 Deploy hooks exist only on production apps, not on preview deployments.
 
@@ -110,7 +112,7 @@ Content-Type: application/json
 
 Both fields are optional:
 
-- With no body, dply deploys the latest commit on the production branch, the same as **Redeploy now**.
+- With no body, dply deploys the latest commit on the production branch, the same as redeploying from **Deploys**.
 - With `commit` (7 to 40 hexadecimal characters), dply deploys that commit. If that commit was already built and its files are still kept, dply switches production back to that build without rebuilding. `branch` records which branch the commit came from.
 
 The API responds `202` with the new deployment. See [HTTP API](/docs/api).

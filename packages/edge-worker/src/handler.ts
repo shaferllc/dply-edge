@@ -173,6 +173,11 @@ export interface HostMapEntry {
    */
   error_500_html?: string;
   /**
+   * Custom HTML body returned with status 403 when the geo firewall blocks
+   * the visitor's country. When unset, the Worker returns plain text.
+   */
+  error_403_html?: string;
+  /**
    * Custom HTML body returned with status 503 when `maintenance_mode` is
    * on. When unset, the Worker uses a built-in default.
    */
@@ -2375,19 +2380,20 @@ function checkGeoFirewall(request: Request, hostEntry: HostMapEntry): Response |
   const allowed = list.includes(country);
 
   if (mode === 'allow' && !allowed) {
-    return geoBlockedResponse(country);
+    return geoBlockedResponse(country, hostEntry);
   }
   if (mode === 'block' && allowed) {
-    return geoBlockedResponse(country);
+    return geoBlockedResponse(country, hostEntry);
   }
   return null;
 }
 
-function geoBlockedResponse(country: string): Response {
-  return new Response(`Forbidden — content is not available in this region (${country || 'unknown'}).`, {
+function geoBlockedResponse(country: string, hostEntry: HostMapEntry): Response {
+  const custom = (hostEntry.error_403_html ?? '').trim();
+  return new Response(custom || `Forbidden — content is not available in this region (${country || 'unknown'}).`, {
     status: 403,
     headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
+      'Content-Type': custom ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8',
       'Cache-Control': 'no-store, max-age=0',
       ...SECURITY_HEADERS,
     },

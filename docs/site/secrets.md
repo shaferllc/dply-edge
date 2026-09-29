@@ -9,7 +9,7 @@ Values are write-only: after you save a secret, nobody can read it back in the d
 
 ## How secrets reach your app
 
-A linked secret is added to your app's environment on each deploy, exactly like a variable from the **Environment** field. It reaches the build and, for server-rendered and container apps, the runtime. See [Environment variables](/docs/environment-variables) for where variables are available.
+A linked secret is added to your app's environment on each deploy, exactly like a variable you set on the **Environment** page. It reaches the build and, for server-rendered and container apps, the runtime. See [Environment variables](/docs/environment-variables) for where variables are available.
 
 The order is:
 
@@ -19,7 +19,7 @@ The order is:
 Resource variables, such as a database or Realtime, are covered in [Environment variables](/docs/environment-variables).
 
 > [!IMPORTANT]
-> Creating, rotating, linking, unlinking, and deleting secrets all take effect on the next deploy. Open **Deploys** and choose **Redeploy now** to apply a change right away.
+> Creating, rotating, linking, unlinking, and deleting secrets all take effect on the next deploy. Open **Deploys** and choose **Redeploy the latest** to apply a change right away.
 
 ## Create a secret
 
@@ -50,7 +50,7 @@ Anyone who can update an app can link secrets to it.
 
 Linked secrets appear in the panel with their values masked. A badge on a secret shows when:
 
-- The app's **Environment** field also sets the same key. The value in the field is used.
+- The app's own variables on **Environment** also set the same key. That value is used.
 - A connected resource already provides that key.
 
 > [!NOTE]

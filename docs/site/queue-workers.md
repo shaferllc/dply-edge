@@ -102,13 +102,15 @@ In the **Queue workers** sheet:
 - **Pause** stops every worker, letting running jobs finish. Jobs wait on the queue until you **Resume**. Deploys and autoscaling leave paused workers stopped. Pausing also pauses a scheduler running in `worker-0`.
 - **Remove** takes the workers away on the next deploy.
 
+The app's **Jobs** section (under **Extend**) summarizes the workers next to the app's queues: processes and instances, the queues and connection they read, extra groups, whether the scheduler runs in a worker, and live **N of M running** with the failed-job count. Its controls link back to this sheet on **Overview**.
+
 ## Failed jobs
 
 Select **Failed jobs** in the sheet to read your app's own failed-job store: each job's class, queue, connection, when it failed, attempts, error and stack trace. **Retry** puts a job back on its queue; **Delete** removes it. **Retry all** and **Delete all** act on every failed job.
 
 ## Logs
 
-Select **Logs** in the sheet for the last hour of worker output, newest first: each job as it runs and finishes (`RUNNING`, `DONE`, `FAIL`), and each worker starting, restarting and stopping. Lines arrive about a minute after they happen. The **Container** section's **Logs** panel also has a **Queue workers** filter.
+Select **Logs** in the sheet for the last hour of worker output, newest first: each job as it runs and finishes (`RUNNING`, `DONE`, `FAIL`), and each worker starting, restarting and stopping. Lines arrive about a minute after they happen. **Build & deploy logs** → **What your app is printing** also filters by queue worker.
 
 ## Alerts
 

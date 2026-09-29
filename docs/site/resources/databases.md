@@ -73,7 +73,7 @@ Open the database card, then the **Connect** tab. It shows the **Host**, **Port*
 
 ### Laravel
 
-The next deploy sets `DB_CONNECTION`, the host, the password, and `DATABASE_URL`, so the stock `config/database.php` works unchanged. To run migrations on each start, open **Sleep, region, scheduler** on the app card and turn on **Run migrations when a container starts** (`migrate --force --isolated`).
+The next deploy sets `DB_CONNECTION`, the host, the password, and `DATABASE_URL`, so the stock `config/database.php` works unchanged. To run migrations on each start, open **Sleep, scaling, region** on the app card and turn on **Run migrations when a container starts** (`migrate --force --isolated`).
 
 ```php
 // config/database.php works as shipped. For Postgres, dply also sets:

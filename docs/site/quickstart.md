@@ -87,10 +87,11 @@ See [Resources overview](/docs/resources) for every resource type and how your c
 
 ## 8. Add a custom domain
 
-1. In your app, open **Routing**, then the **Domains** tab.
-2. Under **Custom domains**, enter the **Hostname**, for example `www.example.com`, and choose **Attach domain**.
-3. At your DNS provider, create the records dply shows: a CNAME pointing at the **CNAME target**, plus the ownership and verification TXT records when they're listed.
-4. Choose **Verify DNS**. dply issues a TLS certificate after DNS checks out. The domain shows **TLS active** when it's ready.
+1. In your app, open **Routing**, then the **Domains** tab, and choose **Use your own domain**.
+2. Enter the hostname, for example `www.example.com`, and pick how to connect it:
+   - **Let dply run DNS**: change the domain's nameservers to the two dply shows. Everything under the domain then works with no records to copy.
+   - **Point it at dply myself**: create the CNAME (and TXT record, when shown) at your DNS provider, then choose **Check DNS now**.
+3. dply issues a TLS certificate once DNS checks out. The row reads "is live over HTTPS" when it's ready.
 
 See [Domains](/docs/domains) and [Domain verification](/docs/domain-verification) for apex domains and troubleshooting.
 

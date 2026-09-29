@@ -50,7 +50,7 @@ test('the owner edits the env text, and saving re-renders the new keys', functio
     $page = Livewire::actingAs($user)->test(Environment::class, ['server' => $site->server, 'site' => $site])
         ->assertSet('edgeEnvText', "API_TOKEN=sekrit-value\nAPP_NAME=Waypost")
         ->assertSet('pending', false)
-        ->assertSeeHtml('title="Override — this secret wins over the same key in the site .env."');
+        ->assertSee('wins over the same key in this app’s variables', false);
 
     $page->set('edgeEnvText', "API_TOKEN=sekrit-value\nNEW_KEY=1")
         ->assertSet('pending', true)
@@ -59,7 +59,7 @@ test('the owner edits the env text, and saving re-renders the new keys', functio
         ->assertSet('edgeEnvText', "API_TOKEN=sekrit-value\nNEW_KEY=1")
         ->assertSet('pending', false)
         // APP_NAME left the site env, so the linked secret no longer overrides it.
-        ->assertDontSeeHtml('title="Override — this secret wins over the same key in the site .env."');
+        ->assertDontSee('wins over the same key in this app’s variables', false);
 
     expect($site->edgeEnvVars()->pluck('key')->all())->toBe(['API_TOKEN', 'NEW_KEY']);
 });
@@ -103,4 +103,16 @@ test('an action round-trip stays within its query budget', function () {
 
     // Was 17 before env rows were memoized and the closed modal stopped querying.
     expect($queries)->toBeLessThanOrEqual(12);
+});
+
+test('the page sums up the variables, and a missing key opens the editor with a line for it', function () {
+    [$site, $user] = envTabSite();
+
+    Livewire::actingAs($user)->test(Environment::class, ['server' => $site->server, 'site' => $site])
+        ->assertSee('Your app gets')
+        ->assertSee('2 you set')
+        ->assertSee('2 variables you set for this app')
+        ->call('openEnvForKey', 'stripe_secret')
+        ->assertSet('edgeEnvText', "API_TOKEN=sekrit-value\nAPP_NAME=Waypost\nSTRIPE_SECRET=")
+        ->assertDispatched('open-modal', 'env-edit');
 });

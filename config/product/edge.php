@@ -335,6 +335,24 @@ return [
     | this path. Requires Custom Hostnames entitlement + API token permission
     | "SSL and Certificates → Custom Hostnames → Edit" on the worker zone.
     */
+    /*
+     * dply-run DNS: a customer's domain becomes a zone in dply's Cloudflare
+     * account and they point its nameservers at us. `nameserver_set` is a
+     * Cloudflare account custom nameserver set (1-5) such as ns1/ns2.dply.io —
+     * a Business (via support) or Enterprise feature, created in the account
+     * with glue records first. Unset: Cloudflare's assigned pair is shown.
+     */
+    'dns' => [
+        // Off until the platform token has account-level Zone:Edit: turning
+        // it on creates real zones in dply's Cloudflare account.
+        'enabled' => filter_var(env('DPLY_EDGE_DNS_ENABLED', false), FILTER_VALIDATE_BOOLEAN),
+        'nameserver_set' => env('DPLY_EDGE_DNS_NS_SET') !== null ? (int) env('DPLY_EDGE_DNS_NS_SET') : null,
+        // Shown in fake mode, and as the expected names in the UI copy.
+        'fake_nameservers' => ['ns1.dply.io', 'ns2.dply.io'],
+        // A pending zone proves nothing; drop ones never switched over.
+        'pending_days' => (int) env('DPLY_EDGE_DNS_PENDING_DAYS', 14),
+    ],
+
     'custom_hostnames' => [
         'enabled' => filter_var(env('DPLY_EDGE_CUSTOM_HOSTNAMES', true), FILTER_VALIDATE_BOOLEAN),
         // DV method: http (default), txt, or email.

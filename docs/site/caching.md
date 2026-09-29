@@ -45,25 +45,27 @@ Cached responses carry `X-Dply-Edge-Cache: HIT` (or `STALE`) and an `Age` header
 
 ### Cache options
 
-Open **Cache** and set **Cache options**, then choose **Save**. Changes apply on the next request.
+The **Cache** page opens with a sentence that says what the edge keeps, for how long, how long browsers keep it, and how many copies are stored right now. Under **How it’s set**, each setting is a row. Click one to change it in a dialog, then choose **Save**. Changes apply on the next request.
 
-**What to store**:
+**What the edge keeps**:
 
 | Option | Behavior |
 |--------|----------|
 | **Off** | Nothing from SSR or container apps is stored. |
-| **Static assets** | Stores what your app marks cacheable, and also gives file-like paths without their own lifetime (such as `/logo.png` or `/app.js`) the TTLs below. |
-| **Honor response cache headers** | Stores only what your app marks cacheable with `Cache-Control`. |
-| **Public GET responses** | Stores what your app marks cacheable, and also gives every other `GET` 200 without its own lifetime, HTML included, the TTLs below. |
+| **Static assets** | Stores what your app marks cacheable, and also gives file-like paths without their own lifetime (such as `/logo.png` or `/app.js`) the lifetimes below. |
+| **Follow cache headers** | Stores only what your app marks cacheable with `Cache-Control`. |
+| **All public pages** | Stores what your app marks cacheable, and also gives every other `GET` 200 without its own lifetime, HTML included, the lifetimes below. |
+
+Pages that set a session cookie are never stored.
 
 > [!NOTE]
-> Until you save cache options for the first time, the edge cache is off for SSR and container apps, even though the page shows **Static assets** selected. Choose **Save** once to turn it on.
+> Until you save a cache setting for the first time, the edge cache is off for SSR and container apps. The page says so in amber. Open any row and choose **Save** once to turn it on.
 
-**Query string**: **Ignore** caches `/page?a=1` and `/page?a=2` as one entry. **Include in the cache key** caches them separately. Query parameters are sorted, so their order doesn't matter.
+**How long the edge keeps a copy**: used when your response doesn't set its own lifetime. Options run from 1 minute to 1 year. The edge cache keeps entries for at most 1 day, so longer values act as 1 day, and the page shows 1 day.
 
-**Edge TTL**: how long dply keeps a copy when your response doesn't set a lifetime. Options run from 1 minute to 1 year. The edge cache keeps entries for at most 1 day, so longer values act as 1 day.
+**How long browsers keep a copy**: the `max-age` sent to browsers for responses dply stores with the lifetime above. **Revalidate each visit** sends `max-age=0`. Browser copies can't be purged, so keep this short for anything that changes without a new file name.
 
-**Browser TTL**: the `max-age` sent to browsers for responses dply stores with the TTLs above. **Revalidate each visit** sends `max-age=0`.
+**Query strings**: **Ignore them** stores `/page?a=1` and `/page?a=2` as one copy. **Include them in the key** stores them separately. Query parameters are sorted, so their order doesn't matter.
 
 ### Setting cache lifetimes from your app
 
@@ -79,16 +81,15 @@ Cache-Control: public, s-maxage=300, stale-while-revalidate=60
 
 ### Hybrid origin routes
 
-For hybrid apps, responses from origin routes (for example `/api/*`) are stored whenever the origin marks them cacheable, whatever **What to store** is set to. See [Static & hybrid sites](/docs/static-and-hybrid).
+For hybrid apps, responses from origin routes (for example `/api/*`) are stored whenever the origin marks them cacheable, whatever **What the edge keeps** is set to. See [Static & hybrid sites](/docs/static-and-hybrid).
 
 ## Purge the edge cache
 
 On the **Cache** page you can drop stored copies so the next request fetches fresh from your app. Purging affects only the edge cache. It doesn't clear visitors' browser caches, and static files never need it.
 
-- **Stored copies** lists what's currently cached, with each entry's expiry. Choose **Purge** on a row to drop it.
-- **Purge a path** drops the stored copy for one URL path, such as `/pricing`. With **Include in the cache key** on, it drops only the copy with no query string.
-- **Purge a tag** drops the latest copy stored under a cache tag (see below).
-- **Clear all cache** drops every stored copy for the app.
+- **See the stored copies** opens what's currently cached, with each entry's expiry. Choose **Purge** on a row to drop it.
+- **Purge one path or a cache tag** opens a dialog. **One path** drops the stored copy for a URL path, such as `/pricing`; with query strings included in the key, it drops only the copy with no query string. **A cache tag** drops the latest copy stored under a tag (see below).
+- **Clear everything the edge stored** drops every stored copy for the app, after you confirm.
 
 Purges are recorded in the [activity log](/docs/activity-log).
 
@@ -116,7 +117,7 @@ Content-Type: application/json
 The API also accepts `{"paths": ["/pricing", "/about"]}` (up to 100 paths). See the [HTTP API](/docs/api).
 
 > [!NOTE]
-> A tag points at the most recently stored response with that tag. Purging a tag drops that response. Older responses with the same tag stay until their TTL expires. For a full reset, use **Clear all cache**.
+> A tag points at the most recently stored response with that tag. Purging a tag drops that response. Older responses with the same tag stay until their TTL expires. For a full reset, use **Clear everything the edge stored**.
 
 ## Related
 

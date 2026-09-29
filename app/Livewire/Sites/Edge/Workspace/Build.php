@@ -37,6 +37,42 @@ class Build extends Component
         $this->mountEdgeBuildSettings($site);
     }
 
+    /** The setting open in the dialog: push, command, output, root, spa, releases, footer. */
+    public string $editing = '';
+
+    public function openSetting(string $setting): void
+    {
+        $this->authorize('update', $this->site);
+        $this->closeSetting(false);
+        $this->editing = in_array($setting, ['push', 'command', 'output', 'root', 'spa', 'releases', 'footer'], true) ? $setting : 'command';
+        $this->dispatch('open-modal', 'build-setting');
+    }
+
+    /** Cancel: put the form back to what's saved. */
+    public function closeSetting(bool $dispatch = true): void
+    {
+        $this->resetErrorBag();
+        $this->mountEdgeBuildSettings($this->site->fresh());
+        $this->editing = '';
+        if ($dispatch) {
+            $this->dispatch('close-modal', 'build-setting');
+        }
+    }
+
+    public function saveSetting(): void
+    {
+        match ($this->editing) {
+            'releases' => $this->saveEdgeReleasesToKeep(),
+            'footer' => $this->saveEdgeDeployFooter(),
+            default => $this->saveEdgeBuildSettings(),
+        };
+        if ($this->getErrorBag()->isEmpty()) {
+            $this->site->refresh();
+            $this->editing = '';
+            $this->dispatch('close-modal', 'build-setting');
+        }
+    }
+
     public function render(): View
     {
         $viewData = array_merge(

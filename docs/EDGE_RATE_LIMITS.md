@@ -41,10 +41,10 @@ Edge serves a bot-check page on the **same URL**. Passing the check lets that re
 
 | Field | Purpose |
 |-------|---------|
-| **Path pattern** | e.g. `/*`, `/api/*`, `/login` |
-| **Max requests** | Cap per IP in the window |
-| **Window (seconds)** | How long the counter covers |
-| **When exceeded** | **Block (429)** or **Challenge** |
+| **On** (path) | e.g. `/*`, `/api/*`, `/login` — must start with `/` (or be `*`) |
+| **Allow** | Requests per IP in the window (1–10,000) |
+| **Requests every (seconds)** | How long the counter covers (1–3,600) |
+| **Then** | **Block (HTTP 429)** or **Ask to prove they're human** (bot challenge) |
 
 First matching path rule applies for that request.
 
@@ -52,10 +52,10 @@ Example: `60` requests / `60` seconds on `/api/*` ≈ one request per second ave
 
 ## How to set it up
 
-1. Open **Rate limits** and enable the feature.
-2. Add a rule: path, limit, window, action.
+1. Open **Rate limits** and choose **Add a rule** — start from a preset (Login `/login` 5/min challenge, API `/api/*` 60/min, Forms `/contact` 10/min, Whole site `/*` 600/min) or set path, allowance, window and action. The dialog reads the rule back ("about one request a second per visitor…").
+2. **Save** in the dialog; the first rule turns rate limits on. Rules show as sentences; click one to edit or remove it. **Rate limits are on** saves on click.
 3. Prefer specific paths (`/api/login`, form endpoints) over site-wide `/*` when possible — a tight `/*` limit also throttles CSS/JS for real browsers.
-4. **Save** — rules apply after delivery republishes (usually under a minute).
+4. Every change republishes delivery and applies on the next request.
 
 ## Tips
 

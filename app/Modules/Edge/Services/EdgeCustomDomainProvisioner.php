@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Edge\Services;
 
 use App\Models\EdgeDeployment;
+use App\Models\EdgeDnsZone;
 use App\Models\ProviderCredential;
 use App\Models\Site;
 use App\Modules\Edge\Http\Middleware\ResolveEdgeCustomDomain;
@@ -95,6 +96,15 @@ final class EdgeCustomDomainProvisioner
             ]);
         }
 
+        // dply runs DNS for this domain (an ACTIVE zone — a pending one proves
+        // nothing), so point the hostname ourselves: no records to copy.
+        // A preview holds a copy of its parent's domains and must never
+        // repoint them.
+        $managed = $site->isEdgePreview() ? null : app(EdgeDnsZones::class)->zoneFor((string) $site->organization_id, $hostname);
+        if ($managed !== null) {
+            return $this->provisionManaged($site, $hostname, $edgeHost, $managed);
+        }
+
         $credential = $this->findCloudflareCredentialForZone($site, $hostname);
         if ($credential === null) {
             $entry = $this->updateEntry($site, $hostname, [
@@ -177,6 +187,10 @@ final class EdgeCustomDomainProvisioner
         // A preview holds a copy of its parent's domains and never serves them.
         if ($hostname === '' || ! is_array($previous) || $site->isEdgePreview()) {
             return null;
+        }
+        // Its domain moved to dply DNS since it was attached: finish it here.
+        if (app(EdgeDnsZones::class)->zoneFor((string) $site->organization_id, $hostname) !== null) {
+            return $this->provision($site, $hostname);
         }
         $proof = $this->ensureVerificationToken($site, $hostname);
 
@@ -420,7 +434,59 @@ final class EdgeCustomDomainProvisioner
             if (($removed['mode'] ?? null) === 'auto') {
                 $this->removeAutoDnsRecord($site, $hostname, $removed);
             }
+
+            if (($removed['mode'] ?? null) === 'managed') {
+                try {
+                    $zone = app(EdgeDnsZones::class)->zoneFor((string) $site->organization_id, $hostname);
+                    if ($zone !== null) {
+                        app(EdgeDnsZones::class)->unpointHostname($zone, $hostname);
+                    }
+                } catch (Throwable $e) {
+                    Log::info('Edge dply-DNS record cleanup failed (non-fatal).', ['site_id' => $site->id, 'hostname' => $hostname, 'error' => $e->getMessage()]);
+                }
+            }
         }
+    }
+
+    /**
+     * A hostname under a zone dply runs: write the CNAME with the platform
+     * token and it's ready at once, like the org-Cloudflare auto path.
+     *
+     * @return array<string, mixed>
+     */
+    private function provisionManaged(Site $site, string $hostname, string $edgeHost, EdgeDnsZone $zone): array
+    {
+        try {
+            app(EdgeDnsZones::class)->pointHostname($zone, $hostname, $edgeHost);
+        } catch (Throwable $e) {
+            Log::warning('Edge dply-DNS provisioning failed.', ['site_id' => $site->id, 'hostname' => $hostname, 'error' => $e->getMessage()]);
+
+            return $this->updateEntry($site, $hostname, [
+                'mode' => 'managed',
+                'dns_status' => 'failed',
+                'cname_target' => $edgeHost,
+                'zone' => $zone->name,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        $entry = $this->updateEntry($site, $hostname, [
+            'mode' => 'managed',
+            'dns_status' => 'ready',
+            'cname_target' => $edgeHost,
+            'zone' => $zone->name,
+            'analytics_zone' => $zone->name,
+            'attached_at' => $site->edgeMeta()['routing']['custom_domains'][$hostname]['attached_at'] ?? now()->toIso8601String(),
+            'verified_at' => now()->toIso8601String(),
+            'error' => null,
+        ]);
+        $this->publishReadyHostname($site->fresh(), $hostname);
+
+        // ponytail: same path as a BYO Cloudflare zone (proxied CNAME + SaaS
+        // custom hostname). The zone sits in dply's own account; if Cloudflare
+        // won't pair a same-account custom hostname, route the zone to the
+        // edge worker instead. Unverified until it runs on a real zone.
+        return $this->ensureCustomHostname($site->fresh(), $hostname, $entry);
     }
 
     /**

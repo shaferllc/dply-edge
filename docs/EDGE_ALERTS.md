@@ -9,24 +9,26 @@ group: edge
 
 # Edge alerts
 
-**Alerts** has two parts:
+**Alerts** opens with a one-line summary ("N of 11 events reach someone, through <channels>. The last alert was <ago>.") and lists the site's events as rules, one sentence each. Each rule shows the channels it reaches, or **Nobody** (amber) when none do.
 
-1. **Channels** — subscribe Slack, email, and other notification channels to Edge events (`edge.deploy.*`, domains, usage, RUM breaches), same system as BYO site notifications.
-2. **Thresholds** — RUM / error caps checked hourly; breaches publish `edge.rum.breach`.
+## Rules and channels
 
-## Channel subscriptions
+| Rule | Events |
+|------|--------|
+| When a deploy fails, slows down or succeeds | Deploy succeeded / failed / got noticeably slower |
+| When a custom domain verifies or starts failing | Domain verified / verification failing |
+| When a real-user metric crosses a threshold | RUM breach (`edge.rum.breach`) |
+| When usage goes over budget | Guardrail trip |
+| When queue jobs fail or workers keep exiting | Queue jobs failing / workers keep exiting |
+| When a database fills up or nears its connection limit | Disk over 80% / near connection limit |
 
-Expand a channel, tick the Edge events it should receive, then **Save subscriptions**. Create channels inline or under **My channels** / **Organization channels**.
+Click a rule to open its dialog: a grid of the rule's events × your channels. Tick the boxes and **Save**; **Cancel** or ✕ discards the edits. **Add channel** creates one inline; **Manage channels** opens your profile's **Notification channels**. Same channel system as BYO site notifications.
 
-| Event | When |
-|-------|------|
-| Deploy succeeded / failed | Publish or build failure |
-| Deploy duration regressed | Build got noticeably slower |
-| Domain verified / failing | Custom hostname TLS |
-| Usage over budget | Guardrail trip |
-| RUM breach | Threshold crossed (see below) |
+**Recent alerts** shows the last 5 alerts sent in the past 30 days.
 
 ## Thresholds
+
+The real-user metric rule's dialog also holds the thresholds. Its one **Save** stores channels and thresholds together, and the rule's sentence is built from the enabled checks.
 
 | Metric | Typical start |
 |--------|----------------|
@@ -34,7 +36,7 @@ Expand a channel, tick the Edge events it should receive, then **Save subscripti
 | 5xx error rate | 5% |
 | 5xx count | 50 / hour |
 
-Checked against the last 60 minutes, with a cooldown per kind so you are not spammed. Thresholds can also live in `dply.yaml` under `alerts:`.
+Checked hourly against the last 60 minutes, at most one alert per kind every 6 hours. Thresholds can also live in `dply.yaml` under `alerts:`; the **Advanced** panel shows what the repo declares.
 
 ## Tips
 

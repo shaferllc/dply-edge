@@ -31,17 +31,11 @@ Builds that run past your plan's build timeout are stopped automatically.
 
 ## Deploy history
 
-**Deploys** lists the 20 most recent deployments:
+**Deploys** opens with a sentence such as "3f2a91c has been live for 2 hours. The deploy after it failed. 4 earlier builds are ready to roll back to." Below it, **History** lists the 20 most recent deployments as rows, such as "3f2a91c is live · Fix header spacing" or "8bd04e2 failed", with their status and when.
 
-| Column | Shows |
-|--------|-------|
-| **Deployment** | The deployment id, its alias URLs, and a **Production** badge on the one serving traffic |
-| **Status** | `building`, `publishing`, `live`, `failed`, or `superseded` (replaced by a newer deployment) |
-| **Branch** and **Commit** | What was built, with the commit message |
-| **Build** | How long the clone and build took, excluding queue time |
-| **Published** | When it went live, and **Pruned** if its files were removed by retention |
+Click a deployment to open it in a dialog: its commit, branch, author and build time, the failure reason if it failed, its alias URLs, and **Roll back to this** or **Rebuild from this commit** when they apply. **Details** and **Build log** open its full page.
 
-Choose a deployment to open its detail page, with three tabs:
+The full page has three tabs:
 
 - **Overview**: the full commit SHA and message.
 - **Aliases**: the deployment's permanent URLs.
@@ -60,7 +54,7 @@ Use them to compare versions side by side or to link to an exact build. An alias
 
 ## Redeploy
 
-In your app, open **Deploys** and choose **Redeploy now**. dply builds the latest commit on your production branch with your current settings and environment variables. Use it after changing settings that take effect on the next deploy.
+In your app, open **Deploys** and choose **Redeploy the latest** (your production branch). dply builds the latest commit on your production branch with your current settings and environment variables. Use it after changing settings that take effect on the next deploy.
 
 The first time, when an app has no deployments, the button reads **Trigger first deploy**.
 
@@ -68,7 +62,7 @@ From the CLI, run `dply deploy`.
 
 ### Changes that need a redeploy
 
-Many pages say **Redeploy to apply** after you save. Those settings are stored immediately but reach your running app only with the next build, so choose **Redeploy now** after saving:
+Many pages say **Redeploy to apply** after you save. Those settings are stored immediately but reach your running app only with the next build, so redeploy after saving:
 
 - Environment variables and linked secrets
 - Build settings: build command, output directory, repository root
@@ -80,15 +74,15 @@ Many pages say **Redeploy to apply** after you save. Those settings are stored i
 Other settings apply as soon as you save, without a redeploy: SPA fallback, preview protection, split traffic, the deploy footer, image optimization, hybrid origin, and dashboard settings for routing, caching, firewall, rate limits, bot protection, waiting room, error pages, forms, snippets, and tags.
 
 > [!IMPORTANT]
-> Rolling back, or using **Deploy ref** on a commit that is already in your history, reuses the earlier build. It does not pick up new environment variables or settings. Use **Redeploy now** to apply changes.
+> Rolling back, or deploying a specific commit that is already in your history, reuses the earlier build. It does not pick up new environment variables or settings. Redeploy to apply changes.
 
 ## Deploy a specific commit, branch, or tag
 
-1. In your app, open **Deploys**.
-2. Under **Deploy ref**, enter a commit SHA, or choose **Browse** to pick a branch tip, tag, or commit from your repository.
+1. In your app, open **Deploys** and choose **Deploy a specific commit, branch or tag**.
+2. Enter a commit SHA, or choose **Browse** to pick a branch tip, tag, or commit from your repository.
 3. Choose **Deploy**.
 
-The ref deploys to production. If you picked a branch, the deployment records that branch, but the app's production branch does not change: the next push or **Redeploy now** deploys the production branch again.
+The ref deploys to production. If you picked a branch, the deployment records that branch, but the app's production branch does not change: the next push or redeploy builds the production branch again.
 
 If that commit was already built and its files are still kept, dply switches production back to that build instead of rebuilding. If the commit is already live, you see `That commit is already live.`
 
@@ -100,8 +94,8 @@ From the CLI, run `dply edge deploy --commit <sha>`.
 
 To make an earlier deployment live again:
 
-1. In your app, open **Deploys**.
-2. On a `live` or `superseded` deployment, choose **Roll back**, then confirm.
+1. In your app, open **Deploys** and click an earlier deployment marked **Roll back**.
+2. Choose **Roll back to this**, then confirm.
 
 Rolling back re-points production at that deployment's files. It is immediate and does not rebuild, so the app runs with the environment variables and settings that deployment was built with. The rolled-back deployment becomes `live` and the one you left becomes `superseded`.
 
@@ -111,9 +105,9 @@ From the CLI, run `dply edge rollback <deployment-id>`.
 
 ### Retention
 
-Each app keeps the files of its most recent deployments so you can roll back to them. By default the last 10 are kept. To change it, open **Build**, expand **Advanced**, and set **Releases to keep** from 1 to 50.
+Each app keeps the files of its most recent deployments so you can roll back to them. By default the last 10 are kept. To change it, open **Build** and click the releases-kept row; choose from 1 to 50.
 
-Older deployments stay in the history marked **Pruned**, without files. Their **Roll back** button is replaced by **Rebuild**, which fills **Deploy ref** with that commit so you can build it again.
+Older deployments stay in the history marked **Files removed**. Their dialog offers **Rebuild from this commit** instead of rolling back, which opens **Deploy a specific commit** with that commit filled in.
 
 ## Skew protection
 

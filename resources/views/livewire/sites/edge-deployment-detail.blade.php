@@ -11,18 +11,18 @@
     class="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8"
     @if ($isInProgress) wire:poll.2s @endif
 >
+    <x-breadcrumb-trail :site="$site" :items="[
+        ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
+        ['label' => __('Projects'), 'href' => route('dashboard'), 'icon' => 'globe-alt'],
+        \App\Support\Sites\SiteWorkspaceBreadcrumbs::projectItem($site, route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'general'])),
+        ['label' => __('Deploys'), 'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'deploys']), 'icon' => 'code-bracket-square'],
+        ['label' => __('Deployment'), 'icon' => 'code-bracket-square'],
+    ]" class="mb-6" />
+
     <div class="lg:grid lg:grid-cols-12 lg:gap-10">
         @include('livewire.sites.settings.partials.sidebar')
 
         <div class="min-w-0 lg:col-span-9">
-            <x-breadcrumb-trail :site="$site" :items="[
-                ['label' => __('Dashboard'), 'href' => route('dashboard'), 'icon' => 'home'],
-                ['label' => __('Projects'), 'href' => route('dashboard'), 'icon' => 'globe-alt'],
-                \App\Support\Sites\SiteWorkspaceBreadcrumbs::projectItem($site, route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'general'])),
-                ['label' => __('Deploys'), 'href' => route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'deploys']), 'icon' => 'code-bracket-square'],
-                ['label' => __('Deployment'), 'icon' => 'code-bracket-square'],
-            ]" class="mb-6" />
-
             <section class="dply-card min-w-0 overflow-hidden p-0">
                 <x-workspace-panel-head
                     class="border-b border-brand-ink/10"

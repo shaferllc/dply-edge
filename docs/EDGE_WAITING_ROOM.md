@@ -29,9 +29,11 @@ The wait page is served by the Edge worker (not your build). Custom branding of 
 | Setting | Purpose |
 |---------|---------|
 | **Max active visitors** | How many admitted browsers can browse at once |
-| **New admits / minute** | How fast the queue drains into the site |
-| **Session (minutes)** | Cookie lifetime after admit; then they may re-queue |
+| **Let in per minute** | How fast the queue drains into the site |
+| **Session length** | Cookie lifetime after admit (minutes); then they may re-queue |
 | **Protected paths** | One pattern per line (e.g. `/`, `/checkout/*`). Empty defaults to `/*` (entire site). |
+
+The page opens with a summary sentence built from these settings. Each setting is a sentence row; clicking one opens a dialog with its own **Save** (the max and rate dialogs also estimate how long the last person in a rush of arrivals would wait: `(arrivals − max) ÷ rate`, assuming nobody leaves early). **Waiting room is on** is a checkbox that saves immediately. **See what visitors see when it's full** previews the line page.
 
 ## How to use it
 
@@ -39,7 +41,7 @@ No third-party account is required — configure everything in Dply (**Access �
 
 1. Before a launch, set a conservative **max active** and **admits / minute**.
 2. List **paths** that should use the room. Prefer `/checkout` or `/launch` over site-wide `/*` when you can; keep static marketing pages outside the list so people can read while others queue.
-3. Enable and **Save** before traffic spikes (delivery republishes in under a minute).
+3. Tick **Waiting room is on** before traffic spikes. Every change republishes delivery and is live on the next request.
 4. Raise the cap once the room drains cleanly; turn off when the event ends.
 
 ## Tips

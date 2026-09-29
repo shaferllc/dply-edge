@@ -377,6 +377,9 @@ class EdgeHostMapPublisher
         if (is_string($effErrors['html_500'])) {
             $payload['error_500_html'] = $effErrors['html_500'];
         }
+        if (is_string($effErrors['html_403'])) {
+            $payload['error_403_html'] = $effErrors['html_403'];
+        }
         if (is_string($effErrors['maintenance_html'])) {
             $payload['maintenance_html'] = $effErrors['maintenance_html'];
         }

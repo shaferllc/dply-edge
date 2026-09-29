@@ -11,7 +11,7 @@ group: edge
 
 **Firewall** (geo) allows or blocks visitors by country at the Edge — using the request’s country code — before your pages, forms, or origin see the traffic.
 
-Blocked visitors get a plain **HTTP 403** on the same URL (not a branded page yet).
+Blocked visitors get a plain **HTTP 403** on the same URL, or your custom blocked-country page from **Error pages**.
 
 Requires **Dply-hosted Edge delivery** for Worker enforcement.
 
@@ -19,13 +19,13 @@ Requires **Dply-hosted Edge delivery** for Worker enforcement.
 
 | Mode | Behavior |
 |------|----------|
-| **Off** | Allow all countries (default) |
-| **Allow listed only** | Hard allowlist — only listed countries enter; everyone else is 403’d |
-| **Block listed** | Deny listed countries; everyone else passes |
+| **Everyone** (`off`) | Allow all countries (default) |
+| **Only these countries** (`allow`) | Hard allowlist — only listed countries enter; everyone else is 403’d |
+| **Everyone except these countries** (`block`) | Deny listed countries; everyone else passes |
 
-**Block listed** is usually safer for a geo fence. **Allow listed only** can lock out most of the world if the list is incomplete.
+**Everyone except these** is usually safer for a geo fence. **Only these countries** can lock out most of the world if the list is incomplete.
 
-An empty country list does **not** enforce — add at least one ISO code when mode is Allow or Block.
+The rule dialog refuses to save `allow` or `block` with an empty country list.
 
 ## What blocked visitors see
 
@@ -38,9 +38,9 @@ Plain text from Edge (not your build). Custom branded block pages are not availa
 
 ## How to use it
 
-1. Open **Firewall** and choose a mode.
-2. Search and add ISO country codes (e.g. `US`, `DE`). Remove chips to drop a country.
-3. **Save** — rules apply after delivery republishes.
+1. Open **Firewall**. The page opens with a sentence describing the current rule, a clickable rule row, and a row saying whether dply.yaml also sets one.
+2. Click the rule, pick a mode, and search/add countries (e.g. `US`, `DE`); remove a chip to drop one.
+3. **Save** in the dialog — the rule applies on the next request. Cancel discards edits.
 
 ## Tips
 

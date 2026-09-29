@@ -50,7 +50,8 @@ for uploads.
 
 ## Queues
 
-Create a queue binding under **Jobs** (default `JOBS`), then install the driver:
+Create a queue in **Projects → Queues** and attach it on **Overview →
+Resources** (binding `JOBS` by default), then install the driver:
 
 | Stack | Install | Configure |
 |---|---|---|
@@ -62,15 +63,26 @@ consumes each batch and POSTs it to `/_dply/queue` in your app, so there is
 no worker process to run. Jobs that throw are retried. `DPLY_APP_URL` and
 `DPLY_QUEUE_TOKEN` are injected for you.
 
+A queue has one consumer: the earliest-created production app attached to it.
+Other attached apps only send. The **Jobs** section shows which.
+
+Laravel **queue workers** (`php artisan queue:work`) are separate: they read
+Redis (dply Valkey) or a shared Postgres/MySQL database and are managed on
+**Overview → Resources**.
+
 ## Scheduled tasks
 
 - **Laravel scheduler:** turn on *Run the Laravel scheduler every minute* under
   **Container**. A Cron Trigger calls `schedule:run` through `dply/laravel`.
-- **Anything else:** add a cron under **Crons**. The handler is an artisan
-  command (Laravel, e.g. `reports:send --daily`) or a rake task (Rails, e.g.
-  `reports:daily`).
+- **Anything else:** add a cron under **Crons**. The Cron Trigger POSTs the
+  command to `/_dply/schedule`: an artisan command (Laravel, e.g.
+  `reports:send --daily`), a rake task (Rails, e.g. `reports:daily`), or, for
+  Node, whatever your own `POST /_dply/schedule` route does with it (see
+  [Edge crons](EDGE_CRONS.md#node-handler)). **Run now** runs a listed command
+  in the live app and shows its output.
 
-Cloudflare allows 5 schedules per site.
+Cloudflare allows 5 schedules per Worker; extras are dropped at deploy. The
+Laravel scheduler takes one unless it runs inside a queue worker.
 
 ## Environment
 
@@ -92,9 +104,10 @@ you can change them:
 
 ## Logs
 
-The Container tab's **Logs** section shows the last 15 minutes of stdout/stderr
-from your app and its Worker, read from Cloudflare Workers Logs (enabled for
-every container deploy).
+The last 15 minutes of stdout/stderr from your app, its queue workers and its
+Worker, read from Cloudflare Workers Logs (enabled for every container deploy),
+are on **Build & deploy logs** → **What your app is printing**
+(`EdgeContainerDeployer::appLogLines`).
 
 ## Billing
 

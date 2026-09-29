@@ -15,16 +15,20 @@ group: edge
 
 | Control | Purpose |
 |---------|---------|
-| **Maintenance mode** | Visitors get 503 until you turn it off and Save |
+| **Maintenance mode** | Visitors get 503 until you turn it off (checkbox saves on click) |
 | **404 page** | HTML when a path isn’t found (blank = built-in default) |
 | **500 page** | HTML for unexpected errors (blank = built-in default) |
+| **Blocked-country page** | HTML for the 403 the Firewall returns to a blocked country (blank = plain text). Dashboard only — no dply.yaml key |
+| **Maintenance page** | HTML for the 503 (blank = built-in default) |
 
 ## How to use it
 
-1. Click an **Example** (Minimal / Friendly / Enterprise) to fill 404, 500, and maintenance — or apply a single page from **Per page**.
-2. Edit the HTML, or leave a field blank for the built-in default.
-3. Turn on **Maintenance mode** for a hard stop during incidents or cutovers.
-4. **Save** to republish delivery. Changes apply on the next request — no rebuild.
+Each page is a row labelled **Custom**, **From dply.yaml** or **Built-in**.
+
+1. Click a page. The modal has starter buttons (Minimal / Friendly / Enterprise) for that page, the HTML editor, and a live sandboxed preview (scripts don't run).
+2. Edit the HTML, or choose **Use the built-in page** to go back to the default.
+3. **Save** republishes delivery immediately — the new HTML is live on the next request, no rebuild or redeploy. **Cancel** discards unsaved edits.
+4. Turn on **Maintenance mode** for a hard stop during incidents or cutovers; it takes effect right away.
 
 ## `dply.yaml`
 

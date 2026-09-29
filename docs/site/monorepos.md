@@ -9,9 +9,9 @@ A monorepo holds several apps or packages in one Git repository. dply deploys on
 
 When you create an app, dply inspects the repository for workspace markers: `pnpm-workspace.yaml`, `turbo.json`, `nx.json`, or `lerna.json`. When it finds one, it lists the packages it detected. If there is exactly one, it fills in the repository root for you.
 
-To change it later, open **Build**, expand **Advanced**, and set **Repository root** to the package folder relative to the top of the repository, such as `apps/web`.
+To change it later, open **Build**, click the repository root row, and set it to the package folder relative to the top of the repository, such as `apps/web`.
 
-Choose **Save advanced**, then redeploy. The path cannot contain `..`, and leading or trailing slashes are removed. If the folder does not exist at the deployed commit, the build fails with `Repository root "apps/web" was not found in the checkout.`
+Choose **Save**, then redeploy. The path cannot contain `..`, and leading or trailing slashes are removed. If the folder does not exist at the deployed commit, the build fails with `Repository root "apps/web" was not found in the checkout.`
 
 ## How builds work in a monorepo
 
@@ -40,7 +40,7 @@ With push-to-deploy connected, a push to the production branch redeploys the app
 
 With no repository root set, every push to the production branch redeploys the app.
 
-Deploy hooks, **Redeploy now**, and the API always deploy, whatever files changed. See [Deploy triggers & hooks](/docs/deploy-triggers).
+Deploy hooks, redeploying from **Deploys**, and the API always deploy, whatever files changed. See [Deploy triggers & hooks](/docs/deploy-triggers).
 
 ## Turborepo and Nx
 

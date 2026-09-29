@@ -69,7 +69,7 @@ Next.js in Worker SSR mode always runs `npx --yes @opennextjs/cloudflare@latest 
 |---|---|
 | "Container sites need a Dockerfile, composer.json (PHP), Gemfile (Ruby) or package.json (Node) at the repository root." | Set **Repository root** under **Build** to the app's folder, or add a `Dockerfile`. |
 | "Container deploy failed: …" followed by image build errors | The image did not build. The lines shown are the errors from the image build; common ones are a PHP extension a package needs, or a gem that fails to compile. |
-| "Container deploy failed: the container did not start (… answered HTTP 5xx …). Check the container logs for why it exited." | The image built, but the app crashed on boot. Open **Container**, then **Logs**, then **Load last 15 minutes**. |
+| "Container deploy failed: the container did not start (… answered HTTP 5xx …). Check the container logs for why it exited." | The image built, but the app crashed on boot. Open **Build & deploy logs**, then **Everything it printed in the last 15 minutes**. |
 | "Container deploy failed: … answered HTTP 500: …" | The app started but its home page errors. The same logs show the exception; a missing environment variable or database is the usual cause. |
 | "Container deploy failed: … did not answer: …" | The app did not respond within 90 seconds. Check that your own `Dockerfile` listens on the port it `EXPOSE`s, and that boot work (such as migrations) finishes quickly. |
 

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Tests\Feature\EdgeContainerSettingsTest;
 
 use App\Enums\SiteType;
-use App\Livewire\Sites\Edge\Workspace\Container;
 use App\Livewire\Sites\Edge\Workspace\Resources;
 use App\Livewire\Sites\Edge\Workspace\Security;
 use App\Models\EdgeKvUsage;
@@ -44,28 +43,27 @@ function containerSite(string $runtime = 'container', bool $paid = false): array
     return [$user, $server, $site];
 }
 
-test('the container tab only appears for container sites', function () {
-    [, $server, $container] = containerSite();
-    [, $staticServer, $static] = containerSite('static');
+test('container settings live on Overview: no Container tab, and its old URL redirects there', function () {
+    [$user, $server, $container] = containerSite();
 
-    $ids = fn (Site $site, Server $server) => collect(SiteSettingsSidebar::items($site, $server))->pluck('id')->all();
+    expect(collect(SiteSettingsSidebar::items($container, $server))->pluck('id')->all())->not->toContain('container');
 
-    expect($ids($container, $server))->toContain('container')
-        ->and($ids($static, $staticServer))->not->toContain('container');
+    Livewire::actingAs($user)
+        ->test(\App\Livewire\Sites\EdgeSettings::class, ['server' => $server, 'site' => $container, 'section' => 'container'])
+        ->assertRedirect(route('sites.show', ['server' => $server, 'site' => $container, 'section' => 'general']));
 });
 
 test('saved settings reach the generated wrangler config and worker', function () {
     [$user, $server, $site] = containerSite(paid: true);
 
     Livewire::actingAs($user)
-        ->test(Container::class, ['server' => $server, 'site' => $site])
-        ->set('instance_type', 'standard-2')
-        ->set('max_instances', 8)
-        ->set('min_instances', 2)
-        ->set('sleep_after', '30m')
+        ->test(Resources::class, ['server' => $server, 'site' => $site])
+        ->call('selectSize', 'standard-2')
+        ->call('selectInstances', 8)
+        ->set('minInstances', 2)
+        ->set('sleepAfter', '30m')
         ->set('jurisdiction', 'eu')
         ->set('regions', ['WEUR', 'ENAM'])
-        ->call('save')
         ->assertHasNoErrors();
 
     $dir = sys_get_temp_dir().'/dply-container-settings-'.bin2hex(random_bytes(4));
@@ -107,11 +105,10 @@ test('a custom rollout is written into wrangler and the deploy flag', function (
     [$user, $server, $site] = containerSite();
 
     Livewire::actingAs($user)
-        ->test(Container::class, ['server' => $server, 'site' => $site])
-        ->set('rollout_mode', 'immediate')
-        ->set('rollout_steps', '10, 100')
-        ->set('rollout_active_grace_period', 300)
-        ->call('save')
+        ->test(Resources::class, ['server' => $server, 'site' => $site])
+        ->set('rolloutMode', 'immediate')
+        ->set('rolloutSteps', '10, 100')
+        ->set('rolloutGraceSeconds', 300)
         ->assertHasNoErrors();
 
     $fresh = $site->fresh();
@@ -207,18 +204,20 @@ test('static files in public are served automatically', function () {
         ->and($skippedPhp)->toBeFalse();
 });
 
-test('invalid sizes are rejected', function () {
+test('invalid sizes and instance counts are ignored', function () {
     [$user, $server, $site] = containerSite();
 
     Livewire::actingAs($user)
-        ->test(Container::class, ['server' => $server, 'site' => $site])
-        ->set('instance_type', 'huge')
-        ->set('max_instances', 99)
-        ->call('save')
-        ->assertHasErrors(['instance_type', 'max_instances']);
+        ->test(Resources::class, ['server' => $server, 'site' => $site])
+        ->call('selectSize', 'huge')
+        ->call('selectInstances', 99)
+        ->set('minInstances', 5)
+        ->assertHasErrors(['minInstances']);
+
+    expect(EdgeContainerSettings::for($site->fresh()))->toMatchArray(['instance_type' => 'basic', 'min_instances' => 0]);
 });
 
-test('logs load from workers observability for the container script', function () {
+test('the logs page loads the container app output from workers observability', function () {
     config(['edge.cloudflare.account_id' => 'acct', 'edge.cloudflare.api_token' => 'tok']);
     [$user, $server, $site] = containerSite();
     Http::fake(['api.cloudflare.com/client/v4/accounts/acct/containers/applications' => Http::response(['success' => true, 'result' => []]), 'api.cloudflare.com/client/v4/accounts/acct/workers/observability/telemetry/query' => Http::response(['success' => true, 'result' => ['events' => ['events' => [
@@ -228,13 +227,14 @@ test('logs load from workers observability for the container script', function (
     ]]]])]);
 
     $logs = Livewire::actingAs($user)
-        ->test(Container::class, ['server' => $server, 'site' => $site])
-        ->call('loadLogs')
-        ->assertSet('logsError', null)
+        ->test(\App\Livewire\Sites\Edge\Workspace\Logs::class, ['server' => $server, 'site' => $site])
+        ->call('loadAppLogs')
+        ->assertSet('appLogsError', null)
         ->assertSee('Laravel booted')
         ->assertSee('SQLSTATE connection refused')
         ->assertSee('Queue workers')
-        ->get('logs');
+        ->assertSee('1 error in the last 15 minutes', false)
+        ->get('appLogs');
 
     expect(array_column($logs, 'source', 'message'))->toBe([
         'Laravel booted' => 'routing',
@@ -743,15 +743,14 @@ test('scaling windows and an always-on jobs instance are saved and reach the wor
     [$user, $server, $site] = containerSite(paid: true);
 
     Livewire::actingAs($user)
-        ->test(Container::class, ['server' => $server, 'site' => $site])
-        ->set('max_instances', 2)
-        ->set('dedicated_jobs', true)
-        ->set('jobs_always_on', true)
+        ->test(Resources::class, ['server' => $server, 'site' => $site])
+        ->call('selectInstances', 2)
+        ->set('dedicatedJobs', true)
+        ->set('jobsAlwaysOn', true)
         ->call('addSchedule')
         ->set('schedules.0.timezone', 'America/Chicago')
         ->set('schedules.0.min', 3)
         ->set('schedules.0.max', 6)
-        ->call('save')
         ->assertHasNoErrors();
 
     $settings = EdgeContainerSettings::for($site->fresh());
@@ -773,12 +772,13 @@ test('a window that ends before it starts is rejected', function () {
     [$user, $server, $site] = containerSite();
 
     Livewire::actingAs($user)
-        ->test(Container::class, ['server' => $server, 'site' => $site])
+        ->test(Resources::class, ['server' => $server, 'site' => $site])
         ->call('addSchedule')
         ->set('schedules.0.start', '22:00')
         ->set('schedules.0.end', '06:00')
-        ->call('save')
         ->assertHasErrors(['schedules.0.end']);
+
+    expect(EdgeContainerSettings::for($site->fresh())['schedules'][0]['end'] ?? null)->toBe('17:00');
 });
 
 test('warm-containers knocks only on live sites that keep instances awake', function () {
@@ -820,14 +820,14 @@ test('an app that keeps its data with dply runs next to it unless it picks a reg
 test('worker mode is refused until a deploy finds octane on frankenphp, then reaches the container env', function () {
     [$user, $server, $site] = containerSite(paid: true);
 
-    Livewire::actingAs($user)->test(Container::class, ['server' => $server, 'site' => $site])
-        ->set('worker_mode', true)->call('save')->assertHasErrors('worker_mode');
+    Livewire::actingAs($user)->test(Resources::class, ['server' => $server, 'site' => $site])
+        ->set('workerMode', true)->assertHasErrors('workerMode');
     expect(EdgeContainerSettings::for($site->fresh())['worker_mode'])->toBeFalse();
 
     $site->mergeEdgeMeta(['worker_mode_supported' => true]);
     $site->save();
-    Livewire::actingAs($user)->test(Container::class, ['server' => $server, 'site' => $site])
-        ->set('worker_mode', true)->call('save')->assertHasNoErrors();
+    Livewire::actingAs($user)->test(Resources::class, ['server' => $server, 'site' => $site])
+        ->set('workerMode', true)->assertHasNoErrors();
 
     expect((new EdgeContainerDeployer)->secrets($site->fresh(), [], [], false)['DPLY_WORKER_MODE'])->toBe('1');
 });

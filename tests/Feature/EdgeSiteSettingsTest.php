@@ -39,7 +39,7 @@ test('edge site workspace route renders full app layout shell', function () {
     $this->actingAs($user)
         ->get(route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'deploys']))
         ->assertOk()
-        ->assertSee('Deploy history', false);
+        ->assertSee('Deploy a specific commit, branch or tag', false);
 });
 
 test('edge site settings sidebar shows edge sections not byo runtime', function () {
@@ -110,7 +110,8 @@ test('edge deploys section renders deploy history table', function () {
 
     Livewire::actingAs($user)
         ->test(Deploys::class, ['server' => $server, 'site' => $site])
-        ->assertSee('Deploy history')
+        ->assertSee('History')
+        ->assertSee('earlier build is ready to roll back to')
         ->assertSee('Roll back');
 });
 
@@ -203,10 +204,10 @@ test('edge traffic section shows request and bandwidth stats', function () {
     Livewire::actingAs($user)
         ->test(Traffic::class, ['server' => $server, 'site' => $site])
         ->call('loadTraffic')
-        ->assertSee('Requests MTD')
-        ->assertSee('Requests 7d')
-        ->assertSee('12,500')
-        ->assertSee('Performance')
+        ->assertSee('Your app answered')
+        ->assertSee('12,500 requests')
+        ->assertSee('Requests per day')
+        ->assertSee('Response time')
         ->assertSee('Core Web Vitals')
         ->assertSee('Live requests');
 });
@@ -221,6 +222,30 @@ test('edge logs section clarifies build logs vs visitor traffic', function () {
         ->assertSee('Recent deploys')
         ->assertSee('are under Traffic')
         ->assertDontSee('Streaming access logs in real time.');
+});
+
+test('edge logs page sums up the latest deploys and opens a failed build in its dialog', function () {
+    [$user, $server, $site] = makeEdgeSiteForSettings();
+
+    EdgeDeployment::query()->create([
+        'site_id' => $site->id,
+        'organization_id' => $site->organization_id,
+        'status' => EdgeDeployment::STATUS_FAILED,
+        'storage_prefix' => 'edge/test/failed',
+        'git_commit' => '8bd04e2aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        'failure_reason' => "npm run build exited with code 1\nerror TS2304",
+    ]);
+
+    $lw = Livewire::actingAs($user)
+        ->test(\App\Livewire\Sites\Edge\Workspace\Logs::class, ['server' => $server, 'site' => $site])
+        ->assertSee('8bd04e2 failed')
+        ->assertSee('npm run build exited with code 1');
+
+    $id = EdgeDeployment::query()->where('site_id', $site->id)->where('status', EdgeDeployment::STATUS_FAILED)->value('id');
+    $lw->call('openDeploy', $id)
+        ->assertSet('openDeployment', $id)
+        ->assertSee('Jump to error')
+        ->assertSee('No build log stored for this deploy.');
 });
 
 test('edge build settings can be updated on build settings section', function () {
@@ -620,4 +645,74 @@ test('overview observability cards skip the deployments context', function () {
         ->call('loadObservabilityCards');
 
     expect(collect(DB::getQueryLog())->filter(fn (array $q): bool => str_contains($q['query'], '"edge_deployments"."site_id"'))->count())->toBe(0);
+});
+
+test('edge cache page sums up the setup and edits one setting in a dialog', function () {
+    [$user, $server, $site] = makeEdgeSiteForSettings();
+
+    $purger = \Mockery::mock(EdgeCachePurger::class);
+    $purger->shouldReceive('listEntries')
+        ->andReturn(['ok' => true, 'entries' => [['path' => '/app.css', 'expires_at' => null], ['path' => '/app.js', 'expires_at' => null]], 'message' => '']);
+    app()->instance(EdgeCachePurger::class, $purger);
+
+    $lw = Livewire::actingAs($user)
+        ->test(Cache::class, ['server' => $server, 'site' => $site])
+        ->call('loadEntries')
+        ->assertSee('static assets (scripts, styles, images, fonts)')
+        ->assertSee('2 copies are')
+        ->call('editSetting', 'edge')
+        ->assertSet('editing', 'edge')
+        ->set('edgeTtl', '3600')
+        ->call('closeSetting')
+        ->assertSet('edgeTtl', '86400')
+        ->call('editSetting', 'edge')
+        ->set('edgeTtl', '3600')
+        ->call('saveOptions')
+        ->assertSet('editing', '')
+        ->assertSee('The edge keeps a copy for 1 hour');
+
+    expect($site->fresh()->edgeMeta()['cache']['edge_ttl_seconds'])->toBe(3600);
+});
+
+test('deploy triggers sum up in a sentence, and a new hook shows its URL once in a dialog', function () {
+    [$user, $server, $site] = makeEdgeSiteForSettings();
+
+    $lw = Livewire::actingAs($user)
+        ->test(\App\Livewire\Sites\Edge\Workspace\DeployTriggers::class, ['server' => $server, 'site' => $site])
+        ->assertSee('Pushes don’t deploy yet.', false)
+        ->assertSee('Create a deploy hook')
+        ->call('openNewHook')
+        ->set('edge_new_deploy_hook_name', 'Sanity publish')
+        ->call('mintEdgeDeployHook')
+        ->assertSee('Copy the URL now. It won’t be shown again.', false)
+        ->assertSee('curl -X POST')
+        ->call('dismissEdgeDeployHookUrl')
+        ->assertSee('1 deploy hook')
+        ->assertSee('“Sanity publish” hasn’t fired yet', false);
+
+    $hook = \App\Models\EdgeDeployHook::query()->where('site_id', $site->id)->firstOrFail();
+    $lw->call('openHook', (string) $hook->id)
+        ->call('revokeOpenHook')
+        ->assertDontSee('“Sanity publish” hasn’t fired yet', false);
+    expect(\App\Models\EdgeDeployHook::query()->where('site_id', $site->id)->exists())->toBeFalse();
+});
+
+test('build page reads as a sentence, and a setting saves from its dialog', function () {
+    [$user, $server, $site] = makeEdgeSiteForSettings();
+
+    Livewire::actingAs($user)
+        ->test(Build::class, ['server' => $server, 'site' => $site])
+        ->assertSee('and publishes')
+        ->assertSee('How it builds')
+        ->call('openSetting', 'command')
+        ->assertSet('editing', 'command')
+        ->set('buildForm.edge_build_command', 'pnpm build')
+        ->call('closeSetting')
+        ->assertSet('buildForm.edge_build_command', $site->fresh()->edgeMeta()['build']['command'] ?? 'npm ci && npm run build')
+        ->call('openSetting', 'command')
+        ->set('buildForm.edge_build_command', 'pnpm build')
+        ->call('saveSetting')
+        ->assertHasNoErrors()
+        ->assertSet('editing', '')
+        ->assertSee('The build runs pnpm build');
 });

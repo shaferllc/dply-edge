@@ -9,26 +9,21 @@ Container apps build differently: dply builds a Docker image from your repositor
 
 ## Build settings
 
-In your app, open **Build**. The top of the page shows the connected repository and branch, then the two settings most apps need:
+In your app, open **Build**. The page opens with one sentence, such as "Every push to main on acme/web runs `npm ci && npm run build` and publishes `dist/`. The last 10 releases are kept for rollback." Below it, under **How it builds**, each setting is a row; click one to change it in a dialog and choose **Save**.
 
-| Setting | What it does | Default |
-|---------|--------------|---------|
+| Row | What it does | Default |
+|-----|--------------|---------|
+| **Deploy on push** | Whether a push to the production branch starts a deploy. See [Deploy triggers & hooks](/docs/deploy-triggers). | On |
 | **Build command** | The shell command that produces your site. Required, up to 500 characters. | `npm ci && npm run build` |
-| **Output directory** | The folder, relative to the repository root, that dply uploads after the build. Required. | `dist` |
-| **Deploy on push** | Shown next to the production branch. See [Deploy triggers & hooks](/docs/deploy-triggers). | On |
+| **Output folder** | The folder, relative to the build folder, that dply uploads after the build. Required. | `dist` |
+| **Repository root** | A subdirectory to build from, such as `apps/web`. See [Monorepos](/docs/monorepos). | The whole repository |
+| **Unknown paths** | Serve `index.html` for unknown paths so client-side routers work, or return 404. Not shown for server-rendered or container apps. A change updates the live deployment immediately. | Serve `index.html` |
+| **Releases to keep** | How many past deployments keep their files for rollback, from 1 to 50. Older deployments stay in the history but lose their files. | 10 |
+| **Deploy id in the footer** | Prints the live deployment id at the bottom of HTML pages. | Off |
 
-Choose **Save**. Settings apply to the next deploy, so redeploy afterwards: open **Deploys** and choose **Redeploy now**.
+Other settings apply to the next deploy, so redeploy afterwards: open **Deploys** and choose **Redeploy the latest**. The repository and branch are shown at the top of the list and can't be changed here.
 
-Open **Advanced** for the rest:
-
-| Setting | What it does |
-|---------|--------------|
-| **Repository root** | A subdirectory to build from, such as `apps/web`. See [Monorepos](/docs/monorepos). |
-| **SPA fallback** | Serves `index.html` for unknown paths so client-side routers work. Not shown for server-rendered or container apps. Saving a change to this setting updates the live deployment immediately. |
-| **Show deploy id in the site footer** | Prints the live deployment id at the bottom of HTML pages. |
-| **Releases to keep** | How many past deployments keep their files for rollback, from 1 to 50. The default is 10. Older deployments stay in the history but lose their files. |
-
-A `dply.yaml` file in your repository can override the build command, output directory, and build root on every deploy. When it does, the **Advanced** panel shows **Managed by dply.yaml** and any parse warnings. See [Configuration files](/docs/configuration-files).
+A `dply.yaml` file in your repository can override the build command, output directory, and build root on every deploy. When it does, the row shows the file name in amber, the setting's dialog says what the file sets, and a row for the file lists its build keys and any warnings. See [Configuration files](/docs/configuration-files).
 
 > [!NOTE]
 > The repository and production branch are fixed when you create the app. To build from a different repository or branch, create a new app.
@@ -162,11 +157,11 @@ For more on how dply separates customers, see [Platform security & isolation](/d
 
 | Log message | What to check |
 |-------------|---------------|
-| `Build output directory not found: dist` | The **Output directory** does not match what your framework writes, or the build script did not run. |
-| `Build output is missing index.html at the root of: dist` | Point **Output directory** at the folder that contains `index.html`, or use server rendering for apps without one. |
+| `Build output directory not found: dist` | The **Output folder** does not match what your framework writes, or the build script did not run. |
+| `Build output is missing index.html at the root of: dist` | Point the **Output folder** at the folder that contains `index.html`, or use server rendering for apps without one. |
 | `Build artifacts exceed maximum allowed size.` | The output is over 500 MB. Move large media to [object storage](/docs/resources/object-storage). |
 | `dply config lint failed: …` | Fix the listed errors in `dply.yaml`. See [Configuration files](/docs/configuration-files). |
-| `Repository root "apps/web" was not found in the checkout.` | Correct **Repository root** under **Advanced**. |
+| `Repository root "apps/web" was not found in the checkout.` | Correct the **Repository root** row on **Build**. |
 
 For more, see [Troubleshooting builds](/docs/guides/troubleshooting-builds).
 

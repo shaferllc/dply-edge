@@ -13,28 +13,47 @@ The hostname appears once the first deploy succeeds. Until then, **Routing** sho
 
 ## Custom domains
 
-Custom domains are managed per app. Open your app, choose **Routing**, then the **Domains** tab.
+Custom domains are managed per app. Open your app and choose **Routing**. The **Domains** tab opens with a sentence saying where visitors reach the app, then lists each address as a row, such as "www.example.com is live over HTTPS". Click a row to see its DNS records, check DNS, make it the primary address, or remove it.
 
 > [!IMPORTANT]
 > Deploy the app at least once before you attach a domain. Without a live deploy, the domain is saved but shows an error until the first deploy finishes.
 
 ### Add a custom domain
 
-1. In **Routing**, open **Domains**.
-2. Under **Custom domains**, enter the hostname (for example, `www.example.com`) in **Hostname** and choose **Attach domain**.
-3. The domain appears with a **Pending DNS** badge and the DNS records to create:
-   - **CNAME target**: the hostname to point your domain at.
-   - **Verification TXT record**: shown when dply needs proof that you own the hostname.
-   - **Ownership TXT record**: shown by the certificate provider for some hostnames until TLS is active.
-4. Add those records at your DNS provider. See [Domain verification](/docs/domain-verification) for examples.
-5. Choose **Verify DNS** on the domain row. When the records resolve, the badge changes to **Ready** and a certificate is requested.
+Choose **Use your own domain**, enter the hostname (for example, `www.example.com`), and pick how to connect it. The dialog tells you where the domain's DNS is hosted today, such as GoDaddy or Cloudflare.
+
+- **Let dply run DNS** (easiest): you change the domain's nameservers once, and dply answers for the whole domain after that. See [Let dply run DNS](#let-dply-run-dns).
+- **Point it at dply myself**: keep your DNS where it is and add the records dply shows. If the domain is an active zone in your organization's Cloudflare account, dply adds the record for you. See [Automatic DNS with Cloudflare](#automatic-dns-with-cloudflare).
+
+When you point it yourself, the domain's dialog shows the records to create:
+
+- **CNAME**: the hostname to point your domain at.
+- **TXT** `_dply-verify…`: proof that you own the hostname, shown until DNS is ready.
+- An ownership TXT record from the certificate provider, for some hostnames until TLS is active.
+
+Add them at your DNS provider (see [Domain verification](/docs/domain-verification) for examples), then choose **Check DNS now**. When the records resolve, the row changes to "is live over HTTPS" once the certificate is issued.
 
 dply also checks domains on its own every 15 minutes:
 
-- A domain in **Pending DNS** is checked on every run.
-- A domain in **Failed** keeps being re-checked for 72 hours after you attached it: every 15 minutes for the first hour, then hourly for the rest of the first day, then every 6 hours. If your records go live in that window, the domain turns **Ready** by itself.
+- A domain waiting for DNS is checked on every run.
+- A domain that failed keeps being re-checked for 72 hours after you attached it: every 15 minutes for the first hour, then hourly for the rest of the first day, then every 6 hours. If your records go live in that window, the domain goes live by itself.
 
-After 72 hours a **Failed** domain waits for you to choose **Verify DNS**. If you subscribe to domain notifications, you hear about a domain when it turns **Ready** or starts failing, not on every repeat check.
+After 72 hours a failed domain waits for you to choose **Check DNS now**. If you subscribe to domain notifications, you hear about a domain when it turns ready or starts failing, not on every repeat check.
+
+### Let dply run DNS
+
+With this option dply hosts DNS for the whole domain, so any app in your organization can use the domain or a subdomain of it without copying records.
+
+1. Choose **Use your own domain**, enter a hostname, pick **Let dply run DNS**, and choose **Continue**. The domain appears under **DNS dply runs**, and its dialog opens.
+2. **Keep your existing records.** dply looks up the records your domain has today, such as MX and TXT records for email. Check the ones you use and choose **Keep the checked records**. Add any it missed under **Records**. Do this before you switch, or email to the domain stops arriving.
+3. **Turn off DNSSEC** at your registrar. A domain with DNSSEC on stops resolving when its nameservers change.
+4. **Change the nameservers** at your registrar to the two the dialog shows, then choose **I’ve changed them — check now**.
+
+Registrars can take up to a day to publish the change. dply checks every few minutes. When the domain turns active, every hostname under it that you attached goes live by itself, and new ones go live as soon as you add them.
+
+You manage the domain's records from its dialog under **DNS dply runs**: add A, AAAA, CNAME, MX and TXT records, or delete them. Records for your app hostnames are added and removed for you.
+
+A domain can be run by one organization only. A domain whose nameservers never change is dropped after 14 days, so nobody can hold a domain they don't control. To move a domain away, point its nameservers back at your registrar, then choose **Stop using dply DNS**, which deletes its records at dply.
 
 ### Add a domain from your repository
 
@@ -54,7 +73,7 @@ Each domain shows a DNS badge and, once DNS is ready, a certificate badge.
 
 | Badge | Meaning |
 |-------|---------|
-| **Pending DNS** | Attached. Waiting for your DNS records. |
+| **Pending DNS** | Attached. Waiting for your DNS records, or for the domain's nameservers to point at dply. |
 | **Ready** | DNS verified. dply is routing traffic for this hostname to your app. |
 | **Failed** | The last check didn't find the expected records. The row shows what it found. dply keeps re-checking for 72 hours after you attach the domain. |
 | **Issuing certificate** | DNS is ready and the TLS certificate is being issued. |

@@ -11,9 +11,12 @@ group: edge
 
 **Build & deploy logs** shows CI output from clone-and-build jobs — not visitor HTTP logs. For the live request tail, open **Traffic & analytics**.
 
-## Deployment list
+## Layout
 
-The page includes a deploy history table. Select a deployment to read its log stream.
+The page opens with a sentence about the latest deploy (and the one before it when it failed). Container apps also get the count of errors their app logged in the last 15 minutes, loaded after the page paints via `wire:init="loadAppLogs"` (`EdgeContainerDeployer::appLogLines`, shared with the Container tab).
+
+- **What your app is printing** (containers only): an errors row and an everything row, each opening the `app-logs` dialog (Everything / Errors, find, Refresh).
+- **Recent deploys**: one row per deploy (last 10). A row opens the `deploy-log` dialog: failure reason and lint callout, find, **Jump to error**, **Download** (client-side), with a 5-second poll while the deploy is building.
 
 ## Log content
 

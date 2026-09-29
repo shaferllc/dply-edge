@@ -67,9 +67,36 @@ test('edge bot protection section renders without turnstile mode saved', functio
     Livewire::actingAs($user)
         ->test(EdgeSettings::class, ['server' => $server, 'site' => $site, 'section' => 'bot-protection'])
         ->assertSee('How this works')
-        ->assertSee('Enable bot protection')
-        ->assertSee('Generate keys')
-        ->assertSee('Site key (public)');
+        ->assertSee('Bot protection is off, so nobody is checked.')
+        ->assertSee('Bot protection is on')
+        ->assertSee('No keys yet');
+});
+
+test('turning bot protection on generates keys and lists what relies on it', function () {
+    [$user, $server, $site] = edgeBotProtectionSite();
+    $site->mergeEdgeMeta([
+        'forms' => ['enabled' => true, 'endpoints' => [['path' => '/contact', 'to_email' => 'a@b.test', 'honeypot' => 'company', 'require_turnstile' => true]]],
+        'rate_limit' => ['enabled' => true, 'rules' => [['path' => '/login', 'limit' => 5, 'window_seconds' => 60, 'action' => 'challenge']]],
+    ]);
+    $site->save();
+
+    Livewire::actingAs($user)
+        ->test(BotProtection::class, ['server' => $server, 'site' => $site])
+        ->assertSee('ask for a check, which needs it on')
+        ->set('enabled', true)
+        ->assertSee('Visitors are checked')
+        ->assertSee('rely on it')
+        ->assertSee('form rejects posts without a passed check')
+        ->call('editSetting', 'mode')
+        ->set('mode', 'all')
+        ->call('saveSetting')
+        ->assertSet('editingSetting', null)
+        ->assertSee('Check visitors on every page');
+
+    $turnstile = $site->fresh()->edgeMeta()['turnstile'];
+    expect($turnstile['enabled'])->toBeTrue()
+        ->and($turnstile['generated'])->toBeTrue()
+        ->and($turnstile['mode'])->toBe('all');
 });
 
 test('edge bot protection generates keys with fake edge', function () {

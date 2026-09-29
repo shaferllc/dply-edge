@@ -10,49 +10,40 @@ To open it, go to your app and choose **Traffic & analytics** in the **Traffic**
 > [!NOTE]
 > Preview deployments do not have a **Traffic & analytics** section and do not collect visitor metrics. Open the production app instead.
 
-## CDN traffic
+## The summary
 
-The top of the page summarizes traffic on your app's hostnames:
+The page opens with one sentence about the last seven days: how many requests your app answered, about how many a day, how much data it sent, and how long responses took on average. When same-day numbers are available it adds today's count so far, and how many of those requests failed (4xx or 5xx) in amber.
 
-| Figure | What it counts |
-|--------|----------------|
-| **Requests MTD** | Requests served this calendar month |
-| **Requests 7d** | Requests in the last seven days, with the average per day |
-| **Bandwidth MTD** | Bytes served to visitors this month |
-| **Peak day 30d** | The busiest day in the last 30 days |
+Seven-day and monthly totals come from a daily collection job, so today's traffic appears the next day (usually by mid-morning UTC). Below the rows, **Counted on** lists the hostnames included.
 
-Below the summary, **Daily requests** and **Daily bandwidth** chart each day of the month. Hover a bar to see the exact value.
+## Look closer
 
-These figures come from a daily collection job, so today's traffic appears the next day (usually yesterday's traffic by mid-morning UTC). The **Latest** date shows the most recent day collected. Expand **Tracked hostnames** to see which hostnames are counted.
+Each row under **Look closer** opens a dialog with the detail:
 
-### Today
+| Row | Dialog |
+|-----|--------|
+| **Busiest day** | **Requests**: this month's requests and bandwidth, and a bar for each day of requests and of bandwidth. Hover a bar for the exact value. |
+| **Today** | Same-day requests counted at the edge (UTC day) without waiting for the daily job: requests and bandwidth today, the mix of response codes, and the top paths. |
+| **Response time** | Average and slowest-5% (p95) response time over seven days, the share served from the edge cache, and how many requests were measured. Hybrid apps also link to **Cache controls**; a low cache share on static paths usually means your build sends headers that stop caching. See [Caching](/docs/caching). |
+| **Page speed** | Core Web Vitals from real visitors, described below. |
+| **Watch requests as they arrive** | **Live requests**, described below. |
 
-The **Today** panel counts same-day requests at the edge, in UTC, without waiting for the daily job. It shows **Requests today**, **Bandwidth today**, a **Status mix** of response codes, and the **Top paths** for the day.
+### Page speed in browsers
 
-## Edge cache
-
-Hybrid apps show an **Edge cache** panel with the **Hit ratio 7d** and the number of requests **Served from edge 7d**. A low hit ratio on static paths usually means your build sets cache headers that stop the edge from caching. Choose **Cache controls** to adjust caching. See [Caching](/docs/caching).
-
-## Performance
-
-The **Performance** panel has two parts.
-
-**Edge response** reports the average and 95th-percentile response time over the last seven days, the cache hit ratio, and the request count.
-
-**Core Web Vitals** reports the 75th percentile of three real-user metrics over the last seven days, plus the number of samples:
+The **Page speed in browsers** dialog reports the 75th percentile of three real-user metrics over the last seven days, plus the number of samples:
 
 | Metric | Measures |
 |--------|----------|
-| **LCP p75** | Largest Contentful Paint: how long the main content takes to appear |
-| **INP p75** | Interaction to Next Paint: how quickly the page responds to input |
-| **CLS p75** | Cumulative Layout Shift: how much the layout moves while loading |
+| **LCP** | Largest Contentful Paint: how long the main content takes to appear |
+| **INP** | Interaction to Next Paint: how quickly the page responds to a tap or click |
+| **CLS** | Cumulative Layout Shift: how much the layout moves while loading |
 
-dply collects these by adding a small script to the HTML pages it serves from your build output. The script reports each page view's metrics back to dply. You don't need to install anything. When there are no samples in the last seven days, the panel says so.
+dply collects these by adding a small script to the HTML pages it serves from your build output. The script reports each page view's metrics back to dply. You don't need to install anything. When there are no samples in the last seven days, the row says so.
 
 > [!TIP]
 > You can alert on LCP and on 5xx errors. See [Alerts](/docs/alerts).
 
-## Live requests
+### Live requests
 
 **Live requests** is a real-time view of requests as they reach your app. Each row shows the time, method, status, response time in milliseconds, cache status, visitor country, and path.
 
@@ -61,13 +52,13 @@ dply collects these by adding a small script to the HTML pages it serves from yo
 - Choose **Clear** to empty the view.
 - Choose **CSV** to download the recent request log as a CSV file.
 
-The view loads with the most recent requests and keeps up to 200 rows on screen. If nothing appears, visit your app's URL to generate a request.
+The view loads with today's most recent requests and keeps up to 200 rows. If nothing appears, visit your app's URL to generate a request.
 
 To follow requests from a terminal, use `dply logs` (see [CLI](/docs/cli)) or the logs endpoint of the [HTTP API](/docs/api).
 
 ## Apps delivered through your own Cloudflare account
 
-If an app is delivered through a Cloudflare account you connected, dply does not collect its traffic. The page shows **Traffic stats live in your connected account** and lists the hostnames to look up in your Cloudflare dashboard.
+If an app is delivered through a Cloudflare account you connected, dply does not collect its traffic. The summary says the stats live in your connected Cloudflare account and lists the hostnames to look up there. Response time and page speed still show.
 
 ## Related
 

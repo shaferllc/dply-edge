@@ -55,7 +55,7 @@ If you use encrypted credentials, add `RAILS_MASTER_KEY` under **Environment**.
 
 ### Run migrations
 
-On the **Container** tab, turn on **Run migrations when a container starts**. Each container start then runs `bundle exec rails db:prepare`, which creates the database if needed and runs pending migrations. You can also run **Migrate** from the database's **Settings**.
+In **Overview** → **App** card → **Sleep, scaling, region**, turn on **Run migrations when a container starts**. Each container start then runs `bundle exec rails db:prepare`, which creates the database if needed and runs pending migrations. You can also run **Migrate** from the database's **Settings**.
 
 ## Add Valkey
 
@@ -86,12 +86,12 @@ Rails apps can run jobs with a Queue resource and the `dply-rails` gem:
 
 ## Scheduled work
 
-Add cron schedules under **Crons**; each runs its handler as a rake task. See [Scheduled tasks](/docs/scheduled-tasks).
+Add cron schedules under **Crons**; each runs its handler as a rake task. **Run now** runs a listed task once in the live app (rake tasks print no output). Cloudflare allows 5 schedules per app. See [Scheduled tasks](/docs/scheduled-tasks).
 
 ## Logs
 
 - Build and image output: **Deploys**, or **Build & deploy logs**.
-- Puma and Rails logs: **Container**, then **Logs**, then **Load last 15 minutes**.
+- Puma and Rails logs: **Build & deploy logs**, then **Everything it printed in the last 15 minutes**.
 
 ## Next steps
 

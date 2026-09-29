@@ -70,7 +70,7 @@ Open your app's **Overview**, select the **App** card, then choose a **Size**. T
 
 Below the ladder, **1/16 vCPU** (256 MB, non-PHP apps only) is $0.00000262 per second awake ($0.0094 an hour).
 
-The per-second and per-hour prices are per instance with every vCPU busy. CPU is billed only while it works, and a sleeping instance costs nothing. **Always on, 25% CPU** is one instance awake all month (720 hours) at a typical web app's load. **Most per month** is the cap: however busy the CPU, one instance never bills more than that in a month (two always-on instances, twice that). The **Container** section lists the same sizes by their key (`basic` is 0.25 vCPU, `standard-1` 0.5, `custom-1` 1, `custom-2` 2, `standard-4` 4). **1/16 vCPU** is available only to non-PHP apps.
+The per-second and per-hour prices are per instance with every vCPU busy. CPU is billed only while it works, and a sleeping instance costs nothing. **Always on, 25% CPU** is one instance awake all month (720 hours) at a typical web app's load. **Most per month** is the cap: however busy the CPU, one instance never bills more than that in a month (two always-on instances, twice that). Internally the sizes are keyed `basic` (0.25 vCPU), `standard-1` (0.5), `custom-1` (1), `custom-2` (2) and `standard-4` (4). **1/16 vCPU** is available only to non-PHP apps.
 
 An app created before 2026-09-27 on 1 vCPU / 6 GB (`standard-2`) or 2 vCPU / 8 GB (`standard-3`) keeps that size, shown as *retired*, and is billed for the memory it runs, until you pick a size. The 1 and 2 vCPU sizes now carry 3 and 6 GB, which costs less; the **App** card suggests the move when a week of memory peaks says the app fits.
 
@@ -104,7 +104,7 @@ Requests are spread across instances as they fill up, and a cookie keeps a visit
 
 ## Regions and jurisdictions
 
-Open **Overview**, select the **App** card, then **Sleep, region, scheduler**:
+Open **Overview**, select the **App** card, then **Sleep, scaling, region**:
 
 - **Run only in**: **Anywhere (fastest)**, **EU only** or **US FedRAMP only**.
 - **Regions**: tick one or more placement regions (ENAM, WNAM, EEUR, WEUR, APAC, SAM, ME, OC, AFR). EU only allows EEUR and WEUR; US FedRAMP only allows ENAM and WNAM. Leave all unticked to use every region inside the choice above.
@@ -113,7 +113,7 @@ If your app uses a dply database or dply Valkey and you leave regions unticked, 
 
 ## Rollouts
 
-A deploy replaces running instances according to the rollout settings in **Sleep, region, scheduler**:
+A deploy replaces running instances according to the rollout settings in **Sleep, scaling, region**:
 
 | Mode | What happens |
 |---|---|
@@ -130,7 +130,7 @@ After each deploy dply requests the app's URL. If the app does not answer, or an
 
 ## Migrations on boot
 
-Turn on **Run migrations when a container starts** in **Sleep, region, scheduler** to run migrations as each container starts:
+Turn on **Run migrations when a container starts** in **Sleep, scaling, region** to run migrations as each container starts:
 
 - Laravel: `php artisan migrate --force --isolated`
 - Rails: `bundle exec rails db:prepare`
@@ -147,7 +147,7 @@ Generated PHP images come tuned:
 
 ## Worker mode
 
-**Worker mode** in **Sleep, region, scheduler** runs a Laravel app with `php artisan octane:frankenphp`: the app boots once per worker and serves every request from memory, instead of booting the framework for each request. It is off by default.
+**Worker mode** in **Sleep, scaling, region** runs a Laravel app with `php artisan octane:frankenphp`: the app boots once per worker and serves every request from memory, instead of booting the framework for each request. It is off by default.
 
 It needs `laravel/octane` in `require` and the FrankenPHP server (`"extra": {"dply": {"php-server": "frankenphp"}}` in `composer.json`). Until a deploy finds both, the switch stays off. Apps with Octane and no pin already run under Swoole or RoadRunner.
 
@@ -170,7 +170,7 @@ For a managed relay instead of your own socket server, see [Realtime (WebSockets
 
 ## Logs
 
-The **Container** section's **Logs** panel shows the last 15 minutes of stdout and stderr from your app, its queue workers and the routing Worker. Select **Load last 15 minutes**, then filter by source. Log lines appear after the deploy that enables them.
+What your app, its queue workers and the routing Worker printed in the last 15 minutes is on **Build & deploy logs**, under **What your app is printing**. Filter by source or worker in the dialog. Log lines appear after the deploy that enables them. See [Logs](/docs/logs).
 
 ## How compute is billed
 

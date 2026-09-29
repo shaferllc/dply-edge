@@ -1,6 +1,6 @@
 <x-sheet name="resources-sleep" :show="$panel === 'sleep'" maxWidth="lg" focusable>
     <form wire:submit="saveRuntime" class="contents">
-        <x-sheet.header :eyebrow="__('App')" :title="__('Sleep, region, scheduler')" close-wire="openPanel('')">
+        <x-sheet.header :eyebrow="__('App')" :title="__('Sleep, scaling, region')" close-wire="openPanel('')">
             {{ __('These apply on the next deploy. Size and instance count stay on the canvas.') }}
         </x-sheet.header>
 
@@ -79,10 +79,50 @@
                 </div>
             </x-sheet.section>
 
+            <x-sheet.section :title="__('Always awake and scaling windows')">
+                <x-sheet.field :label="__('Always awake')" for="sheet-min-instances" :help="$minInstances > 0 ? __('The first :count never sleep, so they never cold start. Billed while awake.', ['count' => $minInstances]) : __('0: every instance sleeps when idle.')">
+                    <input id="sheet-min-instances" type="number" min="0" max="{{ $draftMaxInstances }}" wire:model.live.debounce.400ms="minInstances" class="dply-input mt-0 w-24" @disabled($trialCap) />
+                    <x-input-error :messages="$errors->get('minInstances')" />
+                </x-sheet.field>
+                <div class="space-y-2">
+                    <p class="text-2xs leading-4 text-brand-mist">{{ __('Different always-awake and instance counts at set times, like business hours or a launch. A single date wins over a weekday, which wins over weekdays or weekends, which win over daily.') }}</p>
+                    @foreach ($schedules as $i => $window)
+                        @php $oneDate = ! in_array($window['days'] ?? '', \App\Modules\Edge\Support\EdgeContainerSettings::SCHEDULE_DAYS, true); @endphp
+                        <div wire:key="sheet-window-{{ $i }}" class="grid grid-cols-2 gap-2 rounded-lg border border-brand-ink/10 p-2.5 sm:grid-cols-6">
+                            <select wire:model.live="schedules.{{ $i }}.days" class="dply-input mt-0 text-xs sm:col-span-2" aria-label="{{ __('Days') }}">
+                                @foreach (\App\Modules\Edge\Support\EdgeContainerSettings::SCHEDULE_DAYS as $day)
+                                    <option value="{{ $day }}">{{ ucfirst($day) }}</option>
+                                @endforeach
+                                <option value="{{ $oneDate ? $window['days'] : now()->toDateString() }}">{{ __('One date') }}</option>
+                            </select>
+                            <input type="time" wire:model.live.debounce.500ms="schedules.{{ $i }}.start" class="dply-input mt-0 text-xs" aria-label="{{ __('From') }}" />
+                            <input type="time" wire:model.live.debounce.500ms="schedules.{{ $i }}.end" class="dply-input mt-0 text-xs" aria-label="{{ __('Until') }}" />
+                            <input type="number" min="0" max="20" wire:model.live.debounce.500ms="schedules.{{ $i }}.min" class="dply-input mt-0 text-xs" aria-label="{{ __('Always awake') }}" title="{{ __('Always awake') }}" />
+                            <input type="number" min="1" max="20" wire:model.live.debounce.500ms="schedules.{{ $i }}.max" class="dply-input mt-0 text-xs" aria-label="{{ __('Instances') }}" title="{{ __('Instances') }}" />
+                            @if ($oneDate)
+                                <input type="date" wire:model.live="schedules.{{ $i }}.days" class="dply-input mt-0 text-xs sm:col-span-2" aria-label="{{ __('Date') }}" />
+                            @endif
+                            <input type="text" wire:model.live.debounce.800ms="schedules.{{ $i }}.timezone" class="dply-input mt-0 text-xs sm:col-span-3" aria-label="{{ __('Time zone') }}" placeholder="America/Los_Angeles" />
+                            <button type="button" wire:click="removeSchedule({{ $i }})" class="text-xs font-medium text-rose-600 hover:underline sm:col-span-1 dark:text-rose-300">{{ __('Remove') }}</button>
+                            @foreach (['days', 'start', 'end', 'timezone', 'min', 'max'] as $field)
+                                <x-input-error :messages="$errors->get('schedules.'.$i.'.'.$field)" class="col-span-full" />
+                            @endforeach
+                        </div>
+                    @endforeach
+                    <x-sheet.button type="button" wire:click="addSchedule" :disabled="$trialCap">{{ __('Add a window') }}</x-sheet.button>
+                </div>
+            </x-sheet.section>
+
             <x-sheet.section :title="__('Behaviour')">
                 <div>
                     <x-sheet.toggle wire:model.live="stickySessions" :label="__('Keep a visitor on the same instance')" :help="__('Uses a cookie so sessions and websockets stay on one container. Turn this off to spread every request at random.')" />
                     <x-sheet.toggle wire:model.live="dedicatedJobs" :label="__('Run jobs on their own instance')" :help="__('Off, queues stay on the same instances as the site. On, they use one extra instance. Queue workers run background work on their own.')" />
+                    @if ($dedicatedJobs)
+                        <x-sheet.toggle wire:model.live="jobsAlwaysOn" :label="__('Keep the jobs instance awake')" :help="__('Off: it sleeps like the app and wakes for each batch. On: long-running workers are never cut off by sleep.')" />
+                    @endif
+                    @php $workerModeSupported = (bool) ($site->edgeMeta()['worker_mode_supported'] ?? false); @endphp
+                    <x-sheet.toggle wire:model.live="workerMode" :disabled="! $workerModeSupported && ! $workerMode" :label="__('Worker mode (Octane on FrankenPHP)')" :help="$workerModeSupported ? __('Keeps the app booted between requests. State carries over between requests, so the app must be Octane-safe. Each worker restarts after 500 requests.') : __('Needs laravel/octane in composer.json and FrankenPHP pinned with extra.dply.php-server set to frankenphp. Checked on each deploy.')" />
+                    <x-input-error :messages="$errors->get('workerMode')" />
                     <x-sheet.toggle wire:model.live="scheduler" :label="__('Run the Laravel scheduler every minute')" :help="__('With queue workers it runs in worker-0 (schedule:work) and the app can sleep. Without them, a Cron Trigger calls schedule:run in the app every minute.')" />
                     <x-sheet.toggle wire:model.live="migrateOnBoot" :label="__('Run migrations when a container starts')" :help="__('Laravel: migrate --force --isolated. Rails: db:prepare.')" />
                 </div>

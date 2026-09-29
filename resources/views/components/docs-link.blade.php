@@ -21,7 +21,7 @@
         href="{{ route('docs.show', $target) }}"
         target="_blank"
         rel="noopener"
-        {{ $attributes->merge(['class' => 'inline-flex items-center gap-1.5 border border-brand-ink/15 bg-white font-medium text-brand-ink shadow-sm transition-colors hover:bg-brand-sand/40 dark:border-brand-mist/20 dark:bg-zinc-900 dark:text-brand-cream dark:hover:bg-zinc-800 '.$sizeClasses]) }}
+        {{ $attributes->merge(['class' => 'inline-flex items-center gap-1.5 border border-brand-ink/15 bg-white font-medium text-brand-ink shadow-sm transition-colors hover:bg-brand-sand/40 '.$sizeClasses]) }}
     >
         {{ $slot->isEmpty() ? ($label ?? __('Documentation')) : $slot }}
     </a>

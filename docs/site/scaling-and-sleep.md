@@ -13,9 +13,11 @@ A container app scales between a minimum and a maximum number of instances. When
 | Setting | Where |
 |---|---|
 | **Instances** (maximum) | **Overview** → **App** card. Saves as you change it; applies on the next deploy. |
-| **Sleeps after** | **Overview** → **App** card, or **Sleep, region, scheduler**. |
-| **Min instances**, **Max instances**, **Scaling windows** | The **Container** section of the sidebar, then **Save and redeploy**. |
-| **Run queued jobs and scheduled tasks on their own instance**, **Keep the jobs instance awake** | The **Container** section. |
+| **Sleeps after** | **Overview** → **App** card, or **Sleep, scaling, region**. |
+| **Always awake** (min instances), **Scaling windows** | **Overview** → **App** card → **Sleep, scaling, region**. |
+| **Run jobs on their own instance**, **Keep the jobs instance awake**, **Worker mode** | **Overview** → **App** card → **Sleep, scaling, region**, under **Behaviour**. |
+
+Everything saves as you change it and applies on the next deploy. (These used to be on a separate **Container** page; its old link now opens **Overview**.)
 
 ## How instances fill up
 
@@ -34,7 +36,7 @@ An instance's capacity depends on the stack and size:
 
 A PHP instance runs one request per PHP worker process. The number of workers comes from memory: what is left after 192 MB for nginx, the PHP master and opcache, divided by 56 MB per php-fpm worker (96 MB per Octane worker, which keeps the app booted), at most 32 per vCPU (at least 12) and 128 in all. A request can still use up to 128 MB; if the instance runs out of memory, the next deploy moves it up a size. Inertia SSR takes two workers' memory. A custom size follows the same rule. Open WebSockets count as in-flight requests for as long as they are open.
 
-**Keep a visitor on the same instance** (in **Sleep, region, scheduler**, on by default) sets a `dply_instance` cookie so a visitor's session and sockets stay on one container. Turn it off to spread every request at random.
+**Keep a visitor on the same instance** (in **Sleep, scaling, region**, on by default) sets a `dply_instance` cookie so a visitor's session and sockets stay on one container. Turn it off to spread every request at random.
 
 ## Sleep
 
@@ -44,20 +46,20 @@ A longer timeout means fewer cold starts and more billed time. The **Cost estima
 
 ## Keep instances awake
 
-Set **Min instances** in the **Container** section to keep that many instances running at all times (0 to your maximum). Instances below the minimum never sleep, so those visitors never hit a cold start. `0` scales to zero when idle. dply checks every minute and starts any instance below the minimum, including one the platform restarted.
+Set **Always awake** in **Overview** → **App** card → **Sleep, scaling, region** to keep that many instances running at all times (0 to your maximum). Instances below the minimum never sleep, so those visitors never hit a cold start. `0` scales to zero when idle. dply checks every minute and starts any instance below the minimum, including one the platform restarted.
 
-The **Worst case, per month** card in the **Container** section shows the cost of every instance always on, and the **Always-on floor** for your minimum.
+The **Cost estimate** on the **App** card shows what always-awake instances cost.
 
 ## Scaling windows
 
-Scaling windows set a different minimum and maximum for certain times, such as business hours or a launch. In the **Container** section, select **Add window**, then set:
+Scaling windows set a different minimum and maximum for certain times, such as business hours or a launch. In **Overview** → **App** card → **Sleep, scaling, region**, select **Add a window**, then set:
 
 - **Days**: `Daily`, `Weekdays`, `Weekends`, a single weekday, or **One date**.
 - **From** and **Until**: a window starts and ends on the same day. For an overnight window, add two.
 - **Time zone**: any IANA time zone, such as `America/New_York`.
-- **Min** and **Max**: 0–20 and 1–20.
+- **Always awake** and **Instances**: 0–20 and 1–20.
 
-When windows overlap, a single date wins over a weekday, which wins over weekdays or weekends, which win over daily. Outside every window the **Min instances** and **Max instances** above apply. A deploy reserves capacity for the largest maximum any window can ask for.
+When windows overlap, a single date wins over a weekday, which wins over weekdays or weekends, which win over daily. Outside every window the **Always awake** count and the app's **Instances** apply. A deploy reserves capacity for the largest maximum any window can ask for.
 
 ## What keeps an app awake
 

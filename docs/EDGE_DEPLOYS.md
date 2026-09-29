@@ -22,13 +22,13 @@ Each row shows:
 
 Building deploys refresh automatically while you stay on this page.
 
-## Redeploy now
+## Redeploy
 
-Click **Redeploy now** (hero or deploys header) to rebuild and publish the **current production branch** at its latest commit. Use this after changing build settings without a new Git push.
+Click **Deploy** (sidebar) or **Redeploy the latest …** on Deploys to rebuild and publish the **current production branch** at its latest commit. Use this after changing build settings without a new Git push.
 
 ## Deploy a specific ref
 
-Use the **Deploy ref** picker to deploy a particular:
+Use **Deploy a specific commit, branch or tag** (a dialog on Deploys) to deploy a particular:
 
 - **Branch**
 - **Commit**
