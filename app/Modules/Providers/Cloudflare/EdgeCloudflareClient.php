@@ -306,6 +306,52 @@ class EdgeCloudflareClient
         return self::BASE.'/accounts/'.$this->accountId.'/storage/kv/namespaces/'.rawurlencode($namespaceId);
     }
 
+    /**
+     * Account-owned API token permission groups, for looking one up by name
+     * (the S3 keys use "Workers R2 Storage Bucket Item Write/Read").
+     *
+     * @return list<array{id: string, name: string}>
+     */
+    public function accountTokenPermissionGroups(): array
+    {
+        $rows = $this->decode(Http::withToken($this->apiToken)->get(self::BASE.'/accounts/'.$this->accountId.'/tokens/permission_groups'));
+
+        return array_values(array_map(static fn (array $row): array => ['id' => (string) ($row['id'] ?? ''), 'name' => (string) ($row['name'] ?? '')], array_filter($rows, 'is_array')));
+    }
+
+    /**
+     * Create an account-owned API token. Its id and value are an R2 S3 key
+     * pair (id, sha256(value)); the value is returned only here.
+     *
+     * @param  list<array<string, mixed>>  $policies
+     * @return array{id: string, value: string}
+     */
+    public function createAccountToken(string $name, array $policies): array
+    {
+        $result = $this->decode(Http::withToken($this->apiToken)->post(self::BASE.'/accounts/'.$this->accountId.'/tokens', ['name' => $name, 'policies' => $policies]));
+
+        return ['id' => (string) ($result['id'] ?? ''), 'value' => (string) ($result['value'] ?? '')];
+    }
+
+    /**
+     * Change a token's policies or status (active, disabled). The value, and
+     * so the S3 secret, is unchanged.
+     *
+     * @param  list<array<string, mixed>>  $policies
+     */
+    public function updateAccountToken(string $id, string $name, array $policies, string $status = 'active'): void
+    {
+        $this->decode(Http::withToken($this->apiToken)->put(self::BASE.'/accounts/'.$this->accountId.'/tokens/'.rawurlencode($id), ['name' => $name, 'policies' => $policies, 'status' => $status]));
+    }
+
+    public function deleteAccountToken(string $id): void
+    {
+        $response = Http::withToken($this->apiToken)->delete(self::BASE.'/accounts/'.$this->accountId.'/tokens/'.rawurlencode($id));
+        if ($response->status() !== 404) {
+            $this->decode($response);
+        }
+    }
+
     public function deleteR2Bucket(string $name): void
     {
         $response = Http::withToken($this->apiToken)->delete(self::BASE.'/accounts/'.$this->accountId.'/r2/buckets/'.$name);

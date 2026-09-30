@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\NotificationApiController;
 use App\Modules\Billing\Http\Controllers\Api\BillingApiController;
 use App\Modules\Edge\Http\Controllers\Api\EdgeAccessApiController;
 use App\Modules\Edge\Http\Controllers\Api\EdgeAliasApiController;
+use App\Modules\Edge\Http\Controllers\Api\EdgeAppDatabaseApiController;
 use App\Modules\Edge\Http\Controllers\Api\EdgeCacheApiController;
 use App\Modules\Edge\Http\Controllers\Api\EdgeDataApiController;
 use App\Modules\Edge\Http\Controllers\Api\EdgeDeploymentApiController;
@@ -96,6 +97,20 @@ Route::prefix('v1')->group(function (): void {
                 ->middleware('ability:'.$apiAbilities['edge.databases.index']);
             Route::post('/databases/{database}/query', [EdgeDataApiController::class, 'query'])
                 ->middleware('ability:'.$apiAbilities['edge.databases.query']);
+            // An app's Postgres / MySQL / MongoDB; {database} is its id or name.
+            Route::get('/sites/{site}/databases', [EdgeAppDatabaseApiController::class, 'index'])
+                ->middleware('ability:'.$apiAbilities['edge.app_databases.index']);
+            Route::get('/sites/{site}/databases/{database}', [EdgeAppDatabaseApiController::class, 'show'])
+                ->middleware('ability:'.$apiAbilities['edge.app_databases.show']);
+            Route::post('/sites/{site}/databases/{database}/query', [EdgeAppDatabaseApiController::class, 'query'])
+                ->middleware('ability:'.$apiAbilities['edge.app_databases.query']);
+            Route::get('/sites/{site}/databases/{database}/exports', [EdgeAppDatabaseApiController::class, 'exports'])
+                ->middleware('ability:'.$apiAbilities['edge.app_databases.exports']);
+            Route::post('/sites/{site}/databases/{database}/exports', [EdgeAppDatabaseApiController::class, 'export'])
+                ->middleware('ability:'.$apiAbilities['edge.app_databases.export']);
+            Route::post('/sites/{site}/databases/{database}/restore', [EdgeAppDatabaseApiController::class, 'restore'])
+                ->middleware('ability:'.$apiAbilities['edge.app_databases.restore']);
+
             Route::get('/queues', [EdgeDataApiController::class, 'queues'])
                 ->middleware('ability:'.$apiAbilities['edge.queues.index']);
             Route::post('/queues/{queue}/messages', [EdgeDataApiController::class, 'send'])

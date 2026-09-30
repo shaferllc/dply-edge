@@ -41,6 +41,7 @@ const EDGE_COMMANDS = {
   promote: { handler: commands.promote, summary: 'Promote a preview to production.' },
   previews: { handler: commands.previews, summary: 'list | create [--commit|--branch] [--wait] | rm <id>' },
   domains: { handler: commands.domains, summary: 'list | add <host> | verify <host> | rm <host>' },
+  databases: { handler: commands.databases, summary: 'Postgres/MySQL/MongoDB: list | show | query | exports | export | restore <db>' },
   aliases: { handler: commands.aliases, summary: 'List per-deploy stable URLs.' },
   purge: { handler: commands.purge, summary: 'Purge edge cache by tag (--tag X).' },
   usage: { handler: commands.usage, summary: 'Show traffic / billing usage.' },

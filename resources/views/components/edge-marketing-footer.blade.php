@@ -7,7 +7,7 @@
                     dply<span class="text-edge-lime">/</span>edge
                 </a>
                 <p class="mt-3 max-w-xs text-sm leading-6 text-edge-mute">
-                    {{ __('Git repository in, site on the edge out. Static, hybrid or Worker SSR.') }}
+                    {{ __('Git repository in, whole app out: Laravel, Rails, Node and static sites, with their databases and workers.') }}
                 </p>
             </div>
 
@@ -25,6 +25,10 @@
                 <div>
                     <p class="font-terminal text-[11px] uppercase tracking-[0.14em] text-edge-faint">{{ __('Move') }}</p>
                     <ul class="mt-3 space-y-2">
+                        <li><a href="{{ route('compare', 'forge') }}" class="text-sm text-edge-mute transition-colors hover:text-edge-text">{{ __('vs Laravel Forge') }}</a></li>
+                        <li><a href="{{ route('compare', 'laravel-cloud') }}" class="text-sm text-edge-mute transition-colors hover:text-edge-text">{{ __('vs Laravel Cloud') }}</a></li>
+                        <li><a href="{{ route('compare', 'heroku') }}" class="text-sm text-edge-mute transition-colors hover:text-edge-text">{{ __('vs Heroku') }}</a></li>
+                        <li><a href="{{ route('docs.show', 'guides/migrate-from-vercel-netlify') }}" class="text-sm text-edge-mute transition-colors hover:text-edge-text">{{ __('From Vercel or Netlify') }}</a></li>
                         <li><a href="{{ route('cli.install') }}" class="text-sm text-edge-mute transition-colors hover:text-edge-text">{{ __('CLI') }}</a></li>
                     </ul>
                 </div>

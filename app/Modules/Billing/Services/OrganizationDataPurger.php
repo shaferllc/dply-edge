@@ -11,6 +11,7 @@ use App\Models\Organization;
 use App\Models\Site;
 use App\Modules\Edge\Jobs\TeardownEdgeSiteJob;
 use App\Modules\Edge\Services\Realtime\EdgeRealtimeApps;
+use App\Modules\Edge\Services\Storage\EdgeBucketKeys;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeDplyDatabase;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
@@ -81,6 +82,7 @@ final class OrganizationDataPurger
             }
             $attempt('site '.$site->id, fn () => TeardownEdgeSiteJob::dispatchSync((string) $site->id));
         }
+        $attempt('storage keys', fn () => app(EdgeBucketKeys::class)->forgetOrganization($organization));
         // Realtime apps no site holds any more (the per-site pass above
         // deleted the attached ones): their relay KV record goes first.
         foreach (EdgeRealtimeApp::query()->where('organization_id', $organization->id)->get() as $app) {

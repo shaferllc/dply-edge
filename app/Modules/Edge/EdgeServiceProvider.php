@@ -36,6 +36,7 @@ use App\Modules\Edge\Console\PublishEdgeBaseImagesCommand;
 use App\Modules\Edge\Console\ReapStuckEdgeBuildsCommand;
 use App\Modules\Edge\Console\ResizeEdgeDatabasesCommand;
 use App\Modules\Edge\Console\RollupEdgeAnalyticsEngineCommand;
+use App\Modules\Edge\Console\MeasureWakeTimeCommand;
 use App\Modules\Edge\Console\SampleContainerMemoryCommand;
 use App\Modules\Edge\Console\SampleEdgeDatabasesCommand;
 use App\Modules\Edge\Console\ScaleEdgeQueueWorkersCommand;
@@ -104,6 +105,7 @@ class EdgeServiceProvider extends ServiceProvider
                 WarmEdgeContainersCommand::class,
                 ScaleEdgeQueueWorkersCommand::class,
                 SampleContainerMemoryCommand::class,
+                MeasureWakeTimeCommand::class,
                 CheckEdgeQueueWorkersCommand::class,
                 CheckEdgeRealtimeCommand::class,
                 SampleEdgeDatabasesCommand::class,

@@ -30,7 +30,7 @@ class HeadServiceProvider extends ServiceProvider
             ->canonical()
             ->searchableByRobots()
             ->og(siteName: 'dply', type: OgType::Website)
-            ->ogImage(asset('images/og/dply-og.png'), alt: 'dply — edge hosting for static, SSG, and SSR sites', width: 1200, height: 630, type: ImageType::Png)
+            ->ogImage(asset('images/og/dply-edge-og.png'), alt: 'dply: your whole app, deployed from Git', width: 1200, height: 630, type: ImageType::Png)
             ->twitter(card: TwitterCard::SummaryWithLargeImage)
             // Every page is statically dark (partials/theme-head paints
             // #0b0d0a before CSS loads), so one theme colour, not a light/dark pair.

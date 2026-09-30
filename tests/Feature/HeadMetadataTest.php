@@ -52,13 +52,13 @@ function signedInOwner(): array
 }
 
 test('home has its exact title plus organization and website schemas', function (): void {
-    $head = assertHead($this->get('/')->assertOk(), 'dply · Your whole app, deployed from Git', true);
+    $head = assertHead($this->get('/')->assertOk(), 'dply · Deploy Laravel, Rails & Node apps from Git', true);
 
     expect($head)->toContain('"@type":"Organization"')->toContain('"@type":"WebSite"');
 });
 
 test('pricing names the entry price and carries product and faq schemas', function (): void {
-    $head = assertHead($this->get('/pricing')->assertOk(), 'Pricing · dply', true);
+    $head = assertHead($this->get('/pricing')->assertOk(), 'Pricing: plans from $5/mo · dply', true);
 
     expect($head)->toContain('Plans from $5/mo')
         ->toContain('"@type":"Product"')

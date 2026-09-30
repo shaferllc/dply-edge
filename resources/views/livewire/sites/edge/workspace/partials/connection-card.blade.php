@@ -46,6 +46,51 @@
         @endif
         {!! $more !!}
     </button>
+@elseif ($connection['kind'] === 'key_value')
+    {{-- The key-value store opens its sheet like the other boxes; keys, sleep, detach and delete live there. --}}
+    <button type="button" wire:click="openKv('{{ $connection['host'] }}')" wire:island="resources-kv" wire:loading.attr="disabled" wire:target="openKv" @class([$node, 'resource-asleep border-dashed' => $connection['asleep']])>
+        <span class="flex items-center justify-between gap-2">
+            <span class="flex items-center gap-1.5 {{ $eyebrow }}"><x-resource-kind-icon kind="key_value" class="h-3.5 w-3.5 shrink-0" />{{ __($connectionKinds['key_value']['label']) }}</span>
+            {!! $connection['asleep'] ? '<span class="flex items-center">'.$pill(__('Asleep'), 'sleep').$snore.'</span>' : $pill(__('On'), 'ok') !!}
+        </span>
+        <span class="mt-1.5 block truncate text-sm font-bold text-brand-ink">{{ \App\Modules\Edge\Support\EdgeContainerConnections::resourceLabel($connection['host']) }}</span>
+        <span class="mt-0.5 block truncate font-mono text-2xs text-brand-moss">{{ $isWorker ? 'env.'.$connection['name'] : $connection['host'] }}</span>
+        @if (isset($connectionEstimates[$connection['host']]))
+            <span class="mt-1 block font-mono text-2xs text-brand-mist"><b class="text-brand-ink">${{ number_format($connectionEstimates[$connection['host']] / 100, 2) }}</b> {{ __('this month') }}</span>
+        @endif
+        {!! $more !!}
+    </button>
+@elseif ($connection['kind'] === 'object_storage')
+    {{-- Object storage opens its sheet like the other boxes; files, sleep, detach and delete live there. --}}
+    <button type="button" wire:click="openObject('{{ $connection['host'] }}')" wire:island="resources-object" x-on:click="$dispatch('open-modal', 'resources-object')" @class([$node, 'resource-asleep border-dashed' => $connection['asleep']])>
+        <span class="flex items-center justify-between gap-2">
+            <span class="flex items-center gap-1.5 {{ $eyebrow }}"><x-resource-kind-icon kind="object_storage" class="h-3.5 w-3.5 shrink-0" />{{ __($connectionKinds['object_storage']['label']) }}</span>
+            {!! $connection['asleep'] ? '<span class="flex items-center">'.$pill(__('Asleep'), 'sleep').$snore.'</span>' : $pill(__('On'), 'ok') !!}
+        </span>
+        <span class="mt-1.5 block truncate text-sm font-bold text-brand-ink" title="{{ $connection['target'] }}">{{ \App\Modules\Edge\Support\EdgeContainerConnections::resourceLabel($connection['host']) }}</span>
+        <span class="mt-0.5 block truncate font-mono text-2xs text-brand-moss">{{ $isWorker ? 'env.'.$connection['name'] : $connection['host'] }}</span>
+        @if (isset($connectionEstimates[$connection['host']]))
+            <span class="mt-1 block font-mono text-2xs text-brand-mist"><b class="text-brand-ink">${{ number_format($connectionEstimates[$connection['host']] / 100, 2) }}</b> {{ __('this month') }}</span>
+        @endif
+        {!! $more !!}
+    </button>
+@elseif ($connection['kind'] === 'realtime')
+    {{-- Realtime opens its sheet like the other boxes; sleep and delete live there. The internal host means nothing here: show where browsers connect (no relay call in render). --}}
+    @php $realtimeRow = $connection['target'] !== '' ? \App\Models\EdgeRealtimeApp::query()->whereKey($connection['target'])->where('organization_id', $site->organization_id)->first(['id', 'max_connections', 'hostname']) : null; @endphp
+    <button type="button" wire:click="openResource('{{ $connection['host'] }}')" wire:island="resources-realtime" @class([$node, 'resource-asleep border-dashed' => $connection['asleep']])>
+        <span class="flex items-center justify-between gap-2">
+            <span class="flex items-center gap-1.5 {{ $eyebrow }}"><x-resource-kind-icon kind="realtime" class="h-3.5 w-3.5 shrink-0" />{{ __($connectionKinds['realtime']['label']) }}</span>
+            {!! $connection['asleep'] ? '<span class="flex items-center">'.$pill(__('Asleep'), 'sleep').$snore.'</span>' : $pill(__('On'), 'ok') !!}
+        </span>
+        @if ($realtimeRow)
+            <span class="mt-1.5 block truncate text-sm font-bold text-brand-ink">{{ __('Up to :count connections', ['count' => number_format($realtimeRow->max_connections)]) }}</span>
+        @endif
+        <span class="mt-0.5 block truncate font-mono text-2xs text-brand-moss">{{ \App\Modules\Edge\Services\Realtime\EdgeRealtimeApps::hostFor($realtimeRow) }}</span>
+        @if (isset($connectionEstimates[$connection['host']]))
+            <span class="mt-1 block font-mono text-2xs text-brand-mist"><b class="text-brand-ink">${{ number_format($connectionEstimates[$connection['host']] / 100, 2) }}</b> {{ __('this month') }}</span>
+        @endif
+        {!! $more !!}
+    </button>
 @else
                     <div @class([
                         'rounded-2xl border p-3.5',
@@ -64,10 +109,6 @@
                             <span class="flex flex-wrap gap-1">
                                 @if ($connection['kind'] === 'service')
                                     <button type="button" wire:click="$set('explainConnectionHost', '{{ $connection['host'] }}')" wire:island="resources-service" x-on:click="$dispatch('open-modal', 'resources-service')" class="rounded-md border border-brand-ink/15 px-2 py-0.5 text-2xs font-semibold text-brand-ink hover:border-brand-ink/40 dark:border-brand-mist/25">{{ __('Open') }}</button>
-                                @elseif ($connection['kind'] === 'key_value')
-                                    <button type="button" wire:click="openKv('{{ $connection['host'] }}')" wire:island="resources-kv" wire:loading.attr="disabled" wire:target="openKv" class="rounded-md border border-brand-ink/15 px-2 py-0.5 text-2xs font-semibold text-brand-ink hover:border-brand-ink/40 disabled:opacity-50 dark:border-brand-mist/25">{{ __('Settings') }}</button>
-                                @elseif ($connection['kind'] === 'object_storage')
-                                    <button type="button" wire:click="openObject('{{ $connection['host'] }}')" wire:island="resources-object" x-on:click="$dispatch('open-modal', 'resources-object')" class="rounded-md border border-brand-ink/15 px-2 py-0.5 text-2xs font-semibold text-brand-ink hover:border-brand-ink/40 dark:border-brand-mist/25">{{ __('Open') }}</button>
                                 @elseif ($connection['kind'] === 'redis' && \App\Modules\Edge\Support\EdgeValkey::isTarget($connection['target']))
                                     <button type="button" wire:click="$set('valkeyHost', '{{ $connection['host'] }}')" wire:island="resources-valkey" x-on:click="$dispatch('open-modal', 'resources-valkey')" class="rounded-md border border-brand-ink/15 px-2 py-0.5 text-2xs font-semibold text-brand-ink hover:border-brand-ink/40 dark:border-brand-mist/25">{{ __('Details') }}</button>
                                 @else
@@ -76,34 +117,21 @@
                                 @endif
                                 <button type="button" wire:click="sleepConnection('{{ $connection['host'] }}', {{ $connection['asleep'] ? 'false' : 'true' }})" class="rounded-md border border-brand-ink/15 px-2 py-0.5 text-2xs font-semibold text-brand-ink hover:border-brand-ink/40 dark:border-brand-mist/25">{{ $connection['asleep'] ? __('Wake') : __('Sleep') }}</button>
                                 <button type="button" wire:click="askDeleteConnection('{{ $connection['host'] }}')" wire:island="resources-delete-connection" x-on:click="$dispatch('open-modal', 'resources-delete-connection')" class="rounded-md border border-brand-ink/15 px-2 py-0.5 text-2xs font-semibold text-brand-ink hover:border-brand-ink/40 dark:border-brand-mist/25">{{ __('Delete') }}</button>
-                                {{-- Realtime has no attach, so Detach would orphan a live app (removeConnection refuses it). --}}
-                                @unless (($connection['kind'] === 'redis' && \App\Modules\Edge\Support\EdgeValkey::isTarget($connection['target'])) || $connection['kind'] === 'realtime')
+                                @unless ($connection['kind'] === 'redis' && \App\Modules\Edge\Support\EdgeValkey::isTarget($connection['target']))
                                     <button type="button" wire:click="removeConnection('{{ $connection['host'] }}')" class="rounded-md border border-brand-ink/15 px-2 py-0.5 text-2xs font-semibold text-brand-ink hover:border-brand-ink/40 dark:border-brand-mist/25">{{ __('Detach') }}</button>
                                 @endunless
                             </span>
                         </div>
-                        @if ($connection['kind'] === 'object_storage')
-                            <p class="mt-1 text-xs text-brand-moss">{{ __('Bucket :name', ['name' => $connection['target']]) }}</p>
-                        @elseif ($connection['kind'] === 'redis' && \App\Modules\Edge\Support\EdgeValkey::isTarget($connection['target']) && ! $cardOnFile)
+                        @if ($connection['kind'] === 'redis' && \App\Modules\Edge\Support\EdgeValkey::isTarget($connection['target']) && ! $cardOnFile)
                             <p class="mt-1 text-xs text-brand-moss">{{ __('Add a card to keep using this Redis. It stays off the app until then.') }}</p>
                             @if ($site->organization)
                                 <a href="{{ route('billing.show', $site->organization) }}" class="rounded-md border border-brand-ink/15 px-2 py-0.5 text-2xs font-semibold text-brand-ink hover:border-brand-ink/40 dark:border-brand-mist/25">{{ __('Billing') }}</a>
                             @endif
-                        @elseif ($connection['kind'] === 'key_value' && $connection['asleep'])
-                            <p class="mt-1 font-mono text-xs text-brand-moss">{{ $connection['host'] }}</p>
-                            <p class="mt-1 text-xs text-brand-moss">{{ __('Asleep. The address comes off the app on the next deploy. Stored data is still billed.') }}</p>
                         @elseif ($connection['kind'] === 'redis' && ! \App\Modules\Edge\Support\EdgeValkey::isTarget($connection['target']))
                             {{-- A pasted Redis: show where it points (host only; the password never reaches the page). --}}
                             @php $externalRedisHost = collect(\App\Modules\Edge\Support\EdgeContainerConnections::redisInjectionPreview($site))->firstWhere('key', 'REDIS_HOST')['value'] ?? ''; @endphp
                             @if ($externalRedisHost !== '')
                                 <p class="mt-1 truncate font-mono text-xs text-brand-moss" title="{{ $externalRedisHost }}">{{ $externalRedisHost }}</p>
-                            @endif
-                        @elseif ($connection['kind'] === 'realtime')
-                            {{-- The internal host means nothing here: show where browsers connect and the size (no relay call in render). --}}
-                            @php $realtimeRow = $connection['target'] !== '' ? \App\Models\EdgeRealtimeApp::query()->whereKey($connection['target'])->where('organization_id', $site->organization_id)->first(['id', 'max_connections', 'hostname']) : null; @endphp
-                            <p class="mt-1 font-mono text-xs text-brand-moss">{{ \App\Modules\Edge\Services\Realtime\EdgeRealtimeApps::hostFor($realtimeRow) }}</p>
-                            @if ($realtimeRow)
-                                <p class="mt-1 text-xs text-brand-moss">{{ __('Up to :count connections', ['count' => number_format($realtimeRow->max_connections)]) }}</p>
                             @endif
                         @elseif ($connection['kind'] !== 'redis')
                             <p class="mt-1 font-mono text-xs text-brand-moss">{{ $isWorker ? 'env.'.$connection['name'] : $connection['host'] }}</p>

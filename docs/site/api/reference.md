@@ -49,6 +49,12 @@ In the examples, `$DPLY_TOKEN` holds your token and `$SITE` holds an app ID from
 | `PATCH` | `/edge/sites/{site}/env/{key}` | `edge.env.write` |
 | `DELETE` | `/edge/sites/{site}/env/{key}` | `edge.env.write` |
 | `POST` | `/edge/lint` | `edge.read` |
+| `GET` | `/edge/sites/{site}/databases` | `edge.read` |
+| `GET` | `/edge/sites/{site}/databases/{database}` | `edge.read` |
+| `POST` | `/edge/sites/{site}/databases/{database}/query` | `edge.write` |
+| `GET` | `/edge/sites/{site}/databases/{database}/exports` | `edge.read` |
+| `POST` | `/edge/sites/{site}/databases/{database}/exports` | `edge.write` |
+| `POST` | `/edge/sites/{site}/databases/{database}/restore` | `edge.write` |
 | `GET` | `/edge/databases` | `edge.read` |
 | `POST` | `/edge/databases/{database}/query` | `edge.write` |
 | `GET` | `/edge/queues` | `edge.read` |
@@ -793,6 +799,78 @@ curl -X POST https://edge.dply.io/api/v1/edge/lint \
 ```
 
 Status is `200` when `ok` is `true` and `422` when the file has errors.
+
+## App databases
+
+An app's Postgres, MySQL and MongoDB databases. `{database}` is the database's ID or name. Creating, attaching, resizing and deleting one stay in the dashboard. See [Databases](/docs/resources/databases).
+
+### List an app's databases
+
+`GET /edge/sites/{site}/databases` · `edge.read`
+
+The primary comes first.
+
+```json
+{
+  "data": [
+    {
+      "id": "01jd…", "name": "shop", "engine": "postgres", "primary": true, "env_prefix": "",
+      "host": "pg-01jd….db.dply.io", "region": "weur", "size": "0.25", "suspend_seconds": 300, "disk_gb": 1,
+      "last_backup_at": "2026-09-29T03:00:00+00:00", "transfer": null, "restore": null
+    },
+    { "id": "01je…", "name": "reports", "engine": "mysql", "primary": false, "env_prefix": "REPORTS", "…": "…" }
+  ]
+}
+```
+
+`env_prefix` is empty for the primary, which uses `DB_*` and `DATABASE_URL`. Another database's connection is behind its prefix, like `REPORTS_DB_HOST` and `REPORTS_DATABASE_URL`.
+
+### Get a database
+
+`GET /edge/sites/{site}/databases/{database}` · `edge.read`
+
+The same fields. `transfer` is the last export or import and `restore` is the last restore, each with a `status` of `running`, `done` or `failed`.
+
+### Run a query
+
+`POST /edge/sites/{site}/databases/{database}/query` · `edge.write`
+
+| Parameter | In | Rules |
+|---|---|---|
+| `sql` | body | Postgres and MySQL: one read-only statement, up to 100,000 characters. |
+| `collection` | body | MongoDB: the collection to search. |
+| `filter` | body | MongoDB: an optional JSON filter. The default is `{}`. |
+
+```bash
+curl -X POST https://edge.dply.io/api/v1/edge/sites/$SITE/databases/reports/query \
+  -H "Authorization: Bearer $DPLY_TOKEN" -H "Accept: application/json" \
+  -H "Content-Type: application/json" \
+  -d '{"sql": "SELECT id, total FROM orders ORDER BY id DESC"}'
+```
+
+```json
+{ "data": { "columns": ["id", "total"], "rows": [[42, 1999]], "truncated": false, "ms": 3 } }
+```
+
+At most 200 rows come back; `truncated` says there were more. A query the database rejects returns `422`. A database that doesn't answer returns `502`.
+
+### Export a database
+
+`POST /edge/sites/{site}/databases/{database}/exports` · `edge.write`
+
+Starts an export and returns `202` with the database, its `transfer.status` set to `running`. An export or import that is already running returns `422`.
+
+`GET /edge/sites/{site}/databases/{database}/exports` · `edge.read` lists the exports, newest first, each with a download `url`.
+
+### Restore to a point in time
+
+`POST /edge/sites/{site}/databases/{database}/restore` · `edge.write`
+
+| Parameter | In | Rules |
+|---|---|---|
+| `at` | body | Required. A moment in the last 7 days. A time without a zone is read as UTC. |
+
+Returns `202` with `restore.status` set to `running`. A time outside the window, or a restore already running, returns `422`.
 
 ## Databases
 

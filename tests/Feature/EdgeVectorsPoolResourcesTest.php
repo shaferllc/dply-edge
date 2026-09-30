@@ -60,7 +60,7 @@ test('a vector index is created under the prefix with its size, and bad options 
     Http::fake(['*/vectorize/v2/indexes' => Http::response(['success' => true, 'result' => ['name' => 'x']])]);
 
     expect(EdgeContainerConnections::provision('vectors', 'Docs', $org))->toBe($prefix.'docs');
-    Http::assertSent(fn ($r): bool => $r['name'] === $prefix.'docs' && $r['config'] === ['dimensions' => 768, 'metric' => 'cosine']);
+    Http::assertSent(fn ($r): bool => ($r['name'] ?? null) === $prefix.'docs' && ($r['config'] ?? null) === ['dimensions' => 768, 'metric' => 'cosine']);
 
     expect(fn () => EdgeContainerConnections::provision('vectors', 'docs', $org, ['dimensions' => 7, 'metric' => 'cosine']))->toThrow(InvalidArgumentException::class)
         ->and(fn () => EdgeContainerConnections::provision('vectors', 'docs', $org, ['metric' => 'manhattan']))->toThrow(InvalidArgumentException::class)
@@ -106,16 +106,20 @@ test('the builder creates a vector index with the chosen size and hides workflow
         ->call('saveConnection')
         ->assertHasNoErrors();
 
-    Http::assertSent(fn ($r): bool => $r['config'] === ['dimensions' => 1536, 'metric' => 'dot-product']);
+    Http::assertSent(fn ($r): bool => ($r['config'] ?? null) === ['dimensions' => 1536, 'metric' => 'dot-product']);
     expect(collect(EdgeContainerConnections::for($site->fresh()))->firstWhere('kind', 'vectors')['target'])->toBe($prefix.'docs');
 });
 
 test('a pool is created from this app\'s dply database or a pasted address', function () {
     [$org, $site, $user] = vectorsPoolApp(['database' => ['engine' => 'postgres', 'provider' => 'dply', 'remote_id' => 'pg-1', 'host' => 'pg-1.db.dply.io']]);
     (new EdgeSiteEnvVar(['site_id' => $site->id, 'key' => 'DB_PASSWORD', 'value' => 's3cret', 'scope' => EdgeSiteEnvVar::SCOPE_PRODUCTION]))->save();
-    Http::fake(['*/hyperdrive/configs' => Http::sequence()
-        ->push(['success' => true, 'result' => ['id' => str_repeat('d', 32)]])
-        ->push(['success' => true, 'result' => ['id' => str_repeat('e', 32)]])]);
+    // GET is the attach list (loaded when the kind is picked); each POST creates the next pool.
+    $ids = [str_repeat('d', 32), str_repeat('e', 32)];
+    Http::fake(['*/hyperdrive/configs' => function ($r) use (&$ids) {
+        return $r->method() === 'GET'
+            ? Http::response(['success' => true, 'result' => []])
+            : Http::response(['success' => true, 'result' => ['id' => array_shift($ids)]]);
+    }]);
 
     $component = Livewire::actingAs($user)->test(Resources::class, ['server' => $site->server, 'site' => $site])
         ->call('openConnectionBuilder')
@@ -124,7 +128,7 @@ test('a pool is created from this app\'s dply database or a pasted address', fun
         ->call('saveConnection')
         ->assertHasNoErrors();
 
-    Http::assertSent(fn ($r): bool => $r['origin'] === ['host' => 'pg-1.db.dply.io', 'port' => 5432, 'database' => 'app', 'user' => 'app', 'password' => 's3cret', 'scheme' => 'postgres']);
+    Http::assertSent(fn ($r): bool => ($r['origin'] ?? null) === ['host' => 'pg-1.db.dply.io', 'port' => 5432, 'database' => 'app', 'user' => 'app', 'password' => 's3cret', 'scheme' => 'postgres']);
 
     $component->call('openConnectionBuilder')
         ->call('chooseConnectionKind', 'database_pool')

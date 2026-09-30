@@ -7,6 +7,7 @@ namespace Dply\Laravel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Redis;
@@ -41,6 +42,9 @@ class CommandController
         if ($action === 'redis-probe') {
             return $this->redisProbe();
         }
+        if ($action === 'kv-probe') {
+            return $this->kvProbe((string) $request->input('store', ''));
+        }
         if ($action === 'db-probe') {
             return $this->databaseProbe();
         }
@@ -64,10 +68,22 @@ class CommandController
             return new JsonResponse(['error' => 'Unknown command.'], 422);
         }
 
+        // "database": another dply database's env prefix (REPORTS → REPORTS_DB_*),
+        // for its own migrations. Blank is the app's default connection.
+        $database = (string) $request->input('database', '');
+        $options = $command[1];
+        if ($database !== '') {
+            $connection = $this->prefixedConnection($database);
+            if ($connection === null) {
+                return new JsonResponse(['error' => "This deploy has no {$database}_DB_CONNECTION. Redeploy so the app gets that database's connection."], 422);
+            }
+            $options['--database'] = $connection;
+        }
+
         @set_time_limit(0);
 
         try {
-            $exit = Artisan::call($command[0], $command[1]);
+            $exit = Artisan::call($command[0], $options);
         } catch (Throwable $e) {
             report($e);
 
@@ -79,6 +95,44 @@ class CommandController
             'exit' => $exit,
             'output' => mb_substr(Artisan::output(), -4000),
         ], $exit === 0 ? 200 : 500);
+    }
+
+    /**
+     * The connection for a prefixed dply database: the app's own, if
+     * config/database.php names one after it (reports for REPORTS), else one
+     * built from REPORTS_DB_* on top of that driver's defaults.
+     */
+    private function prefixedConnection(string $prefix): ?string
+    {
+        if (preg_match('/^[A-Z][A-Z0-9_]{0,29}$/', $prefix) !== 1) {
+            return null;
+        }
+        $name = strtolower($prefix);
+        if (is_array(config('database.connections.'.$name))) {
+            return $name;
+        }
+        $env = static fn (string $key): ?string => ($value = getenv($prefix.'_'.$key)) === false ? (($_ENV[$prefix.'_'.$key] ?? null) ?: null) : $value;
+        $driver = (string) $env('DB_CONNECTION');
+        if ($driver === '') {
+            return null;
+        }
+        $config = array_merge((array) config('database.connections.'.$driver, []), array_filter([
+            'driver' => $driver,
+            'url' => $env('DATABASE_URL'),
+            'host' => $env('DB_HOST'),
+            'port' => $env('DB_PORT'),
+            'database' => $env('DB_DATABASE'),
+            'username' => $env('DB_USERNAME'),
+            'password' => $env('DB_PASSWORD'),
+            'sslmode' => $env('DB_SSLMODE'),
+        ], static fn ($v) => $v !== null));
+        $ca = $env('MYSQL_ATTR_SSL_CA');
+        if ($driver === 'mysql' && $ca !== null && defined('PDO::MYSQL_ATTR_SSL_CA')) {
+            $config['options'] = [\PDO::MYSQL_ATTR_SSL_CA => $ca] + (array) ($config['options'] ?? []);
+        }
+        config(['database.connections.'.$name => $config]);
+
+        return $name;
     }
 
     /**
@@ -291,6 +345,46 @@ class CommandController
      * the app actually gets. The first command includes connecting (TLS +
      * AUTH) unless a persistent connection is already open in this worker.
      */
+    /**
+     * The key-value store from inside the app: a put, get and forget through
+     * Cache::store($store), the same path the app's own code takes (the
+     * Worker, then Cloudflare KV). KV keeps a key at least 60 seconds.
+     */
+    private function kvProbe(string $store): JsonResponse
+    {
+        $store = $store !== '' ? $store : (string) env('DPLY_KV_STORE', '');
+        $steps = [];
+        $time = static function (string $step, callable $run) use (&$steps): mixed {
+            $start = hrtime(true);
+            $result = $run();
+            $steps[] = ['step' => $step, 'ms' => round((hrtime(true) - $start) / 1e6, 1), 'result' => is_scalar($result) ? (string) $result : 'OK'];
+
+            return $result;
+        };
+        if ($store === '' || (config('cache.stores.'.$store.'.driver') !== 'dply')) {
+            return new JsonResponse(['ok' => false, 'error' => 'No key-value store named '.$store.' in this app. Deploy once after attaching it.', 'steps' => []]);
+        }
+
+        try {
+            $cache = Cache::store($store);
+            $key = 'dply:probe:'.bin2hex(random_bytes(4));
+            $value = bin2hex(random_bytes(8));
+            $time('Cache::put (expires in 60s)', fn () => $cache->put($key, $value, 60) ? 'OK' : 'refused');
+            $read = $time('Cache::get', fn () => $cache->get($key));
+            $time('Cache::forget', fn () => $cache->forget($key) ? 'OK' : 'refused');
+        } catch (Throwable $e) {
+            return new JsonResponse(['ok' => false, 'error' => $e->getMessage(), 'steps' => $steps]);
+        }
+
+        return new JsonResponse([
+            'ok' => $read === $value,
+            'error' => $read === $value ? null : 'Cache::get returned a different value.',
+            'steps' => $steps,
+            'default' => (string) config('cache.default') === $store,
+            'region' => (string) (getenv('CLOUDFLARE_REGION') ?: getenv('CLOUDFLARE_LOCATION') ?: ''),
+        ]);
+    }
+
     private function redisProbe(): JsonResponse
     {
         $steps = [];

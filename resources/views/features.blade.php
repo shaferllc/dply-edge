@@ -22,62 +22,63 @@
     <main id="main-content" tabindex="-1">
         @php
             /*
-             * Four sections, four items each. The page used to run ten sections and
+             * Four sections, four items each, apps first (the ICP is Laravel/Rails).
+             * The page used to run ten sections and
              * ~57 items, which read as a specification rather than a features page —
              * keep new entries to one line, and replace rather than append.
              */
             $sections = [
+                [
+                    'id' => 'apps',
+                    'title' => 'Apps & workers',
+                    'lede' => 'Laravel, Symfony, Rails and Node run as they are, in containers.',
+                    'items' => [
+                        ['title' => 'Detected from the repo', 'body' => 'dply reads the framework, runtime and build from your code and generates the image. Bring a Dockerfile when you want one.'],
+                        ['title' => 'Scales out, sleeps when idle', 'body' => 'Instances follow traffic and sleep after a quiet spell. You pay for the seconds they run; keep one warm if you need to.'],
+                        ['title' => 'Queue workers & scheduler', 'body' => 'queue:work processes that autoscale on queue depth, worker groups, failed jobs, and the Laravel scheduler every minute.'],
+                        ['title' => 'Migrations on deploy', 'body' => 'Run migrations when a container starts, or on demand from the database sheet.'],
+                    ],
+                ],
+                [
+                    'id' => 'data',
+                    'title' => 'Databases & data',
+                    'lede' => 'Attach what the app needs; the credentials arrive as environment variables.',
+                    'items' => [
+                        ['title' => 'Postgres, MySQL & MongoDB', 'body' => 'Managed, in your app’s region, backed up continuously, and asleep when nothing is connected.'],
+                        ['title' => 'Valkey', 'body' => 'A Redis-compatible store for cache, sessions and queues.'],
+                        ['title' => 'Object storage & realtime', 'body' => 'Buckets for uploads, and WebSockets for Laravel broadcasting.'],
+                        ['title' => 'Bring your data', 'body' => 'Upload a pg_dump or mysqldump and load it, or connect with the URL and restore it yourself.'],
+                    ],
+                ],
                 [
                     'id' => 'deploy',
                     'title' => 'Deploys & previews',
                     'lede' => 'Push a branch. Get a URL.',
                     'items' => [
                         ['title' => 'A preview per branch', 'body' => 'Every branch and pull request builds to its own URL, posted back as a commit check and a PR comment.'],
-                        ['title' => 'Review on the real thing', 'body' => 'Reviewers comment directly on a preview and mark it approved or changes-requested.'],
                         ['title' => 'Instant rollback', 'body' => 'Releases are immutable and keep their own URL, so going back is a pointer change, not a rebuild.'],
-                        ['title' => 'Private by default', 'body' => 'Preview URLs need a signed link or an org login, so unreleased work is never indexable.'],
-                    ],
-                ],
-                [
-                    'id' => 'build',
-                    'title' => 'Builds & frameworks',
-                    'lede' => 'Settings are inferred, and all of them are yours to override.',
-                    'items' => [
-                        ['title' => 'Framework detection', 'body' => 'Next.js, Nuxt, Astro, SvelteKit, Remix, Gatsby, Vite, Hono, Eleventy, Hugo, Jekyll, and plain HTML.'],
-                        ['title' => 'Static, SSG & SSR', 'body' => 'Static output is served from object storage; server-rendered routes run at the edge, under one hostname.'],
-                        ['title' => 'Cached builds', 'body' => 'Dependencies are cached between deploys, so an unchanged lockfile skips the cold install.'],
-                        ['title' => 'Environment per site', 'body' => 'Separate production and preview values, encrypted at rest, applied at build and runtime.'],
+                        ['title' => 'Static, SSG & SSR too', 'body' => 'Next.js, Nuxt, Astro, SvelteKit, Remix, Hugo and more, served from the edge under the same project.'],
+                        ['title' => 'Environment per app', 'body' => 'Separate production and preview values, encrypted at rest, applied at build and runtime.'],
                     ],
                 ],
                 [
                     'id' => 'delivery',
-                    'title' => 'Domains & delivery',
+                    'title' => 'Domains & protection',
                     'lede' => 'What happens on the request path, before your app sees it.',
                     'items' => [
-                        ['title' => 'Custom domains & TLS', 'body' => 'Guided DNS, with certificates issued and renewed for you. Every site gets a permanent hostname on day one.'],
-                        ['title' => 'Redirects, rewrites & headers', 'body' => 'Declarative rules evaluated at the edge — no origin round trip to send a 301.'],
-                        ['title' => 'Edge middleware', 'body' => 'Your own code on the request path for rewrites, geo routing, and A/B splits.'],
-                        ['title' => 'Cache & purge', 'body' => 'Assets are cached at the edge, invalidated on deploy, and purgeable by path.'],
-                    ],
-                ],
-                [
-                    'id' => 'operate',
-                    'title' => 'Protection & insight',
-                    'lede' => 'Who reaches the site, and what happened when they did.',
-                    'items' => [
-                        ['title' => 'Access rules', 'body' => 'Put a site or a path prefix behind a password or an org login — useful for staging and internal tools.'],
-                        ['title' => 'Firewall, bots & rate limits', 'body' => 'Block by country, IP, ASN, or path; challenge automated traffic; cap requests per window.'],
-                        ['title' => 'Traffic & logs', 'body' => 'Requests, bandwidth, status codes, cache ratio, and response times, plus a searchable live tail.'],
-                        ['title' => 'Uptime & alerts', 'body' => 'Scheduled URL checks, with failed builds and error spikes routed to the channels you already watch.'],
+                        ['title' => 'Custom domains & TLS', 'body' => 'Guided DNS, with certificates issued and renewed for you. Every app gets a permanent hostname on day one.'],
+                        ['title' => 'Redirects, rewrites & middleware', 'body' => 'Declarative rules and your own code on the request path, evaluated at the edge.'],
+                        ['title' => 'Firewall & access rules', 'body' => 'Block by country, IP or path, challenge bots, rate-limit, or put staging behind a login.'],
+                        ['title' => 'Traffic, logs & uptime', 'body' => 'Requests, status codes and response times, a live tail of what the app prints, and URL checks with alerts.'],
                     ],
                 ],
             ];
 
-            // Stated plainly rather than buried — this is the boundary of an edge product.
+            // Stated plainly rather than buried: the trade-offs of containers that sleep.
             $notIncluded = [
-                'Managed databases' => 'Bring your own — reach it over HTTPS from a Worker or your build.',
-                'Long-running services' => 'Edge runs your frontend and its request-path logic, not a persistent process.',
-                'Form handling' => 'Submissions are captured per site; routing and spam filtering are still in progress.',
+                'A server to SSH into' => 'Containers start fresh and have no shell. Use the logs and the database tools instead.',
+                'A persistent disk' => 'Files written at runtime are lost on restart. Put uploads in object storage.',
+                'Zero cold starts by default' => 'An idle app sleeps and the next request waits for it to wake. Set a minimum instance to keep one warm.',
             ];
         @endphp
 
@@ -86,12 +87,12 @@
                 <div class="min-w-0 overflow-hidden border border-edge-line bg-edge-void">
                     {{-- Hero --}}
                     <div class="border-b border-edge-line bg-edge-panel px-5 py-7 sm:px-8 sm:py-9">
-                        <p class="text-xs font-semibold uppercase tracking-[0.16em] text-edge-lime">{{ config('app.name') }}</p>
+                        <p class="text-xs font-semibold uppercase tracking-[0.16em] text-edge-lime">dply</p>
                         <h1 class="mt-2 text-3xl font-bold tracking-tight text-edge-text sm:text-4xl">
-                            {{ __('Ship a site, not a server.') }}
+                            {{ __('Your whole app, not just the frontend.') }}
                         </h1>
                         <p class="mt-3 max-w-xl text-sm leading-relaxed text-edge-mute sm:text-base">
-                            {{ __('Connect a repository. :app builds it, puts it on a global edge network, and gives every branch its own URL.', ['app' => config('app.name')]) }}
+                            {{ __('Connect a repository. dply detects Laravel, Rails or Node, builds it, runs it next to its database and queue workers, and gives every branch its own URL.') }}
                         </p>
                         <div class="mt-5 inline-block border border-edge-line bg-edge-void px-4 py-3 font-mono text-xs text-edge-dim">
                             <div><span class="text-edge-lime">$</span> git push origin main</div>

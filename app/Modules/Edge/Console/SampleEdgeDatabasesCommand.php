@@ -6,6 +6,7 @@ namespace App\Modules\Edge\Console;
 
 use App\Models\DplyDatabase;
 use App\Models\Site;
+use App\Modules\Edge\Services\DplyDatabases;
 use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Edge\Support\EdgeDatabaseResize;
 use App\Modules\Edge\Support\EdgeDplyDatabase;
@@ -102,7 +103,7 @@ class SampleEdgeDatabasesCommand extends Command
     /**
      * Databases that are no app's primary (DplyDatabases): their history on
      * their own row, and the same disk, connection and memory alerts, sent to
-     * an app they are attached to. Resize suggestions stay with the primary.
+     * an app they are attached to, and their own resize suggestions.
      */
     private function sampleOtherDatabases(NotificationPublisher $publisher): void
     {
@@ -121,6 +122,9 @@ class SampleEdgeDatabasesCommand extends Command
                 $state['history'] = self::withPoint((array) ($state['history'] ?? []), ['size' => (int) ($in['size_bytes'] ?? 0), 'disk_used' => $used, 'disk' => $disk, 'connections' => (int) ($in['connections'] ?? 0)]);
                 $database->forceFill(['state' => $state])->save();
             }
+            // Memory, for its own resize suggestion (EdgeDatabaseResize).
+            EdgeDatabaseResize::record($database, $in);
+            $this->suggestResize($database->fresh());
             $site = $database->sites()->first();
             if ($site === null) {
                 return; // detached everywhere: recorded, nobody to tell
@@ -200,16 +204,31 @@ class SampleEdgeDatabasesCommand extends Command
      * size: again only after the suggestion went away and came back (or its
      * dismissal ran out). Approving happens in the database sheet.
      */
-    private function suggestResize(Site $site): void
+    private function suggestResize(Site|DplyDatabase $of): void
     {
-        $suggestion = EdgeDatabaseResize::suggestion($site);
-        $database = (array) ($site->edgeMeta()['database'] ?? []);
+        $site = $of instanceof Site ? $of : $of->sites()->first();
+        if ($site === null) {
+            return; // attached nowhere: nobody to tell, and resizing needs an app
+        }
+        $suggestion = EdgeDatabaseResize::suggestion($of);
+        $database = $of instanceof Site ? (array) ($of->edgeMeta()['database'] ?? []) : DplyDatabases::record($of);
         $told = $database['resize_notified'] ?? null;
+        $remember = function (?string $size) use ($of, $database): void {
+            if ($of instanceof DplyDatabase) {
+                DplyDatabases::remember($of, ['resize_notified' => $size]);
+
+                return;
+            }
+            unset($database['resize_notified']);
+            if ($size !== null) {
+                $database['resize_notified'] = $size;
+            }
+            $of->mergeEdgeMeta(['database' => $database]);
+            $of->save();
+        };
         if ($suggestion === null || isset($database['resize_scheduled'])) {
             if ($told !== null && $suggestion === null) {
-                unset($database['resize_notified']);
-                $site->mergeEdgeMeta(['database' => $database]);
-                $site->save();
+                $remember(null);
             }
 
             return;
@@ -218,16 +237,15 @@ class SampleEdgeDatabasesCommand extends Command
             return;
         }
         $to = EdgeAppDatabase::POSTGRES_SIZES[$suggestion['size']] ?? null;
+        $which = $of instanceof Site ? __('The database for :app', ['app' => $site->name]) : __('The :name database', ['name' => $of->name]);
         EdgeDatabaseResize::notify($site, 'edge.database.resize_suggested',
             $suggestion['direction'] === 'up'
-                ? __('The database for :app could use a bigger size', ['app' => $site->name])
-                : __('The database for :app could run on a smaller size', ['app' => $site->name]),
+                ? __(':which could use a bigger size', ['which' => $which])
+                : __(':which could run on a smaller size', ['which' => $which]),
             $suggestion['reason'].' '.__('Suggested: :size. Review it and resize now or tonight; resizing restarts the database.', ['size' => $to !== null ? $to['cpu'].' · '.$to['memory'] : $suggestion['size']]),
-            $suggestion);
-        $database['resize_notified'] = $suggestion['size'];
-        $site->mergeEdgeMeta(['database' => $database]);
-        $site->save();
-        $this->line($site->name.': suggested '.$suggestion['size']);
+            $suggestion, $of instanceof Site ? 'database' : 'db-'.$of->id);
+        $remember($suggestion['size']);
+        $this->line(($of instanceof Site ? $site->name : $of->name).': suggested '.$suggestion['size']);
     }
 
     /** @param  array<string, mixed>  $metadata */

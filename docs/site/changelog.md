@@ -7,6 +7,14 @@ What changed in dply, newest first. Each entry links to the page that covers the
 
 ## 2026-09-29
 
+### Every database gets the full toolkit, and an API and CLI
+
+A database that isn't the app's primary now has its own statistics, console, exports and imports, point-in-time restore and resize suggestions. Open its card and choose **Stats, console & backups**. The primary's **Awake this month** no longer counts the other databases' time. The API (`/edge/sites/{site}/databases`) and the CLI (`dply edge databases`) list an app's databases and query, export or restore any of them. See [Databases](/docs/resources/databases).
+
+### SQLite has its own sheet
+
+Choosing the **SQLite** card now opens an SQLite sheet: the file and when it was last saved, **Download a copy**, migrate and seed tools, and **Add a database** for a shared one. Database tools now run against the database whose card you're on, and say to redeploy when the running app still has a different one. See [Manage SQLite](/docs/resources/databases#manage-sqlite).
+
 ### Outbound traffic and log events are metered
 
 Traffic a container app sends out on its own, like calls to outside APIs or S3, now bills as **App outbound traffic**. Replies to your visitors still bill once, as bandwidth. Log events (one per request, plus each line your app logs) now bill under **Workers**. Outbound counting starts with each app's next deploy. See [Plans & pricing](/docs/pricing).

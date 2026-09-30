@@ -144,7 +144,7 @@ It is off by default. Migrations run on every start, including every wake from s
 Generated PHP images come tuned:
 
 - **OPcache** is on with 128 MB, 20,000 files and no timestamp checks (the code never changes inside a container). JIT (`tracing`, 64 MB) is on for php-fpm, Swoole and RoadRunner, and off for FrankenPHP.
-- **Laravel caches.** Each container runs `php artisan optimize` (config, routes, views, events) as it starts, since your environment variables only exist at runtime. If it fails the app starts without the caches and the log says so. It adds a little to each cold start.
+- **Laravel caches.** Routes and events are cached when the image is built. The config cache is built as each container starts, since your environment variables only exist at runtime (Octane apps skip it: they boot the app once per worker), and views compile the first time they render. If a cache step fails the app starts without it and the log says so. If your app can't boot without its environment, routes and events are cached at start instead.
 - **Kept connections.** With dply/laravel, Redis (phpredis) connections stay open between requests, and on php-fpm so do Postgres and MySQL connections, so a request skips the connect and TLS handshake. (FrankenPHP threads never exit, so there each would hold a database connection for as long as the container runs.) A connection you configure yourself (`PDO::ATTR_PERSISTENT` in a connection's `options`, or `REDIS_PERSISTENT`) is left as you set it. Session settings your code changes (`SET …`, advisory locks) carry over to the next request on the same worker.
 
 ## Worker mode

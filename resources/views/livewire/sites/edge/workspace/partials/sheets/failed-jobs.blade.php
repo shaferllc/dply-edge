@@ -1,5 +1,5 @@
 <x-sheet name="resources-failed-jobs" :show="$panel === 'failed-jobs'" maxWidth="3xl" focusable>
-    <x-sheet.header :eyebrow="__('Queue workers')" :title="__('Failed jobs')" close-wire="openPanel('')">
+    <x-sheet.header :eyebrow="__('Queue workers')" :title="__('Failed jobs')" close-wire="$set('panel', '')">
         {{ __('From the app\'s own failed-job store. Retry puts a job back on its queue for the workers; Delete removes it for good.') }}
     </x-sheet.header>
 

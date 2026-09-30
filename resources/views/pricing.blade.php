@@ -82,7 +82,8 @@
 
     // Read by @head below, so this block sits above the document.
     $fromPrice = $money(collect($tiers)->min('price_cents'));
-    \Laravel\Head\Facades\Head::description(__('Plans from :from/mo: Starter, Pro and Team, each with unlimited sites and included usage. Apps, databases and Valkey bill by the second; requests and bandwidth by the unit.', ['from' => $fromPrice]))
+    \Laravel\Head\Facades\Head::title(__('Pricing: plans from :from/mo', ['from' => $fromPrice]))
+        ->description(__('Plans from :from/mo: Starter, Pro and Team, each with unlimited sites and included usage. Apps, databases and Valkey bill by the second they run.', ['from' => $fromPrice]))
         ->schema(\Laravel\Head\Facades\Schema::product()
             ->name('dply')
             ->description(__('Git-push hosting for static sites, server-rendered apps and PHP, Rails or Node servers.'))

@@ -1,9 +1,10 @@
 {!! '<'.'?xml version="1.0" encoding="UTF-8"?>' !!}
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-@foreach ([url('/') => '1.0', route('pricing') => '0.9', route('features') => '0.8', route('compliance') => '0.5'] as $loc => $priority)
-  <url><loc>{{ $loc }}</loc><changefreq>weekly</changefreq><priority>{{ $priority }}</priority></url>
+{{-- Google ignores changefreq and priority. No lastmod either: deploys reset file mtimes, so every page would claim to have changed. --}}
+@foreach ([url('/'), route('pricing'), route('features'), route('compliance'), route('compare', 'forge'), route('compare', 'laravel-cloud'), route('compare', 'heroku')] as $loc)
+  <url><loc>{{ $loc }}</loc></url>
 @endforeach
 @foreach ($docs as $page)
-  <url><loc>{{ route('docs.show', $page['slug']) }}</loc><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>{{ route('docs.show', $page['slug']) }}</loc></url>
 @endforeach
 </urlset>

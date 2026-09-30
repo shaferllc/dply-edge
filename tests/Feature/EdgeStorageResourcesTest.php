@@ -12,6 +12,7 @@ use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
 use App\Modules\Edge\Jobs\DeleteEdgeKvKeysByPrefixJob;
+use App\Modules\Edge\Livewire\Buckets;
 use App\Modules\Edge\Services\EdgeKvUsageCollector;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -141,14 +142,14 @@ test('the bucket card and sheet show this bucket\'s usage and cost, cached', fun
     // Priced like the bill (Cloudflare list, no allowance): 10 GB x 1.5c + 1M class A x 450c = $4.65. The card never waits on
     // Cloudflare: a cold cache shows no estimate; opening the sheet fetches.
     $component = Livewire::actingAs($user)->test(Resources::class, ['server' => $site->server, 'site' => $site])
-        ->assertDontSee('Cost estimate · $')
+        ->assertDontSee('this month')
         ->call('openObject', $host)
         ->assertSet('objectUsage.objects', 1234)
         ->assertSee('1,234')
         ->assertSee('$4.65');
 
     // Warm now: the card shows it, with no second GraphQL call.
-    $component->call('$refresh')->assertSee('Cost estimate · $4.65');
+    $component->call('$refresh')->assertSeeHtml('<b class="text-brand-ink">$4.65</b> this month');
     expect(Http::recorded(fn (Request $request): bool => str_contains($request->url(), 'graphql')))->toHaveCount(1);
 });
 
@@ -158,7 +159,7 @@ test('the bucket estimate is left off, not thrown, when Cloudflare fails', funct
 
     Livewire::actingAs($user)->test(Resources::class, ['server' => $site->server, 'site' => $site])
         ->assertOk()
-        ->assertDontSee('Cost estimate · $');
+        ->assertDontSee('this month');
 });
 
 test('the object list filters by prefix and pages', function () {
@@ -197,7 +198,7 @@ test('a new bucket can be placed with a location hint', function () {
         ->call('saveConnection')
         ->assertHasNoErrors();
 
-    Http::assertSent(fn (Request $request): bool => str_ends_with($request->url(), '/r2/buckets') && $request['locationHint'] === 'weur');
+    Http::assertSent(fn (Request $request): bool => str_ends_with($request->url(), '/r2/buckets') && ($request['locationHint'] ?? null) === 'weur');
 });
 
 test('empty and delete removes the files, then the bucket', function () {
@@ -312,4 +313,130 @@ test('a long prefix delete hands the cursor to a fresh run instead of racing the
 
     Queue::assertPushed(DeleteEdgeKvKeysByPrefixJob::class, fn ($job) => $job->cursor === 'more' && $job->removed === DeleteEdgeKvKeysByPrefixJob::PAGES_PER_RUN);
     expect(DeleteEdgeKvKeysByPrefixJob::progress('ns-1')['done'])->toBeFalse();
+});
+
+/** Adds a second bucket (MEDIA) to the app from storageApp(); returns its host. */
+function addMediaBucket(Site $site): string
+{
+    $host = EdgeContainerConnections::resourceHost($site, 'media');
+    $rows = EdgeContainerConnections::for($site);
+    $rows[] = ['kind' => 'object_storage', 'name' => 'MEDIA', 'host' => $host, 'target' => EdgeContainerConnections::ownedPrefix($site->organization).'media'];
+    $site->mergeEdgeMeta(['connections' => $rows]);
+    $site->save();
+
+    return $host;
+}
+
+it('uses the first bucket as the default disk until another is made default', function () {
+    [$user, $site] = storageApp('object_storage', '{prefix}uploads');
+    $media = addMediaBucket($site);
+
+    $env = EdgeContainerConnections::storageDriverEnv($site->fresh());
+    expect($env['DPLY_STORAGE_DISK'])->toBe('uploads')
+        ->and($env['DPLY_STORAGE_DISKS'])->toContain('uploads=')->toContain('media=');
+
+    Livewire::actingAs($user)->test(Resources::class, ['server' => $site->server, 'site' => $site])
+        ->set('objectHost', $media)
+        ->call('makeDefaultStorage');
+
+    $env = EdgeContainerConnections::storageDriverEnv($site->fresh());
+    expect($env['DPLY_STORAGE_DISK'])->toBe('media')->and($env['DPLY_STORAGE_HOST'])->toBe($media);
+
+    // Asleep, the chosen bucket gives way to the first awake one.
+    $rows = collect(EdgeContainerConnections::for($site->fresh()))->map(fn ($c) => $c['name'] === 'MEDIA' ? ['asleep' => true] + $c : $c)->all();
+    $site = $site->fresh();
+    $site->mergeEdgeMeta(['connections' => $rows]);
+    $site->save();
+    expect(EdgeContainerConnections::storageDriverEnv($site->fresh())['DPLY_STORAGE_DISK'])->toBe('uploads');
+});
+
+it('signs a share link for the attached bucket only, with an allowed expiry', function () {
+    config(['filesystems.disks.edge_r2' => ['driver' => 's3', 'key' => 'k', 'secret' => 's', 'region' => 'auto', 'bucket' => 'platform', 'endpoint' => 'https://acct.r2.cloudflarestorage.com', 'use_path_style_endpoint' => true]]);
+    [$user, $site, $host] = storageApp('object_storage', '{prefix}uploads');
+    $component = Livewire::actingAs($user)->test(Resources::class, ['server' => $site->server, 'site' => $site])->set('objectHost', $host);
+
+    $url = $component->instance()->objectSignedUrl('docs/a.pdf', 'get', 24)['url'];
+    expect($url)->toContain('/'.EdgeContainerConnections::ownedPrefix($site->organization).'uploads/docs/a.pdf')
+        ->toContain('X-Amz-Expires=86400');
+    expect($component->instance()->objectSignedUrl('docs/a.pdf', 'put', 1)['url'])->toContain('X-Amz-Expires=3600');
+
+    expect($component->instance()->objectSignedUrl('../etc', 'get', 24))->toHaveKey('error')
+        ->and($component->instance()->objectSignedUrl('a.txt', 'get', 999))->toHaveKey('error');
+
+    // A bucket another organization owns is refused even when bound here.
+    $site->mergeEdgeMeta(['connections' => [['kind' => 'object_storage', 'name' => 'UPLOADS', 'host' => $host, 'target' => 'dply-someoneelse-uploads']]]);
+    $site->save();
+    $other = Livewire::actingAs($user)->test(Resources::class, ['server' => $site->server, 'site' => $site->fresh()])->set('objectHost', $host);
+    expect($other->instance()->objectSignedUrl('a.txt', 'get', 24))->toHaveKey('error');
+});
+
+it('lists the organization’s buckets with the apps that use them', function () {
+    [$user, $site] = storageApp('object_storage', '{prefix}uploads');
+    $prefix = EdgeContainerConnections::ownedPrefix($site->organization);
+    session(['current_organization_id' => $site->organization_id]);
+    Http::fake(['*' => Http::response(['success' => true, 'result' => ['buckets' => [['name' => $prefix.'uploads'], ['name' => $prefix.'spare'], ['name' => 'dply-other-org-x']]]])]);
+
+    Livewire::actingAs($user)->test(Buckets::class)
+        ->assertSee('uploads')->assertSee('spare')->assertDontSee('other-org')
+        ->assertSee($site->name)
+        ->call('delete', $prefix.'uploads')
+        ->assertHasErrors('bucket');
+});
+
+it('sets and clears a bucket’s public path, refusing a bad or taken one', function () {
+    [$user, $site, $host] = storageApp('object_storage', '{prefix}uploads');
+    $media = addMediaBucket($site);
+    $component = Livewire::actingAs($user)->test(Resources::class, ['server' => $site->server, 'site' => $site->fresh()]);
+
+    $component->set('objectHost', $host)->call('setObjectPublicPath', 'Files/')->assertHasNoErrors();
+    expect(EdgeContainerConnections::publicStorage($site->fresh()))->toBe([['name' => 'UPLOADS', 'path' => '/files']]);
+
+    $component->set('objectHost', $media)->call('setObjectPublicPath', '/files')->assertHasErrors('objectPublicPath');
+    $component->call('setObjectPublicPath', '/../etc')->assertHasErrors('objectPublicPath');
+
+    $component->set('objectHost', $host)->call('setObjectPublicPath', '');
+    expect(EdgeContainerConnections::publicStorage($site->fresh()))->toBe([]);
+});
+
+it('offers Attach existing only for buckets this app does not use yet', function () {
+    [$user, $site] = storageApp('object_storage', '{prefix}uploads');
+    $prefix = EdgeContainerConnections::ownedPrefix($site->organization);
+    $buckets = [['name' => $prefix.'uploads']];
+    Http::fake(['*/r2/buckets' => function () use (&$buckets) {
+        return Http::response(['success' => true, 'result' => ['buckets' => $buckets]]);
+    }]);
+
+    // Its only bucket is already attached: no toggle.
+    Livewire::actingAs($user)->test(Resources::class, ['server' => $site->server, 'site' => $site])
+        ->call('chooseConnectionKind', 'object_storage')
+        ->assertSet('connectionOptions', [])
+        ->assertDontSeeHtml("setConnectionMode('attach')");
+
+    $buckets[] = ['name' => $prefix.'media'];
+    Livewire::actingAs($user)->test(Resources::class, ['server' => $site->server, 'site' => $site])
+        ->call('chooseConnectionKind', 'object_storage')
+        ->assertSet('connectionOptions', [['id' => $prefix.'media', 'label' => 'media']])
+        ->assertSeeHtml("setConnectionMode('attach')");
+});
+
+it('makes a key-value store the default cache only when chosen, and never over Redis', function () {
+    [$user, $site, $host] = storageApp('key_value', 'ns-1');
+    $site->forceFill(['meta' => array_replace_recursive($site->meta ?? [], ['edge' => ['build' => ['framework' => 'laravel']]])])->save();
+    $site = $site->fresh();
+    $env = EdgeContainerConnections::kvDriverEnv($site);
+    expect($env['DPLY_KV_STORE'])->toBe('uploads')
+        ->and($env)->not->toHaveKey('CACHE_STORE')
+        ->and($env)->not->toHaveKey('DPLY_KV_DEFAULT');
+
+    Livewire::actingAs($user)->test(Resources::class, ['server' => $site->server, 'site' => $site])
+        ->set('kvHost', $host)
+        ->call('setKvDefaultCache', true);
+    $env = EdgeContainerConnections::kvDriverEnv($site->fresh());
+    expect($env['DPLY_KV_DEFAULT'])->toBe('uploads')
+        ->and($env['CACHE_STORE'] ?? null)->toBe($site->fresh()->isLaravelFrameworkDetected() ? 'uploads' : null);
+
+    Livewire::actingAs($user)->test(Resources::class, ['server' => $site->server, 'site' => $site->fresh()])
+        ->set('kvHost', $host)
+        ->call('setKvDefaultCache', false);
+    expect(EdgeContainerConnections::kvDriverEnv($site->fresh()))->not->toHaveKey('DPLY_KV_DEFAULT');
 });

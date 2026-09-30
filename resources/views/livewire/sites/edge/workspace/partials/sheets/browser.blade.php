@@ -1,6 +1,6 @@
 @if ($showBrowser)
     <x-sheet name="resources-browser" :show="$panel === 'browser'" maxWidth="3xl" focusable>
-        <x-sheet.header :title="__('Browser')" close-wire="openPanel('')">
+        <x-sheet.header :title="__('Browser')" close-wire="$set('panel', '')">
             {{ __('This app gets its own browser at an address starting with dply, so it does not clash with a name the app already uses. Another app gets a different address.') }}
             <x-slot:actions>
                 <div class="mt-0.5 flex items-center gap-2">

@@ -57,6 +57,18 @@ final class EdgeContainerDockerfile
      */
     public const PHP_SERVERS = ['frankenphp', 'swoole', 'roadrunner', 'fpm'];
 
+    /**
+     * Migrate-on-boot for an in-app SQLite database: the file is restored on
+     * every wake, and `migrate` boots the whole framework (~0.5s) just to find
+     * nothing to do. After a successful migrate the image's build id
+     * (/app/.dply-build) is written into the database; a later boot of the
+     * same image whose database carries it skips migrate. A new deploy has a
+     * new id, so it migrates once, package migrations included. Exit 0 = skip.
+     */
+    public const SQLITE_MIGRATED = 'try { $b = trim((string) @file_get_contents("/app/.dply-build")); $v = (new PDO("sqlite:".getenv("DB_DATABASE")))->query("SELECT build FROM dply_migrated")->fetchColumn(); exit($b !== "" && $v === $b ? 0 : 1); } catch (Throwable $e) { exit(1); }';
+
+    public const SQLITE_MARK_MIGRATED = 'try { $b = trim((string) @file_get_contents("/app/.dply-build")); if ($b === "") exit(0); $p = new PDO("sqlite:".getenv("DB_DATABASE")); $p->exec("CREATE TABLE IF NOT EXISTS dply_migrated (build TEXT)"); $p->exec("DELETE FROM dply_migrated"); $p->prepare("INSERT INTO dply_migrated (build) VALUES (?)")->execute([$b]); } catch (Throwable $e) { }';
+
     /** Ruby minors we publish a prebuilt base for, newest first. */
     public const RUBY_VERSIONS = ['3.4', '3.3', '3.2'];
 
@@ -654,6 +666,14 @@ final class EdgeContainerDockerfile
             // views fail with tempnam() and the welcome page 500s.
             $own = $server === 'fpm' ? ' && chown -R www-data:www-data storage bootstrap/cache' : '';
             $lines[] = 'RUN mkdir -p storage/framework/cache storage/framework/sessions storage/framework/views bootstrap/cache'.$own.' && chmod -R 775 storage bootstrap/cache';
+            // Route and event caches don't depend on the app's env, so they are
+            // built once here instead of on every cold start. An app whose
+            // providers need runtime env to boot fails here and builds them at
+            // boot instead (the `[ -f … ] ||` in the start command).
+            $lines[] = 'RUN php artisan route:cache >/dev/null 2>&1 || echo "dply: route:cache needs the runtime env; it runs at boot instead"; php artisan event:cache >/dev/null 2>&1 || true';
+            // Identifies this image's code for the SQLite migrate skip below. Same
+            // code, same cached layer, same id; any code change makes a new one.
+            $lines[] = 'RUN cat /proc/sys/kernel/random/uuid > /app/.dply-build';
             $lines[] = 'ENV LOG_CHANNEL=stderr';
         }
         if ($server === 'fpm') {
@@ -667,6 +687,9 @@ final class EdgeContainerDockerfile
             $conf = 'pid /tmp/nginx.pid; error_log /tmp/nginx-error.log; events {} http { include /etc/nginx/mime.types; access_log off; '
                 .'client_body_temp_path /tmp/client_body; fastcgi_temp_path /tmp/fastcgi; '
                 .'server { listen 0.0.0.0:8080; root /app/public; index index.php; '
+                // The Worker's readiness probe (EdgeContainerDeployer::PING_PATH): nginx
+                // opens 8080 only once php-fpm accepts, so answering here means ready.
+                .'location = '.EdgeContainerDeployer::PING_PATH.' { return 204; } '
                 .'location / { try_files $uri $uri/ /index.php?$query_string; } '
                 .'location ~ \\.php$ { fastcgi_pass 127.0.0.1:9000; fastcgi_index index.php; include fastcgi_params; '
                 .'fastcgi_param HTTPS on; fastcgi_param HTTP_X_FORWARDED_PROTO https; '
@@ -692,12 +715,22 @@ final class EdgeContainerDockerfile
         // connections open. ondemand children exit after 10s idle, so held
         // connections follow recent traffic; FrankenPHP threads never exit
         // and would hold one each (16 x instances) against Postgres' 50.
-        // Laravel's config/route/view/event caches, built at boot because the
-        // app's env only exists at runtime. Each instance writes its own. A
-        // failure leaves the app uncached, never down. fpm runs it after
-        // VIEW_COMPILED_PATH is set, or the cached config would pin the old path.
+        // Only the config cache is built at boot: it holds the app's env, which
+        // exists only at runtime (and must never be baked into the image).
+        // Routes and events come cached from the build; views compile on first
+        // use rather than all at boot (`optimize` did all four on every cold
+        // start). Each instance writes its own. A failure leaves the app
+        // uncached, never down. fpm runs it after VIEW_COMPILED_PATH is set, or
+        // the cached config would pin the old path.
+        // Boot timing: /proc/uptime is seconds since the instance's VM booted.
+        // Stamps are collected as it goes and printed as ONE log line (Workers
+        // Logs bill per line), read back by `dply:edge:wake-time --recent`.
+        $bootLine = $laravel ? 'echo "dply-boot: start=$b0 sqlite=$b1 migrate=$b2 caches=$(cut -d" " -f1 /proc/uptime)"; ' : '';
         $optimize = $laravel
-            ? 'php artisan optimize >/dev/null 2>&1 || echo "dply: php artisan optimize failed, starting without Laravel caches"; '
+            ? 'php artisan config:cache >/dev/null 2>&1 || echo "dply: php artisan config:cache failed, starting without the config cache"; '
+                .'[ -f bootstrap/cache/routes-v7.php ] || php artisan route:cache >/dev/null 2>&1 || true; '
+                .'[ -f bootstrap/cache/events.php ] || php artisan event:cache >/dev/null 2>&1 || true; '
+                .$bootLine
             : '';
         // Worker mode (EdgeContainerSettings `worker_mode`, injected as
         // DPLY_WORKER_MODE): Octane on FrankenPHP keeps the app booted between
@@ -708,16 +741,18 @@ final class EdgeContainerDockerfile
         $start = match ($server) {
             // Worker counts come from the instance's memory (EdgeContainerSettings::phpFpmPool,
             // injected as DPLY_PHP_FPM_MAX_CHILDREN). Octane's own default reads the host's CPUs.
-            'swoole' => 'exec php artisan octane:start --server=swoole --host=0.0.0.0 --port=8080 --workers="${DPLY_PHP_FPM_MAX_CHILDREN:-2}"',
+            // Octane: the timing line only. config:cache cost 1.2-1.7s per boot when
+            // measured (2026-09-29), and Octane boots the app once per worker anyway.
+            'swoole' => $bootLine.'exec php artisan octane:start --server=swoole --host=0.0.0.0 --port=8080 --workers="${DPLY_PHP_FPM_MAX_CHILDREN:-2}"',
             // No --rr-config: Octane then uses the repo's .rr.yaml, or touches an
             // empty one. With the flag, a repo without the file exits on boot.
-            'roadrunner' => 'exec php artisan octane:start --server=roadrunner --host=0.0.0.0 --port=8080 --workers="${DPLY_PHP_FPM_MAX_CHILDREN:-2}"',
+            'roadrunner' => $bootLine.'exec php artisan octane:start --server=roadrunner --host=0.0.0.0 --port=8080 --workers="${DPLY_PHP_FPM_MAX_CHILDREN:-2}"',
             'fpm' => 'children="${DPLY_PHP_FPM_MAX_CHILDREN:-2}"; limit="${DPLY_PHP_MEMORY_LIMIT:-128M}"; mkdir -p /tmp/views /tmp/client_body /tmp/fastcgi; chmod 1777 /tmp/views /tmp/client_body /tmp/fastcgi; export VIEW_COMPILED_PATH=/tmp/views DPLY_PERSISTENT_PDO=1; '.$optimize.'printf "[global]\npid = /tmp/php-fpm.pid\nerror_log = /tmp/php-fpm.log\ndaemonize = no\n[www]\nuser = www-data\ngroup = www-data\nlisten = 127.0.0.1:9000\npm = ondemand\npm.max_children = %s\npm.process_idle_timeout = 10s\npm.max_requests = 500\nclear_env = no\ncatch_workers_output = yes\ndecorate_workers_output = no\n" "$children" > /tmp/php-fpm.conf; touch /tmp/php-fpm.log /tmp/nginx-error.log; tail -qF /tmp/php-fpm.log /tmp/nginx-error.log & php-fpm -F -y /tmp/php-fpm.conf -d "memory_limit=$limit" & until php -r \'exit(@fsockopen("127.0.0.1", 9000) ? 0 : 1);\'; do sleep 0.1; done; exec nginx -g "daemon off;"',
             // The image's Caddyfile reads FRANKENPHP_CONFIG inside `frankenphp {}`; an app's own value wins.
             // The Worker terminates TLS: trust its X-Forwarded-Proto so Laravel makes https links. Caddy
             // needs a block's contents on their own lines, so it's built with printf; one line
             // ("servers { … }") fails to parse and FrankenPHP never starts.
-            default => $optimize.$workerMode.'export CADDY_GLOBAL_OPTIONS="${CADDY_GLOBAL_OPTIONS:-$(printf \'servers {\\n\\ttrusted_proxies static 0.0.0.0/0 ::/0\\n}\')}"; export FRANKENPHP_CONFIG="${FRANKENPHP_CONFIG:-num_threads ${DPLY_PHP_FPM_MAX_CHILDREN:-2}}"; exec frankenphp run --config /etc/frankenphp/Caddyfile',
+            default => $optimize.$workerMode.'export CADDY_SERVER_EXTRA_DIRECTIVES="$(printf \'respond '.EdgeContainerDeployer::PING_PATH.' 204\\n%s\' "$CADDY_SERVER_EXTRA_DIRECTIVES")"; export CADDY_GLOBAL_OPTIONS="${CADDY_GLOBAL_OPTIONS:-$(printf \'servers {\\n\\ttrusted_proxies static 0.0.0.0/0 ::/0\\n}\')}"; export FRANKENPHP_CONFIG="${FRANKENPHP_CONFIG:-num_threads ${DPLY_PHP_FPM_MAX_CHILDREN:-2}}"; exec frankenphp run --config /etc/frankenphp/Caddyfile',
         };
         if ($ssr !== null) {
             // Inertia's default SSR URL is http://127.0.0.1:13714, which this serves.
@@ -756,7 +791,12 @@ final class EdgeContainerDockerfile
             .'(trap "stop=1" TERM; while [ -z "$stop" ]; do php artisan schedule:work & p=$!; wait $p; wait $p 2>/dev/null; [ -z "$stop" ] && sleep 5; done) & fi; '
             .'wait; exit 0; fi; ';
         $boot = $laravel
-            ? $worker.$sqlite.'if [ "$DPLY_MIGRATE_ON_BOOT" = "1" ]; then php artisan migrate --force --isolated || php artisan migrate --force || true; fi; '.$start
+            ? $worker.'b0=$(cut -d" " -f1 /proc/uptime); '.$sqlite.'b1=$(cut -d" " -f1 /proc/uptime); '
+                .'if [ "$DPLY_MIGRATE_ON_BOOT" = "1" ]; then '
+                .'if [ "$DB_CONNECTION" = "sqlite" ] && php -r '.escapeshellarg(self::SQLITE_MIGRATED).'; then :; '
+                .'elif php artisan migrate --force --isolated || php artisan migrate --force; then '
+                .'[ "$DB_CONNECTION" = "sqlite" ] && php -r '.escapeshellarg(self::SQLITE_MARK_MIGRATED).' || true; fi; fi; '
+                .'b2=$(cut -d" " -f1 /proc/uptime); '.$start
             : $start;
         $lines[] = 'CMD ["sh", "-c", '.json_encode($boot, JSON_UNESCAPED_SLASHES).']';
 

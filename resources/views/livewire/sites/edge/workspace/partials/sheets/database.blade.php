@@ -1,42 +1,20 @@
 @if ($databaseVisible)
     <x-sheet name="resources-database" maxWidth="lg">
-        <x-sheet.header :title="__('Database')" />
+        @if ($databaseEngine === 'sql')
+            <x-sheet.header :eyebrow="__('Database · in the app')" :title="__('SQLite')">
+                {{ __('A file inside the app. It is saved while the app runs and restored when it wakes.') }}
+            </x-sheet.header>
+        @else
+            <x-sheet.header :title="__('Database')" />
+        @endif
 
         <x-sheet.body>
             @php
                 $dplyEngine = in_array($databaseEngine, ['postgres', 'mongodb', 'mysql'], true);
                 $postgresLocked = ! $cardOnFile;
-                // A suggested resize (EdgeDatabaseResize): never automatic, since it restarts the database.
-                $resize = $dplyEngine ? \App\Modules\Edge\Support\EdgeDatabaseResize::suggestion($site) : null;
-                $resizeScheduled = $dplyEngine ? ($site->edgeMeta()['database']['resize_scheduled'] ?? null) : null;
-                $sizeLabel = fn (string $key): string => isset(\App\Modules\Edge\Services\EdgeAppDatabase::POSTGRES_SIZES[$key]) ? \App\Modules\Edge\Services\EdgeAppDatabase::POSTGRES_SIZES[$key]['cpu'].' · '.\App\Modules\Edge\Services\EdgeAppDatabase::POSTGRES_SIZES[$key]['memory'] : $key;
-                $canResize = auth()->user()?->can('update', $site) ?? false;
             @endphp
-            @if (is_array($resizeScheduled))
-                <x-sheet.note tone="warn">
-                    {{ __('Resizing to :size at :time. The database restarts then; open connections drop once.', ['size' => $sizeLabel((string) $resizeScheduled['size']), 'time' => \Illuminate\Support\Carbon::createFromTimestamp((int) $resizeScheduled['at'], $site->organization?->timezone ?: 'UTC')->format('D H:i T')]) }}
-                    @if ($canResize)
-                        <button type="button" wire:click="cancelDatabaseResize" class="ms-2 font-semibold underline">{{ __('Cancel') }}</button>
-                    @endif
-                </x-sheet.note>
-            @elseif ($resize)
-                <div class="grid gap-2 rounded-xl border border-brand-forest/40 bg-brand-forest/5 p-3.5" data-resize-suggestion>
-                    <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ $resize['direction'] === 'up' ? __('Suggested: a bigger size') : __('Suggested: a smaller size') }}</p>
-                    <p class="text-sm font-semibold text-brand-ink">{{ $sizeLabel($resize['from']) }} → {{ $sizeLabel($resize['size']) }}
-                        @isset($postgresSizes[$resize['size']]['month'], $postgresSizes[$resize['from']]['month'])
-                            <span class="font-normal text-brand-moss">· {{ __('$:from → $:to/mo', ['from' => $postgresSizes[$resize['from']]['month'], 'to' => $postgresSizes[$resize['size']]['month']]) }}</span>
-                        @endisset
-                    </p>
-                    <p class="text-xs text-brand-moss">{{ $resize['reason'] }}</p>
-                    <p class="text-2xs text-brand-mist">{{ __('Resizing restarts the database: open connections drop for a few seconds, and it starts at the new size on the next connection.') }}</p>
-                    @if ($canResize)
-                        <div class="flex flex-wrap items-center gap-2">
-                            <x-sheet.button variant="primary" wire:click="resizeDatabaseNow" wire:loading.attr="disabled" wire:target="resizeDatabaseNow">{{ __('Resize now') }}</x-sheet.button>
-                            <x-sheet.button wire:click="resizeDatabaseTonight">{{ __('Resize tonight (:time)', ['time' => \App\Modules\Edge\Support\EdgeDatabaseResize::tonight($site)->format('H:i T')]) }}</x-sheet.button>
-                            <button type="button" wire:click="dismissDatabaseResize" class="text-xs font-semibold text-brand-moss hover:text-brand-ink">{{ __('Dismiss for :days days', ['days' => \App\Modules\Edge\Support\EdgeDatabaseResize::DISMISS_DAYS]) }}</button>
-                        </div>
-                    @endif
-                </div>
+            @if ($dplyEngine)
+                @include('livewire.sites.edge.workspace.partials.database-resize', ['resizeOf' => $site, 'resizeId' => null])
             @endif
             {{-- The app's primary database (DplyDatabases), or SQLite in the app. Add more from Add resource → Database;
                  there is no engine switch here: Detach or Delete, then add another. --}}
@@ -50,8 +28,36 @@
                     <span class="shrink-0 rounded-full bg-brand-sage/15 px-2 py-0.5 text-2xs font-semibold text-brand-forest dark:text-brand-sage">{{ __('Primary') }}</span>
                 </div>
             @elseif ($databaseEngine === 'sql')
-                <x-sheet.note>{{ __('SQLite: a file inside the app, saved while it runs and restored when it wakes. For a database that several instances or queue workers share, add a dply database.') }}</x-sheet.note>
-                <x-sheet.button variant="primary" wire:click="openAddDatabase" wire:island="resources-database-add" x-on:click="$dispatch('close-modal', 'resources-database'); $dispatch('open-modal', 'resources-database-add')" class="justify-self-start">{{ __('Add a database') }}</x-sheet.button>
+                {{-- SQLite is managed here; dply databases are added beside it, not switched to. --}}
+                <x-sheet.section :title="__('The file')">
+                    <dl class="grid gap-1.5 text-xs" x-init="$wire.loadSqliteFile()">
+                        <div class="flex justify-between gap-3"><dt class="text-brand-moss">{{ __('In the app') }}</dt><dd class="font-mono text-brand-ink">/tmp/database.sqlite</dd></div>
+                        <div class="flex justify-between gap-3"><dt class="text-brand-moss">{{ __('Env') }}</dt><dd class="font-mono text-brand-ink">DB_CONNECTION=sqlite · DB_DATABASE=/tmp/database.sqlite</dd></div>
+                        <div class="flex justify-between gap-3">
+                            <dt class="text-brand-moss">{{ __('Last saved') }}</dt>
+                            <dd class="font-mono text-brand-ink">
+                                @if ($sqliteFile === null)
+                                    <span wire:loading wire:target="loadSqliteFile">{{ __('Checking…') }}</span><span wire:loading.remove wire:target="loadSqliteFile">—</span>
+                                @elseif (! ($sqliteFile['exists'] ?? false))
+                                    {{ __('Not yet: it is saved once the app has run') }}
+                                @else
+                                    {{ \Illuminate\Support\Number::fileSize($sqliteFile['bytes'], 1) }} · {{ \Illuminate\Support\Carbon::createFromTimestamp($sqliteFile['at'])->diffForHumans() }}
+                                @endif
+                            </dd>
+                        </div>
+                    </dl>
+                    @if (($sqliteFile['exists'] ?? false) && (auth()->user()?->can('update', $site) ?? false))
+                        <x-sheet.button wire:click="downloadSqlite" class="justify-self-start">{{ __('Download a copy') }}</x-sheet.button>
+                    @endif
+                    <p class="text-2xs text-brand-mist">{{ __('While the app runs, the file is copied to dply’s object storage every 20 seconds; when it wakes, that copy is put back. Writes from the last few seconds before it sleeps can be lost. One instance serves the app so the file stays consistent, and migrations run each time it starts.') }}</p>
+                </x-sheet.section>
+
+                @include('livewire.sites.edge.workspace.partials.database-tools')
+
+                <x-sheet.section :title="__('Add a database')">
+                    <p class="text-xs text-brand-moss">{{ __('For data that several instances or queue workers share, add Postgres, MySQL or MongoDB. The first one becomes the app’s primary and takes over DB_*.') }}</p>
+                    <x-sheet.button variant="primary" wire:click="openAddDatabase" wire:island="resources-database-add" x-on:click="$dispatch('close-modal', 'resources-database'); $dispatch('open-modal', 'resources-database-add')" class="justify-self-start">{{ __('Add a database') }}</x-sheet.button>
+                </x-sheet.section>
             @endif
 
             @if ($dplyEngine)
@@ -123,7 +129,7 @@
                 <x-sheet.note tone="danger">{{ $message }}</x-sheet.note>
             @enderror
 
-            @if (! $cardOnFile)
+            @if (! $cardOnFile && $databaseEngine !== 'sql')
                 <x-sheet.note tone="warn">
                     {{ __('Add a card before starting a database. It is billed to that card. SQLite does not need one.') }}
                     @if ($site->organization)
@@ -132,10 +138,10 @@
                 </x-sheet.note>
             @endif
 
-            <div class="grid gap-2">
-                <x-sheet.row :title="__('How to use')" x-on:click="$dispatch('database-tab', 'how'); $dispatch('open-modal', 'resources-app-database')" />
+            <div @class(['grid gap-2', 'hidden' => $databaseEngine === 'sql'])>
+                <x-sheet.row :title="__('How to use')" x-on:click="$wire.$island('resources-database').openDatabasePanel(null).then(() => { $dispatch('database-tab', 'how'); $dispatch('open-modal', 'resources-app-database') })" />
                 @if ($databaseEngine !== 'none')
-                    <x-sheet.row :title="$dplyEngine ? __('Stats & backups') : __('Tools')" x-on:click="$dispatch('database-tab', {{ \Illuminate\Support\Js::from($dplyEngine ? 'overview' : 'settings') }}); $dispatch('open-modal', 'resources-app-database')" />
+                    <x-sheet.row :title="$dplyEngine ? __('Stats & backups') : __('Tools')" x-on:click="$wire.$island('resources-database').openDatabasePanel(null).then(() => { $dispatch('database-tab', {{ \Illuminate\Support\Js::from($dplyEngine ? 'overview' : 'settings') }}); $dispatch('open-modal', 'resources-app-database') })" />
                 @endif
             </div>
             @if ($dplyEngine && ($primaryDatabase ?? null))

@@ -1,5 +1,5 @@
 <x-sheet name="resources-worker-logs" :show="$panel === 'worker-logs'" maxWidth="4xl" focusable>
-    <x-sheet.header :eyebrow="__('Queue workers')" :title="__('Worker logs')" close-wire="openPanel('')">
+    <x-sheet.header :eyebrow="__('Queue workers')" :title="__('Worker logs')" close-wire="$set('panel', '')">
         {{ __('The last hour of queue worker output, newest first: each job as it runs and finishes, and each worker starting, restarting and stopping. Logs reach here about a minute after they happen.') }}
     </x-sheet.header>
 

@@ -7,7 +7,7 @@
     $prefix = \App\Modules\Edge\Services\DplyDatabases::envName((string) ($newDatabase['name'] ?? '') ?: 'name');
 @endphp
 <x-sheet name="resources-database-add" :show="$panel === 'database-add'" maxWidth="lg" focusable>
-    <x-sheet.header :eyebrow="__('Add a resource')" :title="__('Database')" close-wire="openPanel('')">
+    <x-sheet.header :eyebrow="__('Add a resource')" :title="__('Database')" close-wire="$set('panel', '')">
         {{ __('A dply database in your app’s region. It sleeps when idle and wakes on the next connection.') }}
     </x-sheet.header>
 

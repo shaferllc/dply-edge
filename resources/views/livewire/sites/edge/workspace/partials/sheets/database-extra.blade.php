@@ -17,6 +17,8 @@
         </x-sheet.header>
 
         <x-sheet.body>
+            @include('livewire.sites.edge.workspace.partials.database-resize', ['resizeOf' => $db, 'resizeId' => $db->id])
+
             {{-- Health from the hourly sampler and the backup tracker (its own row's state: DplyDatabases). --}}
             @php
                 $state = (array) ($db->state ?? []);
@@ -33,7 +35,8 @@
                 @if ($backupProblem)
                     <x-sheet.note tone="warn">{{ $backupProblem }}</x-sheet.note>
                 @endif
-                <p class="text-2xs text-brand-mist">{{ __('Updated hourly, without waking it. The console, exports and restores are on the primary’s sheet for now: make it primary to use them.') }}</p>
+                <p class="text-2xs text-brand-mist">{{ __('Updated hourly, without waking it.') }}</p>
+                <x-sheet.row :title="__('Stats, console & backups')" x-on:click="$dispatch('close-modal', 'resources-database-extra'); $wire.$island('resources-database').openDatabasePanel({{ \Illuminate\Support\Js::from($db->id) }}).then(() => { $dispatch('database-tab', 'overview'); $dispatch('open-modal', 'resources-app-database') })" />
             </x-sheet.section>
 
             <x-sheet.section :title="__('Connect')">
@@ -75,6 +78,8 @@
                     </div>
                 </div>
             </x-sheet.section>
+
+            @include('livewire.sites.edge.workspace.partials.database-tools', ['toolsTarget' => $db->id])
 
             @error('database') <x-sheet.note tone="warn" role="alert">{{ $message }}</x-sheet.note> @enderror
 

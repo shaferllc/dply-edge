@@ -63,6 +63,7 @@ use App\Modules\Edge\Livewire\Create as EdgeCreate;
 use App\Modules\Edge\Livewire\Databases;
 use App\Modules\Edge\Livewire\Import;
 use App\Modules\Edge\Livewire\Index as EdgeIndex;
+use App\Modules\Edge\Livewire\Buckets;
 use App\Modules\Edge\Livewire\Queues;
 use App\Modules\Edge\Livewire\Templates;
 use App\Modules\Edge\Livewire\Usage;
@@ -150,25 +151,26 @@ Route::post('/api/edge/preview-comments/{site}', [EdgePreviewCommentsController:
     ->name('api.edge.preview-comments.store');
 
 Route::get('/', function () {
-    Head::schema(Schema::organization()->name('dply')->url(url('/'))->logo(asset('images/dply-logo.svg')))
+    // Google needs a raster logo (no SVG), at least 112px: the 512px app icon.
+    Head::schema(Schema::organization()->name('dply')->url(url('/'))->logo(asset('android-chrome-512x512.png'))->email(config('dply.support_email')))
         ->schema(Schema::webSite()->name('dply')->url(url('/')));
 
     // The animated homepage is THE homepage — no classic/animated switching.
     return view('welcome-v2');
 })->withHead(
-    title: ['value' => 'dply · Your whole app, deployed from Git', 'exact' => true],
-    description: 'dply deploys static sites, server-rendered apps and PHP, Rails or Node servers from a Git push, with managed Postgres, MySQL, Valkey and queue workers alongside. One bill, no servers to run.',
+    title: ['value' => 'dply · Deploy Laravel, Rails & Node apps from Git', 'exact' => true],
+    description: 'Deploy Laravel, Rails and Node apps and static sites from a Git push, with managed Postgres, MySQL, Valkey and queue workers alongside. One bill, no servers.',
 );
 
 Route::get('/pricing', function () {
     return view('pricing');
-})->name('pricing')->withHead(title: 'Pricing'); // description + schemas: pricing.blade.php
+})->name('pricing'); // title, description + schemas: pricing.blade.php
 
 Route::get('/features', function () {
     return view('features');
 })->name('features')->withHead(
-    title: 'Features',
-    description: 'Deploy static, SSG, and SSR sites straight from git to a global edge network. Preview URLs on every branch, custom domains with automatic TLS, access rules, and request analytics.',
+    title: 'Features: Laravel, Rails & Node hosting',
+    description: 'Run Laravel, Rails and Node apps from Git with managed Postgres, MySQL, Valkey and autoscaling queue workers, previews per branch, and apps that sleep when idle.',
 );
 
 Route::view('/compliance', 'compliance')->name('compliance')->withHead(
@@ -176,6 +178,10 @@ Route::view('/compliance', 'compliance')->name('compliance')->withHead(
     description: 'Where dply runs your apps and data, how it encrypts and isolates them, which subprocessors it uses, and how to report a vulnerability.',
 );
 Route::redirect('/security', '/compliance', 301);
+
+Route::get('/vs/{competitor}', fn (string $competitor) => view('compare', ['competitor' => $competitor]))
+    ->whereIn('competitor', ['forge', 'laravel-cloud', 'heroku'])
+    ->name('compare');
 
 // RFC 9116. A route, not a file in public/, so the contact comes from
 // config('dply.security_email'). Bump Expires at least annually.
@@ -194,6 +200,7 @@ Route::get('/security.txt', $securityTxt);
 // Slugs are [a-z0-9/-] only, so `..`, `.md` and `.txt` never reach `show`.
 Route::redirect('/docs', '/docs/introduction')->name('docs.index');
 Route::get('/docs/llms.txt', [DocsController::class, 'llms'])->name('docs.llms');
+Route::get('/llms.txt', [DocsController::class, 'llms'])->name('llms');
 Route::get('/docs/search.json', [DocsController::class, 'search'])->name('docs.search');
 Route::get('/docs/{slug}.md', [DocsController::class, 'markdown'])
     ->where('slug', '[a-z0-9/-]+')
@@ -334,6 +341,7 @@ Route::middleware(['auth', 'verified', 'org'])->withHead(robots: 'noindex, nofol
     Route::livewire('projects/usage', Usage::class)->name('edge.usage')->withHead(title: 'Usage');
     Route::livewire('projects/databases', Databases::class)->name('edge.databases')->withHead(title: 'Databases');
     Route::livewire('projects/queues', Queues::class)->name('edge.queues')->withHead(title: 'Queues');
+    Route::livewire('projects/storage', Buckets::class)->name('edge.buckets')->withHead(title: 'Storage');
 
     /*
      * Legacy /edge/*, /apps/*, /applications/* URLs. The list moved to

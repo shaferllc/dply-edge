@@ -1,5 +1,15 @@
-{{-- The app's database panel: overview, live stats, backups and restore, how to connect, settings. --}}
+{{-- The app's database panel: overview, live stats, backups and restore, how to connect, settings.
+     $panelDatabase is set when it shows one of the app's other databases (Resources::openDatabasePanel):
+     the same tabs from its own record, without Connect and Settings (its own sheet has those). --}}
 @php
+    $focus = is_array($panelDatabase ?? null) ? $panelDatabase : null;
+    if ($focus !== null) {
+        $databaseEngine = (string) $focus['engine'];
+        $dplyDatabase = $focus;
+        $postgresSize = (string) ($focus['size'] ?? '');
+        $postgresSuspend = (int) ($focus['suspend'] ?? 300);
+        $postgresDisk = (int) ($focus['disk_gb'] ?? 1);
+    }
     $dbDply = in_array($databaseEngine, ['postgres', 'mysql', 'mongodb'], true);
     $dbName = ['postgres' => 'Postgres', 'mysql' => 'MySQL', 'mongodb' => 'MongoDB', 'sql' => 'SQLite'][$databaseEngine] ?? __('Database');
     $bytes = static function (int|float $n): string {
@@ -31,7 +41,7 @@
     // Live stats when loaded, else the snapshot the agent took before it last slept (never wakes it).
     $dbStats = is_array($databaseStats ?? null) ? $databaseStats : (isset($dbInsights['size_bytes'], $dbInsights['tables']) ? $dbInsights : null);
     $dbStatsSnapshot = ! is_array($databaseStats ?? null) && $dbStats !== null;
-    $dbBackupMeta = (array) ($site->edgeMeta()['database']['backup'] ?? []);
+    $dbBackupMeta = (array) ($dbRecord['backup'] ?? []);
     $dbBackupLive = is_array($databaseBackup ?? null) ? $databaseBackup : [];
     $dbLastFull = ($dbBackupLive['last_ok_at'] ?? $dbBackupMeta['last_ok_at'] ?? '') !== '' ? \Illuminate\Support\Carbon::parse($dbBackupLive['last_ok_at'] ?? $dbBackupMeta['last_ok_at']) : null;
     $dbLastLog = ($dbBackupMeta['log_ok_at'] ?? '') !== '' ? \Illuminate\Support\Carbon::parse($dbBackupMeta['log_ok_at']) : null;
@@ -49,8 +59,8 @@
         'health' => $dbDply ? __('Health') : null,
         'console' => $dbDply ? __('Console') : null,
         'backups' => $dbDply ? __('Backups') : null,
-        'connect' => $databaseEngine !== 'none' ? __('Connect') : null,
-        'settings' => $databaseEngine !== 'none' ? __('Settings') : null,
+        'connect' => $databaseEngine !== 'none' && ! $focus ? __('Connect') : null,
+        'settings' => $databaseEngine !== 'none' && ! $focus ? __('Settings') : null,
         'how' => __('How it works'),
     ]);
     $firstTab = array_key_first($tabs);
@@ -61,7 +71,7 @@
         x-data="{ tab: @js($firstTab), password: '' }"
         x-on:database-tab.window="tab = (Array.isArray($event.detail) ? $event.detail[0] : $event.detail); if (! @js(array_keys($tabs)).includes(tab)) tab = @js($firstTab); @if ($dbDply) $wire.$island('resources-database').loadDatabaseStatus(); $wire.$island('resources-database').loadDatabaseInsights(); @endif"
     >
-        <x-sheet.header :eyebrow="$dbHost !== '' ? __('Database').' · '.$dbHost.':'.$dbPort : __('Database')" :title="$dbDply ? __('dply :engine', ['engine' => $dbName]) : $dbName">
+        <x-sheet.header :eyebrow="$dbHost !== '' ? __('Database').' · '.$dbHost.':'.$dbPort : __('Database')" :title="$focus ? $focus['name'].' · '.$dbName : ($dbDply ? __('dply :engine', ['engine' => $dbName]) : $dbName)">
             @if ($dbDply)
                 <x-slot:actions>
                     @if ($dbAwake === true)
@@ -111,7 +121,7 @@
                             <p class="mt-1.5 text-xs leading-5 text-brand-moss">
                                 {{ __('Measured inside the app at its last deploy, running in :location (:region). Every query pays this; a queue job makes several.', ['location' => $placement['location'] ?: '?', 'region' => $placement['region'] ?: '?']) }}
                                 @if ($far) <span class="font-semibold text-amber-800 dark:text-amber-300">{{ __('That is far: redeploy to be placed again.') }}</span> @endif
-                                @if (($site->edgeMeta()['database']['engine'] ?? '') === 'mysql' && ! $site->edgeEnvVars()->where('key', 'DPLY_MYSQL_ONE_ROUND_TRIP')->exists())
+                                @if (! $focus && ($site->edgeMeta()['database']['engine'] ?? '') === 'mysql' && ! $site->edgeEnvVars()->where('key', 'DPLY_MYSQL_ONE_ROUND_TRIP')->exists())
                                     {{ __('MySQL queries take two round trips. Set DPLY_MYSQL_ONE_ROUND_TRIP=true in Environment and redeploy to send each in one: parameters are then escaped into the query by PHP instead of bound by MySQL.') }}
                                 @endif
                             </p>
@@ -512,7 +522,7 @@
                         </x-sheet.field>
                     @endif
 
-                    @if (($site->edgeMeta()['database']['provider'] ?? '') === 'dply' && ($site->edgeMeta()['database']['engine'] ?? '') === $databaseEngine)
+                    @if (($dbRecord['provider'] ?? '') === 'dply' && ($dbRecord['engine'] ?? '') === $databaseEngine)
                         <x-sheet.section :title="__('Restore to a point in time')">
                             <div class="grid gap-3 rounded-xl border border-brand-ink/10 px-3.5 py-3 dark:border-brand-mist/15">
                                 @if ($databaseEngine === 'postgres')
@@ -521,7 +531,7 @@
                                     <p class="text-xs leading-5 text-brand-moss">{{ __('Changes are backed up continuously for 7 days. Restoring replaces the data with how it was at that moment (UTC); the data from before the restore is saved as a backup first.') }}</p>
                                 @endif
                                 @php
-                                    $backup = (array) ($site->edgeMeta()['database']['backup'] ?? []);
+                                    $backup = (array) ($dbRecord['backup'] ?? []);
                                     $backupOk = ($backup['last_ok_at'] ?? '') !== '' ? \Illuminate\Support\Carbon::parse($backup['last_ok_at']) : null;
                                     $changesOk = ($backup['log_ok_at'] ?? '') !== '' ? \Illuminate\Support\Carbon::parse($backup['log_ok_at']) : null;
                                     $backupProblem = \App\Modules\Edge\Support\EdgeDplyDatabase::backupProblem($backup);
@@ -545,7 +555,7 @@
                                         <span wire:loading wire:target="restorePostgres">{{ __('Restoring… this can take a few minutes') }}</span>
                                     </x-sheet.button>
                                 </div>
-                                @php $restoreState = $site->edgeMeta()['database']['restore'] ?? null; @endphp
+                                @php $restoreState = $dbRecord['restore'] ?? null; @endphp
                                 @if ($postgresRestoreResult)
                                     <x-sheet.note>{{ $postgresRestoreResult }}</x-sheet.note>
                                 @elseif (is_array($restoreState) && ($restoreState['status'] ?? '') === 'running')
@@ -704,31 +714,7 @@ await db.collection('notes').countDocuments();" }}</pre>
                     <div>
                         <x-sheet.toggle wire:model.live="migrateOnBoot" :label="__('Run migrations when a container starts')" :help="__('Laravel: migrate --force --isolated. Rails: db:prepare.')" />
                     </div>
-                    @if ($site->isLaravelFrameworkDetected() || $site->isRailsFrameworkDetected())
-                        <x-sheet.section :title="__('Tools')">
-                            <div class="flex flex-wrap gap-2">
-                                <x-sheet.button wire:click="runDatabaseCommand('migrate')" wire:loading.attr="disabled" wire:target="runDatabaseCommand,confirmDatabaseCommand">{{ __('Migrate') }}</x-sheet.button>
-                                <x-sheet.button wire:click="runDatabaseCommand('status')" wire:loading.attr="disabled" wire:target="runDatabaseCommand,confirmDatabaseCommand">{{ __('Status') }}</x-sheet.button>
-                                <x-sheet.button wire:click="runDatabaseCommand('seed')" wire:loading.attr="disabled" wire:target="runDatabaseCommand,confirmDatabaseCommand">{{ __('Seed') }}</x-sheet.button>
-                                @if ($site->isRailsFrameworkDetected())
-                                    <x-sheet.button wire:click="runDatabaseCommand('prepare')" wire:loading.attr="disabled" wire:target="runDatabaseCommand,confirmDatabaseCommand">{{ __('Prepare') }}</x-sheet.button>
-                                @endif
-                                <x-sheet.button wire:click="runDatabaseCommand('rollback')" wire:loading.attr="disabled" wire:target="runDatabaseCommand,confirmDatabaseCommand">{{ __('Roll back') }}</x-sheet.button>
-                            </div>
-                            <p wire:loading wire:target="runDatabaseCommand,confirmDatabaseCommand" class="text-xs text-brand-moss">{{ __('Running…') }}</p>
-                            @if ($pendingDatabaseCommand === 'rollback')
-                                <x-sheet.danger :title="__('Roll back the last migration on this database?')">
-                                    <div class="flex gap-2">
-                                        <x-sheet.button variant="danger" wire:click="confirmDatabaseCommand">{{ __('Roll back') }}</x-sheet.button>
-                                        <x-sheet.button wire:click="$set('pendingDatabaseCommand', '')">{{ __('Cancel') }}</x-sheet.button>
-                                    </div>
-                                </x-sheet.danger>
-                            @endif
-                            @if ($databaseCommandOutput !== '')
-                                <pre class="max-h-48 overflow-auto whitespace-pre-wrap rounded-xl bg-brand-sand/40 px-3.5 py-3 font-mono text-xs text-brand-ink dark:bg-zinc-950">{{ $databaseCommandOutput }}</pre>
-                            @endif
-                        </x-sheet.section>
-                    @endif
+                    @include('livewire.sites.edge.workspace.partials.database-tools')
                     <x-sheet.note>
                         {{ __('dply :engine in :region. A disk only grows; pick more later if you need it.', ['engine' => ['mongodb' => 'MongoDB', 'mysql' => 'MySQL'][$databaseEngine] ?? 'Postgres', 'region' => \App\Modules\Providers\Valkey\ValkeyRegions::get(\App\Modules\Edge\Support\DataRegion::forSite($site))['label']]) }}
                         @if ($postgresSuspend === -1)

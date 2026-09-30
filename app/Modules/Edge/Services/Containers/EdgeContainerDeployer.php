@@ -11,6 +11,7 @@ use App\Modules\Edge\Services\EdgeBuildRunner;
 use App\Modules\Edge\Services\EdgeDeliveryContextResolver;
 use App\Modules\Edge\Services\EdgeHostMapPublisher;
 use App\Modules\Edge\Services\EdgeQueueConsumers;
+use App\Modules\Edge\Services\Storage\EdgeBucketKeys;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeContainerSettings;
 use App\Modules\Edge\Support\EdgeCronExpression;
@@ -66,6 +67,16 @@ class EdgeContainerDeployer
 
     /** Analytics Engine dataset of container reply bytes (countReply in the Worker). */
     public const REPLY_BYTES_DATASET = 'dply_container_bytes';
+
+    /**
+     * Analytics Engine dataset of cold starts (recordWake in the Worker): one
+     * row per request that found its instance asleep. Its own dataset: the
+     * reply-bytes one is summed whole for billing.
+     */
+    public const WAKE_DATASET = 'dply_container_wake';
+
+    /** Readiness probe path: nginx and Caddy answer it without PHP (EdgeContainerDockerfile). */
+    public const PING_PATH = '/_dply-ping';
 
     public static function scriptName(Site $site): string
     {
@@ -457,7 +468,15 @@ class EdgeContainerDeployer
         if (self::writeViteBuildEnv($checkout, array_merge(EdgeContainerConnections::realtimeBuildEnv($site), $env))) {
             $log("VITE_* variables are passed to the asset build.\n");
         }
-        File::put($project.'/secrets.json', json_encode($this->secrets($site, $env, $queues, $migrateOnBoot && ! $site->isEdgePreview(), $sqliteSync), JSON_THROW_ON_ERROR));
+        // S3 keys for attached buckets (AWS_*). A Laravel app needs Flysystem's S3 adapter for them,
+        // or its s3 disk would stop working; without it the dply driver serves Storage as before.
+        // syncApp also revokes the key of an app that has no bucket left.
+        $s3 = (! $site->isLaravelFrameworkDetected() || str_contains((string) @file_get_contents($checkout.'/composer.lock'), '"league/flysystem-aws-s3-v3"'))
+            && app(EdgeBucketKeys::class)->syncApp($site) !== null;
+        if ($s3) {
+            $log("S3 keys for the attached buckets are set as AWS_*.\n");
+        }
+        File::put($project.'/secrets.json', json_encode($this->secrets($site, $env, $queues, $migrateOnBoot && ! $site->isEdgePreview(), $sqliteSync, $s3), JSON_THROW_ON_ERROR));
 
         $gitCommit = $this->checkoutCommit($checkout);
         $fingerprint = self::deployFingerprint(
@@ -560,7 +579,30 @@ class EdgeContainerDeployer
             'queues' => array_keys($queues),
             'rollout' => $rollout,
             'fingerprint' => $fingerprint,
+            'database' => self::deployedDatabases($env),
         ];
+    }
+
+    /**
+     * The database connections this deploy gave the app, by env prefix ('' for
+     * DB_*): what the running app talks to until the next deploy. Lets the
+     * workspace's database tools say "redeploy first" instead of running
+     * against a database the app no longer has.
+     *
+     * @param  array<string, string>  $env
+     * @return array<string, array{connection: string, host: string}>
+     */
+    public static function deployedDatabases(array $env): array
+    {
+        $out = [];
+        foreach ($env as $key => $value) {
+            if (preg_match('/^(?:([A-Z][A-Z0-9_]*)_)?DB_CONNECTION$/', (string) $key, $m) === 1) {
+                $prefix = $m[1] ?? '';
+                $out[$prefix] = ['connection' => (string) $value, 'host' => (string) ($env[($prefix !== '' ? $prefix.'_' : '').'DB_HOST'] ?? '')];
+            }
+        }
+
+        return $out;
     }
 
     /** The pre-switch copy's Worker script: its own name, so production is untouched. */
@@ -826,7 +868,7 @@ class EdgeContainerDeployer
      * @param  array<string, string>  $queues
      * @return array<string, string>
      */
-    public function secrets(Site $site, array $env, array $queues, bool $migrateOnBoot, bool $sqliteSync = false): array
+    public function secrets(Site $site, array $env, array $queues, bool $migrateOnBoot, bool $sqliteSync = false, bool $s3 = false): array
     {
         $queueEnv = EdgeContainerConnections::queueDriverEnv($site);
         if (! isset($queueEnv['DPLY_QUEUE']) && $queues !== []) {
@@ -839,7 +881,7 @@ class EdgeContainerDeployer
         // A push queue's QUEUE_CONNECTION stays; the app's own env (below) wins over both.
         $queueEnv += EdgeQueueWorkers::dispatchEnv($site);
 
-        return array_merge(EdgeContainerConnections::redisDriverEnv($site), EdgeContainerConnections::storageDriverEnv($site), EdgeContainerConnections::kvDriverEnv($site), EdgeContainerConnections::realtimeDriverEnv($site), $queueEnv, $env, [
+        return array_merge(EdgeContainerConnections::redisDriverEnv($site), EdgeContainerConnections::storageDriverEnv($site), $s3 ? EdgeBucketKeys::appEnv($site, $env) : [], EdgeContainerConnections::kvDriverEnv($site), EdgeContainerConnections::realtimeDriverEnv($site), $queueEnv, $env, [
             'DPLY_QUEUE_TOKEN' => self::queueToken($site),
             'DPLY_APP_URL' => (string) ($site->edgeLiveUrl() ?? ''),
             // Never on a preview: its migrations would run against whatever database it reaches.
@@ -1001,7 +1043,10 @@ class EdgeContainerDeployer
             'observability' => ['enabled' => true],
             // Reply bytes per site (countReply): outbound billing is container
             // tx_bytes minus these (EdgeContainerComputeCost).
-            'analytics_engine_datasets' => [['binding' => 'DPLY_BYTES', 'dataset' => self::REPLY_BYTES_DATASET]],
+            'analytics_engine_datasets' => [
+                ['binding' => 'DPLY_BYTES', 'dataset' => self::REPLY_BYTES_DATASET],
+                ['binding' => 'DPLY_WAKE', 'dataset' => self::WAKE_DATASET],
+            ],
         ];
         if ($queues !== []) {
             $config['queues'] = [
@@ -1065,6 +1110,7 @@ class EdgeContainerDeployer
     {
         $replace = [
             '__PORT__' => (string) $port,
+            '__PING_PATH__' => self::PING_PATH,
             '__LOCATION_HINT__' => json_encode(strtolower((string) EdgeContainerSettings::dataRegion($site))),
             '__SLEEP__' => json_encode($settings['sleep_after']),
             '__INSTANCES__' => $sqliteSync ? '1' : (string) $settings['max_instances'],
@@ -1099,7 +1145,8 @@ class EdgeContainerDeployer
             '__CLIENT_CERT__' => json_encode(EdgeContainerConnections::clientCertificateId($site) !== '' ? 'CLIENT_CERT' : ''),
             '__BROWSER__' => EdgeContainerConnections::browserEnabled($site) ? 'true' : 'false',
             '__SQLITE_SYNC__' => $sqliteSync ? 'true' : 'false',
-            '__SQLITE_KEY__' => json_encode('sites/'.$site->id.'/sqlite/database.sqlite', JSON_UNESCAPED_SLASHES),
+            '__SQLITE_KEY__' => json_encode(self::sqliteKey($site), JSON_UNESCAPED_SLASHES),
+            '__PUBLIC_STORAGE__' => json_encode(EdgeContainerConnections::publicStorage($site), JSON_UNESCAPED_SLASHES),
             '__BROWSER_HOST__' => json_encode(EdgeContainerConnections::browserHost($site)),
             '__BROWSER_IMPORT__' => EdgeContainerConnections::browserEnabled($site)
                 ? "import puppeteer from '@cloudflare/puppeteer';\n"
@@ -1224,6 +1271,10 @@ export class App extends Container {
   defaultPort = __PORT__;
   sleepAfter = __SLEEP__;
   interceptHttps = __CLIENT_CERT__ !== '';
+  // Readiness probe. The SDK's default is the app's own / (a full page render,
+  // often a database query) before every cold request. nginx and Caddy answer
+  // this path themselves; any other server hands it to the app as a cheap 404.
+  pingEndpoint = 'ping__PING_PATH__';
 
   // The SDK probes http://ping and follows redirects. An app that answers
   // with a Location: https://… makes the runtime reject the probe
@@ -1236,7 +1287,9 @@ export class App extends Container {
     const tries = waitOptions.retries ?? Math.ceil(20000 / pollInterval);
     for (let i = 0; i < tries; i++) {
       try {
+        const at = Date.now();
         await tcpPort.fetch('http://' + this.pingEndpoint, { redirect: 'manual' });
+        this.probeMs = Date.now() - at;
         return tries;
       } catch (e) {
         if (!this.container.running || i === tries - 1) {
@@ -1368,7 +1421,28 @@ export class App extends Container {
   async fetch(request) {
     this.reservations.shift();
     this.lastActivityAt = Date.now();
-    return super.fetch(request);
+    if (this.container.running) return super.fetch(request);
+    return this.wake(request);
+  }
+
+  // A request that found this instance asleep: start it with a tighter poll
+  // than the SDK's 300ms, then record where the time went (recordWake).
+  async wake(request) {
+    const at = Date.now();
+    this.probeMs = null;
+    let ready = null;
+    try {
+      // instanceGetTimeoutMS: the SDK allows 8s for the container to start, and the
+      // first wake of a new image can take longer (seen: a 500 after a deploy).
+      await this.startAndWaitForPorts({ ports: [__PORT__], cancellationOptions: { portReadyTimeoutMS: 45000, instanceGetTimeoutMS: 30000, waitInterval: 100 } });
+      ready = Date.now() - at;
+    } catch {
+      // super.fetch starts it again and answers with the SDK's error.
+    }
+    const sent = Date.now();
+    const response = await super.fetch(request);
+    recordWake(this.env, this.index, ready, this.probeMs, Date.now() - sent, response.status);
+    return response;
   }
 
   // Last request into this instance, for the dashboard's sleep countdown
@@ -1398,6 +1472,32 @@ const CLIENT_CERT = __CLIENT_CERT__;
 const BROWSER = __BROWSER__;
 const SQLITE_SYNC = __SQLITE_SYNC__;
 const SQLITE_KEY = __SQLITE_KEY__;
+// Buckets served read-only on the app's own domains (EdgeContainerConnections::publicStorage).
+const PUBLIC_STORAGE = __PUBLIC_STORAGE__;
+
+async function publicStorageFetch(request, env, url) {
+  if (request.method !== 'GET' && request.method !== 'HEAD') return null;
+  const hit = PUBLIC_STORAGE.find((p) => url.pathname.startsWith(p.path + '/'));
+  if (!hit || !env[hit.name]) return null;
+  const key = decodeURIComponent(url.pathname.slice(hit.path.length + 1));
+  if (key === '' || key.split('/').includes('..')) return new Response('Not found', { status: 404 });
+  const object = await env[hit.name].get(key, { range: request.headers, onlyIf: request.headers });
+  if (object === null) return new Response('Not found', { status: 404 });
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  headers.set('etag', object.httpEtag);
+  headers.set('accept-ranges', 'bytes');
+  if (!headers.has('cache-control')) headers.set('cache-control', 'public, max-age=3600');
+  // onlyIf failed: no body, the client's copy is current.
+  if (!('body' in object)) return new Response(null, { status: 304, headers });
+  if (object.range && request.headers.has('range')) {
+    const start = object.range.offset ?? 0;
+    const end = start + (object.range.length ?? object.size - start) - 1;
+    headers.set('content-range', `bytes ${start}-${end}/${object.size}`);
+    return new Response(request.method === 'HEAD' ? null : object.body, { status: 206, headers });
+  }
+  return new Response(request.method === 'HEAD' ? null : object.body, { status: 200, headers });
+}
 App.outboundByHost = Object.fromEntries([
   ...CONNECTIONS.map((c) => [c.host, (request, env, ctx) => connectionFetch(c, request, env, ctx).catch(dplyRefusal)]),
   ...(BROWSER ? [[__BROWSER_HOST__, (request, env, ctx) => browserFetch(request, env, ctx)]] : []),
@@ -1800,6 +1900,18 @@ async function proxy(env, request, target) {
   return countReply(env, revealAppErrors(env, response));
 }
 
+// One cold start, to Analytics Engine (WAKE_DATASET): ms until the port
+// answered (container start + boot + probe), the successful probe alone, and
+// the first request itself. -1 = not measured. Never breaks the reply.
+function recordWake(env, index, readyMs, probeMs, requestMs, status) {
+  if (!env.DPLY_WAKE) return;
+  try {
+    env.DPLY_WAKE.writeDataPoint({ indexes: [SITE_ID], blobs: [SITE_ID, String(index ?? ''), String(status)], doubles: [readyMs ?? -1, probeMs ?? -1, requestMs] });
+  } catch {
+    // Metering never breaks a reply.
+  }
+}
+
 // Bytes the container sent back as this reply, to Analytics Engine. Billing
 // subtracts them from the container's tx_bytes, so only its own outbound
 // traffic (APIs, S3) is charged. A reply with Content-Length is counted from
@@ -1993,6 +2105,8 @@ export default {
     if (!(await trafficOpen(env))) {
       return new Response('This app is paused. The workspace usage credit is used up.', { status: 503, headers: { 'content-type': 'text/plain; charset=utf-8', 'retry-after': '3600' } });
     }
+    const publicFile = await publicStorageFetch(request, env, url);
+    if (publicFile) return publicFile;
     const headers = new Headers(request.headers);
     headers.set('x-forwarded-proto', url.protocol.replace(':', ''));
     headers.set('x-forwarded-host', url.host);
@@ -2275,5 +2389,11 @@ JS, $replace);
         if (! $build->successful()) {
             throw new RuntimeException('Could not build the container deployer image: '.trim(substr($build->errorOutput(), -400)));
         }
+    }
+
+    /** Where the app's SQLite file is saved in the edge bucket while it sleeps (and downloaded from the SQLite sheet). */
+    public static function sqliteKey(Site $site): string
+    {
+        return 'sites/'.$site->id.'/sqlite/database.sqlite';
     }
 }

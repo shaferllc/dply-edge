@@ -3,6 +3,9 @@
     @php $linkedSheet = ['database' => 'resources-database', 'app' => 'resources-app'][(string) request()->query('sheet')] ?? null; @endphp
     @if ($linkedSheet)
         <span class="hidden" x-data x-init="$nextTick(() => { $wire.$island(@js($linkedSheet)).$refresh(); $dispatch('open-modal', @js($linkedSheet)) })"></span>
+    @elseif (preg_match('/^db-([0-9A-Za-z]{26})$/', (string) request()->query('sheet'), $linkedDatabase) === 1)
+        {{-- ?sheet=db-{id}: one of the app's other databases (a resize suggestion for it). --}}
+        <span class="hidden" x-data x-init="$nextTick(() => $wire.$island('resources-database-extra').openExtraDatabase(@js($linkedDatabase[1])).then(() => $dispatch('open-modal', 'resources-database-extra')))"></span>
     @endif
     {{-- Islands: an action inside a sheet re-renders that sheet's island and
          the map (Resources::renderIsland), not the whole page. A sheet body is
@@ -67,7 +70,8 @@
     @endif
 
     {{-- The map: the app the way a request travels. Each box opens its settings in a sheet. --}}
-    <section aria-label="{{ __('Service map') }}" @class([
+    {{-- data-skip-busy-within: boxes open sheets with their own loading state (app.js). --}}
+    <section aria-label="{{ __('Service map') }}" data-skip-busy-within @class([
         'lg:items-start' => $tallMap,
         'grid grid-cols-1 items-center border-b border-brand-ink/10 bg-[radial-gradient(circle_at_1px_1px,rgb(23_26_14/0.12)_1px,transparent_0)] bg-[length:18px_18px] px-5 py-6 sm:px-6 lg:py-8 dark:border-brand-mist/15 dark:bg-[radial-gradient(circle_at_1px_1px,rgb(232_236_227/0.10)_1px,transparent_0)]',
         'lg:grid-cols-[minmax(0,0.6fr)_36px_minmax(0,1fr)_36px_minmax(0,1.2fr)_44px_minmax(0,1.2fr)]' => $hasCode,
@@ -197,13 +201,13 @@
 
         @if ($hasCode)
             <svg viewBox="0 0 44 200" preserveAspectRatio="none" @class(['hidden w-full lg:block', 'h-56' => $tallMap, 'h-full min-h-24' => ! $tallMap]) aria-hidden="true">
-                <path d="M0 100 C22 100 22 40 44 40" class="dply-flow stroke-brand-forest"></path>
-                <path d="M0 100 C22 100 22 160 44 160" class="dply-flow stroke-brand-mist"></path>
+                {{-- To the trunk; the resources column draws the trunk and a branch to each box (.resource-fan in app.css). --}}
+                <path d="M0 100 H22" class="dply-flow stroke-brand-forest"></path>
             </svg>
             {!! $vFlow !!}
 
             {{-- Everything the app talks to --}}
-            <div class="grid gap-3 [&_.resource-flow]:hidden">
+            <div class="resource-fan grid gap-3 [&_.resource-flow]:hidden">
                 @foreach ($orderedConnections as $connection)
                     @include('livewire.sites.edge.workspace.partials.connection-card', ['connectionIndex' => $loop->index])
                     @if ($connection['host'] === $queueRedisHost && $workersNode)
@@ -269,12 +273,12 @@
                     </button>
                 @endif
 
-                <button type="button" wire:click="openConnectionBuilder" wire:island="resources-connection" x-on:click="$dispatch('open-modal', 'resources-connection')" class="rounded-2xl border border-dashed border-brand-ink/25 bg-white/60 px-3.5 py-3 text-left text-sm font-semibold text-brand-ink transition hover:border-brand-ink dark:border-brand-mist/30 dark:bg-zinc-900/60">
+                <button type="button" wire:click="openConnectionBuilder" wire:island="resources-connection" x-on:click="$dispatch('open-modal', 'resources-connection')" class="resource-fan-end rounded-2xl border border-dashed border-brand-ink/25 bg-white/60 px-3.5 py-3 text-left text-sm font-semibold text-brand-ink transition hover:border-brand-ink dark:border-brand-mist/30 dark:bg-zinc-900/60">
                     ＋ {{ __('Add resource') }}
                     <span class="mt-0.5 block text-xs font-normal text-brand-moss">{{ __('Database, cache, storage, queue, workers, scheduled tasks, browser') }}</span>
                 </button>
                 @if ($showBrowser && ! $browserOn)
-                    <button type="button" wire:click="openPanel('browser')" wire:island="resources-browser" x-on:click="$dispatch('open-modal', 'resources-browser')" class="-mt-1 text-left text-xs font-semibold text-brand-sage hover:underline">{{ __('Add a browser') }}</button>
+                    <button type="button" wire:click="openPanel('browser')" wire:island="resources-browser" x-on:click="$dispatch('open-modal', 'resources-browser')" class="resource-fan-skip -mt-1 text-left text-xs font-semibold text-brand-sage hover:underline">{{ __('Add a browser') }}</button>
                 @endif
             </div>
         @endif

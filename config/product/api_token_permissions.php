@@ -104,6 +104,14 @@ return [
         'edge.databases.index' => 'edge.read',
         // SQL can write, so running it needs edge.write.
         'edge.databases.query' => 'edge.write',
+        // An app's Postgres / MySQL / MongoDB (EdgeAppDatabaseApiController). The
+        // query is read-only but returns the app's data, so it needs edge.write.
+        'edge.app_databases.index' => 'edge.read',
+        'edge.app_databases.show' => 'edge.read',
+        'edge.app_databases.exports' => 'edge.read',
+        'edge.app_databases.query' => 'edge.write',
+        'edge.app_databases.export' => 'edge.write',
+        'edge.app_databases.restore' => 'edge.write',
         'edge.queues.index' => 'edge.read',
         'edge.queues.send' => 'edge.write',
         'edge.kv.index' => 'edge.read',

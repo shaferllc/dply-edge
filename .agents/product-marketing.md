@@ -1,17 +1,17 @@
 # Product Marketing Context
 
-*Last updated: 2026-09-26. V2: drafted from the codebase, then owner answers (ICP, main rival, top differentiator, stage, goal, objections, anti-persona, voice). Stage: **pre-launch**, so there are no customers, quotes or metrics yet. Items marked *(inferred)* are guesses, not customer evidence.*
+*Last updated: 2026-09-29 (pricing synced to config/product/subscription.php). V2: drafted from the codebase, then owner answers (ICP, main rival, top differentiator, stage, goal, objections, anti-persona, voice). Stage: **pre-launch**, so there are no customers, quotes or metrics yet. Items marked *(inferred)* are guesses, not customer evidence.*
 
 ## Product Overview
 **One-liner:** Push a repo. Get the whole app running.
 **What it does:** dply edge deploys static sites, server-rendered apps, and PHP, Rails or Node servers from a Git push onto a global edge. The managed Postgres, MySQL, MongoDB, Valkey and queue workers those apps need run right beside them. No servers to patch, and one bill for all of it.
 **Product category:** Git-push app hosting / PaaS: "Netlify/Vercel for the whole app," not just the frontend.
 **Product type:** Self-serve SaaS (web dashboard + `dply` CLI + REST API).
-**Business model:** Two monthly plans plus metered usage. No free plan and no annual billing.
-- **Pro $20/mo:** 10 sites, 3 seats, 1,000 build minutes, 10 databases, 10 queues, $5 compute included, autoscaling workers.
-- **Team $49/mo:** 50 sites, 5 seats, 3,000 build minutes, 50 databases, 50 queues, $20 compute included, audit log.
-- Past the allowance: extra sites $2/mo, Worker SSR sites $7/mo, and compute billed per second while it's awake. Requests, egress and build minutes are metered. Nothing is throttled.
-- **5-day Pro trial, card required at signup.** It bills on day 6 unless canceled. Trial compute is capped by a spending limit. If the trial lapses unpaid, the org is paused and its data is kept for 7 days, then deleted.
+**Business model:** Three monthly plans, each with usage credit included, plus metered usage past it. No free plan and no annual billing.
+- **Starter $5/mo:** 1 seat, $5 of usage included. **Pro $20/mo:** 3 seats, $20 included. **Team $49/mo:** 10 seats (+$5 per seat past 10), $49 included.
+- Sites are unlimited on every plan: no per-site fees and no per-meter allowances. A hidden fair-use cap on apps (Starter 25, Pro 250, Team 1,000) stops abuse.
+- Usage past the included credit bills at provider cost + 30%. Apps, workers, databases and Valkey bill per second while awake; bandwidth ($0.06/GB), build time and requests by the unit. Nothing is throttled. Monthly only.
+- **5-day trial of the chosen plan, card required at signup.** It bills on day 6 unless canceled. Trial usage is capped at $2. If it lapses unpaid, the org is paused and its data is kept for 30 days (warning emails 7 days and 1 day before), then deleted.
 
 ## Target Audience
 **Primary ICP (owner, 2026-09-26):** **Laravel and Rails developers** leaving Forge, Laravel Cloud, Heroku or a VPS. Solo devs and small teams (1–5 seats) running a real app with a database and queue workers.
@@ -33,7 +33,7 @@
 |---------|-------------|-----------|------------------|
 | Laravel/Rails dev leaving Forge/Heroku *(inferred)* | Not being a sysadmin; queues that just work | Servers to patch, supervisor configs, separate DB hosting | Framework runs unchanged in a container; workers autoscale; DB attached with credentials injected |
 | Frontend/JAMstack dev on Vercel/Netlify *(inferred)* | Previews, speed, DX | Backend + DB live somewhere else, second bill | Same repo and dashboard add the API, DB and workers when needed |
-| Agency / small team lead *(inferred)* | Predictable cost, many client sites | Per-seat and per-project costs stacking up | Flat plan, $2 extra sites, previews don't take a slot, access rules for client staging |
+| Agency / small team lead *(inferred)* | Predictable cost, many client sites | Per-seat and per-project costs stacking up | Flat plan with unlimited sites, previews don't take a slot, access rules for client staging |
 
 **Lead persona:** the Laravel/Rails dev leaving Forge/Heroku (owner-confirmed). The other two are secondary.
 
@@ -70,8 +70,8 @@
 ## Objections
 | Objection | Response |
 |-----------|----------|
-| "No free plan? Forge + a $6 droplet is cheaper." | 5-day Pro trial with a spending cap, so a busy trial can't run up a bill. Cancel anytime. Compare the whole stack: server + managed DB + Redis + your time patching it. $20 covers the app, and idle apps sleep. |
-| "Metered billing is unpredictable." | Plans include compute and allowances. The billing page shows usage accrued so far this month and a cost forecast before the invoice lands. Valkey's monthly price is a ceiling. Idle containers and Flex databases sleep, so quiet months cost less, not more. |
+| "No free plan? Forge + a $6 droplet is cheaper." | 5-day trial with a $2 usage cap, so a busy trial can't run up a bill. Cancel anytime. Compare the whole stack: server + managed DB + Redis + your time patching it. Starter is $5 with $5 of usage included, and idle apps sleep. |
+| "Metered billing is unpredictable." | Every plan includes usage credit equal to its price. The billing page shows usage accrued so far this month and a cost forecast before the invoice lands. Valkey's monthly price is a ceiling. Idle containers and Flex databases sleep, so quiet months cost less, not more. |
 | "You're new. Can I trust you with prod data?" | Daily backups and point-in-time restore on managed databases, database export/import, and instant rollback of any deploy. Your code stays in your Git repo. *(Pre-launch: this objection weighs most; add proof points as they appear.)* |
 | "No SSH? And what about lock-in?" | You don't need a shell for the usual jobs: live log tail, a query console, failed-job retry, and env vars in the dashboard. Your framework runs unchanged in a standard container, config lives in your repo (`dply.yaml` is optional), and databases export. Leaving is `git push` somewhere else. |
 | "Migration sounds painful." | Point us at the repo; we detect the framework and keep your build settings. There's an importer for Vercel, Netlify and Cloudflare Pages. |
@@ -103,7 +103,7 @@
 | Term | Meaning |
 |------|---------|
 | Project / app | The customer's deployed thing (a repo + its services) |
-| Worker SSR site | A site rendered on the edge per request ($7/mo) |
+| Usage credit | The part of the plan price that pays for metered usage before anything extra is billed |
 | Container app | A PHP/Rails/Node server running in an autoscaling container |
 | Preview | A per-branch/PR deploy with its own URL; doesn't take a site slot, but its usage counts |
 | Flex vs Pro (DB/Valkey) | Flex sleeps when idle; Pro stays on |
@@ -131,5 +131,5 @@
 
 ## Goals
 **Business goal (next ~90 days, owner):** **Top of funnel: trial signups and a waitlist.** Build an audience of Laravel/Rails devs before optimizing conversion. (Context: the free plan was removed because it was unaffordable, so every signup goes through the card-up-front trial.)
-**Conversion action:** Primary: start the 5-day Pro trial. Secondary: join the waitlist (`COMING_SOON` gate) for people not ready to enter a card.
+**Conversion action:** Primary: start the 5-day trial. Secondary: join the waitlist (`COMING_SOON` gate) for people not ready to enter a card.
 **Current metrics:** None yet (pre-launch).

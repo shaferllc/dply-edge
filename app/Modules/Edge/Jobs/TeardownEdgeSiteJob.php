@@ -18,6 +18,7 @@ use App\Modules\Edge\Services\EdgeSsrBundleUploader;
 use App\Modules\Edge\Services\EdgeStateScript;
 use App\Modules\Edge\Services\EnsureDefaultEdgeBindings;
 use App\Modules\Edge\Services\Realtime\EdgeRealtimeApps;
+use App\Modules\Edge\Services\Storage\EdgeBucketKeys;
 use App\Modules\Edge\Support\FakeEdgeProvision;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Bus\Queueable;
@@ -125,6 +126,8 @@ class TeardownEdgeSiteJob implements ShouldQueue
                 ? DplyDatabases::detach($site, $database)
                 : DplyDatabases::delete($database, $site));
         }
+
+        $this->bestEffort($site, 'storage keys', fn () => app(EdgeBucketKeys::class)->forgetSite($site));
 
         $this->step($site, 'deployments');
         $backend?->unpublish($site);

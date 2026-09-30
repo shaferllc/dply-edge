@@ -313,6 +313,9 @@ test('the collector records what each org\'s vector index stores', function () {
             str_ends_with($request->url(), '/info') => Http::response(['success' => true, 'result' => ['vectorCount' => 1000, 'dimensions' => 768]]),
             str_contains($request->url(), '/vectorize/v2/indexes/') => Http::response(['success' => true, 'result' => ['name' => $index]]),
             str_contains($request->url(), '/vectorize/v2/indexes') => Http::response(['success' => true, 'result' => [['name' => $index], ['name' => 'someone-elses']]]),
+            // Log events (Workers Logs telemetry) and the container apps they map to: none here.
+            str_contains($request->url(), '/telemetry/query') => Http::response(['success' => true, 'result' => ['calculations' => []]]),
+            str_contains($request->url(), '/containers/applications') => Http::response(['success' => true, 'result' => []]),
             default => Http::response(['data' => ['viewer' => ['accounts' => [[]]]]]),
         };
     });

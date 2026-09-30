@@ -171,7 +171,26 @@ final class DocsSite
 
     public function llmsTxt(): string
     {
-        $out = '# '.config('app.name', 'dply')." documentation\n\n> Deploy static, hybrid and server-rendered apps from git to the edge. Every page below is also available as Markdown.\n";
+        // Plain facts for assistants (served at /llms.txt and /docs/llms.txt). Prices
+        // come from config so this cannot drift from the pricing page. The brand is
+        // the literal "dply": config('app.name') is "dply-edge" locally.
+        $plans = collect(config('subscription.standard.tiers'))
+            ->filter(fn ($t) => ($t['price_cents'] ?? 0) > 0)
+            ->map(fn ($t) => $t['label'].' $'.intdiv($t['price_cents'], 100).'/mo ('.trans_choice(':count seat|:count seats', $t['seats']).($t['extra_seat_cents'] ?? null ? ', +$'.intdiv($t['extra_seat_cents'], 100).' per extra seat' : '').')')
+            ->implode('; ');
+        $trialDays = (int) config('subscription.standard.trial.days');
+
+        $out = "# dply\n\n"
+            ."> dply deploys Laravel, Symfony, Rails and Node apps, and static or server-rendered sites, from a Git push. Apps run as containers on a global edge network that scale out and sleep when idle. Managed Postgres, MySQL, MongoDB, Valkey, object storage, realtime and autoscaling queue workers run beside them, on one bill.\n\n"
+            ."- Plans (monthly only): {$plans}. Each plan includes usage credit equal to its price, and sites are unlimited.\n"
+            ."- Usage past the credit bills by the second an app, worker or database is awake; requests and bandwidth by the unit.\n"
+            ."- No free plan: a {$trialDays}-day trial of the chosen plan, card required at signup.\n"
+            ."- Pricing: ".route('pricing')."\n"
+            ."- Features: ".route('features')."\n"
+            ."- Compared with Laravel Forge: ".route('compare', 'forge').", Laravel Cloud: ".route('compare', 'laravel-cloud').", Heroku: ".route('compare', 'heroku')."\n"
+            ."- Security and subprocessors: ".route('compliance')."\n"
+            ."- Contact: ".config('dply.support_email')."\n\n"
+            ."Every documentation page below is also available as Markdown.\n";
         foreach ($this->nav() as $section) {
             $lines = [];
             foreach ($section['pages'] as $entry) {

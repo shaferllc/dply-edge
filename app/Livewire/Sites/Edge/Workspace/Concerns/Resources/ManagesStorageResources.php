@@ -18,20 +18,8 @@ use Illuminate\Support\Facades\Cache;
  */
 trait ManagesStorageResources
 {
-    /**
-     * Where Cloudflare may place a new bucket ('' lets it choose). A
-     * jurisdiction (eu, fedramp) is not offered: every later API call and
-     * binding would need the jurisdiction too, and neither sends it yet.
-     */
-    public const R2_LOCATION_HINTS = [
-        '' => 'Automatic',
-        'wnam' => 'Western North America',
-        'enam' => 'Eastern North America',
-        'weur' => 'Western Europe',
-        'eeur' => 'Eastern Europe',
-        'apac' => 'Asia-Pacific',
-        'oc' => 'Oceania',
-    ];
+    /** Where Cloudflare may place a new bucket; see EdgeContainerConnections::R2_LOCATION_HINTS. */
+    public const R2_LOCATION_HINTS = EdgeContainerConnections::R2_LOCATION_HINTS;
 
     /** Seconds one "Empty and delete" click spends deleting, inside PHP's 30s request limit. */
     private const R2_EMPTY_SECONDS = 20;

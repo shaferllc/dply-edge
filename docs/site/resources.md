@@ -93,7 +93,7 @@ On container apps, dply sets these variables for attached resources that are awa
 
 | Resource | Variables | Laravel only |
 | --- | --- | --- |
-| Key-value store | `DPLY_KV_HOST`, `DPLY_KV_STORE`, `DPLY_KV_STORES` | `CACHE_STORE={name}`, unless Redis is attached |
+| Key-value store | `DPLY_KV_HOST`, `DPLY_KV_STORE`, `DPLY_KV_STORES` | `CACHE_STORE={name}`, only when made the default cache and no Redis is attached |
 | Object storage | `DPLY_STORAGE_HOST`, `DPLY_STORAGE_DISK`, `DPLY_STORAGE_DISKS` | `FILESYSTEM_DISK={name}` |
 | Queue | `DPLY_QUEUE={NAME}` | `QUEUE_CONNECTION=dply` |
 | Redis | `REDIS_URL`, `REDIS_USERNAME`, `REDIS_PASSWORD`, `REDIS_HOST`, `REDIS_PORT` | `CACHE_STORE=redis`, `REDIS_CLIENT=phpredis`, `REDIS_PERSISTENT=true` |

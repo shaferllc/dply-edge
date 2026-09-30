@@ -2,52 +2,88 @@
     $kvConnection = collect($connections)->firstWhere('host', $kvHost);
     $kvHostName = is_array($kvConnection) ? $kvConnection['host'] : $kvHost;
     $kvStore = is_array($kvConnection) ? strtolower((string) $kvConnection['name']) : 'store';
+    $kvAsleep = is_array($kvConnection) && $kvConnection['asleep'];
+    $kvRate = fn (string $key): string => \App\Modules\Billing\Support\UsagePrice::dollars(\App\Modules\Billing\Support\UsagePrice::rate($key));
+    $kvPre = 'overflow-x-auto rounded-xl bg-brand-sand/40 p-3.5 text-xs text-brand-ink dark:bg-zinc-950';
 @endphp
 <x-sheet name="resources-kv" :show="$kvHost !== ''" maxWidth="3xl" focusable>
-    <x-sheet.header :eyebrow="$kvHostName !== '' ? $kvHostName : null" :title="__('Key-value store')" close-wire="$set('kvHost', '')" />
+    <x-sheet.header :eyebrow="$kvHostName !== '' ? $kvHostName : null" :title="$kvHostName !== '' ? \App\Modules\Edge\Support\EdgeContainerConnections::resourceLabel($kvHostName) : __('Key-value store')" close-wire="$set('kvHost', '')">
+        @if ($kvHostName !== '')
+            <span class="inline-flex items-center gap-2">
+                {{ __('Key-value store · Cache::store(\':store\')', ['store' => $kvStore]) }}
+                <span @class([
+                    'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-2xs font-semibold',
+                    'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' => ! $kvAsleep,
+                    'bg-violet-500/10 text-violet-700 dark:text-violet-300' => $kvAsleep,
+                ])><span class="h-1.5 w-1.5 rounded-full bg-current"></span>{{ $kvAsleep ? __('Asleep') : __('Active') }}</span>
+            </span>
+        @endif
+    </x-sheet.header>
 
     <x-sheet.body>
         @if ($kvHostName === '')
             <p class="text-xs text-brand-moss">{{ __('Loading the store…') }}</p>
         @else
-        <p class="text-xs leading-5 text-brand-moss">{{ __('This app keeps short values at http://:host/. The address belongs only to this app.', ['host' => $kvHostName]) }}</p>
-        <div class="grid content-start gap-4" x-data="{ tab: 'how' }">
+        <div class="grid content-start gap-4" x-data="{ tab: 'overview' }">
             <x-sheet.tabs>
-                <button type="button" role="tab" x-on:click="tab = 'how'" :aria-selected="tab === 'how' ? 'true' : 'false'">{{ __('How it works') }}</button>
-                <button type="button" role="tab" x-on:click="tab = 'implementation'" :aria-selected="tab === 'implementation' ? 'true' : 'false'">{{ __('Implementation') }}</button>
-                <button type="button" role="tab" x-on:click="tab = 'keys'" :aria-selected="tab === 'keys' ? 'true' : 'false'">{{ __('Keys') }}</button>
-                <button type="button" role="tab" x-on:click="tab = 'usage'" :aria-selected="tab === 'usage' ? 'true' : 'false'">{{ __('Usage') }}</button>
-                <button type="button" role="tab" x-on:click="tab = 'costs'" :aria-selected="tab === 'costs' ? 'true' : 'false'">{{ __('Costs') }}</button>
-                <button type="button" role="tab" x-on:click="tab = 'settings'" :aria-selected="tab === 'settings' ? 'true' : 'false'">{{ __('Settings') }}</button>
+                @foreach (['overview' => __('Overview'), 'connect' => __('Connect'), 'keys' => __('Keys'), 'settings' => __('Settings')] as $kvTab => $kvTabLabel)
+                    <button type="button" role="tab" x-on:click="tab = '{{ $kvTab }}'" :aria-selected="tab === '{{ $kvTab }}' ? 'true' : 'false'">{{ $kvTabLabel }}</button>
+                @endforeach
             </x-sheet.tabs>
-            <div x-show="tab === 'how'" class="grid gap-3">
-                <ol class="list-decimal space-y-1.5 pl-4 text-sm text-brand-ink">
-                    <li>{{ __('GET http://:host/ lists up to 1,000 keys. Pass ?prefix= to filter and ?cursor= for the next page.', ['host' => $kvHostName]) }}</li>
-                    <li>{{ __('POST http://:host/ with {"keys": [...]} reads up to 100 keys at once.', ['host' => $kvHostName]) }}</li>
-                    <li>{{ __('GET http://:host/key reads one value. A missing key is a 404.', ['host' => $kvHostName]) }}</li>
-                    <li>{{ __('PUT http://:host/key stores the request body. DELETE removes it.', ['host' => $kvHostName]) }}</li>
-                    <li>{{ __('A PUT can send x-dply-ttl or x-dply-expires-at to expire the key, and x-dply-metadata (JSON) to keep metadata with it.') }}</li>
-                    <li>{{ __('Counters and locks need Valkey or State: this store is eventually consistent.') }}</li>
-                    <li>{{ __('The worker for this app receives those calls. No other app can.') }}</li>
-                    <li>{{ __('This starts working after the next deploy.') }}</li>
-                </ol>
-                <x-sheet.note>{{ __('Reads are :reads per million. Writes, deletes, and lists are :writes per million. Storage is :storage per GB-month.', ['reads' => \App\Modules\Billing\Support\UsagePrice::dollars(\App\Modules\Billing\Support\UsagePrice::rate('kv_reads_millicents_per_million')), 'writes' => \App\Modules\Billing\Support\UsagePrice::dollars(\App\Modules\Billing\Support\UsagePrice::rate('kv_writes_millicents_per_million')), 'storage' => \App\Modules\Billing\Support\UsagePrice::dollars(\App\Modules\Billing\Support\UsagePrice::rate('kv_storage_millicents_per_gb_month'))]) }}</x-sheet.note>
+
+            {{-- Overview --}}
+            <div x-show="tab === 'overview'" class="grid gap-4">
+                @if ($kvAsleep)
+                    <x-sheet.note>{{ __('Asleep. Once the next deploy drops it, there are no reads or writes, but its stored data is still billed.') }}</x-sheet.note>
+                @endif
+                <x-sheet.metrics :cols="4">
+                    <x-sheet.metric :label="__('Reads')" :note="__('This month')">{{ \Illuminate\Support\Number::abbreviate($kvReads, maxPrecision: 1) }}</x-sheet.metric>
+                    <x-sheet.metric :label="__('Writes')" :note="__('Writes, deletes, lists')">{{ \Illuminate\Support\Number::abbreviate($kvWrites + $kvDeletes + $kvLists, maxPrecision: 1) }}</x-sheet.metric>
+                    <x-sheet.metric :label="__('Stored')">{{ \Illuminate\Support\Number::fileSize($kvStorageBytes, precision: 1) }}</x-sheet.metric>
+                    <x-sheet.metric :label="__('Cost')" :note="__('This month so far')">${{ number_format($kvMonthCents / 100, 2) }}</x-sheet.metric>
+                </x-sheet.metrics>
+                <div>
+                    <x-sheet.stat :label="__('In the app')">Cache::store('{{ $kvStore }}')</x-sheet.stat>
+                    <x-sheet.stat :label="__('Address')">http://{{ $kvHostName }}/</x-sheet.stat>
+                </div>
+                <x-sheet.note>{{ __('Reads are :reads per million; writes, deletes and lists :writes per million; storage :storage per GB-month, from your plan’s included usage credit first. Collected through today.', ['reads' => $kvRate('kv_reads_millicents_per_million'), 'writes' => $kvRate('kv_writes_millicents_per_million'), 'storage' => $kvRate('kv_storage_millicents_per_gb_month')]) }}</x-sheet.note>
+                @unless ($cardOnFile)
+                    <x-sheet.note tone="warn">{{ __('This counts against the usage credit until a card is on the account.') }}</x-sheet.note>
+                @endunless
             </div>
-            <div x-show="tab === 'implementation'" x-cloak class="grid gap-5">
+
+            {{-- Connect --}}
+            <div x-show="tab === 'connect'" x-cloak class="grid gap-5">
+                <x-sheet.note>{{ __('Fast reads of values that change rarely: sessions, settings, feature flags, cached pages. It is eventually consistent (a write can take up to a minute to show everywhere), so counters and locks belong in Valkey or State.') }}</x-sheet.note>
+                <x-sheet.section :title="__('Test from the app')">
+                    <p class="text-xs text-brand-moss">{{ __('The running app writes, reads and forgets a key through Cache::store(\':store\'), the same path your code takes. Laravel apps, after a deploy with this store attached.', ['store' => $kvStore]) }}</p>
+                    <div><x-sheet.button wire:click="testKvFromApp" wire:island="resources-kv" wire:loading.attr="disabled" wire:target="testKvFromApp">{{ __('Run test') }}</x-sheet.button></div>
+                    @if (is_array($kvAppTest))
+                        <x-sheet.note :tone="$kvAppTest['ok'] ? null : 'danger'">{{ $kvAppTest['ok'] ? __('Works from the app.').(($kvAppTest['region'] ?? '') !== '' ? ' '.__('Ran in :region.', ['region' => $kvAppTest['region']]) : '') : ($kvAppTest['error'] ?? __('The test failed.')) }}</x-sheet.note>
+                        @if ($kvAppTest['steps'] !== [])
+                            <div>
+                                @foreach ($kvAppTest['steps'] as $step)
+                                    <x-sheet.stat :label="$step['step']">{{ $step['ms'] }} ms · {{ $step['result'] }}</x-sheet.stat>
+                                @endforeach
+                            </div>
+                        @endif
+                    @endif
+                </x-sheet.section>
                 <x-sheet.section :title="__('Laravel')">
-                    <p class="text-xs text-brand-moss">{{ __('The next deploy adds dply/laravel when this app does not already have it, sets DPLY_KV_HOST, and registers a cache store named :store.', ['store' => $kvStore]) }}</p>
-                    <pre class="overflow-x-auto rounded-xl bg-brand-sand/40 p-3.5 text-xs text-brand-ink dark:bg-zinc-950">{{ "Cache::store('{$kvStore}')->put('session', 'hello');\nCache::store('{$kvStore}')->get('session');\nCache::store('{$kvStore}')->forget('session');" }}</pre>
+                    <p class="text-xs text-brand-moss">{{ __('The next deploy adds dply/laravel when the app does not have it, and registers a cache store named :store. The app’s default cache stays as it is unless you make this the default in Settings.', ['store' => $kvStore]) }}</p>
+                    <pre class="{{ $kvPre }}">{{ "Cache::store('{$kvStore}')->put('settings', \$value, now()->addHour());\nCache::store('{$kvStore}')->get('settings');\nCache::store('{$kvStore}')->forget('settings');" }}</pre>
                 </x-sheet.section>
                 <x-sheet.section :title="__('Rails')">
-                    <p class="text-xs text-brand-moss">{{ __('Add dply-rails. The next deploy sets DPLY_KV_HOST. Rails.cache uses this store.') }}</p>
-                    <pre class="overflow-x-auto rounded-xl bg-brand-sand/40 p-3.5 text-xs text-brand-ink dark:bg-zinc-950">gem "dply-rails"</pre>
-                    <pre class="overflow-x-auto rounded-xl bg-brand-sand/40 p-3.5 text-xs text-brand-ink dark:bg-zinc-950">{{ "Rails.cache.write('session', 'hello')\nRails.cache.read('session')\nRails.cache.delete('session')" }}</pre>
+                    <p class="text-xs text-brand-moss">{{ __('Add dply-rails and use Dply::Rails::Kv, or make this the default cache in Settings so Rails.cache uses it.') }}</p>
+                    <pre class="{{ $kvPre }}">gem "dply-rails"</pre>
+                    <pre class="{{ $kvPre }}">{{ "Dply::Rails::Kv.write('settings', value, expires_in: 3600)\nDply::Rails::Kv.read('settings')\nDply::Rails::Kv.delete('settings')" }}</pre>
                 </x-sheet.section>
-                <x-sheet.section :title="__('HTTP')">
-                    <p class="text-xs text-brand-moss">{{ __('The same address works without either package. It is on the app after the next deploy.') }}</p>
-                    <pre class="overflow-x-auto rounded-xl bg-brand-sand/40 p-3.5 text-xs text-brand-ink dark:bg-zinc-950">{{ "curl -X PUT http://{$kvHostName}/session -d 'hello'\ncurl http://{$kvHostName}/session\ncurl -X DELETE http://{$kvHostName}/session" }}</pre>
+                <x-sheet.section :title="__('HTTP (Node or anything else)')">
+                    <p class="text-xs text-brand-moss">{{ __('The app’s private address, from the next deploy. GET / lists keys (?prefix=, ?cursor=), POST / with {"keys": [...]} reads up to 100 at once. A PUT can send x-dply-ttl or x-dply-expires-at, and x-dply-metadata (JSON).') }}</p>
+                    <pre class="{{ $kvPre }}">{{ "curl -X PUT http://{$kvHostName}/settings -H 'x-dply-ttl: 3600' -d 'hello'\ncurl http://{$kvHostName}/settings\ncurl -X DELETE http://{$kvHostName}/settings" }}</pre>
                 </x-sheet.section>
             </div>
+
             <div x-show="tab === 'keys'" x-cloak class="grid gap-5">
                 <x-sheet.section>
                     <div class="flex items-center justify-between gap-3">
@@ -139,41 +175,54 @@
                     @endif
                 </x-sheet.section>
             </div>
-            <div x-show="tab === 'usage'" x-cloak class="grid gap-3">
-                <x-sheet.metrics :cols="3">
-                    <x-sheet.metric :label="__('Reads this month')">{{ number_format($kvReads) }}</x-sheet.metric>
-                    <x-sheet.metric :label="__('Writes this month')">{{ number_format($kvWrites) }}</x-sheet.metric>
-                    <x-sheet.metric :label="__('Deletes this month')">{{ number_format($kvDeletes) }}</x-sheet.metric>
-                    <x-sheet.metric :label="__('Lists this month')">{{ number_format($kvLists) }}</x-sheet.metric>
-                    <x-sheet.metric :label="__('Storage')">{{ $kvStorageBytes >= 1024 ** 3 ? number_format($kvStorageBytes / 1024 ** 3, 2).' GB' : ($kvStorageBytes >= 1024 ** 2 ? number_format($kvStorageBytes / 1024 ** 2, 1).' MB' : number_format($kvStorageBytes).' B') }}</x-sheet.metric>
-                </x-sheet.metrics>
-                <p class="text-2xs leading-4 text-brand-mist">{{ __('Collected through today. A list of keys counts as a list.') }}</p>
-            </div>
-            <div x-show="tab === 'costs'" x-cloak class="grid gap-3">
-                @if (is_array($kvConnection) && $kvConnection['asleep'])
-                    <x-sheet.note>{{ __('Asleep. Once the next deploy drops it, there are no reads or writes, but its stored data is still billed.') }}</x-sheet.note>
+            {{-- Settings --}}
+            <div x-show="tab === 'settings'" x-cloak class="grid gap-5">
+                <x-sheet.section :title="__('Name')">
+                    <x-input-error :messages="$errors->get('kvSettings')" />
+                    @php $kvNext = \App\Modules\Edge\Support\EdgeContainerConnections::identity($kvName, $site); @endphp
+                    <div class="flex flex-wrap items-center gap-2">
+                        <input id="kv-name" type="text" wire:model="kvName" aria-label="{{ __('Name') }}" class="dply-input mt-0 min-w-0 flex-1" />
+                        <x-sheet.button variant="primary" wire:click="saveKvSettings">{{ __('Save') }}</x-sheet.button>
+                    </div>
+                    <p class="text-2xs leading-4 text-brand-mist">{{ is_array($kvNext) ? __('The app uses http://:host/ after the next deploy.', ['host' => $kvNext['host']]) : __('Letters and numbers only, starting with a letter.') }}</p>
+                </x-sheet.section>
+
+                @php
+                    $kvIsDefault = ($site->edgeMeta()['kv_default_cache'] ?? null) === $kvStore;
+                    $kvHasRedis = collect($connections)->contains(fn ($c) => $c['kind'] === 'redis');
+                @endphp
+                <x-sheet.section :title="__('Default cache')">
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                        <p class="min-w-0 flex-1 text-xs text-brand-moss">{{ $kvIsDefault
+                            ? __('This store is the app’s default cache: Cache::put and Rails.cache use it.').($kvHasRedis ? ' '.__('Redis is attached, so Redis stays the default until it is removed.') : '')
+                            : __('Off. The app keeps its own default cache and reaches this store by name, Cache::store(\':store\').', ['store' => $kvStore]) }}</p>
+                        <x-sheet.button wire:click="setKvDefaultCache({{ $kvIsDefault ? 'false' : 'true' }})" wire:island="resources-kv">{{ $kvIsDefault ? __('Stop using as default') : __('Make default cache') }}</x-sheet.button>
+                    </div>
+                    <p class="text-2xs leading-4 text-brand-mist">{{ __('As the default, anything that counts or locks fails: rate limiting and login throttling, Cache::lock, withoutOverlapping. Use Valkey for a default cache that does all of that.') }}</p>
+                </x-sheet.section>
+
+                @if (is_array($kvConnection))
+                    <x-sheet.section :title="__('Sleep')">
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <p class="min-w-0 flex-1 text-xs text-brand-moss">{{ $kvAsleep
+                                ? __('Asleep. Wake it, then deploy, to give the app its keys again.')
+                                : __('Takes the store off the app on the next deploy. Keys are kept and still billed.') }}</p>
+                            <x-sheet.button wire:click="sleepConnection({{ \Illuminate\Support\Js::from($kvHostName) }}, {{ $kvAsleep ? 'false' : 'true' }})" wire:island="resources-kv">{{ $kvAsleep ? __('Wake') : __('Sleep') }}</x-sheet.button>
+                        </div>
+                    </x-sheet.section>
                 @endif
-                    <x-sheet.cost :label="__('This month')">${{ number_format($kvMonthCents / 100, 2) }}</x-sheet.cost>
-                    <p class="text-2xs leading-4 text-brand-mist">{{ __('Reads are :reads per million. Writes, deletes, and lists are :writes per million. Storage is :storage per GB-month.', ['reads' => \App\Modules\Billing\Support\UsagePrice::dollars(\App\Modules\Billing\Support\UsagePrice::rate('kv_reads_millicents_per_million')), 'writes' => \App\Modules\Billing\Support\UsagePrice::dollars(\App\Modules\Billing\Support\UsagePrice::rate('kv_writes_millicents_per_million')), 'storage' => \App\Modules\Billing\Support\UsagePrice::dollars(\App\Modules\Billing\Support\UsagePrice::rate('kv_storage_millicents_per_gb_month'))]) }}</p>
-                    @unless ($cardOnFile)
-                        <x-sheet.note tone="warn">{{ __('This counts against the usage credit until a card is on the account.') }}</x-sheet.note>
-                    @endunless
-            </div>
-            <div x-show="tab === 'settings'" x-cloak class="grid gap-3">
-                <x-input-error :messages="$errors->get('kvSettings')" />
-                @php $kvNext = \App\Modules\Edge\Support\EdgeContainerConnections::identity($kvName, $site); @endphp
-                <x-sheet.field :label="__('Name')" for="kv-name">
-                    <input id="kv-name" type="text" wire:model="kvName" class="dply-input mt-0" />
-                    @if (is_array($kvNext))
-                        <p class="text-2xs leading-4 text-brand-mist">{{ __('The app uses http://:host/ after the next deploy.', ['host' => $kvNext['host']]) }}</p>
-                    @else
-                        <p class="text-2xs leading-4 text-brand-mist">{{ __('Name the store. Letters and numbers only, starting with a letter.') }}</p>
-                    @endif
-                </x-sheet.field>
-                <div><x-sheet.button variant="primary" wire:click="saveKvSettings">{{ __('Save settings') }}</x-sheet.button></div>
-                <x-sheet.danger :title="__('Delete this store')" class="mt-2">
-                    <p class="text-xs text-brand-moss">{{ __('Removes the store and every key in it. The app loses http://:host/ on the next deploy.', ['host' => $kvHostName]) }}</p>
-                    <div><x-sheet.button variant="danger" wire:click="askDeleteConnection({{ \Illuminate\Support\Js::from($kvHostName) }})" wire:island="resources-delete-connection" x-on:click="$dispatch('open-modal', 'resources-delete-connection')">{{ __('Delete store') }}</x-sheet.button></div>
+
+                <x-sheet.danger :title="__('Remove')">
+                    <div class="grid gap-3">
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <p class="min-w-0 flex-1 text-xs text-brand-moss">{{ __('Detach: the app stops using the store on the next deploy. The store and its keys are kept for other apps.') }}</p>
+                            <x-sheet.button wire:click="removeConnection({{ \Illuminate\Support\Js::from($kvHostName) }})" x-on:click="$dispatch('close-modal', 'resources-kv')">{{ __('Detach') }}</x-sheet.button>
+                        </div>
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <p class="min-w-0 flex-1 text-xs text-brand-moss">{{ __('Delete: removes the store and every key in it.') }}</p>
+                            <x-sheet.button variant="danger" wire:click="askDeleteConnection({{ \Illuminate\Support\Js::from($kvHostName) }})" wire:island="resources-delete-connection" x-on:click="$dispatch('open-modal', 'resources-delete-connection')">{{ __('Delete store') }}</x-sheet.button>
+                        </div>
+                    </div>
                 </x-sheet.danger>
             </div>
         </div>

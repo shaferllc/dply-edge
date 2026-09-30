@@ -19,7 +19,15 @@ A dply database is a Postgres, MySQL, or MongoDB server that belongs to one app.
 
 Every server engine accepts TLS connections only. Plain-text connections are refused.
 
-SQLite is a file at `/tmp/database.sqlite` inside the app. It is saved while the app runs and restored when the app wakes, and one instance serves the app so the file stays consistent. It has no backups, statistics, or console.
+SQLite is a file at `/tmp/database.sqlite` inside the app. It is saved while the app runs and restored when the app wakes, and one instance serves the app so the file stays consistent. Migrations run each time the app starts. It has no backups, statistics, or console.
+
+### Manage SQLite
+
+Choose the **SQLite** card on the app's map. Its sheet shows:
+
+- **The file**: where it is in the app, the env the app gets, and the size and time of the last saved copy. While the app runs, it copies the file to dply's object storage every 20 seconds, and it puts that copy back when it wakes. Writes made in the last few seconds before the app sleeps can be lost, so use a dply database for data you can't afford to lose. **Download a copy** gives you that file (a link that works for 10 minutes; it needs permission to change the app).
+- **Tools**, for Laravel and Rails apps: **Migrate**, **Status**, **Seed**, **Prepare** (Rails) and **Roll back**, run in the live app. If the running app still has another database from its last deploy (say you just detached Postgres), they tell you to redeploy instead of running.
+- **Add a database**, for data that several instances or queue workers share. The first one you add becomes the app's primary and takes over `DB_*`.
 
 ## Create a database
 
@@ -67,7 +75,7 @@ dply watches each database's memory and how many reads come from memory, and sug
 - **Bigger**: when the database has held over 85% of its memory, or served under 90% of reads from memory, for the last 6 hours it ran.
 - **Smaller**: when it has used under 35% of its memory for 7 days, with nearly every read from memory.
 
-The suggestion appears at the top of the database's sheet with the reason and the price change, and you get a notification that links to it. Choose one:
+Every database on the app gets its own suggestions, the primary and the others. The suggestion appears at the top of the database's sheet with the reason and the price change, and you get a notification that links to it. Choose one:
 
 - **Resize now**: the database restarts at the new size the next time the app connects. Open connections drop once.
 - **Resize tonight**: at 03:00 in your organization's time zone. Choose **Cancel** on the sheet to undo it before then.
@@ -164,7 +172,7 @@ To import, choose **Get upload command**, run it where the file is (the link wor
 
 ## Look inside
 
-The database sheet has tabs for day-to-day work. None of them wakes the database until you load or refresh something.
+The database sheet has tabs for day-to-day work. None of them wakes the database until you load or refresh something. For a database that isn't the primary, open its card and choose **Stats, console & backups**: the same tabs, apart from **Connect** and **Settings**, which are on its card.
 
 - **Overview**: state, size, disk use, awake hours this month, and round-trip time from the app.
 - **Statistics**: data size, tables, rows, connections, cache hit rate, and the largest tables. **Load live stats** wakes the database.
@@ -197,7 +205,22 @@ A 0.25 vCPU database that stays on all month (720 hours) with a 1 GB disk is abo
 
 ### What each database's card shows
 
-The primary's card has everything on this page: statistics, the console, backups and restore, export and import, and suggested resizes. Another database's card shows its disk use, connections and last backup, updated hourly without waking it, and you get the same disk, connection, memory and backup alerts for it. For its console, exports and restores, make it primary.
+Each database's card has its own **Tools** (Laravel apps): **Migrate**, **Status**, **Seed** and **Roll back** run with `--database` set to that database, using its prefixed env. Laravel runs every migration against the connection you give it, so set `$connection` on the migrations that belong to it. The app needs dply/laravel 1.2 or later for this.
+
+Every database has everything on this page: statistics, the console, backups and restore, export and import, suggested resizes, and the disk, connection, memory and backup alerts. The primary's card opens them from **Stats & backups**. Another database's card shows its disk use, connections and last backup, updated hourly without waking it, and opens the rest from **Stats, console & backups**. Its awake time and storage are its own; the primary's **Awake this month** counts only the primary.
+
+## From the API and the CLI
+
+The [API](/docs/api/reference#app-databases) and the [CLI](/docs/cli#an-apps-databases) list an app's databases and, for any of them, run a read-only query, start and list exports, and restore to a point in time:
+
+```sh
+dply edge databases list
+dply edge databases query reports "select count(*) from orders"
+dply edge databases export reports
+dply edge databases restore reports "2026-09-28 14:30"
+```
+
+Creating, attaching, resizing and deleting a database are in the dashboard.
 
 ## Detach or delete a database
 

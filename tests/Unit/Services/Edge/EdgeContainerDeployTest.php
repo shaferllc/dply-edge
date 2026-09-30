@@ -76,7 +76,7 @@ test('laravel gets a php-fpm image with assets, migrations on boot and port 8080
         ->and($dockerfile)->toContain('chmod 666')
         ->and($dockerfile)->not->toContain('DPLY_MIGRATE_ON_BOOT" = "1" ]; then if [ "$DB_CONNECTION" = "sqlite"')
         // cache_locks does not exist on a new database, so --isolated fails; retry unlocked.
-        ->and($dockerfile)->toContain('php artisan migrate --force --isolated || php artisan migrate --force || true')
+        ->and($dockerfile)->toContain('elif php artisan migrate --force --isolated || php artisan migrate --force; then')
         ->and($dockerfile)->toContain('RUN npm run build')
         ->and($dockerfile)->toContain('SERVER_NAME=":8080"')
         ->and(EdgeContainerDockerfile::logSummary($dockerfile))->toContain('RUN npm run build');
@@ -671,9 +671,11 @@ test('frankenphp trusts the Worker with a multi-line Caddy block; a one-line blo
     $dockerfile = File::get(EdgeContainerDockerfile::prepare($dir)['path']);
     preg_match('/^CMD \["sh", "-c", (".*")\]$/m', $dockerfile, $m);
     $boot = json_decode($m[1]);
-    // Run inside the checkout: the boot line runs `php artisan optimize`, which from
+    // Run inside the checkout: the boot line runs `php artisan config:cache`, which from
     // the project root cached dply's own config with the testing database.
-    $options = shell_exec('cd '.escapeshellarg($dir).' && sh -c '.escapeshellarg(substr($boot, 0, strpos($boot, '; export FRANKENPHP')).'; printf %s "$CADDY_GLOBAL_OPTIONS"'));
+    $options = shell_exec('cd '.escapeshellarg($dir).' && sh -c '.escapeshellarg(substr($boot, 0, strpos($boot, '; export FRANKENPHP')).'; printf "@@%s" "$CADDY_GLOBAL_OPTIONS"'));
+    // The boot line also prints its "dply-boot:" timing line first; keep only the options.
+    $options = Str::after((string) $options, '@@');
 
     expect($dockerfile)->not->toContain('ENV CADDY_GLOBAL_OPTIONS')
         ->and($options)->toBe("servers {\n\ttrusted_proxies static 0.0.0.0/0 ::/0\n}");
@@ -689,7 +691,7 @@ test('static assets from the container Worker allow any origin, so a custom doma
     expect(File::get($dir.'/src/index.js'))->toContain("headers.set('access-control-allow-origin', '*')");
 });
 
-test('php images tune opcache and cache Laravel at boot, tolerating a failed optimize', function () {
+test('php images tune opcache, cache routes and events at build and config at boot, tolerating failures', function () {
     $fpm = File::get(EdgeContainerDockerfile::prepare(checkout(['composer.json' => '{"require":{"php":"^8.3"}}', 'artisan' => '']))['path']);
     $franken = File::get(EdgeContainerDockerfile::prepare(checkout(['composer.json' => '{"require":{"php":"^8.3"},"extra":{"dply":{"php-server":"frankenphp"}}}', 'artisan' => '']))['path']);
     $plain = File::get(EdgeContainerDockerfile::prepare(checkout(['composer.json' => '{"require":{"php":"^8.3"}}', 'index.php' => '']))['path']);
@@ -698,12 +700,17 @@ test('php images tune opcache and cache Laravel at boot, tolerating a failed opt
         ->and($fpm)->not->toContain('-d opcache.')
         ->and($fpm)->toContain('DPLY_PERSISTENT_PDO=1')->and($franken)->not->toContain('DPLY_PERSISTENT_PDO')
         // After VIEW_COMPILED_PATH, or the cached config pins the old view path.
-        ->and(strpos($fpm, 'php artisan optimize >/dev/null 2>&1 || echo'))->toBeGreaterThan(strpos($fpm, 'export VIEW_COMPILED_PATH'))
-        ->and(strpos($fpm, 'php artisan optimize'))->toBeLessThan(strpos($fpm, 'php-fpm -F'))
+        ->and(strpos($fpm, 'php artisan config:cache >/dev/null 2>&1 || echo'))->toBeGreaterThan(strpos($fpm, 'export VIEW_COMPILED_PATH'))
+        ->and(strpos($fpm, 'php artisan config:cache'))->toBeLessThan(strpos($fpm, 'php-fpm -F'))
+        // Env-free caches at build; boot rebuilds them only if the build could not.
+        ->and($fpm)->toContain('RUN php artisan route:cache >/dev/null 2>&1 || echo')->toContain('php artisan event:cache >/dev/null 2>&1 || true')
+        ->and($fpm)->toContain('[ -f bootstrap/cache/routes-v7.php ] || php artisan route:cache')
+        // Never all four (and every view) on each cold start.
+        ->and($fpm)->not->toContain('artisan optimize')->not->toContain('view:cache')
         ->and($franken)->toContain('opcache.validate_timestamps=0')->not->toContain('opcache.jit')
-        ->and(strpos($franken, 'php artisan optimize'))->toBeLessThan(strpos($franken, 'exec frankenphp run'))
+        ->and(strpos($franken, 'php artisan config:cache'))->toBeLessThan(strpos($franken, 'exec frankenphp run'))
         ->and($franken)->not->toContain('octane:frankenphp')
-        ->and($plain)->toContain('zz-dply-opcache.ini')->not->toContain('artisan optimize');
+        ->and($plain)->toContain('zz-dply-opcache.ini')->not->toContain('artisan config:cache');
 });
 
 test('worker mode starts octane:frankenphp only for a frankenphp app with octane', function () {
@@ -832,4 +839,135 @@ test('a 5xx after deploy prints the error the app logged, read from the app itse
         ->not->toContain('#0 /app/vendor')
         ->not->toContain('max_children');
     \Illuminate\Support\Facades\Http::assertSent(fn ($r) => str_starts_with((string) $r['handler'], 'tail -q -n 300 /tmp/php-fpm.log'));
+});
+
+test('a request that finds its instance asleep starts it with a tight poll and records one wake; a warm one records nothing', function () {
+    $node = (new ExecutableFinder)->find('node');
+    if ($node === null) {
+        $this->markTestSkipped('node is not installed');
+    }
+    $site = new Site(['meta' => ['edge' => []]]);
+    $site->id = '01WAKETIMING';
+    $dir = sys_get_temp_dir().'/dply-wake-test-'.bin2hex(random_bytes(4));
+    (new EdgeContainerDeployer)->scaffold($dir, $site, '/x/Dockerfile', 8080, []);
+    $worker = File::get($dir.'/src/index.js');
+    $wrangler = File::get($dir.'/wrangler.jsonc');
+    File::deleteDirectory($dir);
+
+    // The App class's own fetch + wake, run against a stand-in for the SDK's Container.
+    $methods = Str::between($worker, "  async fetch(request) {\n    this.reservations.shift();", "\n  // Last request into this instance");
+    $script = 'const SITE_ID = "s";'
+        .'function recordWake(env, index, readyMs, probeMs, requestMs, status) {'.Str::betweenFirst($worker, 'function recordWake(env, index, readyMs, probeMs, requestMs, status) {', "\n}\n")."\n}\n"
+        .<<<'JS'
+    const points = [], calls = [];
+    class Container {
+      async fetch() { calls.push('request'); return new Response('ok', { status: 200 }); }
+      async startAndWaitForPorts(o) { calls.push('start:' + o.cancellationOptions.waitInterval + '/' + o.cancellationOptions.instanceGetTimeoutMS); this.probeMs = 12; this.container.running = true; }
+    }
+    class App extends Container {
+      reservations = []; index = 0; container = { running: false };
+      env = { DPLY_WAKE: { writeDataPoint: (p) => points.push(p) } };
+      async fetch(request) { this.reservations.shift();
+    JS
+        .$methods.<<<'JS'
+
+    }
+    (async () => {
+      const app = new App();
+      await app.fetch(new Request('https://x/'));   // asleep
+      await app.fetch(new Request('https://x/'));   // now warm
+      console.log(JSON.stringify({ points, calls }));
+    })();
+    JS;
+    $out = json_decode(Process::run([$node, '-e', $script])->throw()->output(), true);
+
+    expect($out['calls'])->toBe(['start:100/30000', 'request', 'request'])
+        ->and($out['points'])->toHaveCount(1)
+        ->and($out['points'][0]['blobs'])->toBe(['s', '0', '200'])
+        ->and($out['points'][0]['doubles'][1])->toBe(12)          // the probe, as measured
+        ->and($out['points'][0]['doubles'][0])->toBeGreaterThanOrEqual(0)
+        ->and($worker)->toContain("pingEndpoint = 'ping/_dply-ping'")
+        // Its own dataset: the reply-bytes one is summed whole for billing.
+        ->and($wrangler)->toContain('"binding": "DPLY_WAKE"')->toContain('"dataset": "dply_container_wake"')
+        ->and($wrangler)->toContain('"dataset": "dply_container_bytes"');
+});
+
+test('php images answer the readiness probe without PHP and log one boot-timing line', function () {
+    $fpm = File::get(EdgeContainerDockerfile::prepare(checkout(['composer.json' => '{"require":{"php":"^8.3"}}', 'artisan' => '']))['path']);
+    $franken = File::get(EdgeContainerDockerfile::prepare(checkout(['composer.json' => '{"require":{"php":"^8.3"},"extra":{"dply":{"php-server":"frankenphp"}}}', 'artisan' => '']))['path']);
+
+    expect($fpm)->toContain('location = /_dply-ping { return 204; }')
+        ->and($franken)->toContain("respond /_dply-ping 204")
+        ->and(substr_count($fpm, 'dply-boot:'))->toBe(1)
+        ->and($fpm)->toContain('start=$b0 sqlite=$b1 migrate=$b2 caches=');
+});
+
+test('the worker serves a public bucket path read-only from the bucket', function () {
+    if (trim((string) shell_exec('command -v node')) === '') {
+        $this->markTestSkipped('node is not installed');
+    }
+    $site = new Site(['meta' => ['edge' => [
+        'connections' => [
+            ['kind' => 'object_storage', 'name' => 'MEDIA', 'host' => 'media.app.internal', 'target' => 'dply-x-media'],
+            ['kind' => 'object_storage', 'name' => 'SECRET', 'host' => 'secret.app.internal', 'target' => 'dply-x-secret'],
+        ],
+        'storage_public' => ['media.app.internal' => '/files', 'secret.app.internal' => '/../nope'],
+    ]]]);
+    $site->id = '01PUBLICSTORE';
+    $dir = sys_get_temp_dir().'/dply-container-test-'.bin2hex(random_bytes(4));
+    (new EdgeContainerDeployer)->scaffold($dir, $site, '/x/Dockerfile', 8080, []);
+    $worker = File::get($dir.'/src/index.js');
+
+    preg_match('/const PUBLIC_STORAGE = .*?\n}\n/s', $worker, $block);
+    File::put($dir.'/public.mjs', $block[0].<<<'JS'
+
+    const bucket = { get: async (key) => key === 'a.txt' ? { body: 'hello', size: 5, httpEtag: '"e"', writeHttpMetadata: (h) => h.set('content-type', 'text/plain') } : null };
+    const env = { MEDIA: bucket, SECRET: bucket };
+    const hit = async (method, path) => {
+      const r = await publicStorageFetch(new Request('https://app.example' + path, { method }), env, new URL('https://app.example' + path));
+      return r === null ? 'app' : r.status + ':' + (await r.text()) + ':' + (r.headers.get('content-type') ?? '');
+    };
+    console.log([await hit('GET', '/files/a.txt'), await hit('GET', '/files/b.txt'), await hit('GET', '/files/%2E%2E/a.txt'),
+      await hit('POST', '/files/a.txt'), await hit('GET', '/other/a.txt'), await hit('GET', '/files')].join('|'));
+    JS);
+
+    expect($block[0])->toContain('"path":"/files"')->not->toContain('SECRET')
+        ->and(trim((string) shell_exec('node '.escapeshellarg($dir.'/public.mjs').' 2>&1')))
+        ->toBe('200:hello:text/plain|404:Not found:text/plain;charset=UTF-8|app|app|app|app'); // %2E%2E normalizes out of /files
+});
+
+test('an octane app logs boot timing without config:cache; sqlite migrate-on-boot skips a build that already migrated', function () {
+    $octane = File::get(EdgeContainerDockerfile::prepare(checkout([
+        'composer.json' => '{"require":{"php":"^8.3","laravel/octane":"^2.0","spiral/roadrunner-http":"^3.0"}}',
+        'artisan' => '',
+    ]))['path']);
+    $fpm = File::get(EdgeContainerDockerfile::prepare(checkout(['composer.json' => '{"require":{"php":"^8.3"}}', 'artisan' => '']))['path']);
+
+    // Octane logs boot timing but skips config:cache (it cost more than it saved).
+    expect(strpos($octane, 'dply-boot:'))->toBeInt()->toBeLessThan(strpos($octane, 'octane:start --server=roadrunner'))
+        ->and($octane)->not->toContain('artisan config:cache')
+        // The build id comes after the code, so a code change makes a new one.
+        ->and(strpos($fpm, 'RUN cat /proc/sys/kernel/random/uuid > /app/.dply-build'))->toBeGreaterThan(strpos($fpm, 'composer dump-autoload'))
+        // Skip only for sqlite whose database carries this build's id; mark only after a migrate succeeds.
+        ->and($fpm)->toContain('if [ \\"$DB_CONNECTION\\" = \\"sqlite\\" ] && php -r')
+        ->and(strpos($fpm, 'dply_migrated (build TEXT)'))->toBeGreaterThan(strpos($fpm, 'elif php artisan migrate --force --isolated'));
+});
+
+test('the sqlite migrate skip matches only the build that migrated', function () {
+    $php = (new ExecutableFinder)->find('php');
+    $db = sys_get_temp_dir().'/dply-migrated-'.bin2hex(random_bytes(4)).'.sqlite';
+    $build = sys_get_temp_dir().'/dply-build-'.bin2hex(random_bytes(4));
+    // The same code with the image path swapped for a temp file.
+    $run = fn (string $code): int => Process::env(['DB_DATABASE' => $db])->run([$php, '-r', str_replace('/app/.dply-build', $build, $code)])->exitCode();
+    File::put($build, "build-a\n");
+    touch($db);
+
+    $fresh = $run(EdgeContainerDockerfile::SQLITE_MIGRATED);
+    $run(EdgeContainerDockerfile::SQLITE_MARK_MIGRATED);
+    $marked = $run(EdgeContainerDockerfile::SQLITE_MIGRATED);
+    File::put($build, "build-b\n");
+    $newBuild = $run(EdgeContainerDockerfile::SQLITE_MIGRATED);
+    File::delete([$db, $build]);
+
+    expect([$fresh, $marked, $newBuild])->toBe([1, 0, 1]);
 });

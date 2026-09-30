@@ -11,6 +11,7 @@ use App\Models\Site;
 use App\Modules\Edge\Actions\CancelStuckEdgeDeployment;
 use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Edge\Services\EdgeHostMapPublisher;
+use App\Modules\Edge\Services\Storage\EdgeBucketKeys;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeDplyDatabase;
 use App\Modules\Edge\Support\EdgeQueueWorkers;
@@ -126,6 +127,7 @@ final class OrganizationBillingEnforcer
                     $this->gate->syncOrganization($org);
                     $this->workers($org, false);
                     $this->dataStores($org, false);
+                    $this->attempt(fn () => app(EdgeBucketKeys::class)->setOrganizationEnabled($org, true));
                 }
             }
 
@@ -234,6 +236,8 @@ final class OrganizationBillingEnforcer
         $this->republish($org);
         $this->gate->syncOrganization($org);
         $this->dataStores($org, true);
+        // S3 keys reach R2 directly, past the paused page.
+        $this->attempt(fn () => app(EdgeBucketKeys::class)->setOrganizationEnabled($org, false));
         $this->stopBuilds($org);
     }
 

@@ -282,10 +282,67 @@ final class DplyDatabases
         return substr($env, 0, 30);
     }
 
+    /**
+     * The database in meta.edge.database's shape, wherever its state lives:
+     * the mirror of an app it is primary on, else its own row.
+     *
+     * @return array<string, mixed>
+     */
+    public static function record(DplyDatabase $database): array
+    {
+        foreach ($database->sites()->wherePivot('primary', true)->get() as $app) {
+            $mirror = (array) ($app->edgeMeta()['database'] ?? []);
+            if (($mirror['remote_id'] ?? null) === $database->remote_id) {
+                return $mirror;
+            }
+        }
+
+        return self::fields($database) + (array) ($database->state ?? []);
+    }
+
+    /**
+     * Save state keys (restore, transfer, readonly, resize_*) where record()
+     * reads them. A null value removes the key. Decided at write time, so a
+     * job that outlives a Make primary still lands in the right place.
+     *
+     * @param  array<string, mixed>  $values
+     */
+    public static function remember(DplyDatabase $database, array $values): void
+    {
+        $merge = static fn (array $into): array => array_filter(array_merge($into, $values), static fn ($v) => $v !== null);
+        $mirrored = false;
+        foreach ($database->sites()->wherePivot('primary', true)->get() as $app) {
+            $app->refresh();
+            $mirror = (array) ($app->edgeMeta()['database'] ?? []);
+            if (($mirror['remote_id'] ?? null) === $database->remote_id) {
+                $app->mergeEdgeMeta(['database' => $merge($mirror)]);
+                $app->save();
+                $mirrored = true;
+            }
+        }
+        if (! $mirrored) {
+            $database->refresh();
+            $database->forceFill(['state' => $merge((array) ($database->state ?? [])) ?: null])->save();
+        }
+    }
+
+    /** One of the app's databases by id or name, or null. */
+    public static function find(Site $site, string $idOrName): ?DplyDatabase
+    {
+        return self::for($site)->first(fn (DplyDatabase $d) => $d->id === $idOrName || $d->name === $idOrName);
+    }
+
     /** Record the database's size and settings as the app's meta.edge.database (what the rest of dply reads). */
     private static function mirror(Site $site, DplyDatabase $database): void
     {
-        $site->mergeEdgeMeta(['database' => array_filter([
+        $site->mergeEdgeMeta(['database' => self::fields($database) + (array) ($database->state ?? [])]);
+        $site->save();
+    }
+
+    /** @return array<string, mixed> */
+    private static function fields(DplyDatabase $database): array
+    {
+        return array_filter([
             'engine' => $database->engine,
             'provider' => 'dply',
             'name' => $database->name,
@@ -297,8 +354,7 @@ final class DplyDatabases
             'size' => $database->size,
             'suspend' => $database->suspend,
             'disk_gb' => $database->disk_gb,
-        ], static fn ($v) => $v !== null) + (array) ($database->state ?? [])]);
-        $site->save();
+        ], static fn ($v) => $v !== null);
     }
 
     /** Before the mirror changes hands: its settings and panel state go back to the row. */

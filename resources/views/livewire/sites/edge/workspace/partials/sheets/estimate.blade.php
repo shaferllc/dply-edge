@@ -1,6 +1,6 @@
 @if (is_array($quote) && is_array($settings))
     <x-sheet name="resources-estimate" :show="$panel === 'estimate'" maxWidth="lg" focusable>
-        <x-sheet.header :eyebrow="__('App')" :title="__('Cost estimate')" close-wire="openPanel('')">
+        <x-sheet.header :eyebrow="__('App')" :title="__('Cost estimate')" close-wire="$set('panel', '')">
             {{ __('While it is running, for :count. This is an estimate, not your bill. Monthly figures assume a typical 25% of each vCPU busy; the running rate assumes all of it. Sleeping time is not billed, and changing the hours does not change the app.', ['count' => trans_choice(':count instance|:count instances', $settings['max_instances'])]) }}
         </x-sheet.header>
 

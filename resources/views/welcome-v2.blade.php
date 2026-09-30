@@ -10,12 +10,15 @@
 
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @livewireStyles
+    <script>document.documentElement.classList.add('js-reveal')</script>
     <style>
         [x-cloak] { display: none !important; }
 
-        /* Scroll reveal — one transition, no per-element choreography. */
-        .reveal { opacity: 0; transform: translateY(20px); transition: opacity .6s cubic-bezier(.2,.7,.2,1), transform .6s cubic-bezier(.2,.7,.2,1); }
-        .reveal.reveal-in { opacity: 1; transform: none; }
+        /* Scroll reveal — one transition, no per-element choreography. Hidden
+           only once JS is known to run (html.js-reveal, set below), so crawlers,
+           link previews and no-JS readers get the page, not a blank ground. */
+        html.js-reveal .reveal { opacity: 0; transform: translateY(20px); transition: opacity .6s cubic-bezier(.2,.7,.2,1), transform .6s cubic-bezier(.2,.7,.2,1); }
+        html.js-reveal .reveal.reveal-in { opacity: 1; transform: none; }
 
         /* The one moving part on the page: the cursor at the end of the deploy
            trace. Everything else is still, which is what makes it read. */
@@ -41,7 +44,7 @@
                     <p class="reveal font-terminal text-xs tracking-[0.12em] text-edge-lime">SITES · SERVER_APPS · DATABASES · WORKERS</p>
 
                     <h1 class="reveal mt-6 text-[2.75rem] font-bold leading-[1.02] tracking-[-0.045em] sm:text-6xl lg:text-[3.9rem]" style="transition-delay:.06s">
-                        Push a repo.<br>Get the whole app<br>running.
+                        Push a repo.<br> Get the whole app<br> running.
                     </h1>
 
                     <p class="reveal mt-7 max-w-xl text-base leading-7 text-edge-dim" style="transition-delay:.12s">
@@ -238,6 +241,7 @@
                         start a 5-day trial →
                     </a>
                     <a href="{{ route('coming-soon') }}" class="text-sm text-edge-mute transition-colors hover:text-edge-lime">or join the waitlist</a>
+                    <a href="{{ route('docs.show', 'guides/migrate-from-forge-cloud') }}" class="text-sm text-edge-mute transition-colors hover:text-edge-lime">moving from Forge or Laravel Cloud? →</a>
                 </div>
             </div>
         </section>

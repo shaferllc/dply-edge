@@ -8,7 +8,8 @@ require "uri"
 module Dply
   module Rails
     # Short values on the attached key-value store. Required from lib/dply/rails.rb.
-    # Rails.cache uses DplyStore when DPLY_KV_HOST is set and REDIS_URL is not.
+    # Rails.cache uses DplyStore when the store is the app's default cache in dply
+    # (DPLY_KV_DEFAULT) and REDIS_URL is not set. Otherwise: Dply::Rails::Kv directly.
     # User: "add support for key value store to dply/laravel ad dply/rails".
     module Kv
       NO_COUNTERS = "Key-value stores can't count atomically. Attach Valkey (Redis) or use State for counters, locks and rate limiting."

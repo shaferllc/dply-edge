@@ -132,6 +132,16 @@ test('llms.txt lists written pages with urls and descriptions', function (): voi
         ->not->toContain('Unwritten');
 });
 
+test('llms.txt at the site root states the product and plan prices from config', function (): void {
+    $body = $this->get('/llms.txt')->assertOk()->getContent();
+
+    expect($body)
+        ->toStartWith("# dply\n")
+        ->toContain('Pro $'.intdiv(config('subscription.standard.tiers.pro.price_cents'), 100).'/mo')
+        ->toContain(route('compare', 'forge'))
+        ->toContain('## Getting started');
+});
+
 test('search index has title, description, headings and text per written page', function (): void {
     $this->get('/docs/search.json')
         ->assertOk()

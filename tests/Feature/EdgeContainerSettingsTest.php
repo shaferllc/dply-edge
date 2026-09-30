@@ -567,16 +567,16 @@ test('key value settings show how it works and rename the store', function () {
     Livewire::actingAs($user)
         ->test(Resources::class, ['server' => $server, 'site' => $site->fresh()])
         ->call('openKv', $host)
-        ->assertSee('GET http://'.$host.'/ lists up to 1,000 keys. Pass ?prefix= to filter and ?cursor= for the next page.')
+        ->assertSee('GET / lists keys (?prefix=, ?cursor=)')
         ->assertSee('Reads are $1.00 per million')
-        ->assertSee('Implementation')
+        ->assertSee('Connect')
         ->assertSee('The next deploy adds dply/laravel')
         ->assertSee('dply-rails')
         ->assertSee("Cache::store('flags')")
-        ->assertSee('Rails.cache.write')
-        ->assertSee('session')
-        ->assertSee('1,000,000')
-        ->assertSee('Cost estimate · $1.00')
+        ->assertSee('Dply::Rails::Kv.write')
+        ->assertSee("curl http://{$host}/settings", false)
+        ->assertSee('1M')
+        ->assertSeeHtml('<b class="text-brand-ink">$1.00</b> this month')
         ->assertSee('$1.00')
         ->set('kvName', 'Notes')
         ->call('saveKvSettings')
@@ -626,7 +626,7 @@ test('an asleep key value store drops its env but is still billed for what it us
         ->call('openKv', EdgeContainerConnections::resourceHost($fresh, 'flags'))
         ->call('runKvDemo', 'write')
         ->assertSee('This store is asleep')
-        ->assertSee('Cost estimate · $2.00');
+        ->assertSeeHtml('<b class="text-brand-ink">$2.00</b> this month');
 
     Http::assertNotSent(fn ($request): bool => $request->method() === 'PUT');
 });

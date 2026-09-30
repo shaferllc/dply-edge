@@ -418,6 +418,10 @@ document.addEventListener(
         // (e.g. tabs that re-render the page on click — a stuck-looking
         // button is worse than no spinner).
         if (trigger.dataset.skipBusy === '1' || trigger.dataset.skipBusy === 'true') return;
+        // Or a whole area opts out (data-skip-busy-within), e.g. the edge
+        // service map: its boxes open sheets that show their own loading, and
+        // blanking a box would also eat the ::after its connector line uses.
+        if (trigger.closest('[data-skip-busy-within]')) return;
         if (trigger.dataset.dplyBusy === '1') return; // already busy
         if (trigger.disabled || trigger.getAttribute('aria-disabled') === 'true') return;
 

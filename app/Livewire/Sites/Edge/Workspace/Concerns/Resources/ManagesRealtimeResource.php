@@ -103,6 +103,15 @@ trait ManagesRealtimeResource
         $this->toastSuccess(__('Saved. The relay uses these settings now; no redeploy needed.'));
     }
 
+    /** Show on the Credentials tab, like the Valkey password: returned straight to Alpine, never held in component state. */
+    #[Renderless]
+    public function realtimeSecret(): string
+    {
+        $this->authorize('update', $this->site);
+
+        return (string) $this->realtimeApp()?->app_secret;
+    }
+
     /**
      * New signing secret. Browsers keep working (the key is unchanged), but
      * the running app signs with the old secret until it is redeployed.

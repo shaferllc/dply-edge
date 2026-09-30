@@ -11,6 +11,7 @@ use Illuminate\Queue\QueueManager;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\ServiceProvider;
+use League\Flysystem\AwsS3V3\AwsS3V3Adapter;
 use League\Flysystem\Filesystem;
 use Pdo\Pgsql;
 
@@ -212,8 +213,28 @@ class DplyServiceProvider extends ServiceProvider
         if ($host !== '' && $primary !== '' && ! isset($disks[$primary])) {
             $disks[$primary] = $host;
         }
+        // S3 keys from dply (AWS_* plus DPLY_STORAGE_BUCKETS=disk=bucket): each disk is a real s3 disk,
+        // so temporaryUrl, uploads straight to the bucket and large files work. Needs Flysystem's S3 adapter.
+        $buckets = [];
+        foreach (explode(',', (string) env('DPLY_STORAGE_BUCKETS', '')) as $pair) {
+            [$name, $bucket] = array_pad(explode('=', trim($pair), 2), 2, '');
+            if ($name !== '' && $bucket !== '') {
+                $buckets[$name] = $bucket;
+            }
+        }
+        $s3 = $buckets !== [] && class_exists(AwsS3V3Adapter::class);
         foreach ($disks as $name => $diskHost) {
-            $this->app['config']->set('filesystems.disks.'.$name, [
+            $this->app['config']->set('filesystems.disks.'.$name, $s3 && isset($buckets[$name]) ? [
+                'driver' => 's3',
+                'key' => env('AWS_ACCESS_KEY_ID'),
+                'secret' => env('AWS_SECRET_ACCESS_KEY'),
+                'region' => env('AWS_DEFAULT_REGION', 'auto'),
+                'bucket' => $buckets[$name],
+                'endpoint' => env('AWS_ENDPOINT'),
+                'use_path_style_endpoint' => true,
+                'url' => $name === $primary ? env('AWS_URL') : null,
+                'throw' => false,
+            ] : [
                 'driver' => 'dply',
                 'host' => $diskHost,
             ]);

@@ -6,9 +6,13 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
-@source '..*.blade.php';
+@source '../**/*.blade.php';
 @source '../**/*.js';
 @source '../../app/Support/LogLineTone.php';
+/* Compiled views and cache are rewritten on every request. Tailwind's automatic
+   scan still watches them when they are not gitignored, and that full-reloads the browser. */
+@source not '../../storage';
+@source not '../../bootstrap/cache';
 
 @import './dply-theme.css';
 
@@ -440,7 +444,7 @@
     }
 
     html.dark .text-slate-400 {
-        color: var(--color-brand-mist);
+        color: color-mix(in srgb, var(--color-brand-mist) 80%, transparent);
     }
 
     html.dark .border-slate-100 {
@@ -891,6 +895,63 @@ p {
 @keyframes dply-flow {
     to {
         stroke-dashoffset: -20;
+    }
+}
+
+/*
+ * Service map: a trunk down the left of the resources column with a branch
+ * into every box, however many there are (resources.blade.php). The trunk
+ * sits 22px left of the column, where the connector column's line from the
+ * app ends. Each box draws its branch (::before) and its piece of the trunk
+ * (::after), half a gap past each edge so the pieces meet. .resource-fan-end
+ * is the last box; .resource-fan-skip opts a child out.
+ */
+@media (min-width: 64rem) {
+    .resource-fan > :not(.resource-fan-skip) {
+        position: relative;
+    }
+    .resource-fan > :not(.resource-fan-skip)::before,
+    .resource-fan > :not(.resource-fan-skip)::after {
+        content: "";
+        position: absolute;
+        left: -22px;
+        pointer-events: none;
+        color: var(--color-brand-forest);
+    }
+    .resource-fan > :not(.resource-fan-skip)::before {
+        top: 50%;
+        width: 22px;
+        height: 1.5px;
+        background: repeating-linear-gradient(90deg, currentColor 0 4px, transparent 4px 10px);
+        animation: resource-fan-x 1s linear infinite;
+    }
+    .resource-fan > :not(.resource-fan-skip)::after {
+        top: -0.375rem;
+        bottom: -0.375rem;
+        width: 1.5px;
+        background: repeating-linear-gradient(180deg, currentColor 0 4px, transparent 4px 10px);
+    }
+    .resource-fan > :first-child::after {
+        top: 50%;
+    }
+    .resource-fan > .resource-fan-end::after {
+        bottom: 50%;
+    }
+    .resource-fan > .resource-fan-end::before,
+    .resource-fan > .resource-fan-end::after {
+        color: var(--color-brand-mist);
+    }
+}
+
+@keyframes resource-fan-x {
+    to {
+        background-position: 10px 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .resource-fan > *::before {
+        animation: none;
     }
 }
 

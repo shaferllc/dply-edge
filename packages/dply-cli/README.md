@@ -166,6 +166,7 @@ dply edge rollback <deployment-id>
 dply edge previews list | create [--commit|--branch] [--wait] | rm <id>
 dply edge promote <preview-id>
 dply edge domains list | add <host> | verify <host> | rm <host>
+dply edge databases list | show <db> | query <db> "<sql>" | exports <db> | export <db> | restore <db> <time>
 dply edge aliases
 dply edge env list | set KEY=val | rm KEY | push --file .env | pull
 dply edge purge --tag <tag>

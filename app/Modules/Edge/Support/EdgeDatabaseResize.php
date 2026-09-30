@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Support;
 
+use App\Models\DplyDatabase;
 use App\Models\Site;
+use App\Modules\Edge\Services\DplyDatabases;
 use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Notifications\Services\NotificationPublisher;
 use Illuminate\Support\Carbon;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -23,8 +26,10 @@ use Throwable;
  *   smaller  DOWN_DAYS of samples never above DOWN_MEMORY, with the cache
  *            hit rate at or above DOWN_HIT_RATE throughout.
  *
- * State lives on meta.edge.database: `memory` (samples), `resize_dismissed`
- * ({size, until}) and `resize_scheduled` ({size, at, by}).
+ * State: `memory` (samples), `resize_dismissed` ({size, at, by}) and
+ * `resize_scheduled` ({size, at, by}). Each function takes an app (its
+ * primary, at meta.edge.database) or a database row (one that is no app's
+ * primary: its state through DplyDatabases::record / remember).
  */
 final class EdgeDatabaseResize
 {
@@ -55,9 +60,9 @@ final class EdgeDatabaseResize
      *
      * @return list<array{0: int, 1: int, 2: int, 3: float|null}>
      */
-    public static function samples(Site $site): array
+    public static function samples(Site|DplyDatabase $of): array
     {
-        return array_values(array_filter((array) ($site->edgeMeta()['database']['memory'] ?? []), 'is_array'));
+        return array_values(array_filter((array) (self::state($of)['memory'] ?? []), 'is_array'));
     }
 
     /**
@@ -67,24 +72,21 @@ final class EdgeDatabaseResize
      * @param  array<string, mixed>  $insights
      * @return array{0: int, 1: int, 2: int, 3: float|null}|null the sample added
      */
-    public static function record(Site $site, array $insights): ?array
+    public static function record(Site|DplyDatabase $of, array $insights): ?array
     {
         $limit = (int) ($insights['memory_bytes'] ?? 0);
         $taken = strtotime((string) ($insights['taken_at'] ?? '')) ?: 0;
         if ($limit <= 0 || $taken < now()->subMinutes(90)->getTimestamp()) {
             return null;
         }
-        $samples = self::samples($site);
+        $samples = self::samples($of);
         if ($samples !== [] && end($samples)[0] >= $taken) {
             return null;
         }
         $hit = $insights['cache_hit_ratio'] ?? null;
         $sample = [$taken, (int) round((int) ($insights['memory_anon_bytes'] ?? 0) / 1048576), (int) round($limit / 1048576), is_numeric($hit) ? (float) $hit : null];
         $samples[] = $sample;
-        $database = (array) ($site->edgeMeta()['database'] ?? []);
-        $database['memory'] = array_slice($samples, -self::SAMPLES);
-        $site->mergeEdgeMeta(['database' => $database]);
-        $site->save();
+        self::remember($of, ['memory' => array_slice($samples, -self::SAMPLES)]);
 
         return $sample;
     }
@@ -95,10 +97,10 @@ final class EdgeDatabaseResize
      *
      * @return array{size: string, direction: string, reason: string, from: string}|null
      */
-    public static function suggestion(Site $site): ?array
+    public static function suggestion(Site|DplyDatabase $of): ?array
     {
-        $database = (array) ($site->edgeMeta()['database'] ?? []);
-        if (! EdgeAppDatabase::isDply($database) || EdgeTrialLimits::applies($site->organization)) {
+        $database = self::state($of);
+        if (! EdgeAppDatabase::isDply($database) || EdgeTrialLimits::applies($of->organization)) {
             return null;
         }
         $current = (string) ($database['size'] ?? '');
@@ -107,7 +109,7 @@ final class EdgeDatabaseResize
         if ($at === false) {
             return null;
         }
-        $samples = self::samples($site);
+        $samples = self::samples($of);
         $recent = array_slice($samples, -self::UP_HOURS);
         $share = static fn (array $s): float => $s[2] > 0 ? $s[1] / $s[2] : 0.0;
 
@@ -136,24 +138,24 @@ final class EdgeDatabaseResize
     }
 
     /** Right now the engine holds over HIGH_MEMORY of its memory (latest fresh sample). */
-    public static function memoryHigh(Site $site): ?array
+    public static function memoryHigh(Site|DplyDatabase $of): ?array
     {
-        $last = self::samples($site) === [] ? null : last(self::samples($site));
+        $last = self::samples($of) === [] ? null : last(self::samples($of));
 
         return is_array($last) && $last[2] > 0 && $last[1] / $last[2] >= self::HIGH_MEMORY && $last[0] >= now()->subMinutes(90)->getTimestamp()
             ? ['used_mb' => $last[1], 'limit_mb' => $last[2]]
             : null;
     }
 
-    public static function dismiss(Site $site, string $size): void
+    public static function dismiss(Site|DplyDatabase $of, string $size): void
     {
-        self::remember($site, ['resize_dismissed' => ['size' => $size, 'until' => now()->addDays(self::DISMISS_DAYS)->getTimestamp()]]);
+        self::remember($of, ['resize_dismissed' => ['size' => $size, 'until' => now()->addDays(self::DISMISS_DAYS)->getTimestamp()]]);
     }
 
     /** When "tonight" is: the next TONIGHT_HOUR:00 in the organization's time zone. */
-    public static function tonight(Site $site): Carbon
+    public static function tonight(Site|DplyDatabase $of): Carbon
     {
-        $tz = (string) ($site->organization?->timezone ?: 'UTC');
+        $tz = (string) ($of->organization?->timezone ?: 'UTC');
         try {
             $at = now($tz)->setTime(self::TONIGHT_HOUR, 0);
         } catch (Throwable) {
@@ -163,28 +165,29 @@ final class EdgeDatabaseResize
         return $at->isPast() ? $at->addDay() : $at;
     }
 
-    public static function schedule(Site $site, string $size, ?string $userId): Carbon
+    public static function schedule(Site|DplyDatabase $of, string $size, ?string $userId): Carbon
     {
-        $at = self::tonight($site);
-        self::remember($site, ['resize_scheduled' => ['size' => $size, 'at' => $at->getTimestamp(), 'by' => $userId]]);
+        $at = self::tonight($of);
+        self::remember($of, ['resize_scheduled' => ['size' => $size, 'at' => $at->getTimestamp(), 'by' => $userId]]);
 
         return $at;
     }
 
-    public static function cancelScheduled(Site $site): void
+    public static function cancelScheduled(Site|DplyDatabase $of): void
     {
-        $database = (array) ($site->edgeMeta()['database'] ?? []);
-        unset($database['resize_scheduled']);
-        $site->mergeEdgeMeta(['database' => $database]);
-        $site->save();
+        self::remember($of, ['resize_scheduled' => null]);
     }
 
     /**
      * Resize now, through the same path as the database sheet, and say how
      * it went (edge.database.resized / resize_failed). Returns the error.
      */
-    public static function apply(Site $site, string $size): ?string
+    public static function apply(Site|DplyDatabase $of, string $size): ?string
     {
+        if ($of instanceof DplyDatabase) {
+            return self::applyToRow($of, $size);
+        }
+        $site = $of;
         $database = (array) ($site->edgeMeta()['database'] ?? []);
         $engine = (string) ($database['engine'] ?? 'postgres');
         $from = (string) ($database['size'] ?? '');
@@ -206,6 +209,34 @@ final class EdgeDatabaseResize
         return $error;
     }
 
+    /** A database that is no app's primary: resized through DplyDatabases, told to an app it is on. */
+    private static function applyToRow(DplyDatabase $database, string $size): ?string
+    {
+        $from = $database->size;
+        $site = $database->sites()->first();
+        try {
+            if ($site === null) {
+                throw new RuntimeException(__('Attach it to an app to resize it.'));
+            }
+            DplyDatabases::update($database, $site, $size, $database->suspend, $database->disk_gb);
+            $error = null;
+        } catch (Throwable $e) {
+            $error = $e->getMessage();
+        }
+        self::cancelScheduled($database);
+        if ($site !== null) {
+            $to = EdgeAppDatabase::POSTGRES_SIZES[$size] ?? null;
+            self::notify($site, $error === null ? 'edge.database.resized' : 'edge.database.resize_failed',
+                $error === null
+                    ? __('The :name database is now :size', ['name' => $database->name, 'size' => $to !== null ? $to['cpu'].' · '.$to['memory'] : $size])
+                    : __('The :name database could not be resized', ['name' => $database->name]),
+                $error === null ? __('It restarts at the new size the next time an app connects. Open connections dropped once.') : $error,
+                ['database' => $database->name, 'from' => $from, 'to' => $size, 'error' => $error], 'db-'.$database->id);
+        }
+
+        return $error;
+    }
+
     /** @param  array<string, mixed>  $metadata */
     public static function notify(Site $site, string $event, string $title, string $body, array $metadata = [], string $sheet = 'database'): void
     {
@@ -223,16 +254,27 @@ final class EdgeDatabaseResize
         }
     }
 
-    /** The app's Overview with a sheet open (database: the suggestion card; app: the size suggestion). */
+    /** The app's Overview with a sheet open (database: the suggestion card; app: the size suggestion; db-{id}: another database's sheet). */
     public static function sheetUrl(Site $site, string $sheet = 'database'): string
     {
         return route('sites.show', ['server' => $site->server_id, 'site' => $site->id, 'section' => 'general']).'?sheet='.$sheet;
     }
 
-    /** @param  array<string, mixed>  $values */
-    private static function remember(Site $site, array $values): void
+    /** @return array<string, mixed> */
+    private static function state(Site|DplyDatabase $of): array
     {
-        $site->mergeEdgeMeta(['database' => array_merge((array) ($site->edgeMeta()['database'] ?? []), $values)]);
-        $site->save();
+        return $of instanceof Site ? (array) ($of->edgeMeta()['database'] ?? []) : DplyDatabases::record($of);
+    }
+
+    /** @param  array<string, mixed>  $values  null removes a key */
+    private static function remember(Site|DplyDatabase $of, array $values): void
+    {
+        if ($of instanceof DplyDatabase) {
+            DplyDatabases::remember($of, $values);
+
+            return;
+        }
+        $of->mergeEdgeMeta(['database' => array_filter(array_merge((array) ($of->edgeMeta()['database'] ?? []), $values), static fn ($v) => $v !== null)]);
+        $of->save();
     }
 }

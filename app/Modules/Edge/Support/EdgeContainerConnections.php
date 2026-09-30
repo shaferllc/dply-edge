@@ -11,8 +11,10 @@ use App\Models\EdgeRealtimeApp;
 use App\Models\Organization;
 use App\Models\Site;
 use App\Modules\Edge\Services\Realtime\EdgeRealtimeApps;
+use App\Modules\Edge\Services\Storage\EdgeBucketKeys;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Log;
 use Laravel\Pennant\Feature;
 
 /**
@@ -32,10 +34,10 @@ final class EdgeContainerConnections
      * @var array<string, array{label: string, needs_target: bool, hint: string}>
      */
     public const KINDS = [
-        'key_value' => ['label' => 'Key-value store', 'needs_target' => true, 'hint' => 'GET or PUT http://host/key. GET http://host/ lists keys. Billed per read, write and GB stored.'],
+        'key_value' => ['label' => 'Key-value store', 'needs_target' => true, 'hint' => 'Fast reads of values that rarely change: sessions, settings, cached pages. Laravel Cache and Rails.cache work unchanged. Billed per read, write and GB stored.'],
         'durable_object' => ['label' => 'State', 'needs_target' => false, 'hint' => 'GET or PUT http://host/key. POST http://host/incr/key adds one. Use this for a counter or a lock.'],
         'redis' => ['label' => 'dply Valkey', 'needs_target' => false, 'hint' => 'Redis-compatible: your Redis client and REDIS_URL work unchanged. Start one here, or paste an address. The app connects directly. Commands and storage are billed with usage.'],
-        'object_storage' => ['label' => 'Object storage', 'needs_target' => true, 'hint' => 'GET http://host/ lists objects. GET, PUT, or DELETE http://host/path'],
+        'object_storage' => ['label' => 'Object storage', 'needs_target' => true, 'hint' => 'Files and uploads in a private bucket. Laravel Storage and Rails work unchanged. Billed per GB stored and per read and write.'],
         'sql' => ['label' => 'SQL database', 'needs_target' => true, 'hint' => 'POST http://host/query with {"sql","params"}'],
         'queue' => ['label' => 'Queue', 'needs_target' => true, 'hint' => 'Jobs run in this app. POST http://host/send with the message body. The next deploy sets DPLY_QUEUE to this name.'],
         'ai' => ['label' => 'AI', 'needs_target' => false, 'hint' => 'POST http://host/run with {"model","input"}'],
@@ -45,6 +47,21 @@ final class EdgeContainerConnections
         'database_pool' => ['label' => 'Database pool', 'needs_target' => true, 'hint' => 'GET http://host/ for the connection string'],
         'service' => ['label' => 'Another app', 'needs_target' => true, 'hint' => 'Any method on http://host/path is sent to that app'],
         'realtime' => ['label' => 'Realtime', 'needs_target' => false, 'hint' => 'WebSockets for Laravel Reverb, Echo, and Pusher clients. The next deploy sets the REVERB_* and PUSHER_* keys, and VITE_* for the asset build.'],
+    ];
+
+    /**
+     * Where Cloudflare may place a new bucket ('' lets it choose). A
+     * jurisdiction (eu, fedramp) is not offered: every later API call and
+     * binding would need the jurisdiction too, and neither sends it yet.
+     */
+    public const R2_LOCATION_HINTS = [
+        '' => 'Automatic',
+        'wnam' => 'Western North America',
+        'enam' => 'Eastern North America',
+        'weur' => 'Western Europe',
+        'eeur' => 'Eastern Europe',
+        'apac' => 'Asia-Pacific',
+        'oc' => 'Oceania',
     ];
 
     /** Kinds this account can provision. The rest are attached by id, or just turned on. */
@@ -420,13 +437,15 @@ final class EdgeContainerConnections
         $pairs = [];
         $host = null;
         $disk = null;
+        // The default disk the operator picked (storage_default); the first awake bucket otherwise.
+        $chosen = strtolower((string) ($site->edgeMeta()['storage_default'] ?? ''));
         foreach (self::for($site) as $connection) {
             if ($connection['kind'] !== 'object_storage' || $connection['asleep']) {
                 continue;
             }
             $name = strtolower($connection['name']);
             $pairs[] = $name.'='.$connection['host'];
-            if ($host === null) {
+            if ($host === null || $name === $chosen) {
                 $host = $connection['host'];
                 $disk = $name;
             }
@@ -447,9 +466,39 @@ final class EdgeContainerConnections
         return $env;
     }
 
+    /** A public path on the app's own domains: /files or /media/images. */
+    public const PUBLIC_STORAGE_PATH = '#^/[a-z0-9][a-z0-9_-]{0,39}(/[a-z0-9][a-z0-9_-]{0,39})?$#';
+
+    /**
+     * Buckets served read-only on the app's own domains (meta storage_public,
+     * host => path). The container Worker answers GET and HEAD under each
+     * path from the bucket before the app sees the request. Asleep or
+     * detached buckets are left out.
+     *
+     * @return list<array{name: string, path: string}>
+     */
+    public static function publicStorage(Site $site): array
+    {
+        $paths = (array) ($site->edgeMeta()['storage_public'] ?? []);
+        $out = [];
+        foreach (self::for($site) as $connection) {
+            $path = (string) ($paths[$connection['host']] ?? '');
+            if ($connection['kind'] === 'object_storage' && ! $connection['asleep'] && preg_match(self::PUBLIC_STORAGE_PATH, $path) === 1) {
+                $out[] = ['name' => $connection['name'], 'path' => $path];
+            }
+        }
+
+        return $out;
+    }
+
     /**
      * Cache env for an attached key-value store. dply/laravel registers
-     * Cache::store($name). dply-rails uses Rails.cache when Redis is absent.
+     * Cache::store($name); dply-rails can use it for Rails.cache.
+     *
+     * It becomes the app's default cache (CACHE_STORE, DPLY_KV_DEFAULT) only
+     * when the operator picks it (meta kv_default_cache) and no Redis is
+     * attached: it cannot count or lock, so as the default it would break
+     * rate limiting, Cache::lock and withoutOverlapping.
      *
      * @return array<string, string>
      */
@@ -458,15 +507,21 @@ final class EdgeContainerConnections
         $pairs = [];
         $host = null;
         $store = null;
+        $chosen = strtolower((string) ($site->edgeMeta()['kv_default_cache'] ?? ''));
+        $default = null;
         foreach (self::for($site) as $connection) {
             if ($connection['kind'] !== 'key_value' || $connection['asleep']) {
                 continue;
             }
             $name = strtolower($connection['name']);
             $pairs[] = $name.'='.$connection['host'];
-            if ($host === null) {
+            // The chosen default also becomes DPLY_KV_HOST / DPLY_KV_STORE (dply-rails reads the host).
+            if ($host === null || $name === $chosen) {
                 $host = $connection['host'];
                 $store = $name;
+            }
+            if ($name === $chosen) {
+                $default = $name;
             }
         }
         if ($host === null || $store === null) {
@@ -484,8 +539,11 @@ final class EdgeContainerConnections
                 $hasRedis = true;
             }
         }
-        if ($site->isLaravelFrameworkDetected() && ! $hasRedis) {
-            $env['CACHE_STORE'] = $store;
+        if ($default !== null && ! $hasRedis) {
+            $env['DPLY_KV_DEFAULT'] = $default;
+            if ($site->isLaravelFrameworkDetected()) {
+                $env['CACHE_STORE'] = $default;
+            }
         }
 
         return $env;
@@ -1228,6 +1286,14 @@ final class EdgeContainerConnections
         }
         if ($kind === 'queue') {
             EdgeQueue::query()->where('organization_id', $organization->id)->where('cloudflare_name', $target)->delete();
+        }
+        if ($kind === 'object_storage') {
+            // Its S3 keys: a leftover token would open a bucket recreated under the same name.
+            try {
+                app(EdgeBucketKeys::class)->forgetBucket($organization, $target);
+            } catch (\Throwable $e) {
+                Log::warning('Storage S3 key: could not revoke keys for a deleted bucket', ['bucket' => $target, 'error' => $e->getMessage()]);
+            }
         }
 
         return true;

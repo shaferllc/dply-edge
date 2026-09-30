@@ -1,6 +1,6 @@
 <x-sheet name="resources-sleep" :show="$panel === 'sleep'" maxWidth="lg" focusable>
     <form wire:submit="saveRuntime" class="contents">
-        <x-sheet.header :eyebrow="__('App')" :title="__('Sleep, scaling, region')" close-wire="openPanel('')">
+        <x-sheet.header :eyebrow="__('App')" :title="__('Sleep, scaling, region')" close-wire="$set('panel', '')">
             {{ __('These apply on the next deploy. Size and instance count stay on the canvas.') }}
         </x-sheet.header>
 

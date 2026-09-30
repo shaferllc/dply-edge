@@ -12,6 +12,7 @@
         ['route' => 'dashboard', 'match' => ['dashboard', 'edge.create', 'edge.import', 'edge.templates', 'edge.usage'], 'label' => __('Dashboard'), 'icon' => 'bolt', 'feature' => 'surface.edge'],
         ['route' => 'edge.databases', 'match' => 'edge.databases', 'label' => __('Databases'), 'icon' => 'circle-stack', 'feature' => 'surface.edge'],
         ['route' => 'edge.queues', 'match' => 'edge.queues', 'label' => __('Queues'), 'icon' => 'queue-list', 'feature' => 'surface.edge'],
+        ['route' => 'edge.buckets', 'match' => 'edge.buckets', 'label' => __('Storage'), 'icon' => 'archive-box', 'feature' => 'surface.edge'],
         ['route' => 'serverless.index', 'match' => 'serverless.*', 'label' => __('Serverless'), 'icon' => 'cpu-chip', 'feature' => 'surface.serverless'],
     ];
 @endphp

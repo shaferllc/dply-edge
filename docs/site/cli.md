@@ -265,6 +265,25 @@ Prints request logs as they arrive: time, method, status, duration, cache status
 
 See [Logs](/docs/logs) for what gets recorded.
 
+### An app's databases
+
+These commands work on the linked app's Postgres, MySQL and MongoDB databases. `<db>` is the database's name or ID. See [Databases](/docs/resources/databases).
+
+| Command | Description | Ability |
+| --- | --- | --- |
+| `dply edge databases list [--json]` | Lists the app's databases: engine, the env it uses (`DB_*` for the primary, `NAME_*` for the others), size, disk and last backup. | `edge.read` |
+| `dply edge databases show <db> [--json]` | Shows one database, with the progress of its last export and restore. | `edge.read` |
+| `dply edge databases query <db> "<sql>" [--json]` | Runs one read-only statement and prints up to 200 rows. | `edge.write` |
+| `dply edge databases query <db> <collection> ['<json filter>']` | MongoDB: finds up to 200 documents. | `edge.write` |
+| `dply edge databases export <db>` | Starts an export. | `edge.write` |
+| `dply edge databases exports <db> [--json]` | Lists exports, newest first, each with a download link. | `edge.read` |
+| `dply edge databases restore <db> "<time>"` | Restores the database to a moment in the last 7 days (UTC), for example `"2026-09-28 14:30"`. | `edge.write` |
+
+The query is read-only, but it returns your app's data, so it needs `edge.write`. Creating, attaching, resizing and deleting a database stay in the dashboard.
+
+> [!WARNING]
+> A restore replaces the database's data with how it was at that moment. Postgres keeps the data from before the restore until the next restore. MySQL and MongoDB save it as a backup first.
+
 ### Databases and queues
 
 These commands work on the organization's D1 databases and queues. See [Edge SQL (D1)](/docs/resources/sql) and [Queues](/docs/resources/queues).

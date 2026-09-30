@@ -11,10 +11,12 @@ use App\Livewire\Concerns\Edge\ManagesEdgeRedeploy;
 use App\Livewire\Concerns\Edge\MountsEdgeWorkspaceSection;
 use App\Livewire\Forms\EdgeBuildSettingsForm;
 use App\Livewire\Sites\Concerns\ManagesLinkedOrganizationSecrets;
+use App\Models\EdgeBucketKey;
 use App\Models\EdgeDeployment;
 use App\Models\EdgeSiteEnvVar;
 use App\Models\Server;
 use App\Models\Site;
+use App\Modules\Edge\Services\Storage\EdgeBucketKeys;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeContainerSettings;
 use App\Services\Sites\DotEnvFileParser;
@@ -229,6 +231,17 @@ class Environment extends Component
 
         foreach (EdgeContainerConnections::redisInjectionPreview($this->site) as $row) {
             $rows[] = $row;
+        }
+
+        // S3 keys for attached buckets (EdgeBucketKeys::appEnv); the key itself is made on the next deploy.
+        $buckets = EdgeBucketKeys::appBuckets($this->site);
+        if ($buckets !== [] && ! in_array('AWS_ACCESS_KEY_ID', $dashboardKeys, true)) {
+            $key = EdgeBucketKey::query()->where('site_id', $this->site->id)->value('token_id');
+            $default = EdgeContainerConnections::storageDriverEnv($this->site)['DPLY_STORAGE_DISK'] ?? '';
+            $rows[] = ['key' => 'AWS_ACCESS_KEY_ID', 'value' => $key ?? __('made on the next deploy'), 'from' => __('Object storage')];
+            $rows[] = ['key' => 'AWS_SECRET_ACCESS_KEY', 'value' => '••••', 'from' => __('Object storage')];
+            $rows[] = ['key' => 'AWS_BUCKET', 'value' => $buckets[$default] ?? reset($buckets), 'from' => __('Object storage')];
+            $rows[] = ['key' => 'AWS_ENDPOINT', 'value' => EdgeBucketKeys::endpoint(), 'from' => __('Object storage')];
         }
 
         return $this->markOverridden([...$rows, ...$realtime], $dashboardKeys);

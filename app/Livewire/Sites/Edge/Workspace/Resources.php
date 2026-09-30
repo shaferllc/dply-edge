@@ -18,6 +18,7 @@ use App\Livewire\Sites\Edge\Workspace\Concerns\Resources\ManagesStateResource;
 use App\Livewire\Sites\Edge\Workspace\Concerns\Resources\ManagesStorageResources;
 use App\Livewire\Sites\Edge\Workspace\Concerns\Resources\ManagesVectorsResource;
 use App\Models\DplyDatabase;
+use App\Models\EdgeBucketKey;
 use App\Models\EdgeDataUsage;
 use App\Models\EdgeDeployment;
 use App\Models\EdgeKvUsage;
@@ -33,14 +34,14 @@ use App\Modules\Billing\Services\EdgeDataUsageCost;
 use App\Modules\Billing\Services\EdgeKvCost;
 use App\Modules\Billing\Support\UsagePrice;
 use App\Modules\Edge\Console\ScaleEdgeQueueWorkersCommand;
-use App\Modules\Edge\Jobs\RestoreEdgeDplyPostgresJob;
-use App\Modules\Edge\Jobs\TransferEdgeDplyDatabaseJob;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
+use App\Modules\Edge\Services\DplyDatabaseActions;
 use App\Modules\Edge\Services\DplyDatabases;
 use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Edge\Services\EdgeQueueConsumers;
 use App\Modules\Edge\Services\EdgeValkeyUsageCollector;
 use App\Modules\Edge\Services\Realtime\EdgeRealtimeApps;
+use App\Modules\Edge\Services\Storage\EdgeBucketKeys;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeContainerInstances;
 use App\Modules\Edge\Support\EdgeContainerPlans;
@@ -64,6 +65,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Livewire\Attributes\Locked;
@@ -166,6 +168,9 @@ class Resources extends Component
     public string $databaseCommandOutput = '';
 
     public string $pendingDatabaseCommand = '';
+
+    /** Which database the tools run against: null for the app's primary (or SQLite), else one of its others. */
+    public ?string $databaseCommandTarget = null;
 
     public string $rolloutMode = 'gradual';
 
@@ -501,15 +506,16 @@ class Resources extends Component
         return true;
     }
 
-    /** The suggested database resize (EdgeDatabaseResize), approved: now. */
-    public function resizeDatabaseNow(): void
+    /** The suggested database resize (EdgeDatabaseResize), approved: now. $id: another of the app's databases. */
+    public function resizeDatabaseNow(?string $id = null): void
     {
         $this->authorize('update', $this->site);
-        $suggestion = EdgeDatabaseResize::suggestion($this->site);
+        $of = $this->resizeSubject($id);
+        $suggestion = EdgeDatabaseResize::suggestion($of);
         if ($suggestion === null) {
             return;
         }
-        $error = EdgeDatabaseResize::apply($this->site, $suggestion['size']);
+        $error = EdgeDatabaseResize::apply($of, $suggestion['size']);
         $this->site->refresh();
         $this->hydrateDrafts();
         $error === null
@@ -518,30 +524,38 @@ class Resources extends Component
     }
 
     /** Approved for tonight, in the organization's time zone (dply:edge:resize-databases runs it). */
-    public function resizeDatabaseTonight(): void
+    public function resizeDatabaseTonight(?string $id = null): void
     {
         $this->authorize('update', $this->site);
-        $suggestion = EdgeDatabaseResize::suggestion($this->site);
+        $of = $this->resizeSubject($id);
+        $suggestion = EdgeDatabaseResize::suggestion($of);
         if ($suggestion === null) {
             return;
         }
-        $at = EdgeDatabaseResize::schedule($this->site, $suggestion['size'], (string) auth()->id());
+        $at = EdgeDatabaseResize::schedule($of, $suggestion['size'], (string) auth()->id());
         $this->toastSuccess(__('Scheduled for :time.', ['time' => $at->format('D H:i T')]));
     }
 
-    public function cancelDatabaseResize(): void
+    public function cancelDatabaseResize(?string $id = null): void
     {
         $this->authorize('update', $this->site);
-        EdgeDatabaseResize::cancelScheduled($this->site);
+        EdgeDatabaseResize::cancelScheduled($this->resizeSubject($id));
     }
 
-    public function dismissDatabaseResize(): void
+    public function dismissDatabaseResize(?string $id = null): void
     {
         $this->authorize('update', $this->site);
-        $suggestion = EdgeDatabaseResize::suggestion($this->site);
+        $of = $this->resizeSubject($id);
+        $suggestion = EdgeDatabaseResize::suggestion($of);
         if ($suggestion !== null) {
-            EdgeDatabaseResize::dismiss($this->site, $suggestion['size']);
+            EdgeDatabaseResize::dismiss($of, $suggestion['size']);
         }
+    }
+
+    /** The app (its primary) or one of its other databases. */
+    private function resizeSubject(?string $id): Site|DplyDatabase
+    {
+        return $id === null ? $this->site : $this->attachedDatabase($id);
     }
 
     /**
@@ -1047,10 +1061,49 @@ class Resources extends Component
         return is_array($record) && ($record['provider'] ?? '') === 'dply' && ($record['remote_id'] ?? '') !== '' ? $record : null;
     }
 
+    /**
+     * The database the stats / console / backups panel shows: null for the
+     * app's primary, else one of its other databases (DplyDatabases). Set
+     * only by openDatabasePanel, which checks it is attached to this app.
+     */
+    #[Locked]
+    public ?string $databaseFocus = null;
+
+    /** Point the panel at the primary (null) or another attached database, dropping what the last one loaded. */
+    public function openDatabasePanel(?string $id = null): void
+    {
+        $this->authorize('view', $this->site);
+        $this->databaseFocus = $id !== null && DplyDatabases::for($this->site)->contains('id', $id) ? $id : null;
+        $this->databaseStatus = $this->databaseBackup = $this->databaseInsights = $this->databaseStats = null;
+        $this->databaseConsoleResult = $this->databaseExports = null;
+        $this->databaseStatsError = $this->databaseInsightsError = $this->databaseConsoleError = $this->databaseUploadCommand = $this->postgresRestoreResult = null;
+    }
+
+    /** The panel's database row: the focused one, else the primary. */
+    private function panelDatabase(): ?DplyDatabase
+    {
+        $databases = DplyDatabases::for($this->site);
+
+        return $this->databaseFocus !== null
+            ? $databases->firstWhere('id', $this->databaseFocus)
+            : $databases->first(fn (DplyDatabase $d) => (bool) $d->attached_primary);
+    }
+
+    /** @return array<string, mixed>|null the panel database's record (DplyDatabases::record) */
+    private function panelDatabaseRecord(): ?array
+    {
+        if ($this->databaseFocus === null) {
+            return $this->dplyDatabaseRecord();
+        }
+        $database = $this->panelDatabase();
+
+        return $database !== null ? DplyDatabases::record($database) : null;
+    }
+
     public function loadDatabaseStatus(): void
     {
         $this->authorize('view', $this->site);
-        $record = $this->dplyDatabaseRecord();
+        $record = $this->panelDatabaseRecord();
         if ($record === null) {
             return;
         }
@@ -1070,9 +1123,9 @@ class Resources extends Component
     public function loadDatabaseStats(): void
     {
         $this->authorize('view', $this->site);
-        $record = $this->dplyDatabaseRecord();
+        $record = $this->panelDatabaseRecord();
         // MongoDB stats come from its agent, not the app's login.
-        $password = ($record['engine'] ?? '') === 'mongodb' ? '' : $this->readDatabasePassword();
+        $password = ($record['engine'] ?? '') === 'mongodb' ? '' : ($this->databaseFocus !== null ? (string) $this->panelDatabase()?->password : $this->readDatabasePassword());
         if ($record === null || ($password === '' && ($record['engine'] ?? '') !== 'mongodb')) {
             $this->databaseStatsError = __('No password on this app yet. Deploy once so the database address is set.');
 
@@ -1116,7 +1169,7 @@ class Resources extends Component
     public function loadDatabaseInsights(bool $live = false): void
     {
         $this->authorize($live ? 'update' : 'view', $this->site);
-        $record = $this->dplyDatabaseRecord();
+        $record = $this->panelDatabaseRecord();
         if ($record === null) {
             return;
         }
@@ -1157,15 +1210,12 @@ class Resources extends Component
     public function runDatabaseConsole(): void
     {
         $this->authorize('update', $this->site);
-        $record = $this->dplyDatabaseRecord();
-        if ($record === null) {
+        $database = $this->panelDatabase();
+        if ($database === null) {
             return;
         }
-        $body = ($record['engine'] ?? '') === 'mongodb'
-            ? ['collection' => trim($this->databaseConsoleCollection), 'filter' => trim($this->databaseConsoleFilter) ?: '{}']
-            : ['sql' => $this->databaseConsoleSql];
         try {
-            $this->databaseConsoleResult = ValkeyGatewayClient::fromConfig(EdgeDplyDatabase::regionOf($record))->action((string) $record['remote_id'], 'query', $body);
+            $this->databaseConsoleResult = DplyDatabaseActions::query($database, $this->databaseConsoleSql, $this->databaseConsoleCollection, $this->databaseConsoleFilter);
             $this->databaseConsoleError = null;
         } catch (\Throwable $e) {
             $this->databaseConsoleResult = null;
@@ -1184,8 +1234,10 @@ class Resources extends Component
         if ($this->databaseAgent('readonly', ['password' => $password]) === null) {
             return '';
         }
-        $this->site->mergeEdgeMeta(['database' => array_merge($this->site->edgeMeta()['database'] ?? [], ['readonly' => $on])]);
-        $this->site->save();
+        $database = $this->panelDatabase();
+        if ($database !== null) {
+            DplyDatabases::remember($database, ['readonly' => $on]);
+        }
         $on ? $this->toastSuccess(__('Read-only login on. Copy the password now; it is not shown again.')) : $this->toastSuccess(__('Read-only login off.'));
 
         return $password;
@@ -1194,12 +1246,12 @@ class Resources extends Component
     public function loadDatabaseExports(): void
     {
         $this->authorize('view', $this->site);
-        $record = $this->dplyDatabaseRecord();
-        if ($record === null) {
+        $database = $this->panelDatabase();
+        if ($database === null) {
             return;
         }
         try {
-            $this->databaseExports = array_reverse(ValkeyGatewayClient::fromConfig(EdgeDplyDatabase::regionOf($record))->databaseExports((string) $record['remote_id']));
+            $this->databaseExports = DplyDatabaseActions::exports($database);
         } catch (\Throwable $e) {
             $this->databaseExports = null;
             $this->databaseInsightsError = $this->databaseAgentMessage($e);
@@ -1208,65 +1260,53 @@ class Resources extends Component
 
     public function exportDatabase(): void
     {
-        $this->startDatabaseTransfer('export', '');
+        $this->databaseTransfer(fn (DplyDatabase $database) => DplyDatabaseActions::export($database));
     }
 
     /** Load a file into this database: one it exported, or one uploaded to its imports. */
     public function importDatabase(string $from, string $file): void
     {
-        $record = $this->dplyDatabaseRecord();
-        if ($record === null || ! in_array($from, ['exports', 'imports'], true) || preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/', $file) !== 1) {
-            $this->toastError(__('Pick a file to load.'));
-
-            return;
-        }
-        // Built from this database's own id: never a key from the browser.
-        $this->startDatabaseTransfer('import', 'tenants/'.$record['remote_id'].'/'.$from.'/'.$file);
+        $this->databaseTransfer(fn (DplyDatabase $database) => DplyDatabaseActions::import($database, $from, $file));
     }
 
     /** A curl command that uploads a dump to this database's imports, valid an hour. */
     public function prepareDatabaseUpload(): void
     {
         $this->authorize('update', $this->site);
-        $record = $this->dplyDatabaseRecord();
-        $file = trim($this->databaseImportFile);
-        if ($record === null || preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/', $file) !== 1) {
-            $this->toastError(__('Name the file: letters, digits, dot, dash and underscore.'));
-
+        $database = $this->panelDatabase();
+        if ($database === null) {
             return;
         }
         try {
-            $link = ValkeyGatewayClient::fromConfig(EdgeDplyDatabase::regionOf($record))->databaseUploadLink((string) $record['remote_id'], $file);
-            $this->databaseUploadCommand = 'curl -fT '.escapeshellarg($file).' '.escapeshellarg($link['url']);
+            $this->databaseUploadCommand = DplyDatabaseActions::uploadCommand($database, $this->databaseImportFile);
+        } catch (\RuntimeException $e) {
+            $this->toastError($e->getMessage());
         } catch (\Throwable $e) {
             $this->toastError($this->databaseAgentMessage($e));
         }
     }
 
-    private function startDatabaseTransfer(string $kind, string $key): void
+    /** @param \Closure(DplyDatabase): void $start */
+    private function databaseTransfer(\Closure $start): void
     {
         $this->authorize('update', $this->site);
-        $database = $this->dplyDatabaseRecord();
+        $database = $this->panelDatabase();
         if ($database === null) {
             return;
         }
-        $running = $database['transfer'] ?? null;
-        // A job lasts at most an hour; past that a "running" row is a dead worker.
-        if (is_array($running) && ($running['status'] ?? '') === 'running' && Carbon::parse($running['started_at'] ?? 'now')->gt(now()->subMinutes(70))) {
-            $this->toastError(__('An export or import is already running.'));
-
-            return;
+        try {
+            $start($database);
+        } catch (\RuntimeException $e) {
+            $this->toastError($e->getMessage());
         }
-        $this->site->mergeEdgeMeta(['database' => array_merge($database, ['transfer' => ['status' => 'running', 'kind' => $kind, 'file' => basename($key), 'started_at' => now()->toIso8601String()]])]);
-        $this->site->save();
-        TransferEdgeDplyDatabaseJob::dispatch((string) $this->site->id, $kind, $key);
+        $this->site->refresh();
     }
 
     /** @param array<string, mixed> $body */
     private function databaseAgent(string $name, array $body = []): ?array
     {
         $this->authorize('update', $this->site);
-        $record = $this->dplyDatabaseRecord();
+        $record = $this->panelDatabaseRecord();
         if ($record === null) {
             return null;
         }
@@ -1330,14 +1370,15 @@ class Resources extends Component
      */
     private function databaseUsage(): array
     {
-        $rows = EdgePostgresUsage::query()->where('site_id', $this->site->id)
+        $record = $this->panelDatabaseRecord();
+        $rows = EdgePostgresUsage::query()->where('project_id', (string) ($record['remote_id'] ?? ''))
             ->where('date', '>=', now()->subDays(40)->toDateString())
             ->get(['date', 'compute_unit_seconds', 'storage_byte_hours'])
             ->keyBy(fn ($row) => $row->date->toDateString());
         $month = $rows->filter(fn ($row) => $row->date->isSameMonth(now()));
         // Usage is in compute units (1 CU = 4 GB awake for a second): divide by
         // this database's size to get wall-clock awake time.
-        $cu = UsagePrice::databaseBilledCu((string) ($this->dplyDatabaseRecord()['size'] ?? '0.25'));
+        $cu = UsagePrice::databaseBilledCu((string) ($record['size'] ?? '0.25'));
         $days = [];
         for ($i = 13; $i >= 0; $i--) {
             $date = now()->subDays($i)->toDateString();
@@ -1886,9 +1927,65 @@ class Resources extends Component
         $this->kvDemoPreview = '';
         $this->kvDemoLog = [];
         $this->kvDemoMeta = null;
+        $this->kvAppTest = null;
         $this->resetErrorBag('kvSettings');
         $this->refreshKv();
         $this->dispatch('open-modal', 'resources-kv');
+    }
+
+    /**
+     * Make the open store the app's default cache, or stop (EdgeContainerConnections::kvDriverEnv).
+     * Off unless chosen: it cannot count or lock.
+     */
+    public function setKvDefaultCache(bool $on): void
+    {
+        $this->authorize('update', $this->site);
+        $connection = collect(EdgeContainerConnections::for($this->site))->firstWhere('host', $this->kvHost);
+        if (! is_array($connection) || $connection['kind'] !== 'key_value') {
+            return;
+        }
+        $this->site->mergeEdgeMeta(['kv_default_cache' => $on ? strtolower($connection['name']) : null]);
+        $this->site->save();
+        $this->toastSuccess($on
+            ? __('The default cache after the next deploy. Rate limiting and locks will fail with it; attach Valkey for those.')
+            : __('No longer the default cache after the next deploy. Cache::store(\':store\') still works.', ['store' => strtolower($connection['name'])]));
+    }
+
+    /** Last "Test from the app" result for $kvHost (dply/laravel kv-probe). */
+    public ?array $kvAppTest = null;
+
+    /**
+     * Keys tab, "Test from the app": the running app writes, reads and
+     * forgets a key through its own Cache::store, so this proves the whole
+     * path (app, Worker, KV). Laravel apps with dply/laravel only.
+     */
+    public function testKvFromApp(): void
+    {
+        $this->authorize('update', $this->site);
+        $connection = collect(EdgeContainerConnections::for($this->site))->firstWhere('host', $this->kvHost);
+        $url = $this->site->edgeLiveUrl();
+        $fail = fn (string $error) => $this->kvAppTest = ['ok' => false, 'error' => $error, 'steps' => []];
+        if (! is_array($connection) || ! is_string($url) || $url === '') {
+            $fail(__('This app has no live URL yet. Deploy it first.'));
+
+            return;
+        }
+        try {
+            $response = Http::timeout(60)
+                ->withHeaders(['x-dply-queue-token' => EdgeContainerDeployer::queueToken($this->site)])
+                ->post(rtrim($url, '/').'/_dply/command', ['command' => 'kv-probe', 'store' => strtolower($connection['name'])]);
+        } catch (\Throwable $e) {
+            $fail($e->getMessage());
+
+            return;
+        }
+        $body = $response->json();
+        $this->kvAppTest = is_array($body) && array_key_exists('steps', $body) ? $body : [
+            'ok' => false, 'steps' => [],
+            'error' => in_array($response->status(), [404, 422], true)
+                ? __('The app does not answer this test yet. It needs dply/laravel from the next deploy (Laravel apps only).')
+                : __('The app answered HTTP :status.', ['status' => $response->status()]),
+        ];
     }
 
     /** Loads the key into Try a key so Write edits it in place. */
@@ -2066,6 +2163,142 @@ class Resources extends Component
         }
     }
 
+    /** Make this bucket FILESYSTEM_DISK / DPLY_STORAGE_DISK (EdgeContainerConnections::storageDriverEnv). */
+    public function makeDefaultStorage(): void
+    {
+        $this->authorize('update', $this->site);
+        $connection = $this->objectConnection();
+        if ($connection === null) {
+            return;
+        }
+        $this->site->mergeEdgeMeta(['storage_default' => strtolower($connection['name'])]);
+        $this->site->save();
+        $this->toastSuccess(__('The default disk is now :disk. Applies on the next deploy.', ['disk' => strtolower($connection['name'])]));
+    }
+
+    /**
+     * An S3 key for this bucket, for use outside dply (aws cli, rclone).
+     * The secret goes straight to Alpine, once; it is never stored.
+     *
+     * @return array{id?: string, secret?: string, error?: string}
+     */
+    #[Renderless]
+    public function createObjectKey(string $label, string $access): array
+    {
+        $this->authorize('update', $this->site);
+        $connection = $this->objectConnection();
+        $label = trim($label);
+        if ($connection === null || ! EdgeContainerConnections::owns('object_storage', $connection['target'], $this->site->organization)) {
+            return ['error' => __('This bucket is not attached to this app.')];
+        }
+        if ($label === '' || mb_strlen($label) > 60) {
+            return ['error' => __('Name the key, like “Backups laptop”.')];
+        }
+
+        try {
+            ['key' => $key, 'secret' => $secret] = app(EdgeBucketKeys::class)->createExternal($this->site->organization, $connection['target'], $label, $access, auth()->user());
+        } catch (\Throwable $e) {
+            report($e);
+
+            return ['error' => __('S3 keys are not available right now. Share links and the public path still work.')];
+        }
+        audit_log($this->site->organization, auth()->user(), 'bucket.key_created', null, null, ['bucket' => $connection['target'], 'key' => $key->token_id]);
+
+        return ['id' => $key->token_id, 'secret' => $secret];
+    }
+
+    /** Re-render the Keys tab after a key is created (its secret stays in Alpine only). */
+    public function refreshObjectKeys(): void
+    {
+        $this->authorize('view', $this->site);
+    }
+
+    public function revokeObjectKey(string $id): void
+    {
+        $this->authorize('update', $this->site);
+        $connection = $this->objectConnection();
+        $key = $connection === null ? null : EdgeBucketKey::query()
+            ->where('organization_id', $this->site->organization_id)->whereNull('site_id')->whereKey($id)->first();
+        if ($key === null || ! in_array($connection['target'], $key->buckets, true)) {
+            return;
+        }
+        try {
+            app(EdgeBucketKeys::class)->revoke($key);
+        } catch (\Throwable $e) {
+            $this->toastError(__('Could not revoke the key: :error', ['error' => $e->getMessage()]));
+
+            return;
+        }
+        audit_log($this->site->organization, auth()->user(), 'bucket.key_revoked', null, null, ['key' => $key->token_id]);
+        $this->toastSuccess(__('Revoked. The key stops working within a minute.'));
+    }
+
+    /** Serve this bucket read-only at $path on the app's own domains ('' stops). See EdgeContainerConnections::publicStorage. */
+    public function setObjectPublicPath(string $path): void
+    {
+        $this->authorize('update', $this->site);
+        $connection = $this->objectConnection();
+        if ($connection === null) {
+            return;
+        }
+        $path = '/'.trim(strtolower($path), " /\t");
+        $paths = (array) ($this->site->edgeMeta()['storage_public'] ?? []);
+        if ($path === '/') {
+            unset($paths[$connection['host']]);
+        } else {
+            if (preg_match(EdgeContainerConnections::PUBLIC_STORAGE_PATH, $path) !== 1) {
+                $this->addError('objectPublicPath', __('Use a path like /files or /media/images: lowercase letters, numbers, - and _.'));
+
+                return;
+            }
+            if (collect($paths)->except($connection['host'])->contains($path)) {
+                $this->addError('objectPublicPath', __('Another bucket already uses :path.', ['path' => $path]));
+
+                return;
+            }
+            $paths[$connection['host']] = $path;
+        }
+        $this->resetErrorBag('objectPublicPath');
+        $this->site->mergeEdgeMeta(['storage_public' => $paths]);
+        $this->site->save();
+        $this->toastSuccess($path === '/'
+            ? __('Private again after the next deploy.')
+            : __('Public at :path after the next deploy. Anyone can read files there by name.', ['path' => $path]));
+    }
+
+    /**
+     * Share: a time-limited link to one file, signed with the platform R2
+     * key, so nobody needs a key of their own. Returned straight to Alpine.
+     *
+     * @return array{url?: string, error?: string}
+     */
+    #[Renderless]
+    public function objectSignedUrl(string $key, string $method, int $hours): array
+    {
+        $this->authorize('update', $this->site);
+        $connection = $this->objectConnection();
+        $key = trim($key);
+        if ($connection === null || ! EdgeContainerConnections::owns('object_storage', $connection['target'], $this->site->organization)) {
+            return ['error' => __('This bucket is not attached to this app.')];
+        }
+        if (preg_match('#^[A-Za-z0-9_.:/-]{1,256}$#', $key) !== 1 || str_contains($key, '..') || str_starts_with($key, '/')) {
+            return ['error' => __('Name an object using letters, numbers, and . _ : / -')];
+        }
+        if (! in_array($hours, [1, 24, 168], true) || ! in_array($method, ['get', 'put'], true)) {
+            return ['error' => __('Choose how long the link works.')];
+        }
+
+        try {
+            // The platform disk with the customer's bucket swapped in; the key covers the whole account.
+            $disk = Storage::build(['bucket' => $connection['target']] + (array) config('filesystems.disks.'.config('edge.disk.name', 'edge_r2')));
+            $until = now()->addHours($hours);
+
+            return ['url' => $method === 'get' ? $disk->temporaryUrl($key, $until) : $disk->temporaryUploadUrl($key, $until)['url']];
+        } catch (\Throwable) {
+            return ['error' => __('Could not make a link. Try again in a minute.')];
+        }
+    }
+
     /**
      * @return array{kind: string, name: string, host: string, target: string, asleep: bool}|null
      */
@@ -2225,9 +2458,25 @@ class Resources extends Component
         }
         if ($kind === 'service') {
             $this->connectionOptions = array_map(static fn (array $peer): array => ['id' => $peer['id'], 'label' => $peer['label']], EdgeContainerConnections::peerApps($this->site));
-        } elseif ($this->connectionMode === 'attach' && in_array($kind, EdgeContainerConnections::CREATABLE, true)) {
-            $this->connectionOptions = EdgeContainerConnections::catalog($kind, $this->site->organization);
+        } elseif (in_array($kind, EdgeContainerConnections::CREATABLE, true)) {
+            // Loaded up front: "Attach existing" only shows when there is something to attach.
+            $this->connectionOptions = $this->attachableResources($kind);
         }
+    }
+
+    /**
+     * The organization's resources of $kind this app does not already use.
+     *
+     * @return list<array{id: string, label: string}>
+     */
+    private function attachableResources(string $kind): array
+    {
+        $attached = collect(EdgeContainerConnections::for($this->site))->where('kind', $kind)->pluck('target')->all();
+
+        return array_values(array_filter(
+            EdgeContainerConnections::catalog($kind, $this->site->organization),
+            static fn (array $option): bool => ! in_array($option['id'], $attached, true),
+        ));
     }
 
     public function setConnectionMode(string $mode): void
@@ -2241,7 +2490,9 @@ class Resources extends Component
             return;
         }
         $this->connectionMode = $mode;
-        $this->connectionOptions = $mode === 'attach' ? EdgeContainerConnections::catalog($this->connectionKind, $this->site->organization) : [];
+        if ($mode === 'attach') {
+            $this->connectionOptions = $this->attachableResources($this->connectionKind);
+        }
     }
 
     public function saveConnection(): void
@@ -2693,6 +2944,37 @@ class Resources extends Component
         $this->site->save();
     }
 
+    /** SQLite's saved copy in R2 (EdgeContainerDeployer's __SQLITE_KEY__): size and when it was saved. */
+    public ?array $sqliteFile = null;
+
+    public function loadSqliteFile(): void
+    {
+        $this->authorize('view', $this->site);
+        $this->sqliteFile = ['exists' => false];
+        try {
+            $disk = Storage::disk((string) config('edge.disk.name', 'edge_r2'));
+            $key = EdgeContainerDeployer::sqliteKey($this->site);
+            if ($disk->exists($key)) {
+                $this->sqliteFile = ['exists' => true, 'bytes' => (int) $disk->size($key), 'at' => (int) $disk->lastModified($key)];
+            }
+        } catch (\Throwable) {
+            $this->sqliteFile = null; // storage not configured here: say nothing rather than "no copy"
+        }
+    }
+
+    /** A 10-minute link to the saved SQLite file. It holds the app's data, so it needs update. */
+    public function downloadSqlite(): mixed
+    {
+        $this->authorize('update', $this->site);
+        try {
+            return redirect()->away(Storage::disk((string) config('edge.disk.name', 'edge_r2'))->temporaryUrl(EdgeContainerDeployer::sqliteKey($this->site), now()->addMinutes(10)));
+        } catch (\Throwable $e) {
+            $this->toastError(__('The saved copy could not be read: :error', ['error' => $e->getMessage()]));
+
+            return null;
+        }
+    }
+
     public function addDatabase(): void
     {
         $this->authorize('update', $this->site);
@@ -2708,40 +2990,27 @@ class Resources extends Component
     public function restorePostgres(): void
     {
         $this->authorize('update', $this->site);
-        $database = is_array($this->site->edgeMeta()['database'] ?? null) ? $this->site->edgeMeta()['database'] : [];
-        if (! EdgeAppDatabase::isDply($database) || (string) ($database['remote_id'] ?? '') === '') {
+        $database = $this->panelDatabase();
+        if ($database === null) {
             $this->postgresRestoreResult = __('Only a dply database can be restored here.');
 
             return;
         }
         try {
-            $at = Carbon::parse($this->postgresRestoreAt, 'UTC');
-        } catch (\Throwable) {
-            $this->postgresRestoreResult = __('Pick a date and time.');
-
-            return;
+            DplyDatabaseActions::restore($database, $this->postgresRestoreAt);
+            $this->postgresRestoreResult = null;
+        } catch (\RuntimeException $e) {
+            $this->postgresRestoreResult = $e->getMessage();
         }
-        if ($at->isFuture() || $at->lt(now()->subDays(7))) {
-            $this->postgresRestoreResult = __('Pick a time in the last 7 days.');
-
-            return;
-        }
-        if (($database['restore']['status'] ?? '') === 'running') {
-            $this->postgresRestoreResult = __('A restore is already running.');
-
-            return;
-        }
-        // Minutes of work (fetch a backup, replay or load it): a queued job, not this request.
-        $target = $at->utc()->format('Y-m-d\TH:i:s\Z');
-        $this->site->mergeEdgeMeta(['database' => array_merge($database, ['restore' => ['status' => 'running', 'target' => $target]])]);
-        $this->site->save();
-        RestoreEdgeDplyPostgresJob::dispatch((string) $this->site->id, $target);
-        $this->postgresRestoreResult = null;
+        $this->site->refresh();
     }
 
-    public function runDatabaseCommand(string $action): void
+    /** Migrate, status, seed, roll back … against $target (another of the app's databases) or the primary. */
+    public function runDatabaseCommand(string $action, ?string $target = null): void
     {
         $this->authorize('update', $this->site);
+        $this->databaseCommandTarget = $target !== null ? $this->attachedDatabase($target)->id : null;
+        $this->databaseCommandOutput = '';
 
         if ($action === 'rollback') {
             $this->pendingDatabaseCommand = 'rollback';
@@ -2775,6 +3044,12 @@ class Resources extends Component
 
             return;
         }
+        $target = $this->databaseCommandTarget !== null ? $this->attachedDatabase($this->databaseCommandTarget) : null;
+        if ($target !== null && ! $laravel) {
+            $this->databaseCommandOutput = __('Commands for a database other than the primary need Laravel. In Rails, run them for its database from a scheduled task.');
+
+            return;
+        }
 
         $url = $this->site->edgeLiveUrl();
         if (! is_string($url) || $url === '') {
@@ -2782,11 +3057,18 @@ class Resources extends Component
 
             return;
         }
+        $stale = $this->staleDatabaseMessage($target);
+        if ($stale !== null) {
+            $this->databaseCommandOutput = $stale;
 
+            return;
+        }
+
+        $prefix = $target !== null ? (string) $target->attached_env_name : '';
         try {
             $response = Http::timeout(120)
                 ->withHeaders(['x-dply-queue-token' => EdgeContainerDeployer::queueToken($this->site)])
-                ->post(rtrim($url, '/').'/_dply/command', ['command' => $action]);
+                ->post(rtrim($url, '/').'/_dply/command', array_filter(['command' => $action, 'database' => $prefix]));
         } catch (\Throwable $e) {
             $this->databaseCommandOutput = $e->getMessage();
 
@@ -2795,7 +3077,53 @@ class Resources extends Component
 
         $body = $response->json();
         $output = is_array($body) ? trim((string) ($body['output'] ?? $body['error'] ?? $body['task'] ?? '')) : '';
-        $this->databaseCommandOutput = $output !== '' ? $output : $response->body();
+        $output = $output !== '' ? $output : $response->body();
+        // A deploy from before deployedDatabases was recorded: Laravel's error names the connection it used.
+        $engine = (string) ($this->site->edgeMeta()['database']['engine'] ?? 'sql');
+        $expected = ['postgres' => 'pgsql', 'mysql' => 'mysql', 'sql' => 'sqlite'][$engine] ?? '';
+        if ($target === null && $expected !== '' && preg_match('/\(Connection: (pgsql|mysql|sqlite|mariadb),/', $output, $m) === 1 && $m[1] !== $expected) {
+            $output = __('The running app still uses :old from its last deploy. Redeploy so it uses this app’s database, then run this again.', ['old' => ['pgsql' => 'Postgres', 'mysql' => 'MySQL', 'mariadb' => 'MariaDB', 'sqlite' => 'SQLite'][$m[1]]])."\n\n".$output;
+        }
+        $this->databaseCommandOutput = $output;
+    }
+
+    /**
+     * Why the running app can't run commands against this database yet: its
+     * last deploy gave it a different one (EdgeContainerDeployer::deployedDatabases),
+     * e.g. Postgres was detached and the app is on SQLite until it redeploys.
+     * Null when it matches, or the deploy predates the record.
+     */
+    private function staleDatabaseMessage(?DplyDatabase $target): ?string
+    {
+        $live = EdgeDeployment::query()->where('site_id', $this->site->id)->where('status', EdgeDeployment::STATUS_LIVE)->latest('created_at')->first();
+        $deployed = $live?->meta['container']['database'] ?? null;
+        if (! is_array($deployed)) {
+            return null;
+        }
+        $connections = ['postgres' => 'pgsql', 'mysql' => 'mysql', 'sql' => 'sqlite'];
+        $names = ['pgsql' => 'Postgres', 'mysql' => 'MySQL', 'sqlite' => 'SQLite'];
+        if ($target !== null) {
+            $prefix = (string) $target->attached_env_name;
+            $expected = ['connection' => $connections[$target->engine] ?? '', 'host' => $target->host];
+            $what = $target->name;
+        } else {
+            $prefix = '';
+            $record = (array) ($this->site->edgeMeta()['database'] ?? []);
+            $engine = (string) ($record['engine'] ?? 'sql');
+            $expected = ['connection' => $connections[$engine] ?? '', 'host' => $engine === 'sql' ? '' : (string) ($record['host'] ?? '')];
+            $what = $names[$expected['connection']] ?? __('its database');
+        }
+        if ($expected['connection'] === '') {
+            return null; // MongoDB: no DB_CONNECTION to compare
+        }
+        $running = $deployed[$prefix] ?? null;
+        if (is_array($running) && $running['connection'] === $expected['connection'] && ($expected['host'] === '' || $running['host'] === $expected['host'])) {
+            return null;
+        }
+
+        return is_array($running)
+            ? __('The running app still uses :old from its last deploy. Redeploy so it uses :new, then run this again.', ['old' => $names[$running['connection']] ?? $running['connection'], 'new' => $what])
+            : __('The running app doesn’t have :new yet. Redeploy so it gets the connection, then run this again.', ['new' => $what]);
     }
 
     public function selectDatabase(string $engine): void
@@ -3232,7 +3560,9 @@ class Resources extends Component
                     'history' => ScaleEdgeQueueWorkersCommand::history($this->site, $g['key']),
                     'scaler' => Cache::get(ScaleEdgeQueueWorkersCommand::stateKey($this->site, $g['key'])),
                 ], array_filter(EdgeQueueWorkers::groups($this->site), static fn (array $g): bool => $g['autoscale']))),
-                'databaseUsage' => $this->dplyDatabaseRecord() !== null ? $this->databaseUsage() : null,
+                'databaseUsage' => $this->panelDatabaseRecord() !== null ? $this->databaseUsage() : null,
+                // The stats / console / backups panel's database when it shows one that is not the primary.
+                'panelDatabase' => $this->databaseFocus !== null ? $this->panelDatabaseRecord() : null,
                 'map' => EdgeServiceMap::for($this->site),
                 'savedDatabase' => $this->persistedState()['database'],
                 // Every dply database on the app, primary first (DplyDatabases), and the org's others for "Attach existing".

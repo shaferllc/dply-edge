@@ -208,9 +208,17 @@ PHP;
                                 </span>
                             </x-sheet.stat>
                         @endforeach
-                        <x-sheet.stat :label="__('Secret')">••••••••</x-sheet.stat>
+                        <x-sheet.stat :label="__('Secret')">
+                            <span x-data="{ secret: '' }" class="inline-flex items-center gap-2">
+                                <span class="break-all" x-text="secret || '••••••••'"></span>
+                                @can('update', $site)
+                                    <button type="button" x-show="! secret" x-on:click="secret = await $wire.$island('resources-realtime').realtimeSecret()" class="font-sans text-2xs font-semibold text-brand-sage hover:underline">{{ __('Show') }}</button>
+                                    <button type="button" x-show="secret" x-cloak x-on:click="navigator.clipboard.writeText(secret)" class="font-sans text-2xs font-semibold text-brand-sage hover:underline">{{ __('Copy') }}</button>
+                                @endcan
+                            </span>
+                        </x-sheet.stat>
                     </div>
-                    <p class="text-2xs leading-4 text-brand-mist">{{ __('The key is public: browsers use it to connect. The secret signs publishes and is only ever given to the app, as REVERB_APP_SECRET and PUSHER_APP_SECRET. It is not shown here.') }}</p>
+                    <p class="text-2xs leading-4 text-brand-mist">{{ __('The key is public: browsers use it to connect. The secret signs publishes; keep it on the server. The app gets it as REVERB_APP_SECRET and PUSHER_APP_SECRET.') }}</p>
                     @can('update', $site)
                         <x-sheet.danger :title="__('Rotate the secret')">
                             <p class="text-xs text-brand-moss">{{ __('Makes a new secret at once. Browsers keep working, since the key does not change, but the running app keeps signing with the old secret, so its broadcasts are refused until you redeploy.') }}</p>
@@ -223,9 +231,10 @@ PHP;
                 {{-- Settings --}}
                 <div x-show="tab === 'settings'" x-cloak class="grid gap-4">
                     <x-sheet.field :label="__('Max connections')" :help="__('Sockets open at once. The relay refuses connections beyond this.')">
-                        <x-sheet.segmented>
+                        {{-- Picked on the client (a server $set re-rendered for over a second per click); sent with Save. --}}
+                        <x-sheet.segmented x-data="{ max: $wire.entangle('realtimeEditMax') }">
                             @foreach (\App\Modules\Edge\Services\Realtime\EdgeRealtimeApps::MAX_CONNECTION_SIZES as $rtSize)
-                                <x-sheet.segment :active="$realtimeEditMax === $rtSize" :disabled="! in_array($rtSize, $rtSizes, true)" wire:click="$set('realtimeEditMax', {{ $rtSize }})">{{ number_format($rtSize) }}</x-sheet.segment>
+                                <x-sheet.segment :bind="'max === '.$rtSize" :disabled="! in_array($rtSize, $rtSizes, true)" x-on:click="max = {{ $rtSize }}">{{ number_format($rtSize) }}</x-sheet.segment>
                             @endforeach
                         </x-sheet.segmented>
                     </x-sheet.field>
@@ -245,6 +254,18 @@ PHP;
                 </div>
 
                 @can('update', $site)
+                    {{-- Sleep: like the other resources. --}}
+                    <x-sheet.section :title="__('Sleep')">
+                        <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand-ink/10 px-3.5 py-2.5 dark:border-brand-mist/15">
+                            <p class="min-w-0 flex-1 text-xs text-brand-moss">
+                                {{ $rtConnection['asleep']
+                                    ? __('Asleep. Waking lets browsers connect again right away, with no redeploy.')
+                                    : __('Sleeping makes the relay refuse connections and broadcasts, so nothing bills. The app keeps its keys.') }}
+                            </p>
+                            <x-sheet.button wire:click="sleepConnection({{ \Illuminate\Support\Js::from($rtConnection['host']) }}, {{ $rtConnection['asleep'] ? 'false' : 'true' }})" wire:island="resources-realtime">{{ $rtConnection['asleep'] ? __('Wake') : __('Sleep') }}</x-sheet.button>
+                        </div>
+                    </x-sheet.section>
+
                     <x-sheet.danger :title="__('Delete Realtime')">
                         <p class="text-xs text-brand-moss">{{ __('Removes this Realtime app and disconnects every browser. The app loses its Realtime keys on the next deploy. This cannot be undone.') }}</p>
                         <div><x-sheet.button variant="danger" wire:click="askDeleteConnection({{ \Illuminate\Support\Js::from($rtConnection['host']) }})" wire:island="resources-delete-connection" x-on:click="$dispatch('open-modal', 'resources-delete-connection')">{{ __('Delete Realtime') }}</x-sheet.button></div>

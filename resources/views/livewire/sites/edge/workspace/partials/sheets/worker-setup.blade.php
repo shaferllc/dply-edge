@@ -13,7 +13,7 @@
 @endphp
 <x-sheet name="resources-worker-setup" :show="$panel === 'worker-setup'" maxWidth="lg" focusable>
     @if ($setup !== [])
-        <x-sheet.header :eyebrow="__('Add a resource')" :title="__('Queue workers')" close-wire="openPanel('')">
+        <x-sheet.header :eyebrow="__('Add a resource')" :title="__('Queue workers')" close-wire="$set('panel', '')">
             {{ __('Workers run php artisan queue:work beside your app and take the jobs it dispatches.') }}
         </x-sheet.header>
 

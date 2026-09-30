@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Jobs;
 
+use App\Models\DplyDatabase;
 use App\Models\Site;
+use App\Modules\Edge\Services\DplyDatabases;
 use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Edge\Support\EdgeDplyDatabase;
 use App\Modules\Providers\Valkey\ValkeyGatewayClient;
@@ -19,7 +21,7 @@ use Throwable;
  * MySQL from a daily dump plus the oplog / binlog (dbagent). It can take
  * minutes, so it runs here, not in the request. Progress is on meta.edge.database.restore for the Resources tab.
  *
- * Called from Resources::restorePostgres.
+ * Started by DplyDatabaseActions (the Resources panel and the API).
  */
 class RestoreEdgeDplyPostgresJob implements ShouldQueue
 {
@@ -33,16 +35,19 @@ class RestoreEdgeDplyPostgresJob implements ShouldQueue
 
     // The "dply" queue's Horizon workers allow 3600 s (config/horizon.php);
     // "default" stops a job at 900 s, shorter than a large restore.
-    public function __construct(public string $siteId, public string $targetTime)
+    public function __construct(public string $siteId, public string $targetTime, public ?string $databaseId = null)
     {
         $this->onQueue('dply');
     }
 
     public function handle(): void
     {
-        $site = Site::query()->find($this->siteId);
-        $database = is_array($site?->edgeMeta()['database'] ?? null) ? $site->edgeMeta()['database'] : [];
-        if (! $site instanceof Site || ! EdgeAppDatabase::isDply($database)) {
+        // $databaseId: any of the organization's databases (DplyDatabases). Without it
+        // (jobs queued before it existed) the app's primary, from its mirror.
+        $row = $this->databaseId !== null ? DplyDatabase::query()->find($this->databaseId) : null;
+        $site = $row === null ? Site::query()->find($this->siteId) : null;
+        $database = $row !== null ? DplyDatabases::record($row) : (is_array($site?->edgeMeta()['database'] ?? null) ? $site->edgeMeta()['database'] : []);
+        if (($row === null && ! $site instanceof Site) || ! EdgeAppDatabase::isDply($database)) {
             return;
         }
 
@@ -53,6 +58,11 @@ class RestoreEdgeDplyPostgresJob implements ShouldQueue
             $restore = ['status' => 'failed', 'target' => $this->targetTime, 'error' => $e->getMessage(), 'finished_at' => now()->toIso8601String()];
         }
 
+        if ($row !== null) {
+            DplyDatabases::remember($row, ['restore' => $restore]);
+
+            return;
+        }
         $site->refresh();
         $site->mergeEdgeMeta(['database' => array_merge($site->edgeMeta()['database'] ?? [], ['restore' => $restore])]);
         $site->save();

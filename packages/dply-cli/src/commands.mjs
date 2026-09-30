@@ -692,6 +692,75 @@ export async function previews(args, flags) {
   throw usageError('edge previews', `Unknown subcommand "${sub}". Use list, create, or rm.`);
 }
 
+const DATABASES_USAGE = 'edge databases list | show <db> | query <db> "<sql>" | query <db> <collection> [\'<json filter>\'] | exports <db> | export <db> | restore <db> <time>';
+
+/**
+ * The linked app's Postgres / MySQL / MongoDB. <db> is its name or id.
+ * query is read-only and returns at most 200 rows (MongoDB: a find).
+ */
+export async function databases(args, flags) {
+  const ctx = await requireSiteContext(flags);
+  const api = new ApiClient(ctx);
+  const [sub = 'list', name, ...rest] = args;
+  const base = `/edge/sites/${encodeURIComponent(ctx.siteId)}/databases`;
+  const one = () => {
+    if (!name) throw usageError(DATABASES_USAGE, 'Pass the database name.');
+    return `${base}/${encodeURIComponent(name)}`;
+  };
+
+  if (sub === 'list') {
+    const rows = (await api.get(base)).data ?? [];
+    if (flags.json) return printJson(rows);
+    if (rows.length === 0) return info(c.dim('No databases. Add one under Resources → Add resource → Database.'));
+    return printTable(['name', 'engine', 'env', 'size', 'disk', 'last backup'], rows.map((db) => [
+      db.name, db.engine, db.primary ? 'DB_* (primary)' : `${db.env_prefix}_*`, db.size, `${db.disk_gb} GB`, db.last_backup_at ?? 'none yet',
+    ]));
+  }
+
+  if (sub === 'show') {
+    const db = (await api.get(one())).data;
+    if (flags.json) return printJson(db);
+    return printKeyValues([
+      ['name', db.name], ['engine', db.engine], ['env', db.primary ? 'DB_* (primary)' : `${db.env_prefix}_*`], ['host', db.host],
+      ['region', db.region], ['size', db.size], ['disk', `${db.disk_gb} GB`], ['last backup', db.last_backup_at ?? 'none yet'],
+      ['export', db.transfer ? `${db.transfer.kind} ${db.transfer.status}${db.transfer.error ? `: ${db.transfer.error}` : ''}` : '—'],
+      ['restore', db.restore ? `${db.restore.status} (to ${db.restore.target})${db.restore.error ? `: ${db.restore.error}` : ''}` : '—'],
+    ]);
+  }
+
+  if (sub === 'query') {
+    if (rest.length === 0) throw usageError(DATABASES_USAGE, 'Pass the SQL (or, for MongoDB, the collection).');
+    // MongoDB: <collection> [filter]; SQL engines: the rest of the line is the statement.
+    const db = (await api.get(one())).data;
+    const body = db.engine === 'mongodb' ? { collection: rest[0], filter: rest.slice(1).join(' ') || '{}' } : { sql: rest.join(' ') };
+    const result = (await api.post(`${one()}/query`, body)).data ?? {};
+    if (flags.json) return printJson(result);
+    const columns = result.columns ?? [];
+    printTable(columns, (result.rows ?? []).map((row) => row.map((cell) => (cell !== null && typeof cell === 'object' ? JSON.stringify(cell) : cell ?? ''))));
+    return info(c.dim(`${(result.rows ?? []).length} row(s)${result.truncated ? ' (first 200)' : ''}`));
+  }
+
+  if (sub === 'exports') {
+    const rows = (await api.get(`${one()}/exports`)).data ?? [];
+    if (flags.json) return printJson(rows);
+    return printTable(['file', 'bytes', 'at', 'url'], rows.map((e) => [e.file, e.bytes, e.at, e.url]));
+  }
+
+  if (sub === 'export') {
+    await api.post(`${one()}/exports`, {});
+    return ok(`Exporting ${name}. \`dply edge databases exports ${name}\` lists it with a download link when it is done.`);
+  }
+
+  if (sub === 'restore') {
+    const at = rest.join(' ').trim();
+    if (!at) throw usageError(DATABASES_USAGE, 'Pass the time to restore to (UTC), e.g. "2026-09-28 14:30".');
+    const db = (await api.post(`${one()}/restore`, { at })).data;
+    return ok(`Restoring ${name} to ${db.restore?.target ?? at}. \`dply edge databases show ${name}\` shows progress.`);
+  }
+
+  throw usageError(DATABASES_USAGE, `Unknown subcommand "${sub}".`);
+}
+
 export async function domains(args, flags) {
   const ctx = await requireSiteContext(flags);
   const api = new ApiClient(ctx);

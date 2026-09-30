@@ -1,6 +1,6 @@
 <x-sheet name="resources-connection" :show="$panel === 'connection'" maxWidth="lg" focusable>
     @if ($connectionKind === '')
-        <x-sheet.header :title="__('Add a resource')" close-wire="openPanel('')" />
+        <x-sheet.header :title="__('Add a resource')" close-wire="$set('panel', '')" />
 
         <x-sheet.body>
             @php
@@ -53,7 +53,7 @@
             </div>
         </x-sheet.body>
     @else
-        <x-sheet.header close-wire="openPanel('')" :eyebrow="__('Add a resource')" :title="__($connectionKinds[$connectionKind]['label'])">
+        <x-sheet.header close-wire="$set('panel', '')" :eyebrow="__('Add a resource')" :title="__($connectionKinds[$connectionKind]['label'])">
             @if ($isWorker)
                 {{ __(\App\Modules\Edge\Support\EdgeContainerConnections::WORKER_HINTS[$connectionKind] ?? 'Your code reads it as env.NAME, where NAME is the name you give it here.') }}
             @else
@@ -66,7 +66,8 @@
 
         <form wire:submit="saveConnection" class="contents">
             <x-sheet.body>
-                @if (in_array($connectionKind, \App\Modules\Edge\Support\EdgeContainerConnections::CREATABLE, true) || $connectionKind === 'redis')
+                {{-- Attach existing: only when the organization has one this app does not use yet (Redis attaches by address). --}}
+                @if ((in_array($connectionKind, \App\Modules\Edge\Support\EdgeContainerConnections::CREATABLE, true) && $connectionOptions !== []) || $connectionKind === 'redis')
                     <x-sheet.segmented>
                         <x-sheet.segment wire:click="setConnectionMode('create')" :active="$connectionMode === 'create'">{{ __('Create new') }}</x-sheet.segment>
                         <x-sheet.segment wire:click="setConnectionMode('attach')" :active="$connectionMode === 'attach'">{{ __('Attach existing') }}</x-sheet.segment>

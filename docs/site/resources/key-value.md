@@ -24,7 +24,7 @@ Key-value stores are available to container apps and to SSR and hybrid apps. See
 
 ### Laravel (container apps)
 
-On the next deploy dply sets `DPLY_KV_HOST` and registers a cache store named after the resource, in lower case. If no Redis is attached, it also sets `CACHE_STORE` to that store, so the default `Cache` facade uses it.
+On the next deploy dply sets `DPLY_KV_HOST` and registers a cache store named after the resource, in lower case. Your app's default cache does not change. To make this store the default, turn on **Default cache** in the store's Settings: the next deploy then sets `CACHE_STORE` to it (unless Redis is attached, which stays the default).
 
 ```php
 use Illuminate\Support\Facades\Cache;
@@ -33,7 +33,7 @@ Cache::store('cache')->put('session', 'hello', 3600);
 Cache::store('cache')->get('session');
 Cache::store('cache')->forget('session');
 
-// With CACHE_STORE set by dply, the default store is the same:
+// Only when it is the default cache (Settings, Default cache):
 Cache::put('greeting', 'hello', 3600);
 ```
 
@@ -49,13 +49,15 @@ A value expires only when its TTL is at least 60 seconds. A shorter TTL stores t
 
 ### Rails (container apps)
 
-Add `gem "dply-rails"`. The next deploy sets `DPLY_KV_HOST`, and `Rails.cache` uses the store when no Redis is attached. `read_multi` reads up to 100 keys in one request, `clear` removes every key, and `increment` / `decrement` raise, as in Laravel.
+Add `gem "dply-rails"`. The next deploy sets `DPLY_KV_HOST`, and `Dply::Rails::Kv` reads and writes the store:
 
 ```ruby
-Rails.cache.write('session', 'hello')
-Rails.cache.read('session')
-Rails.cache.delete('session')
+Dply::Rails::Kv.write('session', 'hello', expires_in: 3600)
+Dply::Rails::Kv.read('session')
+Dply::Rails::Kv.delete('session')
 ```
+
+Turn on **Default cache** in the store's Settings and `Rails.cache` uses it too, unless Redis is attached. `read_multi` reads up to 100 keys in one request, `clear` removes every key, and `increment` / `decrement` raise, as in Laravel.
 
 ### Any language (container apps)
 
@@ -111,14 +113,12 @@ export default {
 
 ## Browse and edit keys
 
-Choose **Settings** on the store's card. The sheet has these tabs:
+Choose the store's card on the resource map. The sheet has these tabs:
 
-- **How it works**: the HTTP paths above.
-- **Implementation**: Laravel, Rails, and HTTP samples with this store's names filled in.
+- **Overview**: reads, writes, storage and this month's cost so far, and how the app reaches the store.
+- **Connect**: Laravel, Rails, and HTTP samples with this store's names filled in, and **Test from the app**, which has the running app write, read and forget a key through `Cache::store()` (Laravel apps with dply/laravel).
 - **Keys**: lists keys, with each key's expiry and metadata under its name. Use **Keys starting with…** to filter and **Load more** for the next page. Choose a key to load it and its value into **Try a key**, change the **Value**, and choose **Write** to save it. Under **Try a key** you can also enter a **Key**, a **Value**, and optionally **Expire after (seconds)** (at least 60), then choose **Write**, **Read**, or **Delete key**. This writes the store directly and does not call your app. Demo values must be under 8 KB, and a larger value isn't loaded into the field.
-- **Usage**: reads, writes, deletes, and lists this month, and storage.
-- **Costs**: this month's cost so far.
-- **Settings**: rename the store's binding. The app uses the new host and name after the next deploy. The store keeps its data.
+- **Settings**: rename the store's binding (the app uses the new host and name after the next deploy; the store keeps its data), make it the **Default cache**, sleep it, or detach or delete it.
 
 ### Delete keys by prefix
 
