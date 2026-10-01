@@ -48,7 +48,8 @@ class GetDeploymentLog extends AbstractDplyTool
             ->latest()
             ->first() ?? throw new DplyMcpException('No deploy found for this app.');
 
-        $lines = preg_split('/\R/', (string) $deployment->readBuildLog($site)) ?: [];
+        // Build output carries raw bytes (Docker progress, binary noise); JSON needs valid UTF-8.
+        $lines = preg_split('/\R/', mb_scrub((string) $deployment->readBuildLog($site), 'UTF-8')) ?: [];
         $tail = array_slice($lines, -((int) ($input['tail_lines'] ?? 300)));
 
         return Response::json(['data' => [

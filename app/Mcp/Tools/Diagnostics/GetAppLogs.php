@@ -49,6 +49,8 @@ class GetAppLogs extends AbstractDplyTool
 
         $lines = EdgeContainerDeployer::appLogLines($site, (int) ($input['minutes'] ?? 15), $input['contains'] ?? null);
 
-        return Response::json(['data' => array_slice($lines, -((int) ($input['limit'] ?? 300)))]);
+        $lines = array_map(static fn (array $line): array => ['message' => mb_scrub((string) $line['message'], 'UTF-8')] + $line, array_slice($lines, -((int) ($input['limit'] ?? 300))));
+
+        return Response::json(['data' => $lines]);
     }
 }
