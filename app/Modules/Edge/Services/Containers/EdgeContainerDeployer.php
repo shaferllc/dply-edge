@@ -14,6 +14,7 @@ use App\Modules\Edge\Services\EdgeKvInstant;
 use App\Modules\Edge\Services\EdgeQueueConsumers;
 use App\Modules\Edge\Services\Storage\EdgeBucketKeys;
 use App\Modules\Edge\Support\EdgeContainerConnections;
+use App\Modules\Edge\Support\EdgeContainerInstances;
 use App\Modules\Edge\Support\EdgeContainerSettings;
 use App\Modules\Edge\Support\EdgeCronExpression;
 use App\Modules\Edge\Support\EdgeEffectiveBindings;
@@ -1066,20 +1067,48 @@ JS;
         // back (or to the last live deployment) whatever happens here.
         $handedOff = false;
         $productionOk = false;
+        // Where a deploy's minutes go, logged once at the end (the log has no timestamps).
+        $timings = [];
+        $lap = microtime(true);
+        $mark = static function (string $label) use (&$timings, &$lap): void {
+            $now = microtime(true);
+            $timings[] = $label.' '.(int) round($now - $lap).'s';
+            $lap = $now;
+        };
+        $deployStarted = $lap;
+        // The image the check copy pushed. Production deploys it as is instead
+        // of building and pushing the same image again. Registry images outlive
+        // the copy's application (checked 2026-10-01: tags of deleted copies stay).
+        $reuseImage = null;
+        $dockerfileImage = null;
         try {
             if ($candidate) {
-                $this->deployCandidate($site, $deployment, $project, $workRoot, $namespace, $log, $timeoutSeconds, $release, $handedOff);
+                $this->deployCandidate($site, $deployment, $project, $workRoot, $namespace, $log, $timeoutSeconds, $release, $handedOff, $reuseImage);
+                $mark('check copy');
             }
             // wrangler goes quiet after the layer push while Cloudflare ingests the
             // image and rolls out the container — minutes, with no output at all.
             // Say so, or every deploy reads as a hang at exactly this point.
             if (! $activated) {
-                $log("Building the image (npm, Vite, Composer) and pushing it. Docker output follows.\n");
+                $dockerfileImage = $reuseImage !== null ? self::setContainerImage($project, $reuseImage) : null;
+                if ($dockerfileImage !== null) {
+                    // Kept for a rebuild if production can't use the reused image.
+                    File::copy($project.'/secrets.json', $project.'/secrets.rebuild.json');
+                    $log("Deploying the image the check copy just built ({$reuseImage}): no second build.\n");
+                } else {
+                    $log("Building the image (npm, Vite, Composer) and pushing it. Docker output follows.\n");
+                }
 
                 $deploy = fn () => $this->runWithHeartbeat($log, Process::timeout($timeoutSeconds ?? 1800), self::deployerCommand(
                     self::buildContainerName($deployment), $workRoot, $project, $namespace, EdgeContainerSettings::durableObjectScheduling($settings) ? 'immediate' : $settings['rollout_mode'],
                 ));
                 $result = $deploy();
+                if (! $result->successful() && $dockerfileImage !== null) {
+                    $log("Deploying the reused image failed. Building the image instead. Docker output follows.\n");
+                    self::setContainerImage($project, $dockerfileImage);
+                    $dockerfileImage = null;
+                    $result = $deploy();
+                }
                 // Faster starts switched on or off: the app's container application
                 // under the other scheduling holds its name and Durable Object
                 // namespace, so wrangler cannot create the new one. Remove it and
@@ -1118,7 +1147,24 @@ JS;
                 : ($doScheduled
                 ? "[dply:step] publish\nImage pushed. Instances start the new version on their next request.\n"
                 : "[dply:step] publish\nImage pushed. Waiting for Dply Edge to roll the container out.\n"));
+            $mark('production deploy');
             $rollout = $doScheduled ? ['settled' => true, 'ok' => true] : app(EdgeContainerRollout::class)->await($site, $log);
+            // Wrangler took the reused image but Cloudflare could not start it:
+            // build it the usual way once, while visitors are still on the copy.
+            if ($rollout['settled'] && ! $rollout['ok'] && $dockerfileImage !== null && isset($deploy) && File::exists($project.'/secrets.rebuild.json')) {
+                $log("Production could not start the reused image ({$rollout['reason']}). Building the image instead. Docker output follows.\n");
+                self::setContainerImage($project, $dockerfileImage);
+                $dockerfileImage = null;
+                File::move($project.'/secrets.rebuild.json', $project.'/secrets.json');
+                $result = $deploy();
+                File::delete($project.'/secrets.json');
+                if (! $result->successful()) {
+                    throw new RuntimeException('Container deploy failed: '.self::failureReason($result->errorOutput(), $result->output()));
+                }
+                $rollout = app(EdgeContainerRollout::class)->await($site, $log);
+            }
+            File::delete($project.'/secrets.rebuild.json');
+            $mark('production rollout');
             if ($rollout['settled'] && ! $rollout['ok']) {
                 throw new RuntimeException('Container deploy failed: '.(string) $rollout['reason'].' — '.(string) json_encode($rollout['health']));
             }
@@ -1167,10 +1213,14 @@ JS;
                 throw new RuntimeException('Container deploy failed: '.$unhealthy);
             }
             $productionOk = true;
+            $mark('checks');
         } finally {
+            File::delete($project.'/secrets.rebuild.json');
             if ($handedOff) {
                 $this->endHandoff($site, $deployment, $namespace, $productionOk, $log);
+                $mark('handoff back');
             }
+            $log(sprintf("Timings: %s · total %ds.\n", implode(' · ', $timings ?: ['none']), (int) round(microtime(true) - $deployStarted)));
         }
         // Live: older releases can go (the newest few stay, to go back to).
         if (EdgeContainerSettings::releaseBundle($settings)) {
@@ -1292,9 +1342,10 @@ JS;
      *
      * @param  callable(string): void  $log
      */
-    private function deployCandidate(Site $site, EdgeDeployment $deployment, string $project, string $workRoot, string $namespace, callable $log, ?int $timeoutSeconds, bool $release, bool &$handedOff): void
+    private function deployCandidate(Site $site, EdgeDeployment $deployment, string $project, string $workRoot, string $namespace, callable $log, ?int $timeoutSeconds, bool $release, bool &$handedOff, ?string &$image = null): void
     {
         $handedOff = false;
+        $image = null;
         $script = self::candidateScript($site);
         $host = self::candidateHost($site);
         $url = 'https://'.$host;
@@ -1312,9 +1363,12 @@ JS;
             if (! $result->successful()) {
                 throw new RuntimeException('Container deploy failed: '.self::failureReason($result->errorOutput(), $result->output()));
             }
+            $image = self::pushedImage($script.'-app', $result->output()."\n".$result->errorOutput());
+            // One healthy instance is enough to migrate and check. Before visitors
+            // move over, enough of them to carry production's load (below).
             $rollout = EdgeContainerSettings::durableObjectScheduling(EdgeContainerSettings::for($site))
                 ? ['settled' => true, 'ok' => true]
-                : app(EdgeContainerRollout::class)->await($site, $log, application: $script.'-app');
+                : app(EdgeContainerRollout::class)->await($site, $log, application: $script.'-app', readyAt: 1);
             if ($rollout['settled'] && ! $rollout['ok']) {
                 throw new RuntimeException('Container deploy failed: '.(string) $rollout['reason'].'. Production still runs the previous version.');
             }
@@ -1337,6 +1391,14 @@ JS;
             if ($unhealthy !== null) {
                 throw new RuntimeException('Container deploy failed: '.$unhealthy.' Production still runs the previous version.');
             }
+            $serving = max(1, (int) EdgeContainerSettings::for($site)['min_instances'], (int) EdgeContainerInstances::snapshot($site)['running']);
+            if ($serving > 1 && ! EdgeContainerSettings::durableObjectScheduling(EdgeContainerSettings::for($site))) {
+                $log("Waiting for {$serving} instances of the new version, as many as production is serving with.\n");
+                $ready = app(EdgeContainerRollout::class)->await($site, $log, application: $script.'-app', readyAt: $serving);
+                if ($ready['settled'] && ! $ready['ok']) {
+                    throw new RuntimeException('Container deploy failed: '.(string) $ready['reason'].'. Production still runs the previous version.');
+                }
+            }
             $log("The new version works. Sending visitors to it while production updates.\n");
             $handedOff = true;
             $this->routeProductionTo($site, $deployment, $script);
@@ -1346,6 +1408,42 @@ JS;
                 $this->removeCandidate($site, $script, $host, $namespace, $log);
             }
         }
+    }
+
+    /**
+     * The image a wrangler run pushed, from Docker's "<tag>: digest: sha256:…"
+     * push line, as a full Cloudflare registry reference. Wrangler reads a
+     * bare "name:tag" as a URL (host "name", port "tag") and rejects it, so
+     * it has to be registry.cloudflare.com/<account>/<repository>:<tag>. Null
+     * when nothing was pushed ("Image already exists remotely, skipping push").
+     */
+    public static function pushedImage(string $repository, string $output): ?string
+    {
+        $account = trim((string) config('edge.cloudflare.account_id'));
+        if ($account === '' || preg_match('/^\s*([0-9a-f]{8,64}): digest: sha256:[0-9a-f]{64}/m', $output, $m) !== 1) {
+            return null;
+        }
+
+        return 'registry.cloudflare.com/'.$account.'/'.$repository.':'.$m[1];
+    }
+
+    /**
+     * Point the project's container at $image (a Dockerfile path or a registry
+     * image) and return what it pointed at before, or null when the config has
+     * no single `image` to swap (faster starts uses `images`).
+     */
+    public static function setContainerImage(string $project, string $image): ?string
+    {
+        $path = $project.'/wrangler.jsonc';
+        $config = json_decode((string) File::get($path), true, flags: JSON_THROW_ON_ERROR);
+        $previous = $config['containers'][0]['image'] ?? null;
+        if (! is_string($previous)) {
+            return null;
+        }
+        $config['containers'][0]['image'] = $image;
+        File::put($path, json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+
+        return $previous;
     }
 
     /**

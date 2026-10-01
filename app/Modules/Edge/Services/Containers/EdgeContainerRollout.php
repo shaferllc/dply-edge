@@ -39,7 +39,7 @@ final class EdgeContainerRollout
      * @param  callable(string): void  $log
      * @return array{ok: bool, settled: bool, health: array<string, mixed>, version: int|null, reason: ?string}
      */
-    public function await(Site $site, callable $log, int $timeoutSeconds = 180, int $pollSeconds = 5, ?string $application = null): array
+    public function await(Site $site, callable $log, int $timeoutSeconds = 180, int $pollSeconds = 5, ?string $application = null, int $readyAt = 0): array
     {
         $name = $application ?? self::applicationName($site);
         $deadline = microtime(true) + max(10, $timeoutSeconds);
@@ -79,6 +79,15 @@ final class EdgeContainerRollout
                 $log(sprintf("Rollout reports %d failed instance(s) — %s\n", $failed, (string) json_encode($last)));
 
                 return ['ok' => false, 'settled' => true, 'health' => $last, 'version' => $version, 'reason' => 'container instances failed to start'];
+            }
+
+            // Enough healthy instances for what comes next (the check copy: one to
+            // check, or as many as production serves before visitors move over).
+            // The rest keep starting; waiting for all of them cost ~40s a deploy.
+            if ($readyAt > 0 && (int) ($last['healthy'] ?? 0) >= $readyAt) {
+                $log(sprintf("Ready: %d healthy instance(s) — %s\n", (int) $last['healthy'], (string) json_encode($last)));
+
+                return ['ok' => true, 'settled' => true, 'health' => $last, 'version' => $version, 'reason' => null];
             }
 
             // A reported 0% with nothing starting is still a rollout. A missing

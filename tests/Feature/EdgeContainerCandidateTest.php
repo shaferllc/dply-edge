@@ -190,3 +190,42 @@ test('failed migrations stop the deploy before the check', function () {
     expect(collect(Http::recorded())->filter(fn ($pair) => $pair[0]->url() === 'https://shop-ab12cd--next.on-dply.live')->count())->toBe(1);
     Http::assertSent(fn (Request $r) => $r->method() === 'DELETE' && str_contains($r->url(), '/scripts/'.$this->script));
 });
+
+test('the check copy hands production the image it pushed, as a full registry reference', function () {
+    $digest = '  8dd2ae9a: digest: sha256:'.str_repeat('a', 64).' size: 7844';
+    expect(EdgeContainerDeployer::pushedImage('dply-ctr-x-next-app', "push\n{$digest}\n"))
+        ->toBe('registry.cloudflare.com/acct/dply-ctr-x-next-app:8dd2ae9a')
+        // Nothing pushed (wrangler skipped it): production builds as before.
+        ->and(EdgeContainerDeployer::pushedImage('dply-ctr-x-next-app', 'Image already exists remotely, skipping push'))->toBeNull();
+
+    File::put($this->work.'/container-worker/wrangler.jsonc', json_encode(['containers' => [['class_name' => 'App', 'image' => '/w/Dockerfile.dply']]]));
+    expect(EdgeContainerDeployer::setContainerImage($this->work.'/container-worker', 'registry.cloudflare.com/acct/r:t'))->toBe('/w/Dockerfile.dply')
+        ->and(json_decode(File::get($this->work.'/container-worker/wrangler.jsonc'), true)['containers'][0]['image'])->toBe('registry.cloudflare.com/acct/r:t');
+
+    // Through the candidate: the push line in wrangler's output becomes the image.
+    Process::fake(['*' => Process::result(output: "Pushing\n{$digest}\n")]);
+    fakeCloudflare($this->script, 200);
+    $image = null;
+    $handedOff = false;
+    $site = $this->site;
+    $deployment = $this->deployment;
+    $work = $this->work;
+    (function () use ($site, $deployment, $work, &$handedOff, &$image): void {
+        $this->deployCandidate($site, $deployment, $work.'/container-worker', $work, 'ns', static function (): void {}, 60, false, $handedOff, $image);
+    })->call(new EdgeContainerDeployer);
+    expect($image)->toBe('registry.cloudflare.com/acct/'.$this->script.'-app:8dd2ae9a');
+});
+
+test('the rollout wait can stop at enough healthy instances, not all of them', function () {
+    Http::fake([
+        '*/containers/applications' => Http::response(['success' => true, 'result' => [['id' => 'a1', 'name' => 'app-x']]]),
+        '*/containers/applications/a1/rollouts' => Http::response(['success' => true, 'result' => [['status' => 'progressing', 'progress' => ['percentage' => 40]]]]),
+        '*/containers/applications/a1' => Http::response(['success' => true, 'result' => ['version' => 2, 'health' => ['instances' => ['healthy' => 2, 'starting' => 3, 'failed' => 0]]]]),
+    ]);
+    $log = [];
+    $rollout = app(\App\Modules\Edge\Services\Containers\EdgeContainerRollout::class)->await($this->site, function (string $l) use (&$log): void {
+        $log[] = $l;
+    }, timeoutSeconds: 10, pollSeconds: 0, application: 'app-x', readyAt: 2);
+
+    expect($rollout['ok'])->toBeTrue()->and(implode('', $log))->toContain('Ready: 2 healthy');
+});
