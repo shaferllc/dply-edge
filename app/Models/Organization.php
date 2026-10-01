@@ -61,6 +61,7 @@ use Laravel\Cashier\Billable;
  * @property ?array{period?: string, pct?: int} $usage_alerts
  * @property ?int $metered_cap_cents
  * @property ?array{period?: string, pct?: int} $metered_cap_alerts
+ * @property ?int $spending_cap_cents Usage past the included credit a paid org will pay each period; null = no cap.
  * @property ?Carbon $created_at
  * @property ?Carbon $updated_at
  * @property-read Collection<int, User> $users

@@ -11,6 +11,7 @@ use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
 use App\Modules\Billing\Listeners\CaptureTrialCardFingerprint;
+use App\Modules\Billing\Models\Subscription;
 use App\Modules\Billing\Services\OrganizationBillingEnforcer;
 use App\Modules\Billing\Services\PlanCheckout;
 use App\Modules\Billing\Services\StarterUsageBudget;
@@ -87,6 +88,61 @@ test('a trial over its cap is paused hourly (paused page too) and resumes once i
     $this->artisan('dply:billing:enforce')->assertSuccessful();
     expect($org->fresh()->billing_paused_at)->toBeNull()
         ->and($org->fresh()->billing_notices)->not->toHaveKey('capped');
+});
+
+test('a paid org past its own spending cap pauses, and resumes when the cap is removed', function () {
+    config(['subscription.standard.stripe.tier_pro' => 'price_tier_pro', 'subscription.standard.tiers.pro.usage_credit_cents' => 1]);
+    Notification::fake();
+    $org = org(['spending_cap_cents' => 0]);
+    Subscription::factory()->withPrice('price_tier_pro')->active()->create(['organization_id' => $org->id]);
+    edgeSite($org);
+    EdgeDataUsage::query()->create(['organization_id' => $org->id, 'date' => now()->toDateString(), 'd1_rows_written' => 10_000]);
+
+    $this->artisan('dply:billing:enforce')->assertSuccessful();
+    $org = $org->fresh();
+    expect($org->billing_paused_at)->not->toBeNull()
+        ->and($org->billing_notices)->toHaveKey('spend_capped')
+        ->and($org->billing_notices)->not->toHaveKey('paused');
+    Notification::assertSentTo($org->users()->wherePivot('role', 'owner')->first(), OrganizationBillingNotice::class, fn (OrganizationBillingNotice $n) => $n->kind === 'spend_capped');
+
+    // Still paused an hour later: never treated as "no plan", so no purge clock.
+    $this->artisan('dply:billing:enforce')->assertSuccessful();
+    expect($org->fresh()->billing_notices)->not->toHaveKey('paused');
+
+    $org->forceFill(['spending_cap_cents' => null])->save();
+    $this->artisan('dply:billing:enforce')->assertSuccessful();
+    expect($org->fresh()->billing_paused_at)->toBeNull()
+        ->and($org->fresh()->billing_notices)->not->toHaveKey('spend_capped');
+});
+
+test('a paid org paused at its spending cap resumes when the next period starts', function () {
+    config(['subscription.standard.stripe.tier_pro' => 'price_tier_pro', 'subscription.standard.tiers.pro.usage_credit_cents' => 1]);
+    Notification::fake();
+    $this->travelTo('2026-10-15 12:00:00');
+    $org = org(['spending_cap_cents' => 0]);
+    Subscription::factory()->withPrice('price_tier_pro')->active()->create(['organization_id' => $org->id]);
+    edgeSite($org);
+    EdgeDataUsage::query()->create(['organization_id' => $org->id, 'date' => now()->toDateString(), 'd1_rows_written' => 10_000]);
+
+    $this->artisan('dply:billing:enforce')->assertSuccessful();
+    expect($org->fresh()->billing_paused_at)->not->toBeNull();
+
+    // No Stripe period on file: the calendar month, so November starts fresh.
+    $this->travelTo('2026-11-01 01:00:00');
+    $this->artisan('dply:billing:enforce')->assertSuccessful();
+    expect($org->fresh()->billing_paused_at)->toBeNull()
+        ->and($org->fresh()->billing_notices)->not->toHaveKey('spend_capped');
+});
+
+test('a paid org without a spending cap is never paused for usage', function () {
+    config(['subscription.standard.stripe.tier_pro' => 'price_tier_pro', 'subscription.standard.tiers.pro.usage_credit_cents' => 1]);
+    $org = org();
+    Subscription::factory()->withPrice('price_tier_pro')->active()->create(['organization_id' => $org->id]);
+    EdgeDataUsage::query()->create(['organization_id' => $org->id, 'date' => now()->toDateString(), 'd1_rows_written' => 10_000]);
+
+    $this->artisan('dply:billing:enforce')->assertSuccessful();
+
+    expect($org->fresh()->billing_paused_at)->toBeNull();
 });
 
 test('a trial under its cap is not paused', function () {

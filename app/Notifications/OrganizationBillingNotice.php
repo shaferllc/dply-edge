@@ -27,7 +27,7 @@ class OrganizationBillingNotice extends Notification implements ShouldQueue
 {
     use Queueable;
 
-    public const KINDS = ['trial_started', 'trial_ending_soon', 'trial_ending', 'capped', 'paused', 'deleting_soon', 'deleting'];
+    public const KINDS = ['trial_started', 'trial_ending_soon', 'trial_ending', 'capped', 'spend_capped', 'paused', 'deleting_soon', 'deleting'];
 
     public function __construct(
         public Organization $organization,
@@ -79,6 +79,11 @@ class OrganizationBillingNotice extends Notification implements ShouldQueue
                 ->line($this->organization->subscription('default')?->onTrial()
                     ? __('Choose End trial now on the billing page to start paying today and resume, or wait for the plan to start on :when.', ['when' => $when])
                     : __('To resume today, add a card for your plan on the billing page, then choose End trial now. Otherwise its sites stay paused until the trial ends on :when.', ['when' => $when]))
+                ->action(__('Billing'), $billing),
+            'spend_capped' => $mail
+                ->subject(__(':org is paused: spending cap reached', ['org' => $name]))
+                ->line(__('This billing period, :org used its plan’s included credit plus the $:limit spending cap you set, so its sites are paused and their visitors see a “paused” page.', ['org' => $name, 'limit' => number_format(((int) $this->organization->spending_cap_cents) / 100, 0)]))
+                ->line(__('They come back when the next billing period starts. To bring them back now, raise or remove the cap on the billing page (Limits).'))
                 ->action(__('Billing'), $billing),
             'paused' => $mail
                 ->subject(__(':org is paused', ['org' => $name]))

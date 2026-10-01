@@ -6,6 +6,7 @@ use App\Livewire\Concerns\ConfirmsActionWithModal;
 use App\Livewire\Concerns\DispatchesToastNotifications;
 use App\Models\EdgeDeployment;
 use App\Models\Organization;
+use App\Modules\Billing\Jobs\SyncOrganizationBillingJob;
 use App\Modules\Billing\Services\BillingAnalytics;
 use App\Modules\Billing\Services\DesiredBillingState;
 use App\Modules\Billing\Services\EdgeOrganizationUsageReader;
@@ -77,6 +78,9 @@ class Show extends Component
     /** Monthly cap on AI, browser rendering and vector search (EdgeMeter); '' = the default, 0 = off. */
     public string $metered_cap_dollars = '';
 
+    /** Usage past the included credit this org will pay per period (StarterUsageBudget); '' = no cap. */
+    public string $spending_cap_dollars = '';
+
     /** Flipped by wire:init so the Stripe invoice list never blocks first paint. */
     public bool $invoicesLoaded = false;
 
@@ -102,6 +106,7 @@ class Show extends Component
         $this->billing_details = (string) ($organization->billing_details ?? '');
         $this->usage_alert_dollars = $organization->usage_alert_cents === null ? '' : (string) ($organization->usage_alert_cents / 100);
         $this->metered_cap_dollars = $organization->metered_cap_cents === null ? '' : (string) ($organization->metered_cap_cents / 100);
+        $this->spending_cap_dollars = $organization->spending_cap_cents === null ? '' : (string) ($organization->spending_cap_cents / 100);
     }
 
     /** The client can $set any string; unknown tabs fall back to Usage. */
@@ -134,6 +139,20 @@ class Show extends Component
         ])->save();
         Cache::forget('edge-meter:spent:'.$this->organization->id);
         $this->toastSuccess(__('Limit saved. Apps pick it up within a minute.'));
+    }
+
+    /** Past the included credit plus this, the org pauses until the next period (OrganizationBillingEnforcer). */
+    public function saveSpendingCap(): void
+    {
+        $this->authorize('update', $this->organization);
+        $this->validate(['spending_cap_dollars' => ['nullable', 'numeric', 'min:0', 'max:1000000']]);
+        $this->organization->forceFill([
+            'spending_cap_cents' => $this->spending_cap_dollars === '' ? null : (int) round((float) $this->spending_cap_dollars * 100),
+        ])->save();
+        // Pause or resume now: raising the cap should bring the sites back at once.
+        SyncOrganizationBillingJob::dispatch($this->organization->id, 'spending_cap');
+        audit_log($this->organization, auth()->user(), 'billing.spending_cap_changed');
+        $this->toastSuccess(__('Spending cap saved.'));
     }
 
     public function saveBillingDetails(VatInsightService $vatInsights): void

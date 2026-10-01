@@ -6,6 +6,7 @@ namespace App\Modules\Edge\Services;
 
 use App\Models\EdgeDeployment;
 use App\Models\Site;
+use App\Modules\Billing\Services\StarterUsageBudget;
 use App\Modules\Edge\Support\EdgeDeliveryContext;
 use App\Modules\Edge\Support\EdgeEffectiveErrorPages;
 use App\Modules\Edge\Support\EdgeEffectiveFirewall;
@@ -412,11 +413,11 @@ class EdgeHostMapPublisher
             $payload['maintenance_html'] = view('edge.billing-paused', ['byOwner' => true])->render();
         }
         // Billing pause (ruling r-f17p5zgeh120cm5t): the org's trial ended
-        // unpaid, or its usage passed the trial's spending cap. Served as
+        // unpaid, or its usage passed the trial's or its own spending cap. Served as
         // maintenance so nothing behind it wakes; the site's own maintenance
         // setting is left as it was.
         $organization = $site->organization;
-        if ($organization !== null && $organization->billing_paused_at !== null && (! $organization->hasPlan() || $organization->onTrialPlan())) {
+        if ($organization !== null && $organization->billing_paused_at !== null && (! $organization->hasPlan() || $organization->onTrialPlan() || StarterUsageBudget::paidLimitCents($organization) !== null)) {
             $payload['maintenance_mode'] = true;
             $payload['maintenance_html'] = view('edge.billing-paused')->render();
         }

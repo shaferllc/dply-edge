@@ -108,9 +108,11 @@ class BuildEdgeSiteJob implements ShouldQueue
         if ($spend['exhausted']) {
             app(StarterTrafficGate::class)->syncOrganization($organization);
             $limit = number_format(((int) $spend['limit_cents']) / 100, 0);
-            $this->pauseDeploy($site, $deployment, $organization->onTrialPlan()
-                ? __('The trial’s $:limit usage cap is used up. Builds and traffic pause until the trial ends; end it early on the billing page to continue now.', ['limit' => $limit])
-                : __('This month’s $:limit spending limit is used up. Builds and traffic pause until the 1st.', ['limit' => $limit]));
+            $this->pauseDeploy($site, $deployment, match (true) {
+                $organization->onTrialPlan() => __('The trial’s $:limit usage cap is used up. Builds and traffic pause until the trial ends; end it early on the billing page to continue now.', ['limit' => $limit]),
+                $organization->spending_cap_cents !== null => __('This period’s usage reached your $:limit spending cap. Builds and traffic pause until the next billing period; raise or remove the cap on the billing page to continue now.', ['limit' => number_format($organization->spending_cap_cents / 100, 0)]),
+                default => __('This month’s $:limit spending limit is used up. Builds and traffic pause until the 1st.', ['limit' => $limit]),
+            });
 
             return;
         }
@@ -433,7 +435,9 @@ class BuildEdgeSiteJob implements ShouldQueue
                 eventKey: 'edge.usage.over_budget',
                 subject: $site,
                 title: $kind === 'over' ? __('Usage credit used up') : __('Usage credit almost used up'),
-                body: __('This month’s usage is $:used of the $:limit credit.', ['used' => $used, 'limit' => $limit]),
+                body: $organization->spending_cap_cents !== null && ! $organization->onTrialPlan()
+                    ? __('This period’s usage is $:used of $:limit: the included credit plus your spending cap. Past it, your sites pause.', ['used' => $used, 'limit' => $limit])
+                    : __('This month’s usage is $:used of the $:limit credit.', ['used' => $used, 'limit' => $limit]),
                 url: route('billing.show', ['organization' => $organization->id]),
             );
         } catch (Throwable) {

@@ -51,3 +51,14 @@ test('a paid org is never capped', function () {
 
     expect(app(StarterUsageBudget::class)->status($org->fresh())['limit_cents'])->toBeNull();
 });
+
+test('a paid org with a spending cap is capped at its included credit plus the cap', function () {
+    config(['subscription.standard.stripe.tier_pro' => 'price_tier_pro']);
+    $org = Organization::factory()->create(['spending_cap_cents' => 500]);
+    Subscription::factory()->withPrice('price_tier_pro')->active()->create(['organization_id' => $org->id]);
+
+    expect(app(StarterUsageBudget::class)->status($org->fresh())['limit_cents'])->toBe(2000 + 500);
+
+    $org->forceFill(['comped_until' => now()->addMonth()])->save();
+    expect(app(StarterUsageBudget::class)->status($org->fresh())['limit_cents'])->toBeNull();
+});

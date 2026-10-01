@@ -41,6 +41,13 @@
                 'body' => __('The trial’s $:limit usage cap is used up. End the trial early on the billing page to start your plan and bring them back.', ['limit' => number_format(((int) config('subscription.standard.trial.spending_limit_cents')) / 100, 0)]),
                 'action' => __('Billing'),
             ];
+        } elseif ($organization->billing_paused_at !== null && $organization->spending_cap_cents !== null) {
+            $banner = [
+                'tone' => 'danger',
+                'title' => __('Your sites are paused.'),
+                'body' => __('This period’s usage reached your $:limit spending cap. They come back when the next billing period starts, or now if you raise or remove the cap.', ['limit' => number_format($organization->spending_cap_cents / 100, 0)]),
+                'action' => __('Billing'),
+            ];
         } elseif ($organization->onTrialPlan()) {
             $ends = $organization->planTrialEndsAt();
             $carded = $organization->subscription('default')?->onTrial() ?? false;

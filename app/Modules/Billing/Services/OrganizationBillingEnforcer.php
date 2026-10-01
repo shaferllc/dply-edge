@@ -37,6 +37,10 @@ use Throwable;
  *   trial past cap  usage passed the trial's spending cap (StarterUsageBudget):
  *                   pause as below until the trial converts; email
  *                   "capped" and the edge.usage.over_budget notification
+ *   paid past cap   the org's own spending cap (organizations.spending_cap_cents):
+ *                   pause the same way until the period rolls over or the
+ *                   cap is raised; email "spend_capped". Never purged: it
+ *                   still has a plan
  *   no plan         pause: builds in flight stop, queue workers stop, sites serve a paused page,
  *                   container traffic is gated, dply Valkey and database
  *                   tenants are put to sleep; email "paused"
@@ -111,6 +115,8 @@ final class OrganizationBillingEnforcer
                 $this->notice($org, 'trial_ending_soon', $dry, $ends);
             }
             $capped = $this->budget->status($org)['exhausted'];
+        } elseif ($org->hasPlan() && StarterUsageBudget::paidLimitCents($org) !== null) {
+            $capped = $this->budget->status($org)['exhausted'];
         }
 
         // A new org that has not started its trial yet: nothing to pause.
@@ -123,7 +129,7 @@ final class OrganizationBillingEnforcer
                 ($this->say)($org->name.': resume');
                 if (! $dry) {
                     // Every pause-scoped notice goes, so a later pause warns (and purges) afresh.
-                    $org->forceFill(['billing_paused_at' => null, 'billing_notices' => array_diff_key((array) $org->billing_notices, array_flip(['paused', 'capped', 'purged', ...array_keys(self::DELETE_WARNINGS)]))])->save();
+                    $org->forceFill(['billing_paused_at' => null, 'billing_notices' => array_diff_key((array) $org->billing_notices, array_flip(['paused', 'capped', 'spend_capped', 'purged', ...array_keys(self::DELETE_WARNINGS)]))])->save();
                     $this->republish($org);
                     $this->gate->syncOrganization($org);
                     $this->workers($org, false);
@@ -138,11 +144,12 @@ final class OrganizationBillingEnforcer
 
         if ($capped) {
             if ($org->billing_paused_at === null) {
-                ($this->say)($org->name.': pause (trial spending cap)');
+                $trial = $org->onTrialPlan();
+                ($this->say)($org->name.($trial ? ': pause (trial spending cap)' : ': pause (spending cap)'));
                 if (! $dry) {
                     $this->pause($org);
-                    $this->notice($org, 'capped', false, $org->planTrialEndsAt());
-                    $this->overBudget($org);
+                    $this->notice($org, $trial ? 'capped' : 'spend_capped', false, $trial ? $org->planTrialEndsAt() : null);
+                    $this->overBudget($org, $trial);
                 }
             }
 
@@ -152,7 +159,7 @@ final class OrganizationBillingEnforcer
         // Paused over the cap, now without a plan: the "paused" email and the
         // keep period start here.
         $notices = (array) $org->billing_notices;
-        if ($org->billing_paused_at === null || (isset($notices['capped']) && ! isset($notices['paused']))) {
+        if ($org->billing_paused_at === null || ((isset($notices['capped']) || isset($notices['spend_capped'])) && ! isset($notices['paused']))) {
             ($this->say)($org->name.': pause');
             if (! $dry) {
                 if ($org->billing_paused_at === null) {
@@ -268,19 +275,21 @@ final class OrganizationBillingEnforcer
     }
 
     /** The same notification a build past the cap sends (BuildEdgeSiteJob), once a month. */
-    private function overBudget(Organization $org): void
+    private function overBudget(Organization $org, bool $trial = true): void
     {
         $site = Site::query()->where('organization_id', $org->id)->whereNotNull('edge_backend')->first();
         if ($site === null || ! Cache::add('starter-spend:'.$org->id.':'.now()->format('Y-m').':over', true, now()->endOfMonth())) {
             return;
         }
-        $limit = number_format(((int) config('subscription.standard.trial.spending_limit_cents')) / 100, 0);
+        $limit = number_format(((int) ($trial ? config('subscription.standard.trial.spending_limit_cents') : $org->spending_cap_cents)) / 100, 0);
         try {
             app(NotificationPublisher::class)->publish(
                 eventKey: 'edge.usage.over_budget',
                 subject: $site,
-                title: __('Usage credit used up'),
-                body: __('The trial’s $:limit usage credit is used up, so your sites are paused until the trial ends. End it early on the billing page to continue now.', ['limit' => $limit]),
+                title: $trial ? __('Usage credit used up') : __('Spending cap reached'),
+                body: $trial
+                    ? __('The trial’s $:limit usage credit is used up, so your sites are paused until the trial ends. End it early on the billing page to continue now.', ['limit' => $limit])
+                    : __('Usage passed your plan’s included credit plus your $:limit spending cap, so your sites are paused until the next billing period. Raise or remove the cap on the billing page to continue now.', ['limit' => $limit]),
                 url: route('billing.show', ['organization' => $org->id]),
             );
         } catch (Throwable $e) {

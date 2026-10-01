@@ -24,7 +24,8 @@ use Throwable;
  *
  *   php artisan dply:billing:enforce [--org=] [--dry-run] [--trialing]
  *
- * --trialing (every 5 minutes) checks only unpaused trials with something
+ * --trialing (every 5 minutes) checks only unpaused trials (and paid orgs
+ * with a spending cap) with something
  * that bills while it runs (a container app, which is where workers,
  * databases and Valkey hang, or a build in flight), so a trial is paused
  * within minutes of its cap instead of within the hour.
@@ -49,7 +50,7 @@ class EnforceOrganizationBillingCommand extends Command
             ->when($this->option('trialing'), fn ($q) => $q
                 ->whereNull('billing_paused_at')
                 ->where(fn ($q) => $q->whereNull('comped_until')->orWhere('comped_until', '<=', now()))
-                ->where(fn ($q) => $q->where('trial_ends_at', '>', now())->orWhereHas('subscriptions', fn ($s) => $s->where('stripe_status', 'trialing')))
+                ->where(fn ($q) => $q->where('trial_ends_at', '>', now())->orWhereNotNull('spending_cap_cents')->orWhereHas('subscriptions', fn ($s) => $s->where('stripe_status', 'trialing')))
                 ->where(fn ($q) => $q
                     ->whereHas('sites', fn ($s) => $s->where('meta->edge->runtime_mode', 'container'))
                     ->orWhereExists(fn ($d) => $d->selectRaw('1')->from('edge_deployments')

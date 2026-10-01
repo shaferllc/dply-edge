@@ -20,6 +20,13 @@ use Carbon\CarbonInterface;
  * running trial, which also counts what it spent since the last hourly
  * collection: TrialRunningCost) pauses the org (OrganizationBillingEnforcer)
  * until the trial converts.
+ *
+ * A paid org may opt into the same cap (organizations.spending_cap_cents,
+ * the billing page's Limits tab): usage past its plan's included credit is
+ * capped at that, per billing period. Past credit + cap it pauses the same
+ * way until the period rolls over or the cap is raised. A soft cap: it reads
+ * the hourly collection, so a busy hour can run past it before the pause.
+ * Null (the default) means no cap; comped and Enterprise orgs never have one.
  */
 final class StarterUsageBudget
 {
@@ -44,8 +51,12 @@ final class StarterUsageBudget
         // A trial (card or not) is capped: a trialing subscription counts as
         // paid, but nothing has been charged yet.
         $trial = $organization->onTrialPlan();
-        $limit = $trial ? config('subscription.standard.trial.spending_limit_cents') : ($tier['spending_limit_cents'] ?? null);
-        if ($limit === null || (! $trial && $organization->onAnyPaidPlan())) {
+        $limit = match (true) {
+            $trial => config('subscription.standard.trial.spending_limit_cents'),
+            $organization->onAnyPaidPlan() => self::paidLimitCents($organization),
+            default => $tier['spending_limit_cents'] ?? null,
+        };
+        if ($limit === null) {
             return ['used_cents' => 0, 'limit_cents' => null, 'exhausted' => false];
         }
 
@@ -62,6 +73,20 @@ final class StarterUsageBudget
             // it pauses, which must not lift the gate or resume it.
             'exhausted' => $used >= (int) $limit || ($trial && $paused),
         ];
+    }
+
+    /**
+     * A paid org's limit: its included credit plus the cap it chose, or null
+     * when it chose none (or is comped / Enterprise, which have no cap).
+     */
+    public static function paidLimitCents(Organization $organization): ?int
+    {
+        $cap = $organization->spending_cap_cents;
+        if ($cap === null || $organization->isComped() || $organization->onEnterpriseSubscription()) {
+            return null;
+        }
+
+        return (int) ($organization->tierAllowances()['usage_credit_cents'] ?? 0) + (int) $cap;
     }
 
     /**
@@ -104,7 +129,8 @@ final class StarterUsageBudget
 
     /**
      * A trial counts from the day it started, not the calendar month, so the
-     * cap does not reset on the 1st mid-trial.
+     * cap does not reset on the 1st mid-trial. Otherwise the billing period
+     * the next invoice charges (calendar month when it is not known).
      *
      * @return array{0: CarbonInterface, 1: CarbonInterface}
      */
@@ -112,7 +138,7 @@ final class StarterUsageBudget
     {
         $ends = $organization->planTrialEndsAt();
         if ($ends === null) {
-            return $this->usage->currentMonthWindow();
+            return $this->usage->currentWindow($organization);
         }
 
         return [$ends->copy()->subDays((int) config('subscription.standard.trial.days', 5))->startOfDay(), now()->endOfDay()];

@@ -39,6 +39,14 @@
     ];
 
     $rateGroups = collect(\App\Modules\Billing\Support\UsagePrice::rates())->groupBy('group');
+
+    // Worked example: a small Laravel app (Flex: the 0.25 vCPU size, asleep
+    // after 5 idle minutes) with the smallest database, awake 3 hours a day.
+    $smallHours = 90;
+    $smallApp = \App\Modules\Billing\Support\UsagePrice::containerPerSecond(...[0.25 * \App\Modules\Billing\Support\UsagePrice::TYPICAL_CPU, ...array_slice(\App\Modules\Edge\Support\EdgeContainerSettings::INSTANCE_TYPES['basic'], 1)]) * 3600 * $smallHours / 100_000;
+    $smallDb = \App\Modules\Billing\Support\UsagePrice::rate('database_compute_millicents_per_cu_second') * \App\Modules\Billing\Support\UsagePrice::databaseBilledCu('0.25') * 3600 * $smallHours / 100_000;
+    $starterFee = $money($tiers['starter']['price_cents'] ?? 0);
+    $starterCredit = $money($tiers['starter']['usage_credit_cents'] ?? 0);
     $sizes = \App\Modules\Billing\Support\UsagePrice::sizes();
 
     $faqs = [
@@ -63,8 +71,12 @@
             'a' => __('Previews have no fee, but everything they use counts as usage: build time, requests and bandwidth, and compute for PHP, Rails and Node previews.'),
         ],
         [
+            'q' => __('What does a small Laravel app cost?'),
+            'a' => __(':fee a month on Starter, all in. An app with a database that is awake about 3 hours a day, in bursts, uses around $:app of app time and $:db of database time. Both sleep after 5 idle minutes, and our uptime checks don’t wake them. That fits inside the :credit of usage Starter includes. The scheduler doesn’t keep the app awake: it wakes the app only when a task is due, and each wake adds about 5 awake minutes. Set a $0 spending cap and your sites pause once usage reaches the included credit instead of billing more.', ['fee' => $starterFee, 'credit' => $starterCredit, 'app' => number_format($smallApp, 2), 'db' => number_format($smallDb, 2)]),
+        ],
+        [
             'q' => __('What happens if I go past my plan?'),
-            'a' => __('Sites keep serving and builds keep running. Usage past the included credit lands on your next invoice. Nothing is throttled, and you can set a usage alert on the billing page.'),
+            'a' => __('By default, sites keep serving and builds keep running. Usage past the included credit lands on your next invoice, and you can set a usage alert on the billing page. To get a predictable bill instead, set a spending cap. Past it, sites pause until the next billing period. A $0 cap pauses them once usage reaches the included credit. The cap is checked every few minutes, so a busy hour can go slightly over, and storage still bills while sites are paused.'),
         ],
         [
             'q' => __('Do apps and databases sleep?'),
