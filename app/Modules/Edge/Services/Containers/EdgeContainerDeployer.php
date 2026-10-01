@@ -503,7 +503,7 @@ JS;
         $root = $workRoot.'/release-root';
         $appTar = $workRoot.'/release-app.tgz';
         $vendorTar = $workRoot.'/release-vendor.tgz';
-        $script = 'docker buildx build -f '.escapeshellarg($checkout.'/Dockerfile.dply-release').' --target '.EdgeReleaseBundle::RELEASE_STAGE
+        $script = 'BUILDX_GIT_INFO=false docker buildx build -f '.escapeshellarg($checkout.'/Dockerfile.dply-release').' --target '.EdgeReleaseBundle::RELEASE_STAGE
             .' --output '.escapeshellarg('type=local,dest='.$root).' '.escapeshellarg($checkout)
             .' && cd '.escapeshellarg($root)
             .' && { find . -path ./vendor -prune -o -print; if [ -d vendor ]; then echo ./vendor; [ -f vendor/autoload.php ] && echo ./vendor/autoload.php; [ -d vendor/composer ] && find ./vendor/composer; fi; } | tar -czf '.escapeshellarg($appTar).' --no-recursion -T -'
@@ -3308,6 +3308,11 @@ JS, $replace);
             // in place and batches when stdout isn't a terminal, so a live build
             // looks frozen in the log. Plain mode appends one line per event.
             '-e', 'BUILDKIT_PROGRESS=plain',
+            // buildx stamps the git commit on the image by running `git rev-parse`
+            // in the build context. Here that fails (no git in this image, and the
+            // checkout belongs to another user), so every build logged "current
+            // commit information was not captured". dply records the commit itself.
+            '-e', 'BUILDX_GIT_INFO=false',
             // wrangler runs `docker build`, which buildx routes to this builder.
             ...($builder !== '' ? ['-e', 'BUILDX_BUILDER='.$builder] : []),
             (string) config('edge.build.containers.deployer_image'),
