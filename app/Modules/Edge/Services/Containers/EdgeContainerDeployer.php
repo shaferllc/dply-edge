@@ -2597,7 +2597,9 @@ async function leastIndex(env) {
   // One instance: nothing to choose, so skip the hasRoom round trip.
   if (max === 1) return 0;
   for (let i = 0; i < max; i++) {
-    if (await instance(env, i).hasRoom(i)) return i;
+    // An object being reset (a deploy updating its code) throws here; uncaught
+    // that is a 1101 for the visitor or the deploy's migrations. Try the next.
+    if (await instance(env, i).hasRoom(i).catch(() => false)) return i;
   }
   return Math.floor(Math.random() * max);
 }
@@ -2740,6 +2742,19 @@ function httpRequest(request, body) {
   return new Request(url, init);
 }
 
+// The Worker -> Durable Object call itself can throw: the object is reset
+// (its code was updated by an overlapping deploy, or it was evicted) or the
+// connection drops mid-request. Uncaught, that is Cloudflare's opaque 1101.
+// As the SDK's own catch-all text, the retry loop below starts it again; the
+// last failure reaches the caller with its real message.
+async function containerFetch(container, request) {
+  try {
+    return await container.fetch(request);
+  } catch (e) {
+    return new Response('Error proxying request to container: ' + (e instanceof Error ? e.message : String(e)), { status: 502 });
+  }
+}
+
 async function proxy(env, request, target) {
   // A retry needs the body again, and a stream can only be read once: buffer
   // small bodies (forms, JSON, dply's own commands); stream large uploads and
@@ -2771,7 +2786,7 @@ async function proxy(env, request, target) {
   // headers intact (httpRequest copies them). A 101 never enters the retry
   // loop; the SDK's 5xx for an upgrade come before any socket exists (start
   // failed, connection lost), so retrying one does not replay a live socket.
-  let response = await container.fetch(request);
+  let response = await containerFetch(container, request);
   for (let attempt = 0; retryable && attempt < 2 && response.status >= 500; attempt++) {
     const preview = await response.clone().text();
     // "Error proxying request to container:" is the SDK's own catch-all, seen
@@ -2797,7 +2812,7 @@ async function proxy(env, request, target) {
     } catch {
       // fetch() below starts the container again.
     }
-    response = await container.fetch(fresh());
+    response = await containerFetch(container, fresh());
   }
   if (target.cookie !== null) response = withStickyCookie(response, target.cookie);
   return countReply(env, revealAppErrors(env, response));

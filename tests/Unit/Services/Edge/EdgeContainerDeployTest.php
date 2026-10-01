@@ -1113,14 +1113,19 @@ test('a request that lands while its instance stops for inactivity is retried, n
 
     // The real proxy(); its helpers stubbed to pass the response through.
     $script = 'const httpRequest = (r) => r; const countReply = (env, r) => r; const revealAppErrors = (env, r) => r; const withStickyCookie = (r) => r;'
-        .'async function proxy(env, request, target) {'.Str::between($worker, 'async function proxy(env, request, target) {', "\n// One cold start")
+        .'async function containerFetch(container, request) {'.Str::between($worker, 'async function containerFetch(container, request) {', "\n// One cold start")
         .<<<'JS'
 
     const run = async (first) => {
       const calls = [];
       let n = 0;
       const container = {
-        fetch: async () => { calls.push('fetch'); return n++ === 0 ? new Response(first, { status: 500 }) : new Response('ok', { status: 200 }); },
+        fetch: async () => {
+          calls.push('fetch');
+          if (n++ > 0) return new Response('ok', { status: 200 });
+          if (first instanceof Error) throw first;
+          return new Response(first, { status: 500 });
+        },
         startAndWaitForPorts: async () => { calls.push('start'); },
       };
       const res = await proxy({}, new Request('https://x/'), { container, cookie: null });
@@ -1129,6 +1134,7 @@ test('a request that lands while its instance stops for inactivity is retried, n
     (async () => console.log(JSON.stringify({
       stopping: await run('Error proxying request to container: The container is not listening'),
       app: await run('Whoops, something went wrong'),
+      reset: await run(new Error('Durable Object reset because its code was updated.')),
     })))();
     JS;
     // The last line: wake() also logs a dply-wake: line.
@@ -1136,7 +1142,9 @@ test('a request that lands while its instance stops for inactivity is retried, n
 
     expect($out['stopping'])->toBe(['status' => 200, 'calls' => ['fetch', 'start', 'fetch']])
         // The app's own 500 is its answer: no retry.
-        ->and($out['app'])->toBe(['status' => 500, 'calls' => ['fetch']]);
+        ->and($out['app'])->toBe(['status' => 500, 'calls' => ['fetch']])
+        // A throw from the Durable Object call is retried too, not a 1101.
+        ->and($out['reset'])->toBe(['status' => 200, 'calls' => ['fetch', 'start', 'fetch']]);
 });
 
 test('a generated laravel Dockerfile splits into a runtime image and a release of /app', function () {
