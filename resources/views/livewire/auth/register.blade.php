@@ -62,6 +62,17 @@
             <x-text-input id="password_confirmation" wire:model="form.password_confirmation" class="block w-full mt-1" type="password" required autocomplete="new-password" />
             <x-input-error :messages="$errors->get('form.password_confirmation')" class="mt-2" />
         </div>
+        <div>
+            <label for="terms" class="flex items-start gap-2 text-sm text-edge-mute">
+                <input id="terms" type="checkbox" wire:model="form.terms" required class="mt-0.5 rounded border-edge-line bg-transparent text-edge-lime focus:ring-edge-lime" />
+                <span>{!! __('I agree to the :terms, :privacy and :aup.', [
+                    'terms' => '<a href="'.e(route('legal.terms')).'" target="_blank" class="font-semibold text-edge-text underline hover:text-edge-lime">'.e(__('Terms of Service')).'</a>',
+                    'privacy' => '<a href="'.e(route('legal.privacy')).'" target="_blank" class="font-semibold text-edge-text underline hover:text-edge-lime">'.e(__('Privacy Policy')).'</a>',
+                    'aup' => '<a href="'.e(route('legal.acceptable-use')).'" target="_blank" class="font-semibold text-edge-text underline hover:text-edge-lime">'.e(__('Acceptable Use Policy')).'</a>',
+                ]) !!}</span>
+            </label>
+            <x-input-error :messages="$errors->get('form.terms')" class="mt-2" />
+        </div>
         <div class="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-3 pt-2 border-t border-edge-line">
             <a href="{{ route('login') }}" class="inline-flex items-center justify-center gap-2 text-center text-sm font-medium text-edge-mute transition-colors hover:text-edge-lime sm:text-left">
                 <x-heroicon-o-arrow-right-end-on-rectangle class="h-4 w-4 shrink-0 text-brand-sage" aria-hidden="true" />

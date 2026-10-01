@@ -13,6 +13,7 @@ use App\Modules\Edge\Console\CheckEdgeRumAlertsCommand;
 use App\Modules\Edge\Console\CollectEdgeContainerUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeDataUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeKvUsageCommand;
+use App\Modules\Edge\Console\CollectEdgeMessagesUsageCommand;
 use App\Modules\Edge\Console\CollectEdgePlatformUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeRealtimeUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeUsageCommand;
@@ -29,6 +30,7 @@ use App\Modules\Edge\Console\EdgeSpikeWorkerBindingsCommand;
 use App\Modules\Edge\Console\EdgeWorkerDeployCommand;
 use App\Modules\Edge\Console\EnsureEdgeLogpushCommand;
 use App\Modules\Edge\Console\EvaluateEdgeGuardrailsCommand;
+use App\Modules\Edge\Console\MeasureWakeTimeCommand;
 use App\Modules\Edge\Console\MigrateEdgeHostnamesCommand;
 use App\Modules\Edge\Console\MoveRedisToValkeyCommand;
 use App\Modules\Edge\Console\PruneEdgeAnalyticsCommand;
@@ -36,7 +38,6 @@ use App\Modules\Edge\Console\PublishEdgeBaseImagesCommand;
 use App\Modules\Edge\Console\ReapStuckEdgeBuildsCommand;
 use App\Modules\Edge\Console\ResizeEdgeDatabasesCommand;
 use App\Modules\Edge\Console\RollupEdgeAnalyticsEngineCommand;
-use App\Modules\Edge\Console\MeasureWakeTimeCommand;
 use App\Modules\Edge\Console\SampleContainerMemoryCommand;
 use App\Modules\Edge\Console\SampleEdgeDatabasesCommand;
 use App\Modules\Edge\Console\ScaleEdgeQueueWorkersCommand;
@@ -82,6 +83,7 @@ class EdgeServiceProvider extends ServiceProvider
                 CollectEdgeKvUsageCommand::class,
                 CollectEdgePlatformUsageCommand::class,
                 CollectEdgeRealtimeUsageCommand::class,
+                CollectEdgeMessagesUsageCommand::class,
                 CollectEdgeValkeyUsageCommand::class,
                 ReapStuckEdgeBuildsCommand::class,
                 MoveRedisToValkeyCommand::class,

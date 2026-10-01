@@ -90,6 +90,7 @@ Rates are shown to more precision than a cent where the unit is small. Bandwidth
 | Key-value | Reads | $0.65 | per million |
 | Key-value | Writes, deletes and lists | $6.50 | per million |
 | Key-value | Storage | $0.65 | per GB-month |
+| Valkey (Redis) | REST commands | $0.10 | per 100,000 |
 | Realtime | Connection-minutes | $0.25 | per million |
 | Realtime | Messages | $0.62 | per million |
 | Workers | CPU time | $0.026 | per million CPU-ms |

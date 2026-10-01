@@ -26,9 +26,9 @@ Payments are handled by Stripe. dply never receives or stores your card number.
 |---|---|---|
 | Cloudflare | Hosting, delivery, storage and compute for your apps; DNS and certificates for custom domains; account email | Global network |
 | DigitalOcean | dply databases and Valkey stores | New York, USA |
-| Hetzner | Uptime checks for status pages and monitors | Falkenstein, Germany |
 | Stripe | Payments, subscriptions and invoices | Stripe |
 | GitHub, GitLab, Bitbucket | Source code access and sign-in, only for the providers you connect | The provider |
+| Bunny Fonts (BunnyWay d.o.o.) | Web fonts for the dply website and dashboard. The font request carries the visitor's IP address; Bunny doesn't log it or set cookies. | EU (Slovenia) |
 
 ## How dply protects your data
 
@@ -71,7 +71,7 @@ Every site is served over HTTPS. Certificates for custom domains are issued by C
 
 ## Data retention
 
-- **Your data** stays until you delete it. If your organization is paused for non-payment, its apps, resources and data are deleted 30 days after the pause, and we email you before that happens. See [Paused accounts](/docs/paused-accounts).
+- **Your data** stays until you delete it. If your organization is paused for non-payment, its apps, resources and data are deleted 30 days after the pause, and we email you before that happens. Data under a legal hold (for example a preservation request) is kept until the hold ends. See [Paused accounts](/docs/paused-accounts).
 - **Database backups** for dply Postgres, MySQL and MongoDB are kept for 7 days, and you can restore to any point in that window. Deleting a database deletes its backups. See [Postgres, MySQL & MongoDB](/docs/resources/databases).
 - **Request logs** are kept for 7 days. See [Logs](/docs/logs).
 - **Your account** can be deleted from **Profile → Delete account**. See [Account security](/docs/account-security).
@@ -84,12 +84,15 @@ For everything else, including abuse reports, email [hello@dply.io](mailto:hello
 
 ## Data processing agreement
 
-A data processing agreement (DPA) is available on request. Email [hello@dply.io](mailto:hello@dply.io).
+The [Data Processing Addendum](/dpa) is part of the [Terms of Service](/terms) and needs no signature. It includes the EU standard contractual clauses (2021) and the UK Addendum. For a countersigned copy, email [hello@dply.io](mailto:hello@dply.io).
+
+## Subprocessor changes
+
+Organization owners are emailed at least 30 days before a new subprocessor is added, and can object under the [Data Processing Addendum](/dpa).
 
 ## What isn't available yet
 
 - Security certifications and third-party audit reports.
-- A published subprocessor change notice.
 - Single sign-on (SAML or OIDC) and SCIM provisioning.
 - Choosing where your organization's account data is stored.
 

@@ -69,9 +69,21 @@ final class ValkeyGatewayClient
      */
     public function usage(): array
     {
-        $totals = $this->http()->get('/usage')->throw()->json('awake_seconds');
+        return $this->usageTotals()['awake_seconds'];
+    }
 
-        return is_array($totals) ? array_map('intval', $totals) : [];
+    /**
+     * Running totals per tenant: seconds awake, and commands served over the
+     * REST API (valkey-gateway rest.go; absent from older gateways).
+     *
+     * @return array{awake_seconds: array<string, int>, rest_commands: array<string, int>}
+     */
+    public function usageTotals(): array
+    {
+        $body = $this->http()->get('/usage')->throw();
+        $read = static fn (mixed $v): array => is_array($v) ? array_map('intval', $v) : [];
+
+        return ['awake_seconds' => $read($body->json('awake_seconds')), 'rest_commands' => $read($body->json('rest_commands'))];
     }
 
     /**

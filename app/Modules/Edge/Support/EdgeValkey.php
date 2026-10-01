@@ -203,6 +203,15 @@ final class EdgeValkey
         return number_format($cents / 100, $cents > 0 && $cents < 100 ? 4 : 2);
     }
 
+    /** The Redis REST address (valkey-gateway rest.go); the token is the password. */
+    public static function restUrl(string $target): string
+    {
+        $region = ValkeyRegions::get(self::region($target));
+        $port = (int) ($region['rest_port'] ?? 8443);
+
+        return 'https://'.self::tenantId($target).'.'.$region['domain'].($port === 443 ? '' : ':'.$port);
+    }
+
     /** host:port an app connects to (TLS). */
     public static function address(string $target): string
     {

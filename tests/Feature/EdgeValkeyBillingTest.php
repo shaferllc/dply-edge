@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace Tests\Feature\EdgeValkeyBillingTest;
 
 use App\Models\EdgeRedisUsage;
+use App\Models\EdgeSiteEnvVar;
 use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
 use App\Modules\Billing\Services\EdgeRedisCost;
 use App\Modules\Edge\Services\EdgeValkeyUsageCollector;
+use App\Modules\Edge\Support\EdgeContainerConnections;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 
@@ -90,4 +92,48 @@ test('valkey time reaches the organization redis total', function () {
     $total = app(EdgeRedisCost::class)->forOrganization($this->org, now()->startOfMonth(), now()->endOfMonth());
 
     expect($total['cents'])->toBe(450);
+});
+
+test('REST commands are collected as a delta and priced per 100,000, uncapped', function () {
+    $sequence = Http::sequence();
+    foreach ([[10, 250_000], [20, 1_250_000]] as [$seconds, $rest]) {
+        $sequence->push(['awake_seconds' => ['app-cache' => $seconds], 'rest_commands' => ['app-cache' => $rest, 'someone-else' => 5]]);
+    }
+    Http::fake(['gateway.test/usage' => $sequence]);
+
+    app(EdgeValkeyUsageCollector::class)->collect();
+    app(EdgeValkeyUsageCollector::class)->collect();
+    $row = EdgeRedisUsage::query()->where('site_id', $this->site->id)->first();
+    expect($row->rest_commands)->toBe(1_250_000)->and($row->awake_seconds)->toBe(20);
+
+    // $0.10 per 100K is a fixed customer price: 1.25M commands = $1.25, margin not added, no cap.
+    expect(app(EdgeRedisCost::class)->restCents(1_250_000))->toBe(125)
+        ->and(app(EdgeRedisCost::class)->forOrganization($this->org, now()->startOfMonth(), now()->endOfMonth()))
+        ->toMatchArray(['rest_commands' => 1_250_000, 'cents' => 125]);
+});
+
+test('an app with dply Valkey gets the Upstash REST env, masked in the preview and secret on Workers', function () {
+    config(['edge.valkey.domain' => 'cache.dply.io']);
+    (new EdgeSiteEnvVar(['site_id' => $this->site->id, 'key' => 'REDIS_URL', 'value' => 'rediss://default:p%40ss@app-cache.cache.dply.io:6380', 'scope' => EdgeSiteEnvVar::SCOPE_PRODUCTION]))->save();
+    $site = $this->site->fresh();
+
+    expect(EdgeContainerConnections::valkeyRestEnv($site))->toBe([
+        'REDIS_REST_URL' => 'https://app-cache.cache.dply.io:8443',
+        'REDIS_REST_TOKEN' => 'p@ss',
+    ])
+        ->and(EdgeContainerConnections::redisDriverEnv($site))->toHaveKey('REDIS_REST_URL');
+
+    $preview = collect(EdgeContainerConnections::redisInjectionPreview($site))->keyBy('key');
+    expect($preview['REDIS_REST_TOKEN']['value'])->toBe('••••');
+
+    $bindings = collect(EdgeContainerConnections::resourceWorkerBindings($site))->keyBy('name');
+    expect($bindings['REDIS_REST_TOKEN']['type'])->toBe('secret_text')
+        ->and($bindings['REDIS_REST_URL']['type'])->toBe('plain_text');
+    // The app's own saved value wins: the binding is left out.
+    expect(collect(EdgeContainerConnections::resourceWorkerBindings($site, ['REDIS_REST_URL']))->pluck('name')->all())->not->toContain('REDIS_REST_URL');
+
+    // Asleep, or a pasted Redis: no REST env.
+    $site->mergeEdgeMeta(['connections' => [['kind' => 'redis', 'name' => 'CACHE', 'host' => 'dply.app.cache.internal', 'target' => 'valkey:app-cache', 'plan' => 'flex_250m', 'asleep' => true]]]);
+    $site->save();
+    expect(EdgeContainerConnections::valkeyRestEnv($site->fresh()))->toBe([]);
 });

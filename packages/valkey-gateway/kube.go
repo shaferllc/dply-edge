@@ -578,6 +578,21 @@ func (g *gateway) annotate(ctx context.Context, id string, change func(map[strin
 	}
 }
 
+// restCommands is each tenant's flushed REST command total (rest.go).
+func (g *gateway) restCommands(ctx context.Context) (map[string]int64, error) {
+	list, err := g.kube.CoreV1().Secrets(g.cfg.namespace).List(ctx, metav1.ListOptions{LabelSelector: "app=dply-valkey"})
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]int64{}
+	for _, s := range list.Items {
+		if n, err := strconv.ParseInt(s.Annotations[annotationCommands], 10, 64); err == nil {
+			out[string(s.Data["id"])] = n
+		}
+	}
+	return out, nil
+}
+
 // awakeSeconds is the running total per tenant, counting a stretch still in progress.
 func (g *gateway) awakeSeconds(ctx context.Context) (map[string]int64, error) {
 	list, err := g.kube.CoreV1().Secrets(g.cfg.namespace).List(ctx, metav1.ListOptions{LabelSelector: "app=dply-valkey"})

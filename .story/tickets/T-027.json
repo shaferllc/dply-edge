@@ -1,0 +1,13 @@
+{
+  "blockedBy": [],
+  "completedDate": "2026-09-29",
+  "createdDate": "2026-09-30",
+  "description": "Done 2026-09-30. Gateway: rest.go (Upstash-compatible REST on :8443, Lua with allow-key-locking rewrite + SHA mapping, per-tenant command counts in dply.dev/rest-commands, GET /usage rest_commands); Go unit + live + real @upstash/redis/@upstash/ratelimit tests; deploy/local-verify-rest.sh 15/15 on OrbStack (incl. REST waking a sleeping tenant), local-verify.sh 28/28 (fixed a stale ordering check). App: ValkeyRegions rest_port (DPLY_VALKEY_REST_PORT, default 8443), EdgeValkey::restUrl; UPSTASH_REDIS_REST_URL/TOKEN injected for containers (redisDriverEnv) and Workers (resourceWorkerBindings, token as secret_text), masked in previews, saved values win; edge_redis_usage.rest_commands collected as deltas (valkey_rest_counter), priced by valkey_rest_millicents_per_hundred_thousand ($0.10/100K fixed customer price, DPLY_USAGE_VALKEY_REST_MC_PER_100K), uncapped, on invoice/per-app lines/card estimate; Valkey sheet Connect \"Over HTTPS\" section + Costs row; docs valkey.md + regenerated price tables. Production rollout tracked in T-031.",
+  "displayId": "T-027",
+  "id": "T-027",
+  "order": 60,
+  "phase": null,
+  "status": "complete",
+  "title": "Serverless data: Redis over REST in the dply app (URL/token in the Valkey sheet, UPSTASH_REDIS_REST_* env, per-command billing)",
+  "type": "feature"
+}

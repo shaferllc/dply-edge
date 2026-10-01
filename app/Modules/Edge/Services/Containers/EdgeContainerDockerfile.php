@@ -65,7 +65,7 @@ final class EdgeContainerDockerfile
      * same image whose database carries it skips migrate. A new deploy has a
      * new id, so it migrates once, package migrations included. Exit 0 = skip.
      */
-    public const SQLITE_MIGRATED = 'try { $b = trim((string) @file_get_contents("/app/.dply-build")); $v = (new PDO("sqlite:".getenv("DB_DATABASE")))->query("SELECT build FROM dply_migrated")->fetchColumn(); exit($b !== "" && $v === $b ? 0 : 1); } catch (Throwable $e) { exit(1); }';
+    public const SQLITE_MIGRATED = 'try { $b = trim((string) @file_get_contents("/app/.dply-build")); $v = (new PDO("sqlite:".getenv("DB_DATABASE")))->query("SELECT build FROM dply_migrated")->fetchColumn(); } catch (Throwable $e) { $v = false; } if ($b !== "" && $v === $b) { exit(0); } echo "dply-migrate: image build ".($b ?: "none").", database marked ".($v ?: "none")."\n"; exit(1);';
 
     public const SQLITE_MARK_MIGRATED = 'try { $b = trim((string) @file_get_contents("/app/.dply-build")); if ($b === "") exit(0); $p = new PDO("sqlite:".getenv("DB_DATABASE")); $p->exec("CREATE TABLE IF NOT EXISTS dply_migrated (build TEXT)"); $p->exec("DELETE FROM dply_migrated"); $p->prepare("INSERT INTO dply_migrated (build) VALUES (?)")->execute([$b]); } catch (Throwable $e) { }';
 
@@ -386,6 +386,13 @@ final class EdgeContainerDockerfile
      * its PHP is thread-safe (ZTS), where JIT has the least mileage, and a
      * Laravel request waits on I/O far more than it computes. The Octane
      * servers run PHP's CLI, which needs enable_cli.
+     *
+     * Tried and reverted (2026-09-30): opcache.file_cache warmed at build, with
+     * enable_cli everywhere. A lab boot got faster (1.1s -> 0.6s), but real
+     * cold starts got much slower: an Octane app's first request went from
+     * ~2.2s to 9-17s, and every CLI call in the boot script (the fpm readiness
+     * loop runs one every 0.1s) paid OPcache's setup. Measure a real wake with
+     * `dply:edge:wake-time` before trying it again.
      */
     private static function opcacheIni(string $server): string
     {
@@ -726,11 +733,17 @@ final class EdgeContainerDockerfile
         // Stamps are collected as it goes and printed as ONE log line (Workers
         // Logs bill per line), read back by `dply:edge:wake-time --recent`.
         $bootLine = $laravel ? 'echo "dply-boot: start=$b0 sqlite=$b1 migrate=$b2 caches=$(cut -d" " -f1 /proc/uptime)"; ' : '';
+        // config:cache runs beside the starting server, not before it: the app
+        // answers uncached until the cache lands. nice so it never takes CPU
+        // from the first request; written to a temp path (APP_CONFIG_CACHE)
+        // and renamed, so no request reads a half-written file.
         $optimize = $laravel
-            ? 'php artisan config:cache >/dev/null 2>&1 || echo "dply: php artisan config:cache failed, starting without the config cache"; '
-                .'[ -f bootstrap/cache/routes-v7.php ] || php artisan route:cache >/dev/null 2>&1 || true; '
+            ? '[ -f bootstrap/cache/routes-v7.php ] || php artisan route:cache >/dev/null 2>&1 || true; '
                 .'[ -f bootstrap/cache/events.php ] || php artisan event:cache >/dev/null 2>&1 || true; '
                 .$bootLine
+                .'(APP_CONFIG_CACHE=/app/bootstrap/cache/config.dply.php nice -n 19 php artisan config:cache >/dev/null 2>&1 '
+                .'&& mv -f /app/bootstrap/cache/config.dply.php /app/bootstrap/cache/config.php '
+                .'|| echo "dply: php artisan config:cache failed, running without the config cache") & '
             : '';
         // Worker mode (EdgeContainerSettings `worker_mode`, injected as
         // DPLY_WORKER_MODE): Octane on FrankenPHP keeps the app booted between
@@ -738,6 +751,11 @@ final class EdgeContainerDockerfile
         $workerMode = self::supportsWorkerMode($checkout, $server)
             ? 'if [ "$DPLY_WORKER_MODE" = "1" ]; then exec php artisan octane:frankenphp -n --host=0.0.0.0 --port=8080 --workers="${DPLY_PHP_FPM_MAX_CHILDREN:-2}" --max-requests=500; fi; '
             : '';
+        // php-fpm starts first, beside the SQLite restore and the migrate check:
+        // a fresh instance's first PHP process loads everything from cold disk
+        // (measured 0.5-2.5s), so that load overlaps the download instead of
+        // following it. Nothing reaches fpm until nginx opens 8080 at the end.
+        $fpmEarly = 'children="${DPLY_PHP_FPM_MAX_CHILDREN:-2}"; limit="${DPLY_PHP_MEMORY_LIMIT:-128M}"; mkdir -p /tmp/views /tmp/client_body /tmp/fastcgi; chmod 1777 /tmp/views /tmp/client_body /tmp/fastcgi; export VIEW_COMPILED_PATH=/tmp/views DPLY_PERSISTENT_PDO=1; printf "[global]\npid = /tmp/php-fpm.pid\nerror_log = /tmp/php-fpm.log\ndaemonize = no\n[www]\nuser = www-data\ngroup = www-data\nlisten = 127.0.0.1:9000\npm = ondemand\npm.max_children = %s\npm.process_idle_timeout = 10s\npm.max_requests = 500\nclear_env = no\ncatch_workers_output = yes\ndecorate_workers_output = no\n" "$children" > /tmp/php-fpm.conf; touch /tmp/php-fpm.log /tmp/nginx-error.log; tail -qF /tmp/php-fpm.log /tmp/nginx-error.log & php-fpm -F -y /tmp/php-fpm.conf -d "memory_limit=$limit" & ';
         $start = match ($server) {
             // Worker counts come from the instance's memory (EdgeContainerSettings::phpFpmPool,
             // injected as DPLY_PHP_FPM_MAX_CHILDREN). Octane's own default reads the host's CPUs.
@@ -747,7 +765,7 @@ final class EdgeContainerDockerfile
             // No --rr-config: Octane then uses the repo's .rr.yaml, or touches an
             // empty one. With the flag, a repo without the file exits on boot.
             'roadrunner' => $bootLine.'exec php artisan octane:start --server=roadrunner --host=0.0.0.0 --port=8080 --workers="${DPLY_PHP_FPM_MAX_CHILDREN:-2}"',
-            'fpm' => 'children="${DPLY_PHP_FPM_MAX_CHILDREN:-2}"; limit="${DPLY_PHP_MEMORY_LIMIT:-128M}"; mkdir -p /tmp/views /tmp/client_body /tmp/fastcgi; chmod 1777 /tmp/views /tmp/client_body /tmp/fastcgi; export VIEW_COMPILED_PATH=/tmp/views DPLY_PERSISTENT_PDO=1; '.$optimize.'printf "[global]\npid = /tmp/php-fpm.pid\nerror_log = /tmp/php-fpm.log\ndaemonize = no\n[www]\nuser = www-data\ngroup = www-data\nlisten = 127.0.0.1:9000\npm = ondemand\npm.max_children = %s\npm.process_idle_timeout = 10s\npm.max_requests = 500\nclear_env = no\ncatch_workers_output = yes\ndecorate_workers_output = no\n" "$children" > /tmp/php-fpm.conf; touch /tmp/php-fpm.log /tmp/nginx-error.log; tail -qF /tmp/php-fpm.log /tmp/nginx-error.log & php-fpm -F -y /tmp/php-fpm.conf -d "memory_limit=$limit" & until php -r \'exit(@fsockopen("127.0.0.1", 9000) ? 0 : 1);\'; do sleep 0.1; done; exec nginx -g "daemon off;"',
+            'fpm' => $optimize.'if command -v nc >/dev/null; then until nc -z 127.0.0.1 9000 2>/dev/null; do sleep 0.05; done; else until php -r \'exit(@fsockopen("127.0.0.1", 9000) ? 0 : 1);\'; do sleep 0.1; done; fi; exec nginx -g "daemon off;"',
             // The image's Caddyfile reads FRANKENPHP_CONFIG inside `frankenphp {}`; an app's own value wins.
             // The Worker terminates TLS: trust its X-Forwarded-Proto so Laravel makes https links. Caddy
             // needs a block's contents on their own lines, so it's built with printf; one line
@@ -759,7 +777,7 @@ final class EdgeContainerDockerfile
             // The SSR Node process takes about two PHP workers' memory.
             $start = 'c="${DPLY_PHP_FPM_MAX_CHILDREN:-2}"; [ "$c" -gt 3 ] && export DPLY_PHP_FPM_MAX_CHILDREN=$((c - 2)); php artisan inertia:start-ssr & '.$start;
         }
-        $sqlite = 'if [ "$DB_CONNECTION" = "sqlite" ] && [ -n "$DB_DATABASE" ]; then mkdir -p "$(dirname "$DB_DATABASE")"; if [ "$DPLY_SQLITE_SYNC" = "1" ]; then php -r \'@copy("http://sqlite.dply/db", getenv("DB_DATABASE"));\'; fi; [ -f "$DB_DATABASE" ] || touch "$DB_DATABASE"; chmod 666 "$DB_DATABASE"; if [ "$DPLY_SQLITE_SYNC" = "1" ]; then ( while true; do php -r \'$p=getenv("DB_DATABASE"); if(!is_file($p)) exit; $b=file_get_contents($p); $c=stream_context_create(["http"=>["method"=>"PUT","header"=>"Content-Type: application/octet-stream\r\n","content"=>$b,"timeout"=>60]]); @file_get_contents("http://sqlite.dply/db", false, $c);\' ; sleep 20; done ) & fi; fi; ';
+        $sqlite = 'if [ "$DB_CONNECTION" = "sqlite" ] && [ -n "$DB_DATABASE" ]; then mkdir -p "$(dirname "$DB_DATABASE")"; if [ "$DPLY_SQLITE_SYNC" = "1" ]; then if wget -q -O "$DB_DATABASE.dply" http://sqlite.dply/db 2>/tmp/dply-sqlite.err; then mv -f "$DB_DATABASE.dply" "$DB_DATABASE"; else rm -f "$DB_DATABASE.dply"; grep -q " 404 " /tmp/dply-sqlite.err || php -r \'@copy("http://sqlite.dply/db", getenv("DB_DATABASE"));\'; fi; fi; [ -f "$DB_DATABASE" ] || touch "$DB_DATABASE"; chmod 666 "$DB_DATABASE"; if [ "$DPLY_SQLITE_SYNC" = "1" ]; then ( while true; do sleep 20; php -r \'$p=getenv("DB_DATABASE"); if(!is_file($p)) exit; $b=file_get_contents($p); $c=stream_context_create(["http"=>["method"=>"PUT","header"=>"Content-Type: application/octet-stream\r\n","content"=>$b,"timeout"=>60]]); @file_get_contents("http://sqlite.dply/db", false, $c);\' ; done ) & fi; fi; ';
         // --isolated takes a cache lock. With CACHE_STORE=database on a new
         // database, cache_locks does not exist until migrate creates it, so
         // retry once without the lock.
@@ -791,13 +809,16 @@ final class EdgeContainerDockerfile
             .'(trap "stop=1" TERM; while [ -z "$stop" ]; do php artisan schedule:work & p=$!; wait $p; wait $p 2>/dev/null; [ -z "$stop" ] && sleep 5; done) & fi; '
             .'wait; exit 0; fi; ';
         $boot = $laravel
-            ? $worker.'b0=$(cut -d" " -f1 /proc/uptime); '.$sqlite.'b1=$(cut -d" " -f1 /proc/uptime); '
+            // The first PHP process in a fresh instance loads from cold disk (~0.5s
+            // measured). fpm hides it by starting early; the other servers load
+            // PHP in the background (no app code) while the database downloads.
+            ? $worker.'b0=$(cut -d" " -f1 /proc/uptime); '.($server === 'fpm' ? $fpmEarly : '(php -r "" >/dev/null 2>&1 &) ; ').$sqlite.'b1=$(cut -d" " -f1 /proc/uptime); '
                 .'if [ "$DPLY_MIGRATE_ON_BOOT" = "1" ]; then '
                 .'if [ "$DB_CONNECTION" = "sqlite" ] && php -r '.escapeshellarg(self::SQLITE_MIGRATED).'; then :; '
                 .'elif php artisan migrate --force --isolated || php artisan migrate --force; then '
                 .'[ "$DB_CONNECTION" = "sqlite" ] && php -r '.escapeshellarg(self::SQLITE_MARK_MIGRATED).' || true; fi; fi; '
                 .'b2=$(cut -d" " -f1 /proc/uptime); '.$start
-            : $start;
+            : ($server === 'fpm' ? $fpmEarly : '').$start;
         $lines[] = 'CMD ["sh", "-c", '.json_encode($boot, JSON_UNESCAPED_SLASHES).']';
 
         return implode("\n", $lines)."\n";

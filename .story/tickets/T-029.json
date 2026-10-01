@@ -1,0 +1,13 @@
+{
+  "blockedBy": [],
+  "completedDate": "2026-09-29",
+  "createdDate": "2026-09-30",
+  "description": "Built and tested locally 2026-09-30; NOT deployed (T-032). packages/messages-worker: QStash v2-compatible Worker — Cloudflare Queues for delivery (at-least-once, QStash backoff, DLQ), a Durable Object per org (SQLite) for state, >12h delays and cron schedules (alarms), dedup, cancel checked by the consumer, Upstash-Signature HS256 JWTs (current/next keys), callbacks, abuse limits (body/delay/retries/schedules/rps/timeout; refuses dply hosts, localhost/.internal/.local, private/reserved IP literals), /_operator API for dply. Tests: 10 vitest unit (incl. real @upstash/qstash Receiver), 26/26 e2e under wrangler dev with the real Client+Receiver (publish, signatures, delay, retry→success, DLQ+failure callback, dedup, cancel, refusals, batch, cron firing, keys, pause, usage, purge). dply side behind the resource-messages flag (PRODUCT_FLAGS; dply:feature messages {org}): EdgeMessages service, edge_message_accounts/tokens/usage, Projects → Messages page (enable, tokens shown once, keys show/rotate, QSTASH_* env, usage), hourly dply:edge:collect-messages-usage, $0.50/100K fixed price (DPLY_USAGE_MESSAGES_MC_PER_100K) billed under \"data\" but kept off the public pricing page, billing pause/resume + purge hooks. Live-paired dply ↔ local Worker (publish with dply token, keys match, usage, pause 403, resume, delete 401). Billing unit: per published message (schedule firings and callbacks count; retries do not).",
+  "displayId": "T-029",
+  "id": "T-029",
+  "order": 80,
+  "phase": null,
+  "status": "complete",
+  "title": "Serverless data: QStash-style HTTP message queue on Cloudflare (publish to URL, delay, retries, callbacks, DLQ, cron)",
+  "type": "feature"
+}

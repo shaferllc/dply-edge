@@ -55,7 +55,7 @@
                         $overviewCards = [
                             [__('Size'), __($valkeySpec['label']), __(':mb MB of memory for keys', ['mb' => number_format($valkeySpec['memory_mb'])])],
                             [__('Sleep'), $valkeySleepLabel ? __('After :time idle', ['time' => $valkeySleepLabel]) : __('Stays on'), $valkeySleepLabel ? __('Keys are saved and come back on the next connection, with their expiry.') : __('Keys are written to disk.')],
-                            [__('Awake this month'), $awakeH > 0 ? __(':h h :m min', ['h' => $awakeH, 'm' => $awakeM]) : __(':m min', ['m' => $awakeM]), __('$:spent so far · never more than $:cap/mo', ['spent' => \App\Modules\Edge\Support\EdgeValkey::money($valkeySpent), 'cap' => number_format($valkeySpec['cap_cents'] / 100, 0)])],
+                            [__('Awake this month'), $awakeH > 0 ? __(':h h :m min', ['h' => $awakeH, 'm' => $awakeM]) : __(':m min', ['m' => $awakeM]), __('$:spent so far · awake time never more than $:cap/mo', ['spent' => \App\Modules\Edge\Support\EdgeValkey::money($valkeySpent), 'cap' => number_format($valkeySpec['cap_cents'] / 100, 0)])],
                             [__('When it is full'), __('Writes are refused'), __('Nothing is evicted. Pick a larger size on the card.')],
                         ];
                     @endphp
@@ -113,6 +113,26 @@
                     </x-sheet.section>
                     <x-sheet.section :title="__('Rails')">
                         <pre class="overflow-x-auto rounded-xl bg-brand-sand/40 p-3.5 text-xs text-brand-ink dark:bg-zinc-950">{{ "config.cache_store = :redis_cache_store, { url: ENV['REDIS_URL'] }" }}</pre>
+                    </x-sheet.section>
+                    {{-- Redis over HTTPS (valkey-gateway rest.go), for Workers and serverless code. --}}
+                    @php $valkeyRestUrl = \App\Modules\Edge\Support\EdgeValkey::restUrl($valkeyConnection['target']); @endphp
+                    <x-sheet.section :title="__('Over HTTPS (Workers, serverless, edge)')">
+                        <p class="text-xs text-brand-moss">{{ __('The same database answers Redis commands over HTTPS, including Lua scripts: one command per path, or a JSON array. Use it where a TCP connection is not possible. The next deploy sets REDIS_REST_URL and REDIS_REST_TOKEN; the token is the password.') }}</p>
+                        <dl class="text-sm [&>div]:flex [&>div]:items-baseline [&>div]:justify-between [&>div]:gap-3 [&>div]:border-b [&>div]:border-brand-ink/10 [&>div]:py-2 [&>div:last-child]:border-b-0 dark:[&>div]:border-brand-mist/15 [&_dt]:shrink-0 [&_dt]:text-brand-moss [&_dd]:min-w-0 [&_dd]:text-right [&_dd]:text-xs [&_dd]:text-brand-ink">
+                            <div>
+                                <dt>{{ __('REST URL') }}</dt>
+                                <dd class="flex flex-wrap items-center justify-end gap-2">
+                                    <span class="break-all font-mono">{{ $valkeyRestUrl }}</span>
+                                    <x-sheet.button x-on:click="navigator.clipboard.writeText({{ \Illuminate\Support\Js::from($valkeyRestUrl) }})">{{ __('Copy') }}</x-sheet.button>
+                                </dd>
+                            </div>
+                            <div>
+                                <dt>{{ __('Token') }}</dt>
+                                <dd>{{ __('The password above.') }}</dd>
+                            </div>
+                        </dl>
+                        <pre class="overflow-x-auto rounded-xl bg-brand-sand/40 p-3.5 text-xs text-brand-ink dark:bg-zinc-950">{{ "curl {$valkeyRestUrl}/set/greeting/hello -H \"Authorization: Bearer \$REDIS_REST_TOKEN\"\ncurl {$valkeyRestUrl}/get/greeting -H \"Authorization: Bearer \$REDIS_REST_TOKEN\"\n# → {\"result\":\"hello\"}\ncurl {$valkeyRestUrl} -H \"Authorization: Bearer \$REDIS_REST_TOKEN\" -d '[\"INCR\",\"visits\"]'" }}</pre>
+                        <p class="text-2xs leading-4 text-brand-mist">{{ __('Blocking and pub/sub commands (BLPOP, SUBSCRIBE) need the TCP address. Commands over HTTPS are billed per 100,000, on top of awake time.') }}</p>
                     </x-sheet.section>
                 </div>
 
@@ -268,6 +288,7 @@
                         <x-sheet.stat :label="__('Rate')" class="tabular-nums">{{ __('$:hour per hour while awake', ['hour' => number_format($valkeySpec['per_second'] * 3600, 4)]) }}</x-sheet.stat>
                         <x-sheet.stat :label="__('Monthly cap')" class="tabular-nums">{{ __('$:cap. Never more than this, even if it never sleeps.', ['cap' => number_format($valkeySpec['cap_cents'] / 100, 0)]) }}</x-sheet.stat>
                         <x-sheet.stat :label="__('Asleep')">{{ $valkeySpec['sleeps'] ? __('Not billed.') : __('Pro sizes do not sleep.') }}</x-sheet.stat>
+                        <x-sheet.stat :label="__('Over HTTPS')" class="tabular-nums">{{ __(':n commands this month · :price per 100,000, not capped', ['n' => number_format($valkeyRestCommands ?? 0), 'price' => \App\Modules\Billing\Support\UsagePrice::dollars(\App\Modules\Billing\Support\UsagePrice::rate('valkey_rest_millicents_per_hundred_thousand'))]) }}</x-sheet.stat>
                     </div>
                     <div class="flex flex-wrap items-center gap-3">
                         <x-sheet.button wire:click="refreshValkeyAwake" wire:loading.attr="disabled" wire:target="refreshValkeyAwake">

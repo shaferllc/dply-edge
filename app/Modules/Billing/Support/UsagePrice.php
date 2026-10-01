@@ -141,6 +141,7 @@ final class UsagePrice
             ['Key-value', 'Reads', 'per million', 'kv_reads_millicents_per_million', 1],
             ['Key-value', 'Writes, deletes and lists', 'per million', 'kv_writes_millicents_per_million', 1],
             ['Key-value', 'Storage', 'per GB-month', 'kv_storage_millicents_per_gb_month', 1],
+            ['Valkey (Redis)', 'REST commands', 'per 100,000', 'valkey_rest_millicents_per_hundred_thousand', 1],
             ['Realtime', 'Connection-minutes', 'per million', 'realtime_connection_minute_millicents', 1_000_000],
             ['Realtime', 'Messages', 'per million', 'realtime_message_millicents_per_million', 1],
             ['Workers', 'CPU time', 'per million CPU-ms', 'workers_cpu_millicents_per_million_ms', 1],

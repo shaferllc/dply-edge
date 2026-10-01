@@ -26,13 +26,8 @@
         $keepDays = (int) config('subscription.standard.trial.keep_data_days', 30);
         $purgeOn = (bool) config('subscription.standard.trial.purge_enabled', true);
 
-        $subprocessors = [
-            ['Cloudflare', __('Hosting, delivery, storage and compute for your apps (Workers, R2, KV, D1, Queues, Durable Objects, Containers); DNS and certificates for custom domains; account email'), __('Global network')],
-            ['DigitalOcean', __('dply databases (Postgres, MySQL, MongoDB) and Valkey stores'), __('New York, USA')],
-            ['Hetzner', __('Uptime checks for status pages and monitors'), __('Falkenstein, Germany')],
-            ['Stripe', __('Payments, subscriptions and invoices. dply never receives or stores your card number.'), __('Stripe')],
-            ['GitHub, GitLab, Bitbucket', __('Source code access and sign-in, only for the providers you connect'), __('The provider')],
-        ];
+        // One list for this page and DPA Annex III (config legal.subprocessors).
+        $subprocessors = array_map(fn (array $row): array => [$row[0], __($row[1]), __($row[2])], config('legal.subprocessors'));
 
         $h2 = 'text-2xl font-bold tracking-[-0.02em]';
         $lead = 'mt-2 max-w-3xl text-sm leading-6 text-edge-mute';
@@ -213,11 +208,10 @@
         <section id="status" class="border-b border-edge-line">
             <div class="mx-auto max-w-6xl px-6 py-14 lg:px-10">
                 <h2 class="{{ $h2 }}">{{ __('Compliance status') }}</h2>
-                {{-- Owner to confirm: GDPR wording and DPA availability on request. --}}
                 <ul class="{{ $list }}">
                     <li><span class="{{ $strong }}">{{ __('Certifications') }}</span> — {{ __('dply has no third-party security certifications or audit reports yet, such as SOC 2 or ISO 27001, and doesn’t offer a HIPAA business associate agreement. Don’t host workloads that require them.') }}</li>
-                    <li><span class="{{ $strong }}">{{ __('GDPR') }}</span> — {{ __('dply processes your apps’ data on your behalf, uses the subprocessors listed above, and lets you export or delete your data. dply databases and Valkey are in the US; keep data that must stay in the EU in EU-jurisdiction object storage or a database hosted in the EU.') }}</li>
-                    <li><span class="{{ $strong }}">{{ __('Data processing agreement') }}</span> — {{ __('available on request from') }} <a href="mailto:{{ $supportEmail }}" class="{{ $link }}">{{ $supportEmail }}</a>.</li>
+                    <li><span class="{{ $strong }}">{{ __('GDPR') }}</span> — {{ __('dply processes your apps’ data on your behalf under the Data Processing Addendum, uses the subprocessors listed above, and lets you export or delete your data. dply databases and Valkey are in the US, and object storage location is a placement hint, not a guarantee: dply doesn’t offer EU-only storage yet, so keep data that must stay in the EU with a provider that guarantees it.') }}</li>
+                    <li><span class="{{ $strong }}">{{ __('Data processing agreement') }}</span> — {{ __('the') }} <a href="{{ route('legal.dpa') }}" class="{{ $link }}">{{ __('Data Processing Addendum') }}</a> {{ __('is part of the Terms, with the EU standard contractual clauses. Organization owners are emailed at least 30 days before a new subprocessor is added, and can object. For a countersigned copy, email') }} <a href="mailto:{{ $supportEmail }}" class="{{ $link }}">{{ $supportEmail }}</a>.</li>
                     <li><span class="{{ $strong }}">{{ __('Not available yet') }}</span> — {{ __('single sign-on (SAML or OIDC), SCIM provisioning, and choosing where your account data is stored.') }}</li>
                 </ul>
                 <p class="mt-6 text-sm text-edge-mute"><a href="{{ route('docs.show', 'compliance') }}" class="{{ $link }}">{{ __('Compliance & security in the docs') }}</a></p>

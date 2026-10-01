@@ -130,6 +130,16 @@ A replaced instance is asked to stop and has 15 minutes to exit. You cannot star
 
 After each deploy dply requests the app's URL. If the app does not answer, or answers with an error that looks like a platform failure, the deploy is marked failed and you are notified. An HTTP 500 from your own code is treated as your app's response.
 
+## Faster starts (beta)
+
+Where your dply offers it, **Faster starts** in **Sleep, scaling, region** moves the app to Cloudflare's newer container scheduling:
+
+- **Faster deploys.** A code change ships your app's files (a compressed copy of `/app`, typically 10 to 30 MB) instead of building and pushing a new image. A deploy takes about a minute. The image itself is rebuilt only when its base changes (PHP version, extensions, server).
+- **Faster wakes.** The first start of each release saves a snapshot of the container; later wakes start from it with your code already in place.
+- **No rollout.** Each instance moves to the new version on its first request after a deploy, so the **Rollouts** settings are hidden. Queue workers finish their current job first.
+
+Turning it on or off takes the app down for a minute or two during that deploy. It is not available with regions or a jurisdiction set, and it applies to generated Dockerfiles; an app with its own `Dockerfile` gets the faster scheduling but still builds an image on each deploy.
+
 ## Migrations on boot
 
 Turn on **Run migrations when a container starts** in **Sleep, scaling, region** to run migrations as each container starts:

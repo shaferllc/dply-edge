@@ -90,7 +90,8 @@ final class StarterUsageBudget
         $kv = $this->kv->forOrganization($organization, $start, $end)['cents'];
         $databases = $this->databases->forOrganization($organization, $start, $end)['cents'];
         $realtime = $this->realtime->forOrganization($organization, $start, $end)['cents'];
-        $data = $this->data->forOrganization($organization, $start, $end)['cents'];
+        $data = $this->data->forOrganization($organization, $start, $end)['cents']
+            + app(EdgeMessagesCost::class)->forOrganization($organization, $start, $end)['cents'];
         $platform = $this->platform->forOrganization($organization, $start, $end)['cents'];
         // AI, Browser and vector search are paid-only, so this is 0 on a trial; kept so the cap covers every meter.
         $metered = app(EdgeMeteredUsageCost::class)->forOrganization($organization, $start, $end)['cents'];

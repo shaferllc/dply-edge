@@ -232,3 +232,26 @@ test('a pool whose config is already gone is detached, not left stuck', function
     expect(EdgeContainerConnections::destroy('database_pool', str_repeat('a', 32), $org))->toBeFalse();
     Http::assertNotSent(fn ($r): bool => $r->method() === 'DELETE');
 });
+
+test('a vector index gets a REST token, kept encrypted, injected on deploy and rotatable from the sheet', function () {
+    [$org, $site, $user] = vectorsPoolApp(['connections' => [
+        ['kind' => 'vectors', 'name' => 'DOCS', 'host' => 'docs.app.internal', 'target' => 'dply-x-docs'],
+        ['kind' => 'vectors', 'name' => 'OLD', 'host' => 'old.app.internal', 'target' => 'dply-x-old', 'asleep' => true],
+    ]]);
+
+    $secrets = EdgeContainerConnections::vectorRestSecrets($site);
+    $token = $secrets['DPLY_VECTOR_TOKEN_DOCS'];
+    expect($token)->toStartWith('dvx_')
+        ->and($secrets)->not->toHaveKey('DPLY_VECTOR_TOKEN_OLD')
+        ->and($secrets['VECTOR_REST_TOKEN'])->toBe($token)
+        ->and($secrets['VECTOR_REST_URL'])->toEndWith('/_vector/DOCS')
+        // Stored as one encrypted blob (rotated by secrets:reencrypt), and the same token on the next deploy.
+        ->and($site->fresh()->edgeMeta()['vector_rest_tokens'])->toBeString()->not->toContain($token)
+        ->and(EdgeContainerConnections::vectorRestSecrets($site->fresh())['DPLY_VECTOR_TOKEN_DOCS'])->toBe($token);
+
+    $component = Livewire::actingAs($user)->test(Resources::class, ['server' => $site->server, 'site' => $site->fresh()])->set('resourceHost', 'docs.app.internal');
+    expect($component->instance()->vectorRestToken())->toBe($token);
+    $rotated = $component->instance()->rotateVectorRestToken();
+    expect($rotated)->toStartWith('dvx_')->not->toBe($token)
+        ->and(EdgeContainerConnections::vectorRestToken($site->fresh(), 'DOCS', false))->toBe($rotated);
+});

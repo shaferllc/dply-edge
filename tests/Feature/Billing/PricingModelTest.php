@@ -46,7 +46,7 @@ test('the margin is the one knob: every usage price moves with it, and only thro
     $at50 = collect(UsagePrice::rates())->mapWithKeys(fn (array $r): array => [$r['group'].' '.$r['label'] => $r['millicents']])->all();
 
     // Fixed customer prices (fixed_price_meters) do not move with the margin.
-    $fixed = ['Delivery Bandwidth', 'Builds Build time', 'Databases Compute', 'Databases Storage', 'Realtime Connection-minutes', 'Realtime Messages'];
+    $fixed = ['Delivery Bandwidth', 'Builds Build time', 'Databases Compute', 'Databases Storage', 'Realtime Connection-minutes', 'Realtime Messages', 'Valkey (Redis) REST commands'];
     foreach ($at20 as $label => $millicents) {
         expect($at50[$label])->toEqualWithDelta(in_array($label, $fixed, true) ? $millicents : $millicents / 1.2 * 1.5, 1e-9);
     }

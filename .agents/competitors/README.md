@@ -38,10 +38,11 @@ Prices are as reported by the cited pages; check the vendor's own pricing page b
 - **Card-required trial** vs Laravel Cloud and Render trying for free. Owner ruling r-f17p5zgeh120cm5t chose this;
   worth revisiting if waitlist→trial conversion is low.
 - **Starter doesn't scale out:** one app instance, one worker. Laravel Cloud and Railway entry tiers compete here.
-- **Wake time is ~5–6 seconds** (measured 2026-09-29 with `php artisan dply:edge:wake-time`, one sample each on
-  two real apps: lite 5.3 s, basic 6.0 s over the warm median). Laravel Cloud publishes "under 500ms". Don't mention
-  wake speed in any copy; the honest line is "an idle app takes a few seconds to wake; keep one instance warm if
-  that matters". Re-measure after any container or Worker change.
+- **Wake time is ~3–5 seconds** (2026-09-30, after the wake speed-ups; was 5–6 s). Measured from real cold starts
+  (`php artisan dply:edge:wake-time {site} --recent`): a php-fpm app ~3.2–3.7 s from request to reply, an Octane app
+  ~4.8–5.2 s. Laravel Cloud publishes "under 500ms". Don't mention wake speed in any copy; the honest line is
+  "an idle app takes a few seconds to wake; keep one instance warm if that matters". Re-measure after any
+  container or Worker change.
 - **No track record** vs incumbents. Use product proof (docs, traces, transparent pricing), never invented logos.
 
 ## Files

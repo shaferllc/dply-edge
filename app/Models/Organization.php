@@ -54,6 +54,8 @@ use Laravel\Cashier\Billable;
  * @property bool $is_internal
  * @property ?Carbon $comped_until
  * @property ?Carbon $billing_paused_at
+ * @property ?Carbon $purge_hold_at Legal hold: the billing purge skips this organization while set.
+ * @property ?string $purge_hold_reason
  * @property ?array<string, string> $billing_notices
  * @property ?int $usage_alert_cents
  * @property ?array{period?: string, pct?: int} $usage_alerts
@@ -129,6 +131,7 @@ class Organization extends Model
             'is_internal' => 'boolean',
             'comped_until' => 'datetime',
             'billing_paused_at' => 'datetime',
+            'purge_hold_at' => 'datetime',
             'billing_notices' => 'array',
             'usage_alerts' => 'array',
             'metered_cap_alerts' => 'array',

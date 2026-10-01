@@ -83,7 +83,7 @@ final class EdgeContainerSettings
      * The stored instance size is kept. `$phpServer` is the detected PHP
      * server from deploy; it does not change the size the operator picked.
      *
-     * @return array{instance_type: string, max_instances: int, min_instances: int, sleep_after: string, migrate_on_boot: bool, worker_mode: bool, jurisdiction: string, regions: list<string>, scheduler: bool, rollout_mode: string, rollout_step_percentage: list<int>, rollout_active_grace_period: int}
+     * @return array{instance_type: string, max_instances: int, min_instances: int, sleep_after: string, migrate_on_boot: bool, worker_mode: bool, jurisdiction: string, regions: list<string>, scheduler: bool, rollout_mode: string, rollout_step_percentage: list<int>, rollout_active_grace_period: int, scheduling: string}
      */
     public static function for(Site $site, string $phpServer = 'fpm'): array
     {
@@ -126,6 +126,13 @@ final class EdgeContainerSettings
                 self::normalizeSchedules(is_array($raw['schedules'] ?? null) ? $raw['schedules'] : []),
             ),
             'rollout_mode' => in_array($mode, self::ROLLOUT_MODES, true) ? $mode : 'gradual',
+            // Cloudflare's durable_object scheduling: faster starts, the image
+            // and size chosen at start. Opt in per app while it is proven.
+            // It cannot pin regions or a jurisdiction, so those apps stay put.
+            // Faster starts ship /app as a release in R2 instead of a new image
+            // (EdgeReleaseBundle): on unless an app turns it off.
+            'release_bundle' => (bool) ($raw['release_bundle'] ?? true),
+            'scheduling' => config('edge.build.containers.durable_object_scheduling') && ($raw['scheduling'] ?? '') === 'durable_object' && $jurisdiction === '' && (array) ($raw['regions'] ?? []) === [] ? 'durable_object' : 'default',
             'rollout_step_percentage' => self::validRolloutSteps($raw['rollout_step_percentage'] ?? []),
             'rollout_active_grace_period' => max(0, min(self::ROLLOUT_GRACE_MAX, (int) ($raw['rollout_active_grace_period'] ?? 0))),
         ], $phpServer);
@@ -420,6 +427,38 @@ final class EdgeContainerSettings
     }
 
     /** @return string|array{vcpu: int, memory_mib: int, disk_mb: int} */
+    /** Release bundles need Faster starts: the image is chosen at start. */
+    public static function releaseBundle(array $settings): bool
+    {
+        return self::durableObjectScheduling($settings) && ($settings['release_bundle'] ?? false);
+    }
+
+    /** @param  array<string, mixed>  $settings  from for() */
+    public static function durableObjectScheduling(array $settings): bool
+    {
+        return ($settings['scheduling'] ?? 'default') === 'durable_object';
+    }
+
+    /**
+     * The instance size for ctx.container.start(): lite and standard-1..4 by
+     * name, anything else (basic, custom) as vcpu / memoryMib / diskMb.
+     *
+     * @return string|array{vcpu: float|int, memoryMib: int, diskMb: int}
+     */
+    public static function durableObjectInstance(Site $site): string|array
+    {
+        $type = self::wranglerInstanceType($site);
+        if (is_array($type)) {
+            return ['vcpu' => $type['vcpu'], 'memoryMib' => $type['memory_mib'], 'diskMb' => $type['disk_mb']];
+        }
+        if (in_array($type, ['lite', 'standard-1', 'standard-2', 'standard-3', 'standard-4'], true)) {
+            return $type;
+        }
+        [$vcpu, $gib, $disk] = self::INSTANCE_TYPES[$type] ?? self::INSTANCE_TYPES['basic'];
+
+        return ['vcpu' => $vcpu, 'memoryMib' => (int) ($gib * 1024), 'diskMb' => $disk * 1000];
+    }
+
     public static function wranglerInstanceType(Site $site): string|array
     {
         $shape = self::shape($site);
@@ -472,7 +511,15 @@ final class EdgeContainerSettings
      * exceed the instance if every request peaks at once. raiseForMemoryCrash
      * steps the size up when that happens; lower PHP_WORKER_MB if it does often.
      *
-     * @return array{max_children: int, memory_limit: string}
+     * `workers` is how many processes start: max_children, except Octane
+     * (swoole/roadrunner), whose workers each boot Laravel at startup, all at
+     * once on the same CPU. There it follows the CPU: ceil(4 x vCPU), at least
+     * 2. Measured (2026-09-30, 1/4 vCPU): 8 workers answered the first request
+     * after ~11s, 2 after ~4.2s. max_children still sets requestsPerInstance,
+     * so Swoole queues a burst briefly instead of the Worker waking another
+     * instance (a cold start costs more than a short queue).
+     *
+     * @return array{max_children: int, workers: int, memory_limit: string}
      */
     public static function phpFpmPool(string $instanceType, ?Site $site = null, string $phpServer = 'fpm'): array
     {
@@ -490,8 +537,11 @@ final class EdgeContainerSettings
         $byMemory = intdiv(max(0, $mib - self::PHP_RESERVED_MB), $perWorker);
         $byCpu = max(12, (int) floor($vcpu * 32));
 
+        $max = max(1, min(128, $byMemory, $byCpu));
+
         return [
-            'max_children' => max(1, min(128, $byMemory, $byCpu)),
+            'max_children' => $max,
+            'workers' => in_array($phpServer, ['swoole', 'roadrunner'], true) ? min($max, max(2, (int) ceil($vcpu * 4))) : $max,
             // Per child, so one runaway request dies instead of the container.
             'memory_limit' => '128M',
         ];

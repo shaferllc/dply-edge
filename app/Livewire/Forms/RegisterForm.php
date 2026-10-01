@@ -13,4 +13,7 @@ class RegisterForm extends Form
     public string $password = '';
 
     public string $password_confirmation = '';
+
+    /** Accepts the Terms, Privacy Policy and AUP (config legal.version). */
+    public bool $terms = false;
 }

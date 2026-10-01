@@ -178,12 +178,14 @@ final class EdgeSiteBillingAnalytics
         }
 
         $valkeySeconds = (int) EdgeRedisUsage::query()->where('site_id', $site->id)->whereBetween('date', $dates)->sum('awake_seconds');
-        if ($valkeySeconds > 0 && $site->organization instanceof Organization) {
+        $valkeyRest = (int) EdgeRedisUsage::query()->where('site_id', $site->id)->whereBetween('date', $dates)->sum('rest_commands');
+        if (($valkeySeconds > 0 || $valkeyRest > 0) && $site->organization instanceof Organization) {
             $lines[] = [
                 'key' => 'valkey',
                 'label' => __('Valkey'),
-                'detail' => __(':h h awake', ['h' => number_format($valkeySeconds / 3600, 1)]),
-                'cents' => $this->redisCost->valkeyCents($site->organization, [(string) $site->id => $valkeySeconds]),
+                'detail' => __(':h h awake', ['h' => number_format($valkeySeconds / 3600, 1)])
+                    .($valkeyRest > 0 ? ' · '.__(':n REST commands', ['n' => number_format($valkeyRest)]) : ''),
+                'cents' => $this->redisCost->valkeyCents($site->organization, [(string) $site->id => $valkeySeconds]) + $this->redisCost->restCents($valkeyRest),
             ];
         }
 

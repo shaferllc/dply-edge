@@ -1,0 +1,12 @@
+{
+  "blockedBy": [],
+  "completedDate": null,
+  "createdDate": "2026-09-30",
+  "description": "Prerequisite for customers to use dply Valkey (TCP and the new REST API) in production; listed under \"Not done yet\" in packages/valkey-gateway/README.md. Stand up the DOKS cluster in nyc3, deploy the gateway (image with rest.go), a real wildcard certificate for *.{DPLY_VALKEY_DOMAIN}, R2 credentials for snapshots, DNS *.cache.dply.io → the LoadBalancer, and expose 6380 (TCP) and 8443 (REST) on the Service. Then set DPLY_VALKEY_API_URL / TOKEN / DOMAIN (and DPLY_VALKEY_REST_PORT if not 8443) in the app's env, run php artisan queue:restart, and run deploy/local-verify*.sh equivalents against it.",
+  "id": "T-031",
+  "order": 100,
+  "phase": null,
+  "status": "open",
+  "title": "Production Valkey gateway cluster (DOKS nyc3): wildcard TLS, R2 credentials, DNS, ports 6380 + 8443",
+  "type": "task"
+}

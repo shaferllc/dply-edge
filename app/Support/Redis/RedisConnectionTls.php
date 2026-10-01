@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Support\Redis;
 
 /**
- * DigitalOcean managed Redis/Valkey (and Upstash) are TLS-only. A plaintext
+ * DigitalOcean managed Redis/Valkey and hosted Redis are TLS-only. A plaintext
  * PhpRedis dial surfaces as "read error on connection" at Redis->auth() and
  * 500s every request that touches cache (ThrottleRequests, Livewire).
  *

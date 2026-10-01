@@ -9,9 +9,9 @@
                     // Behind a feature flag for this organization (dply:feature).
                     && \App\Modules\Edge\Support\EdgeContainerConnections::flagOn($key, $site->organization)
                     // One per app: hide once added.
-                    && ! (in_array($key, ['redis', 'realtime', ...\App\Modules\Edge\Support\EdgeContainerConnections::ENABLE], true) && collect($connections)->contains('kind', $key)));
+                    && ! (in_array($key, ['redis', 'realtime', 'messages', ...\App\Modules\Edge\Support\EdgeContainerConnections::ENABLE], true) && collect($connections)->contains('kind', $key)));
                 $kindGroups = [
-                    'background' => ['title' => __('Background work'), 'kinds' => ['queue']],
+                    'background' => ['title' => __('Background work'), 'kinds' => ['queue', 'messages']],
                     'data' => ['title' => __('Data & storage'), 'kinds' => ['sql', 'database_pool', 'key_value', 'durable_object', 'redis', 'object_storage']],
                     'ai' => ['title' => __('AI & media'), 'kinds' => ['ai', 'vectors', 'images']],
                     'connect' => ['title' => __('Connect'), 'kinds' => ['service', 'realtime']],
@@ -104,7 +104,7 @@
                         <input id="connection-label" type="text" wire:model="connectionLabel" placeholder="{{ __('Uploads') }}" class="dply-input mt-0" />
                     </x-sheet.field>
                     @if ($connectionKind === 'object_storage')
-                        <x-sheet.field :label="__('Location')" for="connection-object-location" :help="__('Where Cloudflare keeps the bucket. It cannot be moved later.')">
+                        <x-sheet.field :label="__('Location')" for="connection-object-location" :help="__('A hint for where Cloudflare places the bucket, not a data-residency guarantee. It cannot be moved later.')">
                             <select id="connection-object-location" wire:model="objectLocationHint" class="dply-input mt-0">
                                 @foreach (\App\Livewire\Sites\Edge\Workspace\Resources::R2_LOCATION_HINTS as $hint => $label)
                                     <option value="{{ $hint }}">{{ __($label) }}</option>

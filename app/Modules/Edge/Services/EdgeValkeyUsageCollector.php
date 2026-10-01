@@ -21,7 +21,8 @@ use Throwable;
 
 /**
  * Per-second billing for dply Valkey (T-021). The gateway reports a running
- * total of awake seconds per database. Each run adds what changed since the
+ * total of awake seconds per database, and of commands served over its REST
+ * API (rest_commands, billed per 100K). Each run adds what changed since the
  * last run to today's edge_redis_usage row. The last total seen is kept on
  * the site (meta.edge.valkey_counter) so a missed run is caught up, never lost.
  *
@@ -63,9 +64,12 @@ class EdgeValkeyUsageCollector
     {
         // Every region's gateway: tenant ids are unique across regions.
         $totals = [];
+        $restTotals = [];
         foreach (array_keys(ValkeyRegions::all()) as $region) {
             if (ValkeyGatewayClient::configured($region)) {
-                $totals += ValkeyGatewayClient::fromConfig($region)->usage();
+                $usage = ValkeyGatewayClient::fromConfig($region)->usageTotals();
+                $totals += $usage['awake_seconds'];
+                $restTotals += $usage['rest_commands'];
             }
         }
         $date = now()->utc()->toDateString();
@@ -76,16 +80,25 @@ class EdgeValkeyUsageCollector
 
         Site::query()->whereNotNull('edge_backend')->whereNotNull('organization_id')
             ->when($siteId !== null, fn ($query) => $query->whereKey($siteId))
-            ->each(function (Site $site) use ($totals, $date, $dryRun, &$sites, &$seconds): void {
+            ->each(function (Site $site) use ($totals, $restTotals, $date, $dryRun, &$sites, &$seconds): void {
                 $this->collectDplyPostgres($site, $totals, $date, $dryRun);
                 if (! $dryRun) {
                     $this->trackBackup($site);
                 }
                 $counters = (array) ($site->edgeMeta()['valkey_counter'] ?? []);
+                // REST commands (valkey-gateway rest.go), tracked the same way.
+                $restCounters = (array) ($site->edgeMeta()['valkey_rest_counter'] ?? []);
                 $added = 0;
+                $restAdded = 0;
                 foreach (EdgeContainerConnections::for($site) as $connection) {
                     if ($connection['kind'] !== 'redis' || ! EdgeValkey::isTarget($connection['target'])) {
                         continue;
+                    }
+                    $restTotal = $restTotals[EdgeValkey::tenantId($connection['target'])] ?? null;
+                    if ($restTotal !== null) {
+                        $restLast = (int) ($restCounters[$connection['target']] ?? 0);
+                        $restAdded += $restTotal >= $restLast ? $restTotal - $restLast : $restTotal;
+                        $restCounters[$connection['target']] = $restTotal;
                     }
                     $total = $totals[EdgeValkey::tenantId($connection['target'])] ?? null;
                     if ($total === null) {
@@ -96,20 +109,25 @@ class EdgeValkeyUsageCollector
                     $added += $total >= $last ? $total - $last : $total;
                     $counters[$connection['target']] = $total;
                 }
-                if ($added === 0 || $dryRun) {
+                if (($added === 0 && $restAdded === 0) || $dryRun) {
                     $sites += $added > 0 ? 1 : 0;
                     $seconds += $added;
 
                     return;
                 }
 
-                DB::transaction(function () use ($site, $date, $added, $counters): void {
+                DB::transaction(function () use ($site, $date, $added, $counters, $restAdded, $restCounters): void {
                     $row = EdgeRedisUsage::query()->firstOrCreate(
                         ['site_id' => $site->id, 'date' => $date],
                         ['organization_id' => $site->organization_id],
                     );
-                    $row->increment('awake_seconds', $added);
-                    $site->mergeEdgeMeta(['valkey_counter' => $counters]);
+                    if ($added > 0) {
+                        $row->increment('awake_seconds', $added);
+                    }
+                    if ($restAdded > 0) {
+                        $row->increment('rest_commands', $restAdded);
+                    }
+                    $site->mergeEdgeMeta(['valkey_counter' => $counters, 'valkey_rest_counter' => $restCounters]);
                     $site->save();
                 });
                 $sites++;

@@ -50,6 +50,16 @@
                 </div>
             </x-sheet.section>
 
+            @if (config('edge.build.containers.durable_object_scheduling'))
+            <x-sheet.section :title="__('Faster starts')">
+                <x-sheet.toggle wire:model.live="fastStart" :disabled="$jurisdiction !== '' || $regions !== []" :label="__('Faster starts (beta)')"
+                    :help="$jurisdiction !== '' || $regions !== []
+                        ? __('Not available while regions or a jurisdiction are set: this mode places each instance next to its data instead.')
+                        : __('Cloudflare’s newer container scheduling: containers start faster, and a sleeping app wakes from a saved snapshot. Deploys are faster too: a code change ships your app’s files instead of a new image (about a minute). Applies on the next deploy; the first one after turning it on or off takes the app down for a minute or two. There is no rollout: each instance moves to the new version on its first request after a deploy.')" />
+            </x-sheet.section>
+            @endif
+
+            @unless ($fastStart)
             <x-sheet.section :title="__('Rollout')">
                 <x-sheet.field :label="__('How a deploy replaces instances')">
                     <x-sheet.segmented>
@@ -78,6 +88,7 @@
                     </x-sheet.field>
                 </div>
             </x-sheet.section>
+            @endunless
 
             <x-sheet.section :title="__('Always awake and scaling windows')">
                 <x-sheet.field :label="__('Always awake')" for="sheet-min-instances" :help="$minInstances > 0 ? __('The first :count never sleep, so they never cold start. Billed while awake.', ['count' => $minInstances]) : __('0: every instance sleeps when idle.')">

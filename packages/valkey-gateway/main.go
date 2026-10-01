@@ -48,6 +48,7 @@ type config struct {
 	image         string
 	proxyAddr     string
 	apiAddr       string
+	restAddr      string // Redis REST (rest.go); "off" disables it
 	apiToken      string
 	certFile      string
 	keyFile       string
@@ -72,6 +73,7 @@ func main() {
 		image:         env("VALKEY_IMAGE", "valkey/valkey:8-alpine"),
 		proxyAddr:     env("PROXY_ADDR", ":6380"),
 		apiAddr:       env("API_ADDR", ":8080"),
+		restAddr:      env("REST_ADDR", ":8443"),
 		apiToken:      strings.TrimSpace(os.Getenv("API_TOKEN")),
 		certFile:      env("TLS_CERT", "/tls/tls.crt"),
 		keyFile:       env("TLS_KEY", "/tls/tls.key"),
@@ -110,6 +112,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer stop()
 	g.runActive(ctx)
+	go g.flushCommandCounts(ctx)
 	go g.serveAPI()
 	g.serveProxy()
 }
@@ -127,12 +130,14 @@ type tenantState struct {
 }
 
 type gateway struct {
-	cfg     config
-	kube    *kubernetes.Clientset
-	store   *snapshotStore
-	mu      sync.Mutex
-	tenants map[string]*tenantState
-	records tenantCache
+	cfg      config
+	kube     *kubernetes.Clientset
+	store    *snapshotStore
+	mu       sync.Mutex
+	tenants  map[string]*tenantState
+	records  tenantCache
+	rest     restPool       // pooled REST connections (rest.go)
+	commands commandCounter // REST commands per tenant, for billing
 }
 
 func (g *gateway) state(id string) *tenantState {
@@ -170,6 +175,7 @@ func (g *gateway) serveProxy() {
 	go g.servePostgres(certs)
 	go g.serveMongo(certs)
 	go g.serveMySQL(certs)
+	go g.serveREST(certs)
 	ln, err := tls.Listen("tcp", g.cfg.proxyAddr, &tls.Config{GetCertificate: certs.get, MinVersion: tls.VersionTLS12})
 	if err != nil {
 		log.Fatal(err)
@@ -505,7 +511,12 @@ func (g *gateway) usage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"awake_seconds": totals})
+	commands, err := g.restCommands(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"awake_seconds": totals, "rest_commands": commands})
 }
 
 func (g *gateway) auth(next http.HandlerFunc) http.HandlerFunc {

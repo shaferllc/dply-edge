@@ -6,6 +6,7 @@ namespace App\Modules\Billing;
 
 use App\Modules\Billing\Console\CompOrganizationCommand;
 use App\Modules\Billing\Console\EnforceOrganizationBillingCommand;
+use App\Modules\Billing\Console\HoldOrganizationCommand;
 use App\Modules\Billing\Console\PrintPriceTableCommand;
 use App\Modules\Billing\Console\PrintUnitCostsCommand;
 use App\Modules\Billing\Console\ProvisionStripeBillingCommand;
@@ -43,6 +44,7 @@ class BillingServiceProvider extends ServiceProvider
         if ($this->app->runningInConsole()) {
             $this->commands([
                 CompOrganizationCommand::class,
+                HoldOrganizationCommand::class,
                 EnforceOrganizationBillingCommand::class,
                 PrintPriceTableCommand::class,
                 PrintUnitCostsCommand::class,

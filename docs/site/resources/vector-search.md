@@ -173,6 +173,26 @@ To make the embedding in the same app, add [AI](/docs/resources/ai) and call its
 > [!IMPORTANT]
 > From a container app the index can only be **searched**. Storing and deleting vectors from a container app is not supported yet. Store them from an SSR or hybrid app that binds the same index (**Attach existing**).
 
+### Over HTTPS, from anywhere (container apps)
+
+A container app's index also answers over HTTPS at the app's own address, so other apps, scripts and serverless code can use it:
+
+```bash
+curl "$VECTOR_REST_URL/upsert" -H "Authorization: Bearer $VECTOR_REST_TOKEN" \
+  -d '[{"id":"doc-1","vector":[0.1,0.2,...],"metadata":{"title":"Hello"}}]'
+
+curl "$VECTOR_REST_URL/query" -H "Authorization: Bearer $VECTOR_REST_TOKEN" \
+  -d '{"vector":[0.1,0.2,...],"topK":5,"includeMetadata":true}'
+# {"result":[{"id":"doc-1","score":0.98,"metadata":{"title":"Hello"}}]}
+```
+
+The address is `https://{your app}/_vector/{NAME}`, and it needs the index's token. Both are on the sheet under **Over HTTPS**, with **Show**, **Copy** and **Rotate** for the token (a rotated token takes effect on the next deploy). The next deploy also sets `VECTOR_REST_URL` and `VECTOR_REST_TOKEN` in the app for its first index.
+
+- `upsert`, `query` (one or many), `fetch`, `delete` and `info` work, with a namespace in the path (`/query/{namespace}`).
+- Send vectors, not text: dply doesn't embed for you, so `upsert-data` and `query-data` are refused. So are metadata filters, `range`, `reset`, `update` and sparse or hybrid queries, each with a 400 that says so.
+- Queries count toward usage and the monthly limit like the app's own. New vectors take a few seconds to show up in queries.
+- Worker apps (SSR, hybrid) use `env.NAME` directly; the HTTPS API isn't available for them yet.
+
 ## Sleep
 
 Vector search sleeps like other resources. Choose **Sleep** in the sheet: on the next deploy the app loses the index, so no searches run and none are billed. A container app's calls get HTTP `503` with "This resource is asleep." **Wake** it and deploy to search again.

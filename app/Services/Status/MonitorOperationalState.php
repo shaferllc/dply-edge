@@ -16,8 +16,11 @@ class MonitorOperationalState
 
     public const UNKNOWN = 'unknown';
 
+    /** A container app that is asleep: fine, and not woken to be checked. */
+    public const ASLEEP = 'asleep';
+
     /**
-     * @return self::OPERATIONAL|self::DEGRADED|self::OUTAGE|self::UNKNOWN
+     * @return self::OPERATIONAL|self::DEGRADED|self::OUTAGE|self::UNKNOWN|self::ASLEEP
      */
     public function state(Server|Site|SiteUptimeMonitor $model): string
     {
@@ -38,12 +41,13 @@ class MonitorOperationalState
             self::OPERATIONAL => __('Operational'),
             self::DEGRADED => __('Degraded'),
             self::OUTAGE => __('Outage'),
+            self::ASLEEP => __('Asleep'),
             default => __('Unknown'),
         };
     }
 
     /**
-     * @return self::OPERATIONAL|self::DEGRADED|self::OUTAGE|self::UNKNOWN
+     * @return self::OPERATIONAL|self::DEGRADED|self::OUTAGE|self::UNKNOWN|self::ASLEEP
      */
     private function stateForSiteUptimeMonitor(SiteUptimeMonitor $monitor): string
     {
@@ -65,7 +69,7 @@ class MonitorOperationalState
         // last_state carries the finer operational state (a slow-but-up monitor
         // reads DEGRADED while last_ok stays true); fall back to last_ok for
         // rows checked before last_state existed.
-        if (in_array($monitor->last_state, [self::OPERATIONAL, self::DEGRADED, self::OUTAGE], true)) {
+        if (in_array($monitor->last_state, [self::OPERATIONAL, self::DEGRADED, self::OUTAGE, self::ASLEEP], true)) {
             return $monitor->last_state;
         }
 
@@ -77,7 +81,7 @@ class MonitorOperationalState
     }
 
     /**
-     * @return self::OPERATIONAL|self::DEGRADED|self::OUTAGE|self::UNKNOWN
+     * @return self::OPERATIONAL|self::DEGRADED|self::OUTAGE|self::UNKNOWN|self::ASLEEP
      */
     private function stateForServer(Server $server): string
     {
@@ -92,7 +96,7 @@ class MonitorOperationalState
     }
 
     /**
-     * @return self::OPERATIONAL|self::DEGRADED|self::OUTAGE|self::UNKNOWN
+     * @return self::OPERATIONAL|self::DEGRADED|self::OUTAGE|self::UNKNOWN|self::ASLEEP
      */
     private function stateForSite(Site $site): string
     {
@@ -101,7 +105,7 @@ class MonitorOperationalState
         $site->loadMissing('uptimeMonitors');
         if ($site->uptimeMonitors->isNotEmpty()) {
             $states = $site->uptimeMonitors->map(fn (SiteUptimeMonitor $m): string => $this->stateForSiteUptimeMonitor($m));
-            foreach ([self::OUTAGE, self::DEGRADED, self::OPERATIONAL] as $state) {
+            foreach ([self::OUTAGE, self::DEGRADED, self::OPERATIONAL, self::ASLEEP] as $state) {
                 if ($states->contains($state)) {
                     return $state;
                 }

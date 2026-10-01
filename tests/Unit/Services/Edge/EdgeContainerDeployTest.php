@@ -9,10 +9,13 @@ use App\Models\Site;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Services\Containers\EdgeContainerDockerfile;
 use App\Modules\Edge\Services\Containers\EdgeContainerRollout;
+use App\Modules\Edge\Services\Containers\EdgeReleaseBundle;
 use App\Modules\Edge\Support\EdgeContainerSettings;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Process;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Symfony\Component\Process\ExecutableFinder;
 
@@ -460,8 +463,8 @@ test('a laravel site keeps the size the operator picked and the fpm pool fits th
     $site = new Site(['meta' => ['edge' => ['build' => ['framework' => 'laravel'], 'container' => ['instance_type' => 'lite']]]]);
 
     expect(EdgeContainerSettings::for($site)['instance_type'])->toBe('lite')
-        ->and(EdgeContainerSettings::phpFpmPool('basic'))->toBe(['max_children' => 12, 'memory_limit' => '128M'])
-        ->and(EdgeContainerSettings::phpFpmPool('lite'))->toBe(['max_children' => 1, 'memory_limit' => '128M'])
+        ->and(EdgeContainerSettings::phpFpmPool('basic'))->toBe(['max_children' => 12, 'workers' => 12, 'memory_limit' => '128M'])
+        ->and(EdgeContainerSettings::phpFpmPool('lite'))->toBe(['max_children' => 1, 'workers' => 1, 'memory_limit' => '128M'])
         ->and(EdgeContainerSettings::looksLikeMemoryCrash('php-fpm: Killed process'))->toBeTrue()
         ->and(EdgeContainerSettings::looksLikeMemoryCrash('SQLSTATE connection refused'))->toBeFalse();
 });
@@ -675,7 +678,8 @@ test('frankenphp trusts the Worker with a multi-line Caddy block; a one-line blo
     // the project root cached dply's own config with the testing database.
     $options = shell_exec('cd '.escapeshellarg($dir).' && sh -c '.escapeshellarg(substr($boot, 0, strpos($boot, '; export FRANKENPHP')).'; printf "@@%s" "$CADDY_GLOBAL_OPTIONS"'));
     // The boot line also prints its "dply-boot:" timing line first; keep only the options.
-    $options = Str::after((string) $options, '@@');
+    // The background config:cache may print a "dply:" line at any point; it is not the options.
+    $options = trim((string) preg_replace('/dply: [^\n]*/', '', Str::after((string) $options, '@@')));
 
     expect($dockerfile)->not->toContain('ENV CADDY_GLOBAL_OPTIONS')
         ->and($options)->toBe("servers {\n\ttrusted_proxies static 0.0.0.0/0 ::/0\n}");
@@ -697,11 +701,26 @@ test('php images tune opcache, cache routes and events at build and config at bo
     $plain = File::get(EdgeContainerDockerfile::prepare(checkout(['composer.json' => '{"require":{"php":"^8.3"}}', 'index.php' => '']))['path']);
 
     expect($fpm)->toContain("RUN printf '%s\\n' opcache.enable=1 opcache.validate_timestamps=0 opcache.memory_consumption=128 opcache.interned_strings_buffer=16 opcache.max_accelerated_files=20000 opcache.jit=tracing opcache.jit_buffer_size=64M > \"\$PHP_INI_DIR/conf.d/zz-dply-opcache.ini\"")
+        // The OPcache file cache was tried and made real cold starts slower (see opcacheIni).
+        ->and($fpm)->not->toContain('opcache.file_cache')->not->toContain('opcache.enable_cli')
         ->and($fpm)->not->toContain('-d opcache.')
         ->and($fpm)->toContain('DPLY_PERSISTENT_PDO=1')->and($franken)->not->toContain('DPLY_PERSISTENT_PDO')
         // After VIEW_COMPILED_PATH, or the cached config pins the old view path.
-        ->and(strpos($fpm, 'php artisan config:cache >/dev/null 2>&1 || echo'))->toBeGreaterThan(strpos($fpm, 'export VIEW_COMPILED_PATH'))
-        ->and(strpos($fpm, 'php artisan config:cache'))->toBeLessThan(strpos($fpm, 'php-fpm -F'))
+        ->and(strpos($fpm, 'nice -n 19 php artisan config:cache'))->toBeGreaterThan(strpos($fpm, 'export VIEW_COMPILED_PATH'))
+        // php-fpm starts first (its children inherit VIEW_COMPILED_PATH), beside the restore and the
+        // migrate check; nginx opens the port last, so nothing reaches fpm before the database is ready.
+        ->and(strpos($fpm, 'php-fpm -F'))->toBeGreaterThan(strpos($fpm, 'export VIEW_COMPILED_PATH'))
+        ->and(strpos($fpm, 'php-fpm -F'))->toBeLessThan(strpos($fpm, 'wget -q -O'))
+        ->and(strpos($fpm, 'exec nginx'))->toBeGreaterThan(strpos($fpm, 'artisan migrate --force'))
+        // The restore goes to a temp file and is renamed in; only a non-404 failure falls back to PHP.
+        ->and($fpm)->toContain('wget -q -O \\"$DB_DATABASE.dply\\" http://sqlite.dply/db')
+        ->and($fpm)->toContain('grep -q \\" 404 \\" /tmp/dply-sqlite.err || php -r')
+        // Beside the starting server, never in front of it; written to a temp path and renamed in.
+        ->and($fpm)->toContain('(APP_CONFIG_CACHE=/app/bootstrap/cache/config.dply.php nice -n 19 php artisan config:cache')
+        ->and($fpm)->toContain('&& mv -f /app/bootstrap/cache/config.dply.php /app/bootstrap/cache/config.php')
+        // Readiness by port check, not a PHP process per poll; the restored sqlite file is not re-uploaded at boot.
+        ->and($fpm)->toContain('until nc -z 127.0.0.1 9000')
+        ->and($fpm)->toContain('( while true; do sleep 20; php -r')
         // Env-free caches at build; boot rebuilds them only if the build could not.
         ->and($fpm)->toContain('RUN php artisan route:cache >/dev/null 2>&1 || echo')->toContain('php artisan event:cache >/dev/null 2>&1 || true')
         ->and($fpm)->toContain('[ -f bootstrap/cache/routes-v7.php ] || php artisan route:cache')
@@ -817,7 +836,7 @@ test('the key-value proxy pages keys, bulk-reads, and checks ttl, expiry, and me
 });
 
 test('a 5xx after deploy prints the error the app logged, read from the app itself', function () {
-    \Illuminate\Support\Facades\Http::fake(['app.on-dply.live/_dply/schedule' => \Illuminate\Support\Facades\Http::response(['output' => implode("\n", [
+    Http::fake(['app.on-dply.live/_dply/schedule' => Http::response(['output' => implode("\n", [
         '[29-Sep-2026 20:24:40] NOTICE: fpm is running',
         '[2026-09-29 20:24:40] production.ERROR: SQLSTATE[42P01]: Undefined table: 7 ERROR:  relation "cache" does not exist',
         '#0 /app/vendor/laravel/framework/src/Illuminate/Database/Connection.php(838): runQueryCallback()',
@@ -838,7 +857,7 @@ test('a 5xx after deploy prints the error the app logged, read from the app itse
         ->toContain('relation "cache" does not exist')
         ->not->toContain('#0 /app/vendor')
         ->not->toContain('max_children');
-    \Illuminate\Support\Facades\Http::assertSent(fn ($r) => str_starts_with((string) $r['handler'], 'tail -q -n 300 /tmp/php-fpm.log'));
+    Http::assertSent(fn ($r) => str_starts_with((string) $r['handler'], 'tail -q -n 300 /tmp/php-fpm.log'));
 });
 
 test('a request that finds its instance asleep starts it with a tight poll and records one wake; a warm one records nothing', function () {
@@ -855,7 +874,8 @@ test('a request that finds its instance asleep starts it with a tight poll and r
     File::deleteDirectory($dir);
 
     // The App class's own fetch + wake, run against a stand-in for the SDK's Container.
-    $methods = Str::between($worker, "  async fetch(request) {\n    this.reservations.shift();", "\n  // Last request into this instance");
+    // From after the uptime-check branch (its own test covers it) to the end of wake().
+    $methods = Str::between($worker, "\n    this.reservations.shift();", "\n  // Last request into this instance");
     $script = 'const SITE_ID = "s";'
         .'function recordWake(env, index, readyMs, probeMs, requestMs, status) {'.Str::betweenFirst($worker, 'function recordWake(env, index, readyMs, probeMs, requestMs, status) {', "\n}\n")."\n}\n"
         .<<<'JS'
@@ -897,7 +917,7 @@ test('php images answer the readiness probe without PHP and log one boot-timing 
     $franken = File::get(EdgeContainerDockerfile::prepare(checkout(['composer.json' => '{"require":{"php":"^8.3"},"extra":{"dply":{"php-server":"frankenphp"}}}', 'artisan' => '']))['path']);
 
     expect($fpm)->toContain('location = /_dply-ping { return 204; }')
-        ->and($franken)->toContain("respond /_dply-ping 204")
+        ->and($franken)->toContain('respond /_dply-ping 204')
         ->and(substr_count($fpm, 'dply-boot:'))->toBe(1)
         ->and($fpm)->toContain('start=$b0 sqlite=$b1 migrate=$b2 caches=');
 });
@@ -970,4 +990,211 @@ test('the sqlite migrate skip matches only the build that migrated', function ()
     File::delete([$db, $build]);
 
     expect([$fresh, $marked, $newBuild])->toBe([1, 0, 1]);
+});
+
+test('the worker serves vector search over REST, Upstash-Vector-compatible, on the app binding', function () {
+    if (trim((string) shell_exec('command -v node')) === '') {
+        $this->markTestSkipped('node is not installed');
+    }
+    $site = new Site(['meta' => ['edge' => [
+        'connections' => [['kind' => 'vectors', 'name' => 'DOCS', 'host' => 'docs.app.internal', 'target' => 'dply-x-docs']],
+    ]]]);
+    $site->id = '01VECTORREST';
+    $dir = sys_get_temp_dir().'/dply-container-test-'.bin2hex(random_bytes(4));
+    (new EdgeContainerDeployer)->scaffold($dir, $site, '/x/Dockerfile', 8080, []);
+    $worker = File::get($dir.'/src/index.js');
+    expect($worker)->toContain('const vectorReply = await vectorRestFetch(request, env, ctx, url);');
+
+    preg_match('/const CONNECTIONS = .*?;\n/', $worker, $connections);
+    preg_match('/\/\/ ---- vector REST \(start\) ----.*?\/\/ ---- vector REST \(end\) ----/s', $worker, $block);
+    // With UPSTASH_SDK_DIR (a folder with node_modules/@upstash/vector) the real SDK runs too.
+    $runDir = getenv('UPSTASH_SDK_DIR') ?: $dir;
+    $script = $runDir.'/vector-rest-check-'.bin2hex(random_bytes(3)).'.mjs';
+    $fixture = File::get(base_path('tests/Fixtures/vector-rest-check.mjs'));
+    // Imports first, then the Worker's constants and block, then the checks.
+    [$imports, $checks] = explode("\n\nlet metered", $fixture, 2);
+    File::put($script, $imports."\n".$connections[0].$block[0]."\n\nlet metered".$checks);
+    $out = trim((string) shell_exec('node '.escapeshellarg($script).' 2>&1'));
+    File::delete($script);
+
+    expect($out)->toEndWith('ok');
+    if (getenv('UPSTASH_SDK_DIR')) {
+        expect($out)->toContain('sdk ok');
+    }
+});
+
+test('durable_object scheduling inlines its own container base on ctx.container and runs it', function () {
+    config(['edge.build.containers.durable_object_scheduling' => true]);
+    $site = new Site(['meta' => ['edge' => ['container' => ['scheduling' => 'durable_object', 'instance_type' => 'basic']]]]);
+    $site->id = '01SITEDOSCHED';
+    $dir = sys_get_temp_dir().'/dply-container-test-'.bin2hex(random_bytes(4));
+
+    (new EdgeContainerDeployer)->scaffold($dir, $site, '/build/src/Dockerfile.dply', 8080, []);
+    $config = json_decode(File::get($dir.'/wrangler.jsonc'), true);
+    $package = json_decode(File::get($dir.'/package.json'), true);
+    $worker = File::get($dir.'/src/index.js');
+
+    // Only the keys wrangler allows for Durable Object-managed containers.
+    expect($config['containers'][0])->toBe([
+        'class_name' => 'App',
+        'scheduling_policy' => 'durable_object',
+        'images' => ['app' => ['dockerfile' => '/build/src/Dockerfile.dply']],
+    ])
+        ->and($package['dependencies'])->toBe([])
+        ->and($worker)->not->toContain("from '@cloudflare/containers'")
+        ->and($worker)->toContain('const DO_INSTANCE = {"vcpu":0.25,"memoryMib":1024,"diskMb":4000};')
+        ->and($worker)->toContain('export class ContainerProxy extends WorkerEntrypoint')
+        ->and($worker)->not->toContain('__');
+
+    $node = (new ExecutableFinder)->find('node');
+    if ($node === null) {
+        return;
+    }
+    $stubbed = str_replace(
+        ["import { DurableObject } from 'cloudflare:workers';", "import { WorkerEntrypoint } from 'cloudflare:workers';"],
+        ['class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }', 'class WorkerEntrypoint { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }'],
+        $worker,
+    );
+    File::put($dir.'/src/check.mjs', $stubbed."\n".File::get(base_path('tests/Fixtures/do-container-check.mjs'))."\nconsole.log(await run());\n");
+    $result = Process::run([$node, $dir.'/src/check.mjs']);
+    expect(trim($result->output()))->toBe('ok', $result->errorOutput());
+
+    // With a release bundle: snapshots, with no delay so the test waits on nothing.
+    $bundled = str_replace(['const RELEASE_KEY = "";', 'const SNAPSHOT_DELAY_MS = 20000;'], ['const RELEASE_KEY = "releases/x/1.tar.gz";', 'const SNAPSHOT_DELAY_MS = 0;'], $stubbed);
+    File::put($dir.'/src/check-bundle.mjs', $bundled."\n".File::get(base_path('tests/Fixtures/do-container-check.mjs'))."\nconsole.log(await run());\n");
+    $result = Process::run([$node, $dir.'/src/check-bundle.mjs']);
+    // The snapshot code logs too ("dply-snapshot: …"); the harness prints ok last-ish.
+    expect(preg_split('/\R/', trim($result->output())))->toContain('ok')
+        ->and($result->output())->toContain('dply-snapshot: saved');
+});
+
+test('an app with a jurisdiction or regions stays on default scheduling', function () {
+    config(['edge.build.containers.durable_object_scheduling' => true]);
+    $site = new Site(['meta' => ['edge' => ['container' => ['scheduling' => 'durable_object', 'jurisdiction' => 'eu']]]]);
+    expect(EdgeContainerSettings::for($site)['scheduling'])->toBe('default');
+    $site = new Site(['meta' => ['edge' => ['container' => ['scheduling' => 'durable_object']]]]);
+    expect(EdgeContainerSettings::for($site)['scheduling'])->toBe('durable_object')
+        ->and(EdgeContainerSettings::durableObjectInstance(new Site(['meta' => ['edge' => ['container' => ['instance_type' => 'standard-2']]]])))->toBe('standard-2');
+});
+
+test('a durable_object candidate copy gets no max_instances (wrangler refuses it)', function () {
+    config(['edge.build.containers.durable_object_scheduling' => true]);
+    $site = new Site(['meta' => ['edge' => ['container' => ['scheduling' => 'durable_object']]]]);
+    $site->id = '01SITEDOCAND';
+    $dir = sys_get_temp_dir().'/dply-container-test-'.bin2hex(random_bytes(4));
+    (new EdgeContainerDeployer)->scaffold($dir, $site, '/x/Dockerfile', 8080, []);
+
+    EdgeContainerDeployer::asCandidate($dir, 'dply-ctr-01sitedocand-next');
+
+    expect(json_decode(File::get($dir.'/wrangler.jsonc'), true)['containers'][0])->not->toHaveKey('max_instances');
+});
+
+test('faster starts stays off unless the platform setting allows it', function () {
+    config(['edge.build.containers.durable_object_scheduling' => false]);
+    $site = new Site(['meta' => ['edge' => ['container' => ['scheduling' => 'durable_object']]]]);
+    expect(EdgeContainerSettings::for($site)['scheduling'])->toBe('default');
+});
+
+test('a request that lands while its instance stops for inactivity is retried, not answered with the SDK 500', function () {
+    $node = (new ExecutableFinder)->find('node');
+    if ($node === null) {
+        $this->markTestSkipped('node is not installed');
+    }
+    $site = new Site;
+    $site->id = '01SITERETRY';
+    $dir = sys_get_temp_dir().'/dply-retry-test-'.bin2hex(random_bytes(4));
+    (new EdgeContainerDeployer)->scaffold($dir, $site, '/x/Dockerfile', 8080, []);
+    $worker = File::get($dir.'/src/index.js');
+    File::deleteDirectory($dir);
+
+    // The real proxy(); its helpers stubbed to pass the response through.
+    $script = 'const httpRequest = (r) => r; const countReply = (env, r) => r; const revealAppErrors = (env, r) => r; const withStickyCookie = (r) => r;'
+        .'async function proxy(env, request, target) {'.Str::between($worker, 'async function proxy(env, request, target) {', "\n// One cold start")
+        .<<<'JS'
+
+    const run = async (first) => {
+      const calls = [];
+      let n = 0;
+      const container = {
+        fetch: async () => { calls.push('fetch'); return n++ === 0 ? new Response(first, { status: 500 }) : new Response('ok', { status: 200 }); },
+        startAndWaitForPorts: async () => { calls.push('start'); },
+      };
+      const res = await proxy({}, new Request('https://x/'), { container, cookie: null });
+      return { status: res.status, calls };
+    };
+    (async () => console.log(JSON.stringify({
+      stopping: await run('Error proxying request to container: The container is not listening'),
+      app: await run('Whoops, something went wrong'),
+    })))();
+    JS;
+    $out = json_decode(Process::run([$node, '-e', $script])->throw()->output(), true);
+
+    expect($out['stopping'])->toBe(['status' => 200, 'calls' => ['fetch', 'start', 'fetch']])
+        // The app's own 500 is its answer: no retry.
+        ->and($out['app'])->toBe(['status' => 500, 'calls' => ['fetch']]);
+});
+
+test('a generated laravel Dockerfile splits into a runtime image and a release of /app', function () {
+    $dir = checkout(['composer.json' => '{"require":{"php":"^8.3"}}', 'composer.lock' => '{}', 'artisan' => '', 'package.json' => '{"scripts":{"build":"vite build"}}']);
+    $dockerfile = File::get(EdgeContainerDockerfile::prepare($dir)['path']);
+
+    $split = EdgeReleaseBundle::split($dockerfile);
+
+    expect($split)->not->toBeNull();
+    // The runtime has no app: no dependencies, code, assets or caches.
+    expect($split['runtime'])->toStartWith('FROM php:8.4-fpm-alpine')
+        ->and($split['runtime'])->toContain('WORKDIR /app')
+        ->and($split['runtime'])->toContain('RUN printf %s ')
+        ->and($split['runtime'])->toContain('EXPOSE 8080')
+        ->and($split['runtime'])->not->toContain('COPY composer.json')
+        ->and($split['runtime'])->not->toContain('COPY . .')
+        ->and($split['runtime'])->not->toContain('route:cache >/dev/null 2>&1 || echo')
+        ->and($split['runtime'])->not->toContain('AS assets');
+    $cmd = json_decode(substr((string) Str::of($split['runtime'])->explode("\n")->last(fn ($l) => str_starts_with($l, 'CMD ')), 4), true);
+    expect($cmd[2])->toStartWith(EdgeReleaseBundle::FETCH)->and($cmd[2])->toContain('php-fpm -F');
+    // The release is the whole build plus a stage holding only /app.
+    expect($split['release'])->toContain('COPY . .')
+        ->and($split['release'])->toContain("FROM scratch AS dply-release\nCOPY --from=dply-app /app /")
+        ->and($split['release'])->toMatch('/^FROM php:8.4-fpm-alpine AS dply-app$/m')
+        ->and($split['hash'])->toHaveLength(16);
+    // Same runtime text, same hash: a code change does not rebuild the runtime.
+    File::put($dir.'/routes.php', '<?php // changed');
+    expect(EdgeReleaseBundle::split(File::get(EdgeContainerDockerfile::prepare($dir)['path']))['hash'])->toBe($split['hash']);
+});
+
+test('a repo Dockerfile does not split', function () {
+    expect(EdgeReleaseBundle::split("FROM ruby:3.3\nCOPY . .\nCMD [\"rails\", \"s\"]\n"))->toBeNull();
+});
+
+test('old releases are pruned to the newest three, and all go with the app', function () {
+    Storage::fake('edge_r2');
+    config(['edge.disk.name' => 'edge_r2']);
+    $site = new Site;
+    $site->id = '01SITEPRUNE';
+    $other = new Site;
+    $other->id = '01SITEOTHER';
+    $disk = Storage::disk('edge_r2');
+    foreach (range(1, 5) as $n) {
+        $disk->put(EdgeReleaseBundle::prefix($site)."r{$n}.tar.gz", 'x');
+        touch($disk->path(EdgeReleaseBundle::prefix($site)."r{$n}.tar.gz"), 1_700_000_000 + $n);
+    }
+    $disk->put(EdgeReleaseBundle::prefix($other).'keep.tar.gz', 'x');
+
+    expect(EdgeReleaseBundle::prune($site))->toBe(2)
+        ->and(collect($disk->files(EdgeReleaseBundle::prefix($site)))->map(fn ($p) => basename($p))->sort()->values()->all())->toBe(['r3.tar.gz', 'r4.tar.gz', 'r5.tar.gz']);
+
+    EdgeReleaseBundle::forget($site);
+    expect($disk->files(EdgeReleaseBundle::prefix($site)))->toBe([])
+        ->and($disk->exists(EdgeReleaseBundle::prefix($other).'keep.tar.gz'))->toBeTrue();
+});
+
+test('faster starts ship release bundles unless an app turns them off', function () {
+    config(['edge.build.containers.durable_object_scheduling' => true]);
+    $on = EdgeContainerSettings::for(new Site(['meta' => ['edge' => ['container' => ['scheduling' => 'durable_object']]]]));
+    $off = EdgeContainerSettings::for(new Site(['meta' => ['edge' => ['container' => ['scheduling' => 'durable_object', 'release_bundle' => false]]]]));
+    $default = EdgeContainerSettings::for(new Site);
+
+    expect(EdgeContainerSettings::releaseBundle($on))->toBeTrue()
+        ->and(EdgeContainerSettings::releaseBundle($off))->toBeFalse()
+        ->and(EdgeContainerSettings::releaseBundle($default))->toBeFalse();
 });

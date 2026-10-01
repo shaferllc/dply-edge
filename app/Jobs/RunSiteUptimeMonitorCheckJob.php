@@ -9,6 +9,7 @@ use App\Models\Site;
 use App\Models\SiteUptimeCheckResult;
 use App\Models\SiteUptimeIncident;
 use App\Models\SiteUptimeMonitor;
+use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Support\EdgeContainerInstances;
 use App\Modules\Edge\Support\EdgeContainerSettings;
 use App\Modules\Notifications\Services\NotificationPublisher;
@@ -132,7 +133,13 @@ class RunSiteUptimeMonitorCheckJob implements ShouldBeUnique, ShouldQueue
         // a check every 5 minutes kept it from ever reaching its sleep timeout.
         // Asleep, or awake only because of our own last check, means nothing
         // to check this round; keep the last result.
-        if (! $monitor->isSslCheck() && self::containerResting($site)) {
+        $resting = $monitor->isSslCheck() ? null : self::containerResting($site);
+        if ($resting === 'asleep') {
+            $this->recordAsleep($monitor);
+
+            return;
+        }
+        if ($resting === 'idle') {
             $monitor->forceFill(['last_checked_at' => now()])->save();
 
             return;
@@ -152,6 +159,15 @@ class RunSiteUptimeMonitorCheckJob implements ShouldBeUnique, ShouldQueue
             $outcome = $this->runSslCheck($monitor, $base, $emit);
         } else {
             $outcome = $this->runHttpCheck($monitor, $resolver->resolveFullUrl($site, $monitor) ?? $base, $emit);
+        }
+
+        // The Worker answered for a sleeping instance instead of waking it.
+        if ($outcome['state'] === MonitorOperationalState::ASLEEP) {
+            $this->recordAsleep($monitor);
+            $emit->success(__('Asleep. Not woken to be checked.'));
+            $this->completeConsoleAction();
+
+            return;
         }
 
         $this->persistOutcome($monitor, $outcome);
@@ -176,22 +192,23 @@ class RunSiteUptimeMonitorCheckJob implements ShouldBeUnique, ShouldQueue
     }
 
     /**
-     * True when the site is a container app with no always-awake instance that
-     * is asleep, or awake only because one of our checks was its last request
-     * (lastActivity from the site Worker). Asking the Worker never wakes one.
+     * A container app with no always-awake instance: 'asleep' (every instance
+     * is), 'idle' (awake only because one of our checks was its last request,
+     * for Workers from before x-dply-uptime), or null (check it). Asking the
+     * Worker never wakes one.
      */
-    private static function containerResting(Site $site): bool
+    private static function containerResting(Site $site): ?string
     {
         if (($site->edgeMeta()['runtime_mode'] ?? '') !== 'container'
             || EdgeContainerSettings::for($site)['min_instances'] > 0) {
-            return false;
+            return null;
         }
         $snapshot = EdgeContainerInstances::snapshot($site);
         if ($snapshot['instances'] === null) {
-            return false;
+            return null;
         }
         if ($snapshot['running'] === 0) {
-            return true;
+            return 'asleep';
         }
 
         $lastActivity = collect($snapshot['instances'])->pluck('lastActivity')->filter()->max();
@@ -199,7 +216,27 @@ class RunSiteUptimeMonitorCheckJob implements ShouldBeUnique, ShouldQueue
 
         // A check takes a few seconds; a request later than that came from someone else.
         return $lastActivity !== null && is_int($lastProbe)
-            && $lastActivity <= $lastProbe + self::HTTP_TIMEOUT_SECONDS + 5;
+            && $lastActivity <= $lastProbe + self::HTTP_TIMEOUT_SECONDS + 5 ? 'idle' : null;
+    }
+
+    /** Asleep: shown as such, not an outage; incidents and alerts are left as they are. */
+    private function recordAsleep(SiteUptimeMonitor $monitor): void
+    {
+        $monitor->forceFill(['last_state' => MonitorOperationalState::ASLEEP, 'last_checked_at' => now()])->save();
+    }
+
+    /**
+     * Container apps: mark the request as dply's check (EdgeContainerDeployer::uptimeToken).
+     *
+     * @return array<string, string>
+     */
+    private static function uptimeHeaders(SiteUptimeMonitor $monitor): array
+    {
+        $site = $monitor->site;
+
+        return $site instanceof Site && ($site->edgeMeta()['runtime_mode'] ?? '') === 'container'
+            ? ['x-dply-uptime' => EdgeContainerDeployer::uptimeToken($site)]
+            : [];
     }
 
     /** When a check last actually requested this site (skipped rounds don't count). */
@@ -277,9 +314,13 @@ class RunSiteUptimeMonitorCheckJob implements ShouldBeUnique, ShouldQueue
                     ->connectTimeout(self::CONNECT_TIMEOUT_SECONDS)
                     // The edge worker and usage totals leave out dply-* agents: our checks are not the customer's traffic.
                     ->withUserAgent('dply-uptime/1.0')
+                    ->withHeaders(self::uptimeHeaders($monitor))
                     ->get($attemptUrl);
                 $latency = $this->elapsedMs($started);
                 $status = $response->status();
+                if ($response->header('x-dply-asleep') === '1') {
+                    return ['state' => MonitorOperationalState::ASLEEP, 'ok' => true, 'http_status' => $status, 'latency_ms' => $latency, 'error' => null, 'checked_url' => $attemptUrl, 'meta' => [], 'ssl_should_warn' => false];
+                }
 
                 $statusOk = $expected !== null ? $status === $expected : $response->successful();
                 if (! $statusOk) {

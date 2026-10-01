@@ -172,6 +172,12 @@ return [
         // (Node + Docker CLI + wrangler) against the host Docker socket; it is
         // built from docker/edge-container-deployer on first use.
         'containers' => [
+            // Faster starts (Cloudflare's durable_object scheduling): offers the
+            // per-app switch. On since 2026-09-30, after placehold ran on it
+            // (the first failure, "There is no container application assigned
+            // to this Durable Object namespace", was the Worker uploaded before
+            // its application existed; the deploy now uploads again after).
+            'durable_object_scheduling' => (bool) env('DPLY_CONTAINERS_DURABLE_OBJECT_SCHEDULING', true),
             'deployer_image' => env('DPLY_EDGE_CONTAINER_DEPLOYER_IMAGE', 'dply/edge-container-deployer:1'),
             // Customer Dockerfiles build in this BuildKit builder (docker-container
             // driver on edge.build.sandbox.network), not the host daemon's.
@@ -418,6 +424,17 @@ return [
     'skip_card_check' => (bool) env('DPLY_EDGE_SKIP_CARD_CHECK', false),
 
     /*
+    | Messages: the HTTP message queue (packages/messages-worker),
+    | behind the `resource-messages` flag. `url` is what apps call (MESSAGES_URL);
+    | dply manages organizations and tokens with `operator_token`. Empty url =
+    | not deployed, and the page says so.
+    */
+    'messages' => [
+        'url' => rtrim((string) env('DPLY_MESSAGES_URL', ''), '/'),
+        'operator_token' => env('DPLY_MESSAGES_OPERATOR_TOKEN'),
+    ],
+
+    /*
     | Realtime: the customer relay (packages/realtime-worker, `--env apps`).
     | dply provisions an app by writing its credentials into the relay's KV
     | namespace; it never re-deploys the Worker. See docs/edge-realtime.md.
@@ -473,6 +490,8 @@ return [
                 'domain' => env('DPLY_VALKEY_DOMAIN', 'cache.dply.local'),
                 'db_domain' => env('DPLY_VALKEY_DB_DOMAIN', 'db.dply.local'),
                 'port' => (int) env('DPLY_VALKEY_PORT', 6380),
+                // Redis REST (valkey-gateway rest.go): https://{id}.{domain}:{rest_port}
+                'rest_port' => (int) env('DPLY_VALKEY_REST_PORT', 8443),
             ],
             ...(array) (json_decode((string) env('DPLY_VALKEY_REGIONS', '[]'), true) ?: []),
         ], 'is_array')),

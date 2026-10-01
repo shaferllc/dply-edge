@@ -15,10 +15,10 @@
         ],
         'register' => [
             'title' => 'Start in minutes',
-            'lead' => 'Create an account, add an organization, and connect your first cloud or SSH host.',
+            'lead' => 'Create an account, connect a Git repository, and deploy your first app.',
             'items' => [
                 ['icon' => 'org', 'title' => 'Organizations first', 'text' => 'Billing and resources group naturally for teams and side projects.'],
-                ['icon' => 'cloud', 'title' => 'Many clouds', 'text' => 'DigitalOcean, Hetzner, AWS, Linode, Vultr, and more—or bring any server over SSH.'],
+                ['icon' => 'cloud', 'title' => 'Deploys from Git', 'text' => 'Static sites, SSR and Laravel, Rails or Node containers on Cloudflare’s network, with databases, storage and queues.'],
                 ['icon' => 'key', 'title' => 'Vaulted secrets', 'text' => 'API tokens and deploy keys stay encrypted; teammates use the app, not raw secrets.'],
             ],
         ],

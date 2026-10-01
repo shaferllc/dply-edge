@@ -56,7 +56,7 @@ abstract class TestCase extends BaseTestCase
 
         // Resource feature flags default to on in tests, so they cover the
         // feature; EdgeResourceFlagsTest checks the flag itself.
-        foreach (EdgeContainerConnections::FLAGGED as $kind) {
+        foreach (array_keys(EdgeContainerConnections::flagLabels()) as $kind) {
             Feature::define(EdgeContainerConnections::flag($kind), static fn (): bool => true);
         }
 

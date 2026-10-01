@@ -37,6 +37,44 @@ returns the running total per tenant. The app's hourly
 `dply:edge:collect-valkey-usage` adds the change to `edge_redis_usage.awake_seconds`.
 `EdgeRedisCost` prices it per second by class, capped at the monthly price.
 
+## Redis over REST
+
+`rest.go` serves Redis over HTTPS on `REST_ADDR` (default `:8443`, `off`
+disables it), so plain `fetch()` and the common Redis REST clients work
+against a tenant from Workers and serverless functions:
+
+```bash
+curl https://{tenant}.{domain}:8443/get/k -H 'Authorization: Bearer {tenant password}'
+```
+
+- `POST /` with `["SET","k","v"]`, path style `GET /set/k/v`, `POST /pipeline`
+  and `POST /multi-exec`; replies are `{"result": …}` / `{"error": …}`, and
+  `Dply-Encoding: base64` (or `Upstash-Encoding`) is honoured.
+- The token is checked before the tenant wakes. Connections are pooled per
+  tenant and pod IP.
+- Blocking, pub/sub and connection-state commands are refused.
+- **Lua:** `EVAL`, `EVALSHA`, `SCRIPT` and `FCALL` pass through. Some clients'
+  scripts start `#!lua flags=allow-key-locking`, which Valkey rejects; unknown
+  flags are dropped and the client's SHA is mapped to the rewritten script's,
+  so `EVALSHA` keeps hitting. A sleeping tenant loses its script cache; clients
+  resend with `EVAL` on `NOSCRIPT`.
+- **Billing:** commands are counted per tenant and added to the
+  `dply.dev/rest-commands` annotation every 30 s; `GET /usage` returns
+  `rest_commands` next to `awake_seconds`.
+
+On the local cluster, `deploy/local-verify-rest.sh` (after `deploy/local-up.sh`)
+checks every shape, Lua, refusals, a bad token, a REST request waking a
+sleeping tenant, and the count in `/usage`.
+
+Tests: `go test ./...`. The live ones need a Valkey and, for the SDK check,
+the npm packages:
+
+```
+docker run -d --rm --name vg-rest-test -p 16379:6379 valkey/valkey:8-alpine valkey-server --requirepass testpass
+(mkdir -p /tmp/upstash-sdk && cd /tmp/upstash-sdk && npm init -y && npm i @upstash/redis @upstash/ratelimit)
+VALKEY_TEST_ADDR=127.0.0.1:16379 VALKEY_TEST_PASSWORD=testpass UPSTASH_SDK_DIR=/tmp/upstash-sdk go test -count=1 ./...
+```
+
 ## Local run (OrbStack Kubernetes)
 
 ```
@@ -73,7 +111,7 @@ would remove the list.
 
 - An informer for the pool, to take the Kubernetes list off the wake path.
 - Pool size per class should follow demand. It is a fixed `POOL` setting today.
-- Moving existing Upstash users across. The Laravel client, Resources UI, and per-second billing are in.
+- Moving apps off the old hosted Redis. The Laravel client, Resources UI, and per-second billing are in.
 - A production cluster (DOKS), with R2 credentials and a real wildcard certificate.
 - Two gateways run active/standby (`leader.go`): they share a Lease, the holder
   labels its pod `role=active`, and the Service only sends traffic there, so the

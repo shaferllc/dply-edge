@@ -140,7 +140,7 @@ test('env uses the app host only with per_app_hosts on', function () {
     config(['edge.realtime.per_app_hosts' => true]);
     expect(array_unique(array_values($hosts())))->toBe(['shop-a1b2c3.realtime.dply.io'])
         ->and(EdgeContainerConnections::realtimeBuildEnv($site)['VITE_REVERB_HOST'])->toBe('shop-a1b2c3.realtime.dply.io')
-        ->and(collect(EdgeContainerConnections::realtimeWorkerBindings($site))->firstWhere('name', 'PUSHER_HOST')['text'])->toBe('shop-a1b2c3.realtime.dply.io');
+        ->and(collect(EdgeContainerConnections::resourceWorkerBindings($site))->firstWhere('name', 'PUSHER_HOST')['text'])->toBe('shop-a1b2c3.realtime.dply.io');
 });
 
 test('an app without a hostname stays on the shared host with the flag on', function () {

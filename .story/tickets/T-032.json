@@ -1,0 +1,12 @@
+{
+  "blockedBy": [],
+  "completedDate": null,
+  "createdDate": "2026-09-30",
+  "description": "Follows T-029 (built, not deployed). 1) On the platform Cloudflare account: create the KV namespace dply-messages-accounts and the queues dply-messages-delivery / dply-messages-dead, paste the KV id into wrangler.toml, `wrangler secret put OPERATOR_TOKEN`, `wrangler deploy`, give it a host (e.g. messages.dply.io). 2) dply env: DPLY_MESSAGES_URL, DPLY_MESSAGES_OPERATOR_TOKEN; queue:restart. 3) Turn on for test orgs: `php artisan dply:feature messages {org}`. 4) Before a public launch: owner decisions on the price ($0.50/100K default) and on T-030 (separate product vs inside dply); then add the meter to UsagePrice::rates() (pricing page + generated docs), public docs, and optional per-app QSTASH_* env injection. Known gaps vs QStash: URL groups/topics, queues with parallelism, flow control, CRON_TZ, DNS-rebinding checks.",
+  "id": "T-032",
+  "order": 110,
+  "phase": null,
+  "status": "open",
+  "title": "Deploy dply Messages (packages/messages-worker) and open it beyond the flag",
+  "type": "task"
+}

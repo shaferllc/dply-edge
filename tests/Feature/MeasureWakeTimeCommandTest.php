@@ -49,7 +49,7 @@ test('waits until the app is asleep, then times one cold and the warm requests',
     ]);
 
     $this->artisan('dply:edge:wake-time', ['site' => $site->id, '--path' => '/health', '--warm' => 3])
-        ->expectsOutputToContain('Waiting for it to fall asleep (up to 8 min)')
+        ->expectsOutputToContain('Waiting for it to fall asleep (up to 11 min)')
         ->expectsOutputToContain('Cold (first request after sleep):')
         ->expectsOutputToContain('Warm, 3 requests: median')
         ->expectsOutputToContain('Wake overhead: ~')
@@ -158,4 +158,23 @@ test('--recent with nothing recorded yet says so', function () {
     $this->artisan('dply:edge:wake-time', ['site' => $site->id, '--recent' => true])
         ->expectsOutputToContain('No cold starts recorded in the last 7 days')
         ->assertSuccessful();
+});
+
+test('--force puts the app to sleep through the Worker, then times the wake', function () {
+    Sleep::fake();
+    $site = wakeApp();
+    Http::fake([
+        'shop.on-dply.live/_dply/sleep' => Http::response(['ok' => true]),
+        'shop.on-dply.live/_dply/instances' => Http::sequence()->push(instances('healthy'))->push(instances('stopped')),
+        'shop.on-dply.live/' => Http::response('ok'),
+    ]);
+
+    $this->artisan('dply:edge:wake-time', ['site' => $site->id, '--force' => true, '--warm' => 1])
+        ->expectsOutputToContain('Cold (first request after sleep):')
+        ->assertSuccessful();
+
+    $order = Http::recorded()->map(fn ($pair) => $pair[0]->method().' '.parse_url($pair[0]->url(), PHP_URL_PATH))->values()->all();
+    expect(array_slice($order, 0, 3))->toBe(['POST /_dply/sleep', 'GET /_dply/instances', 'GET /_dply/instances'])
+        ->and(Http::recorded(fn (Request $r): bool => str_ends_with($r->url(), '/_dply/sleep'))->first()[0]->hasHeader('x-dply-queue-token'))->toBeTrue();
+    Sleep::assertSleptTimes(2); // one poll, then the settle pause
 });

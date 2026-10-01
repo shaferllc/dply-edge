@@ -79,7 +79,7 @@ These wake an app and then let it sleep again after the timeout:
 - The Laravel scheduler, but only when one of your scheduled tasks is due. See [Scheduled tasks](/docs/scheduled-tasks).
 - A scheduled task from Overview.
 
-dply's own uptime checks do not keep an app awake. A check is skipped while the app is asleep, and also when the app's last request was the previous check, so the app still reaches its sleep timeout.
+dply's own uptime checks do not keep an app awake. While the app is asleep a check does not wake it and reads **Asleep**; while it is awake a check is not counted as a request, so the app still reaches its sleep timeout. (Apps last deployed before this change skip the check when its previous check was the last request.)
 
 [Queue workers](/docs/queue-workers) run as their own always-on instances and do not keep the web instances awake.
 

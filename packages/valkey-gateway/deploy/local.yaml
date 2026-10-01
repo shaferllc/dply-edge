@@ -121,6 +121,7 @@ spec:
             - { containerPort: 6380, name: valkey }
             - { containerPort: 5432, name: postgres }
             - { containerPort: 8080, name: api }
+            - { containerPort: 8443, name: rest }
           volumeMounts:
             - { name: tls, mountPath: /tls, readOnly: true }
       volumes:
@@ -140,3 +141,5 @@ spec:
     # 15432 locally: the Mac usually has its own Postgres on 5432.
     - { name: postgres, port: 15432, targetPort: 5432 }
     - { name: api, port: 8080, targetPort: 8080 }
+    # Redis REST (rest.go): https://{tenant}.{domain}:8443
+    - { name: rest, port: 8443, targetPort: 8443 }

@@ -32,6 +32,17 @@
         <span class="mt-0.5 block text-2xs text-brand-moss">{{ __('Resize and convert pictures') }}</span>
         {!! $more !!}
     </button>
+@elseif ($connection['kind'] === 'messages')
+    {{-- Messages opens its sheet: the MESSAGES_* values, sleep and detach live there. --}}
+    <button type="button" wire:click="$set('messagesHost', '{{ $connection['host'] }}')" wire:island="resources-messages" x-on:click="$dispatch('open-modal', 'resources-messages')" @class([$node, 'resource-asleep border-dashed' => $connection['asleep']])>
+        <span class="flex items-center justify-between gap-2">
+            <span class="flex items-center gap-1.5 {{ $eyebrow }}"><x-resource-kind-icon kind="messages" class="h-3.5 w-3.5 shrink-0" />{{ __($connectionKinds['messages']['label']) }}</span>
+            {!! $connection['asleep'] ? '<span class="flex items-center">'.$pill(__('Asleep'), 'sleep').$snore.'</span>' : $pill(__('On'), 'ok') !!}
+        </span>
+        <span class="mt-1.5 block font-mono text-xs font-semibold text-brand-ink">MESSAGES_TOKEN</span>
+        <span class="mt-0.5 block text-2xs text-brand-moss">{{ __('Delayed and scheduled HTTP messages') }}</span>
+        {!! $more !!}
+    </button>
 @elseif ($connection['kind'] === 'vectors')
     {{-- Vector search opens its sheet like the other boxes; search, sleep, detach and delete live there. --}}
     <button type="button" wire:click="openResource('{{ $connection['host'] }}')" wire:island="resources-vectors" @class([$node, 'resource-asleep border-dashed' => $connection['asleep']])>
@@ -47,11 +58,12 @@
         {!! $more !!}
     </button>
 @elseif ($connection['kind'] === 'key_value')
-    {{-- The key-value store opens its sheet like the other boxes; keys, sleep, detach and delete live there. --}}
+    {{-- The key-value store opens its sheet like the other boxes; keys, sleep, detach and delete live there.
+         "Ready" while the app sleeps: nothing runs, only stored data bills (same for object storage). --}}
     <button type="button" wire:click="openKv('{{ $connection['host'] }}')" wire:island="resources-kv" wire:loading.attr="disabled" wire:target="openKv" @class([$node, 'resource-asleep border-dashed' => $connection['asleep']])>
         <span class="flex items-center justify-between gap-2">
             <span class="flex items-center gap-1.5 {{ $eyebrow }}"><x-resource-kind-icon kind="key_value" class="h-3.5 w-3.5 shrink-0" />{{ __($connectionKinds['key_value']['label']) }}</span>
-            {!! $connection['asleep'] ? '<span class="flex items-center">'.$pill(__('Asleep'), 'sleep').$snore.'</span>' : $pill(__('On'), 'ok') !!}
+            {!! $connection['asleep'] ? '<span class="flex items-center">'.$pill(__('Asleep'), 'sleep').$snore.'</span>' : $pill(($appAsleep ?? false) ? __('Ready') : __('On'), 'ok') !!}
         </span>
         <span class="mt-1.5 block truncate text-sm font-bold text-brand-ink">{{ \App\Modules\Edge\Support\EdgeContainerConnections::resourceLabel($connection['host']) }}</span>
         <span class="mt-0.5 block truncate font-mono text-2xs text-brand-moss">{{ $isWorker ? 'env.'.$connection['name'] : $connection['host'] }}</span>
@@ -65,7 +77,7 @@
     <button type="button" wire:click="openObject('{{ $connection['host'] }}')" wire:island="resources-object" x-on:click="$dispatch('open-modal', 'resources-object')" @class([$node, 'resource-asleep border-dashed' => $connection['asleep']])>
         <span class="flex items-center justify-between gap-2">
             <span class="flex items-center gap-1.5 {{ $eyebrow }}"><x-resource-kind-icon kind="object_storage" class="h-3.5 w-3.5 shrink-0" />{{ __($connectionKinds['object_storage']['label']) }}</span>
-            {!! $connection['asleep'] ? '<span class="flex items-center">'.$pill(__('Asleep'), 'sleep').$snore.'</span>' : $pill(__('On'), 'ok') !!}
+            {!! $connection['asleep'] ? '<span class="flex items-center">'.$pill(__('Asleep'), 'sleep').$snore.'</span>' : $pill(($appAsleep ?? false) ? __('Ready') : __('On'), 'ok') !!}
         </span>
         <span class="mt-1.5 block truncate text-sm font-bold text-brand-ink" title="{{ $connection['target'] }}">{{ \App\Modules\Edge\Support\EdgeContainerConnections::resourceLabel($connection['host']) }}</span>
         <span class="mt-0.5 block truncate font-mono text-2xs text-brand-moss">{{ $isWorker ? 'env.'.$connection['name'] : $connection['host'] }}</span>
@@ -88,6 +100,9 @@
         <span class="mt-0.5 block truncate font-mono text-2xs text-brand-moss">{{ \App\Modules\Edge\Services\Realtime\EdgeRealtimeApps::hostFor($realtimeRow) }}</span>
         @if (isset($connectionEstimates[$connection['host']]))
             <span class="mt-1 block font-mono text-2xs text-brand-mist"><b class="text-brand-ink">${{ number_format($connectionEstimates[$connection['host']] / 100, 2) }}</b> {{ __('this month') }}</span>
+        @endif
+        @if (($appAsleep ?? false) && ! $connection['asleep'])
+            {!! $sleepNote(__('Stays up for connected browsers while the app sleeps')) !!}
         @endif
         {!! $more !!}
     </button>

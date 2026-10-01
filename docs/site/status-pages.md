@@ -9,7 +9,7 @@ A status page is a public page where you tell your users how your service is doi
 
 Every app gets two uptime checks when it's created: **Homepage (HTTPS)** and **Homepage (HTTP)**. They request the app's live URL every 5 minutes. When the app has a verified custom domain, the checks use that domain; otherwise they use the app's `on-dply.live` hostname. A check that is down is retried every 15 minutes until it recovers.
 
-A check reads **Operational** when the page answers with a success status, **Degraded** when it answers slowly, and **Outage** when it fails. Until an app has been deployed, it has no live URL, so its checks read **Outage**.
+A check reads **Operational** when the page answers with a success status, **Degraded** when it answers slowly, and **Outage** when it fails. A [container app](/docs/containers) that is asleep reads **Asleep**: the check does not wake it, and a check of an awake app does not count as a request, so checks never keep an app from sleeping. Until an app has been deployed, it has no live URL, so its checks read **Outage**.
 
 To hear about it when a check goes down or recovers, subscribe to the **Site uptime monitoring** events on the app's **Alerts** page. See [Notification channels](/docs/notifications).
 
@@ -44,6 +44,7 @@ Each component shows one of these states on the public page:
 | **Operational** | Healthy. |
 | **Degraded** | Up but impaired. |
 | **Outage** | Down. |
+| **Asleep** | A container app that is asleep. Its checks do not wake it, and it counts as healthy. |
 | **Unknown** | No recent check: the app was just added, or its checks have stopped reporting. |
 
 **Unknown** is shown on the component only. It doesn't change the page's overall banner.

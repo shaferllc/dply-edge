@@ -369,6 +369,12 @@
         @endplaceholder
         @include('livewire.sites.edge.workspace.partials.sheets.images')
     @endisland
+    @island(name: 'resources-messages', always: true, skip: true, with: $this->viewData())
+        @placeholder
+            <x-sheet.pending name="resources-messages" maxWidth="3xl" />
+        @endplaceholder
+        @include('livewire.sites.edge.workspace.partials.sheets.messages')
+    @endisland
     @island(name: 'resources-valkey', always: true, skip: true, with: $this->viewData())
         @placeholder
             <x-sheet.pending name="resources-valkey" maxWidth="3xl" />

@@ -232,6 +232,38 @@
 
             @include('livewire.sites.edge.workspace.partials.sheets.metered-usage', ['service' => 'vectors'])
 
+            {{-- Over HTTPS: vector REST served by the app's own Worker (EdgeContainerDeployer vectorRestFetch). --}}
+            @if (is_array($vectorsConnection))
+                <x-sheet.section :title="__('Over HTTPS (from anywhere)')">
+                    @if ($isWorker)
+                        <p class="text-xs text-brand-moss">{{ __('The HTTPS API is for container apps for now. A Worker app uses env.:name directly.', ['name' => $vectorsName]) }}</p>
+                    @else
+                        @php $vectorsRestUrl = \App\Modules\Edge\Support\EdgeContainerConnections::vectorRestUrl($site, $vectorsName); @endphp
+                        <p class="text-xs text-brand-moss">{{ __('This index answers over HTTPS at your app’s address, so other apps, scripts and serverless code can use it. Queries count toward usage like the app’s own. The next deploy turns it on and sets VECTOR_REST_URL and VECTOR_REST_TOKEN in the app.') }}</p>
+                        <div x-data="{ token: '' }">
+                            <x-sheet.stat :label="__('REST URL')">
+                                <span class="inline-flex items-center gap-2">
+                                    <span class="break-all">{{ $vectorsRestUrl }}</span>
+                                    <button type="button" x-on:click="navigator.clipboard.writeText({{ \Illuminate\Support\Js::from($vectorsRestUrl) }})" class="font-sans text-2xs font-semibold text-brand-sage hover:underline">{{ __('Copy') }}</button>
+                                </span>
+                            </x-sheet.stat>
+                            <x-sheet.stat :label="__('Token')">
+                                <span class="inline-flex items-center gap-2">
+                                    <span class="break-all" x-text="token || '••••••••'"></span>
+                                    <button type="button" x-show="! token" x-on:click="token = await $wire.$island('resources-vectors').vectorRestToken()" class="font-sans text-2xs font-semibold text-brand-sage hover:underline">{{ __('Show') }}</button>
+                                    <button type="button" x-show="token" x-cloak x-on:click="navigator.clipboard.writeText(token)" class="font-sans text-2xs font-semibold text-brand-sage hover:underline">{{ __('Copy') }}</button>
+                                    <button type="button" x-on:click="if (confirm({{ \Illuminate\Support\Js::from(__('Make a new token? The old one keeps working until the next deploy.')) }})) token = await $wire.$island('resources-vectors').rotateVectorRestToken()" class="font-sans text-2xs font-semibold text-brand-moss hover:underline">{{ __('Rotate') }}</button>
+                                </span>
+                            </x-sheet.stat>
+                        </div>
+                        @php $vectorsRestExample = "curl {$vectorsRestUrl}/upsert -H \"Authorization: Bearer \$VECTOR_REST_TOKEN\" \\\n  -d '[{\"id\":\"doc-1\",\"vector\":[0.1,0.2,...],\"metadata\":{\"title\":\"Hello\"}}]'\n\ncurl {$vectorsRestUrl}/query -H \"Authorization: Bearer \$VECTOR_REST_TOKEN\" \\\n  -d '{\"vector\":[0.1,0.2,...],\"topK\":5,\"includeMetadata\":true}'"; @endphp
+                        <pre class="{{ $vectorsCode }}">{{ $vectorsRestExample }}</pre>
+                        <p class="text-2xs leading-4 text-brand-mist">{{ __('Send vectors, not text (dply does not embed for you). upsert, query, fetch, delete and info work, with namespaces; filters, range and reset are refused. New vectors take a few seconds to show up in queries.') }}</p>
+                    @endif
+                </x-sheet.section>
+            @endif
+
+
             @can('update', $site)
                 {{-- Sleep: like the other resources. --}}
                 <x-sheet.section :title="__('Sleep')">

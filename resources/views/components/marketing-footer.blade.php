@@ -38,10 +38,15 @@
             </div>
         @endcan
         <div class="mt-5 pt-4 border-t border-white/10 flex flex-col sm:flex-row justify-between items-center gap-2 text-xs text-brand-mist">
-            <span>&copy; {{ date('Y') }} dply. All rights reserved.
+            <span>&copy; {{ date('Y') }} {{ config('legal.entity') }}. All rights reserved.
                 <span class="ml-2 font-mono text-brand-sand/40" title="{{ \App\Support\AppVersion::sha() }}">v{{ \App\Support\AppVersion::date() }}</span>
             </span>
-            <span class="hidden sm:inline text-brand-sand/50">Built for regulated teams and growing engineering orgs.</span>
+            <nav aria-label="{{ __('Legal') }}" class="flex flex-wrap gap-x-3">
+                <a href="{{ route('legal.terms') }}" class="hover:text-brand-cream transition-colors">{{ __('Terms') }}</a>
+                <a href="{{ route('legal.privacy') }}" class="hover:text-brand-cream transition-colors">{{ __('Privacy') }}</a>
+                <a href="{{ route('legal.acceptable-use') }}" class="hover:text-brand-cream transition-colors">{{ __('Acceptable use') }}</a>
+                <a href="{{ route('legal.dpa') }}" class="hover:text-brand-cream transition-colors">{{ __('DPA') }}</a>
+            </nav>
         </div>
     </div>
 </footer>

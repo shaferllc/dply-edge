@@ -15,6 +15,7 @@ use App\Modules\Edge\Services\Containers\EdgeContainerUsageCollector;
 use App\Modules\Edge\Support\EdgeContainerSettings;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 
 uses(RefreshDatabase::class);
@@ -75,6 +76,25 @@ test('the collector matches container applications to sites by script name', fun
         ->and($row->memory_gib_seconds)->toBe(3600.0)
         ->and($row->tx_bytes)->toBe(5)
         ->and(app(EdgeContainerComputeCost::class)->forOrganization($org, now()->startOfMonth(), now())['cents'])->toBe(1); // 0.24¢ cpu + 0.9¢ mem = 1.14¢, rounded once
+});
+
+test('a faster-starts application listed without dashes is matched to its dashed usage', function () {
+    $org = Organization::factory()->create();
+    $server = Server::factory()->create(['organization_id' => $org->id]);
+    $site = Site::factory()->create(['organization_id' => $org->id, 'server_id' => $server->id]);
+
+    Http::fake([
+        'api.cloudflare.com/client/v4/graphql' => Http::response(['data' => ['viewer' => ['accounts' => [['containersUsageAdaptiveGroups' => [
+            ['dimensions' => ['applicationId' => '213f9bc3-db1b-4bc5-b1ee-7e3f1a3dcdde'], 'sum' => ['cpuTimeSec' => 60, 'allocatedMemory' => 0, 'allocatedDisk' => 0, 'txBytes' => 0]],
+        ]]]]]]),
+        'api.cloudflare.com/client/v4/accounts/acct/containers/applications' => Http::response(['success' => true, 'result' => [
+            ['id' => '213f9bc3db1b4bc5b1ee7e3f1a3dcdde', 'name' => 'dply-ctr-'.strtolower((string) $site->id).'-app'],
+        ]]),
+    ]);
+
+    (new EdgeContainerUsageCollector(new EdgeCloudflareClient('acct', 'token')))->collectForDate(now()->startOfDay());
+
+    expect(EdgeContainerUsage::query()->where('site_id', $site->id)->value('cpu_seconds'))->toBe(60.0);
 });
 
 test('the monthly cap never sells an always-on 100%-CPU instance below cost, at any margin', function () {
@@ -185,7 +205,7 @@ test('the collector stores counted reply bytes, null for a site whose Worker nev
     $sites = ['a' => $counted, 'b' => $idle, 'c' => $old, 'd' => $streaming];
     $aeFails = false;
 
-    Http::fake(function (\Illuminate\Http\Client\Request $request) use ($sites, &$aeFails) {
+    Http::fake(function (Request $request) use ($sites, &$aeFails) {
         if (str_contains($request->url(), '/analytics_engine/sql')) {
             if ($aeFails) {
                 return Http::response('unknown dataset', 400);

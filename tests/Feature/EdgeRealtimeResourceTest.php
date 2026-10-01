@@ -221,7 +221,7 @@ test('a Worker app gets the env as bindings, secrets as secret_text, its own nam
     $app = app(EdgeRealtimeApps::class)->provision($site, 'x');
     attachRealtime($site, $app);
 
-    $bindings = collect(EdgeContainerConnections::realtimeWorkerBindings($site, ['REVERB_HOST']))->keyBy('name');
+    $bindings = collect(EdgeContainerConnections::resourceWorkerBindings($site, ['REVERB_HOST']))->keyBy('name');
 
     expect($bindings->get('REVERB_APP_KEY'))->toBe(['name' => 'REVERB_APP_KEY', 'type' => 'plain_text', 'text' => $app->app_key])
         ->and($bindings->get('REVERB_APP_SECRET')['type'])->toBe('secret_text')

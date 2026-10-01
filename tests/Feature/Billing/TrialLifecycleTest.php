@@ -6,6 +6,7 @@ use App\Models\Organization;
 use App\Models\User;
 use App\Modules\Billing\Models\Subscription;
 use App\Modules\Billing\Services\OrganizationBillingEnforcer;
+use App\Modules\Billing\Services\OrganizationDataPurger;
 use App\Modules\Billing\Services\StarterUsageBudget;
 use App\Notifications\OrganizationBillingNotice;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -192,4 +193,19 @@ test('a paying customer keeps running while Stripe retries the card; a failed fi
     $gone = trialOrg(['trial_ends_at' => null]);
     Subscription::factory()->withPrice('price_tier_pro')->create(['organization_id' => $gone->id, 'stripe_status' => 'unpaid']);
     expect($gone->fresh()->billingTier())->toBe('none');
+});
+
+test('an org on legal hold is never purged or warned, and a release restarts the full keep period', function () {
+    Notification::fake();
+    $org = trialOrg(['trial_ends_at' => now()->subDays(60), 'billing_paused_at' => now()->subDays(45)]);
+    $this->artisan('dply:billing:hold', ['organization' => $org->id, '--reason' => 'Preservation request'])->assertSuccessful();
+
+    $this->artisan('dply:billing:enforce')->expectsOutputToContain('on legal hold')->doesntExpectOutputToContain(': purge')->assertSuccessful();
+    Notification::assertNothingSent();
+    expect(app(OrganizationDataPurger::class)->purge($org))->toBe(['on legal hold: nothing deleted']);
+
+    $this->artisan('dply:billing:hold', ['organization' => $org->id, '--off' => true])->assertSuccessful();
+    expect($org->fresh()->billing_paused_at->isToday())->toBeTrue();
+    $this->artisan('dply:billing:enforce')->doesntExpectOutputToContain(': purge')->assertSuccessful();
+    Notification::assertNothingSent();
 });

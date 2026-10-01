@@ -53,7 +53,7 @@ class FeatureFlags extends Component
     {
         abort_unless(app()->isLocal(), 404);
         $this->authorizePlatformAdmin();
-        abort_unless(in_array($kind, EdgeContainerConnections::FLAGGED, true), 404);
+        abort_unless(array_key_exists($kind, EdgeContainerConnections::flagLabels()), 404);
     }
 
     public function render(): View
@@ -63,11 +63,11 @@ class FeatureFlags extends Component
             ->orderBy('name')
             ->limit(100)
             ->get(['id', 'name', 'slug']);
-        $flags = array_map(EdgeContainerConnections::flag(...), EdgeContainerConnections::FLAGGED);
+        $flags = array_map(EdgeContainerConnections::flag(...), array_keys(EdgeContainerConnections::flagLabels()));
 
         return view('livewire.admin.feature-flags', [
             'organizations' => $organizations,
-            'kinds' => collect(EdgeContainerConnections::FLAGGED)->mapWithKeys(fn (string $k): array => [$k => EdgeContainerConnections::KINDS[$k]['label']])->all(),
+            'kinds' => EdgeContainerConnections::flagLabels(),
             'states' => $organizations->mapWithKeys(fn (Organization $o): array => [$o->id => Feature::for($o)->values($flags)])->all(),
         ]);
     }

@@ -31,12 +31,12 @@ class DplyFeatureCommand extends Command
                 $k,
                 EdgeContainerConnections::flag($k),
                 Organization::query()->get()->filter(fn (Organization $o): bool => Feature::for($o)->active(EdgeContainerConnections::flag($k)))->pluck('slug')->implode(', ') ?: '—',
-            ], EdgeContainerConnections::FLAGGED));
+            ], array_keys(EdgeContainerConnections::flagLabels())));
 
             return self::SUCCESS;
         }
-        if (! in_array($kind, EdgeContainerConnections::FLAGGED, true)) {
-            $this->error('Pick one of: '.implode(', ', EdgeContainerConnections::FLAGGED));
+        if (! array_key_exists($kind, EdgeContainerConnections::flagLabels())) {
+            $this->error('Pick one of: '.implode(', ', array_keys(EdgeContainerConnections::flagLabels())));
 
             return self::FAILURE;
         }

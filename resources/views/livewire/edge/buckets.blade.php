@@ -27,7 +27,7 @@
                     @endforeach
                 </select>
                 <x-primary-button wire:loading.attr="disabled" wire:target="create">{{ __('Create bucket') }}</x-primary-button>
-                <p class="basis-full text-xs text-brand-mist">{{ __('Billed per GB stored and per read and write, from your plan’s included usage credit first. The location cannot change later.') }}</p>
+                <p class="basis-full text-xs text-brand-mist">{{ __('Billed per GB stored and per read and write, from your plan’s included usage credit first. The location is a placement hint, not a data-residency guarantee, and cannot change later.') }}</p>
             </form>
 
             <div class="overflow-x-auto rounded-xl border border-brand-ink/10 bg-white dark:bg-zinc-900">

@@ -45,8 +45,8 @@ $deployQueues = array_values(array_intersect([
 ], $consumes));
 
 // default (notifications), dply-builder (short builder-host jobs),
-// dply-background, dply-control, dply-manage, probes:worker-1 (uptime probes,
-// mirror site_uptime.probe_workers) — whichever this host drains.
+// dply-background, dply-control, dply-manage (plus a probes:<worker> queue per
+// site_uptime.probe_workers entry, none today) — whichever this host drains.
 $fastQueues = array_values(array_diff($consumes, $buildQueues, $deployQueues));
 
 $withQueues = static fn (array $supervisors): array => array_filter(

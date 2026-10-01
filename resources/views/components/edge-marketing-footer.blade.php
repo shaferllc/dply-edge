@@ -47,8 +47,13 @@
         </div>
 
         <div class="mt-10 flex flex-col gap-3 border-t border-edge-line pt-6 sm:flex-row sm:items-center sm:justify-between">
-            <p class="font-terminal text-xs text-edge-faint">&copy; {{ date('Y') }} dply</p>
-            <p class="font-terminal text-xs text-edge-faint">{{ __('Built on Dply Edge') }}</p>
+            <p class="font-terminal text-xs text-edge-faint">&copy; {{ date('Y') }} {{ config('legal.entity') }}</p>
+            <nav aria-label="{{ __('Legal') }}" class="flex flex-wrap gap-x-4 gap-y-1 font-terminal text-xs">
+                <a href="{{ route('legal.terms') }}" class="text-edge-faint transition-colors hover:text-edge-text">{{ __('Terms') }}</a>
+                <a href="{{ route('legal.privacy') }}" class="text-edge-faint transition-colors hover:text-edge-text">{{ __('Privacy') }}</a>
+                <a href="{{ route('legal.acceptable-use') }}" class="text-edge-faint transition-colors hover:text-edge-text">{{ __('Acceptable use') }}</a>
+                <a href="{{ route('legal.dpa') }}" class="text-edge-faint transition-colors hover:text-edge-text">{{ __('DPA') }}</a>
+            </nav>
         </div>
     </div>
 </footer>

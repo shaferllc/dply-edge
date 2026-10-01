@@ -1,0 +1,51 @@
+# dply Messages: an HTTP message queue (README.md).
+# NOT DEPLOYED. The ids below are placeholders: create the KV namespace and the
+# two queues on the platform account, paste their ids, set OPERATOR_TOKEN with
+# `wrangler secret put OPERATOR_TOKEN`, then `wrangler deploy`. dply provisions
+# organizations by calling the operator API (never by re-deploying).
+name = "dply-messages"
+main = "src/index.ts"
+compatibility_date = "2025-05-01"
+workers_dev = true
+
+[vars]
+ENVIRONMENT = "production"
+# Hosts a message may never be sent to (suffix match), besides private and
+# reserved IP literals, localhost and .internal / .local names.
+BLOCKED_HOST_SUFFIXES = "dply.io,on-dply.live,on-dply.site,on-dply.cc,dply.local"
+
+# Organizations and tokens, written by dply through the operator API:
+#   org:{orgId}         -> { enabled, currentSigningKey, nextSigningKey, limits }
+#   token:{sha256(tok)} -> { org }
+[[kv_namespaces]]
+binding = "ACCOUNTS"
+id = "fa20bdf3faf244c5b28c346cfa4466cd"
+
+# One Durable Object per organization: messages, schedules, dedup ids, the
+# DLQ and usage counters (SQLite). It holds long delays and cron schedules
+# with alarms and hands due messages to the delivery queue.
+[[durable_objects.bindings]]
+name = "ORG"
+class_name = "OrgState"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["OrgState"]
+
+# Delivery: each queue message is {org, id}. The consumer checks the message
+# is still pending, delivers it signed, and retries or dead-letters it.
+[[queues.producers]]
+binding = "DELIVERY"
+queue = "dply-messages-delivery"
+
+[[queues.consumers]]
+queue = "dply-messages-delivery"
+max_batch_size = 25
+max_batch_timeout = 1
+# Retries are counted per message in the Durable Object; this only catches
+# a consumer that crashes.
+max_retries = 10
+dead_letter_queue = "dply-messages-dead"
+
+[observability]
+enabled = true

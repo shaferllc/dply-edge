@@ -128,7 +128,7 @@ class OrganizationBillingStateComputer
             'compute' => $this->computeCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd)['cents'],
             'databases' => $this->databaseCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd)['cents'],
             'valkey' => $this->redisCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd)['cents'],
-            'data' => $data['cents'] + $kv['cents'],
+            'data' => $data['cents'] + $kv['cents'] + app(EdgeMessagesCost::class)->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd)['cents'],
             'realtime' => $this->realtimeCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd)['cents'],
             'platform' => $this->platformUsageCost->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd)['cents'],
             'ai' => app(EdgeMeteredUsageCost::class)->forOrganization($organization, $usagePeriodStart, $usagePeriodEnd)['cents'],

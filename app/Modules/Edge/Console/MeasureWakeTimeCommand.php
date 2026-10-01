@@ -35,7 +35,8 @@ class MeasureWakeTimeCommand extends Command
         {site : Site id of a container app}
         {--path=/ : Path to request}
         {--warm=5 : Warm requests after the cold one}
-        {--wait= : Seconds to wait for the app to fall asleep (default: its sleep-after plus 3 minutes)}
+        {--wait= : Seconds to wait for the app to fall asleep (default: its sleep-after plus 6 minutes)}
+        {--force : Put the app to sleep now (through the Worker at /_dply/sleep) instead of waiting for it to idle out}
         {--poll=30 : Seconds between asleep checks}
         {--recent : Report the cold starts real visitors hit in the last 7 days instead of measuring}';
 
@@ -61,11 +62,28 @@ class MeasureWakeTimeCommand extends Command
         }
 
         $poll = max(1, (int) $this->option('poll'));
-        $wait = $this->option('wait') !== null ? (int) $this->option('wait') : self::seconds($settings['sleep_after']) + 180;
+        // The SDK checks for idleness on an alarm that can lag ~3 minutes behind sleepAfter.
+        $wait = $this->option('wait') !== null ? (int) $this->option('wait') : self::seconds($settings['sleep_after']) + 360;
+        if ($this->option('force')) {
+            try {
+                Http::timeout(60)->withHeaders(['x-dply-queue-token' => EdgeContainerDeployer::queueToken($site)])->post($base.'/_dply/sleep')->throw();
+            } catch (Throwable $e) {
+                $this->error('Could not put it to sleep: '.$e->getMessage().' (the app needs a deploy with /_dply/sleep).');
+
+                return self::FAILURE;
+            }
+            [$poll, $wait] = [2, $this->option('wait') !== null ? (int) $this->option('wait') : 120];
+        }
         if (! $this->waitForSleep($site, $base, $wait, $poll)) {
             $this->error('It did not fall asleep within '.intdiv($wait, 60).' minutes. Is something (a monitor, a cron, a browser tab) keeping it awake?');
 
             return self::FAILURE;
+        }
+
+        if ($this->option('force')) {
+            // "stopped" is reported while the old container is still being torn
+            // down; waking into that inflates the number (seen: 8-15s).
+            Sleep::for(10)->seconds();
         }
 
         $url = $base.'/'.ltrim((string) $this->option('path'), '/');
@@ -78,7 +96,7 @@ class MeasureWakeTimeCommand extends Command
         $warm = array_map(static fn (): float => self::time($url)['ms'], range(1, max(1, (int) $this->option('warm'))));
         $median = self::median($warm);
 
-        $this->line("Cold (first request after sleep): ".self::ms($cold['ms'])." ({$cold['status']})");
+        $this->line('Cold (first request after sleep): '.self::ms($cold['ms'])." ({$cold['status']})");
         $this->line('Warm, '.count($warm).' requests: median '.self::ms($median).', fastest '.self::ms(min($warm)).', slowest '.self::ms(max($warm)));
         $this->info('Wake overhead: ~'.self::ms(max(0.0, $cold['ms'] - $median)).' (cold minus warm median)');
         $this->line("Measured from this machine to {$url}; network time is in both numbers. Size: {$settings['instance_type']}.");

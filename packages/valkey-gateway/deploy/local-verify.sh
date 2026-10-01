@@ -30,7 +30,6 @@ t0=$(ms); out=$(vk t-flex "$PW1" SET greeting hello); t1=$(ms)
 check "first connection starts the tenant" "$out" "OK"
 echo "info cold start (no snapshot): $((t1 - t0)) ms"
 check "reads back" "$(vk t-flex "$PW1" GET greeting)" "hello"
-vk t-flex "$PW1" SET short-lived x PX 600000 >/dev/null
 check "tenant cannot run CONFIG" "$(vk t-flex "$PW1" CONFIG GET maxmemory 2>&1 | grep -c NOPERM)" "1"
 
 check "another tenant cannot see it" "$(vk t-other "$PW2" GET greeting)" ""
@@ -42,6 +41,8 @@ oom=""
 for i in $(seq 1 80); do r=$(vk t-flex "$PW1" EVAL "redis.call('SET', KEYS[1], string.rep('x', 1048576)) return 'OK'" 1 "big:$i" 2>&1); case "$r" in *OOM*) oom=yes; break;; esac; done
 check "maxmemory is enforced" "$oom" "yes"
 vk t-flex "$PW1" EVAL "for _,k in ipairs(redis.call('KEYS','big:*')) do redis.call('DEL',k) end return 1" 0 >/dev/null
+# After the memory test: volatile-lru evicts keys with a TTL first, so one set before it is gone.
+vk t-flex "$PW1" SET short-lived x PX 600000 >/dev/null
 
 echo "info waiting for the idle sleep (15s idle + up to 10s reaper tick)..."
 for i in $(seq 1 40); do

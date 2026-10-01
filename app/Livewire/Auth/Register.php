@@ -139,13 +139,15 @@ class Register extends Component
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:'.User::class],
             'password' => ['required', 'confirmed', Rules\Password::defaults()],
-        ]);
+            'terms' => ['accepted'],
+        ], ['terms.accepted' => __('Accept the Terms of Service, Privacy Policy and Acceptable Use Policy to create an account.')]);
 
         $user = User::create([
             'name' => $this->form->name,
             'email' => $this->form->email,
             'password' => Hash::make($this->form->password),
         ]);
+        $user->acceptTerms();
         $organization = EnsureUserHasWorkspaceOrganization::run($user);
 
         // Redeem the invite: flag the new org beta + apply the beta feature

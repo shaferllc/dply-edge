@@ -101,6 +101,20 @@ In a Worker (SSR or hybrid app), use a client that opens TCP sockets through `cl
 config.cache_store = :redis_cache_store, { url: ENV['REDIS_URL'] }
 ```
 
+### Over HTTPS (Workers, serverless, edge)
+
+Every dply Valkey also answers Redis commands over HTTPS, so code that can't hold a Redis connection (Cloudflare Workers, serverless functions, edge middleware) can still use it, Lua scripts included.
+
+The next deploy sets `REDIS_REST_URL` and `REDIS_REST_TOKEN` (the token is the store's password). A value you save in [Environment variables](/docs/environment-variables) wins.
+
+```bash
+curl "$REDIS_REST_URL/set/greeting/hello" -H "Authorization: Bearer $REDIS_REST_TOKEN"
+curl "$REDIS_REST_URL/get/greeting"        -H "Authorization: Bearer $REDIS_REST_TOKEN"
+# {"result":"hello"}
+```
+
+`POST /` takes one command as a JSON array, `POST /pipeline` several, and `POST /multi-exec` runs them in a transaction. Blocking and pub/sub commands (`BLPOP`, `SUBSCRIBE`, `MONITOR`) need the TCP address. A request to a sleeping store wakes it, like a connection does. The REST URL and an example are on the **Connect** tab.
+
 ## Test and inspect
 
 The Valkey sheet has these tabs:
@@ -112,7 +126,7 @@ The Valkey sheet has these tabs:
 
 ## Pricing
 
-Valkey is billed per second while awake, up to the size's monthly maximum per app (see the table under [Sizes](#sizes)). A sleeping store is not billed. It appears on the invoice as **Valkey**, less your plan's included usage credit.
+Valkey is billed per second while awake, up to the size's monthly maximum per app (see the table under [Sizes](#sizes)). A sleeping store is not billed. Commands sent over HTTPS are billed per 100,000 on top of that, and are not capped (see [Usage & metering](/docs/usage) for the rate). It appears on the invoice as **Valkey**, less your plan's included usage credit.
 
 The invoice rounds the month's total once, to the nearest cent. Usage appears in [Usage & metering](/docs/usage).
 

@@ -1,9 +1,9 @@
 ---
 title: "External Redis"
-description: "Connect your app to a Redis you already run, such as Upstash, by pasting its address."
+description: "Connect your app to a Redis you already run by pasting its address."
 ---
 
-If you already have a Redis or Redis-compatible server, such as Upstash, Redis Cloud, or your own, you can point your app at it instead of starting [dply Valkey](/docs/resources/valkey). dply stores the address encrypted, sets the same environment variables it sets for dply Valkey, and leaves the server itself alone. dply does not run, monitor, or bill an external Redis.
+If you already have a Redis or Redis-compatible server, such as Redis Cloud or your own, you can point your app at it instead of starting [dply Valkey](/docs/resources/valkey). dply stores the address encrypted, sets the same environment variables it sets for dply Valkey, and leaves the server itself alone. dply does not run, monitor, or bill an external Redis.
 
 ## Connect an address
 
@@ -50,9 +50,9 @@ import { createClient } from 'redis';
 const redis = await createClient({ url: process.env.REDIS_URL }).connect();
 ```
 
-## Upstash
+## Hosted Redis
 
-In the Upstash console, open your database and copy its Redis connection string, the one that starts with `rediss://`. Paste it as the address. Upstash requires TLS, so keep the `rediss://` scheme.
+Copy the provider's connection string and paste it as the address. Most hosted Redis requires TLS: keep the `rediss://` scheme when the string has it.
 
 ## Test, replace, or remove
 

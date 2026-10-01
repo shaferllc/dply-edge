@@ -130,13 +130,12 @@ return [
     | only its own probe queue. Central/dev Horizon drains every probe queue
     | as a fallback so regions without a deployed worker still get checked.
     |
-    | Today: one worker — worker-1.dply.io, Hetzner Falkenstein (fsn1, network
-    | zone eu-central). Set DPLY_PROBE_WORKER_QUEUE=probes:worker-1 on that box.
+    | Today: none. Every check runs from the main app's Horizon on the default
+    | queue (the worker-1 Hetzner box was never deployed and was removed
+    | 2026-09-30). Add an entry here only when a probe box is running.
     |
     | @var array<string, array{region: string, queue: string}>
     */
-    'probe_workers' => [
-        'worker-1' => ['region' => 'eu-falkenstein', 'queue' => 'probes:worker-1'],
-    ],
+    'probe_workers' => [],
 
 ];

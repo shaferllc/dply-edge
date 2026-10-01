@@ -350,7 +350,12 @@ class SelfDeployer
             File::put($project.'/'.$name, (string) $contents);
         }
         $config = json_decode((string) $files['wrangler.jsonc'], true, flags: JSON_THROW_ON_ERROR);
-        $config['containers'][0]['image'] = $image['path'];
+        // durable_object scheduling names its image under images.app instead.
+        if (($config['containers'][0]['scheduling_policy'] ?? '') === 'durable_object') {
+            $config['containers'][0]['images']['app']['dockerfile'] = $image['path'];
+        } else {
+            $config['containers'][0]['image'] = $image['path'];
+        }
         unset($config['assets']);
         File::put($project.'/wrangler.jsonc', json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
         $this->deployer->attachStaticAssets($project, $checkout, $site);

@@ -59,7 +59,7 @@ final class DplyRuntime
      * default (REDIS_QUEUE), `default` carries notifications,
      * `dply-background` health/uptime checks.
      */
-    public const CONTROL_QUEUES = ['dply', 'default', 'dply-background', 'dply-control', 'dply-manage', 'probes:worker-1'];
+    public const CONTROL_QUEUES = ['dply', 'default', 'dply-background', 'dply-control', 'dply-manage'];
 
     public static function mode(): string
     {

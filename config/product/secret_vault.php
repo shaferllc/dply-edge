@@ -84,6 +84,8 @@ return [
             ['connection' => null, 'table' => 'sites', 'key' => 'id', 'column' => 'meta', 'paths' => [
                 'scaffold.admin_password',
                 'scaffold.database.password',
+                // Vector search REST tokens: one encrypted JSON map (EdgeContainerConnections::vectorRestToken).
+                'edge.vector_rest_tokens',
             ]],
             ['connection' => null, 'table' => 'servers', 'key' => 'id', 'column' => 'meta', 'paths' => [
                 'cache_server.password_encrypted',

@@ -45,6 +45,7 @@
                             \App\Services\Status\MonitorOperationalState::OPERATIONAL => 'bg-edge-lime',
                             \App\Services\Status\MonitorOperationalState::DEGRADED => 'bg-amber-400',
                             \App\Services\Status\MonitorOperationalState::OUTAGE => 'bg-rose-400',
+                            \App\Services\Status\MonitorOperationalState::ASLEEP => 'bg-sky-400',
                             default => 'bg-edge-mute',
                         };
                     @endphp

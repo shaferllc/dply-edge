@@ -86,10 +86,24 @@ test('php workers per instance come from memory', function () {
     }
 });
 
+test('octane starts workers by CPU, not memory, but still takes requests by memory', function () {
+    $workers = fn (string $type): int => EdgeContainerSettings::phpFpmPool($type, null, 'swoole')['workers'];
+
+    // Every Octane worker boots Laravel at startup on the same CPU: 8 at 1/4 vCPU
+    // answered the first request after ~11s, 2 after ~4s (2026-09-30).
+    expect(array_map($workers, ['basic', 'standard-1', 'custom-1']))->toBe([2, 2, 4])
+        ->and(EdgeContainerSettings::phpFpmPool('basic', null, 'roadrunner')['workers'])->toBe(2)
+        // Capacity before scaling out is unchanged, so a burst queues briefly instead of waking an instance.
+        ->and(EdgeContainerSettings::requestsPerInstance(sizingSite('basic'), 'swoole'))->toBe(8)
+        // fpm and FrankenPHP start nothing up front: unchanged.
+        ->and(EdgeContainerSettings::phpFpmPool('basic')['workers'])->toBe(12)
+        ->and(EdgeContainerSettings::phpFpmPool('basic', null, 'frankenphp')['workers'])->toBe(12);
+});
+
 test('the generated worker and image pass the pool size to fpm, frankenphp and octane', function () {
     expect(sizingScaffold(sizingSite('basic'))['worker'])->toContain("DPLY_PHP_FPM_MAX_CHILDREN: '12'")
         ->and(sizingScaffold(sizingSite('custom-1'))['worker'])->toContain("DPLY_PHP_FPM_MAX_CHILDREN: '32'")
-        ->and(sizingScaffold(sizingSite('basic'), 'swoole')['worker'])->toContain("DPLY_PHP_FPM_MAX_CHILDREN: '8'");
+        ->and(sizingScaffold(sizingSite('basic'), 'swoole')['worker'])->toContain("DPLY_PHP_FPM_MAX_CHILDREN: '2'"); // Octane workers follow CPU
 
     $dockerfile = function (array $require): string {
         $dir = sys_get_temp_dir().'/dply-sizing-test-'.bin2hex(random_bytes(4));

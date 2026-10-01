@@ -27,6 +27,10 @@ To report a vulnerability in dply itself, email [security@dply.io](mailto:securi
 > [!WARNING]
 > Don't send malware as an attachment. Send the URL or a file hash instead.
 
+## Copyright notices (DMCA)
+
+Send copyright notices to dply's designated agent at [dmca@dply.io](mailto:dmca@dply.io). A notice needs the elements in 17 U.S.C. § 512(c)(3): your signature, the work you own, the full URL of the infringing copy, your contact details, a good-faith statement that the use isn't authorized, and a statement under penalty of perjury that the notice is accurate and you're the owner or authorized to act for them. The site's owner can send a counter-notice to the same address. Accounts that infringe repeatedly are closed. See [Acceptable Use Policy](/acceptable-use#copyright).
+
 ## What happens next
 
 1. We confirm the site is hosted on dply and review the report.

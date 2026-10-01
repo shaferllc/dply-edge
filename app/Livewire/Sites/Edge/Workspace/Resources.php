@@ -40,6 +40,7 @@ use App\Modules\Edge\Services\DplyDatabases;
 use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Edge\Services\EdgeQueueConsumers;
 use App\Modules\Edge\Services\EdgeValkeyUsageCollector;
+use App\Modules\Edge\Services\Messages\EdgeMessages;
 use App\Modules\Edge\Services\Realtime\EdgeRealtimeApps;
 use App\Modules\Edge\Services\Storage\EdgeBucketKeys;
 use App\Modules\Edge\Support\EdgeContainerConnections;
@@ -173,6 +174,9 @@ class Resources extends Component
     public ?string $databaseCommandTarget = null;
 
     public string $rolloutMode = 'gradual';
+
+    /** Cloudflare's durable_object scheduling (EdgeContainerSettings 'scheduling'). */
+    public bool $fastStart = false;
 
     public string $rolloutSteps = '';
 
@@ -350,6 +354,9 @@ class Resources extends Component
     public array $serviceDemoLog = [];
 
     public string $kvHost = '';
+
+    /** The Messages connection whose sheet is open. */
+    public string $messagesHost = '';
 
     public string $imagesHost = '';
 
@@ -1550,6 +1557,7 @@ class Resources extends Component
             $this->workers = EdgeQueueWorkers::for($this->site);
             $this->migrateOnBoot = $settings['migrate_on_boot'];
             $this->rolloutMode = $settings['rollout_mode'];
+            $this->fastStart = EdgeContainerSettings::durableObjectScheduling($settings);
             $this->rolloutSteps = implode(', ', $settings['rollout_step_percentage']);
             $this->rolloutGraceSeconds = $settings['rollout_active_grace_period'];
             $raw = is_array($site->edgeMeta()['container'] ?? null) ? $site->edgeMeta()['container'] : [];
@@ -1578,7 +1586,7 @@ class Resources extends Component
             $this->validateOnly($name, $this->runtimeRules());
         }
 
-        if (in_array($name, ['draftInstanceType', 'sleepAfter', 'jurisdiction', 'scheduler', 'stickySessions', 'dedicatedJobs', 'migrateOnBoot', 'customVcpu', 'customMemoryGib', 'customDiskGb', 'rolloutMode', 'rolloutSteps', 'rolloutGraceSeconds', 'minInstances', 'jobsAlwaysOn', 'workerMode'], true) || str_starts_with($name, 'regions') || str_starts_with($name, 'workers.') || str_starts_with($name, 'schedules')) {
+        if (in_array($name, ['draftInstanceType', 'sleepAfter', 'jurisdiction', 'scheduler', 'stickySessions', 'dedicatedJobs', 'migrateOnBoot', 'customVcpu', 'customMemoryGib', 'customDiskGb', 'rolloutMode', 'rolloutSteps', 'rolloutGraceSeconds', 'minInstances', 'jobsAlwaysOn', 'workerMode', 'fastStart'], true) || str_starts_with($name, 'regions') || str_starts_with($name, 'workers.') || str_starts_with($name, 'schedules')) {
             $this->refreshPending();
         }
     }
@@ -2163,6 +2171,34 @@ class Resources extends Component
         }
     }
 
+    /**
+     * The open vector index's REST token (the vector REST API, served by
+     * the app's Worker). Made on first use; straight to Alpine.
+     */
+    #[Renderless]
+    public function vectorRestToken(): string
+    {
+        $this->authorize('update', $this->site);
+        $connection = collect(EdgeContainerConnections::for($this->site))->first(fn ($c) => $c['host'] === $this->resourceHost && $c['kind'] === 'vectors');
+
+        return is_array($connection) ? (string) EdgeContainerConnections::vectorRestToken($this->site, $connection['name']) : '';
+    }
+
+    /** @return string the new token (the old one works until the next deploy) */
+    #[Renderless]
+    public function rotateVectorRestToken(): string
+    {
+        $this->authorize('update', $this->site);
+        $connection = collect(EdgeContainerConnections::for($this->site))->first(fn ($c) => $c['host'] === $this->resourceHost && $c['kind'] === 'vectors');
+        if (! is_array($connection)) {
+            return '';
+        }
+        $token = EdgeContainerConnections::rotateVectorRestToken($this->site, $connection['name']);
+        audit_log($this->site->organization, auth()->user(), 'vectors.rest_token_rotated', $this->site, null, ['index' => $connection['name']]);
+
+        return $token;
+    }
+
     /** Make this bucket FILESYSTEM_DISK / DPLY_STORAGE_DISK (EdgeContainerConnections::storageDriverEnv). */
     public function makeDefaultStorage(): void
     {
@@ -2432,6 +2468,11 @@ class Resources extends Component
         $this->connectionMode = in_array($kind, EdgeContainerConnections::CREATABLE, true) || in_array($kind, ['redis', 'realtime'], true) ? 'create' : 'attach';
         $this->reset('connectionLabel', 'connectionPick', 'connectionOptions');
         $this->resetErrorBag('connection');
+        if ($kind === 'messages') {
+            $this->connectMessages();
+
+            return;
+        }
         if (in_array($kind, EdgeContainerConnections::ENABLE, true)) {
             $refused = EdgeContainerConnections::attachError($this->site, $kind, '');
             if ($refused !== null) {
@@ -2462,6 +2503,57 @@ class Resources extends Component
             // Loaded up front: "Attach existing" only shows when there is something to attach.
             $this->connectionOptions = $this->attachableResources($kind);
         }
+    }
+
+    /**
+     * Messages has nothing to name or pick: attaching makes the app's token
+     * (turning Messages on for the organization if needed) and opens its sheet.
+     */
+    private function connectMessages(): void
+    {
+        $this->authorize('update', $this->site);
+        if (! EdgeMessages::configured()) {
+            $this->connectionKind = '';
+            $this->toastError(__('Messages is not set up on this dply yet (DPLY_MESSAGES_URL and DPLY_MESSAGES_OPERATOR_TOKEN).'));
+
+            return;
+        }
+        try {
+            $token = app(EdgeMessages::class)->connectApp($this->site, auth()->user());
+        } catch (\Throwable $e) {
+            $this->connectionKind = '';
+            $this->toastError(__('Could not reach Messages: :error', ['error' => $e->getMessage()]));
+
+            return;
+        }
+        $host = EdgeContainerConnections::resourceHost($this->site, 'messages');
+        $this->storeConnection('MESSAGES', $host, $token->id);
+        if (! $this->getErrorBag()->has('connection')) {
+            $this->messagesHost = $host;
+            $this->renderIsland('resources-messages');
+            $this->dispatch('open-modal', 'resources-messages');
+        }
+    }
+
+    /**
+     * The org's signing keys, for the Messages sheet's Show button.
+     *
+     * @return array{current: string, next: string}|null
+     */
+    public function messagesSigningKeys(): ?array
+    {
+        $this->authorize('update', $this->site);
+        $account = $this->site->organization ? EdgeMessages::account($this->site->organization) : null;
+
+        return $account ? ['current' => $account->current_signing_key, 'next' => $account->next_signing_key] : null;
+    }
+
+    /** The app's token, for the Messages sheet's Show button. */
+    public function messagesToken(): ?string
+    {
+        $this->authorize('update', $this->site);
+
+        return EdgeMessages::appToken($this->site)?->secret;
     }
 
     /**
@@ -2928,6 +3020,17 @@ class Resources extends Component
             if ($connection['host'] === $host && $connection['kind'] === 'realtime') {
                 return;
             }
+            // Messages: detaching revokes the app's token at once.
+            if ($connection['host'] === $host && $connection['kind'] === 'messages') {
+                try {
+                    app(EdgeMessages::class)->disconnectApp($this->site);
+                } catch (\Throwable $e) {
+                    $this->toastError(__('Could not reach Messages: :error', ['error' => $e->getMessage()]));
+
+                    return;
+                }
+                $this->messagesHost = '';
+            }
             if ($connection['host'] !== $host || $connection['kind'] !== 'redis') {
                 continue;
             }
@@ -3259,6 +3362,7 @@ class Resources extends Component
             $this->workers = EdgeQueueWorkers::for($this->site);
             $this->migrateOnBoot = $settings['migrate_on_boot'];
             $this->rolloutMode = $settings['rollout_mode'];
+            $this->fastStart = EdgeContainerSettings::durableObjectScheduling($settings);
             $this->rolloutSteps = implode(', ', $settings['rollout_step_percentage']);
             $this->rolloutGraceSeconds = $settings['rollout_active_grace_period'];
             $raw = is_array($meta['container'] ?? null) ? $meta['container'] : [];
@@ -3292,6 +3396,16 @@ class Resources extends Component
      */
     /** Once per request: render() and the cost estimate both need it. */
     private ?int $valkeyAwakeSecondsMemo = null;
+
+    private ?int $valkeyRestCommandsMemo = null;
+
+    /** Commands this app's Valkey served over REST this month (collected hourly). */
+    private function valkeyRestCommands(): int
+    {
+        return $this->valkeyRestCommandsMemo ??= (int) EdgeRedisUsage::query()->where('site_id', $this->site->id)
+            ->whereBetween('date', [now()->startOfMonth()->toDateString(), now()->endOfMonth()->toDateString()])
+            ->sum('rest_commands');
+    }
 
     /** Awake seconds for this app's Valkey this month (collected hourly). */
     private function valkeyAwakeSeconds(): int
@@ -3362,7 +3476,8 @@ class Resources extends Component
                 // Exact (fractional) cents for display: the bill rounds the
                 // month's total to a cent, but a few minutes is $0.0017, not $0.01.
                 $class = EdgeValkey::spec((string) $connection['plan']);
-                $estimates[$connection['host']] = min($class['cap_cents'], $valkeySeconds * $class['per_second'] * 100);
+                $estimates[$connection['host']] = min($class['cap_cents'], $valkeySeconds * $class['per_second'] * 100)
+                    + $this->valkeyRestCommands() / 100_000 * UsagePrice::rate('valkey_rest_millicents_per_hundred_thousand') / 1000;
             }
         }
 
@@ -3527,6 +3642,7 @@ class Resources extends Component
                 'cardOnFile' => $this->cardOnFile(),
                 'paidFeatures' => EdgeContainerConnections::paidFeatures($this->site->organization),
                 'valkeyAwakeSeconds' => $this->valkeyAwakeSeconds(),
+                'valkeyRestCommands' => $this->valkeyRestCommands(),
                 'allowedKinds' => $allowedKinds,
                 'hasCode' => $hasCode,
                 'isWorker' => in_array($runtime, ['ssr', 'hybrid'], true),
@@ -3677,6 +3793,7 @@ class Resources extends Component
             'rollout_mode' => $settings['rollout_mode'] ?? 'gradual',
             'rollout_steps' => implode(', ', $settings['rollout_step_percentage'] ?? []),
             'rollout_grace' => (int) ($settings['rollout_active_grace_period'] ?? 0),
+            'fast_start' => ($settings['scheduling'] ?? '') === 'durable_object',
             'cache' => in_array($cacheMode, ['off', 'assets', 'standard', 'everything'], true) ? $cacheMode : 'off',
             'database' => in_array($engine, EdgeAppDatabase::ENGINES, true) ? $engine : ($runtime === 'container' ? 'sql' : 'none'),
             'postgres_plan' => EdgeAppDatabase::postgresPlan((string) ($database['plan'] ?? '')),
@@ -3715,6 +3832,7 @@ class Resources extends Component
             'rollout_mode' => $this->rolloutMode,
             'rollout_steps' => $this->rolloutSteps,
             'rollout_grace' => $this->rolloutGraceSeconds,
+            'fast_start' => $this->fastStart,
             'cache' => $this->draftCacheMode,
             'database' => $this->draftDatabase,
             'postgres_plan' => EdgeAppDatabase::postgresPlan($this->draftPostgresPlan),
@@ -3840,6 +3958,7 @@ class Resources extends Component
             $current['rollout_mode'] = $this->rolloutMode;
             $current['rollout_step_percentage'] = EdgeContainerSettings::parseRolloutSteps($this->rolloutSteps);
             $current['rollout_active_grace_period'] = max(0, min(EdgeContainerSettings::ROLLOUT_GRACE_MAX, $this->rolloutGraceSeconds));
+            $current['scheduling'] = $this->fastStart ? 'durable_object' : 'default';
             if ($this->draftInstanceType === 'custom') {
                 $current['custom_vcpu'] = $this->customVcpu;
                 $current['custom_memory_gib'] = $this->customMemoryGib;

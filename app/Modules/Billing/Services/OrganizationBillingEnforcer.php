@@ -11,6 +11,7 @@ use App\Models\Site;
 use App\Modules\Edge\Actions\CancelStuckEdgeDeployment;
 use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Edge\Services\EdgeHostMapPublisher;
+use App\Modules\Edge\Services\Messages\EdgeMessages;
 use App\Modules\Edge\Services\Storage\EdgeBucketKeys;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeDplyDatabase;
@@ -128,6 +129,7 @@ final class OrganizationBillingEnforcer
                     $this->workers($org, false);
                     $this->dataStores($org, false);
                     $this->attempt(fn () => app(EdgeBucketKeys::class)->setOrganizationEnabled($org, true));
+                    $this->attempt(fn () => app(EdgeMessages::class)->setOrganizationEnabled($org, true));
                 }
             }
 
@@ -173,6 +175,12 @@ final class OrganizationBillingEnforcer
                     ($this->say)('  '.$line);
                 }
             }
+
+            return;
+        }
+        // Legal hold (dply:billing:hold): nothing is deleted and no deletion warning goes out.
+        if ($org->purge_hold_at !== null) {
+            ($this->say)($org->name.': on legal hold, data kept'.($org->purge_hold_reason ? ' ('.$org->purge_hold_reason.')' : ''));
 
             return;
         }
@@ -238,6 +246,8 @@ final class OrganizationBillingEnforcer
         $this->dataStores($org, true);
         // S3 keys reach R2 directly, past the paused page.
         $this->attempt(fn () => app(EdgeBucketKeys::class)->setOrganizationEnabled($org, false));
+        // Messages: no publishing, and schedules stop calling URLs.
+        $this->attempt(fn () => app(EdgeMessages::class)->setOrganizationEnabled($org, false));
         $this->stopBuilds($org);
     }
 

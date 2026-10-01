@@ -26,15 +26,16 @@ use App\Modules\Edge\Console\CheckEdgeRumAlertsCommand;
 use App\Modules\Edge\Console\CollectEdgeContainerUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeDataUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeKvUsageCommand;
+use App\Modules\Edge\Console\CollectEdgeMessagesUsageCommand;
 use App\Modules\Edge\Console\CollectEdgePlatformUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeRealtimeUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeValkeyUsageCommand;
 use App\Modules\Edge\Console\EvaluateEdgeGuardrailsCommand;
 use App\Modules\Edge\Console\ReapStuckEdgeBuildsCommand;
+use App\Modules\Edge\Console\ResizeEdgeDatabasesCommand;
 use App\Modules\Edge\Console\RollupEdgeAnalyticsEngineCommand;
 use App\Modules\Edge\Console\SampleContainerMemoryCommand;
-use App\Modules\Edge\Console\ResizeEdgeDatabasesCommand;
 use App\Modules\Edge\Console\SampleEdgeDatabasesCommand;
 use App\Modules\Edge\Console\ScaleEdgeQueueWorkersCommand;
 use App\Modules\Edge\Console\WarmEdgeBuildImagesCommand;
@@ -183,6 +184,11 @@ final class DplySchedule
             ->dailyAt('02:10')
             ->name('edge-platform-usage-yesterday');
         // Realtime connection time + messages; each run adds what changed since the last.
+        // dply Messages: published messages since the last run, per organization.
+        $schedule->command(CollectEdgeMessagesUsageCommand::class)
+            ->hourly()
+            ->withoutOverlapping()
+            ->name('edge-messages-usage');
         $schedule->command(CollectEdgeRealtimeUsageCommand::class)
             ->hourly()
             ->withoutOverlapping()

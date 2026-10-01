@@ -8,6 +8,7 @@ use App\Models\EdgeRealtimeApp;
 use App\Models\Server;
 use App\Models\Site;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
+use App\Modules\Edge\Services\Containers\EdgeReleaseBundle;
 use App\Modules\Edge\Services\DplyDatabases;
 use App\Modules\Edge\Services\EdgeCustomDomainProvisioner;
 use App\Modules\Edge\Services\EdgeDeliveryContextResolver;
@@ -17,6 +18,7 @@ use App\Modules\Edge\Services\EdgeRouter;
 use App\Modules\Edge\Services\EdgeSsrBundleUploader;
 use App\Modules\Edge\Services\EdgeStateScript;
 use App\Modules\Edge\Services\EnsureDefaultEdgeBindings;
+use App\Modules\Edge\Services\Messages\EdgeMessages;
 use App\Modules\Edge\Services\Realtime\EdgeRealtimeApps;
 use App\Modules\Edge\Services\Storage\EdgeBucketKeys;
 use App\Modules\Edge\Support\FakeEdgeProvision;
@@ -128,6 +130,8 @@ class TeardownEdgeSiteJob implements ShouldQueue
         }
 
         $this->bestEffort($site, 'storage keys', fn () => app(EdgeBucketKeys::class)->forgetSite($site));
+        $this->bestEffort($site, 'messages token', fn () => app(EdgeMessages::class)->disconnectApp($site));
+        $this->bestEffort($site, 'release bundles', fn () => EdgeReleaseBundle::forget($site));
 
         $this->step($site, 'deployments');
         $backend?->unpublish($site);

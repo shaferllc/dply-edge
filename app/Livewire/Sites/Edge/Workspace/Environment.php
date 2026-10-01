@@ -195,6 +195,9 @@ class Environment extends Component
         foreach (EdgeContainerConnections::realtimeDriverEnv($this->site) as $key => $value) {
             $realtime[] = ['key' => $key, 'value' => str_ends_with($key, '_SECRET') ? '••••' : $value, 'from' => __('Realtime')];
         }
+        foreach (EdgeContainerConnections::messagesEnv($this->site) as $key => $value) {
+            $realtime[] = ['key' => $key, 'value' => $key === 'MESSAGES_URL' ? $value : '••••', 'from' => __('Messages')];
+        }
         if (($meta['runtime_mode'] ?? '') !== 'container') {
             return in_array($meta['runtime_mode'] ?? '', ['ssr', 'hybrid'], true) ? $this->markOverridden($realtime, $dashboardKeys) : [];
         }

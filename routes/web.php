@@ -4,6 +4,7 @@ use App\Http\Controllers\Admin\ImpersonationController;
 use App\Http\Controllers\CliInstallController;
 use App\Http\Controllers\Credentials\ProviderOAuthController;
 use App\Http\Controllers\DocsController;
+use App\Http\Controllers\EdgeDeployPillController;
 use App\Http\Controllers\Notifications\DiscordOAuthController;
 use App\Http\Controllers\Notifications\SlackOAuthController;
 use App\Http\Controllers\Notifications\TelegramWebhookController;
@@ -22,6 +23,7 @@ use App\Livewire\Admin\Users\Index;
 use App\Livewire\Auth\DeviceApproval as AuthDeviceApproval;
 use App\Livewire\Credentials\Index as CredentialsIndex;
 use App\Livewire\Invitations\Accept as InvitationsAccept;
+use App\Livewire\Legal\AcceptTerms;
 use App\Livewire\Marketing\ComingSoonSignup as MarketingComingSoonSignup;
 use App\Livewire\Notifications\Index as NotificationsIndex;
 use App\Livewire\Organizations\Activity as OrganizationsActivity;
@@ -52,18 +54,18 @@ use App\Modules\Edge\Http\Controllers\EdgeAuditLogExportController;
 use App\Modules\Edge\Http\Controllers\EdgeDeployHookController;
 use App\Modules\Edge\Http\Controllers\EdgeFormIngestController;
 use App\Modules\Edge\Http\Controllers\EdgeLiveAccessLogPollController;
-use App\Http\Controllers\EdgeDeployPillController;
 use App\Modules\Edge\Http\Controllers\EdgeLogCsvDownloadController;
 use App\Modules\Edge\Http\Controllers\EdgeMeterIngestController;
 use App\Modules\Edge\Http\Controllers\EdgePreviewAccessController;
 use App\Modules\Edge\Http\Controllers\EdgePreviewCommentsController;
 use App\Modules\Edge\Http\Controllers\EdgeRepoConfigYamlDownloadController;
 use App\Modules\Edge\Http\Controllers\GithubEdgeWebhookController;
+use App\Modules\Edge\Livewire\Buckets;
 use App\Modules\Edge\Livewire\Create as EdgeCreate;
 use App\Modules\Edge\Livewire\Databases;
 use App\Modules\Edge\Livewire\Import;
 use App\Modules\Edge\Livewire\Index as EdgeIndex;
-use App\Modules\Edge\Livewire\Buckets;
+use App\Modules\Edge\Livewire\Messages;
 use App\Modules\Edge\Livewire\Queues;
 use App\Modules\Edge\Livewire\Templates;
 use App\Modules\Edge\Livewire\Usage;
@@ -178,6 +180,14 @@ Route::view('/compliance', 'compliance')->name('compliance')->withHead(
     description: 'Where dply runs your apps and data, how it encrypts and isolates them, which subprocessors it uses, and how to report a vulnerability.',
 );
 Route::redirect('/security', '/compliance', 301);
+
+// Legal documents (resources/views/legal, config/legal.php). Accepting them is required at sign-up
+// and again when legal.version changes (EnsureCurrentTermsAccepted).
+Route::view('/terms', 'legal.terms')->name('legal.terms')->withHead(title: 'Terms of Service', description: 'The terms for using dply, operated by Shafer LLC.');
+Route::view('/privacy', 'legal.privacy')->name('legal.privacy')->withHead(title: 'Privacy Policy', description: 'What personal data dply collects, why, who it is shared with, and your rights.');
+Route::view('/acceptable-use', 'legal.acceptable-use')->name('legal.acceptable-use')->withHead(title: 'Acceptable Use Policy', description: 'What you may not host or do on dply, how copyright (DMCA) notices work, and how we enforce.');
+Route::view('/dpa', 'legal.dpa')->name('legal.dpa')->withHead(title: 'Data Processing Addendum', description: 'dply\'s GDPR Article 28 data processing terms, standard contractual clauses and sub-processors.');
+Route::livewire('/legal/accept', AcceptTerms::class)->middleware('auth')->name('legal.accept')->withHead(robots: 'noindex, nofollow');
 
 Route::get('/vs/{competitor}', fn (string $competitor) => view('compare', ['competitor' => $competitor]))
     ->whereIn('competitor', ['forge', 'laravel-cloud', 'heroku'])
@@ -342,6 +352,8 @@ Route::middleware(['auth', 'verified', 'org'])->withHead(robots: 'noindex, nofol
     Route::livewire('projects/databases', Databases::class)->name('edge.databases')->withHead(title: 'Databases');
     Route::livewire('projects/queues', Queues::class)->name('edge.queues')->withHead(title: 'Queues');
     Route::livewire('projects/storage', Buckets::class)->name('edge.buckets')->withHead(title: 'Storage');
+    // Behind the resource-messages flag (Messages::mount 404s without it).
+    Route::livewire('projects/messages', Messages::class)->name('edge.messages')->withHead(title: 'Messages');
 
     /*
      * Legacy /edge/*, /apps/*, /applications/* URLs. The list moved to

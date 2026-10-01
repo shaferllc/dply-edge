@@ -25,7 +25,7 @@ First-party Laravel integration, brand trust, a no-card trial, a published wake 
 - "Where does your non-Laravel code live today, and what does that second host cost?"
 
 ## Don't
-- Don't compete on wake time. Measured 2026-09-29: dply takes ~5–6 s to wake vs their stated <500ms.
+- Don't compete on wake time. Measured 2026-09-30: dply takes ~3–5 s to wake vs their stated <500ms.
   If it comes up, say it plainly and point to Min instances (keep one warm).
 - Don't claim to be cheaper. At $5/$20 the plans are level; the difference is usage and stack coverage.
 

@@ -3,6 +3,7 @@
 use App\Console\Scheduling\DplySchedule;
 use App\Http\Middleware\AuthenticateApiToken;
 use App\Http\Middleware\EnsureApiTokenAbility;
+use App\Http\Middleware\EnsureCurrentTermsAccepted;
 use App\Http\Middleware\RedirectGuestsToComingSoon;
 use App\Http\Middleware\SetCurrentOrganization;
 use App\Http\Middleware\StampDebugReference;
@@ -82,6 +83,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->appendToGroup('web', [
             RedirectGuestsToComingSoon::class,
+            EnsureCurrentTermsAccepted::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

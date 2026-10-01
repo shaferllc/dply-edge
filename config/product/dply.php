@@ -338,6 +338,8 @@ return [
                 'database_storage_millicents_per_gb_month',
                 'realtime_connection_minute_millicents',
                 'realtime_message_millicents_per_million',
+                'valkey_rest_millicents_per_hundred_thousand',
+                'messages_millicents_per_hundred_thousand',
             ],
             // Site/build artifact storage (R2): $0.015/GB-month, Class A
             // (writes) $4.50/M, Class B (reads) $0.36/M.
@@ -383,6 +385,19 @@ return [
             'kv_reads_millicents_per_million' => (float) env('DPLY_USAGE_KV_READS_MC_PER_MILLION', 50_000),
             'kv_writes_millicents_per_million' => (float) env('DPLY_USAGE_KV_WRITES_MC_PER_MILLION', 500_000),
             'kv_storage_millicents_per_gb_month' => (float) env('DPLY_USAGE_KV_STORAGE_MC_PER_GB_MONTH', 50_000),
+
+            // dply Valkey over REST (valkey-gateway rest.go):
+            // per 100,000 commands, on top of the class's awake time. A
+            // CUSTOMER PRICE (fixed_price_meters): the gateway's CPU and egress
+            // per command are small next to it. Collected by dply:edge:collect-valkey-usage.
+            'valkey_rest_millicents_per_hundred_thousand' => (float) env('DPLY_USAGE_VALKEY_REST_MC_PER_100K', 10_000),
+
+            // dply Messages (packages/messages-worker): per
+            // 100,000 published messages (schedule firings and callbacks count).
+            // A CUSTOMER PRICE (fixed_price_meters). Not in
+            // UsagePrice::rates() (the pricing page) until Messages launches;
+            // it bills organizations with the resource-messages flag.
+            'messages_millicents_per_hundred_thousand' => (float) env('DPLY_USAGE_MESSAGES_MC_PER_100K', 50_000),
 
             // dply databases (Postgres/MySQL/MongoDB pods on dply's cluster),
             // per compute-unit second awake (1 CU = 1 vCPU + 4 GB) plus

@@ -1,0 +1,13 @@
+{
+  "blockedBy": [],
+  "completedDate": "2026-09-29",
+  "createdDate": "2026-09-30",
+  "description": "Vector part done 2026-09-30 (the product decision moved to T-033). Upstash-Vector-compatible REST served by each container app's own Worker at {app}/_vector/{NAME}/{command}[/{namespace}] (EdgeContainerDeployer vectorRestFetch), on the app's Vectorize binding — not the Cloudflare REST API, whose global limit (1,200 req / 5 min per account, verified in the docs) would cap all customers at ~4 req/s. Queries go through dplyMetered (existing meter, cap, pause, price; no new meter or flag beyond resource-vectors). upsert / query (one or many) / fetch / delete / info with namespaces, dimension and id checks; upsert-data, query-data, filters, range, reset, update, sparse/hybrid, namespaces admin refused with 400. Per-index tokens (dvx_…) as one encrypted JSON map at meta.edge.vector_rest_tokens, registered in secret_vault json_crypt (APP_KEY rotation) and the SecretReencryptCoverageTest tripwire; Worker secret DPLY_VECTOR_TOKEN_{NAME}; UPSTASH_VECTOR_REST_URL/TOKEN for the first index; sheet \"Over HTTPS\" with URL, Show/Copy/Rotate. Tests: node test of the generated block with a fake binding (raw + real @upstash/vector when UPSTASH_SDK_DIR is set), token/rotation/secrets test; docs vector-search.md. Container apps only (SSR/hybrid bundles not covered).",
+  "displayId": "T-030",
+  "id": "T-030",
+  "order": 90,
+  "phase": null,
+  "status": "complete",
+  "title": "Serverless data: Upstash-Vector-compatible REST over Vectorize; decide separate product vs inside dply",
+  "type": "task"
+}

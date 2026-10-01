@@ -27,8 +27,7 @@ final class UptimeProbeRegionResolver
         'sgp' => 'ap-sydney',
         'blr' => 'ap-sydney',
         'syd' => 'ap-sydney',
-        // Hetzner — Falkenstein/Nuremberg/Helsinki are the eu-central zone,
-        // nearest the worker-1 box in Falkenstein.
+        // Hetzner — Falkenstein/Nuremberg/Helsinki are the eu-central zone.
         'fsn' => 'eu-falkenstein',
         'nbg' => 'eu-falkenstein',
         'hel' => 'eu-falkenstein',

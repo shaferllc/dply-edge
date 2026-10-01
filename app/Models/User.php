@@ -329,6 +329,18 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     }
 
     /** @return array<string, string> */
+    /** Whether this user accepted the current Terms, Privacy Policy and AUP (config legal.version). */
+    public function acceptedCurrentTerms(): bool
+    {
+        return $this->terms_version === (string) config('legal.version');
+    }
+
+    /** Record acceptance of the current version (sign-up, or the re-accept page). */
+    public function acceptTerms(): void
+    {
+        $this->forceFill(['terms_version' => (string) config('legal.version'), 'terms_accepted_at' => now()])->save();
+    }
+
     protected function casts(): array
     {
         return [
@@ -336,6 +348,7 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
             'password' => 'hashed',
             'two_factor_confirmed_at' => 'datetime',
             'referral_converted_at' => 'datetime',
+            'terms_accepted_at' => 'datetime',
             'ui_preferences' => 'array',
         ];
     }

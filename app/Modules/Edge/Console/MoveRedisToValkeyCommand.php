@@ -12,15 +12,15 @@ use Illuminate\Console\Command;
 use Redis;
 
 /**
- * One-time move off Upstash Redis (removed 2026-09-24, ruling r-72p0gkdn9dqwxqha).
- * For each app still on an Upstash database (a UUID target), start a dply
+ * One-time move off the old hosted Redis (removed 2026-09-24, ruling r-72p0gkdn9dqwxqha).
+ * For each app still on a hosted database (a UUID target), start a dply
  * Valkey, copy every key with its expiry (DUMP / PTTL / RESTORE over the
- * app's own REDIS_URL), then point the app at the Valkey. The Upstash
- * database is left in place; delete it in the Upstash console once the app
+ * app's own REDIS_URL), then point the app at the Valkey. The old
+ * database is left in place; delete it in its provider's console once the app
  * has been redeployed and checked.
  *
  * ponytail: copies while the app may still be writing; a write between the
- * copy and the next deploy stays on Upstash. Run it, redeploy, then delete.
+ * copy and the next deploy stays on the old database. Run it, redeploy, then delete.
  */
 class MoveRedisToValkeyCommand extends Command
 {
@@ -29,9 +29,9 @@ class MoveRedisToValkeyCommand extends Command
                             {--class=flex_250m : Valkey size for the new database}
                             {--dry-run : List the apps without changing anything}';
 
-    protected $description = 'Copy apps from Upstash Redis to dply Valkey and switch REDIS_URL.';
+    protected $description = 'Copy apps from the old hosted Redis to dply Valkey and switch REDIS_URL.';
 
-    private const UPSTASH_ID = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
+    private const LEGACY_ID = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 
     public function handle(): int
     {
@@ -49,7 +49,7 @@ class MoveRedisToValkeyCommand extends Command
         foreach ($sites as $site) {
             $rows = EdgeContainerConnections::for($site);
             foreach ($rows as $index => $connection) {
-                if ($connection['kind'] !== 'redis' || preg_match(self::UPSTASH_ID, $connection['target']) !== 1) {
+                if ($connection['kind'] !== 'redis' || preg_match(self::LEGACY_ID, $connection['target']) !== 1) {
                     continue;
                 }
                 $source = $this->env($site, 'REDIS_URL');
@@ -86,7 +86,7 @@ class MoveRedisToValkeyCommand extends Command
                 $this->putEnv($site, 'REDIS_USERNAME', 'default');
                 $this->putEnv($site, 'REDIS_PASSWORD', rawurldecode((string) ($parts['pass'] ?? '')));
                 $moved++;
-                $this->info("{$site->name}: copied {$copied} key(s). Redeploy, check it, then delete Upstash database {$connection['target']}.");
+                $this->info("{$site->name}: copied {$copied} key(s). Redeploy, check it, then delete the old database {$connection['target']}.");
             }
         }
         $this->info("Moved {$moved} app(s).");

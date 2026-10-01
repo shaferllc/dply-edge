@@ -21,6 +21,7 @@ use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Services\EdgeKvUsageCollector;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeContainerSettings;
+use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use App\Support\SiteSettingsSidebar;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\File;
@@ -853,4 +854,17 @@ test('worker mode is refused until a deploy finds octane on frankenphp, then rea
         ->set('workerMode', true)->assertHasNoErrors();
 
     expect((new EdgeContainerDeployer)->secrets($site->fresh(), [], [], false)['DPLY_WORKER_MODE'])->toBe('1');
+});
+
+test('container logs are looked up by dashed application id, whichever form the API returns', function () {
+    config(['edge.cloudflare.account_id' => 'acct', 'edge.cloudflare.api_token' => 'tok']);
+    [, , $site] = containerSite();
+    $script = EdgeContainerDeployer::scriptName($site);
+    Http::fake(['api.cloudflare.com/client/v4/accounts/acct/containers/applications' => Http::response(['success' => true, 'result' => [
+        ['id' => '213f9bc3db1b4bc5b1ee7e3f1a3dcdde', 'name' => $script.'-app'],
+        ['id' => 'a0395512-caf8-45e7-b3b4-ebf8ae7d7790', 'name' => $script.'-jobs'],
+    ]])]);
+
+    expect(EdgeContainerDeployer::logServices($site, EdgeCloudflareClient::fromConfig()))
+        ->toBe([$script, '213f9bc3-db1b-4bc5-b1ee-7e3f1a3dcdde', 'a0395512-caf8-45e7-b3b4-ebf8ae7d7790']);
 });

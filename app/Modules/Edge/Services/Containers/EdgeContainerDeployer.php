@@ -26,6 +26,7 @@ use Illuminate\Process\PendingProcess;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Process;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Sleep;
 use RuntimeException;
 use Throwable;
@@ -76,6 +77,321 @@ class EdgeContainerDeployer
     public const WAKE_DATASET = 'dply_container_wake';
 
     /** Readiness probe path: nginx and Caddy answer it without PHP (EdgeContainerDockerfile). */
+    /**
+     * The container base class for durable_object scheduling (Cloudflare's
+     * faster-starting Containers; @cloudflare/containers' Container class is
+     * deprecated after 2026). workerSource inlines it in place of the SDK
+     * import. __DO_INSTANCE__ is the start() instance size.
+     */
+    private const DO_CONTAINER_BASE = <<<'JS'
+// Durable Object-managed container (scheduling_policy "durable_object"): the
+// parts of @cloudflare/containers 0.3.7's Container class App uses, on
+// ctx.container directly. Same names and behaviour, so App is unchanged;
+// the image and instance size are chosen here at start.
+import { WorkerEntrypoint } from 'cloudflare:workers';
+
+const DO_INSTANCE = __DO_INSTANCE__;
+// The runtime stops a container this long after its Durable Object goes idle.
+// The alarm below wakes the object at least hourly while the container runs,
+// so this is only a backstop; sleepAfter is enforced by onActivityExpired.
+const INACTIVITY_MS = 6 * 3600 * 1000;
+const ALARM_MAX_MS = 3600 * 1000;
+// A new build's first start waits this long after it is healthy before snapshotting.
+const SNAPSHOT_DELAY_MS = 20000;
+const STATE_KEY = 'dply:container-state';
+const SLEEP_KEY = 'dply:sleep-at';
+
+function sleepMs(expr) {
+  const m = /^(\d+)([smh])$/.exec(String(expr));
+  return m ? Number(m[1]) * { s: 1000, m: 60000, h: 3600000 }[m[2]] : 600000;
+}
+function exitCodeOf(e) {
+  if (typeof e === 'number') return e;
+  const m = /exit code:?\s*(\d+)/i.exec(e instanceof Error ? e.message : String(e));
+  return m ? Number(m[1]) : null;
+}
+function globMatch(pattern, host) {
+  if (!pattern.includes('*')) return false;
+  return new RegExp('^' + pattern.split('*').map((p) => p.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*') + '$').test(host);
+}
+
+// Every outbound request from the container comes here (intercept-all):
+// App.outboundByHost by exact host, then glob, then App.outbound, else the internet.
+export class ContainerProxy extends WorkerEntrypoint {
+  async fetch(request) {
+    const host = new URL(request.url).hostname.toLowerCase().replace(/\.$/, '');
+    const byHost = App.outboundByHost ?? {};
+    const handler = byHost[host] ?? Object.entries(byHost).find(([p]) => globMatch(p, host))?.[1];
+    if (handler) return handler(request, this.env, {});
+    if (App.outbound) return App.outbound(request, this.env, {});
+    return fetch(request);
+  }
+}
+
+class Container extends DurableObject {
+  defaultPort;
+  sleepAfter = '10m';
+  envVars = {};
+  interceptHttps = false;
+  pingEndpoint = 'ping';
+  inflightRequests = 0;
+  sleepAfterMs = 0;
+  // Still running the image from before the last deploy: replaced on next use.
+  stale = false;
+
+  constructor(ctx, env) {
+    super(ctx, env);
+    this.container = ctx.container;
+    if (!this.container) throw new Error('No container is configured for this Durable Object.');
+    ctx.blockConcurrencyWhile(async () => {
+      // Yields first, so the subclass's field values (sleepAfter) are set.
+      await null;
+      if (this.container.running) {
+        // The object is evicted when idle and rebuilt on the next call; the
+        // deadline lives in storage so that call does not push sleep back
+        // (2026-09-30: every uptime check kept an idle app awake).
+        const saved = await this.ctx.storage.get(SLEEP_KEY);
+        if (saved) this.sleepAfterMs = this.savedSleepAt = saved;
+        else this.renewActivityTimeout();
+        // Every start labels the container with the deploy's BUILD_ID (image
+        // strings may not compare), so one from an earlier deploy shows here.
+        try {
+          const info = await this.container.inspect();
+          this.stale = Boolean(info) && info.labels?.['dply-build'] !== BUILD_ID;
+        } catch {
+          // Unknown: keep serving what runs.
+        }
+        await this.container.setInactivityTimeout(INACTIVITY_MS);
+        await this.applyOutbound();
+        this.watch();
+        await this.scheduleAlarm();
+      } else {
+        const state = await this.getState();
+        if (state.status === 'running' || state.status === 'healthy') await this.setStatus('stopped');
+      }
+    });
+  }
+
+  async getState() {
+    if (!this.status) this.status = (await this.ctx.storage.get(STATE_KEY)) ?? { status: 'stopped', lastChange: Date.now() };
+    // inflight / sleepAt / alarmAt: why an instance is (not) asleep, for /_dply/instances.
+    return { ...this.status, inflight: this.inflightRequests, sleepAt: this.sleepAfterMs || null, alarmAt: await this.ctx.storage.getAlarm() };
+  }
+
+  async setStatus(status, exitCode) {
+    this.status = { status, lastChange: Date.now(), ...(exitCode === undefined || exitCode === null ? {} : { exitCode }) };
+    await this.ctx.storage.put(STATE_KEY, this.status);
+  }
+
+  renewActivityTimeout() {
+    this.sleepAfterMs = Date.now() + sleepMs(this.sleepAfter);
+    // Kept in storage for the next rebuild, at most every 30 s per instance.
+    if (this.container?.running && this.sleepAfterMs - (this.savedSleepAt ?? 0) > 30000) void this.scheduleAlarm();
+  }
+
+  async scheduleAlarm() {
+    this.savedSleepAt = this.sleepAfterMs;
+    await this.ctx.storage.put(SLEEP_KEY, this.sleepAfterMs);
+    const at = Math.min(this.sleepAfterMs || Date.now() + 60000, Date.now() + ALARM_MAX_MS);
+    await this.ctx.storage.setAlarm(Math.max(at, Date.now() + 1000));
+  }
+
+  async alarm() {
+    if (!this.container.running) {
+      const state = await this.getState();
+      if (state.status === 'running' || state.status === 'healthy') await this.setStatus('stopped');
+      return;
+    }
+    if (this.inflightRequests > 0) {
+      this.renewActivityTimeout();
+    } else if (this.sleepAfterMs <= Date.now()) {
+      await this.onActivityExpired();
+      this.renewActivityTimeout();
+    }
+    if (this.container.running) await this.scheduleAlarm();
+  }
+
+  async onActivityExpired() {
+    if (this.container.running) await this.stop();
+  }
+
+  watch() {
+    const monitor = this.container.monitor();
+    this.monitor = monitor;
+    monitor
+      .then(() => this.monitor === monitor && this.setStatus('stopped_with_code', 0))
+      .catch((e) => {
+        if (this.monitor !== monitor) return;
+        const code = exitCodeOf(e);
+        return code === null ? this.setStatus('stopped') : this.setStatus('stopped_with_code', code);
+      });
+  }
+
+  async applyOutbound() {
+    const fetcher = this.ctx.exports.ContainerProxy({ props: {} });
+    await this.container.interceptAllOutboundHttp(fetcher);
+    if (this.interceptHttps) await this.container.interceptOutboundHttps('*', fetcher);
+  }
+
+  async stop(signal = 'SIGTERM') {
+    if (this.container.running) this.container.signal(signal === 'SIGKILL' ? 9 : typeof signal === 'number' ? signal : 15);
+  }
+
+  // Stop the old image's container and wait for it to go (30 s, then kill).
+  async stopAndWait() {
+    await this.stop('SIGTERM');
+    for (let i = 0; i < 60 && this.container.running; i++) await new Promise((r) => setTimeout(r, 500));
+    if (this.container.running) {
+      await this.container.destroy();
+      for (let i = 0; i < 20 && this.container.running; i++) await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+
+  // Start unless running (a stale one is replaced). Concurrent callers share one start.
+  async start(options = {}) {
+    if (this.starting) return this.starting;
+    if (this.container.running && !this.stale) return;
+    this.starting = (async () => {
+      if (this.container.running) {
+        // A queue worker finishes its job first: SIGTERM once, and the next
+        // warm (resumeWorker) starts the new build after it exits.
+        if (isWorker(this.ctx.id.name)) {
+          if (!this.draining) { this.draining = true; await this.stop('SIGTERM'); }
+          return;
+        }
+        await this.stopAndWait();
+      }
+      await this.applyOutbound();
+      // Release bundle: start from this build's filesystem snapshot when there
+      // is one (its /app is already unpacked), else from the image.
+      const snap = RELEASE_KEY ? await this.ctx.storage.get('dply:snapshot') : null;
+      let useSnap = Boolean(snap && snap.build === BUILD_ID);
+      const env = RELEASE_KEY ? { ...(options.envVars ?? this.envVars), DPLY_RELEASE: RELEASE_KEY } : (options.envVars ?? this.envVars);
+      // Just after a stop the runtime can refuse a start for a moment.
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const from = useSnap ? { containerSnapshot: snap.snapshot } : { image: this.container.images.app };
+          this.container.start({ ...from, instance: DO_INSTANCE, env, enableInternet: true, labels: { 'dply-build': BUILD_ID } });
+          break;
+        } catch (e) {
+          if (useSnap) {
+            // An expired or unusable snapshot: forget it and use the image.
+            console.log('dply-snapshot: could not start from it, using the image: ' + (e instanceof Error ? e.message : String(e)));
+            useSnap = false;
+            await this.ctx.storage.delete('dply:snapshot');
+            continue;
+          }
+          if (attempt >= 5) throw e;
+          await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+        }
+      }
+      this.fromSnapshot = useSnap;
+      this.stale = false;
+      this.draining = false;
+      await this.container.setInactivityTimeout(INACTIVITY_MS);
+      this.watch();
+      this.renewActivityTimeout();
+      await this.setStatus('running');
+      await this.scheduleAlarm();
+    })().finally(() => { this.starting = undefined; });
+    return this.starting;
+  }
+
+  // start() returns before the app listens: probe the port (App.waitForPort).
+  async startAndWaitForPorts(options = {}) {
+    const port = (options.ports ?? [this.defaultPort])[0];
+    const c = options.cancellationOptions ?? {};
+    const interval = c.waitInterval ?? 300;
+    await this.start(options.startOptions);
+    await this.waitForPort({ portToCheck: port, waitInterval: interval, retries: Math.ceil(((c.instanceGetTimeoutMS ?? 8000) + (c.portReadyTimeoutMS ?? 20000)) / interval), signal: c.abort });
+    await this.setStatus('healthy');
+    if (RELEASE_KEY && !this.fromSnapshot && !this.snapshotting && !isWorker(this.ctx.id.name)) this.ctx.waitUntil(this.takeSnapshot());
+  }
+
+  // Once per build and instance: a snapshot of the running container, taken
+  // shortly after it is healthy (its first requests go first), so the next
+  // wake skips the release download.
+  async takeSnapshot() {
+    this.snapshotting = true;
+    try {
+      await new Promise((r) => setTimeout(r, SNAPSHOT_DELAY_MS));
+      if (!this.container.running || this.stale) return;
+      const at = Date.now();
+      const snapshot = await this.container.snapshotContainer({ name: 'dply-' + BUILD_ID });
+      await this.ctx.storage.put('dply:snapshot', { build: BUILD_ID, snapshot });
+      console.log('dply-snapshot: saved ' + Math.round((snapshot?.size ?? 0) / 1048576) + ' MB in ' + (Date.now() - at) + ' ms');
+    } catch (e) {
+      console.log('dply-snapshot: failed: ' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      this.snapshotting = false;
+    }
+  }
+
+  decrementInflight() {
+    this.inflightRequests = Math.max(0, this.inflightRequests - 1);
+    if (this.inflightRequests === 0) this.renewActivityTimeout();
+  }
+
+  // As the SDK's fetch/containerFetch: start and wait when needed, then proxy
+  // (HTTP or WebSocket), counting the request in flight until its body or
+  // socket ends. Error texts match the SDK's; proxy() retries on them.
+  async fetch(request) {
+    const port = this.defaultPort;
+    const state = await this.getState();
+    if (!this.container.running || this.stale || state.status !== 'healthy') {
+      try {
+        await this.startAndWaitForPorts({ ports: [port], cancellationOptions: { abort: request.signal } });
+      } catch (e) {
+        return new Response('Failed to start container: ' + (e instanceof Error ? e.message : String(e)), { status: 500 });
+      }
+    }
+    const tcpPort = this.container.getTcpPort(port);
+    this.inflightRequests++;
+    try {
+      this.renewActivityTimeout();
+      const res = await tcpPort.fetch(request.url.replace('https:', 'http:'), request);
+      if (res.webSocket) {
+        const containerWs = res.webSocket;
+        const [client, server] = Object.values(new WebSocketPair());
+        let settled = false;
+        const settle = () => { if (!settled) { settled = true; this.decrementInflight(); } };
+        containerWs.accept();
+        server.accept();
+        const pipe = (from, to, why) => from.addEventListener('message', async (event) => {
+          this.renewActivityTimeout();
+          try {
+            to.send(event.data instanceof Blob ? await event.data.arrayBuffer() : event.data);
+          } catch {
+            from.close(1011, why);
+          }
+        });
+        pipe(server, containerWs, 'Failed to forward message to container');
+        pipe(containerWs, server, 'Failed to forward message to client');
+        const closeCode = (code) => (code === 1005 || code === 1006 ? 1000 : code);
+        server.addEventListener('close', (e) => { settle(); containerWs.close(closeCode(e.code), e.reason); });
+        containerWs.addEventListener('close', (e) => { settle(); server.close(closeCode(e.code), e.reason); });
+        server.addEventListener('error', () => { settle(); containerWs.close(1011, 'Client WebSocket error'); });
+        containerWs.addEventListener('error', () => { settle(); server.close(1011, 'Container WebSocket error'); });
+        return new Response(null, { status: res.status, webSocket: client, headers: res.headers });
+      }
+      if (res.body !== null) {
+        const { readable, writable } = new IdentityTransformStream();
+        res.body.pipeTo(writable).finally(() => this.decrementInflight());
+        return new Response(readable, res);
+      }
+      this.decrementInflight();
+      return res;
+    } catch (e) {
+      this.decrementInflight();
+      if (e instanceof Error && e.message.includes('Network connection lost.')) {
+        return new Response('Container suddenly disconnected, try again', { status: 500 });
+      }
+      return new Response('Error proxying request to container: ' + (e instanceof Error ? e.message : String(e)), { status: 500 });
+    }
+  }
+}
+JS;
+
     public const PING_PATH = '/_dply-ping';
 
     public static function scriptName(Site $site): string
@@ -106,6 +422,102 @@ class EdgeContainerDeployer
 
             return $connection;
         }, EdgeContainerConnections::for($site));
+    }
+
+    /**
+     * Release bundle (EdgeReleaseBundle): build the runtime image only when it
+     * changed, export /app as a gzipped tar to R2, and point the Worker project
+     * at the prebuilt image and this release. False (a normal image build)
+     * when the Dockerfile does not split.
+     *
+     * @param  array{path: string, port: int}  $image
+     */
+    private function shipReleaseBundle(Site $site, EdgeDeployment $deployment, string $checkout, array $image, string $project, string $workRoot, callable $log, ?int $timeoutSeconds): bool
+    {
+        $split = EdgeReleaseBundle::split((string) file_get_contents($image['path']));
+        $bucket = trim((string) config('edge.r2.bucket'));
+        if ($split === null || $bucket === '') {
+            $log("Release bundle: this app's Dockerfile does not split into runtime and release. Building the image as usual.\n");
+
+            return false;
+        }
+        // The runtime Dockerfile goes to wrangler as the image: every step is
+        // cached, so it builds to the image already on Cloudflare and wrangler
+        // skips the push ("Image already exists remotely"): 8s, 2026-09-30.
+        $runtimeDir = $workRoot.'/release-runtime';
+        File::ensureDirectoryExists($runtimeDir);
+        File::put($runtimeDir.'/Dockerfile', $split['runtime']);
+        File::put($checkout.'/Dockerfile.dply-release', $split['release']);
+        $tar = $workRoot.'/release.tar';
+        $script = 'docker buildx build -f '.escapeshellarg($checkout.'/Dockerfile.dply-release').' --target '.EdgeReleaseBundle::RELEASE_STAGE
+            .' --output '.escapeshellarg('type=tar,dest='.$tar).' '.escapeshellarg($checkout)
+            .' && gzip -1 -f '.escapeshellarg($tar);
+        $log("Release bundle: building the release (/app).\n");
+        $started = microtime(true);
+        $result = $this->runWithHeartbeat($log, Process::timeout($timeoutSeconds ?? 1800), self::deployerRun(self::buildContainerName($deployment).'-release', $workRoot, $checkout, $script));
+        if (! $result->successful()) {
+            throw new RuntimeException('Container deploy failed: the release bundle did not build: '.self::failureReason($result->errorOutput(), $result->output()));
+        }
+        $key = EdgeReleaseBundle::prefix($site).strtolower((string) $deployment->id).'.tar.gz';
+        $stream = fopen($tar.'.gz', 'r');
+        Storage::disk((string) config('edge.disk.name', 'edge_r2'))->writeStream($key, $stream);
+        if (is_resource($stream)) {
+            fclose($stream);
+        }
+        $log(sprintf("Release bundle: built in %ds, uploaded %.1f MB.\n", (int) round(microtime(true) - $started), filesize($tar.'.gz') / 1048576));
+
+        $config = json_decode((string) File::get($project.'/wrangler.jsonc'), true, flags: JSON_THROW_ON_ERROR);
+        $config['containers'][0]['images'] = ['app' => ['dockerfile' => $runtimeDir.'/Dockerfile']];
+        $config['r2_buckets'] = [...($config['r2_buckets'] ?? []), ['binding' => 'RELEASES', 'bucket_name' => $bucket]];
+        File::put($project.'/wrangler.jsonc', json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+        File::put($project.'/src/index.js', str_replace('const RELEASE_KEY = "";', 'const RELEASE_KEY = '.json_encode($key, JSON_UNESCAPED_SLASHES).';', (string) File::get($project.'/src/index.js')));
+
+        return true;
+    }
+
+    /** The scheduling policy of the app's container application, or null when it has none. */
+    private function applicationPolicy(Site $site): ?string
+    {
+        try {
+            $client = EdgeCloudflareClient::fromConfig();
+            foreach ($client->listContainerApplications() as $application) {
+                if ($application['id'] !== '' && $application['name'] === EdgeContainerRollout::applicationName($site)) {
+                    return (string) ($client->containerApplication($application['id'])['scheduling_policy'] ?? 'default');
+                }
+            }
+        } catch (Throwable) {
+            // Unknown: treated as none, so the Worker is uploaded twice.
+        }
+
+        return null;
+    }
+
+    /**
+     * Delete the app's container application if it runs under the other
+     * scheduling policy than $durableObject. True when one was deleted.
+     */
+    private function dropOtherSchedulingApplication(Site $site, bool $durableObject, callable $log): bool
+    {
+        try {
+            $client = EdgeCloudflareClient::fromConfig();
+            foreach ($client->listContainerApplications() as $application) {
+                if ($application['id'] === '' || $application['name'] !== EdgeContainerRollout::applicationName($site)) {
+                    continue;
+                }
+                $policy = (string) ($client->containerApplication($application['id'])['scheduling_policy'] ?? 'default');
+                if (($policy === 'durable_object') === $durableObject) {
+                    continue;
+                }
+                $log("Faster starts changed: removing the app's container application from the other scheduling and deploying again. The app is down until the new one starts.\n");
+                $client->deleteContainerApplication($application['id']);
+
+                return true;
+            }
+        } catch (Throwable $e) {
+            $log('Could not check the container application: '.$e->getMessage()."\n");
+        }
+
+        return false;
     }
 
     /**
@@ -365,7 +777,9 @@ class EdgeContainerDeployer
         try {
             foreach ($client->listContainerApplications() as $application) {
                 if ($application['id'] !== '' && str_starts_with($application['name'], $script)) {
-                    $services[] = $application['id'];
+                    // Workers Logs names the service by dashed UUID; the API returns
+                    // some application ids as 32 bare hex digits, which matched no line.
+                    $services[] = (string) preg_replace('/^([0-9a-f]{8})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{4})([0-9a-f]{12})$/i', '$1-$2-$3-$4-$5', $application['id']);
                 }
             }
         } catch (Throwable) {
@@ -409,6 +823,17 @@ class EdgeContainerDeployer
     }
 
     /**
+     * Marks dply's uptime checks (x-dply-uptime) so the Worker neither wakes a
+     * sleeping instance for one nor counts it as activity. Separate from the
+     * queue token: it goes to whatever URL the monitor checks, and all it can
+     * do is keep a request from waking the app.
+     */
+    public static function uptimeToken(Site $site): string
+    {
+        return hash_hmac('sha256', 'container-uptime:'.$site->id, (string) config('app.key'));
+    }
+
+    /**
      * @param  array<string, string>  $env  Production env (EdgeProductionEnv)
      * @param  callable(string): void  $log
      * @return array{script_name: string, stack: string, port: int, queues: list<string>}
@@ -435,6 +860,9 @@ class EdgeContainerDeployer
             $log($summary);
         }
         $overlap = EdgeContainerSettings::deployOverlap($site);
+        if (EdgeContainerSettings::durableObjectScheduling($settings)) {
+            $log("Scheduling: durable_object (Cloudflare's faster-starting Containers).\n");
+        }
         $log(sprintf(
             "Container settings: %s, %d instance(s)%s, sleep %s, rollout %s\n",
             $settings['instance_type'],
@@ -497,6 +925,9 @@ class EdgeContainerDeployer
 
         $this->ensureDeployerImage($log);
         self::ensureBuilderNetwork();
+        if (EdgeContainerSettings::releaseBundle($settings)) {
+            $this->shipReleaseBundle($site, $deployment, $checkout, $image, $project, $workRoot, $log, $timeoutSeconds);
+        }
 
         $namespace = (string) config('edge.cloudflare.dispatch_namespace_name');
         // Migrations run in a release step (dply's own SQLite migrates on boot).
@@ -504,7 +935,11 @@ class EdgeContainerDeployer
         // Production already serves a version: prove the new one works on
         // its own before it takes that traffic. The real deploy below then
         // reuses the image layers this one pushed.
-        $candidate = self::checksCandidate($site);
+        // Faster starts has no rollout to protect, and a copy would create and
+        // delete a whole container application each deploy: skip it.
+        $doScheduled = EdgeContainerSettings::durableObjectScheduling($settings);
+        $candidate = self::checksCandidate($site) && ! $doScheduled;
+        $doApplicationBefore = $doScheduled ? $this->applicationPolicy($site) : null;
         if ($candidate) {
             $this->deployCandidate($site, $deployment, $project, $workRoot, $namespace, $log, $timeoutSeconds, $release);
         }
@@ -513,9 +948,25 @@ class EdgeContainerDeployer
         // Say so, or every deploy reads as a hang at exactly this point.
         $log("Building the image (npm, Vite, Composer) and pushing it. Docker output follows.\n");
 
-        $result = $this->runWithHeartbeat($log, Process::timeout($timeoutSeconds ?? 1800), self::deployerCommand(
-            self::buildContainerName($deployment), $workRoot, $project, $namespace, $settings['rollout_mode'],
+        $deploy = fn () => $this->runWithHeartbeat($log, Process::timeout($timeoutSeconds ?? 1800), self::deployerCommand(
+            self::buildContainerName($deployment), $workRoot, $project, $namespace, EdgeContainerSettings::durableObjectScheduling($settings) ? 'immediate' : $settings['rollout_mode'],
         ));
+        $result = $deploy();
+        // Faster starts switched on or off: the app's container application
+        // under the other scheduling holds its name and Durable Object
+        // namespace, so wrangler cannot create the new one. Remove it and
+        // retry (the image build is cached). Its instances stop until then.
+        if (! $result->successful() && $this->dropOtherSchedulingApplication($site, $doScheduled, $log)) {
+            $result = $deploy();
+        }
+        // A container application created by this deploy is not attached to
+        // the Worker version uploaded just before it ("There is no container
+        // application assigned to this Durable Object namespace", 2026-09-30).
+        // Upload once more now that it exists; the image is already pushed.
+        if ($result->successful() && $doScheduled && $doApplicationBefore !== 'durable_object') {
+            $log("The container application was just created. Uploading the Worker again so it attaches.\n");
+            $result = $deploy();
+        }
 
         File::delete($project.'/secrets.json');
 
@@ -525,8 +976,12 @@ class EdgeContainerDeployer
 
         // wrangler returning only means the script uploaded. Ask Cloudflare
         // whether the container actually came up, so "live" means running.
-        $log("[dply:step] publish\nImage pushed. Waiting for Dply Edge to roll the container out.\n");
-        $rollout = app(EdgeContainerRollout::class)->await($site, $log);
+        // durable_object scheduling has no rollout: each instance starts the
+        // new image on its next request (a running one is replaced then).
+        $log($doScheduled
+            ? "[dply:step] publish\nImage pushed. Instances start the new version on their next request.\n"
+            : "[dply:step] publish\nImage pushed. Waiting for Dply Edge to roll the container out.\n");
+        $rollout = $doScheduled ? ['settled' => true, 'ok' => true] : app(EdgeContainerRollout::class)->await($site, $log);
         if ($rollout['settled'] && ! $rollout['ok']) {
             throw new RuntimeException('Container deploy failed: '.(string) $rollout['reason'].' — '.(string) json_encode($rollout['health']));
         }
@@ -543,10 +998,21 @@ class EdgeContainerDeployer
         }
         $log("Checking {$url} answers.\n");
         $checkedAt = time();
-        try {
-            $response = Http::timeout(90)->withoutRedirecting()->get($url);
-        } catch (Throwable $e) {
-            throw new RuntimeException("Container deploy failed: {$url} did not answer: ".$e->getMessage(), previous: $e);
+        // Faster starts: the first request starts the container, and a new
+        // application can take a moment to attach. A few tries, not one.
+        for ($try = 1; ; $try++) {
+            try {
+                $response = Http::timeout(90)->withoutRedirecting()->get($url);
+                if (! $doScheduled || $try >= 4 || ! $response->serverError()) {
+                    break;
+                }
+            } catch (Throwable $e) {
+                if (! $doScheduled || $try >= 4) {
+                    throw new RuntimeException("Container deploy failed: {$url} did not answer: ".$e->getMessage(), previous: $e);
+                }
+            }
+            $log("Not answering yet (try {$try} of 4). Trying again.\n");
+            sleep(10);
         }
         $log(sprintf("App answered HTTP %d.\n", $response->status()));
         if ($response->serverError()) {
@@ -555,6 +1021,14 @@ class EdgeContainerDeployer
         $unhealthy = self::unhealthyReason($url, $response->status(), $response->body());
         if ($unhealthy !== null) {
             throw new RuntimeException('Container deploy failed: '.$unhealthy);
+        }
+        // Live: older releases can go (the newest few stay, to go back to).
+        if (EdgeContainerSettings::releaseBundle($settings)) {
+            try {
+                EdgeReleaseBundle::prune($site);
+            } catch (Throwable $e) {
+                $log('Could not delete old releases: '.$e->getMessage()."\n");
+            }
         }
 
         if (self::keepsInstancesAwake($settings)) {
@@ -642,7 +1116,9 @@ class EdgeContainerDeployer
         if (($config['queues'] ?? null) === []) {
             unset($config['queues']);
         }
-        if (isset($config['containers'][0])) {
+        // durable_object scheduling takes no max_instances (wrangler refuses
+        // it); its instances are whatever the Worker starts.
+        if (isset($config['containers'][0]) && ($config['containers'][0]['scheduling_policy'] ?? '') !== 'durable_object') {
             $config['containers'][0]['max_instances'] = 1;
         }
         File::put($dir.'/wrangler.jsonc', json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
@@ -677,7 +1153,9 @@ class EdgeContainerDeployer
             if (! $result->successful()) {
                 throw new RuntimeException('Container deploy failed: '.self::failureReason($result->errorOutput(), $result->output()));
             }
-            $rollout = app(EdgeContainerRollout::class)->await($site, $log, application: $script.'-app');
+            $rollout = EdgeContainerSettings::durableObjectScheduling(EdgeContainerSettings::for($site))
+                ? ['settled' => true, 'ok' => true]
+                : app(EdgeContainerRollout::class)->await($site, $log, application: $script.'-app');
             if ($rollout['settled'] && ! $rollout['ok']) {
                 throw new RuntimeException('Container deploy failed: '.(string) $rollout['reason'].'. Production still runs the previous version.');
             }
@@ -881,8 +1359,9 @@ class EdgeContainerDeployer
         // A push queue's QUEUE_CONNECTION stays; the app's own env (below) wins over both.
         $queueEnv += EdgeQueueWorkers::dispatchEnv($site);
 
-        return array_merge(EdgeContainerConnections::redisDriverEnv($site), EdgeContainerConnections::storageDriverEnv($site), $s3 ? EdgeBucketKeys::appEnv($site, $env) : [], EdgeContainerConnections::kvDriverEnv($site), EdgeContainerConnections::realtimeDriverEnv($site), $queueEnv, $env, [
+        return array_merge(EdgeContainerConnections::redisDriverEnv($site), EdgeContainerConnections::storageDriverEnv($site), $s3 ? EdgeBucketKeys::appEnv($site, $env) : [], EdgeContainerConnections::kvDriverEnv($site), EdgeContainerConnections::realtimeDriverEnv($site), EdgeContainerConnections::messagesEnv($site), EdgeContainerConnections::vectorRestSecrets($site), $queueEnv, $env, [
             'DPLY_QUEUE_TOKEN' => self::queueToken($site),
+            'DPLY_UPTIME_TOKEN' => self::uptimeToken($site),
             'DPLY_APP_URL' => (string) ($site->edgeLiveUrl() ?? ''),
             // Never on a preview: its migrations would run against whatever database it reaches.
             // Never on dply itself: N instances booting a release would race the
@@ -1024,7 +1503,14 @@ class EdgeContainerDeployer
             // Containers need a recent runtime; not the SSR scripts' pinned date.
             'compatibility_date' => '2026-06-01',
             'compatibility_flags' => ['nodejs_compat'],
-            'containers' => [array_filter([
+            // durable_object scheduling takes only the image here: size is
+            // chosen at start (DO_CONTAINER_BASE); regions, instance caps and
+            // rollouts do not apply.
+            'containers' => [EdgeContainerSettings::durableObjectScheduling($settings) ? [
+                'class_name' => 'App',
+                'scheduling_policy' => 'durable_object',
+                'images' => ['app' => ['dockerfile' => $dockerfile]],
+            ] : array_filter([
                 'class_name' => 'App',
                 'image' => $dockerfile,
                 'instance_type' => EdgeContainerSettings::wranglerInstanceType($site),
@@ -1093,10 +1579,12 @@ class EdgeContainerDeployer
             'name' => self::scriptName($site),
             'private' => true,
             'type' => 'module',
-            'dependencies' => EdgeContainerConnections::browserEnabled($site)
-                ? ['@cloudflare/containers' => '~0.3.7', '@cloudflare/puppeteer' => '^1']
-                // Pinned: autoscaling reads the SDK's inflightRequests.
-                : ['@cloudflare/containers' => '~0.3.7'],
+            // Pinned: autoscaling reads the SDK's inflightRequests. durable_object
+            // scheduling inlines its own base class instead.
+            'dependencies' => array_merge(
+                EdgeContainerSettings::durableObjectScheduling($settings) ? [] : ['@cloudflare/containers' => '~0.3.7'],
+                EdgeContainerConnections::browserEnabled($site) ? ['@cloudflare/puppeteer' => '^1'] : [],
+            ),
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         File::put($dir.'/src/index.js', $this->workerSource($port, array_flip($queues), $settings, $crons, $site, $sqliteSync && $bucket !== '', $phpServer));
     }
@@ -1129,7 +1617,7 @@ class EdgeContainerDeployer
                 'autoscale' => $g['autoscale'],
                 'env' => (object) EdgeQueueWorkers::env($site, $g['key']),
             ], EdgeQueueWorkers::groups($site)) : [], JSON_UNESCAPED_SLASHES),
-            '__FPM_CHILDREN__' => (string) EdgeContainerSettings::phpFpmPool($settings['instance_type'], $site, $phpServer)['max_children'],
+            '__FPM_CHILDREN__' => (string) EdgeContainerSettings::phpFpmPool($settings['instance_type'], $site, $phpServer)['workers'],
             '__FPM_LIMIT__' => json_encode(EdgeContainerSettings::phpFpmPool($settings['instance_type'], $site)['memory_limit']),
             '__QUEUE_PATH__' => json_encode(self::QUEUE_PATH, JSON_UNESCAPED_SLASHES),
             '__QUEUE_SEND_PATH__' => json_encode(self::QUEUE_SEND_PATH, JSON_UNESCAPED_SLASHES),
@@ -1146,8 +1634,15 @@ class EdgeContainerDeployer
             '__BROWSER__' => EdgeContainerConnections::browserEnabled($site) ? 'true' : 'false',
             '__SQLITE_SYNC__' => $sqliteSync ? 'true' : 'false',
             '__SQLITE_KEY__' => json_encode(self::sqliteKey($site), JSON_UNESCAPED_SLASHES),
+            // Set by useReleaseBundle() after scaffold, when the deploy ships one.
+            '__RELEASE_KEY__' => '""',
             '__PUBLIC_STORAGE__' => json_encode(EdgeContainerConnections::publicStorage($site), JSON_UNESCAPED_SLASHES),
             '__BROWSER_HOST__' => json_encode(EdgeContainerConnections::browserHost($site)),
+            // The container base class: @cloudflare/containers, or dply's own
+            // on ctx.container under durable_object scheduling (DO_CONTAINER_BASE).
+            '__CONTAINER_BASE__' => EdgeContainerSettings::durableObjectScheduling($settings)
+                ? strtr(self::DO_CONTAINER_BASE, ['__DO_INSTANCE__' => json_encode(EdgeContainerSettings::durableObjectInstance($site), JSON_UNESCAPED_SLASHES)])
+                : "import { Container } from '@cloudflare/containers';\nexport { ContainerProxy } from '@cloudflare/containers';",
             '__BROWSER_IMPORT__' => EdgeContainerConnections::browserEnabled($site)
                 ? "import puppeteer from '@cloudflare/puppeteer';\n"
                 : '',
@@ -1181,9 +1676,8 @@ JS,
 
         return strtr(<<<'JS'
 // Generated by dply (EdgeContainerDeployer). Edits are overwritten on deploy.
-import { Container } from '@cloudflare/containers';
 import { DurableObject } from 'cloudflare:workers';
-export { ContainerProxy } from '@cloudflare/containers';
+__CONTAINER_BASE__
 
 // The Durable Object location hint: the region of the app's dply data, so the
 // DO in front of each container sits near it too. @cloudflare/containers 0.3's
@@ -1332,7 +1826,7 @@ export class App extends Container {
     await this.remember(index);
     if (await this.ctx.storage.get('dply:paused')) return;
     await this.ctx.storage.put('dply:wanted', true);
-    if (this.container.running) return;
+    if (this.container.running && !this.stale) return;
     await this.start({ envVars: this.envVars });
   }
 
@@ -1346,7 +1840,8 @@ export class App extends Container {
   // Bring back a wanted worker Cloudflare restarted.
   async resumeWorker(index) {
     await this.remember(index);
-    if ((await this.ctx.storage.get('dply:paused')) || !(await this.wanted(index)) || this.container.running) return;
+    // stale: still on the image from before a deploy (durable_object scheduling only).
+    if ((await this.ctx.storage.get('dply:paused')) || !(await this.wanted(index)) || (this.container.running && !this.stale)) return;
     await this.start({ envVars: this.envVars });
   }
 
@@ -1359,6 +1854,13 @@ export class App extends Container {
       for (let i = 0; i < 60 && this.container.running; i++) await new Promise((r) => setTimeout(r, 500));
     }
     await this.startAndWaitForPorts({ ports: [__PORT__], cancellationOptions: { portReadyTimeoutMS: 45000 } });
+  }
+
+  // Stop this web instance now, as if it had gone idle: a real cold start on
+  // demand for `dply:edge:wake-time --force`, without waiting out sleepAfter.
+  async sleepNow(index) {
+    await this.remember(index);
+    if (this.container.running) await this.stop('SIGTERM');
   }
 
   // The scheduler's plan lives in the storage of the "dply-schedule"
@@ -1419,6 +1921,13 @@ export class App extends Container {
   // containerFetch RPC), which is the path the SDK proxies WebSocket
   // upgrades on: it answers with a 101 whose webSocket it pipes both ways.
   async fetch(request) {
+    // dply's uptime check: never wakes a sleeping instance ("asleep"), and
+    // is not activity, so it cannot keep the app awake either.
+    const uptime = request.headers.get('x-dply-uptime');
+    if (uptime && this.env?.DPLY_UPTIME_TOKEN && uptime === this.env.DPLY_UPTIME_TOKEN) {
+      if (!this.container.running) return new Response(null, { status: 204, headers: { 'x-dply-asleep': '1' } });
+      return this.container.getTcpPort(__PORT__).fetch(request.url.replace('https:', 'http:'), request);
+    }
     this.reservations.shift();
     this.lastActivityAt = Date.now();
     if (this.container.running) return super.fetch(request);
@@ -1472,6 +1981,8 @@ const CLIENT_CERT = __CLIENT_CERT__;
 const BROWSER = __BROWSER__;
 const SQLITE_SYNC = __SQLITE_SYNC__;
 const SQLITE_KEY = __SQLITE_KEY__;
+// Release bundle (EdgeReleaseBundle): the R2 key of this deploy's /app, or ''.
+const RELEASE_KEY = __RELEASE_KEY__;
 // Buckets served read-only on the app's own domains (EdgeContainerConnections::publicStorage).
 const PUBLIC_STORAGE = __PUBLIC_STORAGE__;
 
@@ -1498,11 +2009,130 @@ async function publicStorageFetch(request, env, url) {
   }
   return new Response(request.method === 'HEAD' ? null : object.body, { status: 200, headers });
 }
+
+// ---- vector REST (start) ----
+// Vector search over HTTPS, from anywhere: POST /_vector/{NAME}/{command}[/{namespace}]
+// with Authorization: Bearer {token} (secret DPLY_VECTOR_TOKEN_{NAME}). Runs on
+// the app's own Vectorize binding: queries go through dply's meter (cap, pause,
+// billing) like the app's own. Only what maps onto Vectorize exactly is served;
+// the rest is refused with a 400 rather than approximated.
+const VECTOR_REFUSED = {
+  'upsert-data': 'Send vectors: dply does not embed text for you (use Workers AI or your own model).',
+  'query-data': 'Send a vector: dply does not embed text for you (use Workers AI or your own model).',
+  'resumable-query': 'Resumable queries are not supported.', 'resumable-query-data': 'Resumable queries are not supported.',
+  'resumable-query-next': 'Resumable queries are not supported.', 'resumable-query-end': 'Resumable queries are not supported.',
+  range: 'Listing vectors (range) is not supported by Vectorize.', reset: 'reset is not supported: delete vectors by id.',
+  update: 'update is not supported: upsert the whole vector.', 'list-namespaces': 'Listing namespaces is not supported.',
+  'delete-namespace': 'Deleting a namespace is not supported: delete its vectors by id.',
+};
+const VECTOR_SIMILARITY = { cosine: 'COSINE', euclidean: 'EUCLIDEAN', 'dot-product': 'DOT_PRODUCT' };
+
+async function vectorRestFetch(request, env, ctx, url) {
+  if (!url.pathname.startsWith('/_vector/')) return null;
+  const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  const refuse = (error, status = 400) => reply({ error }, status);
+  const [name, command, ...rest] = url.pathname.slice('/_vector/'.length).split('/').map(decodeURIComponent);
+  const conn = CONNECTIONS.find((c) => c.kind === 'vectors' && c.name === name);
+  const expected = conn ? env['DPLY_VECTOR_TOKEN_' + name] : undefined;
+  const given = (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
+  if (!expected || !vectorSameToken(given, expected)) return refuse('Unauthorized', 401);
+  if (conn.asleep || !env[conn.name]) return refuse('This vector index is asleep. Wake it in dply, then deploy.', 503);
+  if (request.method !== 'POST') return refuse('Use POST', 405);
+  if (VECTOR_REFUSED[command]) return refuse(VECTOR_REFUSED[command]);
+  const namespace = rest.join('/') || undefined;
+  const index = dplyMetered('vectors', env[conn.name], env, ctx, conn.name);
+  let body;
+  try { body = await request.json(); } catch { return refuse('The body must be JSON'); }
+  let dims = 0;
+  const dimensions = async () => {
+    if (!dims) { const info = await env[conn.name].describe(); dims = Number(info.dimensions || (info.config && info.config.dimensions)) || 0; }
+    return dims;
+  };
+  const vectorOut = (v, withVector, withMetadata) => ({
+    id: v.id, ...(v.score !== undefined ? { score: v.score } : {}),
+    ...(withVector && v.values ? { vector: Array.from(v.values) } : {}),
+    ...(withMetadata && v.metadata ? { metadata: v.metadata } : {}),
+  });
+  try {
+    if (command === 'upsert') {
+      const items = Array.isArray(body) ? body : [body];
+      const want = await dimensions();
+      const vectors = [];
+      for (const item of items) {
+        if (item.data !== undefined || item.sparseVector !== undefined) return refuse(VECTOR_REFUSED['upsert-data']);
+        if (!Array.isArray(item.vector) || item.vector.length !== want) return refuse(`Each vector needs ${want} numbers (this index's dimensions).`);
+        const id = String(item.id ?? '');
+        if (id === '' || new TextEncoder().encode(id).length > 64) return refuse('Each vector needs an id of 1 to 64 bytes.');
+        vectors.push({ id, values: item.vector, ...(item.metadata ? { metadata: item.metadata } : {}), ...(namespace ? { namespace } : {}) });
+      }
+      if (vectors.length === 0 || vectors.length > 1000) return refuse('Send 1 to 1,000 vectors.');
+      await env[conn.name].upsert(vectors);
+      return reply({ result: 'Success' });
+    }
+    if (command === 'query') {
+      const many = Array.isArray(body);
+      const out = [];
+      for (const q of many ? body : [body]) {
+        if (q.data !== undefined || q.sparseVector !== undefined) return refuse(VECTOR_REFUSED['query-data']);
+        if (q.filter) return refuse('Metadata filters are not supported yet.');
+        if (!Array.isArray(q.vector)) return refuse('Send a vector to query with.');
+        if (q.vector.length !== await dimensions()) return refuse(`The query vector needs ${dims} numbers.`);
+        const returning = Boolean(q.includeVectors || q.includeMetadata);
+        const topK = Math.max(1, Math.min(returning ? 50 : 100, Number(q.topK) || 10));
+        const res = await index.query(q.vector, { topK, returnValues: Boolean(q.includeVectors), returnMetadata: q.includeMetadata ? 'all' : 'none', ...(namespace ? { namespace } : {}) });
+        out.push((res.matches || []).map((m) => vectorOut(m, q.includeVectors, q.includeMetadata)));
+      }
+      return reply({ result: many ? out : out[0] });
+    }
+    if (command === 'fetch') {
+      if (body.prefix !== undefined) return refuse('Fetching by prefix is not supported.');
+      const ids = (body.ids || []).map(String);
+      if (ids.length === 0 || ids.length > 100) return refuse('Send 1 to 100 ids.');
+      const found = await env[conn.name].getByIds(ids);
+      const byId = new Map(found.filter((v) => (v.namespace || undefined) === namespace).map((v) => [v.id, v]));
+      return reply({ result: ids.map((id) => byId.has(id) ? vectorOut(byId.get(id), body.includeVectors, body.includeMetadata) : null) });
+    }
+    if (command === 'delete') {
+      if (body.prefix !== undefined || body.filter !== undefined) return refuse('Delete by id only.');
+      const ids = (body.ids || []).map(String);
+      if (ids.length === 0 || ids.length > 1000) return refuse('Send 1 to 1,000 ids.');
+      const existing = (await env[conn.name].getByIds(ids)).filter((v) => (v.namespace || undefined) === namespace).map((v) => v.id);
+      if (existing.length > 0) await env[conn.name].deleteByIds(existing);
+      return reply({ result: { deleted: existing.length } });
+    }
+    if (command === 'info') {
+      const info = await env[conn.name].describe();
+      const count = Number(info.vectorCount ?? info.vectorsCount ?? 0);
+      const metric = info.config ? info.config.metric : info.metric;
+      const dimension = Number(info.dimensions || (info.config && info.config.dimensions)) || 0;
+      return reply({ result: { vectorCount: count, pendingVectorCount: 0, indexSize: 0, dimension, similarityFunction: VECTOR_SIMILARITY[metric] || 'COSINE', namespaces: { '': { vectorCount: count, pendingVectorCount: 0 } } } });
+    }
+    return refuse(`Unknown command ${command}`, 404);
+  } catch (e) {
+    if (e && e.dplyMeter) return refuse(e.message, e.status || 429);
+    return refuse(String((e && e.message) || e), 500);
+  }
+}
+
+function vectorSameToken(a, b) {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+// ---- vector REST (end) ----
 App.outboundByHost = Object.fromEntries([
   ...CONNECTIONS.map((c) => [c.host, (request, env, ctx) => connectionFetch(c, request, env, ctx).catch(dplyRefusal)]),
   ...(BROWSER ? [[__BROWSER_HOST__, (request, env, ctx) => browserFetch(request, env, ctx)]] : []),
   ...(SQLITE_SYNC ? [['sqlite.dply', (request, env) => sqliteFetch(request, env)]] : []),
+  ...(RELEASE_KEY ? [['release.dply', (request, env) => releaseFetch(env)]] : []),
 ]);
+
+// The container fetches its code at boot (EdgeReleaseBundle::FETCH).
+async function releaseFetch(env) {
+  const object = env.RELEASES ? await env.RELEASES.get(RELEASE_KEY) : null;
+  return object ? new Response(object.body, { headers: { 'content-length': String(object.size) } }) : new Response('No release.', { status: 404 });
+}
 
 async function sqliteFetch(request, env) {
   if (!env.SQLITE) return new Response('SQLite storage is not configured.', { status: 404 });
@@ -1883,7 +2513,10 @@ async function proxy(env, request, target) {
   let response = await container.fetch(request);
   for (let attempt = 0; retryable && attempt < 2 && response.status >= 500; attempt++) {
     const preview = await response.clone().text();
-    if (!/not running|Failed to start container|Container crashed|suddenly disconnected/.test(preview)) {
+    // "Error proxying request to container:" is the SDK's own catch-all, seen
+    // when a request lands while the instance is stopping for inactivity:
+    // start it again rather than hand the visitor a 500.
+    if (!/not running|Failed to start container|Container crashed|suddenly disconnected|Error proxying request to container/.test(preview)) {
       return countReply(env, revealAppErrors(env, response));
     }
     try {
@@ -2005,6 +2638,10 @@ export default {
           }
         })));
       }
+      if (url.pathname === '/_dply/sleep' && request.method === 'POST') {
+        await Promise.all(Array.from({ length: INSTANCES }, (_, i) => instance(env, i).sleepNow(i).catch(() => null)));
+        return Response.json({ ok: true });
+      }
       if (url.pathname === '/_dply/replace' && request.method === 'POST') {
         const { index = 0 } = await request.json();
         try {
@@ -2105,6 +2742,8 @@ export default {
     if (!(await trafficOpen(env))) {
       return new Response('This app is paused. The workspace usage credit is used up.', { status: 503, headers: { 'content-type': 'text/plain; charset=utf-8', 'retry-after': '3600' } });
     }
+    const vectorReply = await vectorRestFetch(request, env, ctx, url);
+    if (vectorReply) return vectorReply;
     const publicFile = await publicStorageFetch(request, env, url);
     if (publicFile) return publicFile;
     const headers = new Headers(request.headers);
@@ -2273,6 +2912,20 @@ JS, $replace);
      *
      * @return list<string>
      */
+    /**
+     * The deployer container running $script in $cwd instead of wrangler deploy.
+     *
+     * @return list<string>
+     */
+    public static function deployerRun(string $name, string $workRoot, string $cwd, string $script): array
+    {
+        $command = self::deployerCommand($name, $workRoot, $cwd, '', '');
+        $at = array_search('-c', $command, true);
+        $builder = trim((string) config('edge.build.containers.builder', ''));
+
+        return [...array_slice($command, 0, $at + 1), self::deployerScript($builder, $script)];
+    }
+
     public static function deployerCommand(string $name, string $workRoot, string $project, string $namespace, string $rolloutMode): array
     {
         $builder = trim((string) config('edge.build.containers.builder', ''));
@@ -2307,9 +2960,9 @@ JS, $replace);
      * reused, so the driver opts only take effect when it is first created.
      * `&&`: no builder means no deploy, never a silent host-daemon build.
      */
-    public static function deployerScript(string $builder): string
+    public static function deployerScript(string $builder, ?string $deploy = null): string
     {
-        $deploy = 'npm install --silent --no-audit --no-fund --ignore-scripts && wrangler deploy --dispatch-namespace "$0" --secrets-file secrets.json --containers-rollout "$1"';
+        $deploy ??= 'npm install --silent --no-audit --no-fund --ignore-scripts && wrangler deploy --dispatch-namespace "$0" --secrets-file secrets.json --containers-rollout "$1"';
         if ($builder === '') {
             return $deploy;
         }

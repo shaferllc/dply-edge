@@ -15,7 +15,7 @@ namespace App\Modules\Providers\Valkey;
 final class ValkeyRegions
 {
     /**
-     * @return array<string, array{key: string, label: string, cloudflare: string, api_url: string, token: string, domain: string, db_domain: string, port: int}>
+     * @return array<string, array{key: string, label: string, cloudflare: string, api_url: string, token: string, domain: string, db_domain: string, port: int, rest_port: int}>
      */
     public static function all(): array
     {
@@ -49,6 +49,7 @@ final class ValkeyRegions
                 'domain' => (string) ($region['domain'] ?? 'cache.dply.local'),
                 'db_domain' => (string) ($region['db_domain'] ?? 'db.dply.local'),
                 'port' => (int) ($region['port'] ?? 6380),
+                'rest_port' => (int) ($region['rest_port'] ?? 8443),
             ];
         }
 

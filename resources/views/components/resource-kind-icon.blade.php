@@ -16,6 +16,7 @@
         'workflow' => 'heroicon-o-arrow-path',
         'service' => 'heroicon-o-squares-2x2',
         'realtime' => 'heroicon-o-signal',
+        'messages' => 'heroicon-o-paper-airplane',
         default => null,
     };
     $class = $attributes->get('class') ?: 'h-4 w-4 shrink-0';

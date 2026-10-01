@@ -10,11 +10,14 @@ use App\Models\EdgeQueue;
 use App\Models\EdgeRealtimeApp;
 use App\Models\Organization;
 use App\Models\Site;
+use App\Modules\Edge\Services\Messages\EdgeMessages;
 use App\Modules\Edge\Services\Realtime\EdgeRealtimeApps;
 use App\Modules\Edge\Services\Storage\EdgeBucketKeys;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Laravel\Pennant\Feature;
 
 /**
@@ -47,6 +50,7 @@ final class EdgeContainerConnections
         'database_pool' => ['label' => 'Database pool', 'needs_target' => true, 'hint' => 'GET http://host/ for the connection string'],
         'service' => ['label' => 'Another app', 'needs_target' => true, 'hint' => 'Any method on http://host/path is sent to that app'],
         'realtime' => ['label' => 'Realtime', 'needs_target' => false, 'hint' => 'WebSockets for Laravel Reverb, Echo, and Pusher clients. The next deploy sets the REVERB_* and PUSHER_* keys, and VITE_* for the asset build.'],
+        'messages' => ['label' => 'Messages', 'needs_target' => false, 'hint' => 'Send HTTP messages later, with retries, callbacks and cron schedules. The next deploy sets MESSAGES_URL, MESSAGES_TOKEN and the signing keys.'],
     ];
 
     /**
@@ -84,11 +88,26 @@ final class EdgeContainerConnections
      * turned on: /admin/feature-flags on localhost, or php artisan dply:feature). Only adding one is gated:
      * an app that already has it keeps it.
      */
-    public const FLAGGED = ['sql', 'database_pool', 'key_value', 'durable_object', 'ai', 'vectors', 'images', 'service'];
+    public const FLAGGED = ['sql', 'database_pool', 'key_value', 'durable_object', 'ai', 'vectors', 'images', 'service', 'messages'];
 
     public static function flag(string $kind): string
     {
         return 'resource-'.str_replace('_', '-', $kind);
+    }
+
+    /**
+     * Every flag, kind => label.
+     *
+     * @return array<string, string>
+     */
+    public static function flagLabels(): array
+    {
+        $out = [];
+        foreach (self::FLAGGED as $kind) {
+            $out[$kind] = self::KINDS[$kind]['label'];
+        }
+
+        return $out;
     }
 
     /** Whether this organization may add $kind (Add a resource). */
@@ -119,7 +138,7 @@ final class EdgeContainerConnections
      *
      * @var list<string>
      */
-    public const WORKER_KINDS = ['key_value', 'durable_object', 'redis', 'object_storage', 'sql', 'queue', 'ai', 'vectors', 'images', 'database_pool', 'service', 'realtime'];
+    public const WORKER_KINDS = ['key_value', 'durable_object', 'redis', 'object_storage', 'sql', 'queue', 'ai', 'vectors', 'images', 'database_pool', 'service', 'realtime', 'messages'];
 
     /**
      * How Worker code reaches a kind, where env.NAME alone does not say enough.
@@ -129,7 +148,7 @@ final class EdgeContainerConnections
     public const WORKER_HINTS = [
         'durable_object' => "await env.NAME.fetch('https://state/key', { method: 'PUT', body: 'value' }). GET reads it back. POST https://state/incr/key adds one.",
         'service' => "await env.NAME.fetch('/path') calls that app's live address with the same method, headers, and body.",
-        'redis' => 'REDIS_URL is set. Workers need a client that opens TCP sockets (cloudflare:sockets), such as node-redis with nodejs_compat.',
+        'redis' => 'dply Valkey: REDIS_REST_URL and REDIS_REST_TOKEN are set, for Redis commands over HTTPS (fetch). REDIS_URL is set too, for a TCP client (cloudflare:sockets, nodejs_compat).',
         'realtime' => 'env.REVERB_APP_KEY, env.REVERB_HOST and the PUSHER_* equivalents are set. Publish with any Pusher server SDK; browsers connect with Echo.',
     ];
 
@@ -347,7 +366,123 @@ final class EdgeContainerConnections
             }
         }
 
+        return $env + self::valkeyRestEnv($site);
+    }
+
+    /**
+     * Vector search over HTTPS, served by the
+     * container app's own Worker at {app}/_vector/{NAME} (EdgeContainerDeployer
+     * vectorRestFetch). Tokens are made on first use and kept as ONE encrypted
+     * JSON map at meta.edge.vector_rest_tokens, a fixed path that
+     * secrets:reencrypt rotates (secret_vault.reencrypt.json_crypt).
+     */
+    public static function vectorRestToken(Site $site, string $name, bool $create = true): ?string
+    {
+        $tokens = self::vectorRestTokens($site);
+        if (isset($tokens[$name])) {
+            return $tokens[$name];
+        }
+        if (! $create) {
+            return null;
+        }
+        $tokens[$name] = 'dvx_'.Str::random(40);
+        self::saveVectorRestTokens($site, $tokens);
+
+        return $tokens[$name];
+    }
+
+    /** A new token for the index; the old one stops working on the next deploy. */
+    public static function rotateVectorRestToken(Site $site, string $name): string
+    {
+        $tokens = self::vectorRestTokens($site);
+        $tokens[$name] = 'dvx_'.Str::random(40);
+        self::saveVectorRestTokens($site, $tokens);
+
+        return $tokens[$name];
+    }
+
+    /** @return array<string, string> index name => token */
+    private static function vectorRestTokens(Site $site): array
+    {
+        $blob = $site->edgeMeta()['vector_rest_tokens'] ?? null;
+        if (! is_string($blob) || $blob === '') {
+            return [];
+        }
+        try {
+            return array_map('strval', (array) json_decode(Crypt::decryptString($blob), true));
+        } catch (\Throwable) {
+            return []; // unreadable: new tokens are made on next use
+        }
+    }
+
+    /** @param  array<string, string>  $tokens */
+    private static function saveVectorRestTokens(Site $site, array $tokens): void
+    {
+        $site->mergeEdgeMeta(['vector_rest_tokens' => Crypt::encryptString((string) json_encode($tokens))]);
+        $site->save();
+    }
+
+    public static function vectorRestUrl(Site $site, string $name): string
+    {
+        return rtrim((string) ($site->edgePublicUrl() ?? $site->edgeLiveUrl() ?? ''), '/').'/_vector/'.$name;
+    }
+
+    /**
+     * Secrets for the container Worker (the token it checks per index) and,
+     * for the first awake index, the names the app reads
+     * (Index.fromEnv). Container apps only.
+     *
+     * @return array<string, string>
+     */
+    public static function vectorRestSecrets(Site $site): array
+    {
+        $env = [];
+        foreach (self::for($site) as $connection) {
+            if ($connection['kind'] !== 'vectors' || $connection['asleep']) {
+                continue;
+            }
+            $token = (string) self::vectorRestToken($site, $connection['name']);
+            $env['DPLY_VECTOR_TOKEN_'.$connection['name']] = $token;
+            $env += [
+                'VECTOR_REST_URL' => self::vectorRestUrl($site, $connection['name']),
+                'VECTOR_REST_TOKEN' => $token,
+            ];
+        }
+
         return $env;
+    }
+
+    /**
+     * dply Valkey over REST (valkey-gateway rest.go), under the names the
+     * REST clients read, so Workers and serverless code
+     * that cannot hold a TCP connection use it unchanged. The token is the
+     * password in the app's REDIS_URL. Empty for a pasted Redis, or when
+     * the Valkey is asleep or its size needs a paid plan.
+     *
+     * @return array<string, string>
+     */
+    public static function valkeyRestEnv(Site $site): array
+    {
+        foreach (self::for($site) as $connection) {
+            if (! EdgeValkey::isTarget((string) $connection['target']) || ! self::redisSuppliesEnv($site, $connection)) {
+                continue;
+            }
+            // Through the model: the value is stored encrypted.
+            $url = (string) ($site->edgeEnvVars()->where('scope', 'production')->where('key', 'REDIS_URL')->first()?->value ?? '');
+            $parts = parse_url($url) ?: [];
+            $password = rawurldecode((string) ($parts['pass'] ?? ''));
+            // Only when REDIS_URL is this Valkey's own address.
+            if ($password === '' || ! str_starts_with((string) ($parts['host'] ?? ''), EdgeValkey::tenantId((string) $connection['target']).'.')) {
+                return [];
+            }
+
+            return [
+                'REDIS_REST_URL' => EdgeValkey::restUrl((string) $connection['target']),
+                'REDIS_REST_TOKEN' => $password,
+            ];
+        }
+
+        return [];
     }
 
     /**
@@ -403,7 +538,7 @@ final class EdgeContainerConnections
         foreach (self::redisDriverEnv($site) as $key => $value) {
             $shown = match ($key) {
                 'REDIS_URL' => self::maskRedisUrl($value),
-                'REDIS_PASSWORD' => '••••',
+                'REDIS_PASSWORD', 'REDIS_REST_TOKEN' => '••••',
                 default => $value,
             };
             $rows[] = ['key' => $key, 'value' => $shown, 'from' => 'Redis'];
@@ -593,6 +728,18 @@ final class EdgeContainerConnections
     }
 
     /**
+     * MESSAGES_* for an attached, awake Messages (EdgeMessages::appEnv).
+     *
+     * @return array<string, string>
+     */
+    public static function messagesEnv(Site $site): array
+    {
+        $attached = collect(self::for($site))->contains(static fn (array $c): bool => $c['kind'] === 'messages' && ! $c['asleep']);
+
+        return $attached ? EdgeMessages::appEnv($site) : [];
+    }
+
+    /**
      * The VITE_* half of realtimeDriverEnv: Vite bakes these into the JS, so
      * the build needs them, not just the running app.
      *
@@ -604,21 +751,23 @@ final class EdgeContainerConnections
     }
 
     /**
-     * realtimeDriverEnv as Worker bindings (ssr / hybrid). Names in $taken
-     * (the site's own env) are left out so the upload has no duplicates.
-     * Secrets go as secret_text, the rest as plain_text.
+     * Resource env as Worker bindings (ssr / hybrid): Realtime's keys, dply
+     * Valkey's REST address and Messages' MESSAGES_*. Names in $taken (the site's own env) are
+     * left out so the upload has no duplicates. Secrets go as secret_text,
+     * the rest as plain_text.
      *
      * @param  list<string>  $taken
      * @return list<array{name: string, type: string, text: string}>
      */
-    public static function realtimeWorkerBindings(Site $site, array $taken = []): array
+    public static function resourceWorkerBindings(Site $site, array $taken = []): array
     {
         $out = [];
-        foreach (self::realtimeDriverEnv($site) as $key => $value) {
+        foreach (self::realtimeDriverEnv($site) + self::valkeyRestEnv($site) + self::messagesEnv($site) as $key => $value) {
             if (in_array($key, $taken, true)) {
                 continue;
             }
-            $out[] = ['name' => $key, 'type' => str_ends_with($key, '_SECRET') ? 'secret_text' : 'plain_text', 'text' => $value];
+            $secret = str_ends_with($key, '_SECRET') || str_ends_with($key, '_TOKEN');
+            $out[] = ['name' => $key, 'type' => $secret ? 'secret_text' : 'plain_text', 'text' => $value];
         }
 
         return $out;

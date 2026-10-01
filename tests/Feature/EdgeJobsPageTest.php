@@ -9,8 +9,11 @@ use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
+
+uses(RefreshDatabase::class);
 
 function jobsPageApp(Organization $org, User $user, string $name, string $runtime, array $connections, $createdAt): Site
 {

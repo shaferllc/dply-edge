@@ -37,7 +37,7 @@ class EdgeContainerUsageCollector
         $siteByApp = [];
         foreach ($client->listContainerApplications() as $app) {
             if (preg_match('/^dply-ctr-([0-9a-z]{26})/', strtolower($app['name']), $m) === 1) {
-                $siteByApp[$app['id']] = $m[1];
+                $siteByApp[self::appKey($app['id'])] = $m[1];
             }
         }
 
@@ -51,7 +51,7 @@ class EdgeContainerUsageCollector
         // queue-worker groups); add them up so none overwrites another.
         $bySite = [];
         foreach ($usage as $appId => $totals) {
-            $site = $sites[$siteByApp[$appId] ?? ''] ?? null;
+            $site = $sites[$siteByApp[self::appKey((string) $appId)] ?? ''] ?? null;
             if ($site === null || $site->organization_id === null) {
                 continue;
             }
@@ -126,5 +126,15 @@ class EdgeContainerUsageCollector
         }
 
         return $out;
+    }
+
+    /**
+     * Usage names an application by dashed UUID; a Faster starts (durable_object)
+     * application is listed by its Durable Object namespace id, the same hex
+     * without dashes. Compare them without dashes, or its usage goes unbilled.
+     */
+    private static function appKey(string $id): string
+    {
+        return strtolower(str_replace('-', '', $id));
     }
 }

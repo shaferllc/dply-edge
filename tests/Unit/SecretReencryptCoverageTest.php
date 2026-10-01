@@ -64,6 +64,7 @@ test('every encrypt() write site is classified for rotation coverage', function 
         // metrics-push writers left with the VM platform in the Edge cut.
         'app/Livewire/Auth/TwoFactorChallenge.php' => 'raw_crypt: users.two_factor_recovery_codes',
         'app/Livewire/TwoFactor/Page.php' => 'raw_crypt: users.two_factor_secret/recovery_codes',
+        'app/Modules/Edge/Support/EdgeContainerConnections.php' => 'json_crypt: sites.meta edge.vector_rest_tokens',
 
         // --- not APP_KEY at-rest data (no registry entry needed) ---
         'app/Modules/Secrets/Console/SecretsReencryptCommand.php' => 'the rotation engine itself',

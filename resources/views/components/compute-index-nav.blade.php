@@ -13,13 +13,16 @@
         ['route' => 'edge.databases', 'match' => 'edge.databases', 'label' => __('Databases'), 'icon' => 'circle-stack', 'feature' => 'surface.edge'],
         ['route' => 'edge.queues', 'match' => 'edge.queues', 'label' => __('Queues'), 'icon' => 'queue-list', 'feature' => 'surface.edge'],
         ['route' => 'edge.buckets', 'match' => 'edge.buckets', 'label' => __('Storage'), 'icon' => 'archive-box', 'feature' => 'surface.edge'],
+        ['route' => 'edge.messages', 'match' => 'edge.messages', 'label' => __('Messages'), 'icon' => 'paper-airplane', 'feature' => 'surface.edge', 'messages' => true],
         ['route' => 'serverless.index', 'match' => 'serverless.*', 'label' => __('Serverless'), 'icon' => 'cpu-chip', 'feature' => 'surface.serverless'],
     ];
 @endphp
 @php
     $visible = array_values(array_filter($items, function (array $item): bool {
         return \Illuminate\Support\Facades\Route::has($item['route'])
-            && (empty($item['feature']) || feature($item['feature']));
+            && (empty($item['feature']) || feature($item['feature']))
+            // Messages: only for organizations with the resource-messages flag.
+            && (empty($item['messages']) || \App\Modules\Edge\Services\Messages\EdgeMessages::enabledFor(auth()->user()?->currentOrganization()));
     }));
 @endphp
 
