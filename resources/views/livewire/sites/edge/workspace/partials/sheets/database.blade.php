@@ -141,7 +141,11 @@
             <div @class(['grid gap-2', 'hidden' => $databaseEngine === 'sql'])>
                 <x-sheet.row :title="__('How to use')" x-on:click="$wire.$island('resources-database').openDatabasePanel(null).then(() => { $dispatch('database-tab', 'how'); $dispatch('open-modal', 'resources-app-database') })" />
                 @if ($databaseEngine !== 'none')
-                    <x-sheet.row :title="$dplyEngine ? __('Stats & backups') : __('Tools')" x-on:click="$wire.$island('resources-database').openDatabasePanel(null).then(() => { $dispatch('database-tab', {{ \Illuminate\Support\Js::from($dplyEngine ? 'overview' : 'settings') }}); $dispatch('open-modal', 'resources-app-database') })" />
+                    @if ($dplyEngine)
+                        <x-sheet.row :title="__('Stats & backups')" x-on:click="$wire.$island('resources-database').openDatabasePanel(null).then(() => { $dispatch('database-tab', 'overview'); $dispatch('open-modal', 'resources-app-database') })" />
+                    @endif
+                    {{-- Migrate / status / seed / roll back live on the panel's settings tab. --}}
+                    <x-sheet.row :title="__('Migrations & tools')" x-on:click="$wire.$island('resources-database').openDatabasePanel(null).then(() => { $dispatch('database-tab', 'settings'); $dispatch('open-modal', 'resources-app-database') })" />
                 @endif
             </div>
             @if ($dplyEngine && ($primaryDatabase ?? null))

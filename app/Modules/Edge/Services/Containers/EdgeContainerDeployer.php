@@ -1433,6 +1433,12 @@ JS;
         }
         $body = $response->json();
         $output = trim((string) (is_array($body) ? ($body['output'] ?? $body['error'] ?? '') : $response->body()));
+        // An HTML page (the app's own error page, or Cloudflare's) is not
+        // migration output: name its status and <title>, not "<!DOCTYPE html>".
+        if (! is_array($body) && stripos($output, '<html') !== false) {
+            $title = preg_match('~<title[^>]*>(.*?)</title>~is', $output, $m) ? trim(html_entity_decode(strip_tags($m[1]))) : '';
+            $output = 'HTTP '.$response->status().' with an HTML page'.($title !== '' ? ': '.$title : '').' (not migration output; see the app log)';
+        }
         foreach (array_slice(preg_split('/\R/', $output) ?: [], -20) as $line) {
             if (trim($line) !== '') {
                 $log('  '.mb_substr(rtrim($line), 0, 400)."\n");
