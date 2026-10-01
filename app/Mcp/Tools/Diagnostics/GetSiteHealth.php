@@ -52,7 +52,10 @@ class GetSiteHealth extends AbstractDplyTool
             'site_id' => $site->id,
             'name' => $site->name,
             'runtime_mode' => $mode,
-            'live_url' => $site->edgeLiveUrl(),
+            // public_url: what visitors use (the primary custom domain once it serves).
+            // platform_url: the built-in *.on-dply.live address dply's own calls use.
+            'public_url' => $site->edgePublicUrl(),
+            'platform_url' => $site->edgeLiveUrl(),
             'paused_by_owner' => ! empty($site->edgeMeta()['paused_at']),
             'organization_billing_paused' => $organization->billing_paused_at !== null,
             'live_deployment' => $deploy($live),

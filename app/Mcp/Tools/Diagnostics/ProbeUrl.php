@@ -44,7 +44,7 @@ class ProbeUrl extends AbstractDplyTool
         return [
             'site_id' => $schema->string()->description('The app id (or slug).')->required(),
             'path' => $schema->string()->description('Path and query, e.g. /login?next=/. Default /.'),
-            'host' => $schema->string()->description('One of the app\'s hostnames. Default: the live URL\'s host.'),
+            'host' => $schema->string()->description('One of the app\'s hostnames. Default: its public URL (the primary custom domain once it serves).'),
             'method' => $schema->string()->enum(['GET', 'HEAD'])->description('Default GET.'),
             'headers' => $schema->object()->description('Request headers to send, e.g. {"Accept": "application/json"}.'),
         ];
@@ -94,15 +94,16 @@ class ProbeUrl extends AbstractDplyTool
         ]]);
     }
 
-    /** @return list<string> the live URL's host first, then custom domains */
+    /** @return list<string> the public URL's host first, then the platform host and custom domains */
     public static function hosts(Site $site): array
     {
+        $public = parse_url((string) $site->edgePublicUrl(), PHP_URL_HOST);
         $live = parse_url((string) $site->edgeLiveUrl(), PHP_URL_HOST);
         $domains = array_keys((array) ($site->edgeMeta()['routing']['custom_domains'] ?? []));
 
         return array_values(array_unique(array_filter(array_map(
             static fn ($h): string => strtolower((string) $h),
-            [$live, ...$domains],
+            [$public, $live, ...$domains],
         ))));
     }
 }
