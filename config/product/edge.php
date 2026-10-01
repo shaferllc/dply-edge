@@ -554,6 +554,9 @@ return [
         'health_path' => env('DPLY_SELF_HEALTH_PATH', '/up'),
         // Deploy history + the last Worker project, in the edge R2 bucket.
         'state_key' => env('DPLY_SELF_STATE_KEY', '_dply-self/state.json'),
+        // Set on the container by the deployer; authenticates its release step
+        // (POST /_dply/command, SelfReleaseController).
+        'queue_token' => env('DPLY_QUEUE_TOKEN'),
     ],
 
 ];

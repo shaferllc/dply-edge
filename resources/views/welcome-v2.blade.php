@@ -8,7 +8,7 @@
 
     @include('partials.theme-head')
 
-    @vite(['resources/css/app.css', 'resources/js/app.js'])
+    @vite(['resources/css/app.css', 'resources/js/app.js', 'resources/js/welcome-motion.js'])
     @livewireStyles
     <script>document.documentElement.classList.add('js-reveal')</script>
     <style>
@@ -20,8 +20,9 @@
         html.js-reveal .reveal { opacity: 0; transform: translateY(20px); transition: opacity .6s cubic-bezier(.2,.7,.2,1), transform .6s cubic-bezier(.2,.7,.2,1); }
         html.js-reveal .reveal.reveal-in { opacity: 1; transform: none; }
 
-        /* The one moving part on the page: the cursor at the end of the deploy
-           trace. Everything else is still, which is what makes it read. */
+        /* The deploy trace, the WHAT_RUNS_HERE stages and the HOW_IT_WORKS steps
+           are animated by resources/js/welcome-motion.js. The markup below is the
+           still frame it starts from (and what reduced-motion readers keep). */
         @keyframes edge-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
         .edge-cursor { animation: edge-blink 1.1s step-end infinite; }
 
@@ -76,17 +77,20 @@
                     <div class="border border-edge-line bg-edge-panel">
                         <div class="flex items-center justify-between border-b border-edge-line px-4 py-2.5">
                             <span class="font-terminal truncate text-[11px] text-edge-mute">acme/storefront@main</span>
-                            <span class="font-terminal shrink-0 text-[11px] text-edge-lime">● LIVE</span>
+                            <span class="flex shrink-0 items-center gap-3">
+                                <button type="button" data-motion="deploy-replay" hidden class="font-terminal text-[11px] text-edge-faint transition-colors hover:text-edge-lime">↻ replay</button>
+                                <span data-motion="deploy-live" class="font-terminal text-[11px] text-edge-lime">● LIVE</span>
+                            </span>
                         </div>
-                        <div class="font-terminal space-y-1 px-4 py-4 text-xs leading-6 text-edge-dim">
-                            <p><span class="text-edge-faint">detected</span> laravel 12 · php 8.4</p>
-                            <p><span class="text-edge-lime">✓</span> build image <span class="text-edge-faint">41.3s</span></p>
-                            <p><span class="text-edge-lime">✓</span> assets → edge cache <span class="text-edge-faint">2.1s</span></p>
-                            <p><span class="text-edge-lime">✓</span> app container · autoscale 1–5 <span class="text-edge-faint">9.8s</span></p>
-                            <p><span class="text-edge-lime">✓</span> postgres · valkey attached <span class="text-edge-faint">0.4s</span></p>
-                            <p><span class="text-edge-lime">✓</span> queue workers × 2 <span class="text-edge-faint">3.6s</span></p>
-                            <p class="mt-3 border-t border-edge-line pt-3 text-edge-text">storefront.on-dply.app<span class="edge-cursor ml-1 text-edge-lime">▊</span></p>
-                            <p class="text-edge-faint">https ready · migrations ran · 0 failed jobs</p>
+                        <div data-motion="deploy" class="font-terminal space-y-1 px-4 py-4 text-xs leading-6 text-edge-dim">
+                            <p data-step><span class="text-edge-faint">detected</span> laravel 12 · php 8.4</p>
+                            <p data-step><span data-mark class="text-edge-lime">✓</span> build image <span data-time class="text-edge-faint">41.3s</span></p>
+                            <p data-step><span data-mark class="text-edge-lime">✓</span> assets → edge cache <span data-time class="text-edge-faint">2.1s</span></p>
+                            <p data-step><span data-mark class="text-edge-lime">✓</span> app container · autoscale 1–5 <span data-time class="text-edge-faint">9.8s</span></p>
+                            <p data-step><span data-mark class="text-edge-lime">✓</span> postgres · valkey attached <span data-time class="text-edge-faint">0.4s</span></p>
+                            <p data-step><span data-mark class="text-edge-lime">✓</span> queue workers × 2 <span data-time class="text-edge-faint">3.6s</span></p>
+                            <p data-tail class="mt-3 border-t border-edge-line pt-3 text-edge-text">storefront.on-dply.app<span class="edge-cursor ml-1 text-edge-lime">▊</span></p>
+                            <p data-tail class="text-edge-faint">https ready · migrations ran · 0 failed jobs</p>
                         </div>
                     </div>
                 </div>
@@ -115,6 +119,7 @@
                             <p class="font-terminal text-[11px] text-edge-lime">{{ $tag }}</p>
                             <h3 class="mt-3 text-lg font-bold tracking-[-0.02em]">{{ $title }}</h3>
                             <p class="mt-2 text-sm leading-6 text-edge-mute">{{ $body }}</p>
+                            @include('partials.welcome-stage', ['stage' => $tag])
                             <ul class="font-terminal mt-5 space-y-1.5 border-t border-edge-line pt-4 text-xs text-edge-dim">
                                 @foreach ($points as $point)
                                     <li><span class="text-edge-lime">+</span> {{ $point }}</li>
@@ -146,7 +151,7 @@
                         ['03', 'Attach what it needs', 'A database, a cache, a queue. Credentials land in the environment; you don’t copy connection strings around.'],
                         ['04', 'Ship', 'A timed, streaming build log and an HTTPS hostname before it finishes. Every later push does it again.'],
                     ] as $i => [$num, $title, $body])
-                        <li class="reveal flex gap-6 bg-edge-void p-6" style="transition-delay:{{ .06 * $i + .14 }}s">
+                        <li data-motion="step" class="reveal flex gap-6 bg-edge-void p-6" style="transition-delay:{{ .06 * $i + .14 }}s">
                             <p class="font-terminal pt-0.5 text-[11px] text-edge-lime">{{ $num }}</p>
                             <div>
                                 <h3 class="text-base font-bold tracking-[-0.02em]">{{ $title }}</h3>

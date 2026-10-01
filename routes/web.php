@@ -9,6 +9,7 @@ use App\Http\Controllers\Notifications\DiscordOAuthController;
 use App\Http\Controllers\Notifications\SlackOAuthController;
 use App\Http\Controllers\Notifications\TelegramWebhookController;
 use App\Http\Controllers\OrganizationComplianceExportController;
+use App\Http\Controllers\SelfReleaseController;
 use App\Http\Controllers\SiteWorkspaceController;
 use App\Livewire\Admin\AuditLog as AdminAuditLog;
 use App\Livewire\Admin\BetaInvites as AdminBetaInvites;
@@ -151,6 +152,11 @@ Route::get('/api/edge/preview-comments/{site}', [EdgePreviewCommentsController::
 Route::post('/api/edge/preview-comments/{site}', [EdgePreviewCommentsController::class, 'store'])
     ->middleware(['throttle:function-log-ingest'])
     ->name('api.edge.preview-comments.store');
+
+// The deploy's release step for dply itself (migrations before the switch). Token-authenticated, no CSRF.
+Route::post('/_dply/command', SelfReleaseController::class)
+    ->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class)
+    ->name('dply.self.release');
 
 Route::get('/', function () {
     // Google needs a raster logo (no SVG), at least 112px: the 512px app icon.

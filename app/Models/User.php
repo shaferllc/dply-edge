@@ -332,13 +332,28 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     /** Whether this user accepted the current Terms, Privacy Policy and AUP (config legal.version). */
     public function acceptedCurrentTerms(): bool
     {
+        // Before the terms migration has run there is nothing to accept into:
+        // let everyone through rather than lock them out (and off the Migrate button).
+        if (! $this->hasTermsColumns()) {
+            return true;
+        }
+
         return $this->terms_version === (string) config('legal.version');
     }
 
     /** Record acceptance of the current version (sign-up, or the re-accept page). */
     public function acceptTerms(): void
     {
+        if (! $this->hasTermsColumns()) {
+            return;
+        }
         $this->forceFill(['terms_version' => (string) config('legal.version'), 'terms_accepted_at' => now()])->save();
+    }
+
+    /** Whether users.terms_version exists yet: a row read with every column has the key, even when null. */
+    private function hasTermsColumns(): bool
+    {
+        return ! $this->exists || array_key_exists('terms_version', $this->getAttributes());
     }
 
     protected function casts(): array

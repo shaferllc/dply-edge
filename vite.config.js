@@ -84,6 +84,7 @@ export default defineConfig(({ mode }) => {
                     'resources/js/dply-passkeys-lazy.js',
                     'resources/js/file-browser-editor-lazy.js',
                     'resources/js/roadmap-admin-dnd.js',
+                    'resources/js/welcome-motion.js',
                 ],
                 refresh: false,
             }),
