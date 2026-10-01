@@ -94,10 +94,10 @@ final class EdgeContainerDockerfile
      * "Module already installed".
      */
     private const BUNDLED_PHP_EXTENSIONS = [
-        'ctype', 'curl', 'dom', 'fileinfo', 'filter', 'hash', 'iconv', 'json',
-        'libxml', 'mbstring', 'openssl', 'pcre', 'phar', 'posix', 'reflection',
-        'pdo', 'session', 'simplexml', 'sodium', 'spl', 'tokenizer', 'xml', 'xmlreader',
-        'xmlwriter', 'zlib',
+        'core', 'ctype', 'curl', 'date', 'dom', 'fileinfo', 'filter', 'hash', 'iconv', 'json',
+        'libxml', 'mbstring', 'mysqlnd', 'openssl', 'pcre', 'pdo_sqlite', 'phar', 'posix', 'random',
+        'readline', 'reflection', 'pdo', 'session', 'simplexml', 'sodium', 'spl', 'sqlite3',
+        'standard', 'tokenizer', 'xml', 'xmlreader', 'xmlwriter', 'zlib',
     ];
 
     /**

@@ -87,3 +87,10 @@ test('composer ext- names that are not extension names never reach install-php-e
 
     expect($delta)->toBe('zzfake');
 });
+
+test('core PHP extensions never trigger a shared-image rebuild', function () {
+    // A package requiring ext-date made every dply build "add date" to the shared image and push it.
+    $delta = EdgeContainerDockerfile::extraPhpExtensions([], ['packages' => [['require' => ['ext-date' => '*', 'ext-random' => '*', 'ext-standard' => '*', 'ext-sqlite3' => '*']]]]);
+
+    expect($delta)->toBe('');
+});
