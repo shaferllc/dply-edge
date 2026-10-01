@@ -1162,7 +1162,7 @@ JS;
             if ($response->serverError()) {
                 $this->logAppErrors($site, $checkedAt, $log);
             }
-            $unhealthy = self::unhealthyReason($url, $response->status(), $response->body());
+            $unhealthy = self::unhealthyReason($url, $response->status(), $response->body()) ?? self::livewireUnreachable($url, $response->body());
             if ($unhealthy !== null) {
                 throw new RuntimeException('Container deploy failed: '.$unhealthy);
             }
@@ -1332,7 +1332,7 @@ JS;
             if ($response->serverError()) {
                 $this->logAppErrors($site, $checkedAt, $log, url: $url);
             }
-            $unhealthy = self::unhealthyReason($url, $response->status(), $response->body());
+            $unhealthy = self::unhealthyReason($url, $response->status(), $response->body()) ?? self::livewireUnreachable($url, $response->body());
             if ($unhealthy !== null) {
                 throw new RuntimeException('Container deploy failed: '.$unhealthy.' Production still runs the previous version.');
             }
@@ -1586,6 +1586,33 @@ JS;
             // Inert unless the image has the Octane branch (EdgeContainerDockerfile::supportsWorkerMode).
             'DPLY_WORKER_MODE' => EdgeContainerSettings::for($site)['worker_mode'] ? '1' : '0',
         ], EdgeMeter::workerNames($site) !== [] ? EdgeMeter::env($site) : []);
+    }
+
+    /**
+     * Livewire's update endpoint, read from the checked page, answers 404:
+     * the page loads but every button, form and lazy panel fails. Sent one
+     * empty POST: a working endpoint refuses it (419 without a CSRF token),
+     * a missing route is a 404. A page with no Livewire, or a check that
+     * cannot run, passes. Asked on the checked URL's own host.
+     */
+    public static function livewireUnreachable(string $url, string $body): ?string
+    {
+        if (preg_match('/data-update-uri="([^"]+)"/', $body, $m) !== 1) {
+            return null;
+        }
+        $path = (string) parse_url(html_entity_decode($m[1]), PHP_URL_PATH);
+        if ($path === '') {
+            return null;
+        }
+        try {
+            $status = Http::timeout(30)->withoutRedirecting()->withHeaders(['X-Livewire' => '1'])->asJson()->post(rtrim($url, '/').$path, [])->status();
+        } catch (Throwable) {
+            return null;
+        }
+
+        return $status === 404
+            ? "Livewire's update endpoint ({$path}) answers 404, so every button, form and live panel on the site would fail. A route cache built without APP_KEY does this: Livewire 4 puts a hash of the key in that URL."
+            : null;
     }
 
     /**

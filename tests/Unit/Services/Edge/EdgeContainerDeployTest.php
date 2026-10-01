@@ -1316,3 +1316,16 @@ test('a generated Dockerfile keeps .git and editor folders out of the image, add
     EdgeContainerDockerfile::prepare($repoDockerfile);
     expect(is_file($repoDockerfile.'/.dockerignore'))->toBeFalse();
 });
+
+test('a deploy whose Livewire update endpoint 404s is not healthy', function () {
+    Http::fake([
+        'https://app.test/livewire-4aeeedbb/update' => Http::response('', 404),
+        'https://app.test/livewire/update' => Http::response('', 419),
+    ]);
+    $page = fn (string $uri) => '<script src="/livewire.min.js" data-update-uri="'.$uri.'"></script>';
+
+    expect(EdgeContainerDeployer::livewireUnreachable('https://app.test', $page('https://app.test/livewire-4aeeedbb/update')))->toContain('answers 404')
+        ->and(EdgeContainerDeployer::livewireUnreachable('https://app.test/', $page('/livewire/update')))->toBeNull()
+        ->and(EdgeContainerDeployer::livewireUnreachable('https://app.test', '<h1>no livewire</h1>'))->toBeNull();
+    Http::assertSent(fn ($r) => $r->hasHeader('X-Livewire') && $r->method() === 'POST');
+});
