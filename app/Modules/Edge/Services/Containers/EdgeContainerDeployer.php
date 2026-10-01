@@ -1421,7 +1421,9 @@ JS;
     {
         $log($site->isRailsFrameworkDetected() ? "Running migrations (rails db:migrate)…\n" : "Running migrations (php artisan migrate --force)…\n");
         try {
-            $response = Http::timeout(900)->withHeaders(['x-dply-queue-token' => self::queueToken($site)])
+            // A redirect is an answer from something in front of the command (a
+            // login or teaser gate); followed, the POST became a GET of that page.
+            $response = Http::timeout(900)->withoutRedirecting()->withHeaders(['x-dply-queue-token' => self::queueToken($site)])
                 ->post(rtrim($url, '/').'/_dply/command', ['command' => 'release']);
         } catch (Throwable $e) {
             throw new RuntimeException('Container deploy failed: migrations did not finish: '.$e->getMessage(), previous: $e);

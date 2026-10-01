@@ -153,9 +153,12 @@ Route::post('/api/edge/preview-comments/{site}', [EdgePreviewCommentsController:
     ->middleware(['throttle:function-log-ingest'])
     ->name('api.edge.preview-comments.store');
 
-// The deploy's release step for dply itself (migrations before the switch). Token-authenticated, no CSRF.
+// The deploy's release step for dply itself (migrations before the switch).
+// Token-authenticated and outside the whole web group: a session, the
+// coming-soon gate or the terms check answered it with an HTML page, and the
+// deploy failed with "migrations failed: <!DOCTYPE html>".
 Route::post('/_dply/command', SelfReleaseController::class)
-    ->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class)
+    ->withoutMiddleware('web')
     ->name('dply.self.release');
 
 Route::get('/', function () {
