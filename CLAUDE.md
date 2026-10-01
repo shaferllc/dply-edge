@@ -300,6 +300,18 @@ php artisan test --group=billing --exclude-group=livewire
 Domain groups register only when a `--group` / `--exclude-group` flag is
 present — resolving them costs seconds per run, so unfiltered runs skip it.
 
+## Debugging with MCP (`.mcp.json`)
+
+- **`laravel-boost`** (local, `php artisan boost:mcp`): the dev app's last
+  error, log entries, browser logs, read-only DB queries and schema, Laravel
+  docs search. Local only; it cannot see production.
+- **`dply`** (production, `https://edge.dply.io/mcp`): dply's own read-only
+  diagnostics (`app/Mcp/Tools/Diagnostics`): `get_site_health`,
+  `list_deployments`, `get_deployment_log`, `get_app_logs`,
+  `get_recent_requests`, `probe_url`. Needs `DPLY_MCP_TOKEN` in the shell
+  env: an API token with Edge → Read and Sites → Read. dply's own site is
+  `01m3j5g0xqw0zd33bjgkjf844d`.
+
 ## Critical do-nots (see memory / AGENTS.md for the rest)
 
 - **Never** `migrate:fresh` / `migrate:reset` / `db:wipe` on any env (incl. testing)
