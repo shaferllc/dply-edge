@@ -12,11 +12,12 @@ Day to day, dply deploys itself like any customer app: push to `main`, the
 self site (made by `dply:self:register`) builds on a builder and rolls out.
 Everything below is for when that path is not available.
 
-**Migrations on dashboard deploys.** Migrate-on-boot is off for dply (it would
-run on every cold start of every instance), and a dashboard deploy does not
-migrate. So: a release with migrations ships with `dply:self:deploy` (which
-migrates once, before rollout), or, for additive migrations only, push as
-usual and then Resources → Database → **Migrate** in dply's own workspace.
+**Migrations run on every deploy.** A Laravel or Rails container deploy
+runs `php artisan migrate --force` once, in the new version, before it takes
+traffic (EdgeContainerDeployer::runRelease); a failure stops the deploy and
+production keeps the previous version. Migrate-on-boot stays off (it would
+run on every cold start). Resources → Database → **Migrate** is only for
+running them by hand.
 
 **Every command here works without dply running.** They need this checkout,
 PHP 8.4 + `composer install`, git, Docker with buildx, and the production env
