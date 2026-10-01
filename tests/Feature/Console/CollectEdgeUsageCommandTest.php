@@ -237,3 +237,33 @@ test('preview sites are collected so their traffic bills', function () {
 
     expect(EdgeUsageSnapshot::query()->where('site_id', $preview->id)->count())->toBe(1);
 });
+
+test('requests and bandwidth come from Analytics Engine when it can be read', function () {
+    $org = Organization::factory()->create();
+    $server = Server::factory()->create(['organization_id' => $org->id, 'status' => Server::STATUS_READY, 'meta' => ['host_kind' => Server::HOST_KIND_DPLY_EDGE]]);
+    $site = Site::factory()->create([
+        'organization_id' => $org->id, 'server_id' => $server->id, 'status' => Site::STATUS_EDGE_ACTIVE, 'edge_backend' => 'dply_edge',
+        'meta' => ['edge' => ['routing' => ['hostname' => 'my-app-abc123.on-dply.site']]],
+    ]);
+    // Zone analytics saw almost nothing (traffic served through the dispatch namespace).
+    $zone = Mockery::mock(EdgeCloudflareClient::class);
+    $zone->shouldReceive('canCollectAnalytics')->andReturn(true);
+    $zone->shouldReceive('fetchHttpUsageByHostnames')->andReturn(collect(['my-app-abc123.on-dply.site' => new EdgeUsageTotals(requests: 3, bytesEgress: 30)]));
+    app()->instance(EdgeUsageCollector::class, new EdgeUsageCollector($zone));
+
+    config(['edge.cloudflare.analytics_dataset' => 'dply_edge_requests']);
+    $ae = Mockery::mock(EdgeCloudflareClient::class);
+    $ae->shouldReceive('canQueryAnalyticsEngine')->andReturn(true);
+    $ae->shouldReceive('queryAnalyticsEngineSql')->andReturnUsing(function (string $sql) use ($site): array {
+        expect($sql)->toContain('_sample_interval')->toContain('GROUP BY site');
+
+        return [['site' => strtoupper((string) $site->id), 'requests' => 4268, 'bytes_egress' => 9_000_000]];
+    });
+    app()->instance(\App\Modules\Edge\Support\EdgeAnalyticsEngineTraffic::class, new \App\Modules\Edge\Support\EdgeAnalyticsEngineTraffic($ae));
+
+    $this->artisan('dply:edge:collect-usage', ['--date' => now()->subDay()->toDateString()])->assertOk();
+
+    $snapshot = EdgeUsageSnapshot::query()->where('site_id', $site->id)->first();
+    expect($snapshot->requests)->toBe(4268)
+        ->and($snapshot->bytes_egress)->toBe(9_000_000);
+});

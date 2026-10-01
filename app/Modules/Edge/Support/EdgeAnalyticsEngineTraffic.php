@@ -176,6 +176,40 @@ final class EdgeAnalyticsEngineTraffic
         ];
     }
 
+    /**
+     * Visitor requests and bytes served per site between $from and $to (the
+     * edge worker writes one row per request; _sample_interval undoes
+     * Analytics Engine's sampling). Keyed by site id. Null when the dataset
+     * can't be queried, so callers can tell "no traffic" from "no data".
+     *
+     * @return array<string, array{requests: int, bytes_egress: int}>|null
+     */
+    public function totalsBySite(Carbon $from, Carbon $to): ?array
+    {
+        $dataset = $this->dataset();
+        if ($dataset === null) {
+            return null;
+        }
+        $rows = $this->rows(sprintf(
+            "SELECT index1 AS site, sum(_sample_interval) AS requests, sum(double3 * _sample_interval) AS bytes_egress FROM %s WHERE timestamp >= toDateTime('%s') AND timestamp < toDateTime('%s') AND ".self::VISITOR_PATHS.' GROUP BY site',
+            $dataset,
+            $from->copy()->utc()->format('Y-m-d H:i:s'),
+            $to->copy()->utc()->format('Y-m-d H:i:s'),
+        ));
+        if ($rows === null) {
+            return null;
+        }
+        $out = [];
+        foreach ($rows as $row) {
+            $site = (string) ($row['site'] ?? '');
+            if ($site !== '') {
+                $out[strtolower($site)] = ['requests' => (int) round((float) ($row['requests'] ?? 0)), 'bytes_egress' => (int) round((float) ($row['bytes_egress'] ?? 0))];
+            }
+        }
+
+        return $out;
+    }
+
     private function dataset(): ?string
     {
         $dataset = trim((string) config('edge.cloudflare.analytics_dataset', ''));

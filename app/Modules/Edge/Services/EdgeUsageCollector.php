@@ -7,8 +7,10 @@ namespace App\Modules\Edge\Services;
 use App\Models\EdgeUsageSnapshot;
 use App\Models\Site;
 use App\Modules\Billing\Services\EdgeUsageTotals;
+use App\Modules\Edge\Support\EdgeAnalyticsEngineTraffic;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
@@ -48,12 +50,26 @@ class EdgeUsageCollector
             ? $this->fetchR2BucketUsage($periodStart, $periodEnd)
             : EdgeUsageTotals::empty();
 
+        // Requests and bandwidth come from dply's own per-request dataset when it
+        // can be read. Zone analytics by hostname misses traffic served through the
+        // dispatch namespace: dply's own app showed one day of requests in 30 while
+        // Analytics Engine had thousands a day (2026-10-01).
+        $served = $source === EdgeUsageSnapshot::SOURCE_CLOUDFLARE_GRAPHQL && ! $dryRun
+            ? app(EdgeAnalyticsEngineTraffic::class)->totalsBySite(Carbon::instance($periodStart), Carbon::instance($periodEnd)->addSecond())
+            : null;
+
         $storageBySite = $this->r2Storage()->storageBytesBySite($sites);
-        $totalRequests = max(1, (int) $usageByHostname->sum(fn (EdgeUsageTotals $totals): int => $totals->requests));
+        $totalRequests = max(1, $served !== null
+            ? (int) array_sum(array_column($served, 'requests'))
+            : (int) $usageByHostname->sum(fn (EdgeUsageTotals $totals): int => $totals->requests));
 
         foreach ($sites as $site) {
             $hostnames = $site->edgeUsageHostnames();
             $usage = $this->usageForSite($hostnames, $usageByHostname);
+            if ($served !== null) {
+                $mine = $served[strtolower((string) $site->id)] ?? ['requests' => 0, 'bytes_egress' => 0];
+                $usage = new EdgeUsageTotals(requests: $mine['requests'], bytesEgress: $mine['bytes_egress']);
+            }
 
             if ($source === EdgeUsageSnapshot::SOURCE_CLOUDFLARE_GRAPHQL) {
                 $ratio = $usage->requests / $totalRequests;
