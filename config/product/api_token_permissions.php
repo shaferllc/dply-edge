@@ -18,6 +18,8 @@ use App\Models\ApiToken;
  * declares the one it requires and AbstractDplyTool enforces it via
  * $token->allows():
  *   list_sites / get_site, dply://sites resources ..................... sites.read
+ *   get_site_health, list_deployments, get_deployment_log, get_app_logs,
+ *   get_recent_requests, probe_url (diagnostics) ....................... edge.read
  * (`servers.read` no longer gates anything: list_servers was removed 2026-09-26.)
  *
  * @see ApiToken::allows()
@@ -168,6 +170,7 @@ return [
             'permissions' => [
                 ['ability' => 'sites.read', 'label' => 'List and read sites'],
                 ['ability' => 'servers.read', 'label' => 'List site hosts'],
+                // Diagnostics (deploy logs, app logs, requests, probes) use edge.read, under Edge above.
             ],
         ],
     ],
