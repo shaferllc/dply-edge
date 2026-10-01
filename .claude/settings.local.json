@@ -45,7 +45,18 @@
       "Bash(composer update *)",
       "Bash(./dply --version)",
       "Bash(/opt/homebrew/bin/gh repo *)",
-      "Bash(grep -nE 'protected \\\\$fillable' /Users/tomshafer/Projects/Apps/dply/app/Models/ForgeSite.php /Users/tomshafer/Projects/Apps/dply/app/Models/PloiSite.php /Users/tomshafer/Projects/Apps/dply/app/Models/PloiServer.php)"
+      "Bash(grep -nE 'protected \\\\$fillable' /Users/tomshafer/Projects/Apps/dply/app/Models/ForgeSite.php /Users/tomshafer/Projects/Apps/dply/app/Models/PloiSite.php /Users/tomshafer/Projects/Apps/dply/app/Models/PloiServer.php)",
+      "Bash(gh run view *)",
+      "Bash(gh run list *)",
+      "Bash(gh run watch *)",
+      "Bash(gh api repos/shaferllc/dply-edge/actions/*)",
+      "Bash(npx wrangler tail *)",
+      "Bash(wrangler tail *)",
+      "Bash(npx wrangler deployments list *)",
+      "Bash(npx wrangler containers list *)",
+      "Bash(npx wrangler containers info *)",
+      "mcp__claude-in-chrome__read_network_requests",
+      "mcp__claude-in-chrome__read_console_messages"
     ]
   }
 }
