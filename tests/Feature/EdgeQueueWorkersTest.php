@@ -107,6 +107,9 @@ test('enabled workers add named worker instances to the container app and boot i
         ->and($worker)->toContain('"DPLY_WORKER_QUEUES":"high,default"')
         ->and($worker)->toContain('"DPLY_WORKER_PROCESSES":"3"')
         ->and($worker)->toContain('getContainer(env.APP, name).startWorker(name)')
+        // The every-minute trigger brings back an always-on worker that stopped.
+        ->and($config['triggers'])->toBe(['crons' => ['* * * * *']])
+        ->and($worker)->toContain('getContainer(env.APP, name).resumeWorker(name).catch(() => {})')
         ->and($worker)->toContain('if (worker) Object.assign(this.envVars, worker.group.env, { DPLY_WORKER_NAME: ctx.id.name }')
         ->and($worker)->toContain("url.pathname === '/_dply/workers'")
         ->and($worker)->toContain("url.pathname === '/_dply/workers/start'")

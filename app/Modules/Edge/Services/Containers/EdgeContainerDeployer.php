@@ -1803,8 +1803,10 @@ JS;
             }
         }
 
-        if ($crons !== []) {
-            // One trigger for every task: scheduled() works out which are due.
+        // One trigger for every task: scheduled() works out which are due. Always-on
+        // queue workers get it too: scheduled() brings back one that stopped, which
+        // nothing else did when the app's scheduler ran inside that worker.
+        if ($crons !== [] || (EdgeContainerSettings::for($site)['worker_instances'] ?? 0) > 0) {
             $config['triggers'] = ['crons' => ['* * * * *']];
         }
 
@@ -3116,6 +3118,14 @@ export default {
   // schedule is due now, in UTC. Nothing due means nothing wakes.
   async scheduled(controller, env, ctx) {
     if (!(await trafficOpen(env))) return;
+    // Bring back always-on workers a rollout or restart stopped. On 2026-10-01
+    // dply's worker-0 (which also ran its scheduler, and so the warm that would
+    // have revived it) stayed down for 3 hours. A running or paused one is left.
+    for (const g of WORKER_GROUPS) {
+      for (const name of workerNames(g).slice(0, g.min)) {
+        ctx.waitUntil(getContainer(env.APP, name).resumeWorker(name).catch(() => {}));
+      }
+    }
     const at = new Date(controller.scheduledTime);
     for (const [cron, handlers] of Object.entries(CRON_HANDLERS)) {
       if (cron === '* * * * *' || cronDue(cron, 'UTC', at, true)) {
