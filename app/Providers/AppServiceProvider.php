@@ -143,6 +143,12 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // A fixed update URL. Livewire 4's default is /livewire-{sha256(APP_KEY)}/update,
+        // and an image built without APP_KEY caches the wrong one: every Livewire
+        // request 404'd on edge.dply.io (2026-10-01). Builders stopped caching
+        // routes in b6198250d, but this keeps the app safe from any build that does.
+        \Livewire\Livewire::setUpdateRoute(static fn ($handle) => \Illuminate\Support\Facades\Route::post('/livewire/update', $handle));
+
         // A project's Overview is the project URL itself: every
         // route('sites.show', [..., 'section' => 'general']) drops the segment.
         URL::formatPathUsing(static fn (string $path, $route = null): string => $route?->getName() === 'sites.show'
