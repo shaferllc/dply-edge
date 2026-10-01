@@ -110,7 +110,7 @@ test('diagnostic tools need edge.read and stay inside the token\'s organization'
 test('list_deployments and get_deployment_log show a failed deploy and its log', function () {
     [$token, $site] = diagnosticsSetup();
     $log = tempnam(sys_get_temp_dir(), 'dply-log');
-    file_put_contents($log, "Building \xff\xfe\nRunning migrations (php artisan migrate --force)\nmigrations failed: HTTP 404\n");
+    file_put_contents($log, "Building \xff\xfe \u{2505} done\nRunning migrations (php artisan migrate --force)\nmigrations failed: HTTP 404\n");
     $deployment = \App\Models\EdgeDeployment::query()->create([
         'site_id' => $site->id, 'organization_id' => $site->organization_id, 'status' => 'failed',
         'git_commit' => 'abc1234', 'failure_reason' => 'Container deploy failed: migrations failed',

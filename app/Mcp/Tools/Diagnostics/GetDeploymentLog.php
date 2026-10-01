@@ -49,7 +49,10 @@ class GetDeploymentLog extends AbstractDplyTool
             ->first() ?? throw new DplyMcpException('No deploy found for this app.');
 
         // Build output carries raw bytes (Docker progress, binary noise); JSON needs valid UTF-8.
-        $lines = preg_split('/\R/', mb_scrub((string) $deployment->readBuildLog($site), 'UTF-8')) ?: [];
+        // Split on newlines only: a byte-mode \R also matches \x85 (NEL), which is
+        // the last byte of box-drawing characters in wrangler's output (┅, ╅), and
+        // cutting there broke valid UTF-8 again.
+        $lines = preg_split('/\r?\n/', mb_scrub((string) $deployment->readBuildLog($site), 'UTF-8')) ?: [];
         $tail = array_slice($lines, -((int) ($input['tail_lines'] ?? 300)));
 
         return Response::json(['data' => [
