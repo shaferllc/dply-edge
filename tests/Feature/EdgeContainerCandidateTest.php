@@ -79,11 +79,37 @@ function runCandidate(object $test): array
     $site = $test->site;
     $deployment = $test->deployment;
     $work = $test->work;
-    (function () use ($site, $deployment, $work, $logger): void {
-        $this->deployCandidate($site, $deployment, $work.'/container-worker', $work, 'ns', $logger, 60, true);
-    })->call(new EdgeContainerDeployer);
+    $handedOff = false;
+    try {
+        (function () use ($site, $deployment, $work, $logger, &$handedOff): void {
+            $this->deployCandidate($site, $deployment, $work.'/container-worker', $work, 'ns', $logger, 60, true, $handedOff);
+        })->call(new EdgeContainerDeployer);
+    } finally {
+        $test->handedOff = $handedOff;
+    }
 
     return $lines;
+}
+
+function endHandoff(object $test, bool $productionOk): string
+{
+    $lines = [];
+    $logger = function (string $line) use (&$lines): void {
+        $lines[] = $line;
+    };
+    $site = $test->site;
+    $deployment = $test->deployment;
+    (function () use ($site, $deployment, $productionOk, $logger): void {
+        $this->endHandoff($site, $deployment, 'ns', $productionOk, $logger);
+    })->call(new EdgeContainerDeployer);
+
+    return implode('', $lines);
+}
+
+/** The script a hostname routes to in the fake host map. */
+function routedTo(string $hostname): ?string
+{
+    return Cache::get('edge:fake:host-map', [])[$hostname]['ssr_worker_script'] ?? null;
 }
 
 test('the candidate is its own script, without production’s queue consumer or cron trigger', function () {
@@ -94,12 +120,13 @@ test('the candidate is its own script, without production’s queue consumer or 
     expect($config['name'])->toBe($this->script)
         ->and($config)->not->toHaveKey('triggers')
         ->and($config['queues'])->toBe(['producers' => [['binding' => 'JOBS', 'queue' => 'jobs']]])
-        ->and($config['containers'][0]['max_instances'])->toBe(1)
+        // Production's ceiling: visitors are routed to the copy while production updates.
+        ->and($config['containers'][0]['max_instances'])->toBe(3)
         ->and(EdgeContainerDeployer::candidateHost($this->site))->toBe('shop-ab12cd--next.on-dply.live')
         ->and(EdgeContainerDeployer::checksCandidate($this->site))->toBeTrue();
 });
 
-test('a healthy candidate migrates, passes, and is removed before production switches', function () {
+test('a healthy candidate migrates, passes, and takes the visitors while production updates', function () {
     fakeCloudflare($this->script, 200);
 
     $log = implode('', runCandidate($this));
@@ -107,13 +134,38 @@ test('a healthy candidate migrates, passes, and is removed before production swi
     expect($log)->toContain('Checking the new version on its own')
         ->toContain('Running migrations')
         ->toContain('create_cache_table')
-        ->toContain('The new version works. Switching production to it.');
+        ->toContain('Sending visitors to it while production updates.');
     Process::assertRan(fn ($process) => in_array($this->work.'/container-next', (array) $process->command, true));
     Http::assertSent(fn (Request $r) => $r->url() === 'https://shop-ab12cd--next.on-dply.live/_dply/command' && $r['command'] === 'release');
+    // Kept running: it is serving production's hostname now.
+    Http::assertNotSent(fn (Request $r) => $r->method() === 'DELETE');
+    expect($this->handedOff)->toBeTrue()
+        ->and(routedTo('shop-ab12cd.on-dply.live'))->toBe($this->script)
+        ->and(File::exists($this->work.'/container-next'))->toBeFalse(); // its secrets.json copy is gone
+});
+
+test('when production is up again the visitors go back to it, then the copy is removed', function () {
+    fakeCloudflare($this->script, 200);
+    runCandidate($this);
+
+    $log = endHandoff($this, productionOk: true);
+
+    expect($log)->toContain('Sending visitors back to it.')
+        ->and(routedTo('shop-ab12cd.on-dply.live'))->toBe(EdgeContainerDeployer::scriptName($this->site))
+        ->and(Cache::get('edge:fake:host-map', []))->not->toHaveKey('shop-ab12cd--live.on-dply.live');
     Http::assertSent(fn (Request $r) => $r->method() === 'DELETE' && str_contains($r->url(), '/scripts/'.$this->script));
     Http::assertSent(fn (Request $r) => $r->method() === 'DELETE' && str_ends_with($r->url(), '/containers/applications/cand-app'));
-    expect(Cache::get('edge:fake:host-map', []))->not->toHaveKey('shop-ab12cd--next.on-dply.live')
-        ->and(File::exists($this->work.'/container-next'))->toBeFalse();
+});
+
+test('when production fails to come up the last live deployment gets its routes back, then the copy is removed', function () {
+    fakeCloudflare($this->script, 200);
+    runCandidate($this);
+
+    $log = endHandoff($this, productionOk: false);
+
+    expect($log)->toContain('Sending visitors back to the last live deployment.')
+        ->and(routedTo('shop-ab12cd.on-dply.live'))->not->toBe($this->script);
+    Http::assertSent(fn (Request $r) => $r->method() === 'DELETE' && str_contains($r->url(), '/scripts/'.$this->script));
 });
 
 test('a candidate that answers 500 stops the deploy with its error, and production is never touched', function () {
@@ -123,6 +175,7 @@ test('a candidate that answers 500 stops the deploy with its error, and producti
     expect(function () use (&$lines) {
         $lines = runCandidate($this);
     })->toThrow(RuntimeException::class, 'Production still runs the previous version.');
+    expect($this->handedOff)->toBeFalse();
 
     Http::assertSent(fn (Request $r) => $r->url() === 'https://shop-ab12cd--next.on-dply.live/_dply/schedule');
     Http::assertNotSent(fn (Request $r) => str_starts_with($r->url(), 'https://shop-ab12cd.on-dply.live'));

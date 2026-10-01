@@ -165,10 +165,10 @@ class EdgeHostMapPublisher
      * own: the candidate a deploy checks before it switches production
      * (EdgeContainerDeployer). Remove it with unpublishHostname().
      */
-    public function publishScript(Site $site, EdgeDeployment $deployment, string $hostname, string $script): void
+    public function publishScript(Site $site, EdgeDeployment $deployment, string $hostname, string $script, bool $isProduction = false): void
     {
         $context = app(EdgeDeliveryContextResolver::class)->forSite($site);
-        $payload = ['runtime_mode' => 'container', 'ssr_worker_script' => $script] + $this->routingPayload($deployment, $site);
+        $payload = ['runtime_mode' => 'container', 'ssr_worker_script' => $script] + $this->routingPayload($deployment, $site, $isProduction);
         if (FakeEdgeProvision::enabled()) {
             $map = Cache::get('edge:fake:host-map', []);
             $map[strtolower($hostname)] = $payload;
@@ -507,6 +507,17 @@ class EdgeHostMapPublisher
     /**
      * @return list<string>
      */
+    /**
+     * The hostnames visitors reach production on: the platform hostname and
+     * every ready custom domain (what publish() writes as production).
+     *
+     * @return list<string>
+     */
+    public function productionHostnames(Site $site): array
+    {
+        return array_values(array_unique(array_filter([(string) $site->edgeHostname(), ...$this->readyCustomHostnames($site)])));
+    }
+
     private function readyCustomHostnames(Site $site): array
     {
         $routing = is_array($site->edgeMeta()['routing'] ?? null) ? $site->edgeMeta()['routing'] : [];

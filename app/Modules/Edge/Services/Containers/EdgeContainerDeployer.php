@@ -1061,97 +1061,116 @@ JS;
         $doScheduled = EdgeContainerSettings::durableObjectScheduling($settings);
         $candidate = self::checksCandidate($site) && ! $doScheduled;
         $doApplicationBefore = $doScheduled ? $this->applicationPolicy($site) : null;
-        if ($candidate) {
-            $this->deployCandidate($site, $deployment, $project, $workRoot, $namespace, $log, $timeoutSeconds, $release);
-        }
-        // wrangler goes quiet after the layer push while Cloudflare ingests the
-        // image and rolls out the container — minutes, with no output at all.
-        // Say so, or every deploy reads as a hang at exactly this point.
-        if (! $activated) {
-            $log("Building the image (npm, Vite, Composer) and pushing it. Docker output follows.\n");
+        // Visitors are on the checked copy from the handoff in deployCandidate()
+        // until production has rolled out and answers; endHandoff() routes them
+        // back (or to the last live deployment) whatever happens here.
+        $handedOff = false;
+        $productionOk = false;
+        try {
+            if ($candidate) {
+                $this->deployCandidate($site, $deployment, $project, $workRoot, $namespace, $log, $timeoutSeconds, $release, $handedOff);
+            }
+            // wrangler goes quiet after the layer push while Cloudflare ingests the
+            // image and rolls out the container — minutes, with no output at all.
+            // Say so, or every deploy reads as a hang at exactly this point.
+            if (! $activated) {
+                $log("Building the image (npm, Vite, Composer) and pushing it. Docker output follows.\n");
 
-            $deploy = fn () => $this->runWithHeartbeat($log, Process::timeout($timeoutSeconds ?? 1800), self::deployerCommand(
-                self::buildContainerName($deployment), $workRoot, $project, $namespace, EdgeContainerSettings::durableObjectScheduling($settings) ? 'immediate' : $settings['rollout_mode'],
-            ));
-            $result = $deploy();
-            // Faster starts switched on or off: the app's container application
-            // under the other scheduling holds its name and Durable Object
-            // namespace, so wrangler cannot create the new one. Remove it and
-            // retry (the image build is cached). Its instances stop until then.
-            if (! $result->successful() && $this->dropOtherSchedulingApplication($site, $doScheduled, $log)) {
+                $deploy = fn () => $this->runWithHeartbeat($log, Process::timeout($timeoutSeconds ?? 1800), self::deployerCommand(
+                    self::buildContainerName($deployment), $workRoot, $project, $namespace, EdgeContainerSettings::durableObjectScheduling($settings) ? 'immediate' : $settings['rollout_mode'],
+                ));
                 $result = $deploy();
-            }
-            // A container application created by this deploy is not attached to
-            // the Worker version uploaded just before it ("There is no container
-            // application assigned to this Durable Object namespace", 2026-09-30).
-            // Upload once more now that it exists; the image is already pushed.
-            if ($result->successful() && $doScheduled && $doApplicationBefore !== 'durable_object') {
-                $log("The container application was just created. Uploading the Worker again so it attaches.\n");
-                $result = $deploy();
-            }
-
-            File::delete($project.'/secrets.json');
-
-            if (! $result->successful()) {
-                throw new RuntimeException('Container deploy failed: '.self::failureReason($result->errorOutput(), $result->output()));
-            }
-            if ($workerFingerprint !== null) {
-                $site->mergeEdgeMeta(['release_worker' => $workerFingerprint]);
-                $site->save();
-            }
-        } else {
-            File::delete($project.'/secrets.json');
-        }
-
-        // wrangler returning only means the script uploaded. Ask Cloudflare
-        // whether the container actually came up, so "live" means running.
-        // durable_object scheduling has no rollout: each instance starts the
-        // new image on its next request (a running one is replaced then).
-        $log($activated
-            ? "[dply:step] publish\nInstances move to the new release on their next request.\n"
-            : ($doScheduled
-            ? "[dply:step] publish\nImage pushed. Instances start the new version on their next request.\n"
-            : "[dply:step] publish\nImage pushed. Waiting for Dply Edge to roll the container out.\n"));
-        $rollout = $doScheduled ? ['settled' => true, 'ok' => true] : app(EdgeContainerRollout::class)->await($site, $log);
-        if ($rollout['settled'] && ! $rollout['ok']) {
-            throw new RuntimeException('Container deploy failed: '.(string) $rollout['reason'].' — '.(string) json_encode($rollout['health']));
-        }
-
-        // Cloudflare can report the rollout idle while the public URL never
-        // answers, or answers with the worker's own "container not running".
-        $url = $site->edgeLiveUrl();
-        if (! is_string($url) || $url === '') {
-            throw new RuntimeException('Container deploy failed: the app has no live URL to check.');
-        }
-        if ($release && ! $candidate) {
-            $this->awaitHost($url, $log);
-            $this->runRelease($site, $url, $log);
-        }
-        $log("Checking {$url} answers.\n");
-        $checkedAt = time();
-        // Faster starts: the first request starts the container, and a new
-        // application can take a moment to attach. A few tries, not one.
-        for ($try = 1; ; $try++) {
-            try {
-                $response = Http::timeout(90)->withoutRedirecting()->get($url);
-                if (! $doScheduled || $try >= 4 || ! $response->serverError()) {
-                    break;
+                // Faster starts switched on or off: the app's container application
+                // under the other scheduling holds its name and Durable Object
+                // namespace, so wrangler cannot create the new one. Remove it and
+                // retry (the image build is cached). Its instances stop until then.
+                if (! $result->successful() && $this->dropOtherSchedulingApplication($site, $doScheduled, $log)) {
+                    $result = $deploy();
                 }
-            } catch (Throwable $e) {
-                if (! $doScheduled || $try >= 4) {
-                    throw new RuntimeException("Container deploy failed: {$url} did not answer: ".$e->getMessage(), previous: $e);
+                // A container application created by this deploy is not attached to
+                // the Worker version uploaded just before it ("There is no container
+                // application assigned to this Durable Object namespace", 2026-09-30).
+                // Upload once more now that it exists; the image is already pushed.
+                if ($result->successful() && $doScheduled && $doApplicationBefore !== 'durable_object') {
+                    $log("The container application was just created. Uploading the Worker again so it attaches.\n");
+                    $result = $deploy();
                 }
+
+                File::delete($project.'/secrets.json');
+
+                if (! $result->successful()) {
+                    throw new RuntimeException('Container deploy failed: '.self::failureReason($result->errorOutput(), $result->output()));
+                }
+                if ($workerFingerprint !== null) {
+                    $site->mergeEdgeMeta(['release_worker' => $workerFingerprint]);
+                    $site->save();
+                }
+            } else {
+                File::delete($project.'/secrets.json');
             }
-            $log("Not answering yet (try {$try} of 4). Trying again.\n");
-            sleep(2);
-        }
-        $log(sprintf("App answered HTTP %d.\n", $response->status()));
-        if ($response->serverError()) {
-            $this->logAppErrors($site, $checkedAt, $log);
-        }
-        $unhealthy = self::unhealthyReason($url, $response->status(), $response->body());
-        if ($unhealthy !== null) {
-            throw new RuntimeException('Container deploy failed: '.$unhealthy);
+
+            // wrangler returning only means the script uploaded. Ask Cloudflare
+            // whether the container actually came up, so "live" means running.
+            // durable_object scheduling has no rollout: each instance starts the
+            // new image on its next request (a running one is replaced then).
+            $log($activated
+                ? "[dply:step] publish\nInstances move to the new release on their next request.\n"
+                : ($doScheduled
+                ? "[dply:step] publish\nImage pushed. Instances start the new version on their next request.\n"
+                : "[dply:step] publish\nImage pushed. Waiting for Dply Edge to roll the container out.\n"));
+            $rollout = $doScheduled ? ['settled' => true, 'ok' => true] : app(EdgeContainerRollout::class)->await($site, $log);
+            if ($rollout['settled'] && ! $rollout['ok']) {
+                throw new RuntimeException('Container deploy failed: '.(string) $rollout['reason'].' — '.(string) json_encode($rollout['health']));
+            }
+
+            // Cloudflare can report the rollout idle while the public URL never
+            // answers, or answers with the worker's own "container not running".
+            $url = $site->edgeLiveUrl();
+            if (! is_string($url) || $url === '') {
+                throw new RuntimeException('Container deploy failed: the app has no live URL to check.');
+            }
+            // Handed off: the public hostnames reach the copy, so production is
+            // checked on a hostname of its own.
+            if ($handedOff) {
+                app(EdgeHostMapPublisher::class)->publishScript($site, $deployment, self::productionCheckHost($site), self::scriptName($site));
+                $url = 'https://'.self::productionCheckHost($site);
+                $this->awaitHost($url, $log);
+            }
+            if ($release && ! $candidate) {
+                $this->awaitHost($url, $log);
+                $this->runRelease($site, $url, $log);
+            }
+            $log("Checking {$url} answers.\n");
+            $checkedAt = time();
+            // Faster starts: the first request starts the container, and a new
+            // application can take a moment to attach. A few tries, not one.
+            for ($try = 1; ; $try++) {
+                try {
+                    $response = Http::timeout(90)->withoutRedirecting()->get($url);
+                    if (! $doScheduled || $try >= 4 || ! $response->serverError()) {
+                        break;
+                    }
+                } catch (Throwable $e) {
+                    if (! $doScheduled || $try >= 4) {
+                        throw new RuntimeException("Container deploy failed: {$url} did not answer: ".$e->getMessage(), previous: $e);
+                    }
+                }
+                $log("Not answering yet (try {$try} of 4). Trying again.\n");
+                sleep(2);
+            }
+            $log(sprintf("App answered HTTP %d.\n", $response->status()));
+            if ($response->serverError()) {
+                $this->logAppErrors($site, $checkedAt, $log);
+            }
+            $unhealthy = self::unhealthyReason($url, $response->status(), $response->body());
+            if ($unhealthy !== null) {
+                throw new RuntimeException('Container deploy failed: '.$unhealthy);
+            }
+            $productionOk = true;
+        } finally {
+            if ($handedOff) {
+                $this->endHandoff($site, $deployment, $namespace, $productionOk, $log);
+            }
         }
         // Live: older releases can go (the newest few stay, to go back to).
         if (EdgeContainerSettings::releaseBundle($settings)) {
@@ -1216,6 +1235,14 @@ JS;
         return self::scriptName($site).'-next';
     }
 
+    /** Where production is checked while visitors are on the copy: the app's hostname with "--live" on its first label. */
+    public static function productionCheckHost(Site $site): string
+    {
+        [$label, $rest] = array_pad(explode('.', (string) $site->edgeHostname(), 2), 2, '');
+
+        return $label.'--live'.($rest !== '' ? '.'.$rest : '');
+    }
+
     /** Where the pre-switch copy answers: the app's hostname with "--next" on its first label. */
     public static function candidateHost(Site $site): string
     {
@@ -1236,8 +1263,9 @@ JS;
 
     /**
      * The same Worker project, as the pre-switch copy: its own script name,
-     * one instance, and none of production's queue consumers (a queue has
-     * one) or its Cron Trigger (every task would run twice).
+     * and none of production's queue consumers (a queue has one) or its Cron
+     * Trigger (every task would run twice). It keeps production's instance
+     * ceiling: visitors are routed to it while production updates.
      */
     public static function asCandidate(string $dir, string $script): void
     {
@@ -1246,11 +1274,6 @@ JS;
         unset($config['triggers'], $config['queues']['consumers']);
         if (($config['queues'] ?? null) === []) {
             unset($config['queues']);
-        }
-        // durable_object scheduling takes no max_instances (wrangler refuses
-        // it); its instances are whatever the Worker starts.
-        if (isset($config['containers'][0]) && ($config['containers'][0]['scheduling_policy'] ?? '') !== 'durable_object') {
-            $config['containers'][0]['max_instances'] = 1;
         }
         File::put($dir.'/wrangler.jsonc', json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
         $package = json_decode((string) File::get($dir.'/package.json'), true, flags: JSON_THROW_ON_ERROR);
@@ -1261,12 +1284,16 @@ JS;
     /**
      * Deploy the new version beside production on candidateHost(), run its
      * migrations, and check it answers. Any failure throws before production
-     * is touched. The copy is removed whatever happens.
+     * is touched, and the copy is removed. When it works, every production
+     * hostname is routed to it: visitors are on the checked new version while
+     * production updates in place, so a rollout never answers them with a
+     * container that is being replaced. endHandoff() routes them back.
      *
      * @param  callable(string): void  $log
      */
-    private function deployCandidate(Site $site, EdgeDeployment $deployment, string $project, string $workRoot, string $namespace, callable $log, ?int $timeoutSeconds, bool $release): void
+    private function deployCandidate(Site $site, EdgeDeployment $deployment, string $project, string $workRoot, string $namespace, callable $log, ?int $timeoutSeconds, bool $release, bool &$handedOff): void
     {
+        $handedOff = false;
         $script = self::candidateScript($site);
         $host = self::candidateHost($site);
         $url = 'https://'.$host;
@@ -1309,10 +1336,59 @@ JS;
             if ($unhealthy !== null) {
                 throw new RuntimeException('Container deploy failed: '.$unhealthy.' Production still runs the previous version.');
             }
-            $log("The new version works. Switching production to it.\n");
+            $log("The new version works. Sending visitors to it while production updates.\n");
+            $handedOff = true;
+            $this->routeProductionTo($site, $deployment, $script);
         } finally {
             File::deleteDirectory($dir); // holds a copy of secrets.json
-            $this->removeCandidate($site, $script, $host, $namespace, $log);
+            if (! $handedOff) {
+                $this->removeCandidate($site, $script, $host, $namespace, $log);
+            }
+        }
+    }
+
+    /**
+     * Route every production hostname to $script, then wait until every
+     * location can have seen it: the old target must not go away first.
+     */
+    private function routeProductionTo(Site $site, EdgeDeployment $deployment, string $script): void
+    {
+        $publisher = app(EdgeHostMapPublisher::class);
+        foreach ($publisher->productionHostnames($site) as $hostname) {
+            $publisher->publishScript($site, $deployment, $hostname, $script, isProduction: true);
+        }
+        // KV Instant swaps the pointer at once; plain KV can take up to 60s to reach every location.
+        Sleep::for(EdgeKvInstant::routesNamespace() !== null ? 5 : 60)->seconds();
+    }
+
+    /**
+     * After a handoff: production's hostnames go back to production (the new
+     * version when it came up, else the routes of the last live deployment),
+     * and only then is the copy taken down.
+     *
+     * @param  callable(string): void  $log
+     */
+    private function endHandoff(Site $site, EdgeDeployment $deployment, string $namespace, bool $productionOk, callable $log): void
+    {
+        try {
+            if ($productionOk) {
+                $log("Production is on the new version. Sending visitors back to it.\n");
+                $this->routeProductionTo($site, $deployment, self::scriptName($site));
+            } else {
+                $live = EdgeDeployment::query()->where('site_id', $site->id)->where('status', EdgeDeployment::STATUS_LIVE)->latest()->first();
+                if ($live !== null) {
+                    $log("Sending visitors back to the last live deployment.\n");
+                    app(EdgeHostMapPublisher::class)->publish($site, $live);
+                    Sleep::for(EdgeKvInstant::routesNamespace() !== null ? 5 : 60)->seconds();
+                }
+            }
+        } finally {
+            try {
+                app(EdgeHostMapPublisher::class)->unpublishHostname($site, self::productionCheckHost($site));
+            } catch (Throwable) {
+                // Best effort: it only ever pointed at production.
+            }
+            $this->removeCandidate($site, self::candidateScript($site), self::candidateHost($site), $namespace, $log);
         }
     }
 
