@@ -108,16 +108,6 @@
         .wl .pitr-bar { height: 2px; background: var(--line); position: relative; margin-top: .45rem; }
         .wl .pitr-bar i { position: absolute; top: -4px; width: 10px; height: 10px; background: var(--accent); transform: translateX(-50%); transition: left 1.2s cubic-bezier(.6,0,.2,1); }
 
-        /* edge field */
-        .wl .edge { display: grid; grid-template-columns: 1.4fr 1fr; gap: 3rem; align-items: end; }
-        .wl .edge > * { min-width: 0; }
-        .wl .field { height: 20rem; border: 1px solid var(--line); background: var(--panel); }
-        .wl .stats { display: grid; gap: 1.1rem; }
-        .wl .stat { display: grid; gap: .15rem; border-top: 1px solid var(--line); padding-top: .9rem; }
-        .wl .stat small { font-family: var(--mono); font-size: .7rem; color: var(--muted); }
-        .wl .stat b { font-size: 2rem; font-weight: 700; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
-        .wl .note { font-family: var(--mono); font-size: .7rem; color: var(--faint); margin: 0; }
-
         /* steps */
         .wl .steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.5rem; position: relative; }
         .wl .steps::before { content: ""; position: absolute; top: 1.25rem; left: 1.25rem; right: 1.25rem; height: 1px; background: var(--line); }
@@ -146,8 +136,91 @@
         .wl .close h2 { font-size: clamp(1.5rem, 2.6vw, 1.9rem); max-width: 30rem; }
         .wl .close-links { display: grid; gap: .6rem; justify-items: start; }
 
+        /* the product window: the app's own Overview, recreated */
+        .wl .win { border: 1px solid var(--line); background: var(--bg); box-shadow: 0 40px 80px -40px rgba(0,0,0,.8); overflow: hidden; }
+        .wl .win-bar { display: flex; align-items: center; gap: 1rem; padding: .7rem 1rem; border-bottom: 1px solid var(--line); font: .72rem var(--mono); color: var(--muted); }
+        .wl .win-bar .brand { color: var(--ink); font-weight: 700; }
+        .wl .win-bar .brand b { color: var(--accent); }
+        .wl .win-bar .crumb { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .wl .win-bar .go { background: var(--accent); color: var(--bg); padding: .25rem .7rem; font-weight: 700; }
+        .wl .win-body { display: grid; grid-template-columns: 12rem 1fr; min-height: 34rem; }
+        .wl .win-side { border-right: 1px solid var(--line); padding: 1rem .75rem; display: grid; align-content: start; gap: .15rem; font-size: .78rem; color: var(--dim); }
+        .wl .win-side .grp { font: .62rem var(--mono); letter-spacing: .12em; color: var(--faint); margin: .8rem .5rem .25rem; }
+        .wl .win-side span { padding: .3rem .5rem; }
+        .wl .win-side .on { background: var(--panel); color: var(--ink); }
+        .wl .win-side .site { display: flex; align-items: center; gap: .5rem; padding: .3rem .5rem .7rem; color: var(--ink); font-weight: 600; }
+        .wl .win-side .site i { width: 1.6rem; height: 1.6rem; display: grid; place-items: center; font: 700 .6rem var(--mono); font-style: normal; color: var(--bg); background: linear-gradient(135deg, var(--accent), #6fae4f); }
+        .wl .win-main { min-width: 0; display: grid; grid-template-rows: auto 1fr auto; }
+        .wl .win-head { display: flex; align-items: center; gap: .7rem; padding: .9rem 1.2rem; border-bottom: 1px solid var(--line); }
+        .wl .win-head b { font-size: .95rem; }
+        .wl .win-head .muted { font: .7rem var(--mono); }
+        .wl .tag-live { margin-left: auto; font: .65rem var(--mono); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); padding: .1rem .45rem; }
+        .wl .topo { position: relative; display: grid; grid-template-columns: 6.5rem minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); gap: 2.2rem; align-items: center; padding: 1.6rem 1.4rem; background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 16px 16px; }
+        .wl .topo > canvas { position: absolute; inset: 0; pointer-events: none; }
+        .wl .node { position: relative; display: grid; justify-items: center; gap: .15rem; text-align: center; font-family: var(--mono); }
+        .wl .node .globe { width: 3.2rem; height: 3.2rem; border-radius: 50%; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent); background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); font-size: 1.2rem; box-shadow: 0 0 0 8px color-mix(in srgb, var(--accent) 5%, transparent); }
+        .wl .node small { font-size: .6rem; color: var(--muted); letter-spacing: .08em; }
+        .wl .node b { font-size: 1.15rem; color: var(--ink); font-variant-numeric: tabular-nums; }
+        .wl .tcard { position: relative; background: var(--panel); border: 1px solid var(--line); padding: .75rem .85rem; display: grid; gap: .3rem; font-size: .7rem; color: var(--dim); min-width: 0; transition: border-color .4s, box-shadow .4s; }
+        .wl .tcard.hot { border-color: color-mix(in srgb, var(--accent) 55%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 10%, transparent); }
+        .wl .tcard .th { display: flex; align-items: center; justify-content: space-between; gap: .5rem; font: .6rem var(--mono); letter-spacing: .1em; color: var(--muted); }
+        .wl .tcard .tt { color: var(--ink); font-weight: 600; font-size: .82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .wl .tcard .mono { font-family: var(--mono); font-size: .66rem; }
+        .wl .tcard b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+        .wl .st { font: .58rem var(--mono); letter-spacing: 0; padding: .05rem .4rem; border-radius: 999px; white-space: nowrap; transition: color .3s, background .3s; }
+        .wl .st.on { color: #7fd99a; background: rgba(127,217,154,.12); }
+        .wl .st.sleep { color: var(--faint); background: rgba(255,255,255,.05); }
+        .wl .st.wake { color: var(--warn); background: rgba(226,160,106,.12); }
+        .wl .meter { height: 4px; background: var(--line); }
+        .wl .meter i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 1s ease; }
+        .wl .spark { height: 2.2rem; }
+        .wl .res { display: grid; gap: .6rem; }
+        .wl .res .tcard { padding: .55rem .75rem; }
+        .wl .win-split { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--line); }
+        .wl .win-split > div { padding: 1rem 1.2rem; min-width: 0; }
+        .wl .win-split > div + div { border-left: 1px solid var(--line); }
+        .wl .win-split .lbl { font: .62rem var(--mono); letter-spacing: .12em; color: var(--muted); display: flex; justify-content: space-between; }
+        .wl .win-split .big { font-size: 1.6rem; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; margin: .3rem 0 .4rem; }
+        .wl .bars { display: flex; align-items: end; gap: 2px; height: 3.4rem; }
+        .wl .bars i { flex: 1; background: color-mix(in srgb, var(--accent) 70%, transparent); min-height: 2px; transition: height .6s ease; }
+        .wl .feed { display: grid; gap: .25rem; margin-top: .5rem; font: .66rem var(--mono); color: var(--dim); height: 5.6rem; overflow: hidden; align-content: start; }
+        .wl .feed div { display: grid; grid-template-columns: 2.6rem 1fr 2.2rem 3rem 2.4rem; gap: .4rem; animation: wl-in .3s ease-out; white-space: nowrap; }
+        .wl .feed span { overflow: hidden; text-overflow: ellipsis; }
+        .wl .feed .ok { color: #7fd99a; } .wl .feed .warn { color: var(--warn); }
+
+        /* traffic tab recreation */
+        .wl .traffic { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); border: 1px solid var(--line); }
+        .wl .traffic > div { background: var(--bg); padding: 1.6rem; min-width: 0; }
+        .wl .say { font-size: clamp(1.25rem, 2.2vw, 1.6rem); line-height: 1.35; letter-spacing: -0.02em; font-weight: 500; color: var(--ink); margin: .8rem 0 1.2rem; }
+        .wl .say .n { color: var(--accent); font-variant-numeric: tabular-nums; }
+        .wl .say .w { color: var(--warn); }
+        .wl .rows { border-top: 1px solid var(--line); font-size: .85rem; }
+        .wl .rows div { display: flex; justify-content: space-between; gap: 1rem; padding: .6rem 0; border-bottom: 1px solid var(--line); color: var(--ink); }
+        .wl .rows small { font: .7rem var(--mono); color: var(--muted); white-space: nowrap; }
+        .wl .map { aspect-ratio: 2 / 1; width: 100%; max-width: 100%; border: 1px solid var(--line); background: var(--panel); margin: .9rem 0; }
+        .wl .colos { display: grid; gap: .1rem; font-size: .8rem; }
+        .wl .colos div { display: grid; grid-template-columns: 2.6rem 1fr 4rem 3rem; gap: .6rem; align-items: center; padding: .3rem 0; border-bottom: 1px solid var(--line); }
+        .wl .colos code { font: .7rem var(--mono); color: var(--accent); }
+        .wl .colos .bar { height: 3px; background: var(--line); }
+        .wl .colos .bar i { display: block; height: 100%; background: var(--accent); }
+        .wl .colos small { font: .7rem var(--mono); color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+
+        @media (max-width: 1000px) {
+            .wl .win-body { grid-template-columns: 1fr; }
+            .wl .win-side { display: none; }
+            .wl .topo { grid-template-columns: 1fr 1fr; gap: 1.2rem; }
+            .wl .topo .node { grid-column: 1 / -1; }
+            .wl .topo .res { grid-column: 1 / -1; grid-template-columns: repeat(3, 1fr); }
+            .wl .traffic { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 640px) {
+            .wl .topo { grid-template-columns: 1fr; }
+            .wl .topo .res { grid-template-columns: 1fr; }
+            .wl .win-split { grid-template-columns: 1fr; }
+            .wl .win-split > div + div { border-left: 0; border-top: 1px solid var(--line); }
+        }
         @media (max-width: 900px) {
-            .wl .hero, .wl .edge { grid-template-columns: 1fr; }
+            .wl .hero { grid-template-columns: 1fr; }
             .wl .caps, .wl .grid-3 { grid-template-columns: 1fr; }
             .wl .steps { grid-template-columns: 1fr 1fr; row-gap: 2rem; }
             .wl .steps::before, .wl .steps .fill { display: none; }
@@ -186,11 +259,12 @@
                         <p class="tl"><span class="g">$</span><span>git push origin main</span></p>
                         <p class="tl"><span class="g">→</span><span>detected <span class="hi">laravel 12</span> · php 8.4</span></p>
                         <p class="tl" data-step="41.3"><span class="mark">✓</span><span>build image</span><span class="t">41.3s</span></p>
-                        <p class="tl" data-step="2.1"><span class="mark">✓</span><span>assets → edge cache</span><span class="t">2.1s</span></p>
-                        <p class="tl" data-step="9.8"><span class="mark">✓</span><span>app container · autoscale 1–5</span><span class="t">9.8s</span></p>
-                        <p class="tl" data-step="0.4"><span class="mark">✓</span><span>postgres · valkey attached</span><span class="t">0.4s</span></p>
-                        <p class="tl" data-step="3.6"><span class="mark">✓</span><span>queue workers × 2</span><span class="t">3.6s</span></p>
-                        <p class="live" data-live><span class="dot"></span><span>storefront.on-dply.app</span><span class="muted" style="margin-left:auto">https · migrations ran</span></p>
+                        <p class="tl" data-step="9.8"><span class="mark">✓</span><span>new version up beside production</span><span class="t">9.8s</span></p>
+                        <p class="tl" data-step="1.6"><span class="mark">✓</span><span>migrations ran · new version checked</span><span class="t">1.6s</span></p>
+                        <p class="tl" data-step="0.4"><span class="mark">✓</span><span>visitors moved to the <span class="hi">new version</span></span><span class="t">0.4s</span></p>
+                        <p class="tl" data-step="12.2"><span class="mark">✓</span><span>production updated · visitors moved back</span><span class="t">12.2s</span></p>
+                        <p class="tl" data-step="3.6"><span class="mark">✓</span><span>queue workers × 2 restarted</span><span class="t">3.6s</span></p>
+                        <p class="live" data-live><span class="dot"></span><span>storefront.on-dply.app</span><span class="muted" style="margin-left:auto">0 requests dropped</span></p>
                     </div>
                 </div>
             </header>
@@ -202,6 +276,71 @@
                 <span>{{ $item }}</span>
             @endforeach
         </div></div>
+
+        {{-- ============================ THE APP ============================== --}}
+        {{-- The workspace's own Overview tab, recreated: same cards, same words. --}}
+        <section id="the-app">
+            <div class="wrap">
+                <div class="head">
+                    <p class="eyebrow">THE_DASHBOARD</p>
+                    <h2>Every app gets a live map of itself</h2>
+                    <p class="lede">Visitors, the edge in front, your app, and everything attached to it, on one screen. It sleeps when nobody is around, wakes on the next request, and scales out when traffic comes.</p>
+                </div>
+                <div class="win" aria-label="The dply app Overview for an example storefront">
+                    <div class="win-bar"><span class="brand">dply<b>/</b>edge</span><span class="crumb">Dashboard / Projects / storefront / Overview</span><span class="go">↻ Deploy</span></div>
+                    <div class="win-body">
+                        <aside class="win-side" aria-hidden="true">
+                            <span class="site"><i>ST</i>storefront</span>
+                            <span class="grp">SHIP</span><span class="on">Overview</span><span>Deploys</span><span>Build</span><span>Environment</span><span>Previews</span><span>Deploy triggers</span>
+                            <span class="grp">TRAFFIC</span><span>Routing</span><span>Cache</span><span>Traffic &amp; analytics</span>
+                            <span class="grp">PROTECT</span><span>Security</span><span>Firewall</span><span>Rate limits</span>
+                            <span class="grp">MANAGE</span><span>Alerts</span><span>Billing &amp; usage</span>
+                        </aside>
+                        <div class="win-main">
+                            <div class="win-head"><b>storefront</b><span class="muted">acme/storefront@main</span><span class="tag-live">LIVE</span></div>
+                            <div class="topo" data-topo aria-hidden="true">
+                                <canvas data-topo-lines></canvas>
+                                <div class="node" data-n="visitors"><span class="globe">◎</span><small>VISITORS</small><b data-k="visitors">2,840</b><small>requests, 30 days</small></div>
+                                <div class="tcard" data-n="edge">
+                                    <div class="th">EDGE NETWORK <span class="st on">Active</span></div>
+                                    <div class="tt">storefront.com</div>
+                                    <div class="mono">HTTPS · custom domain</div>
+                                    <div class="mono">cache <b>On</b> · <b data-k="today">412</b> req today</div>
+                                    <canvas class="spark" data-spark></canvas>
+                                </div>
+                                <div class="tcard" data-n="app">
+                                    <div class="th">APP <span class="st on" data-k="app-state">Running</span></div>
+                                    <div class="tt">Laravel · 0.5 vCPU</div>
+                                    <div class="mono"><b data-k="mem">212</b> MB of 1 GiB · <b data-k="running">1</b> of 3 running</div>
+                                    <div class="meter"><i data-k="mem-bar" style="width:21%"></i></div>
+                                    <div class="mono" data-k="app-note">Sleeps after 5 min idle</div>
+                                </div>
+                                <div class="res">
+                                    <div class="tcard" data-n="valkey"><div class="th">DPLY VALKEY <span class="st on">On</span></div><div class="tt">0.25 vCPU</div><div class="mono">sessions · cache · locks</div></div>
+                                    <div class="tcard" data-n="workers"><div class="th">QUEUE WORKERS <span class="st on">On</span></div><div class="tt" data-k="workers">2 workers</div><div class="mono">scheduler runs every minute</div></div>
+                                    <div class="tcard" data-n="db"><div class="th">DATABASE <span class="st on">Running</span></div><div class="tt">Postgres</div><div class="mono">daily backups · restore to a minute</div></div>
+                                </div>
+                            </div>
+                            <div class="win-split">
+                                <div>
+                                    <div class="lbl"><span>REQUESTS PER DAY</span><span>last 30 days</span></div>
+                                    <div class="big" data-k="month">2,840</div>
+                                    <div class="bars" data-bars>@foreach ([3,4,2,5,6,4,7,5,6,8,7,9,6,8,10,9,7,11,9,12,10,13,11,12,14,12,15,13,16,18] as $h)<i style="height: {{ $h * 5 }}%"></i>@endforeach</div>
+                                </div>
+                                <div>
+                                    <div class="lbl"><span>LIVE REQUESTS</span><span style="color: var(--accent)">● live</span></div>
+                                    <div class="feed" data-feed>
+                                        <div><span>GET</span><span>/products/sneakers</span><span class="ok">200</span><span>41 ms</span><span>IAD</span></div>
+                                        <div><span>POST</span><span>/cart</span><span class="ok">200</span><span>63 ms</span><span>LHR</span></div>
+                                        <div><span>GET</span><span>/</span><span class="ok">200</span><span>18 ms</span><span>SJC</span></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
 
         {{-- ========================== WHAT RUNS HERE ========================= --}}
         <section id="what-runs-here">
@@ -265,22 +404,43 @@
         </section>
 
         {{-- ============================== EDGE =============================== --}}
-        <section>
-            <div class="wrap edge">
-                <div>
-                    <div class="head">
-                        <p class="eyebrow">ON_THE_EDGE</p>
-                        <h2>Requests answered close to the people making them</h2>
-                        <p class="lede">Real request logs with Core Web Vitals from actual visitors, access rules that password-gate or rate-limit a path, and alerts to Slack, email or PagerDuty.</p>
-                    </div>
-                    <div class="field" aria-hidden="true"><canvas data-field></canvas></div>
+        {{-- The Traffic tab, recreated, with its Served from map on Cloudflare's real locations. --}}
+        @php
+            $served = [['IAD', 3120], ['SJC', 2480], ['ORD', 1920], ['LHR', 1650], ['FRA', 1210], ['DFW', 980], ['AMS', 860], ['NRT', 640], ['SIN', 520], ['SYD', 410], ['GRU', 330], ['YYZ', 300], ['BOM', 220], ['CDG', 190]];
+            $servedTotal = array_sum(array_column($served, 1));
+            $colos = array_map(fn ($c) => ['colo' => $c[0], 'requests' => $c[1]] + (\App\Modules\Edge\Support\EdgeColos::place($c[0]) ?? []), $served);
+            $network = array_values(array_map(fn ($p) => [$p[1], $p[2]], \App\Modules\Edge\Support\EdgeColos::PLACES));
+        @endphp
+        <section id="traffic">
+            <div class="wrap">
+                <div class="head">
+                    <p class="eyebrow">ON_THE_EDGE</p>
+                    <h2>See every request, and where in the world it was answered</h2>
+                    <p class="lede">Each app's Traffic tab, as it looks for an example store: requests, failures and speed in plain words, and the Cloudflare locations that served its visitors.</p>
                 </div>
-                <div class="stats">
-                    <div class="stat"><small>requests, last minute</small><b data-s="req">18,240</b></div>
-                    <div class="stat"><small>LCP p75</small><b><span data-s="lcp">0.94</span>s</b></div>
-                    <div class="stat"><small>cache hit ratio</small><b><span data-s="hit">96.1</span>%</b></div>
-                    <div class="stat"><small>blocked by access rules</small><b data-s="blk">112</b></div>
-                    <p class="note">Example figures, the way a site's Analytics tab shows them.</p>
+                <div class="traffic" data-traffic>
+                    <div>
+                        <p class="eyebrow" style="color: var(--muted)">TRAFFIC · LAST 7 DAYS</p>
+                        <p class="say">Your app answered <span class="n" data-c="14810">14,810</span> requests, about <span class="n" data-c="2116">2,116</span> a day, and sent <span class="n" data-c="1.9" data-d="1">1.9</span> GB. Responses took <span class="n" data-c="84">84</span> ms on average. Today so far: <span data-c="1342">1,342</span> requests, <span class="w" data-c="3">3</span> failed.</p>
+                        <p class="small" style="color: var(--ink); font-weight: 600; margin-bottom: .4rem">Look closer</p>
+                        <div class="rows">
+                            <div>Busiest day in the last 30: Sep 27, with 3,912 requests <small>~2,116 / day</small></div>
+                            <div>3 requests failed today <small>1,342</small></div>
+                            <div>Responses take 84 ms on average <small>91.4% cached</small></div>
+                            <div>Pages load in 0.94 s for real visitors <small>LCP p75</small></div>
+                            <div>Watch requests as they arrive <small style="color: var(--accent)">● Live</small></div>
+                        </div>
+                    </div>
+                    <div>
+                        <p class="eyebrow" style="color: var(--muted)">SERVED FROM · LAST 24 HOURS</p>
+                        <p class="say" style="margin-bottom: 0">Answered from {{ count($colos) }} Cloudflare locations, most from <span class="n">{{ $colos[0]['city'] }}</span>.</p>
+                        <canvas class="map" data-map data-network='@json($network)' data-served='@json($colos)' aria-label="Map of the Cloudflare locations that served the example store" role="img"></canvas>
+                        <div class="colos">
+                            @foreach (array_slice($colos, 0, 6) as $c)
+                                <div><code>{{ $c['colo'] }}</code><span>{{ $c['city'] }}</span><span class="bar"><i style="width: {{ round($c['requests'] / $colos[0]['requests'] * 100) }}%"></i></span><small>{{ number_format($c['requests']) }}</small></div>
+                            @endforeach
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>
@@ -594,46 +754,158 @@
         };
         workers();
 
-        /* EDGE: requests arriving at edge locations (an abstract layout, not a map) */
-        const fc = watch($('[data-field]'));
-        const pops = Array.from({ length: 34 }, () => ({ x: rand(0.06, 0.94), y: rand(0.12, 0.88) }));
-        const pulses = [];
-        let req = 18240, blk = 112;
-        const field = () => {
-            requestAnimationFrame(field);
-            if (! seen.get(fc)) return;
-            const [ctx, w, h] = fit(fc);
-            const lime = tok('lime'), line = tok('line'), faint = tok('faint');
-            ctx.fillStyle = line;
-            for (let x = 12; x < w; x += 18) for (let y = 12; y < h; y += 18) ctx.fillRect(x, y, 1.5, 1.5);
-            if (Math.random() < 0.5) {
-                const p = pops[Math.floor(Math.random() * pops.length)], a = rand(0, 7), d = rand(30, 80);
-                pulses.push({ p, sx: p.x * w + Math.cos(a) * d, sy: p.y * h + Math.sin(a) * d, t: 0, blocked: Math.random() < 0.03 });
+        { // the Traffic tab, Served from map and Overview topology: own scope
+        /* TRAFFIC: count the sentence up once it scrolls into view */
+        const trafficTab = $('[data-traffic]');
+        new IntersectionObserver((es, obs) => {
+            if (! es[0].isIntersecting) return;
+            obs.disconnect();
+            trafficTab.querySelectorAll('[data-c]').forEach((el) => {
+                const end = parseFloat(el.dataset.c), d = parseInt(el.dataset.d || '0', 10), t0 = performance.now();
+                const step = (now) => {
+                    const k = Math.min(1, (now - t0) / 1600), v = end * (1 - Math.pow(1 - k, 3));
+                    el.textContent = v.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
+                    if (k < 1) requestAnimationFrame(step);
+                };
+                requestAnimationFrame(step);
+            });
+        }, { threshold: 0.3 }).observe(trafficTab);
+
+        /* SERVED FROM: Cloudflare's locations (EdgeColos), the example's lit and pulsing */
+        const mc = watch($('[data-map]'));
+        const network = JSON.parse(mc.dataset.network), served = JSON.parse(mc.dataset.served).filter((c) => c.lat !== undefined);
+        const maxServed = Math.max(...served.map((c) => c.requests));
+        const geo = (lat, lon, w, h) => [((lon + 180) / 360) * w, ((72 - lat) / 128) * h];
+        const map = (now) => {
+            requestAnimationFrame(map);
+            if (! seen.get(mc)) return;
+            const [ctx, w, h] = fit(mc);
+            const lime = tok('lime');
+            ctx.fillStyle = tok('faint'); ctx.globalAlpha = 0.45;
+            for (const [lat, lon] of network) { const [x, y] = geo(lat, lon, w, h); ctx.fillRect(x - 1, y - 1, 2, 2); }
+            ctx.globalAlpha = 1;
+            for (const c of served) {
+                const [x, y] = geo(c.lat, c.lon, w, h), r = 2.5 + Math.sqrt(c.requests / maxServed) * 6;
+                const phase = (now / 1700 + (c.lon + 180) / 70) % 1;
+                ctx.strokeStyle = lime; ctx.globalAlpha = 1 - phase;
+                ctx.beginPath(); ctx.arc(x, y, r + phase * 14, 0, 7); ctx.stroke();
+                ctx.globalAlpha = 1; ctx.fillStyle = lime;
+                ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
             }
-            pops.forEach((p) => { ctx.beginPath(); ctx.arc(p.x * w, p.y * h, 2.5, 0, 7); ctx.fillStyle = faint; ctx.fill(); });
-            for (const q of pulses) {
-                q.t += 0.03;
-                const px = q.p.x * w, py = q.p.y * h, k = Math.min(1, q.t);
-                ctx.strokeStyle = q.blocked ? '#f07a62' : lime;
-                ctx.globalAlpha = 0.35 * (1 - Math.max(0, q.t - 1));
-                ctx.beginPath(); ctx.moveTo(q.sx, q.sy); ctx.lineTo(q.sx + (px - q.sx) * k, q.sy + (py - q.sy) * k); ctx.stroke();
-                ctx.globalAlpha = 1;
-                if (q.t >= 1) {
-                    ctx.beginPath(); ctx.arc(px, py, (q.t - 1) * 30, 0, 7);
-                    ctx.globalAlpha = Math.max(0, 1 - (q.t - 1) * 2); ctx.stroke(); ctx.globalAlpha = 1;
-                    if (! q.counted) { q.counted = true; req += Math.floor(rand(3, 14)); if (q.blocked) blk++; }
+        };
+        requestAnimationFrame(map);
+
+        /* THE_DASHBOARD: the Overview's topology, living the way an app does:
+           asleep, woken by a request, scaled out by a burst, asleep again. */
+        const topo = watch($('[data-topo]'));
+        const lines = $('[data-topo-lines]', topo), k = (name) => $('[data-k="' + name + '"]');
+        const node = (name) => $('[data-n="' + name + '"]', topo);
+        const feed = $('[data-feed]');
+        const box = (el) => { const a = el.getBoundingClientRect(), b = topo.getBoundingClientRect(); return { l: a.left - b.left, r: a.right - b.left, t: a.top - b.top, b: a.bottom - b.top, cx: (a.left + a.right) / 2 - b.left, cy: (a.top + a.bottom) / 2 - b.top }; };
+        // A connector from a to b: sideways when b is to the right, else downwards.
+        const path = (a, b) => {
+            const A = box(node(a)), B = box(node(b));
+            if (B.l >= A.r - 4) { const mx = (A.r + B.l) / 2; return [[A.r, A.cy], [mx, A.cy], [mx, B.cy], [B.l, B.cy]]; }
+            return [[A.cx, A.b], [A.cx, (A.b + B.t) / 2], [B.cx, (A.b + B.t) / 2], [B.cx, B.t]];
+        };
+        const along = (pts, t) => {
+            const seg = pts.slice(1).map((p, i) => Math.hypot(p[0] - pts[i][0], p[1] - pts[i][1]));
+            let d = t * seg.reduce((x, y) => x + y, 0);
+            for (let i = 0; i < seg.length; i++) {
+                if (d <= seg[i]) { const f = seg[i] ? d / seg[i] : 0; return [pts[i][0] + (pts[i + 1][0] - pts[i][0]) * f, pts[i][1] + (pts[i + 1][1] - pts[i][1]) * f]; }
+                d -= seg[i];
+            }
+            return pts[pts.length - 1];
+        };
+        const routes = [['visitors', 'edge'], ['edge', 'app'], ['app', 'valkey'], ['app', 'workers'], ['app', 'db']];
+        let pulses = [], awake = true, running = 1, mem = 212, quietUntil = 0, wakingUntil = 0;
+        let visitors = 2840, today = 412, month = 2840, burst = false;
+        const setApp = (state) => {
+            const st = k('app-state');
+            st.textContent = state;
+            st.className = 'st ' + (state === 'Running' ? 'on' : state === 'Waking' ? 'wake' : 'sleep');
+            k('app-note').textContent = state === 'Asleep' ? 'Asleep · wakes on the next request' : state === 'Waking' ? 'Starting · the request waits for it' : 'Sleeps after 5 min idle';
+            node('app').classList.toggle('hot', state !== 'Asleep');
+        };
+        const paths = ['/', '/products/sneakers', '/cart', '/checkout', '/api/stock', '/account', '/search?q=boots', '/products/jacket'];
+        const pops = ['IAD', 'SJC', 'ORD', 'LHR', 'FRA', 'NRT', 'SIN', 'SYD'];
+        const logRequest = () => {
+            const row = document.createElement('div'), path = paths[Math.floor(Math.random() * paths.length)];
+            const method = path === '/cart' || path === '/checkout' ? 'POST' : 'GET', fail = Math.random() < 0.03;
+            [method, path, fail ? '503' : '200', Math.round(rand(14, 95)) + ' ms', pops[Math.floor(Math.random() * pops.length)]].forEach((v, i) => {
+                const s = document.createElement('span'); s.textContent = v; if (i === 2) s.className = fail ? 'warn' : 'ok'; row.appendChild(s);
+            });
+            feed.prepend(row);
+            while (feed.children.length > 6) feed.lastChild.remove();
+        };
+        let last = 0, phaseStart = performance.now();
+        const topoFrame = (now) => {
+            requestAnimationFrame(topoFrame);
+            if (! seen.get(topo)) return;
+            const [ctx, w, h] = fit(lines);
+            const lime = tok('lime'), line = tok('line');
+            // the story: 0-9s busy (burst at 4-8s), 9-14s quiet then asleep, 14s+ a visitor wakes it
+            const t = (now - phaseStart) / 1000;
+            const busy = t < 9 || t > 14;
+            burst = t > 4 && t < 8;
+            if (t > 20) phaseStart = now;
+            if (busy && now - last > (burst ? 120 : 420)) {
+                last = now;
+                pulses.push({ route: 0, t: 0 });
+                visitors++; today++; month++;
+                k('visitors').textContent = visitors.toLocaleString(); k('today').textContent = today.toLocaleString(); k('month').textContent = month.toLocaleString();
+            }
+            if (! busy && awake && t > 12) { awake = false; running = 0; setApp('Asleep'); }
+            // lines
+            ctx.strokeStyle = line; ctx.lineWidth = 1; ctx.setLineDash([3, 4]);
+            for (const [a, b] of routes) { const p = path(a, b); ctx.beginPath(); p.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke(); }
+            ctx.setLineDash([]);
+            // pulses
+            for (const p of pulses) {
+                const [a, b] = routes[p.route];
+                if (p.route === 1 && ! awake && p.t > 0.98) {
+                    // the request reaches a sleeping app: it waits while the app wakes
+                    if (! wakingUntil) { wakingUntil = now + 1400; setApp('Waking'); }
+                    if (now < wakingUntil) { p.hold = true; } else { awake = true; running = 1; wakingUntil = 0; setApp('Running'); p.hold = false; }
+                }
+                if (! p.hold) p.t += p.route === 0 ? 0.03 : 0.04;
+                const [x, y] = along(path(a, b), Math.min(1, p.t));
+                ctx.fillStyle = lime; ctx.globalAlpha = p.hold ? 0.5 + 0.5 * Math.sin(now / 80) : 1;
+                ctx.beginPath(); ctx.arc(x, y, 3, 0, 7); ctx.fill(); ctx.globalAlpha = 1;
+                if (p.t >= 1) {
+                    p.done = true;
+                    if (p.route === 0) pulses.push({ route: 1, t: 0 });
+                    else if (p.route === 1) { pulses.push({ route: 2 + Math.floor(Math.random() * 3), t: 0 }); logRequest(); }
                 }
             }
-            while (pulses.length && pulses[0].t > 1.6) pulses.shift();
+            pulses = pulses.filter((p) => ! p.done);
+            // scale: a burst runs more instances, memory follows
+            if (awake) {
+                const want = burst ? 3 : 1;
+                if (now % 900 < 17 && running !== want) running += Math.sign(want - running);
+                mem += ((burst ? 640 : 212) - mem) * 0.02;
+            } else {
+                mem += (0 - mem) * 0.05;
+            }
+            k('running').textContent = running;
+            k('mem').textContent = Math.round(mem);
+            k('mem-bar').style.width = Math.round(mem / 1024 * 100) + '%';
+            k('workers').textContent = burst ? '4 workers · scaling' : '2 workers';
         };
-        field();
+        requestAnimationFrame(topoFrame);
+
+        /* edge card sparkline */
+        const sc = $('[data-spark]'), spark = Array.from({ length: 40 }, (_, i) => 0.3 + 0.25 * Math.sin(i / 4) + rand(0, 0.15));
         setInterval(() => {
-            if (! seen.get(fc)) return;
-            $('[data-s="req"]').textContent = req.toLocaleString();
-            $('[data-s="lcp"]').textContent = rand(0.82, 1.14).toFixed(2);
-            $('[data-s="hit"]').textContent = rand(94.2, 97.8).toFixed(1);
-            $('[data-s="blk"]').textContent = blk.toLocaleString();
-        }, 900);
+            if (! seen.get(topo)) return;
+            spark.shift(); spark.push(burst ? rand(0.75, 1) : awake ? rand(0.3, 0.55) : rand(0, 0.08));
+            const [ctx, w, h] = fit(sc);
+            ctx.beginPath(); spark.forEach((v, i) => (i ? ctx.lineTo : ctx.moveTo).call(ctx, (i / (spark.length - 1)) * w, h - 1 - v * (h - 3)));
+            ctx.strokeStyle = tok('lime'); ctx.lineWidth = 1.2; ctx.stroke();
+            ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath(); ctx.globalAlpha = 0.15; ctx.fillStyle = tok('lime'); ctx.fill(); ctx.globalAlpha = 1;
+        }, 250);
+
+        }
 
         /* HOW_IT_WORKS: walk the steps along the line */
         const steps = [...document.querySelectorAll('[data-steps] .step')], fill = $('[data-fill]');
