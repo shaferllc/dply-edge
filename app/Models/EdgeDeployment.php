@@ -277,7 +277,13 @@ class EdgeDeployment extends Model
         // still expose the in-flight log while it remains on the build host.
         $local = $this->resolveLocalBuildLogPath();
         if ($local === null || ! is_readable($local)) {
-            return null;
+            // A build in flight on a builder: the web tier can't see its file, so
+            // read the live mirror the builder appends to (what the deploy pill
+            // tails). Without this the log modal said "Waiting for build output…"
+            // for the whole build.
+            $live = EdgeLiveBuildLog::readSince((string) $this->id, 0, 2_000_000)['body'];
+
+            return $live !== '' ? EdgeLogCopy::forCustomer($live) : null;
         }
 
         $body = @file_get_contents($local);
