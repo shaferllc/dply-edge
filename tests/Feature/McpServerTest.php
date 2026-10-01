@@ -148,10 +148,10 @@ test('get_site_health and get_recent_requests report a static app', function () 
     config(['edge.cloudflare.analytics_dataset' => 'dply_edge_requests']);
     $client = Mockery::mock(\App\Modules\Providers\Cloudflare\EdgeCloudflareClient::class);
     $client->shouldReceive('canQueryAnalyticsEngine')->andReturn(true);
-    $client->shouldReceive('queryAnalyticsEngineSql')->andReturn([
+    $client->shouldReceive('queryAnalyticsEngineSql')->andReturnUsing(fn (string $sql): array => array_values(array_filter([
         ['timestamp' => '2026-10-01 20:00:00', 'status' => 200, 'path' => '/ok', 'method' => 'GET'],
         ['timestamp' => '2026-10-01 20:00:01', 'status' => 404, 'path' => '/livewire-x/update', 'method' => 'POST'],
-    ]);
+    ], fn (array $row): bool => ! str_contains($sql, 'double1 >= 400') || $row['status'] >= 400)));
     $this->instance(\App\Modules\Edge\Support\EdgeAnalyticsEngineTraffic::class, new \App\Modules\Edge\Support\EdgeAnalyticsEngineTraffic($client));
 
     mcpCall($token, 'tools/call', ['name' => 'get_site_health', 'arguments' => ['site_id' => $site->id]])

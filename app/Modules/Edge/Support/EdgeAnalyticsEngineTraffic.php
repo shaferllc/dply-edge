@@ -99,7 +99,7 @@ final class EdgeAnalyticsEngineTraffic
     /**
      * @return list<array<string, mixed>>
      */
-    public function recent(Site $site, Carbon $since, int $limit): array
+    public function recent(Site $site, Carbon $since, int $limit, int $minStatus = 0): array
     {
         $dataset = $this->dataset();
         $index = $this->index($site);
@@ -109,10 +109,11 @@ final class EdgeAnalyticsEngineTraffic
 
         $limit = min(200, max(1, $limit));
         $rows = $this->rows(sprintf(
-            "SELECT timestamp, blob2 AS hostname, blob3 AS method, blob4 AS path, double1 AS status, double2 AS duration_ms, double3 AS bytes_egress, blob5 AS cache_status, blob7 AS country FROM %s WHERE index1 = '%s' AND timestamp >= toDateTime('%s') AND ".self::VISITOR_PATHS." ORDER BY timestamp DESC LIMIT %d",
+            "SELECT timestamp, blob2 AS hostname, blob3 AS method, blob4 AS path, double1 AS status, double2 AS duration_ms, double3 AS bytes_egress, blob5 AS cache_status, blob7 AS country FROM %s WHERE index1 = '%s' AND timestamp >= toDateTime('%s') AND double1 >= %d AND ".self::VISITOR_PATHS." ORDER BY timestamp DESC LIMIT %d",
             $dataset,
             $index,
             $since->utc()->format('Y-m-d H:i:s'),
+            $minStatus,
             $limit,
         ));
         if ($rows === null) {

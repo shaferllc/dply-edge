@@ -44,10 +44,9 @@ class GetRecentRequests extends AbstractDplyTool
         $site = $this->resolveSite($input['site_id'], $organization);
         $min = (int) ($input['min_status'] ?? 0);
 
-        // ponytail: filtered after the 200-row read, so a busy app's older errors can fall outside it.
-        $rows = app(EdgeAnalyticsEngineTraffic::class)->recent($site, now()->subMinutes((int) ($input['minutes'] ?? 60)), 200);
-        $rows = array_values(array_filter($rows, fn (array $row): bool => $row['status'] >= $min));
+        // Filtered in the query: filtering a 200-row read lost a busy app's older errors.
+        $rows = app(EdgeAnalyticsEngineTraffic::class)->recent($site, now()->subMinutes((int) ($input['minutes'] ?? 60)), (int) ($input['limit'] ?? 100), $min);
 
-        return Response::json(['data' => array_slice($rows, 0, (int) ($input['limit'] ?? 100))]);
+        return Response::json(['data' => $rows]);
     }
 }
