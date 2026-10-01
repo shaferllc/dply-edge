@@ -1590,10 +1590,12 @@ JS;
 
     /**
      * Livewire's update endpoint, read from the checked page, answers 404:
-     * the page loads but every button, form and lazy panel fails. Sent one
-     * empty POST: a working endpoint refuses it (419 without a CSRF token),
-     * a missing route is a 404. A page with no Livewire, or a check that
-     * cannot run, passes. Asked on the checked URL's own host.
+     * the page loads but every button, form and lazy panel fails. Asked with
+     * a GET: the route takes only POST, so a working endpoint answers 405 and
+     * a missing one 404. (An empty POST can't tell them apart: Livewire
+     * answers an empty payload with its own 404; checked on edge.dply.io.)
+     * A page with no Livewire, or a check that cannot run, passes. Asked on
+     * the checked URL's own host.
      */
     public static function livewireUnreachable(string $url, string $body): ?string
     {
@@ -1605,7 +1607,7 @@ JS;
             return null;
         }
         try {
-            $status = Http::timeout(30)->withoutRedirecting()->withHeaders(['X-Livewire' => '1'])->asJson()->post(rtrim($url, '/').$path, [])->status();
+            $status = Http::timeout(30)->withoutRedirecting()->withHeaders(['X-Livewire' => '1'])->get(rtrim($url, '/').$path)->status();
         } catch (Throwable) {
             return null;
         }
