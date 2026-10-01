@@ -698,11 +698,14 @@ final class EdgeContainerDockerfile
             // views fail with tempnam() and the welcome page 500s.
             $own = $server === 'fpm' ? ' && chown -R www-data:www-data storage bootstrap/cache' : '';
             $lines[] = 'RUN mkdir -p storage/framework/cache storage/framework/sessions storage/framework/views bootstrap/cache'.$own.' && chmod -R 775 storage bootstrap/cache';
-            // Route and event caches don't depend on the app's env, so they are
-            // built once here instead of on every cold start. An app whose
-            // providers need runtime env to boot fails here and builds them at
-            // boot instead (the `[ -f … ] ||` in the start command).
-            $lines[] = 'RUN php artisan route:cache >/dev/null 2>&1 || echo "dply: route:cache needs the runtime env; it runs at boot instead"; php artisan event:cache >/dev/null 2>&1 || true';
+            // The event cache doesn't depend on the app's env, so it is built
+            // once here instead of on every cold start. The route cache does:
+            // Livewire 4's update route is /livewire-{sha256(APP_KEY)}, and
+            // built here (no APP_KEY) it cached /livewire-4aeeedbb/update while
+            // pages posted to the real key's path, so every Livewire action
+            // 404'd. Routes are cached at boot (the `[ -f … ] ||` in the start
+            // command), with the runtime env.
+            $lines[] = 'RUN php artisan event:cache >/dev/null 2>&1 || true';
             // Identifies this image's code for the SQLite migrate skip below. Same
             // code, same cached layer, same id; any code change makes a new one.
             $lines[] = 'RUN cat /proc/sys/kernel/random/uuid > /app/.dply-build';

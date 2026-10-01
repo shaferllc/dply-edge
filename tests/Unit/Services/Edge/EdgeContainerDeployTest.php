@@ -724,8 +724,9 @@ test('php images tune opcache, cache routes and events at build and config at bo
         // Readiness by port check, not a PHP process per poll; the restored sqlite file is not re-uploaded at boot.
         ->and($fpm)->toContain('until nc -z 127.0.0.1 9000')
         ->and($fpm)->toContain('( while true; do sleep 20; php -r')
-        // Env-free caches at build; boot rebuilds them only if the build could not.
-        ->and($fpm)->toContain('RUN php artisan route:cache >/dev/null 2>&1 || echo')->toContain('php artisan event:cache >/dev/null 2>&1 || true')
+        // The event cache at build. Routes only at boot: Livewire's update route
+        // hashes APP_KEY, which the build does not have.
+        ->and($fpm)->toContain('RUN php artisan event:cache >/dev/null 2>&1 || true')->not->toContain('RUN php artisan route:cache')
         ->and($fpm)->toContain('[ -f bootstrap/cache/routes-v7.php ] || php artisan route:cache')
         // Never all four (and every view) on each cold start.
         ->and($fpm)->not->toContain('artisan optimize')->not->toContain('view:cache')
