@@ -105,8 +105,10 @@ spec:
             timeoutSeconds: 30
             failureThreshold: 5
           resources:
-            requests: { cpu: 250m, memory: 512Mi }
-            limits: { memory: 1Gi }
+            # 1Gi OOM-killed the builder twice on 2026-10-01 (Horizon's build and
+            # deploy workers together), killing the deploys it was running.
+            requests: { cpu: 250m, memory: 768Mi }
+            limits: { memory: 2Gi }
           volumeMounts:
             - { name: work, mountPath: /var/lib/dply-builds }
             - { name: docker-certs, mountPath: /certs, readOnly: true }
