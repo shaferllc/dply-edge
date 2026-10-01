@@ -1184,9 +1184,10 @@ JS;
         if (self::keepsInstancesAwake($settings)) {
             $log("Starting the always-on instances.\n");
             try {
+                // The live URL, not $url: after a handoff that is the check host, gone by now.
                 Http::timeout(90)
                     ->withHeaders(['x-dply-queue-token' => self::queueToken($site)])
-                    ->post(rtrim($url, '/').'/_dply/warm')
+                    ->post(rtrim((string) $site->edgeLiveUrl(), '/').'/_dply/warm')
                     ->throw();
             } catch (Throwable $e) {
                 // Not fatal: each starts when traffic first reaches it, then stays up.
