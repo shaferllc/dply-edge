@@ -132,6 +132,8 @@ final class EdgeContainerSettings
             // Faster starts ship /app as a release in R2 instead of a new image
             // (EdgeReleaseBundle): on unless an app turns it off.
             'release_bundle' => (bool) ($raw['release_bundle'] ?? true),
+            // A recent copy of a public page while the app wakes (the Worker's WAKE_COPY).
+            'wake_copy' => (bool) ($raw['wake_copy'] ?? true),
             'scheduling' => config('edge.build.containers.durable_object_scheduling') && ($raw['scheduling'] ?? '') === 'durable_object' && $jurisdiction === '' && (array) ($raw['regions'] ?? []) === [] ? 'durable_object' : 'default',
             'rollout_step_percentage' => self::validRolloutSteps($raw['rollout_step_percentage'] ?? []),
             'rollout_active_grace_period' => max(0, min(self::ROLLOUT_GRACE_MAX, (int) ($raw['rollout_active_grace_period'] ?? 0))),

@@ -339,7 +339,7 @@ test('the generated worker project wires the container, queues and the token-gua
         ->and($worker)->toContain('startAndWaitForPorts')
         ->and($worker)->toContain('async function proxy(env, request, target)')
         ->and($worker)->toContain('portReadyTimeoutMS: 45000')
-        ->and($worker)->toContain('const response = await proxy(env, new Request(request, { headers }), await webTarget(env, request))')
+        ->and($worker)->toContain('const target = await webTarget(env, request);')->and($worker)->toContain('const response = await proxy(env, new Request(request, { headers }), target);')
         ->and($worker)->toContain('"/_dply/queue/send"')
         ->and($worker)->toContain("request.headers.get('x-dply-queue-token') !== env.DPLY_QUEUE_TOKEN")
         ->and($worker)->toContain('{"site-jobs":"JOBS"}')
@@ -899,7 +899,8 @@ test('a request that finds its instance asleep starts it with a tight poll and r
       console.log(JSON.stringify({ points, calls }));
     })();
     JS;
-    $out = json_decode(Process::run([$node, '-e', $script])->throw()->output(), true);
+    // The last line: wake() also logs a dply-wake: line.
+    $out = json_decode((string) Str::of(Process::run([$node, '-e', $script])->throw()->output())->trim()->explode("\n")->last(), true);
 
     expect($out['calls'])->toBe(['start:100/30000', 'request', 'request'])
         ->and($out['points'])->toHaveCount(1)
@@ -1057,10 +1058,10 @@ test('durable_object scheduling inlines its own container base on ctx.container 
     );
     File::put($dir.'/src/check.mjs', $stubbed."\n".File::get(base_path('tests/Fixtures/do-container-check.mjs'))."\nconsole.log(await run());\n");
     $result = Process::run([$node, $dir.'/src/check.mjs']);
-    expect(trim($result->output()))->toBe('ok', $result->errorOutput());
+    expect(preg_split('/\R/', trim($result->output())))->toContain('ok');
 
     // With a release bundle: snapshots, with no delay so the test waits on nothing.
-    $bundled = str_replace(['const RELEASE_KEY = "";', 'const SNAPSHOT_DELAY_MS = 20000;'], ['const RELEASE_KEY = "releases/x/1.tar.gz";', 'const SNAPSHOT_DELAY_MS = 0;'], $stubbed);
+    $bundled = str_replace(['const RELEASE_KEY = "";', 'const RELEASE_PREFIX = "";', 'const SNAPSHOT_DELAY_MS = 20000;'], ['const RELEASE_KEY = "releases/x/1.tar.gz";', 'const RELEASE_PREFIX = "releases/x/";', 'const SNAPSHOT_DELAY_MS = 0;'], $stubbed);
     File::put($dir.'/src/check-bundle.mjs', $bundled."\n".File::get(base_path('tests/Fixtures/do-container-check.mjs'))."\nconsole.log(await run());\n");
     $result = Process::run([$node, $dir.'/src/check-bundle.mjs']);
     // The snapshot code logs too ("dply-snapshot: …"); the harness prints ok last-ish.
@@ -1127,7 +1128,8 @@ test('a request that lands while its instance stops for inactivity is retried, n
       app: await run('Whoops, something went wrong'),
     })))();
     JS;
-    $out = json_decode(Process::run([$node, '-e', $script])->throw()->output(), true);
+    // The last line: wake() also logs a dply-wake: line.
+    $out = json_decode((string) Str::of(Process::run([$node, '-e', $script])->throw()->output())->trim()->explode("\n")->last(), true);
 
     expect($out['stopping'])->toBe(['status' => 200, 'calls' => ['fetch', 'start', 'fetch']])
         // The app's own 500 is its answer: no retry.
@@ -1197,4 +1199,108 @@ test('faster starts ship release bundles unless an app turns them off', function
     expect(EdgeContainerSettings::releaseBundle($on))->toBeTrue()
         ->and(EdgeContainerSettings::releaseBundle($off))->toBeFalse()
         ->and(EdgeContainerSettings::releaseBundle($default))->toBeFalse();
+});
+
+test('the worker fingerprint ignores the per-deploy build and release, and changes with public/ or the config', function () {
+    $dir = sys_get_temp_dir().'/dply-container-test-'.bin2hex(random_bytes(4));
+    File::ensureDirectoryExists($dir.'/src');
+    File::ensureDirectoryExists($dir.'/public/build');
+    File::put($dir.'/Dockerfile', "FROM php\n");
+    $write = function (string $build, string $release, string $css = 'a{}', int $max = 1) use ($dir) {
+        File::put($dir.'/wrangler.jsonc', json_encode(['name' => 'x', 'containers' => [['images' => ['app' => ['dockerfile' => $dir.'/Dockerfile']]]], 'vars' => ['m' => $max]]));
+        File::put($dir.'/src/index.js', "const BUILD_ID = \"{$build}\";\nconst RELEASE_KEY = \"{$release}\";\nexport default {};\n");
+        File::put($dir.'/secrets.json', '{"A":"1"}');
+        File::put($dir.'/public/build/app.css', $css);
+    };
+
+    $write('b1', 'releases/s/1.tar.gz');
+    $first = EdgeContainerDeployer::workerFingerprint($dir);
+    $write('b2', 'releases/s/2.tar.gz');
+    expect(EdgeContainerDeployer::workerFingerprint($dir))->toBe($first);
+    $write('b3', 'releases/s/3.tar.gz', 'a{color:red}');
+    expect(EdgeContainerDeployer::workerFingerprint($dir))->not->toBe($first);
+    $write('b4', 'releases/s/4.tar.gz', 'a{}', 2);
+    expect(EdgeContainerDeployer::workerFingerprint($dir))->not->toBe($first);
+});
+
+test('pruning keeps the vendor archives the kept releases use, and drops the rest', function () {
+    Storage::fake('edge_r2');
+    config(['edge.disk.name' => 'edge_r2']);
+    $site = new Site;
+    $site->id = '01SITEVENDOR';
+    $disk = Storage::disk('edge_r2');
+    $put = function (string $name, int $at) use ($disk, $site) {
+        $disk->put(EdgeReleaseBundle::prefix($site).$name, 'x');
+        touch($disk->path(EdgeReleaseBundle::prefix($site).$name), $at);
+    };
+    $put('d1.aaaaaaaaaaaaaaaa.tar.gz', 1);
+    $put('d2.aaaaaaaaaaaaaaaa.tar.gz', 2);
+    $put('d3.bbbbbbbbbbbbbbbb.tar.gz', 3);
+    $put('d4.bbbbbbbbbbbbbbbb.tar.gz', 4);
+    $put('d5.cccccccccccccccc.tar.gz', 5);
+    foreach (['aaaaaaaaaaaaaaaa', 'bbbbbbbbbbbbbbbb', 'cccccccccccccccc'] as $i => $hash) {
+        $put('vendor-'.$hash.'.tar.gz', 10 + $i);
+    }
+
+    EdgeReleaseBundle::prune($site);
+
+    expect(collect($disk->files(EdgeReleaseBundle::prefix($site)))->map(fn ($p) => basename($p))->sort()->values()->all())->toBe([
+        'd3.bbbbbbbbbbbbbbbb.tar.gz', 'd4.bbbbbbbbbbbbbbbb.tar.gz', 'd5.cccccccccccccccc.tar.gz',
+        'vendor-bbbbbbbbbbbbbbbb.tar.gz', 'vendor-cccccccccccccccc.tar.gz',
+    ])->and(EdgeReleaseBundle::appKey($site, 'd6', 'cccccccccccccccc'))->toBe('releases/01sitevendor/d6.cccccccccccccccc.tar.gz')
+        ->and(EdgeReleaseBundle::vendorKey($site, 'cccccccccccccccc'))->toBe('releases/01sitevendor/vendor-cccccccccccccccc.tar.gz');
+});
+
+test('a wake copy is kept only for pages anyone gets, and only sent while the app sleeps', function () {
+    $site = new Site;
+    $site->id = '01SITEWAKECOPY';
+    $dir = sys_get_temp_dir().'/dply-container-test-'.bin2hex(random_bytes(4));
+    (new EdgeContainerDeployer)->scaffold($dir, $site, '/x/Dockerfile', 8080, []);
+    $worker = File::get($dir.'/src/index.js');
+    expect($worker)->toContain('const WAKE_COPY = true;')
+        ->and($worker)->toContain('if (copy && !(await target.container.isAwake().catch(() => true))) {');
+
+    $node = (new ExecutableFinder)->find('node');
+    if ($node === null) {
+        return;
+    }
+    $helpers = 'const WAKE_COPY = true;'.Str::between($worker, 'const WAKE_COPY = true;', "\nfunction keepWakeCopy");
+    $script = $helpers.<<<'JS'
+
+    const req = (h = {}) => new Request('https://a.test/p', { headers: h });
+    const res = (h = {}, status = 200) => new Response('x', { status, headers: { 'content-type': 'text/html; charset=utf-8', ...h } });
+    const sticky = new Response('x', { headers: [['content-type', 'text/html'], ['set-cookie', 'dply_instance=0; Path=/']] });
+    const session = new Response('x', { headers: [['content-type', 'text/html'], ['set-cookie', 'laravel_session=abc']] });
+    console.log(JSON.stringify([
+      wakeCopyEligible(req()), wakeCopyEligible(req({ cookie: 'a=1' })), wakeCopyEligible(req({ authorization: 'Bearer x' })),
+      wakeCopyEligible(req({ 'x-dply-uptime': 't' })), wakeCopyEligible(req({ 'user-agent': 'dply-uptime/1.0' })),
+      wakeCopyStorable(res()), wakeCopyStorable(sticky), wakeCopyStorable(session),
+      wakeCopyStorable(res({ 'cache-control': 'private' })), wakeCopyStorable(res({}, 404)),
+      wakeCopyStorable(new Response('{}', { headers: { 'content-type': 'application/json' } })),
+    ]));
+    JS;
+    expect(json_decode(Process::run([$node, '-e', $script])->throw()->output(), true))
+        ->toBe([true, false, false, false, false, true, true, false, false, false, false]);
+
+    $site = new Site(['meta' => ['edge' => ['container' => ['wake_copy' => false]]]]);
+    $site->id = '01SITEWAKEOFF';
+    (new EdgeContainerDeployer)->scaffold($dir.'-off', $site, '/x/Dockerfile', 8080, []);
+    expect(File::get($dir.'-off/src/index.js'))->toContain('const WAKE_COPY = false;');
+});
+
+test('a generated Dockerfile keeps .git and editor folders out of the image, adding to a repo .dockerignore', function () {
+    $dir = checkout(['composer.json' => '{"require":{"php":"^8.3"}}', 'artisan' => '']);
+    EdgeContainerDockerfile::prepare($dir);
+    expect(File::get($dir.'/.dockerignore'))->toContain(".git\n")->toContain('.github');
+
+    $own = checkout(['composer.json' => '{"require":{"php":"^8.3"}}', 'artisan' => '', '.dockerignore' => "node_modules\n.git\n"]);
+    EdgeContainerDockerfile::prepare($own);
+    $lines = explode("\n", trim(File::get($own.'/.dockerignore')));
+    expect($lines[0])->toBe('node_modules')
+        ->and(array_count_values($lines)['.git'])->toBe(1)
+        ->and($lines)->toContain('.cursor');
+
+    $repoDockerfile = checkout(['Dockerfile' => "FROM ruby\n"]);
+    EdgeContainerDockerfile::prepare($repoDockerfile);
+    expect(is_file($repoDockerfile.'/.dockerignore'))->toBeFalse();
 });

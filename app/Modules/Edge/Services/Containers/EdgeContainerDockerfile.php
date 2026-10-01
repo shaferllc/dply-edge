@@ -393,6 +393,11 @@ final class EdgeContainerDockerfile
      * ~2.2s to 9-17s, and every CLI call in the boot script (the fpm readiness
      * loop runs one every 0.1s) paid OPcache's setup. Measure a real wake with
      * `dply:edge:wake-time` before trying it again.
+     *
+     * Tried again and reverted (2026-10-01): filled at runtime by warm-up
+     * requests and kept in a release bundle's snapshot. placehold (Octane on
+     * Swoole) woke in 6.1-6.6s over three runs against 4.7s without it; the
+     * boot script itself was unchanged (~0.6s), so the cost is in Octane.
      */
     private static function opcacheIni(string $server): string
     {
@@ -445,6 +450,7 @@ final class EdgeContainerDockerfile
         };
 
         file_put_contents($checkout.'/Dockerfile.dply', $contents);
+        self::ensureDockerignore($checkout);
 
         $server = '';
         if ($stack === 'php') {
@@ -453,6 +459,25 @@ final class EdgeContainerDockerfile
         }
 
         return ['path' => $checkout.'/Dockerfile.dply', 'port' => 8080, 'stack' => $stack, 'generated' => true, 'server' => $server, 'worker_mode' => self::supportsWorkerMode($checkout, $server)];
+    }
+
+    /** Never in a generated image or release: version control, editor and CI folders, dply's own files. */
+    public const DOCKERIGNORE = ['.git', '.github', '.gitlab', '.idea', '.vscode', '.cursor', '.DS_Store', 'Dockerfile.dply-release'];
+
+    /**
+     * A generated Dockerfile copies the whole checkout (COPY . .): keep
+     * DOCKERIGNORE out of it. A repo's own .dockerignore is kept, with any
+     * missing entries added (placehold shipped 2.4 MB of .git per release).
+     */
+    public static function ensureDockerignore(string $checkout): void
+    {
+        $path = $checkout.'/.dockerignore';
+        $existing = is_file($path) ? (string) file_get_contents($path) : '';
+        $have = array_map('trim', preg_split('/\R/', $existing) ?: []);
+        $missing = array_values(array_diff(self::DOCKERIGNORE, $have));
+        if ($missing !== []) {
+            file_put_contents($path, rtrim($existing).($existing !== '' ? "\n" : '').implode("\n", $missing)."\n");
+        }
     }
 
     /**

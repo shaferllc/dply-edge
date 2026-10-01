@@ -50,6 +50,11 @@
                 </div>
             </x-sheet.section>
 
+            <x-sheet.section :title="__('While it wakes')">
+                <x-sheet.toggle wire:model.live="wakeCopy" :label="__('Show a recent copy of public pages')"
+                    :help="__('A visitor who reaches a sleeping app gets the last copy of the page at once while it starts, then fresh pages after. Only pages anyone gets qualify: no cookie or login on the request, and no cookie, private or no-store on the answer. Laravel pages with a session never do. Applies on the next deploy.')" />
+            </x-sheet.section>
+
             @if (config('edge.build.containers.durable_object_scheduling'))
             <x-sheet.section :title="__('Faster starts')">
                 <x-sheet.toggle wire:model.live="fastStart" :disabled="$jurisdiction !== '' || $regions !== []" :label="__('Faster starts (beta)')"

@@ -178,6 +178,9 @@ class Resources extends Component
     /** Cloudflare's durable_object scheduling (EdgeContainerSettings 'scheduling'). */
     public bool $fastStart = false;
 
+    /** A recent copy of a public page while the app wakes (EdgeContainerSettings 'wake_copy'). */
+    public bool $wakeCopy = true;
+
     public string $rolloutSteps = '';
 
     public int $rolloutGraceSeconds = 0;
@@ -1558,6 +1561,7 @@ class Resources extends Component
             $this->migrateOnBoot = $settings['migrate_on_boot'];
             $this->rolloutMode = $settings['rollout_mode'];
             $this->fastStart = EdgeContainerSettings::durableObjectScheduling($settings);
+            $this->wakeCopy = (bool) ($settings['wake_copy'] ?? true);
             $this->rolloutSteps = implode(', ', $settings['rollout_step_percentage']);
             $this->rolloutGraceSeconds = $settings['rollout_active_grace_period'];
             $raw = is_array($site->edgeMeta()['container'] ?? null) ? $site->edgeMeta()['container'] : [];
@@ -1586,7 +1590,7 @@ class Resources extends Component
             $this->validateOnly($name, $this->runtimeRules());
         }
 
-        if (in_array($name, ['draftInstanceType', 'sleepAfter', 'jurisdiction', 'scheduler', 'stickySessions', 'dedicatedJobs', 'migrateOnBoot', 'customVcpu', 'customMemoryGib', 'customDiskGb', 'rolloutMode', 'rolloutSteps', 'rolloutGraceSeconds', 'minInstances', 'jobsAlwaysOn', 'workerMode', 'fastStart'], true) || str_starts_with($name, 'regions') || str_starts_with($name, 'workers.') || str_starts_with($name, 'schedules')) {
+        if (in_array($name, ['draftInstanceType', 'sleepAfter', 'jurisdiction', 'scheduler', 'stickySessions', 'dedicatedJobs', 'migrateOnBoot', 'customVcpu', 'customMemoryGib', 'customDiskGb', 'rolloutMode', 'rolloutSteps', 'rolloutGraceSeconds', 'minInstances', 'jobsAlwaysOn', 'workerMode', 'fastStart', 'wakeCopy'], true) || str_starts_with($name, 'regions') || str_starts_with($name, 'workers.') || str_starts_with($name, 'schedules')) {
             $this->refreshPending();
         }
     }
@@ -3363,6 +3367,7 @@ class Resources extends Component
             $this->migrateOnBoot = $settings['migrate_on_boot'];
             $this->rolloutMode = $settings['rollout_mode'];
             $this->fastStart = EdgeContainerSettings::durableObjectScheduling($settings);
+            $this->wakeCopy = (bool) ($settings['wake_copy'] ?? true);
             $this->rolloutSteps = implode(', ', $settings['rollout_step_percentage']);
             $this->rolloutGraceSeconds = $settings['rollout_active_grace_period'];
             $raw = is_array($meta['container'] ?? null) ? $meta['container'] : [];
@@ -3794,6 +3799,7 @@ class Resources extends Component
             'rollout_steps' => implode(', ', $settings['rollout_step_percentage'] ?? []),
             'rollout_grace' => (int) ($settings['rollout_active_grace_period'] ?? 0),
             'fast_start' => ($settings['scheduling'] ?? '') === 'durable_object',
+            'wake_copy' => (bool) ($settings['wake_copy'] ?? true),
             'cache' => in_array($cacheMode, ['off', 'assets', 'standard', 'everything'], true) ? $cacheMode : 'off',
             'database' => in_array($engine, EdgeAppDatabase::ENGINES, true) ? $engine : ($runtime === 'container' ? 'sql' : 'none'),
             'postgres_plan' => EdgeAppDatabase::postgresPlan((string) ($database['plan'] ?? '')),
@@ -3833,6 +3839,7 @@ class Resources extends Component
             'rollout_steps' => $this->rolloutSteps,
             'rollout_grace' => $this->rolloutGraceSeconds,
             'fast_start' => $this->fastStart,
+            'wake_copy' => $this->wakeCopy,
             'cache' => $this->draftCacheMode,
             'database' => $this->draftDatabase,
             'postgres_plan' => EdgeAppDatabase::postgresPlan($this->draftPostgresPlan),
@@ -3959,6 +3966,7 @@ class Resources extends Component
             $current['rollout_step_percentage'] = EdgeContainerSettings::parseRolloutSteps($this->rolloutSteps);
             $current['rollout_active_grace_period'] = max(0, min(EdgeContainerSettings::ROLLOUT_GRACE_MAX, $this->rolloutGraceSeconds));
             $current['scheduling'] = $this->fastStart ? 'durable_object' : 'default';
+            $current['wake_copy'] = $this->wakeCopy;
             if ($this->draftInstanceType === 'custom') {
                 $current['custom_vcpu'] = $this->customVcpu;
                 $current['custom_memory_gib'] = $this->customMemoryGib;

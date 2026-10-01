@@ -98,6 +98,8 @@ const INACTIVITY_MS = 6 * 3600 * 1000;
 const ALARM_MAX_MS = 3600 * 1000;
 // A new build's first start waits this long after it is healthy before snapshotting.
 const SNAPSHOT_DELAY_MS = 20000;
+// How long an old build's web container gets to stop before it is killed.
+const REPLACE_GRACE_MS = 3000;
 const STATE_KEY = 'dply:container-state';
 const SLEEP_KEY = 'dply:sleep-at';
 
@@ -109,6 +111,10 @@ function exitCodeOf(e) {
   if (typeof e === 'number') return e;
   const m = /exit code:?\s*(\d+)/i.exec(e instanceof Error ? e.message : String(e));
   return m ? Number(m[1]) : null;
+}
+// The release a container runs, as a label (64 bytes max): the deployment id.
+function releaseLabel(key) {
+  return String(key).split('/').pop().replace(/\.tar\.gz$/, '').slice(0, 64);
 }
 function globMatch(pattern, host) {
   if (!pattern.includes('*')) return false;
@@ -157,7 +163,8 @@ class Container extends DurableObject {
         // strings may not compare), so one from an earlier deploy shows here.
         try {
           const info = await this.container.inspect();
-          this.stale = Boolean(info) && info.labels?.['dply-build'] !== BUILD_ID;
+          this.stale = Boolean(info) && (info.labels?.['dply-build'] !== BUILD_ID
+            || (RELEASE_KEY !== '' && info.labels?.['dply-release'] !== releaseLabel(await this.releaseKey())));
         } catch {
           // Unknown: keep serving what runs.
         }
@@ -170,6 +177,41 @@ class Container extends DurableObject {
         if (state.status === 'running' || state.status === 'healthy') await this.setStatus('stopped');
       }
     });
+  }
+
+  // Release bundles: the live release is kept by the "dply-release" object.
+  // A code-only deploy sets it (/_dply/release) without a Worker upload; a
+  // Worker upload (new BUILD_ID) goes back to the RELEASE_KEY it was built with.
+  async currentRelease() {
+    const saved = await this.ctx.storage.get('dply:release');
+    return saved && saved.build === BUILD_ID ? saved.key : RELEASE_KEY;
+  }
+
+  async setRelease(key) {
+    await this.ctx.storage.put('dply:release', { key, build: BUILD_ID });
+  }
+
+  async releaseKey() {
+    if (!RELEASE_KEY) return '';
+    if (this.ctx.id.name === 'dply-release') return this.currentRelease();
+    try {
+      return await this.env.APP.get(this.env.APP.idFromName('dply-release')).currentRelease();
+    } catch {
+      return RELEASE_KEY;
+    }
+  }
+
+  // After /_dply/release: an instance on another release is replaced on its
+  // next request; a queue worker gets SIGTERM and finishes its job first.
+  async checkRelease() {
+    if (!RELEASE_KEY || !this.container.running) return;
+    const info = await this.container.inspect().catch(() => null);
+    if (!info || info.labels?.['dply-release'] === releaseLabel(await this.releaseKey())) return;
+    this.stale = true;
+    if (isWorker(this.ctx.id.name) && !this.draining) {
+      this.draining = true;
+      await this.stop('SIGTERM');
+    }
   }
 
   async getState() {
@@ -237,10 +279,11 @@ class Container extends DurableObject {
     if (this.container.running) this.container.signal(signal === 'SIGKILL' ? 9 : typeof signal === 'number' ? signal : 15);
   }
 
-  // Stop the old image's container and wait for it to go (30 s, then kill).
+  // Stop an old build's web container so this request can start the new one:
+  // SIGTERM, then kill after REPLACE_GRACE_MS (a visitor is waiting on it).
   async stopAndWait() {
     await this.stop('SIGTERM');
-    for (let i = 0; i < 60 && this.container.running; i++) await new Promise((r) => setTimeout(r, 500));
+    for (let i = 0; i < REPLACE_GRACE_MS / 250 && this.container.running; i++) await new Promise((r) => setTimeout(r, 250));
     if (this.container.running) {
       await this.container.destroy();
       for (let i = 0; i < 20 && this.container.running; i++) await new Promise((r) => setTimeout(r, 500));
@@ -264,14 +307,19 @@ class Container extends DurableObject {
       await this.applyOutbound();
       // Release bundle: start from this build's filesystem snapshot when there
       // is one (its /app is already unpacked), else from the image.
-      const snap = RELEASE_KEY ? await this.ctx.storage.get('dply:snapshot') : null;
-      let useSnap = Boolean(snap && snap.build === BUILD_ID);
-      const env = RELEASE_KEY ? { ...(options.envVars ?? this.envVars), DPLY_RELEASE: RELEASE_KEY } : (options.envVars ?? this.envVars);
+      const release = await this.releaseKey();
+      this.release = release;
+      const snap = release ? await this.ctx.storage.get('dply:snapshot') : null;
+      // A snapshot holds one release and one Worker version's env (config cache).
+      let useSnap = Boolean(snap && snap.build === BUILD_ID && snap.release === release);
+      if (release) console.log('dply-start: ' + (useSnap ? 'from snapshot' : 'from image') + ' release=' + releaseLabel(release) + (snap ? ' saved=' + releaseLabel(snap.release ?? '?') + (snap.build === BUILD_ID ? '' : ' (other build)') : ' saved=none'));
+      const env = release ? { ...(options.envVars ?? this.envVars), DPLY_RELEASE: release } : (options.envVars ?? this.envVars);
+      const labels = { 'dply-build': BUILD_ID, ...(release ? { 'dply-release': releaseLabel(release) } : {}) };
       // Just after a stop the runtime can refuse a start for a moment.
       for (let attempt = 0; ; attempt++) {
         try {
           const from = useSnap ? { containerSnapshot: snap.snapshot } : { image: this.container.images.app };
-          this.container.start({ ...from, instance: DO_INSTANCE, env, enableInternet: true, labels: { 'dply-build': BUILD_ID } });
+          this.container.start({ ...from, instance: DO_INSTANCE, env, enableInternet: true, labels });
           break;
         } catch (e) {
           if (useSnap) {
@@ -318,7 +366,7 @@ class Container extends DurableObject {
       if (!this.container.running || this.stale) return;
       const at = Date.now();
       const snapshot = await this.container.snapshotContainer({ name: 'dply-' + BUILD_ID });
-      await this.ctx.storage.put('dply:snapshot', { build: BUILD_ID, snapshot });
+      await this.ctx.storage.put('dply:snapshot', { build: BUILD_ID, release: this.release, snapshot });
       console.log('dply-snapshot: saved ' + Math.round((snapshot?.size ?? 0) / 1048576) + ' MB in ' + (Date.now() - at) + ' ms');
     } catch (e) {
       console.log('dply-snapshot: failed: ' + (e instanceof Error ? e.message : String(e)));
@@ -432,14 +480,14 @@ JS;
      *
      * @param  array{path: string, port: int}  $image
      */
-    private function shipReleaseBundle(Site $site, EdgeDeployment $deployment, string $checkout, array $image, string $project, string $workRoot, callable $log, ?int $timeoutSeconds): bool
+    private function shipReleaseBundle(Site $site, EdgeDeployment $deployment, string $checkout, array $image, string $project, string $workRoot, callable $log, ?int $timeoutSeconds): ?string
     {
         $split = EdgeReleaseBundle::split((string) file_get_contents($image['path']));
         $bucket = trim((string) config('edge.r2.bucket'));
         if ($split === null || $bucket === '') {
             $log("Release bundle: this app's Dockerfile does not split into runtime and release. Building the image as usual.\n");
 
-            return false;
+            return null;
         }
         // The runtime Dockerfile goes to wrangler as the image: every step is
         // cached, so it builds to the image already on Cloudflare and wrangler
@@ -448,31 +496,96 @@ JS;
         File::ensureDirectoryExists($runtimeDir);
         File::put($runtimeDir.'/Dockerfile', $split['runtime']);
         File::put($checkout.'/Dockerfile.dply-release', $split['release']);
-        $tar = $workRoot.'/release.tar';
+        // Two archives: vendor/ (named by composer.lock, so unchanged
+        // dependencies are uploaded once) and the rest of /app, including
+        // vendor/composer and vendor/autoload.php, which change with the code.
+        $root = $workRoot.'/release-root';
+        $appTar = $workRoot.'/release-app.tgz';
+        $vendorTar = $workRoot.'/release-vendor.tgz';
         $script = 'docker buildx build -f '.escapeshellarg($checkout.'/Dockerfile.dply-release').' --target '.EdgeReleaseBundle::RELEASE_STAGE
-            .' --output '.escapeshellarg('type=tar,dest='.$tar).' '.escapeshellarg($checkout)
-            .' && gzip -1 -f '.escapeshellarg($tar);
+            .' --output '.escapeshellarg('type=local,dest='.$root).' '.escapeshellarg($checkout)
+            .' && cd '.escapeshellarg($root)
+            .' && { find . -path ./vendor -prune -o -print; if [ -d vendor ]; then echo ./vendor; [ -f vendor/autoload.php ] && echo ./vendor/autoload.php; [ -d vendor/composer ] && find ./vendor/composer; fi; } | tar -czf '.escapeshellarg($appTar).' --no-recursion -T -'
+            .' && if [ -d vendor ]; then tar -czf '.escapeshellarg($vendorTar).' --exclude=vendor/composer --exclude=vendor/autoload.php vendor; fi';
         $log("Release bundle: building the release (/app).\n");
         $started = microtime(true);
         $result = $this->runWithHeartbeat($log, Process::timeout($timeoutSeconds ?? 1800), self::deployerRun(self::buildContainerName($deployment).'-release', $workRoot, $checkout, $script));
         if (! $result->successful()) {
             throw new RuntimeException('Container deploy failed: the release bundle did not build: '.self::failureReason($result->errorOutput(), $result->output()));
         }
-        $key = EdgeReleaseBundle::prefix($site).strtolower((string) $deployment->id).'.tar.gz';
-        $stream = fopen($tar.'.gz', 'r');
-        Storage::disk((string) config('edge.disk.name', 'edge_r2'))->writeStream($key, $stream);
-        if (is_resource($stream)) {
-            fclose($stream);
+        $disk = Storage::disk((string) config('edge.disk.name', 'edge_r2'));
+        $put = function (string $key, string $file) use ($disk): void {
+            $stream = fopen($file, 'r');
+            $disk->writeStream($key, $stream);
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
+        };
+        $vendorHash = is_file($vendorTar) ? EdgeReleaseBundle::vendorHash($checkout, $split['hash']) : null;
+        $vendorNote = '';
+        if ($vendorHash !== null) {
+            $vendorKey = EdgeReleaseBundle::vendorKey($site, $vendorHash);
+            if ($disk->exists($vendorKey)) {
+                $vendorNote = ', dependencies unchanged';
+            } else {
+                $put($vendorKey, $vendorTar);
+                $vendorNote = sprintf(' + %.1f MB of dependencies', filesize($vendorTar) / 1048576);
+            }
         }
-        $log(sprintf("Release bundle: built in %ds, uploaded %.1f MB.\n", (int) round(microtime(true) - $started), filesize($tar.'.gz') / 1048576));
+        $key = EdgeReleaseBundle::appKey($site, strtolower((string) $deployment->id), $vendorHash);
+        $put($key, $appTar);
+        $log(sprintf("Release bundle: built in %ds, uploaded %.1f MB%s.\n", (int) round(microtime(true) - $started), filesize($appTar) / 1048576, $vendorNote));
 
         $config = json_decode((string) File::get($project.'/wrangler.jsonc'), true, flags: JSON_THROW_ON_ERROR);
         $config['containers'][0]['images'] = ['app' => ['dockerfile' => $runtimeDir.'/Dockerfile']];
         $config['r2_buckets'] = [...($config['r2_buckets'] ?? []), ['binding' => 'RELEASES', 'bucket_name' => $bucket]];
         File::put($project.'/wrangler.jsonc', json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
-        File::put($project.'/src/index.js', str_replace('const RELEASE_KEY = "";', 'const RELEASE_KEY = '.json_encode($key, JSON_UNESCAPED_SLASHES).';', (string) File::get($project.'/src/index.js')));
+        File::put($project.'/src/index.js', str_replace(
+            ['const RELEASE_KEY = "";', 'const RELEASE_PREFIX = "";'],
+            ['const RELEASE_KEY = '.json_encode($key, JSON_UNESCAPED_SLASHES).';', 'const RELEASE_PREFIX = '.json_encode(EdgeReleaseBundle::prefix($site), JSON_UNESCAPED_SLASHES).';'],
+            (string) File::get($project.'/src/index.js'),
+        ));
 
-        return true;
+        return $key;
+    }
+
+    /**
+     * What a Worker upload would change: wrangler.jsonc (the runtime image by
+     * its contents, not its build path), the Worker without its per-deploy
+     * BUILD_ID and RELEASE_KEY, the secrets, and public/ (the Worker serves
+     * those files itself, so a changed one needs an upload).
+     */
+    public static function workerFingerprint(string $project): string
+    {
+        $config = json_decode((string) File::get($project.'/wrangler.jsonc'), true, flags: JSON_THROW_ON_ERROR);
+        $dockerfile = $config['containers'][0]['images']['app']['dockerfile'] ?? null;
+        if (is_string($dockerfile)) {
+            $config['containers'][0]['images']['app']['dockerfile'] = is_file($dockerfile) ? hash_file('sha256', $dockerfile) : $dockerfile;
+        }
+        $worker = (string) preg_replace('/^const (BUILD_ID|RELEASE_KEY) = .*$/m', '', (string) File::get($project.'/src/index.js'));
+        $public = '';
+        if (is_dir($project.'/public')) {
+            $files = collect(File::allFiles($project.'/public'))->map(fn ($file): string => $file->getRelativePathname().':'.hash_file('sha256', $file->getPathname()))->sort()->implode("\n");
+            $public = hash('sha256', $files);
+        }
+
+        return hash('sha256', json_encode($config, JSON_THROW_ON_ERROR)."\n".$worker."\n".(string) @file_get_contents($project.'/secrets.json')."\n".$public);
+    }
+
+    /** Tell the live Worker which release to run (/_dply/release). False: deploy it the usual way. */
+    private function activateRelease(Site $site, string $key, callable $log): bool
+    {
+        try {
+            Http::timeout(30)->withHeaders(['x-dply-queue-token' => self::queueToken($site)])
+                ->post(rtrim((string) $site->edgeLiveUrl(), '/').'/_dply/release', ['key' => $key])->throw();
+            $log("Only the app's code changed: switched to the new release without a Worker upload.\n");
+
+            return true;
+        } catch (Throwable $e) {
+            $log('Could not switch releases directly ('.$e->getMessage()."). Uploading the Worker instead.\n");
+
+            return false;
+        }
     }
 
     /** The scheduling policy of the app's container application, or null when it has none. */
@@ -925,9 +1038,16 @@ JS;
 
         $this->ensureDeployerImage($log);
         self::ensureBuilderNetwork();
-        if (EdgeContainerSettings::releaseBundle($settings)) {
-            $this->shipReleaseBundle($site, $deployment, $checkout, $image, $project, $workRoot, $log, $timeoutSeconds);
-        }
+        $releaseKey = EdgeContainerSettings::releaseBundle($settings)
+            ? $this->shipReleaseBundle($site, $deployment, $checkout, $image, $project, $workRoot, $log, $timeoutSeconds)
+            : null;
+        // Release bundles: when only the app's code changed (the Worker, its
+        // config, secrets and public/ match the last Worker upload), naming
+        // the new release is the whole deploy. No wrangler.
+        $workerFingerprint = $releaseKey !== null ? self::workerFingerprint($project) : null;
+        $activated = $workerFingerprint !== null
+            && ($site->edgeMeta()['release_worker'] ?? null) === $workerFingerprint
+            && $this->activateRelease($site, $releaseKey, $log);
 
         $namespace = (string) config('edge.cloudflare.dispatch_namespace_name');
         // Migrations run in a release step (dply's own SQLite migrates on boot).
@@ -946,41 +1066,51 @@ JS;
         // wrangler goes quiet after the layer push while Cloudflare ingests the
         // image and rolls out the container — minutes, with no output at all.
         // Say so, or every deploy reads as a hang at exactly this point.
-        $log("Building the image (npm, Vite, Composer) and pushing it. Docker output follows.\n");
+        if (! $activated) {
+            $log("Building the image (npm, Vite, Composer) and pushing it. Docker output follows.\n");
 
-        $deploy = fn () => $this->runWithHeartbeat($log, Process::timeout($timeoutSeconds ?? 1800), self::deployerCommand(
-            self::buildContainerName($deployment), $workRoot, $project, $namespace, EdgeContainerSettings::durableObjectScheduling($settings) ? 'immediate' : $settings['rollout_mode'],
-        ));
-        $result = $deploy();
-        // Faster starts switched on or off: the app's container application
-        // under the other scheduling holds its name and Durable Object
-        // namespace, so wrangler cannot create the new one. Remove it and
-        // retry (the image build is cached). Its instances stop until then.
-        if (! $result->successful() && $this->dropOtherSchedulingApplication($site, $doScheduled, $log)) {
+            $deploy = fn () => $this->runWithHeartbeat($log, Process::timeout($timeoutSeconds ?? 1800), self::deployerCommand(
+                self::buildContainerName($deployment), $workRoot, $project, $namespace, EdgeContainerSettings::durableObjectScheduling($settings) ? 'immediate' : $settings['rollout_mode'],
+            ));
             $result = $deploy();
-        }
-        // A container application created by this deploy is not attached to
-        // the Worker version uploaded just before it ("There is no container
-        // application assigned to this Durable Object namespace", 2026-09-30).
-        // Upload once more now that it exists; the image is already pushed.
-        if ($result->successful() && $doScheduled && $doApplicationBefore !== 'durable_object') {
-            $log("The container application was just created. Uploading the Worker again so it attaches.\n");
-            $result = $deploy();
-        }
+            // Faster starts switched on or off: the app's container application
+            // under the other scheduling holds its name and Durable Object
+            // namespace, so wrangler cannot create the new one. Remove it and
+            // retry (the image build is cached). Its instances stop until then.
+            if (! $result->successful() && $this->dropOtherSchedulingApplication($site, $doScheduled, $log)) {
+                $result = $deploy();
+            }
+            // A container application created by this deploy is not attached to
+            // the Worker version uploaded just before it ("There is no container
+            // application assigned to this Durable Object namespace", 2026-09-30).
+            // Upload once more now that it exists; the image is already pushed.
+            if ($result->successful() && $doScheduled && $doApplicationBefore !== 'durable_object') {
+                $log("The container application was just created. Uploading the Worker again so it attaches.\n");
+                $result = $deploy();
+            }
 
-        File::delete($project.'/secrets.json');
+            File::delete($project.'/secrets.json');
 
-        if (! $result->successful()) {
-            throw new RuntimeException('Container deploy failed: '.self::failureReason($result->errorOutput(), $result->output()));
+            if (! $result->successful()) {
+                throw new RuntimeException('Container deploy failed: '.self::failureReason($result->errorOutput(), $result->output()));
+            }
+            if ($workerFingerprint !== null) {
+                $site->mergeEdgeMeta(['release_worker' => $workerFingerprint]);
+                $site->save();
+            }
+        } else {
+            File::delete($project.'/secrets.json');
         }
 
         // wrangler returning only means the script uploaded. Ask Cloudflare
         // whether the container actually came up, so "live" means running.
         // durable_object scheduling has no rollout: each instance starts the
         // new image on its next request (a running one is replaced then).
-        $log($doScheduled
+        $log($activated
+            ? "[dply:step] publish\nInstances move to the new release on their next request.\n"
+            : ($doScheduled
             ? "[dply:step] publish\nImage pushed. Instances start the new version on their next request.\n"
-            : "[dply:step] publish\nImage pushed. Waiting for Dply Edge to roll the container out.\n");
+            : "[dply:step] publish\nImage pushed. Waiting for Dply Edge to roll the container out.\n"));
         $rollout = $doScheduled ? ['settled' => true, 'ok' => true] : app(EdgeContainerRollout::class)->await($site, $log);
         if ($rollout['settled'] && ! $rollout['ok']) {
             throw new RuntimeException('Container deploy failed: '.(string) $rollout['reason'].' — '.(string) json_encode($rollout['health']));
@@ -1012,7 +1142,7 @@ JS;
                 }
             }
             $log("Not answering yet (try {$try} of 4). Trying again.\n");
-            sleep(10);
+            sleep(2);
         }
         $log(sprintf("App answered HTTP %d.\n", $response->status()));
         if ($response->serverError()) {
@@ -1636,6 +1766,8 @@ JS;
             '__SQLITE_KEY__' => json_encode(self::sqliteKey($site), JSON_UNESCAPED_SLASHES),
             // Set by useReleaseBundle() after scaffold, when the deploy ships one.
             '__RELEASE_KEY__' => '""',
+            '__RELEASE_PREFIX__' => '""',
+            '__WAKE_COPY__' => ($settings['wake_copy'] ?? true) ? 'true' : 'false',
             '__PUBLIC_STORAGE__' => json_encode(EdgeContainerConnections::publicStorage($site), JSON_UNESCAPED_SLASHES),
             '__BROWSER_HOST__' => json_encode(EdgeContainerConnections::browserHost($site)),
             // The container base class: @cloudflare/containers, or dply's own
@@ -1951,6 +2083,9 @@ export class App extends Container {
     const sent = Date.now();
     const response = await super.fetch(request);
     recordWake(this.env, this.index, ready, this.probeMs, Date.now() - sent, response.status);
+    // One line per cold start, for profiling wakes next to the container's own
+    // dply-release / dply-boot lines: ready = start until the port answers.
+    console.log('dply-wake: ready=' + ready + 'ms probe=' + this.probeMs + 'ms first-request=' + (Date.now() - sent) + 'ms status=' + response.status + (this.fromSnapshot ? ' snapshot' : ''));
     return response;
   }
 
@@ -1958,6 +2093,9 @@ export class App extends Container {
   // (/_dply/instances). Memory only: a sleeping instance has no countdown.
   lastActivityAt = null;
   async activity() { return this.lastActivityAt; }
+
+  // For the Worker's wake copy: answering never wakes the instance.
+  async isAwake() { return Boolean(this.container?.running); }
 
   // The first MIN_INSTANCES instances never sleep (minimum replicas).
   async remember(index) {
@@ -1981,8 +2119,11 @@ const CLIENT_CERT = __CLIENT_CERT__;
 const BROWSER = __BROWSER__;
 const SQLITE_SYNC = __SQLITE_SYNC__;
 const SQLITE_KEY = __SQLITE_KEY__;
-// Release bundle (EdgeReleaseBundle): the R2 key of this deploy's /app, or ''.
+// Release bundle (EdgeReleaseBundle): the R2 key of this deploy's /app, or '',
+// and the prefix every release of this app shares (a code-only deploy names a
+// newer one through /_dply/release).
 const RELEASE_KEY = __RELEASE_KEY__;
+const RELEASE_PREFIX = __RELEASE_PREFIX__;
 // Buckets served read-only on the app's own domains (EdgeContainerConnections::publicStorage).
 const PUBLIC_STORAGE = __PUBLIC_STORAGE__;
 
@@ -2125,12 +2266,15 @@ App.outboundByHost = Object.fromEntries([
   ...CONNECTIONS.map((c) => [c.host, (request, env, ctx) => connectionFetch(c, request, env, ctx).catch(dplyRefusal)]),
   ...(BROWSER ? [[__BROWSER_HOST__, (request, env, ctx) => browserFetch(request, env, ctx)]] : []),
   ...(SQLITE_SYNC ? [['sqlite.dply', (request, env) => sqliteFetch(request, env)]] : []),
-  ...(RELEASE_KEY ? [['release.dply', (request, env) => releaseFetch(env)]] : []),
+  ...(RELEASE_KEY ? [['release.dply', (request, env) => releaseFetch(request, env)]] : []),
 ]);
 
-// The container fetches its code at boot (EdgeReleaseBundle::FETCH).
-async function releaseFetch(env) {
-  const object = env.RELEASES ? await env.RELEASES.get(RELEASE_KEY) : null;
+// The container fetches its code at boot (EdgeReleaseBundle::FETCH): the
+// release it names, if it is one of this app's, else this deploy's.
+async function releaseFetch(request, env) {
+  const asked = decodeURIComponent(new URL(request.url).pathname.slice(1));
+  const key = RELEASE_PREFIX && asked.startsWith(RELEASE_PREFIX) && !asked.includes('..') ? asked : RELEASE_KEY;
+  const object = env.RELEASES ? await env.RELEASES.get(key) : null;
   return object ? new Response(object.body, { headers: { 'content-length': String(object.size) } }) : new Response('No release.', { status: 404 });
 }
 
@@ -2455,6 +2599,39 @@ function withStickyCookie(response, id) {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
+// While the app wakes, a visitor can get a recent copy of a page anyone gets
+// (WAKE_COPY): no cookie or Authorization on the request; a 200 HTML answer
+// with no cookie of the app's own and not private/no-store/no-cache. The
+// wake then refreshes the copy. dply's checks always reach the app.
+const WAKE_COPY = __WAKE_COPY__;
+function wakeCopyKey(url) {
+  return new Request('https://dply-wake-copy.invalid/' + url.host + url.pathname + url.search);
+}
+function wakeCopyEligible(request) {
+  return WAKE_COPY && request.method === 'GET' && !request.headers.has('cookie') && !request.headers.has('authorization')
+    && !request.headers.has('x-dply-uptime') && !/^dply-/.test(request.headers.get('user-agent') ?? '');
+}
+function appCookies(response) {
+  const all = typeof response.headers.getSetCookie === 'function' ? response.headers.getSetCookie() : (response.headers.has('set-cookie') ? [response.headers.get('set-cookie')] : []);
+  return all.filter((c) => !c.startsWith('dply_instance='));
+}
+function wakeCopyStorable(response) {
+  const cc = (response.headers.get('cache-control') ?? '').toLowerCase();
+  return response.status === 200 && (response.headers.get('content-type') ?? '').includes('text/html')
+    && appCookies(response).length === 0 && !/private|no-store|no-cache/.test(cc);
+}
+function keepWakeCopy(ctx, url, response) {
+  if (!wakeCopyStorable(response)) return response;
+  try {
+    const headers = new Headers(response.headers);
+    headers.delete('set-cookie');
+    headers.set('cache-control', 'public, max-age=86400');
+    const copy = new Response(response.clone().body, { status: 200, headers });
+    ctx.waitUntil(caches.default.put(wakeCopyKey(url), copy).catch(() => {}));
+  } catch {}
+  return response;
+}
+
 async function trafficOpen(env) {
   if (!env.BILLING) return true;
   try {
@@ -2638,6 +2815,18 @@ export default {
           }
         })));
       }
+      // A code-only deploy (release bundles): name the new release, then let
+      // every running instance check it. Each moves to it on its next request.
+      if (url.pathname === '/_dply/release' && request.method === 'POST') {
+        const { key } = await request.json().catch(() => ({}));
+        if (typeof key !== 'string' || !RELEASE_PREFIX || !key.startsWith(RELEASE_PREFIX) || key.includes('..')) {
+          return new Response('Not a release of this app.', { status: 400 });
+        }
+        await env.APP.get(env.APP.idFromName('dply-release')).setRelease(key);
+        const names = [...Array.from({ length: INSTANCES }, (_, i) => 'instance-' + i), 'jobs', ...allWorkerNames()];
+        await Promise.all(names.map((name) => env.APP.get(env.APP.idFromName(name)).checkRelease().catch(() => null)));
+        return Response.json({ ok: true, release: key });
+      }
       if (url.pathname === '/_dply/sleep' && request.method === 'POST') {
         await Promise.all(Array.from({ length: INSTANCES }, (_, i) => instance(env, i).sleepNow(i).catch(() => null)));
         return Response.json({ ok: true });
@@ -2749,7 +2938,23 @@ export default {
     const headers = new Headers(request.headers);
     headers.set('x-forwarded-proto', url.protocol.replace(':', ''));
     headers.set('x-forwarded-host', url.host);
-    const response = await proxy(env, new Request(request, { headers }), await webTarget(env, request));
+    const target = await webTarget(env, request);
+    if (wakeCopyEligible(request)) {
+      let copy = null;
+      try {
+        copy = await caches.default.match(wakeCopyKey(url));
+      } catch {}
+      if (copy && !(await target.container.isAwake().catch(() => true))) {
+        // Asleep: the copy now, the wake (and a fresh copy) in the background.
+        ctx.waitUntil(proxy(env, new Request(request, { headers }), target).then((r) => keepWakeCopy(ctx, url, r)).catch(() => null));
+        const served = new Headers(copy.headers);
+        served.set('x-dply-wake', 'copy');
+        served.set('cache-control', 'no-store');
+        return new Response(copy.body, { status: 200, headers: served });
+      }
+      return keepWakeCopy(ctx, url, await proxy(env, new Request(request, { headers }), target));
+    }
+    const response = await proxy(env, new Request(request, { headers }), target);
     if (!immutable || response.status !== 200 || response.headers.has('set-cookie')) return response;
     const cacheable = new Headers(response.headers);
     cacheable.set('cache-control', 'public, max-age=31536000, immutable');

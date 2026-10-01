@@ -9,7 +9,9 @@ class MockContainer {
   constructor(images, running = null) {
     this.images = images; this.started = []; this.signals = []; this.intercepts = [];
     this.running = false;
-    if (running) this.boot({ image: images.app, labels: { 'dply-build': running === 'current' ? BUILD_ID : 'old' } });
+    if (running) this.boot({ image: images.app, labels: running === 'current'
+      ? { 'dply-build': BUILD_ID, ...(RELEASE_KEY ? { 'dply-release': releaseLabel(RELEASE_KEY) } : {}) }
+      : { 'dply-build': 'old' } });
   }
   boot(o) { this.running = true; this.image = o.image; this.labels = o.labels ?? {}; this.exitP = new Promise((res) => { this.exit = res; }); }
   start(o) {
@@ -183,6 +185,28 @@ export async function run() {
     await settle(ctx8);
     await a8c.fetch(new Request('https://example.test/'));
     assert(c8.started[2].image === 'img@new', 'falls back to the image');
+
+    // 11. A code-only deploy (/_dply/release): the release object names the new
+    //     release; a running instance on the old one is replaced on its next
+    //     request, starting the new release (no snapshot of it yet).
+    const objects = {};
+    const appNs = { idFromName: (n) => n, get: (n) => objects[n] };
+    const envR = { ...env, APP: appNs };
+    const relCtx = makeCtx('dply-release', new MockContainer({ app: 'img@new' }));
+    objects['dply-release'] = new App(relCtx, envR);
+    await settle(relCtx);
+    const c11 = new MockContainer({ app: 'img@new' }, 'current');
+    const ctx11 = makeCtx('instance-0', c11);
+    objects['instance-0'] = new App(ctx11, envR);
+    await settle(ctx11);
+    const live = objects['instance-0'];
+    assert(live.stale === false, 'on the live release');
+    const next = RELEASE_PREFIX + 'NEXTDEPLOY.tar.gz';
+    await objects['dply-release'].setRelease(next);
+    await live.checkRelease();
+    assert(live.stale === true, 'marked stale by the release check');
+    await live.fetch(new Request('https://example.test/'));
+    assert(c11.signals[0] === 15 && c11.started[0].env.DPLY_RELEASE === next && c11.started[0].labels['dply-release'] === 'NEXTDEPLOY' && c11.started[0].image, 'replaced on the next request, with the new release');
   }
   return 'ok';
 }
