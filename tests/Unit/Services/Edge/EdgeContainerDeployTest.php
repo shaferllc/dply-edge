@@ -566,6 +566,9 @@ test('min instances keep instances awake, never exceed max, and the worker parse
 
     $over = new Site(['meta' => ['edge' => ['container' => ['max_instances' => 2, 'min_instances' => 9]]]]);
 
+    // A failed request's last retry goes to another instance (a rollout may be replacing this one).
+    expect($worker)->toContain('const next = (target.index + 1) % limits().max');
+
     expect($worker)->toContain('const MIN_INSTANCES = 2')
         ->and($worker)->toContain('const CAPACITY = 50')
         ->and($worker)->toContain('index < limits().min')

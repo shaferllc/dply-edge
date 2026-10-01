@@ -2529,7 +2529,7 @@ async function leastIndex(env) {
 async function webTarget(env, request) {
   const existing = STICKY ? stickyId(request) : null;
   const index = existing ?? (await leastIndex(env));
-  return { container: instance(env, index), cookie: STICKY && existing === null ? String(index) : null };
+  return { container: instance(env, index), cookie: STICKY && existing === null ? String(index) : null, index };
 }
 
 async function jobsTarget(env) {
@@ -2674,7 +2674,7 @@ async function proxy(env, request, target) {
   // The public URL stays HTTPS. The container only accepts HTTP on this hop.
   const fresh = () => httpRequest(request, body);
   request = fresh();
-  const container = target.container;
+  let container = target.container;
   // The warm path is one fetch. The SDK's containerFetch (0.3.x) starts the
   // container and waits for the port itself when it is not running or not
   // marked healthy. startAndWaitForPorts here on every request cost a DO
@@ -2703,6 +2703,15 @@ async function proxy(env, request, target) {
     // start it again rather than hand the visitor a 500.
     if (!/not running|Failed to start container|Container crashed|suddenly disconnected|Error proxying request to container/.test(preview)) {
       return countReply(env, revealAppErrors(env, response));
+    }
+    // The last try goes to another instance: during a rollout the one that
+    // failed may be the one Cloudflare is replacing (rollout_active_grace_period
+    // 0 stops it at once), and retrying it alone handed visitors that 500.
+    // A rollout never replaces every instance at the same moment.
+    if (attempt === 1 && target.index !== undefined && limits().max > 1) {
+      const next = (target.index + 1) % limits().max;
+      container = instance(env, next);
+      if (STICKY) target.cookie = String(next);
     }
     try {
       await container.startAndWaitForPorts({
