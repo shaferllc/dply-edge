@@ -140,6 +140,63 @@
         </div>
     </section>
 
+    @php
+        $locations = is_array($access['locations'] ?? null) ? $access['locations'] : ['colos' => [], 'countries' => []];
+        $colos = $locations['colos'] ?? [];
+        $colosTotal = max(1, array_sum(array_column($colos, 'requests')));
+        $network = collect(\App\Modules\Edge\Support\EdgeColos::PLACES)->map(fn ($p) => [$p[1], $p[2]])->values();
+    @endphp
+    @if ($hasManagedTraffic || $colos !== [])
+        <section class="space-y-6 border-b border-brand-ink/10 px-5 py-8 sm:px-10 sm:py-10">
+            <div>
+                <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Served from · last 24 hours') }}</p>
+                <p class="mt-3 max-w-3xl text-2xl font-medium leading-snug tracking-tight text-brand-ink sm:text-3xl">
+                    @if ($colos === [])
+                        {{ __('Where Cloudflare answers your visitors shows up here once requests come in.') }}
+                    @else
+                        {{ trans_choice('Answered from :count Cloudflare location|Answered from :count Cloudflare locations', count($colos), ['count' => count($colos)]) }}@if ($colos[0]['city'] ?? null), {{ __('most from') }} <span class="text-brand-sage">{{ $colos[0]['city'] }}</span>@endif.
+                    @endif
+                </p>
+            </div>
+
+            <div class="grid gap-8 lg:grid-cols-[1.6fr_1fr]">
+                <div class="min-w-0 border border-brand-ink/10 bg-brand-sand/10"
+                    x-data="edgeServedFrom(@js($network), @js(array_values(array_filter($colos, fn ($c) => $c['lat'] !== null))))"
+                    x-init="start()">
+                    <canvas x-ref="map" class="block aspect-[2/1] w-full" aria-label="{{ __('Map of the Cloudflare locations that served this site') }}" role="img"></canvas>
+                </div>
+
+                <div class="min-w-0 space-y-6">
+                    @if ($colos === [])
+                        <p class="text-sm text-brand-moss">{{ __('Each request is tagged with the data centre that answered it. Locations appear after the next requests reach the site.') }}</p>
+                    @else
+                        <ol class="divide-y divide-brand-ink/10 border-y border-brand-ink/10">
+                            @foreach (array_slice($colos, 0, 8) as $colo)
+                                <li class="flex items-center gap-3 py-2 text-sm">
+                                    <span class="w-10 shrink-0 font-mono text-xs text-brand-sage">{{ $colo['colo'] }}</span>
+                                    <span class="min-w-0 flex-1 truncate text-brand-ink">{{ $colo['city'] ?? __('Unplaced location') }}</span>
+                                    <span class="relative h-1 w-16 shrink-0 bg-brand-ink/10"><span class="absolute inset-y-0 left-0 bg-brand-sage" style="width: {{ max(4, round($colo['requests'] / $colosTotal * 100)) }}%"></span></span>
+                                    <span class="w-14 shrink-0 text-right font-mono text-xs tabular-nums text-brand-moss">{{ Number::abbreviate($colo['requests'], maxPrecision: 1) }}</span>
+                                </li>
+                            @endforeach
+                        </ol>
+                        @if (($locations['countries'] ?? []) !== [])
+                            <div>
+                                <p class="text-2xs font-semibold uppercase tracking-[0.16em] text-brand-mist">{{ __('Visitors from') }}</p>
+                                <div class="mt-2 flex flex-wrap gap-1.5">
+                                    @foreach ($locations['countries'] as $country)
+                                        <span class="border border-brand-ink/10 px-2 py-0.5 font-mono text-xs text-brand-moss">{{ $country['country'] }} <span class="text-brand-ink">{{ Number::abbreviate($country['requests'], maxPrecision: 1) }}</span></span>
+                                    @endforeach
+                                </div>
+                            </div>
+                        @endif
+                    @endif
+                </div>
+            </div>
+        </section>
+
+    @endif
+
     @if ($hasManagedTraffic)
         <x-modal name="traffic-requests" maxWidth="3xl" overlayClass="bg-brand-ink/40" focusable>
             <div class="space-y-5 p-6 sm:p-7">

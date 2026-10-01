@@ -109,7 +109,7 @@ final class EdgeAnalyticsEngineTraffic
 
         $limit = min(200, max(1, $limit));
         $rows = $this->rows(sprintf(
-            "SELECT timestamp, blob2 AS hostname, blob3 AS method, blob4 AS path, double1 AS status, double2 AS duration_ms, double3 AS bytes_egress, blob5 AS cache_status FROM %s WHERE index1 = '%s' AND timestamp >= toDateTime('%s') AND ".self::VISITOR_PATHS." ORDER BY timestamp DESC LIMIT %d",
+            "SELECT timestamp, blob2 AS hostname, blob3 AS method, blob4 AS path, double1 AS status, double2 AS duration_ms, double3 AS bytes_egress, blob5 AS cache_status, blob7 AS country FROM %s WHERE index1 = '%s' AND timestamp >= toDateTime('%s') AND ".self::VISITOR_PATHS." ORDER BY timestamp DESC LIMIT %d",
             $dataset,
             $index,
             $since->utc()->format('Y-m-d H:i:s'),
@@ -133,11 +133,46 @@ final class EdgeAnalyticsEngineTraffic
                 'duration_ms' => (int) ($row['duration_ms'] ?? 0),
                 'bytes_egress' => (int) ($row['bytes_egress'] ?? 0),
                 'cache_status' => (string) ($row['cache_status'] ?? ''),
-                'country' => null,
+                'country' => ($country = (string) ($row['country'] ?? '')) !== '' ? $country : null,
                 'referrer' => null,
                 'user_agent' => null,
             ];
         }, $rows));
+    }
+
+    /**
+     * Which Cloudflare data centres answered the site's visitors, and from
+     * which countries (blob6 = colo, blob7 = country). Requests recorded
+     * before the worker wrote those carry '' and are left out.
+     *
+     * @return array{colos: list<array{colo: string, city: ?string, lat: ?float, lon: ?float, requests: int}>, countries: list<array{country: string, requests: int}>}
+     */
+    public function locations(Site $site, int $hours = 24): array
+    {
+        $empty = ['colos' => [], 'countries' => []];
+        $dataset = $this->dataset();
+        $index = $this->index($site);
+        if ($dataset === null || $index === null) {
+            return $empty;
+        }
+
+        $since = now()->utc()->subHours(max(1, $hours))->format('Y-m-d H:i:s');
+        $where = sprintf("FROM %s WHERE index1 = '%s' AND timestamp >= toDateTime('%s') AND ", $dataset, $index, $since).self::VISITOR_PATHS;
+        $colos = $this->rows("SELECT blob6 AS colo, count() AS requests {$where} AND blob6 != '' GROUP BY colo ORDER BY requests DESC LIMIT 60") ?? [];
+        $countries = $this->rows("SELECT blob7 AS country, count() AS requests {$where} AND blob7 != '' GROUP BY country ORDER BY requests DESC LIMIT 8") ?? [];
+
+        return [
+            'colos' => array_values(array_map(static function (array $row): array {
+                $colo = strtoupper((string) ($row['colo'] ?? ''));
+                $place = EdgeColos::place($colo);
+
+                return ['colo' => $colo, 'city' => $place['city'] ?? null, 'lat' => $place['lat'] ?? null, 'lon' => $place['lon'] ?? null, 'requests' => (int) ($row['requests'] ?? 0)];
+            }, $colos)),
+            'countries' => array_values(array_map(static fn (array $row): array => [
+                'country' => strtoupper((string) ($row['country'] ?? '')),
+                'requests' => (int) ($row['requests'] ?? 0),
+            ], $countries)),
+        ];
     }
 
     private function dataset(): ?string

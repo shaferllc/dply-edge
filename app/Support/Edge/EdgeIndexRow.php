@@ -96,7 +96,7 @@ final readonly class EdgeIndexRow
             manageHref: $manageHref,
             manageEnabled: $manageHref !== null,
             status: (string) $site->status,
-            statusLabel: self::statusLabel((string) $site->status),
+            statusLabel: self::statusLabel((string) $site->status, filled($stats['published_at'] ?? null)),
             statusBadgeClass: self::statusBadgeClass((string) $site->status),
             sourceLabel: $repo !== null ? $repo.'@'.($branch ?? 'main') : null,
             sourceRepo: $repo,
@@ -130,11 +130,12 @@ final readonly class EdgeIndexRow
         );
     }
 
-    private static function statusLabel(string $status): string
+    /** A site sits in edge_provisioning during every deploy; only the first one is provisioning it. */
+    private static function statusLabel(string $status, bool $published): string
     {
         return match ($status) {
             Site::STATUS_EDGE_ACTIVE => __('Active'),
-            Site::STATUS_EDGE_PROVISIONING => __('Provisioning'),
+            Site::STATUS_EDGE_PROVISIONING => $published ? __('Deploying') : __('Provisioning'),
             Site::STATUS_EDGE_FAILED => __('Failed'),
             Site::STATUS_EDGE_DELETING => __('Deleting'),
             default => str_replace('_', ' ', $status !== '' ? $status : '—'),

@@ -17,6 +17,7 @@ import {
 import { registerDeployPipelineWorkspace } from './deploy-pipeline-dnd.js';
 import { registerDeployPill } from './deploy-pill.js';
 import { registerRealtimeConsole } from './realtime-console.js';
+import { registerEdgeServedFrom } from './edge-served-from.js';
 import {
     installFeedbackConsoleBuffer,
     registerFeedbackSidebar,
@@ -188,6 +189,7 @@ document.addEventListener('alpine:init', () => {
     registerDeployPill(window.Alpine);
     registerFeedbackSidebar(window.Alpine);
     registerRealtimeConsole(window.Alpine);
+    registerEdgeServedFrom(window.Alpine);
     // Toolbar/shortcuts for Markdown textareas (server notes today). Pure DOM
     // work — no parser, so it stays in the main bundle rather than a lazy entry.
     registerMarkdownEditor(window.Alpine);

@@ -101,6 +101,9 @@ final class EdgeSiteAccessAnalytics
             'dataset' => $site->edge_backend === 'dply_edge'
                 ? app(EdgeAnalyticsEngineTraffic::class)->overview($site)
                 : EdgeAnalyticsEngineTraffic::empty(),
+            'locations' => $site->edge_backend === 'dply_edge'
+                ? app(EdgeAnalyticsEngineTraffic::class)->locations($site)
+                : ['colos' => [], 'countries' => []],
         ];
     }
 

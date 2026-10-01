@@ -1358,6 +1358,9 @@ async function reportRequest(
   const bytes = bytesHeader ? Number.parseInt(bytesHeader, 10) : 0;
 
   if (env.EDGE_ANALYTICS) {
+    // Where Cloudflare answered (data centre IATA code) and the visitor's
+    // country: the workspace's "Served from" map reads blob6 / blob7.
+    const cf = (request as Request & { cf?: { colo?: string; country?: string } }).cf;
     try {
       env.EDGE_ANALYTICS.writeDataPoint({
         blobs: [
@@ -1366,6 +1369,8 @@ async function reportRequest(
           request.method,
           url.pathname,
           cacheStatus,
+          typeof cf?.colo === 'string' ? cf.colo.toUpperCase() : '',
+          typeof cf?.country === 'string' ? cf.country.toUpperCase() : '',
         ],
         doubles: [status, durationMs, Number.isFinite(bytes) ? bytes : 0],
         indexes: [hostEntry.site_id ?? url.hostname],

@@ -288,6 +288,24 @@ describe('handleRequest', () => {
     expect(points.map((point) => point.blobs?.[3])).toEqual(['/']);
   });
 
+  it('records the serving data centre and visitor country for the Served from map', async () => {
+    const points: AnalyticsEngineDataPoint[] = [];
+    const env: Env = {
+      HOST_MAP: createMockKv({ 'preview.example.test': hostEntry }),
+      ARTIFACTS: createMockR2({
+        'edge/site-1/deploy-9/index.html': { body: '<!doctype html><html><body>edge</body></html>', contentType: 'text/html; charset=utf-8' },
+      }),
+      EDGE_ANALYTICS: { writeDataPoint: (point: AnalyticsEngineDataPoint) => { points.push(point); } } as AnalyticsEngineDataset,
+    };
+    const request = new Request('https://preview.example.test/');
+    Object.defineProperty(request, 'cf', { value: { colo: 'sjc', country: 'us' } });
+
+    await handleRequest(request, env);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(points[0]?.blobs?.slice(5)).toEqual(['SJC', 'US']);
+  });
+
   it('returns 404 for unknown hosts', async () => {
     const env: Env = {
       HOST_MAP: createMockKv({}),
