@@ -7,6 +7,7 @@ namespace App\Modules\Edge\Services\Realtime;
 use App\Models\EdgeRealtimeApp;
 use App\Models\Organization;
 use App\Models\Site;
+use App\Modules\Edge\Services\EdgeKvInstant;
 use App\Modules\Edge\Support\EdgeTestingDomains;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use Illuminate\Support\Facades\Http;
@@ -62,9 +63,7 @@ final class EdgeRealtimeApps
             $this->attachDomain($app);
         } catch (\Throwable $e) {
             // Without its hostname the app is only half made: undo it all.
-            $client = EdgeCloudflareClient::fromConfig();
-            $client->deleteKvValue($namespace, 'id:'.$app->id);
-            $client->deleteKvValue($namespace, 'key:'.$app->app_key);
+            $this->forget($app, $namespace);
             $app->delete();
 
             throw $e;
@@ -201,9 +200,7 @@ final class EdgeRealtimeApps
         } catch (\Throwable $e) {
             report($e);
         }
-        $client = EdgeCloudflareClient::fromConfig();
-        $client->deleteKvValue($namespace, 'id:'.$app->id);
-        $client->deleteKvValue($namespace, 'key:'.$app->app_key);
+        $this->forget($app, $namespace);
         try {
             $this->detachDomain($app);
         } catch (\Throwable $e) {
@@ -360,17 +357,56 @@ final class EdgeRealtimeApps
         return preg_match('/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/', $label) === 1;
     }
 
-    private function write(EdgeRealtimeApp $app, string $namespace): void
+    /** The record as written: the row's size clamped to the plan's. */
+    public static function recordFor(EdgeRealtimeApp $app): string
     {
         $organization = $app->organization;
-        $record = self::record($app, $organization === null ? null : min((int) $app->max_connections, self::maxConnectionsFor($organization)));
+
+        return self::record($app, $organization === null ? null : min((int) $app->max_connections, self::maxConnectionsFor($organization)));
+    }
+
+    /**
+     * The relay namespace is a KV Instant one (edge.realtime.kv_instant):
+     * writes are queued at one per second (EdgeKvInstant), and a change
+     * reaches every location in ~250 ms instead of ~60 s.
+     */
+    public static function instantKv(): bool
+    {
+        return (bool) config('edge.realtime.kv_instant');
+    }
+
+    private function write(EdgeRealtimeApp $app, string $namespace): void
+    {
+        $record = self::recordFor($app);
         $shards = (int) json_decode($record, true, flags: JSON_THROW_ON_ERROR)['shards'];
         if ($app->exists && $shards > (int) (($app->meta ?? [])['shards'] ?? 1)) {
             $app->forceFill(['meta' => ['shards' => $shards] + ($app->meta ?? [])])->saveQuietly();
         }
+        if (self::instantKv()) {
+            $kv = app(EdgeKvInstant::class);
+            $kv->sync($namespace, 'id:'.$app->id, EdgeKvInstant::REALTIME, [(string) $app->id], true);
+            $kv->sync($namespace, 'key:'.$app->app_key, EdgeKvInstant::REALTIME, [(string) $app->id], true);
+
+            return;
+        }
         $client = EdgeCloudflareClient::fromConfig();
         $client->putKvValue($namespace, 'id:'.$app->id, $record);
         $client->putKvValue($namespace, 'key:'.$app->app_key, $record);
+    }
+
+    /** Both of an app's keys go. */
+    private function forget(EdgeRealtimeApp $app, string $namespace): void
+    {
+        if (self::instantKv()) {
+            $kv = app(EdgeKvInstant::class);
+            $kv->sync($namespace, 'id:'.$app->id, EdgeKvInstant::DELETE, [], true);
+            $kv->sync($namespace, 'key:'.$app->app_key, EdgeKvInstant::DELETE, [], true);
+
+            return;
+        }
+        $client = EdgeCloudflareClient::fromConfig();
+        $client->deleteKvValue($namespace, 'id:'.$app->id);
+        $client->deleteKvValue($namespace, 'key:'.$app->app_key);
     }
 
     private function operatorPost(EdgeRealtimeApp $app, string $suffix): void

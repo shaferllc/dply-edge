@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Support;
 
+use App\Modules\Edge\Services\EdgeKvInstant;
+
 /**
  * Writes a Wrangler config file from Laravel edge config for production deploys.
  */
@@ -50,6 +52,17 @@ class EdgeWranglerConfigGenerator
             'binding = "HOST_MAP"',
             'id = '.json_encode($context->kvNamespaceId, JSON_UNESCAPED_SLASHES),
         ]);
+
+        // Split out of the host map (EdgeKvInstant), platform only: GATES for
+        // pause and queue keys, ROUTES for hostname pointers (instant mode).
+        // Unbound, the Worker reads both from HOST_MAP as before.
+        if ($context->isPlatform()) {
+            foreach (['GATES' => EdgeKvInstant::gatesNamespace(), 'ROUTES' => EdgeKvInstant::routesNamespace()] as $binding => $id) {
+                if ($id !== null) {
+                    $lines = array_merge($lines, ['', '[[kv_namespaces]]', 'binding = "'.$binding.'"', 'id = '.json_encode($id, JSON_UNESCAPED_SLASHES)]);
+                }
+            }
+        }
 
         if ($context->cacheKvNamespaceId !== '') {
             $lines = array_merge($lines, [

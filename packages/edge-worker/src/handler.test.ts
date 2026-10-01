@@ -748,6 +748,27 @@ describe('container sites', () => {
     expect(await response.text()).toContain('usage credit is used up');
   });
 
+  it('reads the pause flag from GATES when bound (the host map copy is ignored)', async () => {
+    const seen: string[] = [];
+    const host = { site_id: 'site-1', deployment_id: 'deploy-9', storage_prefix: 'edge/site-1/deploy-9', runtime_mode: 'container', ssr_worker_script: 'dply-ctr-site-1' } as HostMapEntry;
+    const dispatcher = { get: (name: string) => { seen.push(name); return { fetch: async () => new Response('from laravel') }; } } as unknown as DispatchNamespace;
+    const hostMap = { get: async (key: string, type?: string) => (key === 'app.example.test' ? (type === 'json' ? host : JSON.stringify(host)) : null) } as KVNamespace;
+
+    const paused = await handleRequest(new Request('https://app.example.test/'), {
+      HOST_MAP: hostMap, ARTIFACTS: createMockR2({}), DISPATCHER: dispatcher,
+      GATES: { get: async (key: string) => (key === 'container-pause:site-1' ? '1' : null) } as KVNamespace,
+    });
+    expect(paused.status).toBe(503);
+    expect(seen).toEqual([]);
+
+    const open = await handleRequest(new Request('https://app.example.test/'), {
+      HOST_MAP: hostMap, ARTIFACTS: createMockR2({}), DISPATCHER: dispatcher,
+      GATES: { get: async () => null } as unknown as KVNamespace,
+    });
+    expect(open.status).toBe(200);
+    expect(seen).toEqual(['dply-ctr-site-1']);
+  });
+
   it('adds the deploy id to container html when the footer is enabled', async () => {
     const env: Env = {
       HOST_MAP: createMockKv({

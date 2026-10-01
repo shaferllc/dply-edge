@@ -7,6 +7,7 @@ namespace App\Modules\Edge\Services;
 use App\Models\EdgeDeployment;
 use App\Models\Site;
 use App\Modules\Billing\Services\StarterUsageBudget;
+use App\Modules\Edge\Jobs\EdgeKvWriteJob;
 use App\Modules\Edge\Support\EdgeDeliveryContext;
 use App\Modules\Edge\Support\EdgeEffectiveErrorPages;
 use App\Modules\Edge\Support\EdgeEffectiveFirewall;
@@ -41,7 +42,8 @@ class EdgeHostMapPublisher
             }
         }
         foreach ($aliases as $alias) {
-            $this->publishHostname($site, $deployment, $alias, $context, false);
+            // Preview aliases: the full entry only (no ROUTES pointer; their count grows with deploys).
+            $this->publishHostname($site, $deployment, $alias, $context, false, false);
         }
 
         app(EdgeQueueConsumers::class)->sync($site, $deployment, $context);
@@ -55,6 +57,7 @@ class EdgeHostMapPublisher
         string $hostname,
         ?EdgeDeliveryContext $context = null,
         bool $isProduction = false,
+        bool $pointer = true,
     ): void {
         $context ??= app(EdgeDeliveryContextResolver::class)->forSite($site);
         $payload = $this->routingPayload($deployment, $site, $isProduction);
@@ -67,7 +70,7 @@ class EdgeHostMapPublisher
             return;
         }
 
-        $this->writeKv(strtolower($hostname), $payload, $context);
+        $this->writeKv(strtolower($hostname), $payload, $context, $pointer);
     }
 
     public function unpublish(Site $site, ?EdgeDeliveryContext $context = null): void
@@ -103,6 +106,14 @@ class EdgeHostMapPublisher
         Http::withToken($context->apiToken)
             ->delete($this->kvValueUrl($context, $hostname))
             ->throw();
+        $routes = $context->isPlatform() ? EdgeKvInstant::routesNamespace() : null;
+        $previous = Cache::pull(self::ROUTE_CACHE.$hostname);
+        if ($routes !== null) {
+            app(EdgeKvInstant::class)->sync($routes, $hostname, EdgeKvInstant::ROUTE);
+        }
+        if (is_string($previous)) {
+            $this->collectPayload($context, $hostname, $previous);
+        }
     }
 
     /**
@@ -168,15 +179,49 @@ class EdgeHostMapPublisher
         $this->writeKv(strtolower($hostname), $payload, $context);
     }
 
+    /** The hash a hostname's ROUTES pointer names (EdgeKvInstant::ROUTE reads it back). */
+    public const ROUTE_CACHE = 'kv-route:';
+
     /**
+     * The full entry under the hostname (what Workers without ROUTES read, and
+     * the fallback while a payload propagates). With ROUTES (KV Instant,
+     * platform): also an immutable payload:{hostname}:{hash}, then the
+     * pointer; the previous payload goes 10 minutes later.
+     *
      * @param  array<string, mixed>  $payload
      */
-    private function writeKv(string $key, array $payload, EdgeDeliveryContext $context): void
+    private function writeKv(string $key, array $payload, EdgeDeliveryContext $context, bool $pointer = true): void
     {
+        $json = json_encode($payload, JSON_THROW_ON_ERROR);
         Http::withToken($context->apiToken)
-            ->withBody(json_encode($payload, JSON_THROW_ON_ERROR), 'application/json')
+            ->withBody($json, 'application/json')
             ->put($this->kvValueUrl($context, $key))
             ->throw();
+
+        $routes = $pointer && $context->isPlatform() ? EdgeKvInstant::routesNamespace() : null;
+        if ($routes === null) {
+            return;
+        }
+        $hash = substr(hash('sha256', $json), 0, 16);
+        $previous = Cache::get(self::ROUTE_CACHE.$key);
+        if ($previous !== $hash) {
+            Http::withToken($context->apiToken)
+                ->withBody($json, 'application/json')
+                ->put($this->kvValueUrl($context, 'payload:'.$key.':'.$hash))
+                ->throw();
+        }
+        Cache::forever(self::ROUTE_CACHE.$key, $hash);
+        app(EdgeKvInstant::class)->sync($routes, $key, EdgeKvInstant::ROUTE);
+        if (is_string($previous) && $previous !== $hash) {
+            $this->collectPayload($context, $key, $previous);
+        }
+    }
+
+    /** Delete an old payload once no pointer can still name it (EdgeKvInstant::PAYLOAD_GC). */
+    private function collectPayload(EdgeDeliveryContext $context, string $hostname, string $hash): void
+    {
+        EdgeKvWriteJob::dispatch($context->kvNamespaceId, 'payload:'.$hostname.':'.$hash, EdgeKvInstant::PAYLOAD_GC, [$hostname, $hash])
+            ->delay(now()->addMinutes(10));
     }
 
     private function kvValueUrl(EdgeDeliveryContext $context, string $key): string

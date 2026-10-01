@@ -136,13 +136,16 @@ class EdgeCloudflareClient
     /**
      * @return array<string, mixed>
      */
-    public function createKvNamespace(string $title): array
+    public function createKvNamespace(string $title, ?string $mode = null): array
     {
+        // mode "instant" (KV Instant, private beta): sent only when asked for,
+        // since an account outside the beta may refuse the field.
         return $this->decode(
             Http::withToken($this->apiToken)
-                ->post(self::BASE.'/accounts/'.$this->accountId.'/storage/kv/namespaces', [
+                ->post(self::BASE.'/accounts/'.$this->accountId.'/storage/kv/namespaces', array_filter([
                     'title' => $title,
-                ]),
+                    'mode' => $mode,
+                ], static fn ($v): bool => $v !== null)),
         );
     }
 
@@ -469,14 +472,14 @@ class EdgeCloudflareClient
     /**
      * Resolve an existing KV namespace by title or create it.
      */
-    public function ensureKvNamespace(string $title): string
+    public function ensureKvNamespace(string $title, ?string $mode = null): string
     {
         $existing = $this->kvNamespaceIdByTitle($title);
         if ($existing !== null) {
             return $existing;
         }
 
-        $created = $this->createKvNamespace($title);
+        $created = $this->createKvNamespace($title, $mode);
         $id = is_string($created['id'] ?? null) ? trim($created['id']) : '';
         if ($id === '') {
             throw new RuntimeException('Cloudflare did not return an id when creating KV namespace '.$title.'.');

@@ -106,7 +106,7 @@ final class EdgeRealtimeMonitor
             Cache::put(self::WRITTEN_KEY, $writtenAt = time(), now()->addDay());
         }
 
-        return time() - (int) $writtenAt < self::WRITE_GRACE_SECONDS;
+        return time() - (int) $writtenAt < (EdgeRealtimeApps::instantKv() ? 10 : self::WRITE_GRACE_SECONDS);
     }
 
     private function nodeRoundTrip(string $url, string $channel, string $event, string $nonce, Closure $publish): void

@@ -96,10 +96,17 @@ class EdgeQueueConsumers
                 continue;
             }
             try {
-                app(EdgeHostMapPublisher::class)->putText('queue:'.$connection['target'], (string) json_encode([
-                    'script' => $script,
-                    'token' => self::token($site),
-                ]), $context);
+                if (EdgeKvInstant::dualWrite() || ! $context->isPlatform()) {
+                    app(EdgeHostMapPublisher::class)->putText('queue:'.$connection['target'], (string) json_encode([
+                        'script' => $script,
+                        'token' => self::token($site),
+                    ]), $context);
+                }
+                // The gates namespace, platform only (KV Instant): value from the live deployment.
+                $gates = EdgeKvInstant::gatesNamespace();
+                if ($gates !== null && $context->isPlatform()) {
+                    app(EdgeKvInstant::class)->sync($gates, 'queue:'.$connection['target'], EdgeKvInstant::QUEUE_ROUTE, [(string) $site->id, (string) $deployment->id]);
+                }
                 $this->register($connection['target'], $context->workerScriptName, $site->organization);
             } catch (\Throwable $e) {
                 Log::warning('Queue consumer sync failed', ['site_id' => (string) $site->id, 'queue' => $connection['target'], 'error' => $e->getMessage()]);
@@ -152,7 +159,7 @@ class EdgeQueueConsumers
         $client->putQueueConsumer($id, $consumerScript, self::settings($organization));
     }
 
-    private static function liveScript(Site $site, EdgeDeployment $deployment): string
+    public static function liveScript(Site $site, EdgeDeployment $deployment): string
     {
         $meta = is_array($deployment->meta) ? $deployment->meta : [];
 

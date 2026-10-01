@@ -21,7 +21,8 @@ interface QueueReply {
 }
 
 export async function handleQueue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
-  const raw = await env.HOST_MAP.get('queue:' + batch.queue);
+  // GATES (KV Instant) when bound, else the host map; both hold the route while dply dual-writes.
+  const raw = await (env.GATES ?? env.HOST_MAP).get('queue:' + batch.queue);
   const route = raw ? (JSON.parse(raw) as QueueRoute) : null;
   if (!route?.script || !route.token || !env.DISPATCHER) {
     batch.retryAll();

@@ -172,6 +172,32 @@ final class EdgeMessages
         }
     }
 
+    /**
+     * Write every organization's account and every token to the Worker again,
+     * e.g. after it moves to a new (KV Instant) ACCOUNTS namespace.
+     *
+     * @return array{accounts: int, tokens: int}
+     */
+    public function resyncAll(): array
+    {
+        $accounts = 0;
+        $tokens = 0;
+        foreach (EdgeMessageAccount::query()->get() as $account) {
+            $organization = Organization::query()->find($account->organization_id);
+            if ($organization === null) {
+                continue;
+            }
+            $this->pushAccount($organization, $account);
+            $accounts++;
+        }
+        foreach (EdgeMessageToken::query()->get() as $token) {
+            $this->operator()->put('/_operator/tokens/'.$token->token_hash, ['org' => $token->organization_id])->throw();
+            $tokens++;
+        }
+
+        return ['accounts' => $accounts, 'tokens' => $tokens];
+    }
+
     /** Delete everything: messages, schedules, the DLQ, tokens and keys. */
     public function destroy(Organization $organization): void
     {

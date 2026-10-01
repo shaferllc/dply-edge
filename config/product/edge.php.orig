@@ -469,10 +469,6 @@ return [
         'host' => env('EDGE_REALTIME_HOST', 'realtime-apps.on-dply.site'),
         'worker' => env('EDGE_REALTIME_WORKER', 'dply-realtime-apps'),
         'kv_namespace_id' => env('EDGE_REALTIME_KV_NAMESPACE_ID'),
-        // The relay namespace was created as a KV Instant one: writes are
-        // queued at one per second (EdgeKvInstant), and reach every location
-        // in ~250 ms, so the monitor's grace after a write shrinks too.
-        'kv_instant' => (bool) env('EDGE_REALTIME_KV_INSTANT', false),
         'default_max_connections' => (int) env('EDGE_REALTIME_DEFAULT_MAX_CONNECTIONS', 200),
         'max_message_bytes' => (int) env('EDGE_REALTIME_MAX_MESSAGE_BYTES', 10240),
         // Sockets per relay hub (Durable Object). An app's KV record gets

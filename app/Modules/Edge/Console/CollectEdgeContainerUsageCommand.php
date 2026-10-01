@@ -35,7 +35,8 @@ class CollectEdgeContainerUsageCommand extends Command
         $dryRun = (bool) $this->option('dry-run');
         $result = $collector->collectForDate($date, $dryRun);
         if (! $dryRun) {
-            $traffic->syncAll();
+            // Hourly (--today) writes only what changed; the daily run rewrites every key.
+            $traffic->syncAll(force: ! $this->option('today'));
         }
         $this->info(sprintf('%s container usage for %s — %d site(s) from %d application(s).',
             $this->option('dry-run') ? '[dry-run]' : 'Collected', $date->toDateString(), $result['sites'], $result['applications']));

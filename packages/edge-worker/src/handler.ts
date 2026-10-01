@@ -273,6 +273,14 @@ export interface Env {
    * unset, every dynamic request goes to the origin.
    */
   EDGE_CACHE?: KVNamespace;
+  /**
+   * KV Instant namespaces split out of HOST_MAP (EdgeKvInstant), platform
+   * only. GATES: container-pause:{site} and queue:{name}. ROUTES: hostname
+   * -> payload key ("payload:{hostname}:{hash}") in HOST_MAP. Unbound (or a
+   * miss), everything is read from HOST_MAP as before.
+   */
+  GATES?: KVNamespace;
+  ROUTES?: KVNamespace;
   EDGE_ANALYTICS?: AnalyticsEngineDataset;
   /**
    * Workers for Platforms dispatch binding. When bound + a host map
@@ -547,6 +555,23 @@ export class PathTraversalError extends Error {
   }
 }
 
+/**
+ * The hostname's entry. With ROUTES (KV Instant): its pointer names an
+ * immutable payload in HOST_MAP, so a deploy or settings change is seen
+ * everywhere in ~250 ms, and the payload can be cached for a day. No
+ * pointer, or its payload not visible yet: the full entry in HOST_MAP.
+ */
+export async function lookupHost(env: Env, hostname: string): Promise<HostMapEntry | null> {
+  if (env.ROUTES) {
+    const pointer = await env.ROUTES.get(hostname);
+    if (pointer) {
+      const entry = await env.HOST_MAP.get<HostMapEntry>(`payload:${hostname}:${pointer}`, { type: 'json', cacheTtl: 86400 });
+      if (entry) return entry;
+    }
+  }
+  return env.HOST_MAP.get<HostMapEntry>(hostname, 'json');
+}
+
 export async function handleRequest(
   request: Request,
   env: Env,
@@ -555,7 +580,7 @@ export async function handleRequest(
   const started = Date.now();
   const url = new URL(request.url);
   const hostname = url.hostname;
-  let hostEntry = await env.HOST_MAP.get<HostMapEntry>(hostname, 'json');
+  let hostEntry = await lookupHost(env, hostname);
 
   if (!hostEntry?.storage_prefix) {
     return notFound('Host not configured.', undefined);
@@ -701,6 +726,7 @@ async function handleRequestInner(
     // Both are KV reads and independent, so neither waits on the other. KV
     // already serves hot keys from the colo for 60s (its default cacheTtl),
     // which is also how long a pause/resume or deploy switch can lag.
+    // With GATES and ROUTES (KV Instant) both reach every location in ~250 ms.
     // Fingerprinted build output (hashed names never change) comes from this
     // colo's cache after the first hit, so it never reaches the app. The
     // per-app script cannot use the Cache API in the dispatch namespace, so
@@ -719,7 +745,7 @@ async function handleRequestInner(
       } catch {}
     }
     const [paused, cached] = await Promise.all([
-      hostEntry.runtime_mode === 'container' ? env.HOST_MAP.get(`container-pause:${hostEntry.site_id}`) : null,
+      hostEntry.runtime_mode === 'container' ? (env.GATES ?? env.HOST_MAP).get(`container-pause:${hostEntry.site_id}`) : null,
       cacheMode(hostEntry) !== 'off' ? readEdgeCache(env, hostEntry, request) : null,
     ]);
     if (paused === '1') {

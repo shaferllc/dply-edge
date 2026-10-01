@@ -26,6 +26,7 @@ use App\Modules\Edge\Console\EdgeEnsureGithubPreviewsCommand;
 use App\Modules\Edge\Console\EdgeEnsureHybridOriginsCommand;
 use App\Modules\Edge\Console\EdgeInfraBootstrapCommand;
 use App\Modules\Edge\Console\EdgeInfraBootstrapOrgCommand;
+use App\Modules\Edge\Console\EdgeKvInstantCommand;
 use App\Modules\Edge\Console\EdgeSpikeWorkerBindingsCommand;
 use App\Modules\Edge\Console\EdgeWorkerDeployCommand;
 use App\Modules\Edge\Console\EnsureEdgeLogpushCommand;
@@ -77,6 +78,7 @@ class EdgeServiceProvider extends ServiceProvider
     {
         if ($this->app->runningInConsole()) {
             $this->commands([
+                EdgeKvInstantCommand::class,
                 CheckEdgeRumAlertsCommand::class,
                 CollectEdgeContainerUsageCommand::class,
                 CollectEdgeDataUsageCommand::class,
@@ -123,6 +125,8 @@ class EdgeServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        // KV Instant takes one write per second per namespace (EdgeKvWriteJob).
+        RateLimiter::for('kv-instant', static fn (object $job): Limit => Limit::perSecond(1)->by($job->namespace ?? 'kv'));
         // Feature flags for resource kinds: off until turned on per organization.
         foreach (EdgeContainerConnections::FLAGGED as $kind) {
             Feature::define(EdgeContainerConnections::flag($kind), static fn (Organization $organization): bool => false);

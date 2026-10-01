@@ -10,6 +10,7 @@ use App\Modules\Billing\Services\StarterTrafficGate;
 use App\Modules\Edge\Services\EdgeBuildRunner;
 use App\Modules\Edge\Services\EdgeDeliveryContextResolver;
 use App\Modules\Edge\Services\EdgeHostMapPublisher;
+use App\Modules\Edge\Services\EdgeKvInstant;
 use App\Modules\Edge\Services\EdgeQueueConsumers;
 use App\Modules\Edge\Services\Storage\EdgeBucketKeys;
 use App\Modules\Edge\Support\EdgeContainerConnections;
@@ -1329,7 +1330,7 @@ JS;
                 // Not answering yet; the check after this says so if it stays that way.
             }
             $log("Waiting for the new address to reach every location…\n");
-            Sleep::for(5)->seconds();
+            Sleep::for(EdgeKvInstant::routesNamespace() !== null ? 1 : 5)->seconds();
         } while (time() < $deadline);
     }
 
@@ -1695,6 +1696,11 @@ JS;
 
         if ($kvNamespaceId !== '') {
             $config['kv_namespaces'] = [['binding' => 'BILLING', 'id' => $kvNamespaceId]];
+            // The pause flag's own namespace (KV Instant, EdgeKvInstant), read before BILLING.
+            $gates = EdgeKvInstant::gatesNamespace();
+            if ($gates !== null) {
+                $config['kv_namespaces'][] = ['binding' => 'GATES', 'id' => $gates];
+            }
         }
 
         $bucket = trim((string) config('edge.r2.bucket'));
@@ -2633,9 +2639,11 @@ function keepWakeCopy(ctx, url, response) {
 }
 
 async function trafficOpen(env) {
-  if (!env.BILLING) return true;
+  // GATES (KV Instant) when bound: a pause or resume lands in ~250 ms.
+  const gate = env.GATES ?? env.BILLING;
+  if (!gate) return true;
   try {
-    return (await env.BILLING.get(PAUSE_KEY)) !== '1';
+    return (await gate.get(PAUSE_KEY)) !== '1';
   } catch {
     return true;
   }
