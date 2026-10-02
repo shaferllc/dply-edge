@@ -7,13 +7,14 @@ namespace App\Modules\Edge\Services\Containers;
 use App\Models\EdgeDeployment;
 use App\Models\Site;
 use App\Modules\Billing\Services\StarterTrafficGate;
+use App\Modules\Edge\Jobs\RemoveEdgeCheckCopyJob;
 use App\Modules\Edge\Services\EdgeBuildRunner;
 use App\Modules\Edge\Services\EdgeDeliveryContextResolver;
 use App\Modules\Edge\Services\EdgeHostMapPublisher;
 use App\Modules\Edge\Services\EdgeKvInstant;
 use App\Modules\Edge\Services\EdgeQueueConsumers;
+use App\Modules\Edge\Services\EdgeRepoCloner;
 use App\Modules\Edge\Services\Storage\EdgeBucketKeys;
-use App\Modules\Edge\Jobs\RemoveEdgeCheckCopyJob;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeContainerInstances;
 use App\Modules\Edge\Support\EdgeContainerSettings;
@@ -1085,6 +1086,7 @@ JS;
         $dockerfileImage = null;
         try {
             if ($candidate) {
+                self::recoverHandoff($site, $log);
                 $this->deployCandidate($site, $deployment, $project, $workRoot, $namespace, $log, $timeoutSeconds, $release, $handedOff, $reuseImage, $mark);
             }
             // wrangler goes quiet after the layer push while Cloudflare ingests the
@@ -1358,7 +1360,9 @@ JS;
         $host = self::candidateHost($site);
         $url = 'https://'.$host;
         $dir = $workRoot.'/container-next';
-        File::deleteDirectory($dir);
+        // A killed earlier attempt can leave this behind with root-owned
+        // node_modules from its build; copying over it then fails.
+        EdgeRepoCloner::wipe($dir);
         File::copyDirectory($project, $dir);
         self::asCandidate($dir, $script);
         $log("Checking the new version on its own before it takes traffic.\n");
@@ -1412,6 +1416,11 @@ JS;
             $mark('copy checks');
             $log("The new version works. Sending visitors to it while production updates.\n");
             $handedOff = true;
+            // Recorded before the switch: a deploy that dies from here on
+            // (killed worker, retry) leaves visitors on the copy, and
+            // recoverHandoff() sends them back to the last live deployment.
+            $site->mergeEdgeMeta(['check_copy_handoff' => (string) $deployment->id]);
+            $site->save();
             $this->routeProductionTo($site, $deployment, $script);
             $mark('route to copy');
         } finally {
@@ -1474,6 +1483,27 @@ JS;
         }
     }
 
+    /**
+     * Visitors left on the check copy by a deploy that died after handing off
+     * (endHandoff() never ran): route production back to the last live
+     * deployment. The copy itself goes with the next deploy's or the
+     * removal job. 2026-10-02: a killed deploy left edge.dply.io on a copy
+     * its retry then rebuilt, and the site answered 503 until rerouted by hand.
+     */
+    public static function recoverHandoff(Site $site, ?callable $log = null): void
+    {
+        if (($site->edgeMeta()['check_copy_handoff'] ?? null) === null) {
+            return;
+        }
+        $live = EdgeDeployment::query()->where('site_id', $site->id)->where('status', EdgeDeployment::STATUS_LIVE)->latest()->first();
+        if ($live !== null) {
+            $log && $log("Visitors were left on a check copy by an earlier deploy. Sending them back to the last live deployment.\n");
+            app(EdgeHostMapPublisher::class)->publish($site, $live);
+        }
+        $site->mergeEdgeMeta(['check_copy_handoff' => null]);
+        $site->save();
+    }
+
     /** The check copy and its hostnames, after a handoff (RemoveEdgeCheckCopyJob). */
     public function removeCheckCopy(Site $site): void
     {
@@ -1498,6 +1528,8 @@ JS;
     {
         $removeNow = true;
         try {
+            $site->mergeEdgeMeta(['check_copy_handoff' => null]);
+            $site->save();
             if ($productionOk) {
                 $log("Production is on the new version. Sending visitors back to it.\n");
                 // No wait here: locations still on the copy keep being served by it.

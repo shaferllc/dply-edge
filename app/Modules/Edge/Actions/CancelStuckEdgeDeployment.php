@@ -145,6 +145,14 @@ class CancelStuckEdgeDeployment
             default => Site::STATUS_EDGE_FAILED,
         };
         $site->update(['status' => $status]);
+        // Nothing else in flight: no deploy is left to route visitors back.
+        if ($status !== Site::STATUS_EDGE_PROVISIONING) {
+            try {
+                EdgeContainerDeployer::recoverHandoff($site);
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
     }
 
     private function failInFlight(Site $site, EdgeDeployment $deployment, string $reason): void

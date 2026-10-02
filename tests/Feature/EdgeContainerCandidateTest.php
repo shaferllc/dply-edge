@@ -253,3 +253,26 @@ test('the rollout wait can stop at enough healthy instances, not all of them', f
     $percent = 40;
     expect($await(1)['ok'])->toBeFalse();
 });
+
+test('a deploy that dies after handing off leaves a marker, and the failed-deploy path sends visitors back', function () {
+    fakeCloudflare($this->script, 200);
+    runCandidate($this);
+    expect(routedTo('shop-ab12cd.on-dply.live'))->toBe($this->script)
+        ->and($this->site->fresh()->edgeMeta()['check_copy_handoff'])->toBe((string) $this->deployment->id);
+
+    // The worker is killed here: endHandoff() never runs. The job's failed()
+    // hook and the reapers end in restoreSiteStatus().
+    $this->deployment->update(['status' => EdgeDeployment::STATUS_FAILED]);
+    \App\Modules\Edge\Actions\CancelStuckEdgeDeployment::restoreSiteStatus($this->site->fresh());
+
+    expect(routedTo('shop-ab12cd.on-dply.live'))->not->toBe($this->script)
+        ->and($this->site->fresh()->edgeMeta()['check_copy_handoff'] ?? null)->toBeNull();
+});
+
+test('endHandoff clears the marker', function () {
+    fakeCloudflare($this->script, 200);
+    runCandidate($this);
+    endHandoff($this, productionOk: true);
+
+    expect($this->site->fresh()->edgeMeta()['check_copy_handoff'] ?? null)->toBeNull();
+});

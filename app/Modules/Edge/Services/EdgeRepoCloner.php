@@ -511,7 +511,7 @@ final class EdgeRepoCloner
      *
      * @phpstan-impure
      */
-    private function checkoutExists(string $checkout): bool
+    private static function checkoutExists(string $checkout): bool
     {
         clearstatcache(true, $checkout);
 
@@ -520,12 +520,22 @@ final class EdgeRepoCloner
 
     private function ensureEmptyCheckout(string $checkout): void
     {
-        if (! $this->checkoutExists($checkout)) {
+        self::wipe($checkout);
+    }
+
+    /**
+     * Remove a build directory, including files a Docker build left owned by
+     * root (Laravel's delete and rm as the app user can't), so the next
+     * build's copy into it doesn't fail with "Permission denied".
+     */
+    public static function wipe(string $checkout): void
+    {
+        if (! self::checkoutExists($checkout)) {
             return;
         }
 
         File::deleteDirectory($checkout);
-        if (! $this->checkoutExists($checkout)) {
+        if (! self::checkoutExists($checkout)) {
             return;
         }
 
@@ -533,7 +543,7 @@ final class EdgeRepoCloner
         // recursive delete (and host rm as www-data) then can't clear the
         // tree and the next clone dies with "destination path already exists".
         Process::timeout(120)->run(['rm', '-rf', '--', $checkout]);
-        if (! $this->checkoutExists($checkout)) {
+        if (! self::checkoutExists($checkout)) {
             return;
         }
 
@@ -545,7 +555,7 @@ final class EdgeRepoCloner
             'alpine:3.20',
             'rm', '-rf', '--', '/wipe/'.$base,
         ]);
-        if ($this->checkoutExists($checkout)) {
+        if (self::checkoutExists($checkout)) {
             throw new RuntimeException(
                 'Could not clear checkout directory '.$checkout
                 .($dockerRm->errorOutput() !== '' ? ': '.$dockerRm->errorOutput() : '')
