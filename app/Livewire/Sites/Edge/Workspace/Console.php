@@ -47,7 +47,11 @@ class Console extends Component
             'target' => ['required', 'in:'.implode(',', array_keys(EdgeContainerCommands::targets($this->site)))],
             'timeout' => ['required', 'integer', 'min:5', 'max:3600'],
         ]);
-        $this->runId = EdgeContainerCommands::start($this->site, trim($this->command), $this->target, $this->timeout, $this->wake, auth()->user());
+        try {
+            $this->runId = EdgeContainerCommands::start($this->site, trim($this->command), $this->target, $this->timeout, $this->wake, auth()->user());
+        } catch (\RuntimeException $e) {
+            $this->addError('command', $e->getMessage());
+        }
     }
 
     public function useSuggestion(string $command): void

@@ -7,6 +7,7 @@ namespace App\Modules\Edge\Jobs;
 use App\Models\Site;
 use App\Modules\Edge\Services\Containers\EdgeContainerAgent;
 use App\Modules\Edge\Services\Containers\EdgeContainerCommands;
+use App\Support\DplyRuntime;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Throwable;
@@ -34,6 +35,7 @@ final class RunContainerCommandJob implements ShouldQueue
     ) {
         // The agent's own timeout ends the command; this only stops a stuck job.
         $this->timeout = $commandTimeout + 120;
+        $this->onQueue(DplyRuntime::CONSOLE_QUEUE);
     }
 
     public function handle(): void
@@ -76,6 +78,8 @@ final class RunContainerCommandJob implements ShouldQueue
         } catch (Throwable $e) {
             $flush();
             EdgeContainerCommands::update($this->runId, fn (array $run): array => ['status' => 'failed', 'error' => mb_substr($e->getMessage(), 0, 500)] + $run);
+        } finally {
+            EdgeContainerCommands::release($this->runId);
         }
     }
 }

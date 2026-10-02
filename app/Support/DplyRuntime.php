@@ -59,7 +59,14 @@ final class DplyRuntime
      * default (REDIS_QUEUE), `default` carries notifications,
      * `dply-background` health/uptime checks.
      */
-    public const CONTROL_QUEUES = ['dply', 'default', 'dply-background', 'dply-control', 'dply-manage'];
+    public const CONTROL_QUEUES = ['dply', 'default', 'dply-background', 'dply-control', 'dply-manage', self::CONSOLE_QUEUE];
+
+    /**
+     * Customers' Console commands (RunContainerCommandJob): their own workers
+     * (config/horizon.php supervisor-console), so a long command can never
+     * hold up dply's own jobs.
+     */
+    public const CONSOLE_QUEUE = 'dply-console';
 
     public static function mode(): string
     {

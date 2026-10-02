@@ -11,6 +11,7 @@ use App\Modules\Edge\Jobs\RunContainerCommandJob;
 use App\Modules\Edge\Support\EdgeContainerSettings;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
+use RuntimeException;
 
 /**
  * One-off commands in a container app through the dply agent (T-038):
@@ -26,6 +27,9 @@ final class EdgeContainerCommands
     public const MAX_LINES = 2000;
 
     private const TTL = 3600;
+
+    /** Commands one organization may have queued or running at once (dply support isn't counted). */
+    public const MAX_PER_ORG = 3;
 
     /**
      * The containers a command can run in: the jobs container when the app
@@ -63,7 +67,15 @@ final class EdgeContainerCommands
     public static function start(Site $site, string $command, ?string $target, int $timeout, bool $wake, ?User $user, bool $support = false, array $context = []): string
     {
         $id = (string) Str::ulid();
-        Cache::put(self::key($id), ['site' => (string) $site->id, 'command' => $command, 'target' => $target, 'status' => 'queued', 'lines' => [], 'result' => null, 'error' => null], self::TTL);
+        $slots = 'container-runs:'.$site->organization_id;
+        if (! $support) {
+            Cache::add($slots, 0, self::TTL + 300);
+            if ((int) Cache::get($slots, 0) >= self::MAX_PER_ORG) {
+                throw new RuntimeException(__('This organization already has :count commands running. Wait for one to finish.', ['count' => self::MAX_PER_ORG]));
+            }
+            Cache::increment($slots);
+        }
+        Cache::put(self::key($id), ['site' => (string) $site->id, 'command' => $command, 'target' => $target, 'status' => 'queued', 'lines' => [], 'result' => null, 'error' => null, 'slot' => $support ? null : $slots], self::TTL);
         if ($site->organization !== null) {
             AuditLog::log($site->organization, $user, $support ? 'support.container.command' : 'site.edge.command', $site, null, ['command' => $command, 'target' => $target ?? 'default'] + $context);
         }
@@ -72,7 +84,17 @@ final class EdgeContainerCommands
         return $id;
     }
 
-    /** @return array{site: string, command: string, target: ?string, status: string, lines: list<array<string, mixed>>, result: ?array<string, mixed>, error: ?string}|null */
+    /** A finished run gives its organization's slot back. */
+    public static function release(string $id): void
+    {
+        $slot = self::read($id)['slot'] ?? null;
+        if (is_string($slot) && (int) Cache::get($slot, 0) > 0) {
+            Cache::decrement($slot);
+        }
+        self::update($id, fn (array $run): array => ['slot' => null] + $run);
+    }
+
+    /** @return array{site: string, command: string, target: ?string, status: string, lines: list<array<string, mixed>>, result: ?array<string, mixed>, error: ?string, slot?: ?string}|null */
     public static function read(string $id): ?array
     {
         $run = Cache::get(self::key($id));

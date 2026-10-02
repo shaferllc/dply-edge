@@ -44,10 +44,14 @@ $deployQueues = array_values(array_intersect([
     'dply',           // redis default queue: general control-plane work
 ], $consumes));
 
+// Console commands from customers (RunContainerCommandJob): up to an hour each,
+// on workers of their own so they never wait behind, or block, dply's jobs.
+$consoleQueues = array_values(array_intersect([DplyRuntime::CONSOLE_QUEUE], $consumes));
+
 // default (notifications), dply-builder (short builder-host jobs),
 // dply-background, dply-control, dply-manage (plus a probes:<worker> queue per
 // site_uptime.probe_workers entry, none today) — whichever this host drains.
-$fastQueues = array_values(array_diff($consumes, $buildQueues, $deployQueues));
+$fastQueues = array_values(array_diff($consumes, $buildQueues, $deployQueues, $consoleQueues));
 
 $withQueues = static fn (array $supervisors): array => array_filter(
     $supervisors,
@@ -139,6 +143,15 @@ return [
             'tries' => 1,
             'nice' => 0,
         ],
+        'supervisor-console' => [
+            'connection' => 'redis',
+            'balance' => 'simple',
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 128,
+            'tries' => 1,
+            'nice' => 0,
+        ],
         'supervisor-fast' => [
             'connection' => 'redis',
             'balance' => 'auto',
@@ -177,6 +190,13 @@ return [
                 'maxProcesses' => (int) env('HORIZON_FAST_MAX_PROCESSES', 10),
                 'timeout' => 900,
             ],
+            // The longest command (3600s) + the job's margin; below retry_after.
+            'supervisor-console' => [
+                'queue' => $consoleQueues,
+                'minProcesses' => 1,
+                'maxProcesses' => (int) env('HORIZON_CONSOLE_MAX_PROCESSES', 4),
+                'timeout' => 3780,
+            ],
         ]),
 
         'local' => $withQueues([
@@ -200,6 +220,12 @@ return [
                 'minProcesses' => 1,
                 'maxProcesses' => 8,
                 'timeout' => 900,
+            ],
+            'supervisor-console' => [
+                'queue' => $consoleQueues,
+                'minProcesses' => 1,
+                'maxProcesses' => 2,
+                'timeout' => 3780,
             ],
         ]),
 

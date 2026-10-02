@@ -15,6 +15,7 @@ use App\Models\User;
 use App\Modules\Edge\Jobs\RunContainerCommandJob;
 use App\Modules\Edge\Services\Containers\EdgeContainerCommands;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
+use App\Support\DplyRuntime;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -151,4 +152,20 @@ test('the operator terminal needs a session, is logged, and gets a short-lived s
         ->and((int) $q['exp'])->toBeGreaterThan(time())->toBeLessThanOrEqual(time() + 120)
         ->and($q['sig'])->toBe(hash_hmac('sha256', 'terminal:'.$q['target'].':'.$q['exp'].':'.$q['op'], EdgeContainerDeployer::queueToken($this->site)))
         ->and(AuditLog::query()->where('action', 'support.container.terminal')->value('new_values')['reason'])->toBe('Ticket 11: stuck migration');
+});
+
+test('commands run on their own queue, and an organization gets three at a time', function () {
+    Queue::fake();
+    $component = console($this)->set('command', 'sleep 60');
+    foreach (range(1, 3) as $i) {
+        $component->call('run')->assertHasNoErrors();
+    }
+    $component->call('run')->assertHasErrors('command');
+
+    Queue::assertPushed(RunContainerCommandJob::class, 3);
+    Queue::assertPushedOn(DplyRuntime::CONSOLE_QUEUE, RunContainerCommandJob::class);
+
+    // A finished run gives its slot back.
+    EdgeContainerCommands::release($component->get('runId'));
+    $component->call('run')->assertHasNoErrors();
 });
