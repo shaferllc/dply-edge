@@ -1329,3 +1329,16 @@ test('a deploy whose Livewire update endpoint 404s is not healthy', function () 
         ->and(EdgeContainerDeployer::livewireUnreachable('https://app.test', '<h1>no livewire</h1>'))->toBeNull();
     Http::assertSent(fn ($r) => $r->hasHeader('X-Livewire') && $r->method() === 'GET');
 });
+
+test('the meter key stays in the worker and never reaches the container env', function () {
+    $site = new Site;
+    $site->id = '01SITEABC';
+    $dir = sys_get_temp_dir().'/dply-container-test-'.bin2hex(random_bytes(4));
+
+    (new EdgeContainerDeployer)->scaffold($dir, $site, '/x/Dockerfile', 8080, []);
+    $worker = File::get($dir.'/src/index.js');
+    File::deleteDirectory($dir);
+
+    expect($worker)->toContain("typeof v === 'string' && k !== 'DPLY_METER_KEY'")
+        ->and($worker)->toContain('env.DPLY_METER_KEY'); // the Worker still signs with it
+});

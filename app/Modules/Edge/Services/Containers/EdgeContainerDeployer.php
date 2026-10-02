@@ -2233,8 +2233,10 @@ export class App extends Container {
 
   constructor(ctx, env) {
     super(ctx, env);
-    // Secrets (site env, DPLY_QUEUE_TOKEN, DPLY_APP_URL) become the app's env.
-    const fromWorker = Object.fromEntries(Object.entries(env).filter(([, v]) => typeof v === 'string'));
+    // Secrets (site env, DPLY_QUEUE_TOKEN, DPLY_APP_URL) become the app's env,
+    // except the meter key: it signs the usage reports dply bills AI and
+    // vector calls from, and only this Worker sends those (EdgeMeter).
+    const fromWorker = Object.fromEntries(Object.entries(env).filter(([k, v]) => typeof v === 'string' && k !== 'DPLY_METER_KEY'));
     // Pool size is computed from the instance memory. It wins over a stale
     // site env var so a crash cannot leave the old child count in place.
     this.envVars = Object.assign(fromWorker, {
