@@ -70,7 +70,48 @@
                         {{ __('Wake if asleep') }}
                     </label>
                     <x-primary-button type="submit" size="sm">{{ __('Run') }}</x-primary-button>
+                    <x-secondary-button size="sm" wire:click="showProcesses">{{ __('Processes') }}</x-secondary-button>
+                    <x-secondary-button size="sm" wire:click="showEnv">{{ __('Environment') }}</x-secondary-button>
                 </form>
+                @if ($inspect)
+                    <div @class(['mt-3 grid gap-3', 'lg:grid-cols-2' => count($inspect['results']) > 1])>
+                        @foreach ($inspect['results'] as $target => $data)
+                            <div wire:key="inspect-{{ $target }}" class="min-w-0">
+                                <p class="font-mono text-2xs text-brand-mist">{{ $target }}</p>
+                                @if (isset($data['error']))
+                                    <p class="mt-1 break-all font-mono text-xs text-rose-700 dark:text-rose-300">{{ $data['error'] }}</p>
+                                @elseif ($data['asleep'] ?? false)
+                                    <p class="mt-1 text-xs text-brand-moss">{{ __('Asleep: nothing running.') }}</p>
+                                @elseif ($inspect['kind'] === 'processes')
+                                    @php($mem = $data['memory'] ?? [])
+                                    <p class="mt-1 text-xs text-brand-moss">
+                                        {{ __('Memory :used of :max · app :anon · cache :file · peak :peak', [
+                                            'used' => \App\Livewire\Admin\Cluster::bytes((float) ($mem['current_bytes'] ?? 0)),
+                                            'max' => ($mem['max_bytes'] ?? 0) > 0 ? \App\Livewire\Admin\Cluster::bytes((float) $mem['max_bytes']) : __('no limit'),
+                                            'anon' => \App\Livewire\Admin\Cluster::bytes((float) ($mem['anon_bytes'] ?? 0)),
+                                            'file' => \App\Livewire\Admin\Cluster::bytes((float) ($mem['file_bytes'] ?? 0)),
+                                            'peak' => \App\Livewire\Admin\Cluster::bytes((float) ($mem['peak_bytes'] ?? 0)),
+                                        ]) }}
+                                    </p>
+                                    <table class="mt-1 w-full font-mono text-2xs">
+                                        <thead><tr class="text-left text-brand-mist"><th class="pr-2">PID</th><th class="pr-2">RSS</th><th class="pr-2">CPU s</th><th class="pr-2">{{ __('State') }}</th><th>{{ __('Command') }}</th></tr></thead>
+                                        <tbody>
+                                            @foreach (array_slice($data['processes'] ?? [], 0, 40) as $p)
+                                                <tr class="align-top text-brand-ink"><td class="pr-2">{{ $p['pid'] }}</td><td class="pr-2 whitespace-nowrap">{{ \App\Livewire\Admin\Cluster::bytes((float) $p['rss_bytes']) }}</td><td class="pr-2">{{ number_format((float) $p['cpu_seconds'], 1) }}</td><td class="pr-2">{{ $p['state'] }}</td><td class="break-all">{{ \Illuminate\Support\Str::limit($p['command'] !== '' ? $p['command'] : '['.$p['name'].']', 160) }}</td></tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                @else
+                                    <dl class="mt-1 max-h-80 overflow-auto font-mono text-2xs">
+                                        @foreach (collect($data['env'] ?? [])->sortKeys() as $key => $value)
+                                            <div class="flex gap-2"><dt class="shrink-0 text-brand-ink">{{ $key }}</dt><dd class="min-w-0 break-all text-brand-moss">{{ $value }}</dd></div>
+                                        @endforeach
+                                    </dl>
+                                @endif
+                            </div>
+                        @endforeach
+                    </div>
+                @endif
                 @if ($runs !== [])
                     <div @class(['mt-3 grid gap-3', 'lg:grid-cols-2' => count($runs) > 1])>
                         @foreach ($runs as $target => $run)

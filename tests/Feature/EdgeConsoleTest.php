@@ -107,3 +107,27 @@ test('operators run ps right away, need a session for anything else, and can run
     expect($support)->toHaveCount(1 + count($targets)) // ps once, then one per container
         ->and($support->last()->new_values['reason'])->toBe('Ticket 7: queue stuck');
 });
+
+test('operators see processes and memory, and env values only inside a session', function () {
+    Http::fake([
+        'shop.on-dply.live/_dply/agent/processes*' => Http::response(['memory' => ['current_bytes' => 300 * 1024 ** 2, 'max_bytes' => 512 * 1024 ** 2, 'anon_bytes' => 200 * 1024 ** 2, 'file_bytes' => 100 * 1024 ** 2, 'peak_bytes' => 400 * 1024 ** 2], 'processes' => [['pid' => 1, 'ppid' => 0, 'name' => 'dply-agent', 'command' => '/usr/local/bin/dply-agent -- sh -c boot', 'state' => 'S', 'rss_bytes' => 8 * 1024 ** 2, 'cpu_seconds' => 0.4, 'age_seconds' => 90]]]),
+        'shop.on-dply.live/_dply/agent/env*' => Http::response(['env' => ['APP_KEY' => 'base64:secretsecret', 'APP_ENV' => 'production']]),
+    ]);
+    $admin = User::factory()->create();
+
+    $component = Livewire::actingAs($admin)->test(AdminResources::class)
+        ->call('openCommand', (string) $this->site->id)
+        ->call('showProcesses')
+        ->assertSee('dply-agent -- sh -c boot')
+        ->assertSee('300Mi')
+        ->call('showEnv')
+        ->assertSee('APP_KEY')
+        ->assertDontSee('base64:secretsecret');
+
+    $component->set('accessReason', 'Ticket 9: wrong APP_ENV')->call('startAccess')->call('showEnv')->assertSee('base64:secretsecret');
+
+    Http::assertSent(fn ($r) => str_contains($r->url(), '/_dply/agent/env') && $r->hasHeader('x-dply-no-wake', '1'));
+    $env = AuditLog::query()->where('action', 'support.container.env')->orderBy('created_at')->get();
+    expect($env->pluck('new_values.revealed')->all())->toBe([false, true])
+        ->and(AuditLog::query()->where('action', 'support.container.processes')->exists())->toBeTrue();
+});

@@ -127,6 +127,26 @@ final class EdgeContainerAgent
     }
 
     /**
+     * GET one of the agent's JSON routes ("processes", "env") in one
+     * container. Never wakes it: a sleeping container answers ['asleep' => true].
+     *
+     * @return array<string, mixed>
+     */
+    public static function get(Site $site, string $route, ?string $target = null): array
+    {
+        $url = rtrim((string) $site->edgeLiveUrl(), '/').'/_dply/agent/'.$route.($target !== null ? '?target='.rawurlencode($target) : '');
+        $response = Http::timeout(20)->withHeaders(['x-dply-queue-token' => EdgeContainerDeployer::queueToken($site), 'x-dply-no-wake' => '1'])->get($url);
+        if ($response->status() === 409) {
+            return ['asleep' => true];
+        }
+        if (! $response->successful()) {
+            throw new RuntimeException(sprintf('The agent answered HTTP %d: %s', $response->status(), mb_substr(trim($response->body()), 0, 300)));
+        }
+
+        return (array) $response->json();
+    }
+
+    /**
      * Run one command in one of the app's containers and hand each output
      * line to $line as it arrives: ['out' => '…'], ['err' => '…'], then the
      * result ['exit' => n, 'seconds' => s, 'truncated' => bool, 'timed_out' =>

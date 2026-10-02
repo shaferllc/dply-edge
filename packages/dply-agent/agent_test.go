@@ -132,3 +132,55 @@ func TestExecCapsOutput(t *testing.T) {
 		t.Fatalf("got %d bytes, last=%v", total, last)
 	}
 }
+
+func TestParseStatCountsFromTheLastParenthesis(t *testing.T) {
+	stat := []byte("42 (php (worker) 1) S 1 42 42 0 -1 0 0 0 0 0 250 50 0 0 20 0 1 0 1000 123456 300 18446744073709551615")
+	p, ok := parseStat(stat, 30, 4096)
+	if !ok || p.Name != "php (worker) 1" || p.State != "S" || p.PPID != 1 || p.CPUSeconds != 3 || p.AgeSeconds != 20 || p.RSSBytes != 300*4096 {
+		t.Fatalf("got %+v ok=%v", p, ok)
+	}
+}
+
+func TestProcessesAndEnvNeedTheToken(t *testing.T) {
+	srv := httptest.NewServer(handler(testReaper(), "secret"))
+	defer srv.Close()
+	for _, path := range []string{"/processes", "/env"} {
+		res, err := http.Get(srv.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if res.StatusCode != http.StatusForbidden {
+			t.Fatalf("%s without token: %d", path, res.StatusCode)
+		}
+	}
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/env", nil)
+	req.Header.Set("x-dply-queue-token", "secret")
+	t.Setenv("DPLY_TEST_VALUE", "visible")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var body struct{ Env map[string]string }
+	_ = json.NewDecoder(res.Body).Decode(&body)
+	if body.Env["DPLY_TEST_VALUE"] != "visible" {
+		t.Fatalf("env: %v", body.Env["DPLY_TEST_VALUE"])
+	}
+}
+
+func TestReadProcessesOnLinux(t *testing.T) {
+	if _, err := os.Stat("/proc/self/stat"); err != nil {
+		t.Skip("no /proc")
+	}
+	ps := readProcesses("/proc")
+	found := false
+	for _, p := range ps {
+		if p.PID == os.Getpid() && p.RSSBytes > 0 && p.Command != "" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("this test process is not listed: %+v", ps)
+	}
+}

@@ -35,12 +35,14 @@ func serve(r *reaper, port, token string) {
 	}
 }
 
-// handler: GET /health, POST /exec. Every route needs the token, compared in
+// handler: GET /health, GET /processes, GET /env, POST /exec. Every route needs the token, compared in
 // constant time. New routes (processes, env, terminal) go here.
 func handler(r *reaper, token string) http.Handler {
 	running := make(chan struct{}, maxRunning)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok") })
+	mux.HandleFunc("GET /processes", processesHandler)
+	mux.HandleFunc("GET /env", envHandler)
 	mux.HandleFunc("POST /exec", func(w http.ResponseWriter, req *http.Request) {
 		select {
 		case running <- struct{}{}:

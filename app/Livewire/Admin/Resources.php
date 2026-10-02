@@ -9,6 +9,7 @@ use App\Models\AuditLog;
 use App\Models\Organization;
 use App\Models\Site;
 use App\Modules\Edge\Jobs\VerifyDatabaseBackupJob;
+use App\Modules\Edge\Services\Containers\EdgeContainerAgent;
 use App\Modules\Edge\Services\Containers\EdgeContainerCommands;
 use App\Modules\Edge\Support\EdgeContainerInstances;
 use App\Modules\Edge\Support\EdgeResourceIndex;
@@ -103,7 +104,52 @@ class Resources extends Component
 
     public function closeCommand(): void
     {
-        $this->reset('commandFor', 'opCommand', 'opTarget', 'opWake', 'opRuns', 'accessReason');
+        $this->reset('commandFor', 'opCommand', 'opTarget', 'opWake', 'opRuns', 'accessReason', 'inspect');
+    }
+
+    /** @var array{kind: string, results: array<string, array<string, mixed>>}|null processes or env, per target */
+    public ?array $inspect = null;
+
+    /**
+     * What is running in the app's containers, with memory (T-040). Never
+     * wakes one. One click: it shows process names and sizes, not data.
+     */
+    public function showProcesses(): void
+    {
+        $this->inspectContainers('processes', 'support.container.processes');
+    }
+
+    /**
+     * The env each container booted with. Values stay masked unless a
+     * data-access session is open; then they show and the reveal is logged.
+     */
+    public function showEnv(): void
+    {
+        $this->inspectContainers('env', 'support.container.env');
+    }
+
+    private function inspectContainers(string $kind, string $action): void
+    {
+        $row = $this->row('app', (string) $this->commandFor);
+        $site = Site::query()->findOrFail($row['siteId']);
+        $targets = EdgeContainerCommands::targets($site);
+        $chosen = $this->opTarget === 'every' ? array_keys($targets) : [$this->opTarget !== '' ? $this->opTarget : (string) array_key_first($targets)];
+        abort_if(array_diff($chosen, array_keys($targets)) !== [], 422);
+        $access = $this->access($row['id']);
+        $results = [];
+        foreach ($chosen as $target) {
+            try {
+                $data = EdgeContainerAgent::get($site, $kind, $target);
+            } catch (Throwable $e) {
+                $data = ['error' => Str::limit($e->getMessage(), 300)];
+            }
+            if ($kind === 'env' && isset($data['env']) && $access === null) {
+                $data['env'] = array_map(fn ($value): string => '•••• ('.mb_strlen((string) $value).')', (array) $data['env']);
+            }
+            $results[$target] = $data;
+        }
+        $this->audit($row, $action, ['targets' => $chosen] + ($kind === 'env' ? ['revealed' => $access !== null] : []) + ($access !== null ? ['reason' => $access['reason']] : []));
+        $this->inspect = ['kind' => $kind, 'results' => $results];
     }
 
     public function runOpCommand(): void
