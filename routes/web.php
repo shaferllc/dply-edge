@@ -293,6 +293,7 @@ Route::middleware(['auth', 'verified', 'org'])->withHead(robots: 'noindex, nofol
             Route::livewire('/', AdminOverview::class)->name('overview')->withHead(title: 'Admin · Overview');
             Route::livewire('/operations', AdminOperations::class)->name('operations')->withHead(title: 'Admin · Operations');
             Route::livewire('/cluster', AdminCluster::class)->name('cluster')->withHead(title: 'Admin · Cluster');
+            Route::livewire('/resources', \App\Livewire\Admin\Resources::class)->name('resources')->withHead(title: 'Admin · Resources');
             Route::livewire('/audit', AdminAuditLog::class)->name('audit')->withHead(title: 'Admin · Audit log');
             Route::livewire('/users', Index::class)->name('users.index')->withHead(title: 'Admin · Users');
             Route::post('/impersonate/{user}', [ImpersonationController::class, 'start'])->name('impersonate.start');
