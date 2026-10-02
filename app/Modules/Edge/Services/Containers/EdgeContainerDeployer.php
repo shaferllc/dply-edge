@@ -1084,8 +1084,7 @@ JS;
         $dockerfileImage = null;
         try {
             if ($candidate) {
-                $this->deployCandidate($site, $deployment, $project, $workRoot, $namespace, $log, $timeoutSeconds, $release, $handedOff, $reuseImage);
-                $mark('check copy');
+                $this->deployCandidate($site, $deployment, $project, $workRoot, $namespace, $log, $timeoutSeconds, $release, $handedOff, $reuseImage, $mark);
             }
             // wrangler goes quiet after the layer push while Cloudflare ingests the
             // image and rolls out the container — minutes, with no output at all.
@@ -1100,8 +1099,10 @@ JS;
                     $log("Building the image (npm, Vite, Composer) and pushing it. Docker output follows.\n");
                 }
 
+                // Visitors on the check copy: nobody is on production while it rolls
+                // out, so a gradual rollout only adds minutes (64s measured).
                 $deploy = fn () => $this->runWithHeartbeat($log, Process::timeout($timeoutSeconds ?? 1800), self::deployerCommand(
-                    self::buildContainerName($deployment), $workRoot, $project, $namespace, EdgeContainerSettings::durableObjectScheduling($settings) ? 'immediate' : $settings['rollout_mode'],
+                    self::buildContainerName($deployment), $workRoot, $project, $namespace, EdgeContainerSettings::durableObjectScheduling($settings) || $handedOff ? 'immediate' : $settings['rollout_mode'],
                 ));
                 $result = $deploy();
                 if (! $result->successful() && $dockerfileImage !== null) {
@@ -1347,8 +1348,9 @@ JS;
      *
      * @param  callable(string): void  $log
      */
-    private function deployCandidate(Site $site, EdgeDeployment $deployment, string $project, string $workRoot, string $namespace, callable $log, ?int $timeoutSeconds, bool $release, bool &$handedOff, ?string &$image = null): void
+    private function deployCandidate(Site $site, EdgeDeployment $deployment, string $project, string $workRoot, string $namespace, callable $log, ?int $timeoutSeconds, bool $release, bool &$handedOff, ?string &$image = null, ?callable $mark = null): void
     {
+        $mark ??= static function (string $label): void {};
         $handedOff = false;
         $image = null;
         $script = self::candidateScript($site);
@@ -1369,6 +1371,7 @@ JS;
                 throw new RuntimeException('Container deploy failed: '.self::failureReason($result->errorOutput(), $result->output()));
             }
             $image = self::pushedImage($script.'-app', $result->output()."\n".$result->errorOutput());
+            $mark('copy build+push');
             // One healthy instance is enough to migrate and check. Before visitors
             // move over, enough of them to carry production's load (below).
             $rollout = EdgeContainerSettings::durableObjectScheduling(EdgeContainerSettings::for($site))
@@ -1377,6 +1380,7 @@ JS;
             if ($rollout['settled'] && ! $rollout['ok']) {
                 throw new RuntimeException('Container deploy failed: '.(string) $rollout['reason'].'. Production still runs the previous version.');
             }
+            $mark('copy start');
             $this->awaitHost($url, $log);
             if ($release) {
                 $this->runRelease($site, $url, $log);
@@ -1404,9 +1408,11 @@ JS;
                     throw new RuntimeException('Container deploy failed: '.(string) $ready['reason'].'. Production still runs the previous version.');
                 }
             }
+            $mark('copy checks');
             $log("The new version works. Sending visitors to it while production updates.\n");
             $handedOff = true;
             $this->routeProductionTo($site, $deployment, $script);
+            $mark('route to copy');
         } finally {
             File::deleteDirectory($dir); // holds a copy of secrets.json
             if (! $handedOff) {
