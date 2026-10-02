@@ -139,8 +139,8 @@ final class EdgeDplyDatabase
     /**
      * Days of backups the site's plan keeps (subscription tiers'
      * backup_retention_days: 7 / 14 / 30, ruling r-78fm1ejqqy4c17en). A
-     * database pod reads it when it is created, so a plan change reaches a
-     * running database the next time its pod is recreated.
+     * database pod gets it when it is made; after a plan change the hourly
+     * collector sends it to the running pod (EdgeValkeyUsageCollector).
      */
     public static function backupDays(Site|Organization|null $owner): int
     {

@@ -104,9 +104,10 @@ final class ValkeyGatewayClient
 
     /**
      * The database's last backup result from its agent: last_ok_at,
-     * last_error, last_error_at (RFC3339), any of which may be missing.
+     * last_error, last_error_at (RFC3339), any of which may be missing, and
+     * retention_days (the days it prunes to; agents since 2026-10-02).
      *
-     * @return array<string, string>
+     * @return array<string, mixed>
      */
     public function backupStatus(string $id): array
     {
@@ -189,6 +190,12 @@ final class ValkeyGatewayClient
     public function databaseUploadLink(string $id, string $file): array
     {
         return $this->http()->timeout(10)->post('/tenants/'.$id.'/upload-link?file='.rawurlencode($file))->throw()->json();
+    }
+
+    /** A database's backup retention, applied to its running pod now (a plan change). */
+    public function setBackupDays(string $id, int $days): void
+    {
+        $this->http()->timeout(100)->post('/tenants/'.$id.'/backup-days', ['days' => $days])->throw();
     }
 
     public function sleep(string $id): void

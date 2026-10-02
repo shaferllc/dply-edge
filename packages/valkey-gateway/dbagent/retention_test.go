@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -23,5 +25,17 @@ func TestKeepFrom(t *testing.T) {
 		if got := keepFrom(c.times, cutoff); got != c.want {
 			t.Errorf("%s: keepFrom = %d, want %d", c.name, got, c.want)
 		}
+	}
+}
+
+func TestRetentionDaysPrefersTheFileTheGatewaySent(t *testing.T) {
+	retentionFile = filepath.Join(t.TempDir(), "days")
+	t.Setenv("BACKUP_RETENTION_DAYS", "14")
+	if got := retentionDays(); got != 14 {
+		t.Fatalf("env: got %d", got)
+	}
+	_ = os.WriteFile(retentionFile, []byte("30\n"), 0o600)
+	if got := retentionDays(); got != 30 {
+		t.Fatalf("file: got %d", got)
 	}
 }

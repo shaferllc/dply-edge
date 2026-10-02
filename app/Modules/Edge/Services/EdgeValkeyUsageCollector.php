@@ -150,7 +150,7 @@ class EdgeValkeyUsageCollector
         if (! is_array($database) || ! EdgeAppDatabase::isDply($database) || (string) ($database['remote_id'] ?? '') === '') {
             return;
         }
-        $backup = $this->backupStatus((string) $database['remote_id'], EdgeDplyDatabase::regionOf($database), (array) ($database['backup'] ?? []), $site, $site->name);
+        $backup = $this->backupStatus((string) $database['remote_id'], EdgeDplyDatabase::regionOf($database), (array) ($database['backup'] ?? []), $site, $site->name, EdgeDplyDatabase::backupDays($site));
         if ($backup !== null) {
             $site->mergeEdgeMeta(['database' => array_merge($database, ['backup' => $backup])]);
             $site->save();
@@ -162,7 +162,7 @@ class EdgeValkeyUsageCollector
     {
         $state = (array) ($database->state ?? []);
         $site = $database->sites()->first(); // who hears about it; none when detached everywhere
-        $backup = $this->backupStatus($database->remote_id, $database->region, (array) ($state['backup'] ?? []), $site, $database->name);
+        $backup = $this->backupStatus($database->remote_id, $database->region, (array) ($state['backup'] ?? []), $site, $database->name, EdgeDplyDatabase::backupDays($database->organization));
         if ($backup !== null) {
             $database->forceFill(['state' => array_merge($state, ['backup' => $backup])])->save();
         }
@@ -175,12 +175,22 @@ class EdgeValkeyUsageCollector
      * @param  array<string, mixed>  $previous
      * @return array<string, mixed>|null
      */
-    private function backupStatus(string $remoteId, string $region, array $previous, ?Site $site, string $label): ?array
+    private function backupStatus(string $remoteId, string $region, array $previous, ?Site $site, string $label, int $planDays): ?array
     {
         try {
             $status = ValkeyGatewayClient::fromConfig($region)->backupStatus($remoteId);
         } catch (Throwable) {
             return null; // the gateway or agent is unreachable; keep the last known status
+        }
+        // The plan changed since the pod was made: it still prunes to the old
+        // days. Agents from before 2026-10-02 don't report retention_days.
+        $reported = $status['retention_days'] ?? null;
+        if ($reported !== null && (int) $reported !== $planDays) {
+            try {
+                ValkeyGatewayClient::fromConfig($region)->setBackupDays($remoteId, $planDays);
+            } catch (Throwable $e) {
+                report($e);
+            }
         }
         $problem = EdgeDplyDatabase::backupProblem($status);
         $alerted = $problem !== null && ($previous['alerted'] ?? false);

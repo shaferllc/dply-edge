@@ -137,6 +137,15 @@ func main() {
 		}
 		return e.setTenant(body.Password)
 	})
+	handle("POST /retention", func(r *http.Request) error {
+		var body struct {
+			Days int `json:"days"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Days < 1 || body.Days > 365 {
+			return fmt.Errorf("days of 1-365 required")
+		}
+		return os.WriteFile(retentionFile, []byte(strconv.Itoa(body.Days)), 0o600)
+	})
 	handle("POST /restore", func(r *http.Request) error {
 		var body struct {
 			TargetTime string `json:"target_time"`
@@ -162,12 +171,17 @@ func main() {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		b, err := os.ReadFile(backupStatusFile)
-		if err != nil {
-			b = []byte("{}")
+		status := map[string]any{}
+		if b, err := os.ReadFile(backupStatusFile); err == nil {
+			_ = json.Unmarshal(b, &status)
 		}
+		if status == nil {
+			status = map[string]any{}
+		}
+		// What this pod prunes to, so dply can see a plan change hasn't reached it.
+		status["retention_days"] = retentionDays()
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(b)
+		_ = json.NewEncoder(w).Encode(status)
 	})
 
 	// Engines that report their own stats (MongoDB: the app has no driver for it).
@@ -349,9 +363,16 @@ func (p *postgres) backupLoop() {
 
 // retentionDays is how long backups are kept: BACKUP_RETENTION_DAYS from
 // the gateway (the plan's: 7, 14 or 30, ruling r-78fm1ejqqy4c17en), else 7.
+// retentionFile holds the plan's days once the gateway has sent them
+// (POST /retention, when the plan changes); before that the pod's env.
+var retentionFile = "/data/backup-retention-days"
+
 func retentionDays() int {
-	if n, err := strconv.Atoi(os.Getenv("BACKUP_RETENTION_DAYS")); err == nil && n > 0 {
-		return n
+	b, _ := os.ReadFile(retentionFile)
+	for _, v := range []string{strings.TrimSpace(string(b)), os.Getenv("BACKUP_RETENTION_DAYS")} {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
 	}
 	return 7
 }

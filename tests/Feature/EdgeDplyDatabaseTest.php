@@ -332,6 +332,22 @@ test('the collector records backup status and notifies once when backups start f
         ->and(NotificationEvent::query()->where('event_key', 'site.errors.operation_failed')->count())->toBe(1);
 });
 
+test('a pod still pruning to an old plan\'s days gets the plan\'s days', function () {
+    Http::fake([
+        'gateway.test/usage' => Http::response(['awake_seconds' => []]),
+        'gateway.test/tenants/*/backup' => Http::response(['last_ok_at' => '2026-10-02T04:00:00Z', 'retention_days' => 7]),
+        'gateway.test/*' => Http::response([]),
+    ]);
+    EdgeAppDatabase::sync($this->site, 'sql', 'postgres');
+    $this->site->save();
+    $days = EdgeDplyDatabase::backupDays($this->site);
+
+    app(EdgeValkeyUsageCollector::class)->collect();
+
+    expect($days)->not->toBe(7);
+    Http::assertSent(fn ($request): bool => str_ends_with($request->url(), '/backup-days') && $request['days'] === $days);
+});
+
 test('a failing change log and a lost window of changes are reported', function () {
     $status = [
         'last_ok_at' => '2026-09-25T10:00:00Z',

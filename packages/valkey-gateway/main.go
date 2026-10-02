@@ -469,6 +469,7 @@ func (g *gateway) serveAPI() {
 	mux.HandleFunc("DELETE /tenants/{id}", g.auth(g.deleteTenant))
 	mux.HandleFunc("POST /tenants/{id}/sleep", g.auth(g.sleepTenant))
 	mux.HandleFunc("POST /tenants/{id}/restore", g.auth(g.restoreTenant))
+	mux.HandleFunc("POST /tenants/{id}/backup-days", g.auth(g.setBackupDays))
 	mux.HandleFunc("GET /tenants/{id}/backup", g.auth(g.backupStatus))
 	mux.HandleFunc("GET /tenants/{id}/stats", g.auth(g.databaseStats))
 	mux.HandleFunc("GET /tenants/{id}/slowlog", g.auth(g.slowlog))
@@ -649,6 +650,36 @@ func (g *gateway) restoreTenant(w http.ResponseWriter, r *http.Request) {
 
 // backupStatus relays the database agent's last backup result. The pod
 // stays up while the database sleeps, so this answers either way.
+// setBackupDays changes a database's backup retention (its plan changed):
+// the record, for pods made later, and the running pod's agent, which prunes
+// to it from its next backup. A pod that isn't up reads the record when made.
+func (g *gateway) setBackupDays(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Days int `json:"days"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Days < 1 || body.Days > 365 {
+		http.Error(w, "days must be 1-365", http.StatusUnprocessableEntity)
+		return
+	}
+	t, err := g.getTenantRecord(r.Context(), r.PathValue("id"))
+	if err != nil || !isDatabase(t.Engine) {
+		http.Error(w, "not a database", http.StatusNotFound)
+		return
+	}
+	t.BackupDays = body.Days
+	if err := g.saveTenant(r.Context(), *t); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if pod, ok := g.databasePod(r.Context(), t.ID); ok {
+		if err := g.agent(pod.Status.PodIP, "/retention", map[string]int{"days": body.Days}); err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]int{"backup_days": body.Days})
+}
+
 func (g *gateway) backupStatus(w http.ResponseWriter, r *http.Request) {
 	pod, ok := g.databasePod(r.Context(), r.PathValue("id"))
 	if !ok || pod.Status.PodIP == "" {
