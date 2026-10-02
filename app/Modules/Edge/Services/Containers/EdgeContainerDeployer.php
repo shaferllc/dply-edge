@@ -1148,7 +1148,11 @@ JS;
                 ? "[dply:step] publish\nImage pushed. Instances start the new version on their next request.\n"
                 : "[dply:step] publish\nImage pushed. Waiting for Dply Edge to roll the container out.\n"));
             $mark('production deploy');
-            $rollout = $doScheduled ? ['settled' => true, 'ok' => true] : app(EdgeContainerRollout::class)->await($site, $log);
+            // Handed off, production only has to carry its usual load before
+            // visitors go back: waiting for every pre-warmed instance ran the
+            // whole 180s budget on 2026-10-01.
+            $readyAt = $handedOff ? max(1, (int) $settings['min_instances'], (int) EdgeContainerInstances::snapshot($site)['running']) : 0;
+            $rollout = $doScheduled ? ['settled' => true, 'ok' => true] : app(EdgeContainerRollout::class)->await($site, $log, readyAt: $readyAt);
             // Wrangler took the reused image but Cloudflare could not start it:
             // build it the usual way once, while visitors are still on the copy.
             if ($rollout['settled'] && ! $rollout['ok'] && $dockerfileImage !== null && isset($deploy) && File::exists($project.'/secrets.rebuild.json')) {

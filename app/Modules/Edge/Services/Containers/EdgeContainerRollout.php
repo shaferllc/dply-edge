@@ -84,7 +84,9 @@ final class EdgeContainerRollout
             // Enough healthy instances for what comes next (the check copy: one to
             // check, or as many as production serves before visitors move over).
             // The rest keep starting; waiting for all of them cost ~40s a deploy.
-            if ($readyAt > 0 && (int) ($last['healthy'] ?? 0) >= $readyAt) {
+            // Counted only once the rollout reaches 100%: before that, healthy
+            // instances may still be on the old image.
+            if ($readyAt > 0 && ($progress['percentage'] ?? 100) >= 100 && (int) ($last['healthy'] ?? 0) >= $readyAt) {
                 $log(sprintf("Ready: %d healthy instance(s) — %s\n", (int) $last['healthy'], (string) json_encode($last)));
 
                 return ['ok' => true, 'settled' => true, 'health' => $last, 'version' => $version, 'reason' => null];

@@ -217,15 +217,19 @@ test('the check copy hands production the image it pushed, as a full registry re
 });
 
 test('the rollout wait can stop at enough healthy instances, not all of them', function () {
-    Http::fake([
-        '*/containers/applications' => Http::response(['success' => true, 'result' => [['id' => 'a1', 'name' => 'app-x']]]),
-        '*/containers/applications/a1/rollouts' => Http::response(['success' => true, 'result' => [['status' => 'progressing', 'progress' => ['percentage' => 40]]]]),
-        '*/containers/applications/a1' => Http::response(['success' => true, 'result' => ['version' => 2, 'health' => ['instances' => ['healthy' => 2, 'starting' => 3, 'failed' => 0]]]]),
-    ]);
-    $log = [];
-    $rollout = app(\App\Modules\Edge\Services\Containers\EdgeContainerRollout::class)->await($this->site, function (string $l) use (&$log): void {
-        $log[] = $l;
-    }, timeoutSeconds: 10, pollSeconds: 0, application: 'app-x', readyAt: 2);
+    $percent = 100;
+    Http::fake(function (Request $r) use (&$percent) {
+        return match (true) {
+            str_ends_with($r->url(), '/containers/applications') => Http::response(['success' => true, 'result' => [['id' => 'a1', 'name' => 'app-x']]]),
+            str_ends_with($r->url(), '/containers/applications/a1/rollouts') => Http::response(['success' => true, 'result' => [['status' => 'progressing', 'progress' => ['percentage' => $percent]]]]),
+            default => Http::response(['success' => true, 'result' => ['version' => 2, 'health' => ['instances' => ['healthy' => 2, 'starting' => 3, 'failed' => 0]]]]),
+        };
+    });
+    $await = fn (int $timeout) => app(\App\Modules\Edge\Services\Containers\EdgeContainerRollout::class)->await($this->site, static function (): void {}, timeoutSeconds: $timeout, pollSeconds: 0, application: 'app-x', readyAt: 2);
 
-    expect($rollout['ok'])->toBeTrue()->and(implode('', $log))->toContain('Ready: 2 healthy');
+    expect($await(10)['ok'])->toBeTrue();
+
+    // Mid-rollout, healthy instances may still be the old image: keep waiting.
+    $percent = 40;
+    expect($await(1)['ok'])->toBeFalse();
 });
