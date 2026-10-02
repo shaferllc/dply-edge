@@ -104,7 +104,33 @@ class Resources extends Component
 
     public function closeCommand(): void
     {
-        $this->reset('commandFor', 'opCommand', 'opTarget', 'opWake', 'opRuns', 'accessReason', 'inspect');
+        $this->reset('commandFor', 'opCommand', 'opTarget', 'opWake', 'opRuns', 'accessReason', 'inspect', 'terminalUrl');
+    }
+
+    /** A signed wss:// URL while the operator terminal is open (T-041). */
+    public ?string $terminalUrl = null;
+
+    /**
+     * An interactive shell in one container: only inside a data-access
+     * session, logged here with its reason and, keystroke by keystroke, by
+     * the agent into the app's own logs.
+     */
+    public function openTerminal(): void
+    {
+        $row = $this->row('app', (string) $this->commandFor);
+        $access = $this->access($row['id']);
+        abort_if($access === null, 403);
+        $site = Site::query()->findOrFail($row['siteId']);
+        $targets = EdgeContainerCommands::targets($site);
+        $target = $this->opTarget !== '' && $this->opTarget !== 'every' ? $this->opTarget : (string) array_key_first($targets);
+        abort_unless(isset($targets[$target]), 422);
+        $this->audit($row, 'support.container.terminal', ['target' => $target, 'reason' => $access['reason']]);
+        $this->terminalUrl = EdgeContainerAgent::terminalUrl($site, $target, 'dply-support:'.auth()->id());
+    }
+
+    public function closeTerminal(): void
+    {
+        $this->terminalUrl = null;
     }
 
     /** @var array{kind: string, results: array<string, array<string, mixed>>}|null processes or env, per target */

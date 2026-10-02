@@ -2391,6 +2391,27 @@ export class App extends Container {
     this.renewActivityTimeout();
     try {
       const res = await this.container.getTcpPort(AGENT_PORT).fetch(request.url.replace('https:', 'http:'), request);
+      // The terminal: pipe both ways, in flight until either side closes.
+      if (res.webSocket) {
+        const agent = res.webSocket;
+        const [client, server] = Object.values(new WebSocketPair());
+        let settled = false;
+        const settle = () => { if (!settled) { settled = true; this.decrementInflight(); } };
+        agent.accept();
+        server.accept();
+        const pipe = (from, to) => from.addEventListener('message', (event) => {
+          this.renewActivityTimeout();
+          try { to.send(event.data); } catch { from.close(1011, 'forward failed'); }
+        });
+        pipe(server, agent);
+        pipe(agent, server);
+        const code = (c) => (c === 1005 || c === 1006 ? 1000 : c);
+        server.addEventListener('close', (e) => { settle(); agent.close(code(e.code), e.reason); });
+        agent.addEventListener('close', (e) => { settle(); server.close(code(e.code), e.reason); });
+        server.addEventListener('error', () => { settle(); agent.close(1011, 'browser error'); });
+        agent.addEventListener('error', () => { settle(); server.close(1011, 'agent error'); });
+        return new Response(null, { status: 101, webSocket: client });
+      }
       if (res.body === null) {
         this.decrementInflight();
         return res;
@@ -2844,13 +2865,42 @@ function stickyId(request) {
 // Not through proxy(): no retries, no error pages, no reply metering. Only
 // containers this app runs: a jobs container without DEDICATED_JOBS, or an
 // instance past INSTANCES, would start a new one.
-function agentFetch(env, request, url) {
+function agentTarget(url) {
   const target = url.searchParams.get('target') || (DEDICATED_JOBS ? 'jobs' : 'instance-0');
   const index = /^instance-(\d+)$/.exec(target);
   const known = (target === 'jobs' && DEDICATED_JOBS) || (index !== null && Number(index[1]) < INSTANCES) || /^worker-\d+$/.test(target);
-  if (!known) return new Response('This app has no container named ' + target + '.', { status: 404 });
+  return known ? target : null;
+}
+
+function agentFetch(env, request, url) {
+  const target = agentTarget(url);
+  if (target === null) return new Response('This app has no container with that name.', { status: 404 });
   const forward = new Request('http://agent' + url.pathname.slice('/_dply/agent'.length), request);
   forward.headers.set('x-dply-agent', '1');
+  return getContainer(env.APP, target).fetch(forward);
+}
+
+// ?target&exp&op&cols&rows&sig, sig = hex HMAC-SHA256(DPLY_QUEUE_TOKEN,
+// "terminal:{target}:{exp}:{op}"), valid for two minutes at most. The
+// Worker then adds the token itself, so the agent checks it as always.
+async function terminalFetch(env, request, url) {
+  if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') return new Response('WebSocket only.', { status: 426 });
+  const target = agentTarget(url);
+  const exp = Number(url.searchParams.get('exp'));
+  const op = url.searchParams.get('op') ?? '';
+  const now = Math.floor(Date.now() / 1000);
+  if (target === null || !env.DPLY_QUEUE_TOKEN || !(exp > now && exp <= now + 120)) return new Response('Forbidden', { status: 403 });
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(env.DPLY_QUEUE_TOKEN), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode('terminal:' + target + ':' + exp + ':' + op)));
+  const expected = Array.from(mac, (b) => b.toString(16).padStart(2, '0')).join('');
+  const given = url.searchParams.get('sig') ?? '';
+  let diff = given.length ^ expected.length;
+  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ given.charCodeAt(i % (given.length || 1));
+  if (diff !== 0) return new Response('Forbidden', { status: 403 });
+  const forward = new Request('http://agent/terminal?cols=' + encodeURIComponent(url.searchParams.get('cols') ?? '') + '&rows=' + encodeURIComponent(url.searchParams.get('rows') ?? ''), request);
+  forward.headers.set('x-dply-agent', '1');
+  forward.headers.set('x-dply-queue-token', env.DPLY_QUEUE_TOKEN);
+  forward.headers.set('x-dply-operator', op);
   return getContainer(env.APP, target).fetch(forward);
 }
 
@@ -3179,6 +3229,11 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     reviveWorkers(env, ctx);
+    // The operator terminal (EdgeContainerAgent::terminalUrl): a browser
+    // WebSocket can't carry the token header, so it carries a signed ticket.
+    if (url.pathname === '/_dply/agent/terminal') {
+      return terminalFetch(env, request, url);
+    }
     if (url.pathname.startsWith('/_dply/')) {
       if (request.headers.get('x-dply-queue-token') !== env.DPLY_QUEUE_TOKEN) {
         return new Response('Forbidden', { status: 403 });

@@ -140,6 +140,7 @@ final class AuditActionMeta
             'site.edge.command' => ['label' => 'Command run in a container', 'icon' => 'heroicon-o-command-line', 'tone' => 'info'],
             'support.container.command' => ['label' => 'dply support ran a command in a container', 'icon' => 'heroicon-o-lifebuoy', 'tone' => 'warning'],
             'support.container.processes' => ['label' => 'dply support looked at running processes', 'icon' => 'heroicon-o-lifebuoy', 'tone' => 'info'],
+            'support.container.terminal' => ['label' => 'dply support opened a terminal in a container', 'icon' => 'heroicon-o-lifebuoy', 'tone' => 'warning'],
             'support.container.env' => ['label' => 'dply support looked at the environment', 'icon' => 'heroicon-o-lifebuoy', 'tone' => 'warning'],
             'support.access.start' => ['label' => 'dply support opened access to your data', 'icon' => 'heroicon-o-lifebuoy', 'tone' => 'warning'],
             'support.database.query' => ['label' => 'dply support queried a database', 'icon' => 'heroicon-o-lifebuoy', 'tone' => 'warning'],

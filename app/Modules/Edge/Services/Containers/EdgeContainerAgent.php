@@ -145,6 +145,21 @@ final class EdgeContainerAgent
         return $last;
     }
 
+    /**
+     * A wss:// URL for the operator terminal in one container, good for
+     * $ttl seconds (at most 120, the Worker's limit). Signed with the app's
+     * queue token; the Worker checks it (terminalFetch). $operator is shown
+     * in the agent's log lines for the session.
+     */
+    public static function terminalUrl(Site $site, string $target, string $operator, int $cols = 120, int $rows = 32, int $ttl = 60): string
+    {
+        $exp = time() + min(120, max(10, $ttl));
+        $sig = hash_hmac('sha256', 'terminal:'.$target.':'.$exp.':'.$operator, EdgeContainerDeployer::queueToken($site));
+        $base = preg_replace('#^http#', 'ws', rtrim((string) $site->edgeLiveUrl(), '/'));
+
+        return $base.'/_dply/agent/terminal?'.http_build_query(['target' => $target, 'exp' => $exp, 'op' => $operator, 'cols' => $cols, 'rows' => $rows, 'sig' => $sig]);
+    }
+
     /** Whether the app's live deployment was built with the agent. */
     public static function live(Site $site): bool
     {

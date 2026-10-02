@@ -16,6 +16,7 @@ import {
 } from './lazy-load.js';
 import { registerDeployPipelineWorkspace } from './deploy-pipeline-dnd.js';
 import { registerDeployPill } from './deploy-pill.js';
+import { registerTerminal } from './terminal.js';
 import { registerRealtimeConsole } from './realtime-console.js';
 import { registerEdgeServedFrom } from './edge-served-from.js';
 import {
@@ -190,6 +191,7 @@ document.addEventListener('alpine:init', () => {
 
     registerDeployPipelineWorkspace(window.Alpine);
     registerDeployPill(window.Alpine);
+    registerTerminal(window.Alpine);
     registerFeedbackSidebar(window.Alpine);
     registerRealtimeConsole(window.Alpine);
     registerEdgeServedFrom(window.Alpine);

@@ -14,6 +14,7 @@ use App\Models\Site;
 use App\Models\User;
 use App\Modules\Edge\Jobs\RunContainerCommandJob;
 use App\Modules\Edge\Services\Containers\EdgeContainerCommands;
+use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -130,4 +131,24 @@ test('operators see processes and memory, and env values only inside a session',
     $env = AuditLog::query()->where('action', 'support.container.env')->orderBy('created_at')->get();
     expect($env->pluck('new_values.revealed')->all())->toBe([false, true])
         ->and(AuditLog::query()->where('action', 'support.container.processes')->exists())->toBeTrue();
+});
+
+test('the operator terminal needs a session, is logged, and gets a short-lived signed URL the worker checks', function () {
+    $admin = User::factory()->create();
+
+    Livewire::actingAs($admin)->test(AdminResources::class)
+        ->call('openCommand', (string) $this->site->id)
+        ->call('openTerminal')->assertForbidden();
+
+    $component = Livewire::actingAs($admin)->test(AdminResources::class)
+        ->call('openCommand', (string) $this->site->id)
+        ->set('accessReason', 'Ticket 11: stuck migration')->call('startAccess')
+        ->call('openTerminal');
+
+    $url = $component->get('terminalUrl');
+    parse_str((string) parse_url($url, PHP_URL_QUERY), $q);
+    expect($url)->toStartWith('wss://shop.on-dply.live/_dply/agent/terminal?')
+        ->and((int) $q['exp'])->toBeGreaterThan(time())->toBeLessThanOrEqual(time() + 120)
+        ->and($q['sig'])->toBe(hash_hmac('sha256', 'terminal:'.$q['target'].':'.$q['exp'].':'.$q['op'], EdgeContainerDeployer::queueToken($this->site)))
+        ->and(AuditLog::query()->where('action', 'support.container.terminal')->value('new_values')['reason'])->toBe('Ticket 11: stuck migration');
 });

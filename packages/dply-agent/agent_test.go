@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
 var (
@@ -182,5 +185,45 @@ func TestReadProcessesOnLinux(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("this test process is not listed: %+v", ps)
+	}
+}
+
+func TestTerminalRunsAShellOverAWebSocket(t *testing.T) {
+	if _, err := os.Stat("/dev/ptmx"); err != nil {
+		t.Skip("no pseudo-terminals here")
+	}
+	srv := httptest.NewServer(handler(testReaper(), "secret"))
+	defer srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http")+"/terminal", &websocket.DialOptions{HTTPHeader: http.Header{"x-dply-queue-token": {"secret"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.CloseNow()
+	_ = conn.Write(ctx, websocket.MessageText, []byte(`{"t":"i","d":"echo dply-$((40+2))\n"}`))
+	var seen string
+	for !strings.Contains(seen, "dply-42") {
+		_, data, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatalf("no echo; saw %q (%v)", seen, err)
+		}
+		seen += string(data)
+	}
+	_ = conn.Write(ctx, websocket.MessageText, []byte(`{"t":"i","d":"exit\n"}`))
+	for {
+		if _, _, err := conn.Read(ctx); err != nil {
+			break // the agent closed it when the shell exited
+		}
+	}
+}
+
+func TestTerminalNeedsTheToken(t *testing.T) {
+	srv := httptest.NewServer(handler(testReaper(), "secret"))
+	defer srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, res, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http")+"/terminal", nil); err == nil || res.StatusCode != http.StatusForbidden {
+		t.Fatalf("got err=%v", err)
 	}
 }

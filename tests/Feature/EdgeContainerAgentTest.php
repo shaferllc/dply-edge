@@ -193,3 +193,17 @@ test('image references parse like Docker\'s', function (string $ref, array $part
     ['ghcr.io/acme/app:1.2', ['ghcr.io', 'acme/app', '1.2']],
     ['localhost:5000/app@sha256:abc', ['localhost:5000', 'app', 'sha256:abc']],
 ]);
+
+test('the worker serves the ticketed terminal before its token check and pipes the socket', function () {
+    $dir = sys_get_temp_dir().'/dply-agent-worker-'.bin2hex(random_bytes(4));
+    (new EdgeContainerDeployer)->scaffold($dir, $this->site, '/x/Dockerfile.dply', 8080, []);
+    $worker = File::get($dir.'/src/index.js');
+    File::deleteDirectory($dir);
+
+    $terminal = strpos($worker, "if (url.pathname === '/_dply/agent/terminal')");
+    $tokenCheck = strpos($worker, "if (request.headers.get('x-dply-queue-token') !== env.DPLY_QUEUE_TOKEN)");
+    expect($terminal)->not->toBeFalse()->toBeLessThan($tokenCheck)
+        ->and($worker)->toContain("'terminal:' + target + ':' + exp + ':' + op")
+        ->and($worker)->toContain('exp > now && exp <= now + 120')
+        ->and($worker)->toContain('if (res.webSocket) {');
+});

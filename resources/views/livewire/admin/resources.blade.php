@@ -72,7 +72,19 @@
                     <x-primary-button type="submit" size="sm">{{ __('Run') }}</x-primary-button>
                     <x-secondary-button size="sm" wire:click="showProcesses">{{ __('Processes') }}</x-secondary-button>
                     <x-secondary-button size="sm" wire:click="showEnv">{{ __('Environment') }}</x-secondary-button>
+                    @if ($access !== null)
+                        <x-secondary-button size="sm" wire:click="openTerminal">{{ __('Terminal') }}</x-secondary-button>
+                    @endif
                 </form>
+                @if ($terminalUrl)
+                    <div class="mt-3" wire:key="terminal-{{ md5($terminalUrl) }}" x-data="dplyTerminal(@js($terminalUrl))" wire:ignore.self>
+                        <div class="flex items-center justify-between rounded-t-lg bg-[#0b0d0a] px-3 py-1.5">
+                            <span class="font-mono text-2xs text-[#a4ab99]">{{ __('Terminal') }} · <span x-text="status"></span> · {{ __('everything typed is logged in the app\'s logs') }}</span>
+                            <button type="button" wire:click="closeTerminal" class="text-xs text-[#a4ab99] hover:text-[#f4f7ee]">{{ __('Close') }}</button>
+                        </div>
+                        <div x-ref="screen" wire:ignore class="h-96 overflow-hidden rounded-b-lg bg-[#0b0d0a] p-2"></div>
+                    </div>
+                @endif
                 @if ($inspect)
                     <div @class(['mt-3 grid gap-3', 'lg:grid-cols-2' => count($inspect['results']) > 1])>
                         @foreach ($inspect['results'] as $target => $data)
