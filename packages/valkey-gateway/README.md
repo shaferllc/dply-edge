@@ -107,17 +107,20 @@ Most of what is left is the Kubernetes API list and patch in `adopt`
 (`DEBUG_TIMING=1` logs each step). An informer holding the pool in memory
 would remove the list.
 
-## Not done yet
+## Pool and failover
 
-- An informer for the pool, to take the Kubernetes list off the wake path.
-- Pool size per class should follow demand. It is a fixed `POOL` setting today.
-- Moving apps off the old hosted Redis. The Laravel client, Resources UI, and per-second billing are in.
-- A production cluster (DOKS), with R2 credentials and a real wildcard certificate.
+- Warm pool pods come from a watch (`poolwatch.go`), so a wake that adopts one
+  doesn't wait on a Kubernetes LIST. Adoption stays a compare-and-swap PATCH.
+- `POOL` is each size's floor. A size keeps as many warm pods as it handed out
+  in the last 15 minutes, up to four times its floor.
 - Two gateways run active/standby (`leader.go`): they share a Lease, the holder
   labels its pod `role=active`, and the Service only sends traffic there, so the
   in-memory idle tracking stays correct. Takeover: ~5 s on shutdown, ~15 s when the
   active one freezes or its node dies (verified locally 2026-09-25 with SIGTERM,
   SIGKILL and a paused container). Active/active would need shared activity tracking.
+- Production runs on DOKS nyc3 (`deploy/valkey`): wildcard certificate for
+  `*.cache.dply.io` / `*.db.dply.io`, R2 snapshots, ports 6380 (TCP), 8443
+  (REST) and the database ports on the load balancer.
 
 ## Databases (T-020)
 

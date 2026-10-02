@@ -20,7 +20,8 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["pods", "secrets", "persistentvolumeclaims"]
-    verbs: ["get", "list", "create", "update", "patch", "delete", "deletecollection"]
+    # watch: the warm-pool informer (poolwatch.go).
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "deletecollection"]
   - apiGroups: [""]
     resources: ["pods/resize"]
     verbs: ["patch"]

@@ -32,6 +32,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
+	listersv1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/rest"
 )
 
@@ -111,6 +112,7 @@ func main() {
 	// takes over at once (leader.go).
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer stop()
+	go g.startPoolWatch(ctx)
 	g.runActive(ctx)
 	go g.flushCommandCounts(ctx)
 	go g.serveAPI()
@@ -138,6 +140,9 @@ type gateway struct {
 	records  tenantCache
 	rest     restPool       // pooled REST connections (rest.go)
 	commands commandCounter // REST commands per tenant, for billing
+	poolMu   sync.Mutex
+	poolPods listersv1.PodLister // warm pool from a watch (poolwatch.go); nil: list from the API
+	demand   poolDemand          // pool pods handed out recently, per size
 }
 
 func (g *gateway) state(id string) *tenantState {

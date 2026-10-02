@@ -334,12 +334,12 @@ func (g *gateway) restore(ctx context.Context, t tenant, ip string) error {
 // can never adopt the same pod.
 func (g *gateway) adopt(ctx context.Context, t tenant) (string, bool) {
 	pods := g.kube.CoreV1().Pods(g.cfg.namespace)
-	list, err := pods.List(ctx, metav1.ListOptions{LabelSelector: "app=dply-valkey-pod,role=pool,memory=" + strconv.Itoa(t.MemoryMB)})
+	warm, err := g.warmPods(ctx, t.MemoryMB)
 	if err != nil {
 		return "", false
 	}
-	for i := range list.Items {
-		p := list.Items[i]
+	for i := range warm {
+		p := warm[i]
 		if p.DeletionTimestamp != nil || p.Status.Phase != corev1.PodRunning || p.Status.PodIP == "" || !podReady(&p) {
 			continue
 		}
@@ -352,6 +352,7 @@ func (g *gateway) adopt(ctx context.Context, t tenant) (string, bool) {
 			}
 			continue
 		}
+		g.demand.recordAdoption(t.MemoryMB, time.Now())
 		return p.Status.PodIP, true
 	}
 	return "", false
@@ -401,7 +402,8 @@ func (g *gateway) start(ctx context.Context, t tenant) (string, error) {
 func (g *gateway) fillPool(ctx context.Context) {
 	pods := g.kube.CoreV1().Pods(g.cfg.namespace)
 	g.trimPool(ctx)
-	for mb, want := range g.cfg.pool {
+	for mb, floor := range g.cfg.pool {
+		want := g.demand.want(mb, floor, time.Now())
 		list, err := pods.List(ctx, metav1.ListOptions{LabelSelector: "app=dply-valkey-pod,role=pool,memory=" + strconv.Itoa(mb)})
 		if err != nil {
 			continue
@@ -440,7 +442,7 @@ func (g *gateway) trimPool(ctx context.Context) {
 			continue
 		}
 		mb, _ := strconv.Atoi(p.Labels["memory"])
-		if kept[mb] < g.cfg.pool[mb] {
+		if kept[mb] < g.demand.want(mb, g.cfg.pool[mb], time.Now()) {
 			kept[mb]++
 			continue
 		}
