@@ -1,0 +1,15 @@
+{
+  "blockedBy": [],
+  "citesRulings": [
+    "r-5w7h5d0b902aeq0n"
+  ],
+  "completedDate": null,
+  "createdDate": "2026-10-02",
+  "description": "Through the agent: process list, memory per process and container, the env the container booted with (secrets masked; revealed only inside a data-access session). Phase 6 of r-5w7h5d0b902aeq0n.",
+  "id": "T-040",
+  "order": 190,
+  "phase": null,
+  "status": "open",
+  "title": "Operator: processes, memory and booted env per container",
+  "type": "feature"
+}

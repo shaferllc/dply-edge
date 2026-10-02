@@ -13,6 +13,7 @@ use App\Models\Organization;
 use App\Models\Site;
 use App\Modules\Billing\Services\EdgeSiteBillingAnalytics;
 use App\Modules\Edge\Jobs\VerifyDatabaseBackupJob;
+use App\Modules\Edge\Services\Containers\EdgeContainerCommands;
 use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeContainerInstances;
@@ -87,6 +88,63 @@ class Resources extends Component
     /** @var array<string, mixed>|null */
     public ?array $queryResult = null;
 
+    /** The container app the command panel is open for (its site id). */
+    public ?string $commandFor = null;
+
+    public string $opCommand = '';
+
+    /** A target, '' for the app's default, or 'every' for every awake container. */
+    public string $opTarget = '';
+
+    public bool $opWake = false;
+
+    /** @var array<string, string> target => run id */
+    public array $opRuns = [];
+
+    /**
+     * Operator commands that only look at the machine run without a session;
+     * anything else could read customer data and needs one (a reason, logged).
+     */
+    public const INFRA_COMMANDS = '/^(ps|df|free|uptime|nproc|top -b -n ?1)(\s+-?[a-zA-Z]+)*$/';
+
+    public function openCommand(string $id): void
+    {
+        $row = $this->row('app', $id);
+        abort_unless($row['engine'] === 'container', 422);
+        $this->closeQuery();
+        [$this->commandFor, $this->opRuns, $this->accessReason, $this->opTarget] = [$id, [], '', ''];
+    }
+
+    public function closeCommand(): void
+    {
+        $this->reset('commandFor', 'opCommand', 'opTarget', 'opWake', 'opRuns', 'accessReason');
+    }
+
+    public function runOpCommand(): void
+    {
+        $row = $this->row('app', (string) $this->commandFor);
+        $command = trim($this->opCommand);
+        abort_if($command === '' || mb_strlen($command) > 4000, 422);
+        $access = $this->access($row['id']);
+        $infra = preg_match(self::INFRA_COMMANDS, $command) === 1;
+        abort_if(! $infra && $access === null, 403);
+        $site = Site::query()->findOrFail($row['siteId']);
+        $targets = EdgeContainerCommands::targets($site);
+        $context = $access !== null ? ['reason' => $access['reason']] : [];
+        $this->opRuns = [];
+        if ($this->opTarget === 'every') {
+            // Never wakes anything: a fleet-wide look at what is running now.
+            foreach (array_keys($targets) as $target) {
+                $this->opRuns[$target] = EdgeContainerCommands::start($site, $command, $target, 120, false, auth()->user(), true, $context);
+            }
+
+            return;
+        }
+        abort_if($this->opTarget !== '' && ! isset($targets[$this->opTarget]), 422);
+        $target = $this->opTarget !== '' ? $this->opTarget : null;
+        $this->opRuns[$target ?? 'default'] = EdgeContainerCommands::start($site, $command, $target, 300, $this->opWake, auth()->user(), true, $context);
+    }
+
     public function mount(): void
     {
         $this->mountAuthorizesPlatformAdmin();
@@ -137,6 +195,7 @@ class Resources extends Component
     public function openQuery(string $id): void
     {
         $this->row('database', $id);
+        $this->reset('commandFor', 'opCommand', 'opTarget', 'opWake', 'opRuns');
         [$this->queryFor, $this->queryResult, $this->accessReason] = [$id, null, ''];
     }
 
@@ -145,10 +204,16 @@ class Resources extends Component
         $this->reset('queryFor', 'queryResult', 'accessReason', 'querySql', 'queryCollection', 'queryFilter');
     }
 
+    /** @return array<string, array<string, mixed>> target => run, for the open command panel */
+    public function opRunsState(): array
+    {
+        return array_filter(array_map(EdgeContainerCommands::read(...), $this->opRuns));
+    }
+
     /** Starts a data-access session: a reason, 30 minutes, logged and shown to the customer. */
     public function startAccess(): void
     {
-        $row = $this->row('database', (string) $this->queryFor);
+        $row = $this->queryFor !== null ? $this->row('database', $this->queryFor) : $this->row('app', (string) $this->commandFor);
         $this->resetErrorBag('accessReason');
         $reason = trim($this->accessReason);
         if (mb_strlen($reason) < 5) {

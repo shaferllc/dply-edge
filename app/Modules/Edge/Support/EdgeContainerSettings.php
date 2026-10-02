@@ -83,7 +83,7 @@ final class EdgeContainerSettings
      * The stored instance size is kept. `$phpServer` is the detected PHP
      * server from deploy; it does not change the size the operator picked.
      *
-     * @return array{instance_type: string, max_instances: int, min_instances: int, sleep_after: string, migrate_on_boot: bool, worker_mode: bool, jurisdiction: string, regions: list<string>, scheduler: bool, rollout_mode: string, rollout_step_percentage: list<int>, rollout_active_grace_period: int, scheduling: string}
+     * @return array{instance_type: string, max_instances: int, min_instances: int, sleep_after: string, migrate_on_boot: bool, worker_mode: bool, jurisdiction: string, regions: list<string>, scheduler: bool, sticky_sessions: bool, dedicated_jobs: bool, jobs_always_on: bool, worker_instances: int, schedules: list<array<string, mixed>>, rollout_mode: string, release_bundle: bool, wake_copy: bool, scheduling: string, rollout_step_percentage: list<int>, rollout_active_grace_period: int}
      */
     public static function for(Site $site, string $phpServer = 'fpm'): array
     {

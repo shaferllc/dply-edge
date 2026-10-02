@@ -285,6 +285,10 @@ final class SiteSettingsSidebar
 
         $items[] = ['id' => 'deploy-triggers', 'label' => __('Deploy triggers'), 'icon' => 'heroicon-o-bolt', 'group' => 'ship'];
         $items[] = ['id' => 'logs', 'label' => __('Build & deploy logs'), 'icon' => 'heroicon-o-clipboard-document-list', 'group' => 'ship'];
+        // Commands in the app's containers, through the dply agent.
+        if (! $isPreviewChild && ($site->edgeMeta()['runtime_mode'] ?? '') === 'container') {
+            $items[] = ['id' => 'console', 'label' => __('Console'), 'icon' => 'heroicon-o-command-line', 'group' => 'ship'];
+        }
 
         // ── Traffic ──────────────────────────────────────────────────────
         $items[] = ['id' => 'routing', 'label' => __('Routing'), 'icon' => 'heroicon-o-arrows-right-left', 'group' => 'traffic'];

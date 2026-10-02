@@ -1,0 +1,15 @@
+{
+  "blockedBy": [],
+  "citesRulings": [
+    "r-5w7h5d0b902aeq0n"
+  ],
+  "completedDate": null,
+  "createdDate": "2026-10-02",
+  "description": "EdgeContainerDeployer::secrets() merges EdgeMeter::env($site) (DPLY_METER_KEY) into the container's env, where app code (and soon the Console) can read it and sign forged usage reports. Keep it in the Worker, which does the metering. From r-5w7h5d0b902aeq0n Q6.",
+  "id": "T-042",
+  "order": 210,
+  "phase": null,
+  "status": "open",
+  "title": "Move the AI meter key out of the container env",
+  "type": "task"
+}

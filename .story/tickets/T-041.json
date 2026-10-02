@@ -1,0 +1,15 @@
+{
+  "blockedBy": [],
+  "citesRulings": [
+    "r-5w7h5d0b902aeq0n"
+  ],
+  "completedDate": null,
+  "createdDate": "2026-10-02",
+  "description": "Interactive PTY through the Worker to the agent: tinker, rails c, bash, top. Only inside a data-access session; idle timeout; session recorded to the audit log. Phase 7 of r-5w7h5d0b902aeq0n.",
+  "id": "T-041",
+  "order": 200,
+  "phase": null,
+  "status": "open",
+  "title": "Operator terminal (xterm.js over WebSocket)",
+  "type": "feature"
+}

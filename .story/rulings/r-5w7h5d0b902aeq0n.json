@@ -1,0 +1,16 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-10-02",
+  "id": "r-5w7h5d0b902aeq0n",
+  "recordedBy": {
+    "client": "claude",
+    "id": "9eda6455-53d1-494e-a93e-0efcf75bff92"
+  },
+  "scopeTags": [
+    "resource-management",
+    "operator-console",
+    "container-agent"
+  ],
+  "supersedes": null,
+  "text": "Operator + customer resource management (2026-10-02, owner accepted each recommendation): (1) Both a customer view and a more advanced operator view. (2) Covers both every attached resource org-wide and the inside of running containers. (3) Commands go through a small dply agent (Go) in every container image, not the Laravel package; the package keeps its database buttons. (4) One-off commands with streamed output first, then an interactive terminal for operators. (5) Commands default to the jobs container else a web instance, with a picker; waking a sleeping app is warned about; operators also get 'every instance' and 'don't wake'. (6) Customers may run any command in their own app's containers; operators get extra reach (any org, fan-out, env reveal, terminal), not extra commands; customer runs go to the app's activity, operator runs to the platform audit log plus a customer-visible notice. Separately, move the AI meter key out of the container env. (7) Customer Projects → Resources is an index of every resource kind linking to the existing panels; container rows open the command runner; the operator version is the same page across all orgs. (8) Operator infrastructure actions are one click and logged; access to customer data (database console, env secrets, tinker, terminal) needs a reason, opens a 30-minute session for that app, logs every query/command, and shows the customer a notice; no silent mode; update the DPA wording. (9) Customer Dockerfiles: wrap the built image with the agent as entrypoint running their original entrypoint/cmd, agent on a private port reached only via /_dply/agent/* with the token; per-app opt-out. (10) Order: operator Resources page read-only, operator actions + data-access sessions, agent + one-off commands, Console tab + operator runner, customer Projects → Resources, processes/memory/env, terminal."
+}

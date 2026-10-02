@@ -1985,7 +1985,7 @@ JS;
         // One trigger for every task: scheduled() works out which are due. Always-on
         // queue workers get it too: scheduled() brings back one that stopped, which
         // nothing else did when the app's scheduler ran inside that worker.
-        if ($crons !== [] || (EdgeContainerSettings::for($site)['worker_instances'] ?? 0) > 0) {
+        if ($crons !== [] || EdgeContainerSettings::for($site)['worker_instances'] > 0) {
             $config['triggers'] = ['crons' => ['* * * * *']];
         }
 

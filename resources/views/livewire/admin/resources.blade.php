@@ -31,6 +31,60 @@
             </div>
         @endif
 
+        @if ($commandFor)
+            @php
+                $access = $this->access($commandFor);
+                $runs = $this->opRunsState();
+                $polling = collect($runs)->contains(fn ($r) => in_array($r['status'], ['queued', 'running'], true));
+                $commandSite = \App\Models\Site::query()->find($commandFor);
+            @endphp
+            <div class="border-b border-brand-ink/10 px-4 py-4" @if ($polling) wire:poll.1s @endif>
+                <div class="flex flex-wrap items-center gap-2">
+                    <span class="text-xs font-semibold uppercase tracking-[0.14em] text-brand-moss">{{ __('Run command') }}</span>
+                    <span class="text-xs text-brand-ink">{{ $commandSite?->name }}</span>
+                    <x-secondary-button size="xs" class="ml-auto" wire:click="closeCommand">{{ __('Close') }}</x-secondary-button>
+                </div>
+                <p class="mt-2 text-xs text-brand-moss">{{ __('ps, df, free, uptime and top run right away. Anything else can read customer data: open a session with a reason first. Every run is logged and shown in the customer\'s activity.') }}</p>
+                @if ($access === null)
+                    <form wire:submit="startAccess" class="mt-2 flex flex-wrap items-start gap-2">
+                        <div class="min-w-0 flex-1">
+                            <input type="text" wire:model="accessReason" placeholder="{{ __('Reason for a session (optional for ps, df, free, uptime, top)') }}" class="dply-input mt-0 w-full" />
+                            <x-input-error :messages="$errors->get('accessReason')" class="mt-1" />
+                        </div>
+                        <x-secondary-button type="submit" size="sm">{{ __('Open session for :minutes minutes', ['minutes' => \App\Livewire\Admin\Resources::ACCESS_MINUTES]) }}</x-secondary-button>
+                    </form>
+                @else
+                    <p class="mt-2 text-xs text-brand-moss">{{ __('Session open until :time · reason: :reason', ['time' => \Illuminate\Support\Carbon::parse($access['until'])->format('H:i'), 'reason' => $access['reason']]) }}</p>
+                @endif
+                <form wire:submit="runOpCommand" class="mt-3 flex flex-wrap items-center gap-2">
+                    <select wire:model="opTarget" class="dply-input mt-0 w-auto">
+                        <option value="">{{ __('Default container') }}</option>
+                        <option value="every">{{ __('Every awake container') }}</option>
+                        @foreach ($commandSite ? \App\Modules\Edge\Services\Containers\EdgeContainerCommands::targets($commandSite) : [] as $key => $label)
+                            <option value="{{ $key }}">{{ $label }}</option>
+                        @endforeach
+                    </select>
+                    <input type="text" wire:model="opCommand" placeholder="ps aux" class="dply-input mt-0 min-w-0 flex-1 font-mono text-sm" autocomplete="off" spellcheck="false" />
+                    <label class="inline-flex items-center gap-1.5 text-xs text-brand-moss">
+                        <input type="checkbox" wire:model="opWake" class="rounded border-brand-ink/20" />
+                        {{ __('Wake if asleep') }}
+                    </label>
+                    <x-primary-button type="submit" size="sm">{{ __('Run') }}</x-primary-button>
+                </form>
+                @if ($runs !== [])
+                    <div @class(['mt-3 grid gap-3', 'lg:grid-cols-2' => count($runs) > 1])>
+                        @foreach ($runs as $target => $run)
+                            <div wire:key="oprun-{{ $target }}">
+                                <p class="font-mono text-2xs text-brand-mist">{{ $target }} · {{ $run['status'] }}@if ($run['result']) · {{ __('exit :code', ['code' => $run['result']['exit']]) }}@endif</p>
+                                @php($text = collect($run['lines'])->map(fn ($l) => $l['out'] ?? $l['err'] ?? '')->implode(''))
+                                <pre class="mt-1 max-h-80 overflow-auto rounded-lg bg-brand-ink px-3 py-2 font-mono text-2xs text-brand-cream">{{ $text !== '' ? $text : ($run['status'] === 'asleep' ? __('(asleep: nothing ran)') : ($run['error'] ?? '…')) }}</pre>
+                            </div>
+                        @endforeach
+                    </div>
+                @endif
+            </div>
+        @endif
+
         @if ($queryFor)
             @php($access = $this->access($queryFor))
             <div class="border-b border-brand-ink/10 px-4 py-4">
@@ -156,6 +210,7 @@
                                     <td class="{{ $td }} whitespace-nowrap text-right">
                                         @if ($group['key'] === 'app' && $row['engine'] === 'container')
                                             <x-secondary-button size="xs" wire:click="liveState('{{ $row['id'] }}')">{{ __('Live state') }}</x-secondary-button>
+                                            <x-secondary-button size="xs" wire:click="openCommand('{{ $row['id'] }}')">{{ __('Run command') }}</x-secondary-button>
                                         @elseif ($group['key'] === 'database')
                                             <x-secondary-button size="xs" wire:click="openQuery('{{ $row['id'] }}')">{{ __('Query') }}</x-secondary-button>
                                             @if ($row['engine'] === 'postgres')

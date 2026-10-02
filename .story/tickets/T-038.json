@@ -1,0 +1,15 @@
+{
+  "blockedBy": [],
+  "citesRulings": [
+    "r-5w7h5d0b902aeq0n"
+  ],
+  "completedDate": null,
+  "createdDate": "2026-10-02",
+  "description": "Workspace Console tab: any command in the app's containers, framework commands suggested; default target jobs container else a web instance, picker for web #n / jobs / worker group; warns before waking a sleeping app. Customer runs go to the app's activity. Operator version adds any org, run on every awake instance side by side, don't-wake, audit log + customer notice. Phase 4 of r-5w7h5d0b902aeq0n.",
+  "id": "T-038",
+  "order": 170,
+  "phase": null,
+  "status": "open",
+  "title": "Console tab (customers) and operator command runner",
+  "type": "feature"
+}

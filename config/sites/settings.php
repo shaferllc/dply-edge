@@ -52,6 +52,7 @@ return [
         'waiting-room' => ['label' => 'Waiting room'],
         'forms' => ['label' => 'Forms'],
         'jobs' => ['label' => 'Jobs'],
+        'console' => ['label' => 'Console'],
         'snippets' => ['label' => 'Snippets'],
         'tags' => ['label' => 'Tags'],
         'container' => ['label' => 'Container'],

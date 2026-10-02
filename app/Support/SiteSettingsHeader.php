@@ -231,6 +231,11 @@ final class SiteSettingsHeader
                 'description' => __('POST to an Edge path; Dply emails the fields — no backend app required.'),
                 'icon' => 'heroicon-o-inbox',
             ],
+            'console' => [
+                'title' => __('Console'),
+                'description' => __('Run a command in one of this app\'s containers and watch its output.'),
+                'icon' => 'heroicon-o-command-line',
+            ],
             'jobs' => [
                 'title' => __('Jobs'),
                 'description' => __('Point middleware/SSR at a queue binding so workers can enqueue background work.'),

@@ -137,6 +137,8 @@ final class AuditActionMeta
             'server.maintenance.disabled' => ['label' => 'Server maintenance ended', 'icon' => 'heroicon-o-play-circle', 'tone' => 'success'],
 
             // Sites
+            'site.edge.command' => ['label' => 'Command run in a container', 'icon' => 'heroicon-o-command-line', 'tone' => 'info'],
+            'support.container.command' => ['label' => 'dply support ran a command in a container', 'icon' => 'heroicon-o-lifebuoy', 'tone' => 'warning'],
             'support.access.start' => ['label' => 'dply support opened access to your data', 'icon' => 'heroicon-o-lifebuoy', 'tone' => 'warning'],
             'support.database.query' => ['label' => 'dply support queried a database', 'icon' => 'heroicon-o-lifebuoy', 'tone' => 'warning'],
             'support.database.verify' => ['label' => 'dply support ran a backup restore check', 'icon' => 'heroicon-o-lifebuoy', 'tone' => 'info'],

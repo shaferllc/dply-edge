@@ -71,6 +71,8 @@
                         @livewire('sites.edge.workspace.waiting-room', ['server' => $server, 'site' => $site], key('edge-section-waiting-room-'.$site->id))
                     @elseif ($section === 'forms')
                         @livewire('sites.edge.workspace.forms', ['server' => $server, 'site' => $site], key('edge-section-forms-'.$site->id))
+                    @elseif ($section === 'console')
+                        @livewire('sites.edge.workspace.console', ['server' => $server, 'site' => $site], key('edge-section-console-'.$site->id))
                     @elseif ($section === 'jobs')
                         @livewire('sites.edge.workspace.jobs', ['server' => $server, 'site' => $site], key('edge-section-jobs-'.$site->id))
                     @elseif ($section === 'snippets')

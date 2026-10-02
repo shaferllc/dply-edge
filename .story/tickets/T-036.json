@@ -1,0 +1,16 @@
+{
+  "blockedBy": [],
+  "citesRulings": [
+    "r-5w7h5d0b902aeq0n"
+  ],
+  "completedDate": "2026-10-02",
+  "createdDate": "2026-10-02",
+  "description": "On the operator Resources page: wake, sleep, resize, force backup, run restore check (one click, audit log). Data access (database console, env secrets, tinker, terminal) asks for a reason, opens a 30-minute per-app session, logs every query/command, shows the customer a notice in the app's activity. Update DPA wording on staff access. Phase 2 of r-5w7h5d0b902aeq0n.",
+  "displayId": "T-036",
+  "id": "T-036",
+  "order": 150,
+  "phase": null,
+  "status": "complete",
+  "title": "Operator actions + guarded data-access sessions",
+  "type": "feature"
+}
