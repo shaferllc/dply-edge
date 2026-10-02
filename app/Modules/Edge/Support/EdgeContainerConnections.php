@@ -524,10 +524,10 @@ final class EdgeContainerConnections
             return true;
         }
         // dply Valkey is on every plan; only the advanced Pro sizes (always
-        // on, append-only file) need a paid plan.
+        // on, append-only file) need a paid plan. Nano is on every plan too.
         $class = (string) ($connection['plan'] ?? EdgeValkey::DEFAULT_CLASS);
 
-        return (EdgeValkey::CLASSES[$class]['sleeps'] ?? true) || (bool) $site->organization?->onAnyPaidPlan();
+        return (EdgeValkey::CLASSES[$class]['sleeps'] ?? true) || EdgeValkey::shared($class) || (bool) $site->organization?->onAnyPaidPlan();
     }
 
     /**

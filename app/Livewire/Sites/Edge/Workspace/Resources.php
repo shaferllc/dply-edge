@@ -316,7 +316,7 @@ class Resources extends Component
         $this->authorize('update', $this->site);
         $rows = EdgeContainerConnections::for($this->site);
         foreach ($rows as $index => $connection) {
-            if ($connection['host'] !== $host || ! EdgeValkey::isTarget($connection['target']) || ! isset(EdgeValkey::offered()[$class])) {
+            if ($connection['host'] !== $host || ! EdgeValkey::isTarget($connection['target']) || ! isset(EdgeValkey::offered($this->site)[$class])) {
                 continue;
             }
             $url = $this->productionRedisUrl();

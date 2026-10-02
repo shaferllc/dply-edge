@@ -69,3 +69,15 @@ test('a Valkey class is kept as the connection plan', function () {
 
     expect($row['plan'])->toBe('pro_25g');
 });
+
+test('nano lives in the shared pool: not persistent, never sleeps, marked shared, and not offered to container apps', function () {
+    Http::fake(['gateway.test/*' => Http::response([])]);
+
+    EdgeValkey::provision(valkeySite(), 'cache', 'nano', 300);
+
+    Http::assertSent(fn ($request): bool => $request['shared'] === true && $request['persistent'] === false && $request['sleep_after'] === 0 && $request['memory_mb'] === 50);
+    $container = valkeySite();
+    $container->forceFill(['meta' => ['edge' => ['runtime_mode' => 'container']]]);
+    expect(EdgeValkey::offered())->toHaveKey('nano')
+        ->and(EdgeValkey::offered($container))->not->toHaveKey('nano');
+});

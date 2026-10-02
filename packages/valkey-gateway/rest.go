@@ -530,7 +530,11 @@ func (g *gateway) restHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	b64 := strings.EqualFold(r.Header.Get("Upstash-Encoding"), "base64") || strings.EqualFold(r.Header.Get("Dply-Encoding"), "base64")
 
-	items, aborted, err := g.execREST(ctx, *t, cmds, transaction, b64)
+	exec := g.execREST
+	if t.Shared {
+		exec = g.execNano
+	}
+	items, aborted, err := exec(ctx, *t, cmds, transaction, b64)
 	if err != nil {
 		log.Printf("tenant %s: rest: %v", id, err)
 		fail(http.StatusServiceUnavailable, "ERR this database is not reachable")

@@ -163,7 +163,7 @@
                     @php $vkTrial = \App\Modules\Edge\Support\EdgeTrialLimits::applies($site->organization); @endphp
                     <x-sheet.field :label="__('Size')" for="connection-valkey-class" :help="$vkTrial ? __('During the trial Valkey runs the smallest size and sleeps when idle.') : null">
                         <select id="connection-valkey-class" wire:model.live="valkeyClass" class="dply-input mt-0">
-                            @foreach (\App\Modules\Edge\Support\EdgeValkey::offered() as $id => $class)
+                            @foreach (\App\Modules\Edge\Support\EdgeValkey::offered($site) as $id => $class)
                                 <option value="{{ $id }}" @disabled($vkTrial && $id !== \App\Modules\Edge\Support\EdgeTrialLimits::valkeyClass())>@if ($vkTrial && $id !== \App\Modules\Edge\Support\EdgeTrialLimits::valkeyClass()){{ __('Available after your trial') }} · @endif{{ __($class['label']) }} · {{ __('up to $:price/mo', ['price' => number_format($class['cap_cents'] / 100, 0)]) }}</option>
                             @endforeach
                         </select>

@@ -39,7 +39,7 @@ final class ValkeyGatewayClient
      *
      * @return array<string, mixed>
      */
-    public function put(string $id, string $password, int $memoryMb, int $sleepAfter, bool $persistent, string $engine = 'valkey', int $diskGb = 0, ?int $backupDays = null): array
+    public function put(string $id, string $password, int $memoryMb, int $sleepAfter, bool $persistent, string $engine = 'valkey', int $diskGb = 0, ?int $backupDays = null, bool $shared = false): array
     {
         $body = [
             'password' => $password,
@@ -47,6 +47,10 @@ final class ValkeyGatewayClient
             'sleep_after' => $sleepAfter,
             'persistent' => $persistent,
         ];
+        if ($shared) {
+            // Nano: keys in the gateway's shared pool, REST only.
+            $body['shared'] = true;
+        }
         if ($engine !== 'valkey') {
             // Databases: a volume of disk_gb that can grow but not shrink.
             $body['engine'] = $engine;

@@ -35,7 +35,7 @@ final class EdgeValkey
      * cover the whole m-2vcpu-16gb node the first one brings up ($84), x1.3.
      * The cap is reached after 672 h awake (28 days).
      *
-     * @var array<string, array{label: string, memory_mb: int, sleeps: bool, price_per_second: float, price_cap_cents: float}>
+     * @var array<string, array{label: string, memory_mb: int, sleeps: bool, price_per_second: float, price_cap_cents: int|float}>
      */
     public const CLASSES = [
         'flex_250m' => ['label' => '0.25 vCPU', 'memory_mb' => 250, 'sleeps' => true, 'price_per_second' => 4.50 / self::CAP_SECONDS, 'price_cap_cents' => 450],
@@ -45,7 +45,27 @@ final class EdgeValkey
         'pro_12g' => ['label' => '4 vCPU', 'memory_mb' => 12288, 'sleeps' => false, 'price_per_second' => 150 / self::CAP_SECONDS, 'price_cap_cents' => 15000],
         'pro_25g' => ['label' => 'Large 25 GB', 'memory_mb' => 25600, 'sleeps' => false, 'price_per_second' => 450 / self::CAP_SECONDS, 'price_cap_cents' => 45000],
         'pro_50g' => ['label' => 'Large 50 GB', 'memory_mb' => 51200, 'sleeps' => false, 'price_per_second' => 600 / self::CAP_SECONDS, 'price_cap_cents' => 60000],
+        // Nano (T-028): keys in the gateway's shared always-on pool, REST only,
+        // never a cold start. Always counts as awake, so it reaches its $1
+        // cap each month; REST commands bill on top as for every size.
+        // memory_mb is the quota the gateway samples against. Real cost: its
+        // share of the always-on pool, ~$0.47 (UnitCosts).
+        'nano' => ['label' => 'Nano · shared, REST only', 'memory_mb' => 50, 'sleeps' => false, 'price_per_second' => 1.00 / self::CAP_SECONDS, 'price_cap_cents' => 100],
     ];
+
+    /** Classes whose keys live in the shared pool (the gateway's nano.go): REST only, no pod. */
+    public const SHARED = ['nano'];
+
+    public static function shared(string $class): bool
+    {
+        return in_array($class, self::SHARED, true);
+    }
+
+    /** Whether a class runs on its own always-on pod with a disk (Pro). */
+    public static function persistent(string $class): bool
+    {
+        return ! (self::CLASSES[$class]['sleeps'] ?? true) && ! self::shared($class);
+    }
 
     /** Seconds awake after which a class reaches its monthly cap (672 h). */
     public const CAP_SECONDS = 672 * 3600;
@@ -74,11 +94,17 @@ final class EdgeValkey
      */
     public const NOT_OFFERED = ['pro_25g', 'pro_50g'];
 
-    /** @return array<string, array{label: string, memory_mb: int, sleeps: bool, price_per_second: float, price_cap_cents: float, per_second: float, cap_cents: float}> */
-    public static function offered(): array
+    /**
+     * Sizes a new store can have. Nano is REST only, so a container app (whose
+     * framework reaches Redis over TCP) is not offered it.
+     *
+     * @return array<string, array{label: string, memory_mb: int, sleeps: bool, price_per_second: float, price_cap_cents: float, per_second: float, cap_cents: float}>
+     */
+    public static function offered(?Site $site = null): array
     {
         $offered = [];
-        foreach (array_diff_key(self::CLASSES, array_flip(self::NOT_OFFERED)) as $key => $class) {
+        $hidden = [...self::NOT_OFFERED, ...(($site?->edgeMeta()['runtime_mode'] ?? '') === 'container' ? self::SHARED : [])];
+        foreach (array_diff_key(self::CLASSES, array_flip($hidden)) as $key => $class) {
             $offered[$key] = self::spec($key);
         }
 
@@ -140,14 +166,14 @@ final class EdgeValkey
      */
     public static function provision(Site $site, string $resource, string $class, int $sleep, ?string $region = null): array
     {
-        $class = isset(self::offered()[$class]) ? $class : self::DEFAULT_CLASS;
+        $class = isset(self::offered($site)[$class]) ? $class : self::DEFAULT_CLASS;
         $spec = self::CLASSES[$class];
         $label = substr(trim((string) preg_replace('/[^a-z0-9]+/', '-', strtolower($resource)), '-'), 0, 12);
         $id = trim(strtolower((string) $site->id).'-'.$label, '-');
         $password = Str::random(40);
         $region = ValkeyRegions::get($region ?? DataRegion::forSite($site))['key'];
 
-        ValkeyGatewayClient::fromConfig($region)->put($id, $password, $spec['memory_mb'], self::sleepAfter($class, $sleep), ! $spec['sleeps']);
+        ValkeyGatewayClient::fromConfig($region)->put($id, $password, $spec['memory_mb'], self::sleepAfter($class, $sleep), self::persistent($class), shared: self::shared($class));
 
         return ['target' => self::target($id, $region), 'url' => self::url($id, $password, $region)];
     }
@@ -157,7 +183,7 @@ final class EdgeValkey
     {
         $spec = self::CLASSES[$class] ?? self::CLASSES[self::DEFAULT_CLASS];
         $password = rawurldecode((string) (parse_url($url, PHP_URL_PASS) ?? ''));
-        ValkeyGatewayClient::fromConfig(self::region($target))->put(self::tenantId($target), $password, $spec['memory_mb'], self::sleepAfter($class, $sleep), ! $spec['sleeps']);
+        ValkeyGatewayClient::fromConfig(self::region($target))->put(self::tenantId($target), $password, $spec['memory_mb'], self::sleepAfter($class, $sleep), self::persistent($class), shared: self::shared($class));
     }
 
     /** Idle seconds before a store put to sleep from its card goes down. */
@@ -186,7 +212,7 @@ final class EdgeValkey
 
             return;
         }
-        $client->put(self::tenantId($target), $password, $spec['memory_mb'], self::ASLEEP_SLEEP, ! $spec['sleeps']);
+        $client->put(self::tenantId($target), $password, $spec['memory_mb'], self::ASLEEP_SLEEP, self::persistent($class), shared: self::shared($class));
     }
 
     public static function destroy(string $target): void

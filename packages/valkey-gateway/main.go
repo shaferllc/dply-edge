@@ -143,6 +143,7 @@ type gateway struct {
 	poolMu   sync.Mutex
 	poolPods listersv1.PodLister // warm pool from a watch (poolwatch.go); nil: list from the API
 	demand   poolDemand          // pool pods handed out recently, per size
+	nano     nanoState           // nano tenants' sampled memory (nano.go)
 }
 
 func (g *gateway) state(id string) *tenantState {
@@ -217,6 +218,10 @@ func (g *gateway) handle(client *tls.Conn) {
 	}
 	id, ok := g.tenantFromSNI(client.ConnectionState().ServerName)
 	if !ok {
+		return
+	}
+	if t, err := g.getTenantRecord(context.Background(), id); err == nil && t.Shared {
+		_, _ = client.Write([]byte("-ERR this is a nano database: use its REST URL\r\n"))
 		return
 	}
 	// Authenticate before waking: see preauth.go.
@@ -298,6 +303,7 @@ func copyTouching(dst net.Conn, src io.Reader, touch func()) {
 
 // reap runs on the active gateway only, until ctx ends (leadership lost).
 func (g *gateway) reap(ctx context.Context) {
+	go g.nanoSampleLoop(ctx)
 	tick := time.NewTicker(10 * time.Second)
 	defer tick.Stop()
 	for {
@@ -584,6 +590,11 @@ func (g *gateway) putTenant(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// A nano tenant is always available, so it counts as awake from its
+	// first save until it is deleted (billed per second to its cap).
+	if t.Shared && previous == nil {
+		g.markAwake(r.Context(), t.ID)
+	}
 
 	// A database applies a new size or password on its next wake. A bigger
 	// disk grows the volume now (online; the filesystem follows).
@@ -828,6 +839,11 @@ func (g *gateway) sleepTenant(w http.ResponseWriter, r *http.Request) {
 
 func (g *gateway) deleteTenant(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if t, err := g.getTenantRecord(r.Context(), id); err == nil && t.Shared {
+		if err := g.nanoDelete(r.Context(), id); err != nil {
+			log.Printf("nano %s: delete keys: %v", id, err)
+		}
+	}
 	g.forget(id)
 	g.deleteDatabase(r.Context(), id)
 	_ = g.deletePod(r.Context(), id)

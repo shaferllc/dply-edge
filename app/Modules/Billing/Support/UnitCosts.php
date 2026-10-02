@@ -64,7 +64,7 @@ final class UnitCosts
             'price: the 1 GB class per hour awake');
         foreach (EdgeValkey::CLASSES as $key => $class) {
             $gib = $class['memory_mb'] / 1024;
-            if ($class['sleeps']) {
+            if ($class['sleeps'] || EdgeValkey::shared($key)) {
                 $cost = $gib * self::gibMonth('cache');
                 $note = 'share of the cache pool';
             } else {

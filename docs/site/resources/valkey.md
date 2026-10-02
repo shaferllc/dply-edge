@@ -21,6 +21,10 @@ The address is written to the app's environment as `REDIS_URL` on the next deplo
 
 Valkey is available to container apps and to SSR or hybrid apps.
 
+### Nano
+
+**Nano** is a small store kept in dply's shared, always-on Valkey: it never sleeps, so a request after a quiet hour doesn't wait for a wake. It holds up to 50 MB, is reached only over REST (`REDIS_REST_URL` and `REDIS_REST_TOKEN`, with any Upstash-compatible client), and costs at most $1 a month plus REST commands. Commands that could reach beyond your own keys aren't available: `KEYS`, `SCAN`, `FLUSHDB`/`FLUSHALL`, `INFO`, Lua scripts and pub/sub. A store over 50 MB gets an out-of-memory error on writes until keys are deleted. Nano suits SSR and hybrid apps; container apps reach Redis over TCP, so it isn't offered to them.
+
 ## Sizes
 
 <!-- generated: php artisan dply:billing:price-table sizes --product=valkey -->

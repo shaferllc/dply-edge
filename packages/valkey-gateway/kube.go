@@ -30,6 +30,7 @@ type tenant struct {
 	Engine     string `json:"engine"`      // valkey (default), postgres
 	DiskGB     int    `json:"disk_gb"`     // databases: volume size
 	BackupDays int    `json:"backup_days"` // databases: backup retention, the plan's (0 = dbagent's default, 7)
+	Shared     bool   `json:"shared"`      // nano: keys in the shared pool, REST only (nano.go)
 }
 
 func objectName(id string) string { return "vk-" + id }
@@ -63,6 +64,7 @@ func (g *gateway) saveTenant(ctx context.Context, t tenant) error {
 			"engine":      t.Engine,
 			"disk_gb":     strconv.Itoa(t.DiskGB),
 			"backup_days": strconv.Itoa(t.BackupDays),
+			"shared":      strconv.FormatBool(t.Shared),
 		},
 	}
 	secrets := g.kube.CoreV1().Secrets(g.cfg.namespace)
@@ -90,6 +92,7 @@ func tenantFromSecret(s *corev1.Secret) tenant {
 		Engine:     engineOrValkey(string(s.Data["engine"])),
 		DiskGB:     atoi(string(s.Data["disk_gb"])),
 		BackupDays: atoi(string(s.Data["backup_days"])),
+		Shared:     string(s.Data["shared"]) == "true",
 	}
 }
 
