@@ -10,6 +10,7 @@ use App\Models\Site;
 use App\Modules\Edge\Services\Containers\EdgeContainerAgent;
 use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Services\Containers\EdgeContainerDockerfile;
+use App\Modules\Edge\Services\Containers\EdgeDockerfileCommand;
 use App\Modules\Edge\Services\Containers\EdgeReleaseBundle;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -55,8 +56,8 @@ test('a generated image gets the agent as entrypoint, the same CMD after it, and
 
 test('anything in the way deploys the image unchanged and says why', function (callable $arrange, string $why) {
     $image = EdgeContainerDockerfile::prepare($this->checkout);
-    $before = File::get($image['path']);
     $image = $arrange($this, $image);
+    $before = File::get($image['path']);
 
     expect(EdgeContainerAgent::wrap($this->site->fresh(), $this->checkout, $image))->toContain($why)
         ->and(File::get($image['path']))->toBe($before)
@@ -67,7 +68,12 @@ test('anything in the way deploys the image unchanged and says why', function (c
 
         return $image;
     }, 'not turned on'],
-    'own Dockerfile' => [fn ($test, $image) => ['generated' => false] + $image, 'its own Dockerfile'],
+    'own Dockerfile from a private image' => [function ($test, $image) {
+        Http::fake(['*' => Http::response('', 401, ['WWW-Authenticate' => 'Bearer realm="https://auth.example.test/token",service="example"']), 'auth.example.test/*' => Http::response('', 401)]);
+        File::put($image['path'], "FROM registry.example.test/private/base:1\nCOPY . /app\n");
+
+        return ['generated' => false] + $image;
+    }, 'could not tell what this Dockerfile runs'],
     'port clash' => [fn ($test, $image) => ['port' => EdgeContainerAgent::PORT] + $image, 'agent\'s port'],
     'no binary' => [function ($test, $image) {
         config(['edge.build.containers.agent_binary' => '/nope/dply-agent']);
@@ -140,3 +146,50 @@ test('without wake a sleeping container answers asleep and nothing runs', functi
     expect(EdgeContainerAgent::exec($this->site, 'ps', fn () => null, wake: false))->toBe(['asleep' => true]);
     Http::assertSent(fn ($r) => $r->hasHeader('x-dply-no-wake', '1'));
 });
+
+test('an app\'s own Dockerfile runs its own command under the agent, read from the Dockerfile', function () {
+    File::put($this->checkout.'/Dockerfile', "ARG NODE=22\nFROM node:\${NODE}-slim AS build\nRUN npm ci\nFROM node:\${NODE}-slim\nCOPY --from=build /app /app\nENTRYPOINT [\"docker-entrypoint.sh\"]\nCMD [\"node\", \"server.js\"]\n");
+    $image = EdgeContainerDockerfile::prepare($this->checkout);
+    Http::fake();
+
+    expect(EdgeContainerAgent::wrap($this->site, $this->checkout, $image))->toBeNull();
+
+    expect(array_slice(explode("\n", rtrim(File::get($image['path']))), -2))->toBe([
+        'ENTRYPOINT ["/usr/local/bin/dply-agent","--","docker-entrypoint.sh"]',
+        'CMD ["node","server.js"]',
+    ]);
+    Http::assertNothingSent(); // the final stage set ENTRYPOINT: no registry lookup
+});
+
+test('Docker\'s ENTRYPOINT and CMD rules', function (string $dockerfile, array $expected) {
+    expect(EdgeDockerfileCommand::resolve($dockerfile))->toBe($expected);
+})->with([
+    'ENTRYPOINT clears an inherited CMD' => ["FROM scratch AS a\nCMD [\"x\"]\nFROM a\nENTRYPOINT [\"run\"]\n", ['entrypoint' => ['run'], 'cmd' => []]],
+    'CMD earlier in the same stage survives' => ["FROM scratch\nCMD [\"x\"]\nENTRYPOINT [\"run\"]\n", ['entrypoint' => ['run'], 'cmd' => ['x']]],
+    'a shell-form ENTRYPOINT ignores CMD' => ["FROM scratch\nENTRYPOINT exec php-fpm\nCMD [\"x\"]\n", ['entrypoint' => ['/bin/sh', '-c', 'exec php-fpm'], 'cmd' => []]],
+    'a stage inherits an earlier one' => ["FROM scratch AS base\nENTRYPOINT [\"tini\", \"--\"]\nCMD [\"app\"]\nFROM base\nRUN true\n", ['entrypoint' => ['tini', '--'], 'cmd' => ['app']]],
+    'shell-form CMD' => ["FROM scratch\nENTRYPOINT [\"e\"]\nCMD npm \\\n  start\n", ['entrypoint' => ['e'], 'cmd' => ['/bin/sh', '-c', 'npm    start']]],
+]);
+
+test('the base image\'s entrypoint comes from its registry when the Dockerfile leaves it', function () {
+    Http::fake([
+        'auth.docker.io/token*' => Http::response(['token' => 'anon']),
+        'registry-1.docker.io/v2/library/php/manifests/8.4-fpm' => fn ($r) => $r->hasHeader('Authorization')
+            ? Http::response(['manifests' => [['digest' => 'sha256:arm', 'platform' => ['os' => 'linux', 'architecture' => 'arm64']], ['digest' => 'sha256:amd', 'platform' => ['os' => 'linux', 'architecture' => 'amd64']]]])
+            : Http::response('', 401, ['WWW-Authenticate' => 'Bearer realm="https://auth.docker.io/token",service="registry.docker.io",scope="repository:library/php:pull"']),
+        'registry-1.docker.io/v2/library/php/manifests/sha256:amd' => Http::response(['config' => ['digest' => 'sha256:cfg']]),
+        'registry-1.docker.io/v2/library/php/blobs/sha256:cfg' => Http::response(['config' => ['Entrypoint' => ['docker-php-entrypoint'], 'Cmd' => ['php-fpm']]]),
+    ]);
+
+    expect(EdgeDockerfileCommand::resolve("FROM php:8.4-fpm\nCOPY . /var/www\n"))
+        ->toBe(['entrypoint' => ['docker-php-entrypoint'], 'cmd' => ['php-fpm']]);
+});
+
+test('image references parse like Docker\'s', function (string $ref, array $parts) {
+    expect(EdgeDockerfileCommand::parseRef($ref))->toBe($parts);
+})->with([
+    ['node', ['registry-1.docker.io', 'library/node', 'latest']],
+    ['bitnami/redis:7', ['registry-1.docker.io', 'bitnami/redis', '7']],
+    ['ghcr.io/acme/app:1.2', ['ghcr.io', 'acme/app', '1.2']],
+    ['localhost:5000/app@sha256:abc', ['localhost:5000', 'app', 'sha256:abc']],
+]);

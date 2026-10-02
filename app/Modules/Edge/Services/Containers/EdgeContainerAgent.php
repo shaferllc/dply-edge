@@ -47,9 +47,6 @@ final class EdgeContainerAgent
         if (($site->edgeMeta()['container_agent'] ?? true) === false) {
             return 'turned off for this app';
         }
-        if (! $image['generated']) {
-            return 'this app builds from its own Dockerfile; the agent is added to generated images only for now';
-        }
         if ((int) $image['port'] === self::PORT) {
             return 'the app listens on the agent\'s port, '.self::PORT;
         }
@@ -58,9 +55,23 @@ final class EdgeContainerAgent
             return 'this build server has no agent binary';
         }
         $dockerfile = (string) file_get_contents($image['path']);
-        $cmd = self::lastCmd($dockerfile);
-        if ($cmd === null) {
-            return 'the Dockerfile has no CMD to run under it';
+        if ($image['generated']) {
+            $cmd = self::lastCmd($dockerfile);
+            if ($cmd === null) {
+                return 'the Dockerfile has no CMD to run under it';
+            }
+            $lines = self::lines($cmd);
+        } else {
+            // The app's own Dockerfile: run exactly what its image would have.
+            try {
+                $command = EdgeDockerfileCommand::resolve($dockerfile);
+            } catch (Throwable $e) {
+                return 'could not tell what this Dockerfile runs ('.$e->getMessage().')';
+            }
+            if ($command['entrypoint'] === [] && $command['cmd'] === []) {
+                return 'this Dockerfile\'s image has no ENTRYPOINT or CMD';
+            }
+            $lines = self::ownLines($command['entrypoint'], $command['cmd']);
         }
         try {
             File::copy($binary, $checkout.'/'.self::CONTEXT_FILE);
@@ -69,7 +80,7 @@ final class EdgeContainerAgent
             if (is_file($checkout.'/.dockerignore')) {
                 File::append($checkout.'/.dockerignore', "\n!".self::CONTEXT_FILE."\n");
             }
-            File::put($image['path'], rtrim($dockerfile)."\n\n".implode("\n", self::lines($cmd))."\n");
+            File::put($image['path'], rtrim($dockerfile)."\n\n".implode("\n", $lines)."\n");
         } catch (Throwable $e) {
             return 'could not add it: '.$e->getMessage();
         }
@@ -94,6 +105,29 @@ final class EdgeContainerAgent
             'COPY --chmod=0755 '.self::CONTEXT_FILE.' /usr/local/bin/dply-agent',
             'ENTRYPOINT ["/usr/local/bin/dply-agent", "--"]',
             $cmd,
+        ];
+    }
+
+    /**
+     * For an app's own Dockerfile: the agent, then the image's own
+     * ENTRYPOINT as the agent's command, and its CMD written again (setting
+     * ENTRYPOINT clears an inherited one), so `docker run image args` still
+     * passes args the same way.
+     *
+     * @param  list<string>  $entrypoint
+     * @param  list<string>  $cmd
+     * @return list<string>
+     */
+    public static function ownLines(array $entrypoint, array $cmd): array
+    {
+        $json = fn (array $parts): string => json_encode(array_values($parts), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+
+        return [
+            '# dply agent (EdgeContainerAgent): runs this image\'s own ENTRYPOINT/CMD as its',
+            '# child and takes commands from the dply dashboard on port '.self::PORT.'.',
+            'COPY --chmod=0755 '.self::CONTEXT_FILE.' /usr/local/bin/dply-agent',
+            'ENTRYPOINT '.$json(['/usr/local/bin/dply-agent', '--', ...$entrypoint]),
+            'CMD '.$json($cmd),
         ];
     }
 
