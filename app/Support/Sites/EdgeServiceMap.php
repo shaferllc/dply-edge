@@ -104,6 +104,8 @@ final class EdgeServiceMap
                 'backupAt' => filled($db['backup']['last_ok_at'] ?? null) ? Carbon::parse($db['backup']['last_ok_at']) : null,
                 'logAt' => filled($db['backup']['log_ok_at'] ?? null) ? Carbon::parse($db['backup']['log_ok_at']) : null,
                 'checkedAt' => filled($db['backup']['checked_at'] ?? null) ? Carbon::parse($db['backup']['checked_at']) : null,
+                // The weekly restore check (VerifyDatabaseBackupJob): ok + at, or the error.
+                'verify' => is_array($db['backup']['verify'] ?? null) ? $db['backup']['verify'] : null,
             ] : null,
             'stores' => $stores,
             'serving' => $serving,

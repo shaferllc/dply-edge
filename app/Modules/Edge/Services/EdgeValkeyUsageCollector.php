@@ -191,6 +191,10 @@ class EdgeValkeyUsageCollector
             $this->notify($site, __('Some database changes for :site cannot be restored', ['site' => $label]), ucfirst((string) $status['lost']).'. '.__('A new full backup was started.'));
         }
         $backup = array_merge($status, ['alerted' => $alerted]);
+        // The weekly restore check's result lives beside the agent's status.
+        if (isset($previous['verify'])) {
+            $backup['verify'] = $previous['verify'];
+        }
         // When this was last read: the Resources card says so when it's old (a
         // stalled scheduler left it showing "backup 4d ago" on 2026-10-01 while
         // the database had backed up that morning). Stamped hourly, not each run.

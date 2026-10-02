@@ -135,6 +135,11 @@ final class DplySchedule
             ->name('edge-check-queue-workers');
         // dply database history and disk / connection alerts, from
         // each database's last snapshot (never wakes one).
+        // Restore every dply Postgres database from its backups (VerifyDatabaseBackupJob).
+        $schedule->command(\App\Modules\Edge\Console\VerifyDatabaseBackupsCommand::class)
+            ->weeklyOn(0, '04:00')
+            ->withoutOverlapping()
+            ->name('databases-verify-backups');
         $schedule->command(SampleEdgeDatabasesCommand::class)
             ->hourly()
             ->withoutOverlapping()

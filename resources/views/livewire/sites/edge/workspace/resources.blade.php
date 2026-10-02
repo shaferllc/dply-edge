@@ -250,6 +250,13 @@
                                     <span>{{ __('backup') }} <b class="text-brand-ink">{{ $d['backupAt']?->diffForHumans(short: true) ?? __('none') }}</b></span>
                                     @if ($d['logAt'])<span>PITR <b class="text-brand-ink">{{ $d['logAt']->diffForHumans(short: true) }}</b></span>@endif
                                 @endif
+                                @if ($d['verify'] ?? null)
+                                    @if ($d['verify']['ok'] ?? false)
+                                        <span>{{ __('restore checked') }} <b class="text-brand-ink">{{ \Illuminate\Support\Carbon::parse($d['verify']['at'])->diffForHumans(short: true) }}</b></span>
+                                    @else
+                                        <span class="text-rose-600" title="{{ $d['verify']['error'] ?? '' }}">{{ __('restore check failed') }}</span>
+                                    @endif
+                                @endif
                                 @if ($d['checkedAt'] && $d['checkedAt']->lt(now()->subHours(3)))
                                     <span class="text-amber-600">{{ __('status from :time', ['time' => $d['checkedAt']->diffForHumans(short: true)]) }}</span>
                                 @endif
