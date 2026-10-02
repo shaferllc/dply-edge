@@ -1,8 +1,5 @@
 <div @if ($running) wire:poll.750ms @endif>
-    <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
-        <h2 class="text-base font-semibold text-brand-ink">{{ __('Console') }}</h2>
-        <p class="mt-1 text-sm text-brand-moss">{{ __('Run a command in one of this app\'s containers and watch its output. Each run is recorded in the app\'s activity.') }}</p>
-    </section>
+    {{-- The page header (SiteSettingsHeader) names the section. --}}
 
     @if (! $flagOn)
         <p class="px-5 py-6 text-sm text-brand-moss sm:px-6">{{ __('The Console isn\'t available for this organization yet.') }}</p>
@@ -34,7 +31,7 @@
                 </label>
                 <label class="inline-flex items-center gap-1.5">
                     {{ __('Stop after') }}
-                    <input type="number" wire:model="timeout" min="5" max="3600" class="dply-input mt-0 w-20 py-1 text-xs" />
+                    <input type="number" wire:model="timeout" min="5" max="{{ \App\Modules\Edge\Services\Containers\EdgeContainerCommands::MAX_TIMEOUT }}" class="dply-input mt-0 w-20 py-1 text-xs" />
                     {{ __('seconds') }}
                 </label>
             </div>
@@ -48,8 +45,9 @@
         @if ($run)
             <div class="px-5 py-4 sm:px-6">
                 <p class="font-mono text-xs text-brand-moss">$ {{ $run['command'] }} <span class="text-brand-mist">· {{ $targets[$run['target']] ?? $run['target'] }}</span></p>
-                @php($output = collect($run['lines'])->map(fn (array $line): string => isset($line['err']) ? '<span class="text-amber-300">'.e($line['err']).'</span>' : e($line['out'] ?? ''))->implode(''))
-                <pre class="mt-2 max-h-[32rem] min-h-24 overflow-auto rounded-lg bg-brand-ink px-4 py-3 font-mono text-2xs leading-relaxed text-brand-cream">{!! $output !!}</pre>
+                @php($output = collect($run['lines'])->map(fn (array $line): string => isset($line['err']) ? '<span class="text-[#f2c14e]">'.e($line['err']).'</span>' : e($line['out'] ?? ''))->implode(''))
+                {{-- Fixed terminal colours: the brand-ink token turns lime in dark mode. --}}
+                <pre class="mt-2 max-h-[32rem] min-h-24 overflow-auto rounded-lg border border-[#c3f53c]/15 bg-[#0b0d0a] px-4 py-3 font-mono text-2xs leading-relaxed text-[#e8ece3]">{!! $output !!}</pre>
                 <p class="mt-2 text-xs">
                     @switch($run['status'])
                         @case('queued')

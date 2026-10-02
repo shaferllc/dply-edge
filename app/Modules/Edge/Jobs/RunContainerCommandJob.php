@@ -34,7 +34,7 @@ final class RunContainerCommandJob implements ShouldQueue
         public bool $wake,
     ) {
         // The agent's own timeout ends the command; this only stops a stuck job.
-        $this->timeout = $commandTimeout + 120;
+        $this->timeout = min($commandTimeout, EdgeContainerCommands::MAX_TIMEOUT) + 60;
         $this->onQueue(DplyRuntime::CONSOLE_QUEUE);
     }
 

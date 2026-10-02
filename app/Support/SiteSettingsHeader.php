@@ -233,7 +233,7 @@ final class SiteSettingsHeader
             ],
             'console' => [
                 'title' => __('Console'),
-                'description' => __('Run a command in one of this app\'s containers and watch its output.'),
+                'description' => __('Run a command in one of this app\'s containers and watch its output. Each run is recorded in the app\'s activity.'),
                 'icon' => 'heroicon-o-command-line',
             ],
             'jobs' => [

@@ -28,6 +28,12 @@ final class EdgeContainerCommands
 
     private const TTL = 3600;
 
+    /**
+     * Longest a command may run: dply's own queue workers stop a job after
+     * 900s (their --timeout), and the job needs a minute around the command.
+     */
+    public const MAX_TIMEOUT = 840;
+
     /** Commands one organization may have queued or running at once (dply support isn't counted). */
     public const MAX_PER_ORG = 3;
 

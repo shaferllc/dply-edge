@@ -130,7 +130,7 @@
                             <div wire:key="oprun-{{ $target }}">
                                 <p class="font-mono text-2xs text-brand-mist">{{ $target }} · {{ $run['status'] }}@if ($run['result']) · {{ __('exit :code', ['code' => $run['result']['exit']]) }}@endif</p>
                                 @php($text = collect($run['lines'])->map(fn ($l) => $l['out'] ?? $l['err'] ?? '')->implode(''))
-                                <pre class="mt-1 max-h-80 overflow-auto rounded-lg bg-brand-ink px-3 py-2 font-mono text-2xs text-brand-cream">{{ $text !== '' ? $text : ($run['status'] === 'asleep' ? __('(asleep: nothing ran)') : ($run['error'] ?? '…')) }}</pre>
+                                <pre class="mt-1 max-h-80 overflow-auto rounded-lg bg-[#0b0d0a] px-3 py-2 font-mono text-2xs text-[#e8ece3]">{{ $text !== '' ? $text : ($run['status'] === 'asleep' ? __('(asleep: nothing ran)') : ($run['error'] ?? '…')) }}</pre>
                             </div>
                         @endforeach
                     </div>

@@ -45,7 +45,7 @@ class Console extends Component
         $this->validate([
             'command' => ['required', 'string', 'max:4000'],
             'target' => ['required', 'in:'.implode(',', array_keys(EdgeContainerCommands::targets($this->site)))],
-            'timeout' => ['required', 'integer', 'min:5', 'max:3600'],
+            'timeout' => ['required', 'integer', 'min:5', 'max:'.EdgeContainerCommands::MAX_TIMEOUT],
         ]);
         try {
             $this->runId = EdgeContainerCommands::start($this->site, trim($this->command), $this->target, $this->timeout, $this->wake, auth()->user());

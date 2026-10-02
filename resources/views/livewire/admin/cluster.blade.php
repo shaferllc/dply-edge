@@ -51,7 +51,7 @@
                     @if ($logError)
                         <p class="px-4 pb-3 font-mono text-xs text-red-800">{{ \Illuminate\Support\Str::limit($logError, 500) }}</p>
                     @else
-                        <pre class="max-h-[28rem] overflow-auto bg-brand-ink px-4 py-3 font-mono text-2xs leading-relaxed text-brand-cream">{{ $logs !== '' ? $logs : __('(no output)') }}</pre>
+                        <pre class="max-h-[28rem] overflow-auto bg-[#0b0d0a] px-4 py-3 font-mono text-2xs leading-relaxed text-[#e8ece3]">{{ $logs !== '' ? $logs : __('(no output)') }}</pre>
                     @endif
                 </div>
             @endif

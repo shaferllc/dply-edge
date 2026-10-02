@@ -10,6 +10,7 @@ use App\Modules\Edge\Services\Containers\EdgeContainerDeployer;
 use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use App\Modules\Providers\Valkey\ValkeyGatewayClient;
+use App\Support\DplyRuntime;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 
@@ -41,8 +42,19 @@ final class EdgeQueueWorkers
     public static function for(Site $site): array
     {
         $raw = $site->edgeMeta()['container']['workers'] ?? [];
+        $raw = is_array($raw) ? $raw : [];
+        // dply itself: customers' Console commands (DplyRuntime::CONSOLE_QUEUE)
+        // get a worker group of their own, so they never wait behind, or
+        // hold up, dply's jobs. Added unless its settings already cover it.
+        if (($raw['enabled'] ?? false) && EdgeContainerDeployer::isSelfSite($site)) {
+            $covered = collect([(string) ($raw['queues'] ?? ''), ...array_map(fn ($g) => (string) ($g['queues'] ?? ''), array_filter((array) ($raw['groups'] ?? []), 'is_array'))])
+                ->contains(fn (string $queues): bool => in_array(DplyRuntime::CONSOLE_QUEUE, array_map('trim', explode(',', $queues)), true));
+            if (! $covered) {
+                $raw['groups'] = [...(array) ($raw['groups'] ?? []), ['key' => 'console', 'queues' => DplyRuntime::CONSOLE_QUEUE, 'instances' => 1, 'processes' => 4]];
+            }
+        }
 
-        return self::normalize(is_array($raw) ? $raw : []);
+        return self::normalize($raw);
     }
 
     /**
