@@ -131,7 +131,7 @@ export function registerDeployPill(Alpine) {
             const name = d.app_name + (d.preview ? ' ' + d.preview : '');
             window.dispatchEvent(new CustomEvent('toast', {
                 detail: d.status === 'live'
-                    ? { type: 'success', message: name + ' is live', url: d.live_url ?? d.app_url, newTab: !!d.live_url, linkLabel: 'Open', duration: 6000 }
+                    ? { type: 'live', message: name + ' is live', detail: hostOf(d.live_url ?? d.app_url), url: d.live_url ?? d.app_url, newTab: !!d.live_url, linkLabel: d.live_url ? 'Open site' : 'Open', duration: 8000 }
                     : { type: 'error', message: name + ' failed' + (d.failed_step ? ' at ' + d.failed_step : ''), url: d.log_url, linkLabel: 'View log', duration: 10000 },
             }));
         },
@@ -240,4 +240,13 @@ export function registerDeployPill(Alpine) {
             } catch {}
         },
     }));
+}
+
+// "shop-ab12.on-dply.live" for the live toast's subtitle; '' when it isn't a URL.
+function hostOf(url) {
+    try {
+        return new URL(url).host;
+    } catch {
+        return '';
+    }
 }

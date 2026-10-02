@@ -173,10 +173,13 @@ document.addEventListener('alpine:init', () => {
                     const url = e.detail?.url ?? null;
                     const linkLabel = e.detail?.linkLabel ?? null;
                     const newTab = e.detail?.newTab ?? false;
-                    this.toasts.push({ id, message, type, url, linkLabel, newTab });
+                    // The live toast's subtitle (the app's host) and its countdown bar.
+                    const detail = e.detail?.detail ?? '';
+                    const duration = e.detail?.duration ?? 4000;
+                    this.toasts.push({ id, message, type, url, linkLabel, newTab, detail, duration });
                     setTimeout(() => {
                         this.toasts = this.toasts.filter((t) => t.id !== id);
-                    }, e.detail?.duration ?? 4000);
+                    }, duration);
                 });
             },
             remove(id) {

@@ -960,3 +960,33 @@ p {
         animation: none;
     }
 }
+
+/* Deploy-went-live toast (partials/toast-stack.blade.php, type "live"):
+   the badge pops, the check draws, rings ripple out, sparks burst, and a bar
+   counts down. Reduced motion keeps the card and drops the movement. */
+.dply-live-badge { animation: dply-live-pop 520ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.dply-live-check { stroke-dasharray: 24; stroke-dashoffset: 24; animation: dply-live-draw 420ms 260ms ease-out forwards; }
+.dply-live-ring { animation: dply-live-ripple 1400ms 200ms ease-out both; }
+.dply-live-ring-late { animation-delay: 520ms; }
+.dply-live-spark { opacity: 0; transform: translate(-50%, -50%) rotate(var(--a)) translateY(0); animation: dply-live-burst 760ms 240ms ease-out both; }
+.dply-live-bar { animation: dply-live-countdown linear forwards; }
+.dply-live-grid {
+    background-image: linear-gradient(to right, #c3f53c 1px, transparent 1px), linear-gradient(to bottom, #c3f53c 1px, transparent 1px);
+    background-size: 18px 18px;
+    mask-image: radial-gradient(ellipse at 15% 20%, black, transparent 70%);
+    animation: dply-live-drift 8s linear infinite;
+}
+@keyframes dply-live-pop { 0% { transform: scale(0.3); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+@keyframes dply-live-draw { to { stroke-dashoffset: 0; } }
+@keyframes dply-live-ripple { 0% { transform: scale(0.9); opacity: 0.9; } 100% { transform: scale(2.1); opacity: 0; } }
+@keyframes dply-live-burst {
+    0% { opacity: 1; transform: translate(-50%, -50%) rotate(var(--a)) translateY(0) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -50%) rotate(var(--a)) translateY(-30px) scale(0.4); }
+}
+@keyframes dply-live-countdown { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+@keyframes dply-live-drift { from { background-position: 0 0; } to { background-position: 18px 18px; } }
+@media (prefers-reduced-motion: reduce) {
+    .dply-live-badge, .dply-live-ring, .dply-live-spark, .dply-live-grid, .dply-live-bar { animation: none; }
+    .dply-live-check { stroke-dashoffset: 0; animation: none; }
+    .dply-live-ring, .dply-live-spark { display: none; }
+}

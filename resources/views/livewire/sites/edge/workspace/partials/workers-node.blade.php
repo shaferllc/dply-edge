@@ -28,7 +28,7 @@
         {{-- Queues in priority order: workers drain the first before the next. --}}
         <span class="mt-2 flex flex-wrap gap-1" title="{{ __('Queues, highest priority first') }}">
             @foreach (array_slice($queueNames, 0, 4) as $queue)
-                <span class="max-w-full truncate rounded-md bg-brand-sand/40 px-1.5 py-0.5 font-mono text-2xs text-brand-ink dark:bg-zinc-800 dark:text-brand-cream">{{ $queue }}</span>
+                <span class="max-w-full truncate rounded-md border border-brand-ink/10 bg-brand-sand/50 px-1.5 py-0.5 font-mono text-2xs text-brand-ink dark:border-white/10 dark:bg-white/10">{{ $queue }}</span>
             @endforeach
             @if (count($queueNames) > 4)
                 <span class="rounded-md px-1 py-0.5 text-2xs font-semibold text-brand-mist" title="{{ implode(', ', array_slice($queueNames, 4)) }}">+{{ count($queueNames) - 4 }}</span>
