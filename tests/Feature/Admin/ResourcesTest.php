@@ -5,19 +5,22 @@ declare(strict_types=1);
 namespace Tests\Feature\Admin\ResourcesTest;
 
 use App\Livewire\Admin\Resources;
+use App\Models\AuditLog;
 use App\Models\DplyDatabase;
 use App\Models\Organization;
 use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
+use App\Modules\Edge\Jobs\VerifyDatabaseBackupJob;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
 
 beforeEach(function () {
-    Http::fake();
+    Http::fake(['gw.test/tenants/pg-shop/action/query' => Http::response(['columns' => ['id'], 'rows' => [[1]]]), '*' => Http::response([])]);
     $this->org = Organization::factory()->create(['name' => 'Acme']);
     $this->site = Site::factory()->create([
         'organization_id' => $this->org->id,
@@ -65,4 +68,43 @@ test('filters by kind, search and trouble', function () {
 
 test('guests are sent to log in', function () {
     $this->get(route('admin.resources'))->assertRedirect(route('login', absolute: false));
+});
+
+test('a database query needs a reason first, then runs, is logged and shows in the customer\'s activity', function () {
+    config(['edge.valkey.api_url' => 'https://gw.test', 'edge.valkey.token' => 'tok', 'edge.valkey.regions' => [['key' => 'nyc3']]]);
+    $admin = User::factory()->create();
+    $this->actingAs($admin);
+
+    $component = Livewire::test(Resources::class)
+        ->call('openQuery', 'pg-shop')
+        ->assertSee('Say why you need it')
+        ->call('runQuery')->assertForbidden();
+
+    $component = Livewire::test(Resources::class)
+        ->call('openQuery', 'pg-shop')
+        ->set('accessReason', 'no')->call('startAccess')->assertHasErrors('accessReason')
+        ->set('accessReason', 'Ticket 42: orders missing')->call('startAccess')->assertHasNoErrors()
+        ->set('querySql', 'select id from orders')->call('runQuery')
+        ->assertSet('queryResult', ['columns' => ['id'], 'rows' => [[1]]]);
+
+    Http::assertSent(fn ($r) => str_ends_with($r->url(), '/tenants/pg-shop/action/query') && $r['sql'] === 'select id from orders');
+    $actions = AuditLog::query()->where('organization_id', $this->org->id)->orderBy('created_at')->pluck('new_values', 'action');
+    expect($actions->keys()->all())->toContain('support.access.start', 'support.database.query')
+        ->and($actions['support.database.query']['reason'])->toBe('Ticket 42: orders missing')
+        ->and($actions['support.database.query']['sql'])->toBe('select id from orders');
+});
+
+test('sleep and restore check act only on rows the list shows, and are logged', function () {
+    config(['edge.valkey.api_url' => 'https://gw.test', 'edge.valkey.token' => 'tok', 'edge.valkey.regions' => [['key' => 'nyc3']]]);
+    Queue::fake();
+    $this->actingAs(User::factory()->create());
+
+    Livewire::test(Resources::class)
+        ->call('sleepResource', 'database', 'pg-shop')->assertSee('is asleep')
+        ->call('verifyBackup', 'pg-shop')->assertSee('Restore check queued')
+        ->call('sleepResource', 'database', 'pg-nobody')->assertNotFound();
+
+    Http::assertSent(fn ($r) => str_ends_with($r->url(), '/tenants/pg-shop/sleep'));
+    Queue::assertPushed(VerifyDatabaseBackupJob::class, fn ($job) => $job->remoteId === 'pg-shop' && $job->siteId === $this->site->id);
+    expect(AuditLog::query()->where('organization_id', $this->org->id)->pluck('action')->all())->toContain('support.resource.sleep', 'support.database.verify');
 });

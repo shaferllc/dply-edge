@@ -203,7 +203,7 @@ class Activity extends Component
             'team' => "action LIKE 'team.%'",
             'billing' => "action LIKE 'billing.%'",
             'security' => "(action LIKE 'api_token.%' OR action LIKE 'invitation.%' OR action LIKE 'notification_channel.%' "
-                ."OR action LIKE 'user.%' OR action LIKE 'credential.%' OR action LIKE 'impersonation.%')",
+                ."OR action LIKE 'user.%' OR action LIKE 'credential.%' OR action LIKE 'impersonation.%' OR action LIKE 'support.%')",
             'org' => "action LIKE 'organization.%'",
         ];
 

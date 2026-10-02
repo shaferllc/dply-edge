@@ -24,6 +24,54 @@
             </x-secondary-button>
         </x-slot:actions>
 
+        @if ($flash)
+            <div class="flex items-start gap-3 border-b border-brand-ink/10 bg-brand-sand/30 px-4 py-2.5 text-sm text-brand-ink">
+                <span class="min-w-0 flex-1">{{ $flash }}</span>
+                <button type="button" wire:click="$set('flash', null)" class="text-xs text-brand-moss hover:text-brand-ink">{{ __('Dismiss') }}</button>
+            </div>
+        @endif
+
+        @if ($queryFor)
+            @php($access = $this->access($queryFor))
+            <div class="border-b border-brand-ink/10 px-4 py-4">
+                <div class="flex flex-wrap items-center gap-2">
+                    <span class="text-xs font-semibold uppercase tracking-[0.14em] text-brand-moss">{{ __('Query') }}</span>
+                    <span class="font-mono text-xs text-brand-ink">{{ $queryFor }}</span>
+                    <x-secondary-button size="xs" class="ml-auto" wire:click="closeQuery">{{ __('Close') }}</x-secondary-button>
+                </div>
+                @if ($access === null)
+                    <p class="mt-3 text-sm text-brand-moss">{{ __('This is customer data. Say why you need it: you get :minutes minutes on this database, every query is logged, and the customer sees it under Activity.', ['minutes' => \App\Livewire\Admin\Resources::ACCESS_MINUTES]) }}</p>
+                    <form wire:submit="startAccess" class="mt-2 flex flex-wrap items-start gap-2">
+                        <div class="min-w-0 flex-1">
+                            <input type="text" wire:model="accessReason" placeholder="{{ __('Support ticket, or what you are investigating') }}" class="dply-input mt-0 w-full" />
+                            <x-input-error :messages="$errors->get('accessReason')" class="mt-1" />
+                        </div>
+                        <x-primary-button type="submit" size="sm">{{ __('Open for :minutes minutes', ['minutes' => \App\Livewire\Admin\Resources::ACCESS_MINUTES]) }}</x-primary-button>
+                    </form>
+                @else
+                    <p class="mt-2 text-xs text-brand-moss">{{ __('Open until :time · reason: :reason', ['time' => \Illuminate\Support\Carbon::parse($access['until'])->format('H:i'), 'reason' => $access['reason']]) }}</p>
+                    <form wire:submit="runQuery" class="mt-2 space-y-2">
+                        @if (str_starts_with($queryFor, 'mg-'))
+                            <div class="flex flex-wrap gap-2">
+                                <input type="text" wire:model="queryCollection" placeholder="{{ __('Collection') }}" class="dply-input mt-0 w-48 font-mono" />
+                                <input type="text" wire:model="queryFilter" placeholder='{"status": "open"}' class="dply-input mt-0 min-w-0 flex-1 font-mono" />
+                            </div>
+                        @else
+                            <textarea wire:model="querySql" rows="3" placeholder="select * from users order by id desc limit 20" class="dply-input mt-0 w-full font-mono text-xs"></textarea>
+                        @endif
+                        <x-primary-button type="submit" size="sm" wire:loading.attr="disabled">{{ __('Run (read-only)') }}</x-primary-button>
+                    </form>
+                    @if ($queryResult !== null)
+                        @if (isset($queryResult['error']))
+                            <p class="mt-3 break-all font-mono text-xs text-red-800 dark:text-red-300">{{ $queryResult['error'] }}</p>
+                        @else
+                            <pre class="mt-3 max-h-96 overflow-auto rounded-lg bg-brand-sand/30 px-3 py-2 font-mono text-2xs text-brand-ink">{{ json_encode($queryResult, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) }}</pre>
+                        @endif
+                    @endif
+                @endif
+            </div>
+        @endif
+
         <div class="flex flex-wrap items-center gap-3 border-b border-brand-ink/10 px-3 py-3 sm:px-4">
             <input type="search" wire:model.live.debounce.300ms="search" placeholder="{{ __('Organization, app, resource or id') }}" class="dply-input mt-0 w-full sm:w-72" aria-label="{{ __('Search') }}" />
             <select wire:model.live="kind" class="dply-input mt-0 w-auto" aria-label="{{ __('Kind') }}">
@@ -60,6 +108,9 @@
                             @if ($group['key'] === 'app')
                                 <th class="{{ $th }} text-right">{{ __('This month') }}</th>
                             @endif
+                            @if (in_array($group['key'], ['app', 'database', 'redis'], true))
+                                <th class="{{ $th }}"><span class="sr-only">{{ __('Actions') }}</span></th>
+                            @endif
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-brand-ink/5">
@@ -94,9 +145,27 @@
                                     @if ($row['problem'])
                                         <span class="mt-0.5 block font-semibold text-amber-800 dark:text-amber-300">{{ $row['problem'] }}</span>
                                     @endif
+                                    @if (isset($live[$row['id']]))
+                                        <span class="mt-0.5 block font-mono text-2xs text-brand-ink">{{ $live[$row['id']] }}</span>
+                                    @endif
                                 </td>
                                 @if ($group['key'] === 'app')
                                     <td class="{{ $td }} whitespace-nowrap text-right font-mono text-xs">{{ $row['costCents'] !== null ? '$'.number_format($row['costCents'] / 100, 2) : '—' }}</td>
+                                @endif
+                                @if (in_array($group['key'], ['app', 'database', 'redis'], true))
+                                    <td class="{{ $td }} whitespace-nowrap text-right">
+                                        @if ($group['key'] === 'app' && $row['engine'] === 'container')
+                                            <x-secondary-button size="xs" wire:click="liveState('{{ $row['id'] }}')">{{ __('Live state') }}</x-secondary-button>
+                                        @elseif ($group['key'] === 'database')
+                                            <x-secondary-button size="xs" wire:click="openQuery('{{ $row['id'] }}')">{{ __('Query') }}</x-secondary-button>
+                                            @if ($row['engine'] === 'postgres')
+                                                <x-secondary-button size="xs" wire:click="verifyBackup('{{ $row['id'] }}')">{{ __('Restore check') }}</x-secondary-button>
+                                            @endif
+                                            <x-secondary-button size="xs" wire:click="sleepResource('database', '{{ $row['id'] }}')" wire:confirm="{{ __('Put :name to sleep? Open connections drop; it wakes on the next one.', ['name' => $row['name']]) }}">{{ __('Sleep') }}</x-secondary-button>
+                                        @elseif ($group['key'] === 'redis' && str_starts_with($row['id'], 'valkey:'))
+                                            <x-secondary-button size="xs" wire:click="sleepResource('redis', '{{ $row['id'] }}')" wire:confirm="{{ __('Put :name to sleep? Its data is saved first; it wakes on the next connection.', ['name' => $row['name']]) }}">{{ __('Sleep') }}</x-secondary-button>
+                                        @endif
+                                    </td>
                                 @endif
                             </tr>
                         @endforeach

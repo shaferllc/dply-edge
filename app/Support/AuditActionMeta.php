@@ -81,7 +81,8 @@ final class AuditActionMeta
             str_starts_with($action, 'notification_channel.'),
             str_starts_with($action, 'user.'),
             str_starts_with($action, 'credential.'),
-            str_starts_with($action, 'impersonation.') => 'security',
+            str_starts_with($action, 'impersonation.'),
+            str_starts_with($action, 'support.') => 'security',
             str_starts_with($action, 'organization.') => 'org',
             default => 'other',
         };
@@ -136,6 +137,10 @@ final class AuditActionMeta
             'server.maintenance.disabled' => ['label' => 'Server maintenance ended', 'icon' => 'heroicon-o-play-circle', 'tone' => 'success'],
 
             // Sites
+            'support.access.start' => ['label' => 'dply support opened access to your data', 'icon' => 'heroicon-o-lifebuoy', 'tone' => 'warning'],
+            'support.database.query' => ['label' => 'dply support queried a database', 'icon' => 'heroicon-o-lifebuoy', 'tone' => 'warning'],
+            'support.database.verify' => ['label' => 'dply support ran a backup restore check', 'icon' => 'heroicon-o-lifebuoy', 'tone' => 'info'],
+            'support.resource.sleep' => ['label' => 'dply support put a resource to sleep', 'icon' => 'heroicon-o-lifebuoy', 'tone' => 'info'],
             'site.suspended' => ['label' => 'Site suspended', 'icon' => 'heroicon-o-pause-circle', 'tone' => 'warning'],
             'site.resumed' => ['label' => 'Site resumed', 'icon' => 'heroicon-o-play-circle', 'tone' => 'success'],
             'site.clone_started' => ['label' => 'Site clone started', 'icon' => 'heroicon-o-document-duplicate', 'tone' => 'info'],

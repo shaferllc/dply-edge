@@ -5,15 +5,20 @@ declare(strict_types=1);
 namespace App\Livewire\Admin;
 
 use App\Livewire\Admin\Concerns\AuthorizesPlatformAdmin;
+use App\Models\AuditLog;
 use App\Models\DplyDatabase;
 use App\Models\EdgeDatabase;
 use App\Models\EdgeQueue;
 use App\Models\Organization;
 use App\Models\Site;
 use App\Modules\Billing\Services\EdgeSiteBillingAnalytics;
+use App\Modules\Edge\Jobs\VerifyDatabaseBackupJob;
 use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Edge\Support\EdgeContainerConnections;
+use App\Modules\Edge\Support\EdgeContainerInstances;
 use App\Modules\Edge\Support\EdgeDplyDatabase;
+use App\Modules\Edge\Support\EdgeValkey;
+use App\Modules\Providers\Valkey\ValkeyGatewayClient;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -21,9 +26,12 @@ use Illuminate\Support\Str;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Url;
 use Livewire\Component;
+use Throwable;
 
 /**
- * Every organization's apps and the resources they use, in one list:
+ * Every organization's apps and the resources they use, in one list, with
+ * operator actions (T-036): live instances, sleep, restore check, and a
+ * database query console behind a data-access session. The list itself:
  * containers, dply databases, Valkey and every other attached kind, D1
  * databases and queues. Read-only (T-035, ruling r-5w7h5d0b902aeq0n): state
  * comes from what dply already stores (meta, the hourly backup status, the
@@ -56,9 +64,164 @@ class Resources extends Component
     #[Url]
     public bool $troubleOnly = false;
 
+    /** How long a data-access session lasts (ruling r-5w7h5d0b902aeq0n). */
+    public const ACCESS_MINUTES = 30;
+
+    /** The last action's outcome, shown above the list. */
+    public ?string $flash = null;
+
+    /** @var array<string, string> app id → its live instance summary */
+    public array $live = [];
+
+    /** The database the query panel is open for (its gateway id). */
+    public ?string $queryFor = null;
+
+    public string $accessReason = '';
+
+    public string $querySql = '';
+
+    public string $queryCollection = '';
+
+    public string $queryFilter = '';
+
+    /** @var array<string, mixed>|null */
+    public ?array $queryResult = null;
+
     public function mount(): void
     {
         $this->mountAuthorizesPlatformAdmin();
+    }
+
+    /** Asks a container app for its instances now (it answers; nothing wakes). */
+    public function liveState(string $id): void
+    {
+        $row = $this->row('app', $id);
+        $site = Site::query()->findOrFail($row['siteId']);
+        Cache::forget('edge-container-instances:'.$site->id);
+        $snapshot = EdgeContainerInstances::snapshot($site);
+        $this->live[$id] = $snapshot['error'] ?? collect($snapshot['instances'] ?? [])
+            ->map(fn (array $i): string => $i['name'].' '.$i['status'])->implode(' · ') ?: __('no instances');
+    }
+
+    /** Puts a dply database or Valkey to sleep now. */
+    public function sleepResource(string $group, string $id): void
+    {
+        $row = $this->row($group, $id);
+        try {
+            if ($group === 'database') {
+                ValkeyGatewayClient::fromConfig($row['region'])->sleep($row['id']);
+            } elseif ($group === 'redis' && str_starts_with($row['id'], EdgeValkey::PREFIX)) {
+                ValkeyGatewayClient::fromConfig(EdgeValkey::region($row['id']))->sleep(EdgeValkey::tenantId($row['id']));
+            } else {
+                abort(422);
+            }
+        } catch (Throwable $e) {
+            $this->flash = __('Could not put :name to sleep: :error', ['name' => $row['name'], 'error' => Str::limit($e->getMessage(), 200)]);
+
+            return;
+        }
+        $this->audit($row, 'support.resource.sleep');
+        $this->flash = __(':name is asleep. It wakes on its next connection.', ['name' => $row['name']]);
+    }
+
+    /** Queues the weekly restore check for one Postgres database now. */
+    public function verifyBackup(string $id): void
+    {
+        $row = $this->row('database', $id);
+        abort_unless($row['engine'] === 'postgres', 422);
+        VerifyDatabaseBackupJob::dispatch($row['id'], $row['name'], $row['databaseId'] === null ? $row['siteId'] : null, $row['databaseId']);
+        $this->audit($row, 'support.database.verify');
+        $this->flash = __('Restore check queued for :name. The result shows on its row in a minute or two.', ['name' => $row['name']]);
+    }
+
+    public function openQuery(string $id): void
+    {
+        $this->row('database', $id);
+        [$this->queryFor, $this->queryResult, $this->accessReason] = [$id, null, ''];
+    }
+
+    public function closeQuery(): void
+    {
+        $this->reset('queryFor', 'queryResult', 'accessReason', 'querySql', 'queryCollection', 'queryFilter');
+    }
+
+    /** Starts a data-access session: a reason, 30 minutes, logged and shown to the customer. */
+    public function startAccess(): void
+    {
+        $row = $this->row('database', (string) $this->queryFor);
+        $this->resetErrorBag('accessReason');
+        $reason = trim($this->accessReason);
+        if (mb_strlen($reason) < 5) {
+            $this->addError('accessReason', __('Say why you need to see this customer\'s data.'));
+
+            return;
+        }
+        Cache::put($this->accessKey($row['id']), ['reason' => $reason, 'until' => now()->addMinutes(self::ACCESS_MINUTES)->toIso8601String()], now()->addMinutes(self::ACCESS_MINUTES));
+        $this->audit($row, 'support.access.start', ['reason' => $reason, 'minutes' => self::ACCESS_MINUTES]);
+    }
+
+    /** One read-only statement (a find for MongoDB), at most 200 rows, inside an open session. */
+    public function runQuery(): void
+    {
+        $row = $this->row('database', (string) $this->queryFor);
+        $access = $this->access($row['id']);
+        abort_if($access === null, 403);
+        $body = $row['engine'] === 'mongodb'
+            ? ['collection' => trim($this->queryCollection), 'filter' => trim($this->queryFilter) ?: '{}']
+            : ['sql' => $this->querySql];
+        $this->audit($row, 'support.database.query', ['reason' => $access['reason']] + $body);
+        try {
+            $this->queryResult = ValkeyGatewayClient::fromConfig($row['region'])->action($row['id'], 'query', $body);
+        } catch (Throwable $e) {
+            $this->queryResult = ['error' => Str::limit($e->getMessage(), 500)];
+        }
+    }
+
+    /** @return array{reason: string, until: string}|null */
+    public function access(string $remoteId): ?array
+    {
+        $access = Cache::get($this->accessKey($remoteId));
+
+        return is_array($access) ? $access : null;
+    }
+
+    private function accessKey(string $remoteId): string
+    {
+        return 'admin-data-access:'.auth()->id().':'.$remoteId;
+    }
+
+    /**
+     * The row for an action, re-read on the server: actions never act on
+     * anything the list doesn't show.
+     *
+     * @return array<string, mixed>
+     */
+    private function row(string $group, string $id): array
+    {
+        $this->authorizePlatformAdmin();
+        foreach ($this->rows() as $row) {
+            if ($row['group'] === $group && $row['id'] === $id) {
+                return $row;
+            }
+        }
+        abort(404);
+    }
+
+    /**
+     * In the customer's organization log, which they see under Activity,
+     * and in the platform audit log.
+     *
+     * @param  array<string, mixed>  $row
+     * @param  array<string, mixed>  $values
+     */
+    private function audit(array $row, string $action, array $values = []): void
+    {
+        $organization = Organization::query()->find($row['orgId']);
+        if ($organization === null) {
+            return;
+        }
+        $site = $row['siteId'] !== null ? Site::query()->find($row['siteId']) : null;
+        AuditLog::log($organization, auth()->user(), $action, $site, null, ['resource' => $row['name'], 'id' => $row['id']] + $values);
     }
 
     public function render(): View
@@ -88,7 +251,7 @@ class Resources extends Component
     /**
      * One row per app and per resource.
      *
-     * @return list<array{group: string, kind: string, id: string, name: string, org: string, orgId: ?string, apps: list<string>, state: string, detail: string, problem: ?string, costCents: ?int, href: ?string}>
+     * @return list<array{group: string, kind: string, id: string, name: string, org: string, orgId: ?string, apps: list<string>, state: string, detail: string, problem: ?string, costCents: ?int, href: ?string, siteId: ?string, region: ?string, engine: ?string, databaseId: ?string}>
      */
     public function rows(): array
     {
@@ -106,7 +269,7 @@ class Resources extends Component
             $database = $meta['database'] ?? null;
             if (is_array($database) && EdgeAppDatabase::isDply($database) && (string) ($database['remote_id'] ?? '') !== '') {
                 $primaryIds[(string) $database['remote_id']] = true;
-                $rows[] = $this->databaseRow((string) $database['remote_id'], (string) ($database['engine'] ?? 'postgres'), $site->name, $org, (string) $site->organization_id, [$site->name], $database, (string) ($database['size'] ?? ''), (int) ($database['disk_gb'] ?? 0), (int) ($database['suspend'] ?? 0));
+                $rows[] = $this->databaseRow((string) $database['remote_id'], (string) ($database['engine'] ?? 'postgres'), $site->name, $org, (string) $site->organization_id, [$site->name], $database, (string) ($database['size'] ?? ''), (int) ($database['disk_gb'] ?? 0), (int) ($database['suspend'] ?? 0), EdgeDplyDatabase::regionOf($database), (string) $site->id, null);
             }
             foreach (EdgeContainerConnections::for($site) as $connection) {
                 $rows[] = [
@@ -122,6 +285,10 @@ class Resources extends Component
                     'problem' => null,
                     'costCents' => null,
                     'href' => null,
+                    'siteId' => (string) $site->id,
+                    'region' => null,
+                    'engine' => null,
+                    'databaseId' => null,
                 ];
             }
         }
@@ -132,7 +299,7 @@ class Resources extends Component
                 continue;
             }
             $state = (array) ($database->state ?? []);
-            $rows[] = $this->databaseRow($database->remote_id, (string) $database->engine, (string) $database->name, (string) ($orgs[$database->organization_id] ?? '—'), (string) $database->organization_id, $database->sites->pluck('name')->all(), $state, (string) ($database->size ?? ''), (int) $database->disk_gb, (int) $database->suspend);
+            $rows[] = $this->databaseRow($database->remote_id, (string) $database->engine, (string) $database->name, (string) ($orgs[$database->organization_id] ?? '—'), (string) $database->organization_id, $database->sites->pluck('name')->all(), $state, (string) ($database->size ?? ''), (int) $database->disk_gb, (int) $database->suspend, (string) $database->region, $database->sites->first()?->id, (string) $database->id);
         }
 
         foreach (EdgeDatabase::query()->get() as $d1) {
@@ -173,6 +340,10 @@ class Resources extends Component
             'problem' => $problem,
             'costCents' => is_array($billing) ? (int) ($billing['total_cents'] ?? 0) : null,
             'href' => $site->server_id !== null ? route('sites.show', ['site' => $site->id]) : null,
+            'siteId' => (string) $site->id,
+            'region' => null,
+            'engine' => $container ? 'container' : null,
+            'databaseId' => null,
         ];
     }
 
@@ -181,7 +352,7 @@ class Resources extends Component
      * @param  list<string>  $apps
      * @return array<string, mixed>
      */
-    private function databaseRow(string $remoteId, string $engine, string $name, string $org, string $orgId, array $apps, array $record, string $size, int $diskGb, int $suspend): array
+    private function databaseRow(string $remoteId, string $engine, string $name, string $org, string $orgId, array $apps, array $record, string $size, int $diskGb, int $suspend, string $region, ?string $siteId, ?string $databaseId): array
     {
         $backup = (array) ($record['backup'] ?? []);
         $verify = (array) ($backup['verify'] ?? []);
@@ -211,12 +382,16 @@ class Resources extends Component
             'problem' => $problem,
             'costCents' => null,
             'href' => null,
+            'siteId' => $siteId,
+            'region' => $region,
+            'engine' => $engine,
+            'databaseId' => $databaseId,
         ];
     }
 
     /** @return array<string, mixed> */
     private function plainRow(string $group, string $kind, string $id, string $name, string $org, string $orgId, string $detail): array
     {
-        return ['group' => $group, 'kind' => $kind, 'id' => $id, 'name' => $name, 'org' => $org, 'orgId' => $orgId, 'apps' => [], 'state' => '', 'detail' => $detail, 'problem' => null, 'costCents' => null, 'href' => null];
+        return ['group' => $group, 'kind' => $kind, 'id' => $id, 'name' => $name, 'org' => $org, 'orgId' => $orgId, 'apps' => [], 'state' => '', 'detail' => $detail, 'problem' => null, 'costCents' => null, 'href' => null, 'siteId' => null, 'region' => null, 'engine' => null, 'databaseId' => null];
     }
 }
