@@ -110,6 +110,8 @@ test('enabled workers add named worker instances to the container app and boot i
         // The every-minute trigger brings back an always-on worker that stopped.
         ->and($config['triggers'])->toBe(['crons' => ['* * * * *']])
         ->and($worker)->toContain('getContainer(env.APP, name).resumeWorker(name).catch(() => {})')
+        // Requests revive them too, at most once a minute per isolate.
+        ->and($worker)->toContain("const url = new URL(request.url);\n    reviveWorkers(env, ctx);")
         ->and($worker)->toContain('if (worker) Object.assign(this.envVars, worker.group.env, { DPLY_WORKER_NAME: ctx.id.name }')
         ->and($worker)->toContain("url.pathname === '/_dply/workers'")
         ->and($worker)->toContain("url.pathname === '/_dply/workers/start'")

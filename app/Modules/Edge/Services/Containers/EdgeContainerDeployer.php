@@ -2785,6 +2785,23 @@ async function runScheduled(env, cron, handler, at) {
 // Start whatever should be running now: min instances (from the current
 // window) and an always-on jobs instance. dply calls this after each deploy
 // and every few minutes, which also brings back one Cloudflare restarted.
+// Bring back always-on workers a rollout or restart stopped, at most once a
+// minute per isolate, from whatever request arrives. The Cron Trigger alone did
+// not: after dply's 00:52 deploy (2026-10-02) its worker stayed stopped with the
+// trigger in place, and only an explicit start brought it back. resumeWorker is
+// a no-op for a running, paused or unwanted worker.
+let workersRevivedAt = 0;
+function reviveWorkers(env, ctx) {
+  const now = Date.now();
+  if (WORKER_GROUPS.length === 0 || now - workersRevivedAt < 60000) return;
+  workersRevivedAt = now;
+  for (const g of WORKER_GROUPS) {
+    for (const name of workerNames(g).slice(0, g.min)) {
+      ctx.waitUntil(getContainer(env.APP, name).resumeWorker(name).catch(() => {}));
+    }
+  }
+}
+
 async function warm(env) {
   if (!(await trafficOpen(env))) return;
   const targets = Array.from({ length: limits().min }, (_, i) => [instance(env, i), i]);
@@ -3032,6 +3049,7 @@ function revealAppErrors(env, response) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    reviveWorkers(env, ctx);
     if (url.pathname.startsWith('/_dply/')) {
       if (request.headers.get('x-dply-queue-token') !== env.DPLY_QUEUE_TOKEN) {
         return new Response('Forbidden', { status: 403 });
@@ -3220,14 +3238,11 @@ export default {
   // schedule is due now, in UTC. Nothing due means nothing wakes.
   async scheduled(controller, env, ctx) {
     if (!(await trafficOpen(env))) return;
-    // Bring back always-on workers a rollout or restart stopped. On 2026-10-01
-    // dply's worker-0 (which also ran its scheduler, and so the warm that would
-    // have revived it) stayed down for 3 hours. A running or paused one is left.
-    for (const g of WORKER_GROUPS) {
-      for (const name of workerNames(g).slice(0, g.min)) {
-        ctx.waitUntil(getContainer(env.APP, name).resumeWorker(name).catch(() => {}));
-      }
-    }
+    // Bring back always-on workers a rollout or restart stopped (also done from
+    // requests, reviveWorkers). On 2026-10-01 dply's worker-0, which also ran
+    // its scheduler, stayed down for 3 hours.
+    workersRevivedAt = 0;
+    reviveWorkers(env, ctx);
     const at = new Date(controller.scheduledTime);
     for (const [cron, handlers] of Object.entries(CRON_HANDLERS)) {
       if (cron === '* * * * *' || cronDue(cron, 'UTC', at, true)) {
