@@ -95,7 +95,7 @@ final class DplyDatabaseActions
         } catch (Throwable) {
             throw new RuntimeException(__('Pick a date and time.'));
         }
-        $days = EdgeDplyDatabase::backupDays($database->sites()->first());
+        $days = EdgeDplyDatabase::backupDays($database->organization);
         if ($time->isFuture() || $time->lt(now()->subDays($days))) {
             throw new RuntimeException(__('Pick a time in the last :days days.', ['days' => $days]));
         }

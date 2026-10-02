@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Edge\Support;
 
+use App\Models\Organization;
 use App\Models\Site;
 use App\Modules\Edge\Services\EdgeAppDatabase;
 use App\Modules\Providers\Valkey\ValkeyGatewayClient;
@@ -141,9 +142,11 @@ final class EdgeDplyDatabase
      * database pod reads it when it is created, so a plan change reaches a
      * running database the next time its pod is recreated.
      */
-    public static function backupDays(?Site $site): int
+    public static function backupDays(Site|Organization|null $owner): int
     {
-        return max(1, (int) ($site?->organization?->tierAllowances()['backup_retention_days'] ?? 7));
+        $organization = $owner instanceof Site ? $owner->organization : $owner;
+
+        return max(1, (int) ($organization?->tierAllowances()['backup_retention_days'] ?? 7));
     }
 
     public static function destroy(string $id, ?string $region = null): void

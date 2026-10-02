@@ -33,17 +33,21 @@ func newSnapshotStore() (*snapshotStore, error) {
 func key(id string) string { return "tenants/" + id + "/keys.dump" }
 
 // removePrefix deletes every object under prefix (a deleted database's wal-g
-// backups: tenants/{id}/pg/).
+// backups: tenants/{id}/pg/). It keeps going past a refused delete: the R2
+// bucket lock holds the last few days' backups, and the older ones can still
+// go now (dply:databases:sweep-backups removes the rest later). Returns the
+// first error.
 func (s *snapshotStore) removePrefix(ctx context.Context, prefix string) error {
+	var first error
 	for obj := range s.client.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
 		if obj.Err != nil {
 			return obj.Err
 		}
-		if err := s.client.RemoveObject(ctx, s.bucket, obj.Key, minio.RemoveObjectOptions{}); err != nil {
-			return err
+		if err := s.client.RemoveObject(ctx, s.bucket, obj.Key, minio.RemoveObjectOptions{}); err != nil && first == nil {
+			first = err
 		}
 	}
-	return nil
+	return first
 }
 
 // put streams a snapshot of unknown length into the bucket.

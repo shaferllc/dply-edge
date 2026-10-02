@@ -325,6 +325,11 @@ func (p *postgres) backupLoop() {
 		}
 		if up && dueSince(p.backupMarker(), 24*time.Hour) {
 			started := time.Now()
+			// A fresh WAL segment first: wal-g names a base backup after the
+			// segment it starts in, and a retry in the same segment as a
+			// failed attempt would write over that attempt's parts, which
+			// the R2 bucket lock refuses.
+			_ = exec.Command("psql", "-h", p.run, "-U", "dply_admin", "-d", "postgres", "-qAtc", "SELECT pg_switch_wal()").Run()
 			_, err := p.walg("backup-push", p.data)
 			recordBackup(err)
 			if err != nil {

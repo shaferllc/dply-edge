@@ -52,7 +52,6 @@ type dumps struct {
 	prefix string // "tenants/{id}/mongodb/"
 }
 
-
 // newDumps is nil when backups are not configured (local).
 func newDumps(e dumper, marker string) (*dumps, error) {
 	if !backupsEnabled() {
