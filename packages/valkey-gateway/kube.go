@@ -62,6 +62,7 @@ func (g *gateway) saveTenant(ctx context.Context, t tenant) error {
 			"persistent":  strconv.FormatBool(t.Persistent),
 			"engine":      t.Engine,
 			"disk_gb":     strconv.Itoa(t.DiskGB),
+			"backup_days": strconv.Itoa(t.BackupDays),
 		},
 	}
 	secrets := g.kube.CoreV1().Secrets(g.cfg.namespace)
@@ -88,6 +89,7 @@ func tenantFromSecret(s *corev1.Secret) tenant {
 		Persistent: string(s.Data["persistent"]) == "true",
 		Engine:     engineOrValkey(string(s.Data["engine"])),
 		DiskGB:     atoi(string(s.Data["disk_gb"])),
+		BackupDays: atoi(string(s.Data["backup_days"])),
 	}
 }
 

@@ -153,3 +153,10 @@ func TestLargeDatabasesAndValkeyProStayOn(t *testing.T) {
 		}
 	}
 }
+
+func TestTenantSecretKeepsBackupDays(t *testing.T) {
+	s := &corev1.Secret{Data: map[string][]byte{"id": []byte("pg-x"), "engine": []byte("postgres"), "backup_days": []byte("30")}}
+	if got := tenantFromSecret(s).BackupDays; got != 30 {
+		t.Fatalf("backup_days: got %d", got)
+	}
+}

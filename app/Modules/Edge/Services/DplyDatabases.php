@@ -174,7 +174,7 @@ final class DplyDatabases
         if (EdgeDplyDatabase::alwaysOn($size)) {
             $suspend = -1;
         }
-        EdgeDplyDatabase::update($database->remote_id, $database->password, $size, $suspend, $disk, $database->engine, $database->region);
+        EdgeDplyDatabase::update($database->remote_id, $database->password, $size, $suspend, $disk, $database->engine, $database->region, EdgeDplyDatabase::backupDays($database->organization));
         $database->forceFill(['size' => $size, 'suspend' => $suspend, 'disk_gb' => $disk])->save();
         foreach ($database->sites()->wherePivot('primary', true)->get() as $app) {
             $record = (array) ($app->edgeMeta()['database'] ?? []);
