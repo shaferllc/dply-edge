@@ -37,7 +37,7 @@
                                 </span>
                                 {{ __('Deployed') }}
                             </p>
-                            <p class="mt-1 text-[15px] font-semibold leading-snug text-white" x-text="toast.message"></p>
+                            <p class="mt-1 text-[15px] font-semibold leading-snug text-[#f4f7ee]" x-text="toast.message"></p>
                             <p x-show="toast.detail" class="mt-0.5 truncate font-mono text-xs text-[#a4ab99]" x-text="toast.detail"></p>
                             <a
                                 x-show="toast.url"
@@ -57,12 +57,12 @@
                     <button
                         type="button"
                         @click="remove(toast.id)"
-                        class="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-md text-base leading-none text-[#a4ab99] transition hover:bg-white/10 hover:text-white"
+                        class="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-md text-base leading-none text-[#a4ab99] transition hover:bg-[#f4f7ee]/10 hover:text-[#f4f7ee]"
                         aria-label="{{ __('Dismiss') }}"
                     >&times;</button>
 
                     {{-- Time left before it goes away. --}}
-                    <div class="absolute inset-x-0 bottom-0 h-0.5 bg-white/5" aria-hidden="true">
+                    <div class="absolute inset-x-0 bottom-0 h-0.5 bg-[#f4f7ee]/5" aria-hidden="true">
                         <div class="dply-live-bar h-full origin-left bg-gradient-to-r from-[#c3f53c] to-[#d9ff7a]" :style="`animation-duration: ${toast.duration}ms`"></div>
                     </div>
                 </div>

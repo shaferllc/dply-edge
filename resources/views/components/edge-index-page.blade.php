@@ -57,6 +57,9 @@
             @if ($showShellCreate || $showShellSecondary || isset($actions))
                 <x-slot:actions>
                     @if ($showShellSecondary)
+                        <x-outline-link :href="route('edge.resources')" size="xxs" wire:navigate>
+                            {{ __('Resources') }}
+                        </x-outline-link>
                         <x-outline-link :href="$usageUrl" size="xxs" wire:navigate>
                             {{ __('Usage') }}
                         </x-outline-link>
@@ -236,6 +239,7 @@
                     @if ($showSecondaryActions || $showCreateAction)
                         <div class="flex flex-wrap items-center gap-2">
                             @if ($showSecondaryActions)
+                                <x-outline-link :href="route('edge.resources')" size="xxs" wire:navigate>{{ __('Resources') }}</x-outline-link>
                                 <x-outline-link :href="$usageUrl" size="xxs" wire:navigate>{{ __('Usage') }}</x-outline-link>
                             @endif
                             @if ($showCreateAction)
