@@ -319,6 +319,13 @@ class Resources extends Component
             if ($connection['host'] !== $host || ! EdgeValkey::isTarget($connection['target']) || ! isset(EdgeValkey::offered($this->site)[$class])) {
                 continue;
             }
+            // Keys live in the shared pool (nano) or in the store's own pod: a
+            // store can't move between them (the gateway refuses it too).
+            if (EdgeValkey::shared($class) !== EdgeValkey::shared($connection['plan'] !== '' ? $connection['plan'] : EdgeValkey::DEFAULT_CLASS)) {
+                $this->toastError(__('A store can\'t move to or from Nano. Create a new store instead.'));
+
+                return;
+            }
             $url = $this->productionRedisUrl();
             [$class, $sleep] = EdgeTrialLimits::valkey($this->site, $class, $sleep);
             try {
@@ -2815,6 +2822,12 @@ class Resources extends Component
         foreach ($rows as $index => $connection) {
             if ($connection['host'] !== $host) {
                 continue;
+            }
+            // Nano has no pod of its own to stop: it is always on (and bills to its cap).
+            if ($asleep && $connection['kind'] === 'redis' && EdgeValkey::shared($connection['plan'])) {
+                $this->toastError(__('A nano store is always on and can\'t sleep. Delete it to stop its billing.'));
+
+                return;
             }
             $rows[$index]['asleep'] = $asleep;
             $found = true;

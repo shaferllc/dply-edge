@@ -24,7 +24,7 @@ func TestNanoRewritePrefixesEveryKey(t *testing.T) {
 }
 
 func TestNanoRefusesWhatCouldReachOtherTenants(t *testing.T) {
-	for _, cmd := range [][]string{{"KEYS", "*"}, {"SCAN", "0"}, {"FLUSHALL"}, {"FLUSHDB"}, {"EVAL", "return 1", "0"}, {"INFO"}, {"DBSIZE"}, {"PUBLISH", "c", "m"}, {"RANDOMKEY"}, {"ZUNIONSTORE", "d", "2", "a", "b"}, {"OBJECT", "ENCODING", "a"}} {
+	for _, cmd := range [][]string{{"KEYS", "*"}, {"SCAN", "0"}, {"FLUSHALL"}, {"FLUSHDB"}, {"EVAL", "return 1", "0"}, {"INFO"}, {"DBSIZE"}, {"PUBLISH", "c", "m"}, {"RANDOMKEY"}, {"ZUNIONSTORE", "d", "2", "a", "b"}, {"OBJECT", "ENCODING", "a"}, {"COPY", "a", "b", "DB", "1"}} {
 		if _, err := nanoRewrite(cmd, nanoPrefix("t1"), false); err == nil {
 			t.Fatalf("%v was allowed", cmd)
 		}
@@ -83,5 +83,11 @@ func TestNanoAgainstValkey(t *testing.T) {
 	bytes, keys, err := nanoUsage(c, nanoPrefix("alpha"))
 	if err != nil || keys != 1 || bytes <= 0 {
 		t.Fatalf("usage: %d bytes, %d keys, %v", bytes, keys, err)
+	}
+}
+
+func TestNanoPoolNeverEvicts(t *testing.T) {
+	if evictionPolicy(tenant{ID: nanoPoolID}) != "noeviction" || evictionPolicy(tenant{ID: "abc"}) != "volatile-lru" {
+		t.Fatal("eviction policy")
 	}
 }

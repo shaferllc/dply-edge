@@ -302,6 +302,7 @@
             </div>
 
             @php $valkeyHostJs = \Illuminate\Support\Js::from($valkeyConnection['host']); @endphp
+            @unless (\App\Modules\Edge\Support\EdgeValkey::shared((string) $valkeyConnection['plan']))
             <x-sheet.section :title="$valkeyConnection['asleep'] ? __('Asleep') : __('Sleep')">
                 <p class="text-xs leading-5 text-brand-moss">
                     {{ $valkeyConnection['asleep']
@@ -314,6 +315,7 @@
                     </x-sheet.button>
                 </div>
             </x-sheet.section>
+            @endunless
 
             <x-sheet.danger :title="__('Delete')">
                 <p class="text-xs leading-5 text-brand-moss">{{ __('Deletes this Valkey and every key in it, and takes REDIS_URL off the app on the next deploy.') }}</p>

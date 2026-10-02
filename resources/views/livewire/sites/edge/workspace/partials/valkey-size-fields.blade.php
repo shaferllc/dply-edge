@@ -10,7 +10,8 @@
 <div class="grid gap-5" wire:key="valkey-card-{{ md5($connection['host']) }}">
     <x-sheet.field :label="__('Size')">
         <x-sheet.options id="valkey-size-sheet">
-            @foreach (\App\Modules\Edge\Support\EdgeValkey::offered($site) as $classId => $class)
+            {{-- A store stays nano or stays a pod of its own (the keys live in different places). --}}
+            @foreach (collect(\App\Modules\Edge\Support\EdgeValkey::offered($site))->filter(fn ($c, $id) => \App\Modules\Edge\Support\EdgeValkey::shared($id) === \App\Modules\Edge\Support\EdgeValkey::shared($vkPlan)) as $classId => $class)
                 <x-sheet.option
                     wire:click="saveValkey('{{ $connection['host'] }}', '{{ $classId }}', {{ $vkSleep }})"
                     wire:loading.attr="disabled"

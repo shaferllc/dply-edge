@@ -868,3 +868,21 @@ test('container logs are looked up by dashed application id, whichever form the 
     expect(EdgeContainerDeployer::logServices($site, EdgeCloudflareClient::fromConfig()))
         ->toBe([$script, '213f9bc3-db1b-4bc5-b1ee-7e3f1a3dcdde', 'a0395512-caf8-45e7-b3b4-ebf8ae7d7790']);
 });
+
+test('a nano store can\'t change to or from a pod size, and can\'t sleep', function () {
+    config(['edge.valkey.api_url' => 'http://gateway.test', 'edge.valkey.token' => 'tok']);
+    Http::fake(['gateway.test/*' => Http::response([])]);
+    [$user, $server, $site] = containerSite(paid: true);
+    $host = EdgeContainerConnections::resourceHost($site, 'cache');
+    $site->mergeEdgeMeta(['runtime_mode' => 'ssr', 'connections' => [['kind' => 'redis', 'name' => 'CACHE', 'host' => $host, 'target' => 'valkey:app-cache', 'plan' => 'nano']]]);
+    $site->save();
+
+    Livewire::actingAs($user)
+        ->test(Resources::class, ['server' => $server, 'site' => $site])
+        ->call('saveValkey', $host, 'flex_1g', 300)
+        ->call('sleepConnection', $host, true);
+
+    $connection = collect(EdgeContainerConnections::for($site->fresh()))->firstWhere('kind', 'redis');
+    expect($connection['plan'])->toBe('nano')->and($connection['asleep'])->toBeFalse();
+    Http::assertNothingSent();
+});

@@ -21,7 +21,8 @@ import (
 //
 // And the pool follows demand: POOL is the floor per size; each size keeps
 // as many warm pods as it handed out in the last poolWindow, up to
-// poolCeiling times its floor (a floor of 0: up to poolCeiling).
+// poolCeiling times its floor (a floor of 0: up to poolCeiling) for small
+// pods, and one for sizes of 1 GB and up.
 
 const (
 	poolWindow  = 15 * time.Minute
@@ -112,7 +113,13 @@ func (d *poolDemand) want(mb, floor int, now time.Time) int {
 	if d.adopted != nil {
 		d.adopted[mb] = recent
 	}
-	return min(max(floor, len(recent)), max(floor, 1)*poolCeiling)
+	ceiling := max(floor, 1) * poolCeiling
+	if mb >= 1024 {
+		// Big warm pods reserve real memory on small flex nodes: demand
+		// raises these to one at most above their floor.
+		ceiling = max(floor, 1)
+	}
+	return min(max(floor, len(recent)), ceiling)
 }
 
 func prune(times []time.Time, now time.Time) []time.Time {

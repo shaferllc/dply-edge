@@ -60,7 +60,7 @@ var nanoCommands = map[string]keySpec{
 	// keys
 	"DEL": keyAll, "UNLINK": keyAll, "EXISTS": keyAll, "TOUCH": keyAll, "TYPE": keyFirst,
 	"EXPIRE": keyFirst, "PEXPIRE": keyFirst, "EXPIREAT": keyFirst, "PEXPIREAT": keyFirst, "TTL": keyFirst, "PTTL": keyFirst,
-	"PERSIST": keyFirst, "RENAME": keyTwo, "RENAMENX": keyTwo, "COPY": keyTwo,
+	"PERSIST": keyFirst, "RENAME": keyTwo, "RENAMENX": keyTwo,
 	// hashes
 	"HGET": keyFirst, "HSET": keyFirst, "HSETNX": keyFirst, "HMSET": keyFirst, "HMGET": keyFirst, "HDEL": keyFirst,
 	"HGETALL": keyFirst, "HKEYS": keyFirst, "HVALS": keyFirst, "HLEN": keyFirst, "HEXISTS": keyFirst, "HSTRLEN": keyFirst,
@@ -85,7 +85,7 @@ var nanoCommands = map[string]keySpec{
 // Commands that add data: refused while a tenant is over its quota.
 var nanoGrows = map[string]bool{
 	"SET": true, "SETNX": true, "SETEX": true, "PSETEX": true, "GETSET": true, "APPEND": true, "SETRANGE": true,
-	"INCR": true, "INCRBY": true, "INCRBYFLOAT": true, "DECR": true, "DECRBY": true, "MSET": true, "MSETNX": true, "COPY": true,
+	"INCR": true, "INCRBY": true, "INCRBYFLOAT": true, "DECR": true, "DECRBY": true, "MSET": true, "MSETNX": true,
 	"HSET": true, "HSETNX": true, "HMSET": true, "HINCRBY": true, "HINCRBYFLOAT": true,
 	"LPUSH": true, "RPUSH": true, "LPUSHX": true, "RPUSHX": true, "LSET": true, "LMOVE": true, "RPOPLPUSH": true,
 	"SADD": true, "SMOVE": true, "SINTERSTORE": true, "SUNIONSTORE": true, "SDIFFSTORE": true,
@@ -307,4 +307,21 @@ func respString(v any) string {
 	default:
 		return fmt.Sprint(x)
 	}
+}
+
+// nanoRoom: whether a new nano tenant of quota mb still fits the pool, the
+// quotas of existing ones added up against 80% of the pool's memory (the
+// pool never evicts, so quotas must not oversubscribe it).
+func (g *gateway) nanoRoom(ctx context.Context, mb int) (bool, error) {
+	tenants, err := g.listTenants(ctx)
+	if err != nil {
+		return false, err
+	}
+	used := mb
+	for _, t := range tenants {
+		if t.Shared {
+			used += t.MemoryMB
+		}
+	}
+	return used <= nanoPoolMB*8/10, nil
 }

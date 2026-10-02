@@ -578,6 +578,21 @@ func (g *gateway) putTenant(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "the engine cannot change; delete and create", http.StatusUnprocessableEntity)
 		return
 	}
+	// The keys live in the shared pool or in the tenant's own pod; moving
+	// between them would strand every key on the side left behind.
+	if previous != nil && previous.Shared != t.Shared {
+		http.Error(w, "a store can't move to or from nano; create a new one", http.StatusUnprocessableEntity)
+		return
+	}
+	if t.Shared && previous == nil {
+		if ok, err := g.nanoRoom(r.Context(), t.MemoryMB); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		} else if !ok {
+			http.Error(w, "the nano pool is full; pick another size", http.StatusInsufficientStorage)
+			return
+		}
+	}
 	// An update that doesn't say keeps the stored retention (sent at create).
 	if previous != nil && t.BackupDays == 0 {
 		t.BackupDays = previous.BackupDays

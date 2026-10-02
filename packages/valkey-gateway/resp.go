@@ -130,7 +130,7 @@ func applyTenant(c *conn, t tenant) error {
 		{"CONFIG", "SET", "maxmemory", strconv.Itoa(t.MemoryMB) + "mb"},
 		// Also here, not only at pod start: a pool pod made by an older
 		// gateway still has the old policy when a tenant adopts it.
-		{"CONFIG", "SET", "maxmemory-policy", "volatile-lru"},
+		{"CONFIG", "SET", "maxmemory-policy", evictionPolicy(t)},
 	}
 	for _, cmd := range commands {
 		reply, err := c.do(cmd...)
@@ -163,4 +163,14 @@ func waitReady(ip, adminPassword string, within time.Duration) error {
 		time.Sleep(25 * time.Millisecond)
 	}
 	return fmt.Errorf("valkey did not answer: %v", last)
+}
+
+// evictionPolicy: tenants may lose keys with a TTL under memory pressure,
+// but the nano pool never evicts: one tenant's burst must not drop another
+// tenant's keys. A full pool answers OOM instead (nano.go).
+func evictionPolicy(t tenant) string {
+	if t.ID == nanoPoolID {
+		return "noeviction"
+	}
+	return "volatile-lru"
 }

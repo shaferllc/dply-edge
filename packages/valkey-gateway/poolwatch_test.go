@@ -27,7 +27,8 @@ func TestPoolFollowsDemandBetweenFloorAndCeiling(t *testing.T) {
 		t.Fatalf("after the window: got %d", got)
 	}
 	d.recordAdoption(1024, now)
+	d.recordAdoption(1024, now)
 	if got := d.want(1024, 0, now); got != 1 {
-		t.Fatalf("a floor of 0 follows demand: got %d", got)
+		t.Fatalf("big pods: demand raises a floor of 0 to one at most, got %d", got)
 	}
 }
