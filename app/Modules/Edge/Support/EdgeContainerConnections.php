@@ -84,7 +84,7 @@ final class EdgeContainerConnections
     public const VECTOR_METRICS = ['cosine', 'euclidean', 'dot-product'];
 
     /** Flags for things that are not resource kinds, kind => label. */
-    public const OTHER_FLAGS = ['git' => 'dply Git'];
+    public const OTHER_FLAGS = ['git' => 'dply Git', 'agent' => 'Container agent'];
 
     /**
      * Kinds behind a Pennant feature flag, per organization (off unless

@@ -84,7 +84,10 @@ final class EdgeReleaseBundle
         // Runtime: the final stage before the app, then what does not depend on it.
         $runtime = array_slice($lines, $finalFrom, $deps - $finalFrom);
         foreach (array_slice($lines, $deps) as $line) {
-            if (str_starts_with($line, 'ENV ') || str_starts_with($line, 'RUN printf %s ') || str_starts_with($line, 'EXPOSE ')) {
+            // The dply agent's COPY and ENTRYPOINT too (EdgeContainerAgent::lines): the
+            // runtime image is the one that runs.
+            if (str_starts_with($line, 'ENV ') || str_starts_with($line, 'RUN printf %s ') || str_starts_with($line, 'EXPOSE ')
+                || str_starts_with($line, 'COPY --chmod=0755 .dply-agent ') || str_starts_with($line, 'ENTRYPOINT ["/usr/local/bin/dply-agent"')) {
                 $runtime[] = $line;
             }
         }

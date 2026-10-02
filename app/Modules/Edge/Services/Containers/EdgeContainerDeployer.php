@@ -19,6 +19,7 @@ use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeContainerInstances;
 use App\Modules\Edge\Support\EdgeContainerSettings;
 use App\Modules\Edge\Support\EdgeCronExpression;
+use App\Modules\Edge\Support\EdgeDeployProgress;
 use App\Modules\Edge\Support\EdgeEffectiveBindings;
 use App\Modules\Edge\Support\EdgeEffectiveCrons;
 use App\Modules\Edge\Support\EdgeLogCopy;
@@ -500,6 +501,9 @@ JS;
         $runtimeDir = $workRoot.'/release-runtime';
         File::ensureDirectoryExists($runtimeDir);
         File::put($runtimeDir.'/Dockerfile', $split['runtime']);
+        if (is_file($checkout.'/'.EdgeContainerAgent::CONTEXT_FILE)) {
+            File::copy($checkout.'/'.EdgeContainerAgent::CONTEXT_FILE, $runtimeDir.'/'.EdgeContainerAgent::CONTEXT_FILE);
+        }
         File::put($checkout.'/Dockerfile.dply-release', $split['release']);
         // Two archives: vendor/ (named by composer.lock, so unchanged
         // dependencies are uploaded once) and the rest of /app, including
@@ -962,6 +966,15 @@ JS;
         $injectLaravel = self::needsLaravelPackage($site, $checkout);
         $image = EdgeContainerDockerfile::prepare($checkout, $injectLaravel);
         File::put($image['path'], self::scopeCacheMounts((string) file_get_contents($image['path']), self::cacheScope($site)));
+        // The dply agent as PID 1 (commands from the dashboard). Never fails a deploy.
+        $agentSkipped = EdgeContainerAgent::wrap($site, $checkout, $image);
+        if ($agentSkipped === null) {
+            $log('Added the dply agent (dashboard commands, port '.EdgeContainerAgent::PORT.").\n");
+        } elseif (EdgeContainerAgent::flagOn($site)) {
+            $log("The dply agent was not added: {$agentSkipped}.\n");
+        }
+        // On the deployment: whether the live one has the agent (EdgeContainerAgent::live).
+        EdgeDeployProgress::setMeta((string) $deployment->id, 'agent', $agentSkipped === null ? '1' : '0');
         self::recordWorkerModeSupport($site, $image);
         if ($injectLaravel) {
             $log("Added dply/laravel so this app can use the attached resources.\n");
@@ -2016,6 +2029,7 @@ JS;
     {
         $replace = [
             '__PORT__' => (string) $port,
+            '__AGENT_PORT__' => (string) EdgeContainerAgent::PORT,
             '__PING_PATH__' => self::PING_PATH,
             '__LOCATION_HINT__' => json_encode(strtolower((string) EdgeContainerSettings::dataRegion($site))),
             '__SLEEP__' => json_encode($settings['sleep_after']),
@@ -2341,6 +2355,7 @@ export class App extends Container {
   // containerFetch RPC), which is the path the SDK proxies WebSocket
   // upgrades on: it answers with a 101 whose webSocket it pipes both ways.
   async fetch(request) {
+    if (request.headers.get('x-dply-agent') === '1') return this.agentFetch(request);
     // dply's uptime check: never wakes a sleeping instance ("asleep"), and
     // is not activity, so it cannot keep the app awake either.
     const uptime = request.headers.get('x-dply-uptime');
@@ -2352,6 +2367,39 @@ export class App extends Container {
     this.lastActivityAt = Date.now();
     if (this.container.running) return super.fetch(request);
     return this.wake(request);
+  }
+
+  // A command for the dply agent (EdgeContainerAgent) on its own port. Unlike
+  // the uptime check it is activity: counted in flight until its output ends,
+  // so sleepAfter cannot stop the container mid-command. The token is checked
+  // again here, so a visitor's x-dply-agent header reaches nothing.
+  async agentFetch(request) {
+    if (!this.env?.DPLY_QUEUE_TOKEN || request.headers.get('x-dply-queue-token') !== this.env.DPLY_QUEUE_TOKEN) {
+      return new Response('Forbidden', { status: 403 });
+    }
+    if (!this.container.running) {
+      // A queue worker has no web port to wait on: commands run in awake ones only.
+      if (request.headers.get('x-dply-no-wake') === '1' || isWorker(this.ctx.id.name)) {
+        return Response.json({ asleep: true }, { status: 409 });
+      }
+      await this.startAndWaitForPorts({ ports: [__PORT__], cancellationOptions: { portReadyTimeoutMS: 45000, instanceGetTimeoutMS: 30000 } });
+    }
+    this.lastActivityAt = Date.now();
+    this.inflightRequests++;
+    this.renewActivityTimeout();
+    try {
+      const res = await this.container.getTcpPort(AGENT_PORT).fetch(request.url.replace('https:', 'http:'), request);
+      if (res.body === null) {
+        this.decrementInflight();
+        return res;
+      }
+      const { readable, writable } = new IdentityTransformStream();
+      res.body.pipeTo(writable).finally(() => this.decrementInflight());
+      return new Response(readable, res);
+    } catch (e) {
+      this.decrementInflight();
+      return new Response('The dply agent did not answer (is it in this deploy?): ' + (e instanceof Error ? e.message : String(e)), { status: 502 });
+    }
   }
 
   // A request that found this instance asleep: start it with a tighter poll
@@ -2778,6 +2826,7 @@ function limits(now = new Date()) {
 }
 const STICKY = __STICKY__;
 const DEDICATED_JOBS = __DEDICATED_JOBS__;
+const AGENT_PORT = __AGENT_PORT__;
 const PAUSE_KEY = __PAUSE_KEY__;
 
 function stickyId(request) {
@@ -2787,6 +2836,20 @@ function stickyId(request) {
     if (id >= 0 && id < limits().max) return id;
   }
   return null;
+}
+
+// A dashboard command for the dply agent in one container (EdgeContainerAgent).
+// Not through proxy(): no retries, no error pages, no reply metering. Only
+// containers this app runs: a jobs container without DEDICATED_JOBS, or an
+// instance past INSTANCES, would start a new one.
+function agentFetch(env, request, url) {
+  const target = url.searchParams.get('target') || (DEDICATED_JOBS ? 'jobs' : 'instance-0');
+  const index = /^instance-(\d+)$/.exec(target);
+  const known = (target === 'jobs' && DEDICATED_JOBS) || (index !== null && Number(index[1]) < INSTANCES) || /^worker-\d+$/.test(target);
+  if (!known) return new Response('This app has no container named ' + target + '.', { status: 404 });
+  const forward = new Request('http://agent' + url.pathname.slice('/_dply/agent'.length), request);
+  forward.headers.set('x-dply-agent', '1');
+  return getContainer(env.APP, target).fetch(forward);
 }
 
 function instance(env, index) {
@@ -3117,6 +3180,9 @@ export default {
     if (url.pathname.startsWith('/_dply/')) {
       if (request.headers.get('x-dply-queue-token') !== env.DPLY_QUEUE_TOKEN) {
         return new Response('Forbidden', { status: 403 });
+      }
+      if (url.pathname.startsWith('/_dply/agent/')) {
+        return agentFetch(env, request, url);
       }
       if (url.pathname === '/_dply/warm' && request.method === 'POST') {
         ctx.waitUntil(warm(env));

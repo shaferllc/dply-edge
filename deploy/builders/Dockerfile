@@ -13,6 +13,13 @@ WORKDIR /app
 COPY composer.json composer.lock ./
 RUN composer install --no-dev --no-scripts --no-autoloader --no-interaction --prefer-dist --ignore-platform-reqs
 
+# The agent dply puts in front of container apps (packages/dply-agent,
+# EdgeContainerAgent): a static linux/amd64 binary, copied into each image.
+FROM golang:1.24-bookworm AS agent
+WORKDIR /src
+COPY packages/dply-agent/ ./
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /dply-agent .
+
 FROM php:8.4-cli-bookworm
 
 # git >= 2.31 (bookworm: 2.39), node for the node-side jobs (middleware
@@ -29,6 +36,7 @@ RUN install-php-extensions pdo_pgsql pgsql redis pcntl intl zip bcmath gd opcach
 # Current Docker CLI + buildx (same pins as docker/edge-container-deployer).
 COPY --from=docker:27-cli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker/buildx-bin:latest /buildx /usr/libexec/docker/cli-plugins/docker-buildx
+COPY --from=agent /dply-agent /usr/local/bin/dply-agent
 
 WORKDIR /app
 COPY --from=vendor /usr/bin/composer /usr/bin/composer

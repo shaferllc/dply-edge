@@ -120,6 +120,7 @@ class EdgeServiceProvider extends ServiceProvider
                 SampleEdgeDatabasesCommand::class,
                 VerifyDatabaseBackupsCommand::class,
                 LockDatabaseBackupsCommand::class,
+                \App\Modules\Edge\Console\EdgeExecCommand::class,
                 SweepDatabaseBackupsCommand::class,
                 ResizeEdgeDatabasesCommand::class,
                 CheckEdgeBuildersCommand::class,
