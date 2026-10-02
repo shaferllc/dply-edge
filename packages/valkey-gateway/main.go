@@ -890,12 +890,13 @@ func validID(id string) bool {
 
 var errNotFound = errors.New("not found")
 
-// parsePool reads "250:2,1024:1": keep two warm 250 MB pods and one 1 GB pod.
+// parsePool reads "250:2,1024:0": at least two warm 250 MB pods, and 1 GB
+// pods only while they are in demand (poolwatch.go).
 func parsePool(spec string) map[int]int {
 	out := map[int]int{}
 	for _, part := range strings.Split(spec, ",") {
 		mb, n, ok := strings.Cut(strings.TrimSpace(part), ":")
-		if ok && atoi(mb) > 0 && atoi(n) > 0 {
+		if ok && atoi(mb) > 0 && atoi(n) >= 0 && strings.TrimSpace(n) != "" {
 			out[atoi(mb)] = atoi(n)
 		}
 	}

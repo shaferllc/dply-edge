@@ -26,4 +26,8 @@ func TestPoolFollowsDemandBetweenFloorAndCeiling(t *testing.T) {
 	if got := d.want(250, 2, now.Add(poolWindow+time.Minute)); got != 2 {
 		t.Fatalf("after the window: got %d", got)
 	}
+	d.recordAdoption(1024, now)
+	if got := d.want(1024, 0, now); got != 1 {
+		t.Fatalf("a floor of 0 follows demand: got %d", got)
+	}
 }
