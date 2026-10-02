@@ -13,6 +13,7 @@ use App\Modules\Edge\Services\EdgeHostMapPublisher;
 use App\Modules\Edge\Services\EdgeKvInstant;
 use App\Modules\Edge\Services\EdgeQueueConsumers;
 use App\Modules\Edge\Services\Storage\EdgeBucketKeys;
+use App\Modules\Edge\Jobs\RemoveEdgeCheckCopyJob;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeContainerInstances;
 use App\Modules\Edge\Support\EdgeContainerSettings;
@@ -1454,14 +1455,29 @@ JS;
      * Route every production hostname to $script, then wait until every
      * location can have seen it: the old target must not go away first.
      */
-    private function routeProductionTo(Site $site, EdgeDeployment $deployment, string $script): void
+    private function routeProductionTo(Site $site, EdgeDeployment $deployment, string $script, bool $wait = true): void
     {
         $publisher = app(EdgeHostMapPublisher::class);
         foreach ($publisher->productionHostnames($site) as $hostname) {
             $publisher->publishScript($site, $deployment, $hostname, $script, isProduction: true);
         }
         // KV Instant swaps the pointer at once; plain KV can take up to 60s to reach every location.
-        Sleep::for(EdgeKvInstant::routesNamespace() !== null ? 5 : 60)->seconds();
+        if ($wait) {
+            Sleep::for(EdgeKvInstant::routesNamespace() !== null ? 5 : 60)->seconds();
+        }
+    }
+
+    /** The check copy and its hostnames, after a handoff (RemoveEdgeCheckCopyJob). */
+    public function removeCheckCopy(Site $site): void
+    {
+        try {
+            app(EdgeHostMapPublisher::class)->unpublishHostname($site, self::productionCheckHost($site));
+        } catch (Throwable) {
+            // Best effort: it only ever pointed at production.
+        }
+        $this->removeCandidate($site, self::candidateScript($site), self::candidateHost($site), (string) config('edge.cloudflare.dispatch_namespace_name'), static function (string $line): void {
+            logger()->warning(trim($line));
+        });
     }
 
     /**
@@ -1473,10 +1489,17 @@ JS;
      */
     private function endHandoff(Site $site, EdgeDeployment $deployment, string $namespace, bool $productionOk, callable $log): void
     {
+        $removeNow = true;
         try {
             if ($productionOk) {
                 $log("Production is on the new version. Sending visitors back to it.\n");
-                $this->routeProductionTo($site, $deployment, self::scriptName($site));
+                // No wait here: locations still on the copy keep being served by it.
+                // It comes down once every location has the new route (a delayed
+                // job), instead of this deploy sleeping 60s for it.
+                $this->routeProductionTo($site, $deployment, self::scriptName($site), wait: false);
+                RemoveEdgeCheckCopyJob::dispatch((string) $site->id, (string) $deployment->id)
+                    ->delay(now()->addSeconds(EdgeKvInstant::routesNamespace() !== null ? 10 : 75));
+                $removeNow = false;
             } else {
                 $live = EdgeDeployment::query()->where('site_id', $site->id)->where('status', EdgeDeployment::STATUS_LIVE)->latest()->first();
                 if ($live !== null) {
@@ -1486,12 +1509,14 @@ JS;
                 }
             }
         } finally {
-            try {
-                app(EdgeHostMapPublisher::class)->unpublishHostname($site, self::productionCheckHost($site));
-            } catch (Throwable) {
-                // Best effort: it only ever pointed at production.
+            if ($removeNow) {
+                try {
+                    app(EdgeHostMapPublisher::class)->unpublishHostname($site, self::productionCheckHost($site));
+                } catch (Throwable) {
+                    // Best effort: it only ever pointed at production.
+                }
+                $this->removeCandidate($site, self::candidateScript($site), self::candidateHost($site), $namespace, $log);
             }
-            $this->removeCandidate($site, self::candidateScript($site), self::candidateHost($site), $namespace, $log);
         }
     }
 

@@ -35,22 +35,36 @@ data:
   DOCKER_TLS_VERIFY: "1"
   DOCKER_CERT_PATH: /certs/client
 ---
+# Headless: a StatefulSet needs a governing Service; nothing connects in.
+apiVersion: v1
+kind: Service
+metadata:
+  name: dply-builder
+  namespace: dply-builders
+spec:
+  clusterIP: None
+  selector: { app: dply-builder }
+  ports: [{ name: none, port: 1 }]
+---
+# A StatefulSet (was a Deployment until 2026-10-02) so each builder keeps its
+# own Docker data on a volume: the BuildKit layer cache lived in an emptyDir
+# and every rollout or new node rebuilt everything (~4.5 min cold vs ~3 warm).
+# Pods are replaced one at a time, each draining first (preStop).
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: dply-builder
   namespace: dply-builders
   labels: { app: dply-builder }
 spec:
+  serviceName: dply-builder
   # KEDA owns the replica count (ScaledObject below); this is the first apply.
   replicas: 1
   revisionHistoryLimit: 5
-  # An old pod drains for up to terminationGracePeriodSeconds (7500 s); the
-  # default 600 s deadline would mark every rollout during a build as failed.
-  progressDeadlineSeconds: 9000
-  strategy:
-    type: RollingUpdate
-    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  podManagementPolicy: Parallel
+  updateStrategy: { type: RollingUpdate }
+  # Scaling down keeps the volume, so a pod KEDA adds back later starts warm.
+  persistentVolumeClaimRetentionPolicy: { whenScaled: Retain, whenDeleted: Retain }
   selector:
     matchLabels: { app: dply-builder }
   template:
@@ -145,7 +159,12 @@ spec:
       volumes:
         - { name: work, emptyDir: {} }
         - { name: docker-certs, emptyDir: {} }
-        - { name: docker-data, emptyDir: {} }
+  volumeClaimTemplates:
+    - metadata: { name: docker-data }
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: do-block-storage
+        resources: { requests: { storage: 60Gi } }
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -212,7 +231,7 @@ metadata:
   name: dply-builder
   namespace: dply-builders
 spec:
-  scaleTargetRef: { name: dply-builder }
+  scaleTargetRef: { apiVersion: apps/v1, kind: StatefulSet, name: dply-builder }
   minReplicaCount: 1
   maxReplicaCount: __MAX_REPLICAS__
   pollingInterval: 15

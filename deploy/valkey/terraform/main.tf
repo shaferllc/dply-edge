@@ -216,9 +216,9 @@ resource "digitalocean_kubernetes_node_pool" "db_large" {
 # minimum node is a fixed cost (dply.unit_costs.build); the rest are variable.
 # (The coordinator asked for `dply.io/role`; the other pools use `dply.dev/*`.)
 variable "builder_node_size" {
-  description = "One builder pod per node. s-4vcpu-8gb runs 2 concurrent builds (HORIZON_BUILD_MAX_PROCESSES)."
+  description = "One builder pod per node. c-4 (4 dedicated vCPU, 8 GB) runs 2 concurrent builds (HORIZON_BUILD_MAX_PROCESSES). Was s-4vcpu-8gb (shared vCPU) until 2026-10-02: builds are CPU-bound."
   type        = string
-  default     = "s-4vcpu-8gb"
+  default     = "c-4"
 }
 
 variable "builder_min_nodes" {

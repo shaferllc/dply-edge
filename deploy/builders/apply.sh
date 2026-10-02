@@ -73,6 +73,9 @@ kubectl -n dply-builders create secret generic dply-builder-env --from-env-file=
 rm -f .secrets/builder.clean.env
 kubectl -n dply-builders create secret generic dply-builder-keda --from-env-file=.secrets/keda.env --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 render | kubectl apply -f -
+# The builders were a Deployment before 2026-10-02 (now a StatefulSet with a
+# Docker data volume each). Remove the old one; its pod drains first (preStop).
+kubectl -n dply-builders delete deploy/dply-builder --ignore-not-found --wait=true --timeout=9000s
 # A changed Secret does not restart pods; a rollout does, draining each one.
-kubectl -n dply-builders rollout restart deploy/dply-builder
-kubectl -n dply-builders rollout status deploy/dply-builder --timeout=9000s
+kubectl -n dply-builders rollout restart statefulset/dply-builder
+kubectl -n dply-builders rollout status statefulset/dply-builder --timeout=9000s

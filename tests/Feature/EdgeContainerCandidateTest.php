@@ -148,13 +148,33 @@ test('when production is up again the visitors go back to it, then the copy is r
     fakeCloudflare($this->script, 200);
     runCandidate($this);
 
+    \Illuminate\Support\Facades\Queue::fake();
     $log = endHandoff($this, productionOk: true);
 
     expect($log)->toContain('Sending visitors back to it.')
-        ->and(routedTo('shop-ab12cd.on-dply.live'))->toBe(EdgeContainerDeployer::scriptName($this->site))
-        ->and(Cache::get('edge:fake:host-map', []))->not->toHaveKey('shop-ab12cd--live.on-dply.live');
+        ->and(routedTo('shop-ab12cd.on-dply.live'))->toBe(EdgeContainerDeployer::scriptName($this->site));
+    // The deploy doesn't wait for the copy to drain: a delayed job takes it down.
+    Http::assertNotSent(fn (Request $r) => $r->method() === 'DELETE');
+    $job = null;
+    \Illuminate\Support\Facades\Queue::assertPushed(\App\Modules\Edge\Jobs\RemoveEdgeCheckCopyJob::class, function ($pushed) use (&$job): bool {
+        $job = $pushed;
+
+        return $pushed->delay !== null;
+    });
+
+    $job->handle(new EdgeContainerDeployer);
+    expect(Cache::get('edge:fake:host-map', []))->not->toHaveKey('shop-ab12cd--live.on-dply.live');
     Http::assertSent(fn (Request $r) => $r->method() === 'DELETE' && str_contains($r->url(), '/scripts/'.$this->script));
     Http::assertSent(fn (Request $r) => $r->method() === 'DELETE' && str_ends_with($r->url(), '/containers/applications/cand-app'));
+});
+
+test('a newer deploy in flight keeps the check copy it now owns', function () {
+    fakeCloudflare($this->script, 200);
+    $older = \App\Models\EdgeDeployment::query()->create(['site_id' => $this->site->id, 'organization_id' => $this->site->organization_id, 'status' => \App\Models\EdgeDeployment::STATUS_SUPERSEDED]);
+
+    (new \App\Modules\Edge\Jobs\RemoveEdgeCheckCopyJob((string) $this->site->id, (string) $older->id))->handle(new EdgeContainerDeployer);
+
+    Http::assertNotSent(fn (Request $r) => $r->method() === 'DELETE');
 });
 
 test('when production fails to come up the last live deployment gets its routes back, then the copy is removed', function () {
