@@ -84,7 +84,7 @@
         <li><span class="{{ $strong }}">What you make public.</span> Anything you serve publicly, such as a site, an app, or an object storage bucket served on a public path, can be read by anyone. Choose carefully what you publish.</li>
         <li><span class="{{ $strong }}">Credentials you create and share.</span> This includes S3 access keys, share links, API tokens, database connection strings and environment variables. Anyone who has one can use it until you revoke it or it expires.</li>
         <li><span class="{{ $strong }}">Your own end users.</span> You are responsible for your apps’ users and their data, and for complying with the laws that apply to your apps, including privacy, consumer protection and export laws. You must give your users any notices and get any consents the law requires.</li>
-        <li><span class="{{ $strong }}">Your backups.</span> Keep your own copies of anything important. dply database backups roll off after 7 days.</li>
+        <li><span class="{{ $strong }}">Your backups.</span> Keep your own copies of anything important. dply database backups roll off after 7, 14 or 30 days, by plan.</li>
         <li><span class="{{ $strong }}">Sensitive data.</span> dply has no SOC 2, ISO 27001 or similar certification and does not sign HIPAA business associate agreements. Do not store health data regulated by HIPAA, payment card data in scope for PCI DSS, or other data that requires those controls.</li>
     </ul>
 </div></section>

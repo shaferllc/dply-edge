@@ -31,6 +31,7 @@ use App\Modules\Edge\Console\EdgeSpikeWorkerBindingsCommand;
 use App\Modules\Edge\Console\EdgeWorkerDeployCommand;
 use App\Modules\Edge\Console\EnsureEdgeLogpushCommand;
 use App\Modules\Edge\Console\EvaluateEdgeGuardrailsCommand;
+use App\Modules\Edge\Console\LockDatabaseBackupsCommand;
 use App\Modules\Edge\Console\MeasureWakeTimeCommand;
 use App\Modules\Edge\Console\MigrateEdgeHostnamesCommand;
 use App\Modules\Edge\Console\MoveRedisToValkeyCommand;
@@ -45,6 +46,8 @@ use App\Modules\Edge\Console\ScaleEdgeQueueWorkersCommand;
 use App\Modules\Edge\Console\SelfBootstrapCommand;
 use App\Modules\Edge\Console\SelfDeployCommand;
 use App\Modules\Edge\Console\SelfRegisterCommand;
+use App\Modules\Edge\Console\SweepDatabaseBackupsCommand;
+use App\Modules\Edge\Console\VerifyDatabaseBackupsCommand;
 use App\Modules\Edge\Console\WarmEdgeBuildImagesCommand;
 use App\Modules\Edge\Console\WarmEdgeContainersCommand;
 use App\Modules\Edge\Livewire\BuildJourney;
@@ -113,7 +116,9 @@ class EdgeServiceProvider extends ServiceProvider
                 CheckEdgeQueueWorkersCommand::class,
                 CheckEdgeRealtimeCommand::class,
                 SampleEdgeDatabasesCommand::class,
-                \App\Modules\Edge\Console\VerifyDatabaseBackupsCommand::class,
+                VerifyDatabaseBackupsCommand::class,
+                LockDatabaseBackupsCommand::class,
+                SweepDatabaseBackupsCommand::class,
                 ResizeEdgeDatabasesCommand::class,
                 CheckEdgeBuildersCommand::class,
                 DrainEdgeBuilderCommand::class,

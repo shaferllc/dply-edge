@@ -355,6 +355,29 @@ class EdgeCloudflareClient
         }
     }
 
+    /**
+     * The bucket's lock rules (R2 bucket locks: objects under a rule's prefix
+     * can be neither deleted nor overwritten until they reach its age).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function r2BucketLockRules(string $bucket): array
+    {
+        $result = $this->decode(Http::withToken($this->apiToken)->get(self::BASE.'/accounts/'.$this->accountId.'/r2/buckets/'.$bucket.'/lock'));
+
+        return array_values(array_filter((array) ($result['rules'] ?? []), 'is_array'));
+    }
+
+    /**
+     * Replace the bucket's lock rules (the API replaces the whole set).
+     *
+     * @param  list<array<string, mixed>>  $rules
+     */
+    public function putR2BucketLockRules(string $bucket, array $rules): void
+    {
+        $this->decode(Http::withToken($this->apiToken)->put(self::BASE.'/accounts/'.$this->accountId.'/r2/buckets/'.$bucket.'/lock', ['rules' => $rules]));
+    }
+
     public function deleteR2Bucket(string $name): void
     {
         $response = Http::withToken($this->apiToken)->delete(self::BASE.'/accounts/'.$this->accountId.'/r2/buckets/'.$name);

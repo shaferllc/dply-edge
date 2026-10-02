@@ -23,9 +23,6 @@ use Throwable;
  */
 final class DplyDatabaseActions
 {
-    /** Backups reach this far back (wal-g / dump + oplog / binlog retention). */
-    public const RESTORE_DAYS = 7;
-
     /** A transfer lasts at most an hour; past this a "running" record is a dead worker. */
     private const TRANSFER_STALE_MINUTES = 70;
 
@@ -79,13 +76,16 @@ final class DplyDatabaseActions
         if (! self::validFile($file)) {
             throw new RuntimeException(__('Name the file: letters, digits, dot, dash and underscore.'));
         }
-        $link = self::client($database)->databaseUploadLink($database->remote_id, $file);
+        // A fresh key per upload: backups and imports sit under an R2 bucket
+        // lock that refuses overwriting an object, so a second upload under
+        // the same name would fail.
+        $link = self::client($database)->databaseUploadLink($database->remote_id, now()->utc()->format('Ymd\THis').'-'.$file);
 
         return 'curl -fT '.escapeshellarg($file).' '.escapeshellarg($link['url']);
     }
 
     /**
-     * Restore to a moment in the last RESTORE_DAYS. The current data is kept
+     * Restore to a moment inside the plan's backup window. The current data is kept
      * aside by the database until the next restore. Returns the UTC target.
      */
     public static function restore(DplyDatabase $database, string $at): string
@@ -95,8 +95,9 @@ final class DplyDatabaseActions
         } catch (Throwable) {
             throw new RuntimeException(__('Pick a date and time.'));
         }
-        if ($time->isFuture() || $time->lt(now()->subDays(self::RESTORE_DAYS))) {
-            throw new RuntimeException(__('Pick a time in the last 7 days.'));
+        $days = EdgeDplyDatabase::backupDays($database->sites()->first());
+        if ($time->isFuture() || $time->lt(now()->subDays($days))) {
+            throw new RuntimeException(__('Pick a time in the last :days days.', ['days' => $days]));
         }
         if ((DplyDatabases::record($database)['restore']['status'] ?? '') === 'running') {
             throw new RuntimeException(__('A restore is already running.'));

@@ -126,7 +126,7 @@
         <li><span class="{{ $strong }}">Paused organizations:</span> if an organization is paused because it has no paid plan, its apps, resources and data are deleted {{ $keepDays }} days after the pause, after emailed warnings 7 days and 1 day before. The organization, its members and billing history remain.</li>
         <li><span class="{{ $strong }}">Request logs:</span> {{ $requestLogDays }} days.</li>
         <li><span class="{{ $strong }}">Audit log:</span> {{ $auditDays }} days.</li>
-        <li><span class="{{ $strong }}">Database backups:</span> 7 days.</li>
+        <li><span class="{{ $strong }}">Database backups:</span> 7 days on Starter, 14 on Pro, 30 on Team; a deleted database’s backups within a week.</li>
         <li><span class="{{ $strong }}">Billing records:</span> as long as tax and accounting laws require.</li>
         <li><span class="{{ $strong }}">Support email:</span> as long as needed to handle your request and keep a record of it.</li>
     </ul>

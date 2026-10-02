@@ -157,7 +157,7 @@
                         <p class="text-2xs text-brand-mist">{{ trans_choice('Also attached to :count other app. Detach it there before deleting.|Also attached to :count other apps. Detach it there before deleting.', $sharedWith - 1) }}</p>
                     @else
                         <div class="grid gap-2 rounded-xl border border-rose-500/30 p-3">
-                            <p class="text-xs text-brand-ink">{{ __('Delete destroys the database and all of its backups right away. Export it first if you need the data.') }}</p>
+                            <p class="text-xs text-brand-ink">{{ __('Delete destroys the database right away, and its backups within a week. Export it first if you need the data.') }}</p>
                             <input type="text" wire:model="deleteDatabaseConfirm" placeholder="{{ $primaryDatabase->name }}" aria-label="{{ __('Type :name to confirm', ['name' => $primaryDatabase->name]) }}" class="dply-input font-mono text-xs" />
                             <x-sheet.button variant="danger" wire:click="deleteDatabase('{{ $primaryDatabase->id }}')" class="justify-self-start">{{ __('Delete :name', ['name' => $primaryDatabase->name]) }}</x-sheet.button>
                         </div>
@@ -181,7 +181,7 @@
                     @php($dropsDply = in_array($savedDatabase, ['postgres', 'mysql', 'mongodb'], true))
                     @if ($dropsDply)
                         {{-- The gateway deletes the database and its backups on removal (packages/valkey-gateway/database.go). --}}
-                        <p class="font-semibold text-rose-700 dark:text-rose-300">{{ __('This deletes the :engine database and all of its backups right away. Export it first if you need the data.', ['engine' => ['postgres' => 'Postgres', 'mongodb' => 'MongoDB', 'mysql' => 'MySQL'][$savedDatabase]]) }}</p>
+                        <p class="font-semibold text-rose-700 dark:text-rose-300">{{ __('This deletes the :engine database right away, and its backups within a week. Export it first if you need the data.', ['engine' => ['postgres' => 'Postgres', 'mongodb' => 'MongoDB', 'mysql' => 'MySQL'][$savedDatabase]]) }}</p>
                     @else
                         <p>{{ __('The app uses it from the next deploy.') }}</p>
                     @endif

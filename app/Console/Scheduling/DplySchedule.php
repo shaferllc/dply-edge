@@ -38,6 +38,8 @@ use App\Modules\Edge\Console\RollupEdgeAnalyticsEngineCommand;
 use App\Modules\Edge\Console\SampleContainerMemoryCommand;
 use App\Modules\Edge\Console\SampleEdgeDatabasesCommand;
 use App\Modules\Edge\Console\ScaleEdgeQueueWorkersCommand;
+use App\Modules\Edge\Console\SweepDatabaseBackupsCommand;
+use App\Modules\Edge\Console\VerifyDatabaseBackupsCommand;
 use App\Modules\Edge\Console\WarmEdgeBuildImagesCommand;
 use App\Modules\Edge\Console\WarmEdgeContainersCommand;
 use App\Modules\Edge\Jobs\CheckEdgeDnsZonesJob;
@@ -136,10 +138,15 @@ final class DplySchedule
         // dply database history and disk / connection alerts, from
         // each database's last snapshot (never wakes one).
         // Restore every dply Postgres database from its backups (VerifyDatabaseBackupJob).
-        $schedule->command(\App\Modules\Edge\Console\VerifyDatabaseBackupsCommand::class)
+        $schedule->command(VerifyDatabaseBackupsCommand::class)
             ->weeklyOn(0, '04:00')
             ->withoutOverlapping()
             ->name('databases-verify-backups');
+        // Leftover backups of deleted databases, once the bucket lock lets go.
+        $schedule->command(SweepDatabaseBackupsCommand::class)
+            ->dailyAt('05:10')
+            ->withoutOverlapping()
+            ->name('databases-sweep-backups');
         $schedule->command(SampleEdgeDatabasesCommand::class)
             ->hourly()
             ->withoutOverlapping()

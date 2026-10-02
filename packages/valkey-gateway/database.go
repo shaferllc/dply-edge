@@ -640,6 +640,12 @@ func backupEnv(t tenant) []corev1.EnvVar {
 		fromSecret("AWS_ACCESS_KEY_ID", "access-key"),
 		fromSecret("AWS_SECRET_ACCESS_KEY", "secret-key"),
 	}
+	// A retried wal-push of a segment that already landed (archive_command
+	// failed after the upload) must succeed: the backup prefix is under an R2
+	// bucket lock that refuses overwrites, and a WAL segment that never
+	// archives fills the database's disk. With this, wal-g compares and
+	// treats an identical copy as done.
+	out = append(out, corev1.EnvVar{Name: "WALG_PREVENT_WAL_OVERWRITE", Value: "true"})
 	if t.BackupDays > 0 {
 		out = append(out, corev1.EnvVar{Name: "BACKUP_RETENTION_DAYS", Value: strconv.Itoa(t.BackupDays)})
 	}

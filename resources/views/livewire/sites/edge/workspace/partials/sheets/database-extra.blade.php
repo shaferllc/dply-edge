@@ -93,7 +93,7 @@
                     <p class="text-2xs text-brand-mist">{{ trans_choice('Also attached to :count other app. Detach it there before deleting.|Also attached to :count other apps. Detach it there before deleting.', $shared - 1) }}</p>
                 @else
                     <div class="grid gap-2 rounded-xl border border-rose-500/30 p-3">
-                        <p class="text-xs text-brand-ink">{{ __('Delete destroys the database and all of its backups right away. Export it first if you need the data.') }}</p>
+                        <p class="text-xs text-brand-ink">{{ __('Delete destroys the database right away, and its backups within a week. Export it first if you need the data.') }}</p>
                         <input type="text" wire:model="deleteDatabaseConfirm" placeholder="{{ $db->name }}" aria-label="{{ __('Type :name to confirm', ['name' => $db->name]) }}" class="dply-input font-mono text-xs" />
                         <x-sheet.button variant="danger" wire:click="deleteDatabase('{{ $db->id }}')" class="justify-self-start">{{ __('Delete :name', ['name' => $db->name]) }}</x-sheet.button>
                     </div>

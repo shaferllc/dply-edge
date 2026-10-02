@@ -361,7 +361,7 @@ test('the API lists an app’s databases and runs a query, an export and a resto
 
     $this->postJson($base.'/reports/exports', [], $write)->assertStatus(202)->assertJsonPath('data.transfer.status', 'running');
     $this->postJson($base.'/reports/exports', [], $write)->assertStatus(422)->assertJsonPath('message', 'An export or import is already running.');
-    $this->postJson($base.'/'.$reports->id.'/restore', ['at' => now()->subDays(8)->toIso8601String()], $write)->assertStatus(422);
+    $this->postJson($base.'/'.$reports->id.'/restore', ['at' => now()->subDays(15)->toIso8601String()], $write)->assertStatus(422);
     $this->postJson($base.'/'.$reports->id.'/restore', ['at' => now()->subHour()->toIso8601String()], $write)->assertStatus(202)->assertJsonPath('data.restore.status', 'running');
     \Illuminate\Support\Facades\Bus::assertDispatched(\App\Modules\Edge\Jobs\RestoreEdgeDplyPostgresJob::class, fn ($job) => $job->databaseId === $reports->id);
 

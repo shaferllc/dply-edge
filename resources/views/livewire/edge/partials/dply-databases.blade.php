@@ -49,7 +49,7 @@
                 @endif
             </div>
             @if ($db->sites->isEmpty())
-                <p class="text-2xs text-brand-mist">{{ __('Deleting removes it and all of its backups right away.') }}</p>
+                <p class="text-2xs text-brand-mist">{{ __('Deleting removes it right away, and its backups within a week.') }}</p>
             @endif
             @error('dply.'.$db->id) <p class="text-xs text-rose-700 dark:text-rose-300" role="alert">{{ $message }}</p> @enderror
         </div>

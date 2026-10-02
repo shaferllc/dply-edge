@@ -103,7 +103,7 @@
     <h2 class="{{ $h2 }}">7. Deletion and return</h2>
     <ul class="{{ $list }}">
         <li>Customer can export its data at any time while its organization is active or paused, and can delete it itself.</li>
-        <li>Data Customer deletes is removed from the live service. Database backups roll off within 7 days, and request logs are kept for {{ $requestLogDays }} days.</li>
+        <li>Data Customer deletes is removed from the live service. Database backups roll off with the plan’s backup window (at most 30 days), and request logs are kept for {{ $requestLogDays }} days.</li>
         <li>If an organization is paused for non-payment, its data is deleted {{ $keepDays }} days after the pause, after emailed warnings 7 days and 1 day before, as described in the Terms of Service.</li>
         <li>dply may keep data where the law requires it, and will keep protecting it under this DPA while it does.</li>
     </ul>
@@ -170,7 +170,7 @@
         <li><span class="{{ $strong }}">Outbound request protection:</span> when dply calls a customer-supplied URL, it refuses private, loopback, link-local and cloud-metadata addresses.</li>
         <li><span class="{{ $strong }}">Access control:</span> Owner, Admin, Member, Deployer and Viewer roles, plus per-app roles; passkeys and authenticator-app two-factor authentication; API tokens limited to granted abilities and their owner’s role, revoked when the owner leaves.</li>
         <li><span class="{{ $strong }}">Logging and accountability:</span> an organization activity log records who changed what, kept for {{ $auditDays }} days; request logs are kept for {{ $requestLogDays }} days.</li>
-        <li><span class="{{ $strong }}">Availability and recovery:</span> dply Postgres, MySQL and MongoDB stream changes to storage and take a full backup daily, kept for 7 days, with point-in-time restore. The platform’s own keys and database backups are escrowed daily off-site with age public-key encryption, and a daily drill checks that the newest backup decrypts.</li>
+        <li><span class="{{ $strong }}">Availability and recovery:</span> dply Postgres, MySQL and MongoDB stream changes to storage and take a full backup daily, kept for 7, 14 or 30 days by plan, with point-in-time restore. The platform’s own keys and database backups are escrowed daily off-site with age public-key encryption, and a daily drill checks that the newest backup decrypts.</li>
         <li><span class="{{ $strong }}">Incident response and disclosure:</span> affected organization owners are notified of incidents (section 6). Vulnerabilities can be reported to <a href="mailto:{{ $securityEmail }}" class="{{ $link }}">{{ $securityEmail }}</a>.</li>
         <li><span class="{{ $strong }}">Data regions:</span> object storage buckets can be created in Cloudflare’s EU jurisdiction and container apps can be restricted to EU regions. dply databases and Valkey are in New York, USA.</li>
     </ul>

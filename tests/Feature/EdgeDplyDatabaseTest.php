@@ -284,7 +284,7 @@ test('a point-in-time restore runs as a queued job and records its result', func
     $target = now()->utc()->subHour()->startOfSecond();
 
     Livewire::actingAs($user)->test(Resources::class, ['server' => $this->site->server, 'site' => $this->site])
-        ->set('postgresRestoreAt', now()->utc()->subDays(8)->format('Y-m-d\TH:i:s'))->call('restorePostgres')->assertSet('postgresRestoreResult', 'Pick a time in the last 7 days.')
+        ->set('postgresRestoreAt', now()->utc()->subDays(15)->format('Y-m-d\TH:i:s'))->call('restorePostgres')->assertSet('postgresRestoreResult', 'Pick a time in the last 14 days.')
         ->set('postgresRestoreAt', $target->format('Y-m-d\TH:i:s'))->call('restorePostgres')->assertSet('postgresRestoreResult', null);
 
     Queue::assertPushedOn('dply', RestoreEdgeDplyPostgresJob::class);

@@ -169,11 +169,33 @@ func (d *dumps) backupLocked(prune bool) error {
 
 func (d *dumps) putBytes(ctx context.Context, key string, b []byte) error {
 	_, err := d.client.PutObject(ctx, d.bucket, key, bytes.NewReader(b), int64(len(b)), minio.PutObjectOptions{})
-	return err
+	return d.alreadyThere(ctx, key, int64(len(b)), err)
 }
 
 func (d *dumps) putFile(ctx context.Context, key, path string) error {
 	_, err := d.client.FPutObject(ctx, d.bucket, key, path, minio.PutObjectOptions{PartSize: 16 << 20})
+	if err == nil {
+		return nil
+	}
+	info, statErr := os.Stat(path)
+	if statErr != nil {
+		return err
+	}
+	return d.alreadyThere(ctx, key, info.Size(), err)
+}
+
+// alreadyThere forgives a failed upload of an object that is already stored
+// at the same size: a retry after the first upload landed (the agent stopped
+// before noting it). Backup prefixes are under an R2 bucket lock, which
+// refuses the overwrite, and a binlog or oplog chunk that never counts as
+// shipped would stop log shipping for good.
+func (d *dumps) alreadyThere(ctx context.Context, key string, size int64, err error) error {
+	if err == nil {
+		return nil
+	}
+	if info, statErr := d.client.StatObject(ctx, d.bucket, key, minio.StatObjectOptions{}); statErr == nil && info.Size == size {
+		return nil
+	}
 	return err
 }
 
