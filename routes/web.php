@@ -361,6 +361,7 @@ Route::middleware(['auth', 'verified', 'org'])->withHead(robots: 'noindex, nofol
     Route::livewire('projects/import', Import::class)->name('edge.import')->withHead(title: 'Import a project');
     Route::livewire('projects/templates', Templates::class)->name('edge.templates')->withHead(title: 'Templates');
     Route::livewire('projects/usage', Usage::class)->name('edge.usage')->withHead(title: 'Usage');
+    Route::livewire('projects/resources', \App\Modules\Edge\Livewire\ResourceIndex::class)->name('edge.resources')->withHead(title: 'Resources');
     Route::livewire('projects/databases', Databases::class)->name('edge.databases')->withHead(title: 'Databases');
     Route::livewire('projects/queues', Queues::class)->name('edge.queues')->withHead(title: 'Queues');
     Route::livewire('projects/storage', Buckets::class)->name('edge.buckets')->withHead(title: 'Storage');

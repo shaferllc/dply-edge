@@ -24,6 +24,7 @@ use App\Modules\Edge\Console\EdgeEnsureBuildDockerCommand;
 use App\Modules\Edge\Console\EdgeEnsureDeliveryFeaturesCommand;
 use App\Modules\Edge\Console\EdgeEnsureGithubPreviewsCommand;
 use App\Modules\Edge\Console\EdgeEnsureHybridOriginsCommand;
+use App\Modules\Edge\Console\EdgeExecCommand;
 use App\Modules\Edge\Console\EdgeInfraBootstrapCommand;
 use App\Modules\Edge\Console\EdgeInfraBootstrapOrgCommand;
 use App\Modules\Edge\Console\EdgeKvInstantCommand;
@@ -57,6 +58,7 @@ use App\Modules\Edge\Livewire\BuildLogStream;
 use App\Modules\Edge\Livewire\Create;
 use App\Modules\Edge\Livewire\Import;
 use App\Modules\Edge\Livewire\Index;
+use App\Modules\Edge\Livewire\ResourceIndex;
 use App\Modules\Edge\Livewire\Templates;
 use App\Modules\Edge\Livewire\Usage;
 use App\Modules\Edge\Support\EdgeContainerConnections;
@@ -120,7 +122,7 @@ class EdgeServiceProvider extends ServiceProvider
                 SampleEdgeDatabasesCommand::class,
                 VerifyDatabaseBackupsCommand::class,
                 LockDatabaseBackupsCommand::class,
-                \App\Modules\Edge\Console\EdgeExecCommand::class,
+                EdgeExecCommand::class,
                 SweepDatabaseBackupsCommand::class,
                 ResizeEdgeDatabasesCommand::class,
                 CheckEdgeBuildersCommand::class,
@@ -147,6 +149,7 @@ class EdgeServiceProvider extends ServiceProvider
         Livewire::component('edge.import', Import::class);
         Livewire::component('edge.templates', Templates::class);
         Livewire::component('edge.usage', Usage::class);
+        Livewire::component('edge.resource-index', ResourceIndex::class);
         Livewire::component('edge.build-journey', BuildJourney::class);
         Livewire::component('edge.build-log-stream', BuildLogStream::class);
 

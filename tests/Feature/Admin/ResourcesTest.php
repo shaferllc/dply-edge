@@ -12,6 +12,7 @@ use App\Models\Server;
 use App\Models\Site;
 use App\Models\User;
 use App\Modules\Edge\Jobs\VerifyDatabaseBackupJob;
+use App\Modules\Edge\Livewire\ResourceIndex;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -107,4 +108,19 @@ test('sleep and restore check act only on rows the list shows, and are logged', 
     Http::assertSent(fn ($r) => str_ends_with($r->url(), '/tenants/pg-shop/sleep'));
     Queue::assertPushed(VerifyDatabaseBackupJob::class, fn ($job) => $job->remoteId === 'pg-shop' && $job->siteId === $this->site->id);
     expect(AuditLog::query()->where('organization_id', $this->org->id)->pluck('action')->all())->toContain('support.resource.sleep', 'support.database.verify');
+});
+
+test('Projects → Resources shows only the current organization, with links to manage each row', function () {
+    $user = User::factory()->create();
+    $this->org->users()->attach($user->id, ['role' => 'owner']);
+    $other = Organization::factory()->create(['name' => 'Other']);
+    Site::factory()->create(['organization_id' => $other->id, 'server_id' => Server::factory()->create(['organization_id' => $other->id])->id, 'name' => 'not-mine', 'edge_backend' => 'dply_edge', 'meta' => ['edge' => ['runtime_mode' => 'container']]]);
+
+    Livewire::actingAs($user)->test(ResourceIndex::class)
+        ->assertSee('shop')
+        ->assertSee('pg-shop')
+        ->assertSee('reports')
+        ->assertDontSee('not-mine')
+        ->assertSee('Console')
+        ->assertSee(route('sites.show', ['server' => $this->site->server_id, 'site' => $this->site->id, 'section' => 'console']), false);
 });
