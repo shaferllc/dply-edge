@@ -38,8 +38,8 @@ test('build time draws the trial cap at customer price, by the second', function
 
     $status = app(StarterUsageBudget::class)->status($org);
 
-    // 590 s at the fixed $0.005/min price = 4.92¢ → 5¢, whatever the margin (no credit on a trial)
-    expect($status['used_cents'])->toBe(5)
+    // 590 s at the fixed $0.0091/min price = 8.95¢ → 9¢, whatever the margin (no credit on a trial)
+    expect($status['used_cents'])->toBe(9)
         ->and($status['exhausted'])->toBeTrue()
         ->and(app(StarterUsageBudget::class)->alertKind($status))->toBe('over');
 });

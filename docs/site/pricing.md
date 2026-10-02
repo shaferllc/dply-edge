@@ -76,7 +76,7 @@ Rates are shown to more precision than a cent where the unit is small. Bandwidth
 | Delivery | Site storage | $0.0195 | per GB-month |
 | Delivery | Site storage writes | $5.85 | per million |
 | Delivery | Site storage reads | $0.468 | per million |
-| Builds | Build time | $0.005 | per minute, billed per second |
+| Builds | Build time | $0.0091 | per minute, billed per second |
 | Apps and workers | vCPU | $0.000026 | per vCPU-second |
 | Apps and workers | Memory | $0.00000325 | per GiB-second |
 | Apps and workers | Disk | $0.000000091 | per GB-second |

@@ -1,0 +1,16 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-10-02",
+  "id": "r-gnceyckc2p4rvndf",
+  "recordedBy": {
+    "client": "claude",
+    "id": "9eda6455-53d1-494e-a93e-0efcf75bff92"
+  },
+  "scopeTags": [
+    "pricing",
+    "builds",
+    "infrastructure"
+  ],
+  "supersedes": null,
+  "text": "Build servers move to c-4 (4 dedicated vCPU, 8 GB) nodes; the build-minute price is raised from $0.005/min to keep a 30% margin over the new cost estimate (owner chose \"Raise to $0.009/min\"; set to $0.0091/min because $0.009 fell just short of 30% over the $0.00694/min estimate at 15% utilisation). Owner answers 2026-10-02: node size \"c-4 CPU-optimized\"; build price \"Raise to $0.009/min (Recommended)\"."
+}

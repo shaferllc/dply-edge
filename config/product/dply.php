@@ -349,10 +349,11 @@ return [
 
             // Build time, billed per second (EdgeDeployment.build_seconds).
             // A CUSTOMER PRICE (fixed_price_meters): builds run on dply's own
-            // build host, estimated at ~$0.002/min at 15% utilisation
-            // (dply.unit_costs.build). $0.005/min matches Render's build-minute
-            // price. The env var sets the price.
-            'build_millicents_per_minute' => (float) env('DPLY_USAGE_BUILD_MC_PER_MINUTE', 500),
+            // build host, estimated at ~$0.0069/min at 15% utilisation on c-4
+            // nodes (dply.unit_costs.build). $0.0091/min since 2026-10-02 (owner
+            // decision: 30% over that; $0.009 fell just short; was $0.005 on s-4vcpu-8gb nodes). Builds
+            // also finish faster on dedicated vCPU. The env var sets the price.
+            'build_millicents_per_minute' => (float) env('DPLY_USAGE_BUILD_MC_PER_MINUTE', 910),
 
             // Container apps and queue workers (Cloudflare Containers), per
             // second awake: vCPU $0.000020/s, memory $0.0000025/GiB-s, disk
@@ -531,12 +532,14 @@ return [
         ],
 
         // Edge builds run on the DOKS `builders` pool (deploy/builders/): one
-        // builder pod per s-4vcpu-8gb node, 2 builds at a time
+        // builder pod per c-4 node, 2 builds at a time
         // (HORIZON_BUILD_MAX_PROCESSES in builder.yaml). `hosts` is the pool
         // minimum, a fixed cost; KEDA adds nodes (up to builder_max_nodes)
         // only while builds queue, and those are variable, paid by the build
         // minutes that caused them.
-        'build' => ['size' => 's-4vcpu-8gb', 'monthly' => 48, 'hosts' => 1, 'concurrent_builds' => 2, 'utilisation' => 0.15],
+        // c-4 since 2026-10-02 (dedicated vCPU; builds are CPU-bound): $84 a node
+        // plus its 60 GB Docker cache volume ($6).
+        'build' => ['size' => 'c-4', 'monthly' => 90, 'hosts' => 1, 'concurrent_builds' => 2, 'utilisation' => 0.15],
 
         // The control plane apart from the build worker (DO_MIGRATION.md
         // topology, no replica): web s-2vcpu-4gb, Postgres s-4vcpu-8gb, Redis

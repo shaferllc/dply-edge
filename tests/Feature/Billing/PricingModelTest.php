@@ -213,7 +213,7 @@ test('every fixed-price meter and every Valkey class keeps its configured price 
             ->and(EdgeValkey::spec($class)['per_second'])->toBe($spec['price_per_second']);
     }
     // The prices set 2026-09-27 (docs/pricing-review.md §9).
-    expect(UsagePrice::dollars(UsagePrice::rate('build_millicents_per_minute')))->toBe('$0.005')
+    expect(UsagePrice::dollars(UsagePrice::rate('build_millicents_per_minute')))->toBe('$0.0091')
         ->and(UsagePrice::rate('database_compute_millicents_per_cu_second') * 3600 / 100_000)->toEqualWithDelta(0.12, 1e-9)
         ->and(UsagePrice::dollars(UsagePrice::rate('database_storage_millicents_per_gb_month')))->toBe('$0.20')
         ->and(UsagePrice::dollars(UsagePrice::rate('realtime_message_millicents_per_million')))->toBe('$0.62')
