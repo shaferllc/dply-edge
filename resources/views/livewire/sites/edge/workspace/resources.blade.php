@@ -238,9 +238,21 @@
                         @if ($databaseEngine === 'sql')
                             <span class="mt-0.5 block text-xs text-brand-moss">{{ __('A file inside the app, saved while it runs and restored when it wakes.') }}</span>
                         @elseif ($dplyEngine && $d)
-                            <span class="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-2xs text-brand-mist">
-                                <span>{{ __('backup') }} <b class="text-brand-ink">{{ $d['backupAt']?->diffForHumans(short: true) ?? __('none') }}</b></span>
-                                @if ($d['logAt'])<span>PITR <b class="text-brand-ink">{{ $d['logAt']->diffForHumans(short: true) }}</b></span>@endif
+                            @php
+                                // Nothing written since the last full backup (a sleeping database):
+                                // that backup holds everything, so its age is not a warning.
+                                $current = $d['backupAt'] && $d['logAt'] && $d['logAt']->lte($d['backupAt']);
+                            @endphp
+                            <span class="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-2xs text-brand-mist" @if ($d['checkedAt']) title="{{ __('Checked :time', ['time' => $d['checkedAt']->diffForHumans()]) }}" @endif>
+                                @if ($current)
+                                    <span>{{ __('backed up') }} · {{ __('no changes since') }} <b class="text-brand-ink">{{ $d['logAt']->diffForHumans(short: true) }}</b></span>
+                                @else
+                                    <span>{{ __('backup') }} <b class="text-brand-ink">{{ $d['backupAt']?->diffForHumans(short: true) ?? __('none') }}</b></span>
+                                    @if ($d['logAt'])<span>PITR <b class="text-brand-ink">{{ $d['logAt']->diffForHumans(short: true) }}</b></span>@endif
+                                @endif
+                                @if ($d['checkedAt'] && $d['checkedAt']->lt(now()->subHours(3)))
+                                    <span class="text-amber-600">{{ __('status from :time', ['time' => $d['checkedAt']->diffForHumans(short: true)]) }}</span>
+                                @endif
                             </span>
                             @if ($d['suspend'] && $d['suspend'] > 0)
                                 {!! $sleepNote(__('Suspends after :time idle', ['time' => \App\Support\Sites\EdgeServiceMap::duration(intdiv($d['suspend'], 60).'m')])) !!}

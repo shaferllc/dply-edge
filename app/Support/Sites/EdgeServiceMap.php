@@ -103,6 +103,7 @@ final class EdgeServiceMap
                 'suspend' => isset($db['suspend']) ? (int) $db['suspend'] : null,
                 'backupAt' => filled($db['backup']['last_ok_at'] ?? null) ? Carbon::parse($db['backup']['last_ok_at']) : null,
                 'logAt' => filled($db['backup']['log_ok_at'] ?? null) ? Carbon::parse($db['backup']['log_ok_at']) : null,
+                'checkedAt' => filled($db['backup']['checked_at'] ?? null) ? Carbon::parse($db['backup']['checked_at']) : null,
             ] : null,
             'stores' => $stores,
             'serving' => $serving,

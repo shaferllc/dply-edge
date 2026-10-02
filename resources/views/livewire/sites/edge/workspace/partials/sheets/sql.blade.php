@@ -69,6 +69,7 @@
                             </x-sheet.section>
                         @endforeach
                         <x-sheet.note>{{ __('Use ? placeholders and params for values. Each call is one statement.') }}</x-sheet.note>
+                        <x-sheet.note>{{ __('Backups: Cloudflare keeps 30 days of point-in-time history for this database (D1 Time Travel).') }}</x-sheet.note>
                     @endif
                 </div>
 

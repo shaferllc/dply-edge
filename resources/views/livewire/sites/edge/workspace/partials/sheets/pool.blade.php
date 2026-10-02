@@ -37,6 +37,7 @@
                     @if ($poolConnection['asleep'])
                         <x-sheet.note>{{ __('Asleep. The app does not get this pool until you wake it.') }}</x-sheet.note>
                     @endif
+                    <x-sheet.note>{{ __('The pool connects to a database you host. dply does not back that database up; keep backups with its host.') }}</x-sheet.note>
                 </div>
 
                 <div x-show="tab === 'connect'" x-cloak class="grid gap-5">
