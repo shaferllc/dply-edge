@@ -148,7 +148,7 @@ Every database runs in the region shown on the sheet (currently New York). Conta
 
 ## Backups and restore
 
-Every change is streamed to storage, and a full backup runs daily. Backups are kept for 7 days. This works the same for all three engines: Postgres uses its write-ahead log, MySQL its binlog, and MongoDB its oplog.
+Every change is streamed to storage, and a full backup runs daily. Backups are kept for 7 days on Starter, 14 on Pro and 30 on Team, and a weekly check restores each Postgres database from its backups to prove they work. This works the same for all three engines: Postgres uses its write-ahead log, MySQL its binlog, and MongoDB its oplog.
 
 To restore:
 

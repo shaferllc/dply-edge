@@ -39,7 +39,7 @@ final class ValkeyGatewayClient
      *
      * @return array<string, mixed>
      */
-    public function put(string $id, string $password, int $memoryMb, int $sleepAfter, bool $persistent, string $engine = 'valkey', int $diskGb = 0): array
+    public function put(string $id, string $password, int $memoryMb, int $sleepAfter, bool $persistent, string $engine = 'valkey', int $diskGb = 0, ?int $backupDays = null): array
     {
         $body = [
             'password' => $password,
@@ -51,6 +51,11 @@ final class ValkeyGatewayClient
             // Databases: a volume of disk_gb that can grow but not shrink.
             $body['engine'] = $engine;
             $body['disk_gb'] = $diskGb;
+            // Backup retention, the plan's (ruling r-78fm1ejqqy4c17en). Left out,
+            // the gateway keeps what it has.
+            if ($backupDays !== null) {
+                $body['backup_days'] = $backupDays;
+            }
         }
 
         return $this->http()->put('/tenants/'.$id, $body)->throw()->json() ?? [];

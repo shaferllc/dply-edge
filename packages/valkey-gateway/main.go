@@ -566,6 +566,10 @@ func (g *gateway) putTenant(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "the engine cannot change; delete and create", http.StatusUnprocessableEntity)
 		return
 	}
+	// An update that doesn't say keeps the stored retention (sent at create).
+	if previous != nil && t.BackupDays == 0 {
+		t.BackupDays = previous.BackupDays
+	}
 	if previous != nil && isDatabase(t.Engine) && t.DiskGB < previous.DiskGB {
 		http.Error(w, "disk_gb cannot shrink; a volume only grows", http.StatusUnprocessableEntity)
 		return

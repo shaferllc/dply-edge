@@ -158,7 +158,7 @@
                     @if ($purgeOn)
                         <li><span class="{{ $strong }}">{{ __('Paused organizations') }}</span> — {{ __('if an organization is paused because its trial or subscription ended, its apps, resources and data are deleted :days days after the pause. Owners are emailed 7 days and 1 day before, and deletion never happens without both warnings.', ['days' => $keepDays]) }}</li>
                     @endif
-                    <li><span class="{{ $strong }}">{{ __('Database backups') }}</span> — {{ __('dply Postgres, MySQL and MongoDB stream every change to storage and take a full backup daily. Backups are kept for 7 days, and you can restore to any point in that window. Deleting a database deletes its backups.') }}</li>
+                    <li><span class="{{ $strong }}">{{ __('Database backups') }}</span> — {{ __('dply Postgres, MySQL and MongoDB stream every change to storage and take a full backup daily. Backups are kept for 7, 14 or 30 days by plan, and you can restore to any point in that window. A weekly check restores each Postgres database from its backups. Deleting a database deletes its backups.') }}</li>
                     <li><span class="{{ $strong }}">{{ __('Request logs') }}</span> — {{ __('kept for :days days.', ['days' => $requestLogDays]) }}</li>
                 </ul>
             </div>

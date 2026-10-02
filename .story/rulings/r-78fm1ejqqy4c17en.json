@@ -1,0 +1,16 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-10-02",
+  "id": "r-78fm1ejqqy4c17en",
+  "recordedBy": {
+    "client": "claude",
+    "id": "9eda6455-53d1-494e-a93e-0efcf75bff92"
+  },
+  "scopeTags": [
+    "pricing",
+    "databases",
+    "backups"
+  ],
+  "supersedes": null,
+  "text": "dply database backups are kept by days per plan: Starter 7, Pro 14, Team 30 days, included in the plan with no separate backup-storage charge. Owner answer 2026-10-02: \"7 / 14 / 30 days, included (Recommended)\"."
+}

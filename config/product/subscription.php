@@ -89,6 +89,8 @@ return [
                 'databases' => 0, 'queues' => 0, 'queue_concurrency' => 1, 'queue_batch_wait_seconds' => 5,
                 'app_instances' => 1, 'worker_instances' => 0, 'worker_autoscale' => false, 'worker_groups' => 0,
                 'realtime_max_connections' => 0,
+                // Days of dply database backups kept (ruling r-78fm1ejqqy4c17en).
+                'backup_retention_days' => 7,
             ],
             'starter' => [
                 'label' => 'Starter', 'price_cents' => 500, 'seats' => 1, 'extra_seat_cents' => null,
@@ -99,6 +101,8 @@ return [
                 // Container apps: one instance per app; queue workers: one, no autoscaling.
                 'app_instances' => 1, 'worker_instances' => 1, 'worker_autoscale' => true, 'worker_groups' => 0, // one worker that can start when jobs arrive (0→1)
                 'realtime_max_connections' => 200,
+                // Days of dply database backups kept (ruling r-78fm1ejqqy4c17en).
+                'backup_retention_days' => 7,
             ],
             'pro' => [
                 'label' => 'Pro', 'price_cents' => 2000, 'seats' => 3, 'extra_seat_cents' => null,
@@ -110,6 +114,8 @@ return [
                 'app_instances' => null, 'worker_instances' => 5, 'worker_autoscale' => true, 'worker_groups' => 2,
                 // The largest concurrent-socket size one Realtime app may have.
                 'realtime_max_connections' => 1_000,
+                // Days of dply database backups kept (ruling r-78fm1ejqqy4c17en).
+                'backup_retention_days' => 14,
             ],
             'team' => [
                 'label' => 'Team', 'price_cents' => 4900, 'seats' => 10, 'extra_seat_cents' => 500,
@@ -119,6 +125,8 @@ return [
                 'databases' => 50, 'queues' => 50, 'queue_concurrency' => 50, 'queue_batch_wait_seconds' => 1,
                 'app_instances' => null, 'worker_instances' => 10, 'worker_autoscale' => true, 'worker_groups' => 4,
                 'realtime_max_connections' => 5_000,
+                // Days of dply database backups kept (ruling r-78fm1ejqqy4c17en).
+                'backup_retention_days' => 30,
             ],
             // Sales-led: billed by hand in Stripe (subscription.enterprise), so
             // no fee, credit or usage here — null limits mean unlimited.
@@ -132,6 +140,8 @@ return [
                 // One app is one Durable Object, which tops out in the tens of
                 // thousands of sockets — so Enterprise is capped, not unlimited.
                 'realtime_max_connections' => 20_000,
+                // Days of dply database backups kept (ruling r-78fm1ejqqy4c17en).
+                'backup_retention_days' => 30,
             ],
         ],
         // Retired per-site fees: their Stripe prices are removed from

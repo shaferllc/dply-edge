@@ -20,7 +20,7 @@ import (
 
 // Backups (MongoDB, MySQL): a daily logical dump of the app's database,
 // gzipped, to the same bucket and credentials wal-g uses for Postgres
-// (WALG_S3_PREFIX, e.g. s3://bucket/tenants/{id}/mongodb), keeping 7, plus
+// (WALG_S3_PREFIX, e.g. s3://bucket/tenants/{id}/mongodb), kept for the retention window (retentionDays), plus
 // the engine's change log (MySQL binlog, MongoDB oplog) shipped each minute
 // there is something new. Restore loads the newest dump at or before the
 // target, replays the log from that dump's position up to the target, then
@@ -52,7 +52,6 @@ type dumps struct {
 	prefix string // "tenants/{id}/mongodb/"
 }
 
-const dumpKeep = 7
 
 // newDumps is nil when backups are not configured (local).
 func newDumps(e dumper, marker string) (*dumps, error) {
@@ -107,7 +106,7 @@ func (d *dumps) loop() {
 	}
 }
 
-// backupLocked dumps now; prune drops all but the newest dumpKeep. A restore
+// backupLocked dumps now; prune drops those older than the retention window (keepFrom). A restore
 // does not prune, so the dump it is about to load is never removed.
 func (d *dumps) backupLocked(prune bool) error {
 	now := time.Now().UTC()
@@ -144,7 +143,12 @@ func (d *dumps) backupLocked(prune bool) error {
 	if err != nil {
 		return fmt.Errorf("retention: %v", err)
 	}
-	for i := 0; i < len(keys)-dumpKeep; i++ {
+	times := make([]time.Time, len(keys))
+	for i, k := range keys {
+		times[i] = k.at
+	}
+	keep := keepFrom(times, now.Add(-time.Duration(retentionDays())*24*time.Hour))
+	for i := 0; i < keep; i++ {
 		for _, k := range []string{keys[i].key, keys[i].key + ".pos"} {
 			if err := d.client.RemoveObject(ctx, d.bucket, k, minio.RemoveObjectOptions{}); err != nil {
 				return fmt.Errorf("retention: %v", err)
@@ -153,7 +157,7 @@ func (d *dumps) backupLocked(prune bool) error {
 	}
 	// The log is only useful from the oldest kept dump on.
 	if shipping && len(keys) > 0 {
-		oldest := keys[max(0, len(keys)-dumpKeep)].key
+		oldest := keys[keep].key
 		if pos := d.getString(ctx, oldest+".pos"); pos != "" {
 			if err := s.prune(d, pos); err != nil {
 				return fmt.Errorf("log retention: %v", err)

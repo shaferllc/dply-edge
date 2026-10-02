@@ -632,7 +632,7 @@ func backupEnv(t tenant) []corev1.EnvVar {
 			LocalObjectReference: corev1.LocalObjectReference{Name: secret}, Key: key,
 		}}}
 	}
-	return []corev1.EnvVar{
+	out := []corev1.EnvVar{
 		{Name: "WALG_S3_PREFIX", Value: "s3://" + bucket + "/" + backupPrefix(t)},
 		{Name: "AWS_ENDPOINT", Value: os.Getenv("S3_ENDPOINT")},
 		{Name: "AWS_REGION", Value: env("S3_REGION", "auto")},
@@ -640,6 +640,10 @@ func backupEnv(t tenant) []corev1.EnvVar {
 		fromSecret("AWS_ACCESS_KEY_ID", "access-key"),
 		fromSecret("AWS_SECRET_ACCESS_KEY", "secret-key"),
 	}
+	if t.BackupDays > 0 {
+		out = append(out, corev1.EnvVar{Name: "BACKUP_RETENTION_DAYS", Value: strconv.Itoa(t.BackupDays)})
+	}
+	return out
 }
 
 // restoreDatabase wakes the database, has dbagent restore it (to target, an

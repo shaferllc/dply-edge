@@ -285,7 +285,7 @@ final class EdgeAppDatabase
             $password = $engine === 'mongodb'
                 ? rawurldecode((string) (parse_url($env('MONGODB_URI'), PHP_URL_PASS) ?? ''))
                 : $env('DB_PASSWORD');
-            EdgeDplyDatabase::update((string) $current['remote_id'], $password, $size, $suspend, $disk, $engine, EdgeDplyDatabase::regionOf($current));
+            EdgeDplyDatabase::update((string) $current['remote_id'], $password, $size, $suspend, $disk, $engine, EdgeDplyDatabase::regionOf($current), EdgeDplyDatabase::backupDays($site));
             self::remember($site, array_merge($current, [
                 'plan' => $suspend === -1 ? 'awake' : 'sleep',
                 'size' => $size,

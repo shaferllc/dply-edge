@@ -124,15 +124,26 @@ final class EdgeDplyDatabase
         $id ??= self::tenantId($site, $engine);
         $password = Str::random(40);
         $region = ValkeyRegions::get($region ?? DataRegion::forSite($site))['key'];
-        ValkeyGatewayClient::fromConfig($region)->put($id, $password, self::memoryMb($size), self::sleepAfter($suspend), true, $engine, self::disk($disk));
+        ValkeyGatewayClient::fromConfig($region)->put($id, $password, self::memoryMb($size), self::sleepAfter($suspend), true, $engine, self::disk($disk), self::backupDays($site));
 
         return ['id' => $id, 'host' => self::host($id, $region), 'port' => self::ENGINES[$engine][1], 'database' => 'app', 'username' => 'app', 'password' => $password, 'region' => $region];
     }
 
     /** New size, sleep time or a bigger disk. The gateway applies memory on the next wake. */
-    public static function update(string $id, string $password, string $size, int $suspend, int $disk, string $engine = 'postgres', ?string $region = null): void
+    public static function update(string $id, string $password, string $size, int $suspend, int $disk, string $engine = 'postgres', ?string $region = null, ?int $backupDays = null): void
     {
-        ValkeyGatewayClient::fromConfig($region)->put($id, $password, self::memoryMb($size), self::sleepAfter($suspend), true, $engine, self::disk($disk));
+        ValkeyGatewayClient::fromConfig($region)->put($id, $password, self::memoryMb($size), self::sleepAfter($suspend), true, $engine, self::disk($disk), $backupDays);
+    }
+
+    /**
+     * Days of backups the site's plan keeps (subscription tiers'
+     * backup_retention_days: 7 / 14 / 30, ruling r-78fm1ejqqy4c17en). A
+     * database pod reads it when it is created, so a plan change reaches a
+     * running database the next time its pod is recreated.
+     */
+    public static function backupDays(?Site $site): int
+    {
+        return max(1, (int) ($site?->organization?->tierAllowances()['backup_retention_days'] ?? 7));
     }
 
     public static function destroy(string $id, ?string $region = null): void

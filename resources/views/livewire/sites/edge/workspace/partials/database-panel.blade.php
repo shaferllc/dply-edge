@@ -47,7 +47,7 @@
     $dbLastLog = ($dbBackupMeta['log_ok_at'] ?? '') !== '' ? \Illuminate\Support\Carbon::parse($dbBackupMeta['log_ok_at']) : null;
     $dbProblem = \App\Modules\Edge\Support\EdgeDplyDatabase::backupProblem($dbBackupMeta);
     $dbCreated = isset($dbRecord['storage_at']) ? \Illuminate\Support\Carbon::createFromTimestamp((int) $dbRecord['storage_at']) : null;
-    $windowStart = now()->subDays(7);
+    $windowStart = now()->subDays(\App\Modules\Edge\Support\EdgeDplyDatabase::backupDays($site));
     $coveredFrom = $dbLastFull && $dbCreated && $dbCreated->gt($windowStart) ? $dbCreated : ($dbLastFull ? $windowStart : null);
     $coveragePct = $coveredFrom ? max(0, min(100, 100 - $coveredFrom->diffInSeconds(now()) / (7 * 86400) * 100)) : 0;
     $usage = is_array($databaseUsage ?? null) ? $databaseUsage : null;
@@ -175,7 +175,7 @@
                     @endif
 
                     <div class="grid gap-2 sm:grid-cols-2">
-                        <x-sheet.row :title="__('Backups')" :hint="$dbProblem ?? ($dbLastFull ? __('Last full backup :ago. Restore to any second in the last 7 days.', ['ago' => $dbLastFull->diffForHumans()]) : __('The first backup runs a minute or two after the database first starts.'))" x-on:click="tab = 'backups'" class="{{ $dbProblem ? '[&_.truncate]:whitespace-normal [&_.truncate]:font-semibold [&_.truncate]:text-rose-700 dark:[&_.truncate]:text-rose-300' : '' }}" />
+                        <x-sheet.row :title="__('Backups')" :hint="$dbProblem ?? ($dbLastFull ? __('Last full backup :ago. Restore to any second in the last :days days.', ['ago' => $dbLastFull->diffForHumans(), 'days' => \App\Modules\Edge\Support\EdgeDplyDatabase::backupDays($site)]) : __('The first backup runs a minute or two after the database first starts.'))" x-on:click="tab = 'backups'" class="{{ $dbProblem ? '[&_.truncate]:whitespace-normal [&_.truncate]:font-semibold [&_.truncate]:text-rose-700 dark:[&_.truncate]:text-rose-300' : '' }}" />
                         <x-sheet.row :title="__('Connect')" :hint="__('Address, login, and a command to open a shell. TLS only.')" x-on:click="tab = 'connect'" />
                     </div>
                 </div>
@@ -493,7 +493,7 @@
                         <x-sheet.metric :label="__('Health')" :tone="$dbProblem ? 'danger' : ($dbLastFull ? 'ok' : null)">
                             {{ $dbProblem ? __('Needs attention') : ($dbLastFull ? __('Healthy') : __('Waiting')) }}
                             {{-- Not :note — a backup problem is a sentence and must not be truncated. --}}
-                            <x-slot:extra><p class="mt-0.5 text-2xs text-brand-moss">{{ $dbProblem ?? (($dbBackupLive['last_error'] ?? '') !== '' ? $dbBackupLive['last_error'] : __('Kept for 7 days')) }}</p></x-slot:extra>
+                            <x-slot:extra><p class="mt-0.5 text-2xs text-brand-moss">{{ $dbProblem ?? (($dbBackupLive['last_error'] ?? '') !== '' ? $dbBackupLive['last_error'] : __('Kept for :days days', ['days' => \App\Modules\Edge\Support\EdgeDplyDatabase::backupDays($site)])) }}</p></x-slot:extra>
                         </x-sheet.metric>
                     </x-sheet.metrics>
 
@@ -503,7 +503,7 @@
                             <div class="relative mt-2 h-3 overflow-hidden rounded-full bg-brand-ink/10 dark:bg-brand-mist/15">
                                 <div class="absolute inset-y-0 right-0 rounded-full bg-brand-sage" style="width: {{ $coveragePct }}%"></div>
                             </div>
-                            <div class="mt-1 flex justify-between text-2xs text-brand-mist"><span>{{ __('7 days ago') }}</span><span>{{ __('Now') }}</span></div>
+                            <div class="mt-1 flex justify-between text-2xs text-brand-mist"><span>{{ __(':days days ago', ['days' => \App\Modules\Edge\Support\EdgeDplyDatabase::backupDays($site)]) }}</span><span>{{ __('Now') }}</span></div>
                             @if (($dbBackupMeta['lost'] ?? '') !== '')
                                 <p class="mt-2 text-xs text-brand-ink">{{ ucfirst($dbBackupMeta['lost']) }}. {{ __('Restoring to a time after that works as usual.') }}</p>
                             @endif
@@ -526,9 +526,9 @@
                         <x-sheet.section :title="__('Restore to a point in time')">
                             <div class="grid gap-3 rounded-xl border border-brand-ink/10 px-3.5 py-3 dark:border-brand-mist/15">
                                 @if ($databaseEngine === 'postgres')
-                                    <p class="text-xs leading-5 text-brand-moss">{{ __('Changes are backed up continuously for 7 days. Restoring replaces the data with how it was at that moment (UTC); the data from before the restore is kept aside until the next one.') }}</p>
+                                    <p class="text-xs leading-5 text-brand-moss">{{ __('Changes are backed up continuously for :days days. Restoring replaces the data with how it was at that moment (UTC); the data from before the restore is kept aside until the next one.', ['days' => \App\Modules\Edge\Support\EdgeDplyDatabase::backupDays($site)]) }}</p>
                                 @else
-                                    <p class="text-xs leading-5 text-brand-moss">{{ __('Changes are backed up continuously for 7 days. Restoring replaces the data with how it was at that moment (UTC); the data from before the restore is saved as a backup first.') }}</p>
+                                    <p class="text-xs leading-5 text-brand-moss">{{ __('Changes are backed up continuously for :days days. Restoring replaces the data with how it was at that moment (UTC); the data from before the restore is saved as a backup first.', ['days' => \App\Modules\Edge\Support\EdgeDplyDatabase::backupDays($site)]) }}</p>
                                 @endif
                                 @php
                                     $backup = (array) ($dbRecord['backup'] ?? []);
@@ -548,7 +548,7 @@
                                 @endif
                                 <div class="flex flex-wrap items-end gap-2">
                                     <x-sheet.field :label="__('Time (UTC)')" for="database-restore-at">
-                                        <input id="database-restore-at" type="datetime-local" step="1" wire:model="postgresRestoreAt" min="{{ now()->utc()->subDays(7)->format('Y-m-d\TH:i') }}" max="{{ now()->utc()->format('Y-m-d\TH:i:s') }}" class="dply-input mt-0" />
+                                        <input id="database-restore-at" type="datetime-local" step="1" wire:model="postgresRestoreAt" min="{{ now()->utc()->subDays(\App\Modules\Edge\Support\EdgeDplyDatabase::backupDays($site))->format('Y-m-d\TH:i') }}" max="{{ now()->utc()->format('Y-m-d\TH:i:s') }}" class="dply-input mt-0" />
                                     </x-sheet.field>
                                     <x-sheet.button variant="danger" wire:click="restorePostgres" wire:confirm="{{ __('Replace this database with how it was at that time? Changes after it are set aside.') }}" wire:loading.attr="disabled" wire:target="restorePostgres">
                                         <span wire:loading.remove wire:target="restorePostgres">{{ __('Restore') }}</span>
@@ -738,7 +738,7 @@ await db.collection('notes').countDocuments();" }}</pre>
                         $howCards = [
                             [__('Connect'), __('Save and redeploy. The deploy sets :vars on the app, so there is nothing to copy. Connections use TLS only.', ['vars' => $databaseEngine === 'mongodb' ? 'MONGODB_URI' : ($databaseEngine === 'mysql' ? 'DB_CONNECTION, DB_HOST, DB_PASSWORD, DATABASE_URL' : 'DB_CONNECTION, DB_HOST, DB_PASSWORD, DATABASE_URL')]).($databaseEngine === 'mysql' ? ' '.__('The mysql command line needs --tls-sni-servername=<host>, or the database id as the user.') : ''), 'connect'],
                             [__('Sleep and wake'), $sleepLabel ? __('It sleeps :sleep after the last connection closes and wakes on the next one in about a third of a second. The data stays on its disk.', ['sleep' => $sleepLabel]) : __('It stays on. Pick a sleep time under Resources to pay only while it is used.'), null],
-                            [__('Backups'), __('Every change is streamed to storage and a full backup runs daily. Restore to any second in the last 7 days, or export a copy to download.'), 'backups'],
+                            [__('Backups'), __('Every change is streamed to storage and a full backup runs daily. Restore to any second in the last :days days, or export a copy to download.', ['days' => \App\Modules\Edge\Support\EdgeDplyDatabase::backupDays($site)]), 'backups'],
                             [__('Tuned for its size'), match ($databaseEngine) {
                                 'postgres' => __('Memory settings follow the plan: a quarter of it for shared buffers, working memory per query from the rest, the write-ahead log capped at a quarter of the disk and compressed. Query statistics are always on.'),
                                 'mysql' => __('The buffer pool gets half the memory, and per-query statistics are kept by performance_schema.'),

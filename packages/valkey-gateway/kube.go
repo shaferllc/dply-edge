@@ -29,6 +29,7 @@ type tenant struct {
 	Persistent bool   `json:"persistent"`  // pro: AOF on a volume, never sleeps
 	Engine     string `json:"engine"`      // valkey (default), postgres
 	DiskGB     int    `json:"disk_gb"`     // databases: volume size
+	BackupDays int    `json:"backup_days"` // databases: backup retention, the plan's (0 = dbagent's default, 7)
 }
 
 func objectName(id string) string { return "vk-" + id }

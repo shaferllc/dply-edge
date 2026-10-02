@@ -18,7 +18,7 @@
 //
 // Backups (Postgres): with WALG_S3_PREFIX set, finished WAL segments stream
 // to object storage (archive_timeout 60 s) and a base backup is taken on the
-// first start and then daily while the database is up, keeping 7. MongoDB
+// first start and then daily while the database is up, kept for the plan's retention window (retentionDays). MongoDB
 // and MySQL take a daily dump and ship their oplog / binlog (dump.go).
 package main
 
@@ -34,6 +34,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -331,7 +332,7 @@ func (p *postgres) backupLoop() {
 			} else {
 				_ = os.WriteFile(p.backupMarker(), []byte(time.Now().UTC().Format(time.RFC3339)), 0o600)
 				log.Printf("backup: done in %s", time.Since(started).Round(time.Second))
-				if _, err := p.walg("delete", "retain", "FULL", "7", "--confirm"); err != nil {
+				if err := p.prune(); err != nil {
 					log.Printf("backup retention: %v", err)
 				}
 			}
@@ -339,6 +340,57 @@ func (p *postgres) backupLoop() {
 		backupMu.Unlock()
 		time.Sleep(time.Minute)
 	}
+}
+
+// retentionDays is how long backups are kept: BACKUP_RETENTION_DAYS from
+// the gateway (the plan's: 7, 14 or 30, ruling r-78fm1ejqqy4c17en), else 7.
+func retentionDays() int {
+	if n, err := strconv.Atoi(os.Getenv("BACKUP_RETENTION_DAYS")); err == nil && n > 0 {
+		return n
+	}
+	return 7
+}
+
+// keepFrom is the index of the oldest backup to keep, from backups oldest
+// first: every one newer than cutoff, plus the newest at or before it (the
+// base a restore to the window's start needs). At least one always stays,
+// so a database asleep past the window keeps its last backup. Counting
+// backups instead ("retain FULL 7") kept weeks for a database awake weekly.
+func keepFrom(times []time.Time, cutoff time.Time) int {
+	keep := 0
+	for i, t := range times {
+		if !t.After(cutoff) {
+			keep = i
+		}
+	}
+	return keep
+}
+
+// prune deletes full backups (and the WAL before them) older than the
+// retention window, keeping the one that covers its start.
+func (p *postgres) prune() error {
+	out, err := p.walg("backup-list", "--json")
+	if err != nil {
+		return err
+	}
+	var list []struct {
+		Name string    `json:"backup_name"`
+		Time time.Time `json:"time"`
+	}
+	if err := json.Unmarshal(out, &list); err != nil {
+		return fmt.Errorf("backup-list: %v", err)
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].Time.Before(list[j].Time) })
+	times := make([]time.Time, len(list))
+	for i, b := range list {
+		times[i] = b.Time
+	}
+	k := keepFrom(times, time.Now().Add(-time.Duration(retentionDays())*24*time.Hour))
+	if k == 0 {
+		return nil
+	}
+	_, err = p.walg("delete", "before", list[k].Name, "--confirm")
+	return err
 }
 
 func (p *postgres) psqlValue(sql string) (string, error) {

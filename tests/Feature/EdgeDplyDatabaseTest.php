@@ -68,7 +68,9 @@ test('new postgres is a dply database on the gateway, with credentials the app c
     Http::assertSent(fn ($request): bool => $request->method() === 'PUT'
         && $request->url() === 'https://gateway.test/tenants/'.$id
         && $request['engine'] === 'postgres' && $request['memory_mb'] === 2048 && $request['disk_gb'] === 5
-        && $request['sleep_after'] === 300 && $request['password'] === env($this->site, 'DB_PASSWORD'));
+        && $request['sleep_after'] === 300 && $request['password'] === env($this->site, 'DB_PASSWORD')
+        // Pro keeps 14 days of backups (ruling r-78fm1ejqqy4c17en).
+        && $request['backup_days'] === 14);
 });
 
 test('a size that does not fit yet falls back to the smallest dply size', function () {
