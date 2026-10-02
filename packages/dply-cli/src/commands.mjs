@@ -1249,3 +1249,45 @@ function fail(message, exitCode = 1) {
 
   return err;
 }
+
+/**
+ * dply Git (apps whose code lives on dply): `dply git token` prints the
+ * remote and a fresh token; `dply git remote` points a `dply` remote in
+ * this checkout at it, token included, so `git push dply main` deploys.
+ */
+export async function git(args, flags) {
+  const sub = args[0] ?? 'help';
+  if (sub !== 'token' && sub !== 'remote') {
+    info(`${c.bold('dply git')} — your app's repository on dply`);
+    info('');
+    info(`  ${'token'.padEnd(8)} ${c.dim('Print the remote and a push token (--read, --ttl <seconds>, --json)')}`);
+    info(`  ${'remote'.padEnd(8)} ${c.dim('Add or update a `dply` remote in this checkout (token in the URL)')}`);
+    info('');
+    info(c.dim('Then: git push dply main deploys; other branches get previews.'));
+
+    return sub === 'help' ? 0 : 1;
+  }
+
+  const ctx = await requireSiteContext(flags);
+  const api = new ApiClient(ctx);
+  const body = { scope: flags.read ? 'read' : 'write' };
+  if (flags.ttl) body.ttl = Number(flags.ttl);
+  const token = (await api.post(`/edge/sites/${encodeURIComponent(ctx.siteId)}/git/token`, body)).data;
+
+  if (sub === 'token') {
+    if (flags.json) return printJson(token);
+    printKeyValues({ remote: token.remote, token: token.token, scope: token.scope, expires: token.expires_at ?? '—' });
+    info('');
+    info(c.dim(`Use it as the password (any username), or run \`dply git remote\` then \`git push dply ${token.branch}\`.`));
+
+    return 0;
+  }
+
+  const url = token.remote.replace(/^https:\/\//, `https://x:${encodeURIComponent(token.token)}@`);
+  const hasRemote = await execFileAsync('git', ['remote', 'get-url', 'dply']).then(() => true, () => false);
+  await execFileAsync('git', ['remote', hasRemote ? 'set-url' : 'add', 'dply', url]);
+  ok(`${hasRemote ? 'Updated' : 'Added'} remote ${c.cyan('dply')} → ${token.remote}`);
+  info(c.dim(`git push dply ${token.branch} deploys. The token expires ${token.expires_at ?? 'later'}; rerun this to refresh it.`));
+
+  return 0;
+}

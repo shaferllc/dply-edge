@@ -37,6 +37,7 @@ use App\Modules\Edge\Console\MigrateEdgeHostnamesCommand;
 use App\Modules\Edge\Console\MoveRedisToValkeyCommand;
 use App\Modules\Edge\Console\PruneEdgeAnalyticsCommand;
 use App\Modules\Edge\Console\PublishEdgeBaseImagesCommand;
+use App\Modules\Edge\Console\PullDplyGitEventsCommand;
 use App\Modules\Edge\Console\ReapStuckEdgeBuildsCommand;
 use App\Modules\Edge\Console\ResizeEdgeDatabasesCommand;
 use App\Modules\Edge\Console\RollupEdgeAnalyticsEngineCommand;
@@ -46,6 +47,7 @@ use App\Modules\Edge\Console\ScaleEdgeQueueWorkersCommand;
 use App\Modules\Edge\Console\SelfBootstrapCommand;
 use App\Modules\Edge\Console\SelfDeployCommand;
 use App\Modules\Edge\Console\SelfRegisterCommand;
+use App\Modules\Edge\Console\SetupDplyGitCommand;
 use App\Modules\Edge\Console\SweepDatabaseBackupsCommand;
 use App\Modules\Edge\Console\VerifyDatabaseBackupsCommand;
 use App\Modules\Edge\Console\WarmEdgeBuildImagesCommand;
@@ -121,6 +123,8 @@ class EdgeServiceProvider extends ServiceProvider
                 SweepDatabaseBackupsCommand::class,
                 ResizeEdgeDatabasesCommand::class,
                 CheckEdgeBuildersCommand::class,
+                PullDplyGitEventsCommand::class,
+                SetupDplyGitCommand::class,
                 DrainEdgeBuilderCommand::class,
                 SelfBootstrapCommand::class,
                 SelfDeployCommand::class,
@@ -134,7 +138,7 @@ class EdgeServiceProvider extends ServiceProvider
         // KV Instant takes one write per second per namespace (EdgeKvWriteJob).
         RateLimiter::for('kv-instant', static fn (object $job): Limit => Limit::perSecond(1)->by($job->namespace ?? 'kv'));
         // Feature flags for resource kinds: off until turned on per organization.
-        foreach (EdgeContainerConnections::FLAGGED as $kind) {
+        foreach (array_keys(EdgeContainerConnections::flagLabels()) as $kind) {
             Feature::define(EdgeContainerConnections::flag($kind), static fn (Organization $organization): bool => false);
         }
         Livewire::component('edge.index', Index::class);

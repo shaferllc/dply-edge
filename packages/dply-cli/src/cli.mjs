@@ -26,6 +26,7 @@ const TOP_LEVEL = {
   sites: { handler: commands.sites, summary: 'List your Edge sites (name filter).' },
   link: { handler: commands.link, summary: 'Link this folder to an existing Edge site (.dply/site.json).' },
   deploy: { handler: runLinkedDeploy, summary: 'Deploy the linked Edge site (or --site <id>).' },
+  git: { handler: commands.git, summary: 'dply Git: token | remote — push to deploy.' },
   notifications: { handler: notificationsCommands.notificationsCommand, summary: 'Channels + event routing for a site.' },
   notify: { handler: notificationsCommands.notificationsCommand, summary: 'Alias for `notifications`.' },
   update: { handler: updateCommands.updateCommand, summary: 'Install the CLI build your instance is serving (--check).' },

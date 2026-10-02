@@ -17,6 +17,7 @@ use App\Modules\Edge\Services\EdgeGithubWebhookProvisioner;
 use App\Modules\Edge\Services\EdgeHostMapPublisher;
 use App\Modules\Edge\Support\EdgeContainerConnections;
 use App\Modules\Edge\Support\EdgeRepoRoot;
+use App\Modules\SourceControl\Services\DplyGit;
 use App\Modules\SourceControl\Services\GitIdentityResolver;
 use App\Rules\PubliclyRoutableUrl;
 use Illuminate\Database\Eloquent\Collection;
@@ -130,7 +131,7 @@ trait ManagesEdgeBuildSettings
 
         // Deploy on push needs the GitHub webhook — connect it when missing.
         $provisioner = app(EdgeGithubWebhookProvisioner::class);
-        if ($this->buildForm->edge_deploy_on_push && ! $site->isEdgePreview() && ! $provisioner->isConnected($site) && auth()->user() !== null) {
+        if ($this->buildForm->edge_deploy_on_push && ! $site->isEdgePreview() && ! DplyGit::siteUses($site) && ! $provisioner->isConnected($site) && auth()->user() !== null) {
             $result = $provisioner->enableWithDefaultAccount($site->fresh(), auth()->user());
             $this->site->refresh();
             if ($result === null || ! $result['ok']) {

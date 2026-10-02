@@ -84,6 +84,9 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/sites/{site}/deployments/{deployment}/rollback', [EdgeDeploymentApiController::class, 'rollback'])
                 ->middleware('ability:'.$apiAbilities['edge.deployments.rollback']);
 
+            Route::post('/sites/{site}/git/token', [EdgeDeploymentApiController::class, 'gitToken'])
+                ->middleware('ability:'.$apiAbilities['edge.git.token']);
+
             Route::get('/sites/{site}/previews', [EdgePreviewApiController::class, 'index'])
                 ->middleware('ability:'.$apiAbilities['edge.previews.index']);
             Route::post('/sites/{site}/previews', [EdgePreviewApiController::class, 'store'])

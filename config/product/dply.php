@@ -219,6 +219,16 @@ return [
     'changelog_timeout' => max(30, (int) env('DPLY_CHANGELOG_TIMEOUT', 90)),
 
     /*
+    | Read-only DOKS access for /admin/cluster. Token and CA come from the
+    | ServiceAccount in deploy/k8s-readonly/rbac.yaml; CA stays base64.
+    */
+    'kubernetes' => [
+        'api_url' => env('DPLY_K8S_API_URL'),
+        'token' => env('DPLY_K8S_TOKEN'),
+        'ca' => env('DPLY_K8S_CA'),
+    ],
+
+    /*
     |--------------------------------------------------------------------------
     | Public control-plane URL for TaskRunner signed webhooks
     |--------------------------------------------------------------------------

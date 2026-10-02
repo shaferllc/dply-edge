@@ -83,6 +83,9 @@ final class EdgeContainerConnections
 
     public const VECTOR_METRICS = ['cosine', 'euclidean', 'dot-product'];
 
+    /** Flags for things that are not resource kinds, kind => label. */
+    public const OTHER_FLAGS = ['git' => 'dply Git'];
+
     /**
      * Kinds behind a Pennant feature flag, per organization (off unless
      * turned on: /admin/feature-flags on localhost, or php artisan dply:feature). Only adding one is gated:
@@ -107,13 +110,13 @@ final class EdgeContainerConnections
             $out[$kind] = self::KINDS[$kind]['label'];
         }
 
-        return $out;
+        return $out + self::OTHER_FLAGS;
     }
 
     /** Whether this organization may add $kind (Add a resource). */
     public static function flagOn(string $kind, ?Organization $organization): bool
     {
-        return ! in_array($kind, self::FLAGGED, true)
+        return ! array_key_exists($kind, self::flagLabels())
             || ($organization !== null && Feature::for($organization)->active(self::flag($kind)));
     }
 

@@ -7,6 +7,7 @@ namespace App\Modules\Edge\Services;
 use App\Models\Site;
 use App\Models\User;
 use App\Modules\SourceControl\Contracts\GitIdentity;
+use App\Modules\SourceControl\Services\DplyGit;
 use App\Modules\SourceControl\Services\GitIdentityResolver;
 use App\Modules\SourceControl\Support\GitHubWebhookFailure;
 use Illuminate\Support\Facades\Http;
@@ -37,6 +38,9 @@ class EdgeGithubWebhookProvisioner
         $repo = trim((string) ($site->edgeMeta()['source']['repo'] ?? ''));
         if ($repo === '' || ! str_contains($repo, '/')) {
             return ['ok' => false, 'message' => __('No Git repository is configured for this Edge site.')];
+        }
+        if (DplyGit::isRemote($repo)) {
+            return ['ok' => false, 'message' => __('This app is on dply Git, so pushes already deploy without GitHub.')];
         }
 
         [$owner, $name] = array_pad(explode('/', $repo, 2), 2, '');

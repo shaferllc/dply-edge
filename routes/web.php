@@ -13,6 +13,7 @@ use App\Http\Controllers\SelfReleaseController;
 use App\Http\Controllers\SiteWorkspaceController;
 use App\Livewire\Admin\AuditLog as AdminAuditLog;
 use App\Livewire\Admin\BetaInvites as AdminBetaInvites;
+use App\Livewire\Admin\Cluster as AdminCluster;
 use App\Livewire\Admin\ComingSoonAccess as AdminComingSoonAccess;
 use App\Livewire\Admin\Connections as AdminConnections;
 use App\Livewire\Admin\FeatureFlags as AdminFeatureFlags;
@@ -291,6 +292,7 @@ Route::middleware(['auth', 'verified', 'org'])->withHead(robots: 'noindex, nofol
         ->group(function (): void {
             Route::livewire('/', AdminOverview::class)->name('overview')->withHead(title: 'Admin · Overview');
             Route::livewire('/operations', AdminOperations::class)->name('operations')->withHead(title: 'Admin · Operations');
+            Route::livewire('/cluster', AdminCluster::class)->name('cluster')->withHead(title: 'Admin · Cluster');
             Route::livewire('/audit', AdminAuditLog::class)->name('audit')->withHead(title: 'Admin · Audit log');
             Route::livewire('/users', Index::class)->name('users.index')->withHead(title: 'Admin · Users');
             Route::post('/impersonate/{user}', [ImpersonationController::class, 'start'])->name('impersonate.start');

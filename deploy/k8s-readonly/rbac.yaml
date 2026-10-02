@@ -1,0 +1,64 @@
+# Read-only access for the /admin/cluster page (App\Livewire\Admin\Cluster).
+#
+# get/list/watch only: pods, pod logs, events, nodes, workloads, metrics.
+# No exec, no Secrets, no writes.
+#
+# Prerequisite: metrics-server (memory/CPU columns). Installed 2026-10-02 with
+#   kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+#
+# Apply (KUBECONFIG from ../builders/kubeconfig, see ../builders/apply.sh):
+#   kubectl apply -f deploy/k8s-readonly/rbac.yaml
+#
+# Then put these in the control plane's env:
+#   DPLY_K8S_API_URL  the `server:` line of the kubeconfig
+#   DPLY_K8S_TOKEN    kubectl -n dply-admin get secret dply-admin-readonly-token -o jsonpath='{.data.token}' | base64 -d
+#   DPLY_K8S_CA       kubectl -n dply-admin get secret dply-admin-readonly-token -o jsonpath='{.data.ca\.crt}'
+#                     (left base64; the DOKS API cert is signed by the cluster's own CA)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dply-admin
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: dply-admin-readonly
+  namespace: dply-admin
+---
+# Long-lived token: the DO kubeconfig token expires after about a week.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: dply-admin-readonly-token
+  namespace: dply-admin
+  annotations:
+    kubernetes.io/service-account.name: dply-admin-readonly
+type: kubernetes.io/service-account-token
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dply-admin-readonly
+rules:
+  - apiGroups: [""]
+    resources: [pods, pods/log, events, nodes, namespaces]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [statefulsets, deployments]
+    verbs: [get, list, watch]
+  - apiGroups: [metrics.k8s.io]
+    resources: [pods, nodes]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dply-admin-readonly
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: dply-admin-readonly
+subjects:
+  - kind: ServiceAccount
+    name: dply-admin-readonly
+    namespace: dply-admin

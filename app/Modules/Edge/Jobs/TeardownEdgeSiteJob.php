@@ -23,6 +23,7 @@ use App\Modules\Edge\Services\Realtime\EdgeRealtimeApps;
 use App\Modules\Edge\Services\Storage\EdgeBucketKeys;
 use App\Modules\Edge\Support\FakeEdgeProvision;
 use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
+use App\Modules\SourceControl\Services\DplyGit;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -60,6 +61,11 @@ class TeardownEdgeSiteJob implements ShouldQueue
         if (! $site->isEdgePreview()) {
             $this->step($site, 'webhook');
             $this->bestEffort($site, 'GitHub webhook', fn () => app(EdgeGithubWebhookProvisioner::class)->disable($site));
+            // dply Git: stop push events. ponytail: the repo itself is kept —
+            // it may be the only copy of the code; add a purge when one is asked for.
+            if (is_string($subscriptionId = $site->edgeMeta()['dply_git']['subscription_id'] ?? null) && $subscriptionId !== '') {
+                $this->bestEffort($site, 'dply Git push events', fn () => app(DplyGit::class)->client()->deleteSubscription($subscriptionId));
+            }
 
             $this->step($site, 'previews');
             Site::query()

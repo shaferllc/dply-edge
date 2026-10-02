@@ -9,6 +9,7 @@ use App\Modules\Edge\Actions\DeployEdgeCommit;
 use App\Modules\Edge\Actions\RedeployEdgeSite;
 use App\Modules\Edge\Actions\RollbackEdgeDeployment;
 use App\Modules\Edge\Http\Resources\EdgeDeploymentResource;
+use App\Modules\SourceControl\Services\DplyGit;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -59,6 +60,40 @@ class EdgeDeploymentApiController extends EdgeApiController
      *   - { "commit": "abc123" }           → DeployEdgeCommit (re-flips if known)
      *   - { } or { "branch_tip": true }    → RedeployEdgeSite (rebuild from branch HEAD)
      */
+    /**
+     * A dply Git token for this app (`dply git token`): pushing deploys, so
+     * it takes the deploy ability. Write by default; `scope=read` to clone.
+     */
+    public function gitToken(Request $request, string $site): JsonResponse
+    {
+        $found = $this->findEdgeSite($request, $site);
+        if ($found === null) {
+            return $this->notFound();
+        }
+        if (! DplyGit::siteUses($found)) {
+            return response()->json(['message' => __('This app is not on dply Git. Move it under Deploy triggers first.')], 422);
+        }
+
+        try {
+            $data = $request->validate([
+                'scope' => ['nullable', 'in:read,write'],
+                'ttl' => ['nullable', 'integer', 'between:60,31536000'],
+            ]);
+        } catch (ValidationException $e) {
+            return response()->json(['message' => $e->getMessage(), 'errors' => $e->errors()], 422);
+        }
+
+        try {
+            $token = app(DplyGit::class)->tokenForSite($found, (string) ($data['scope'] ?? 'write'), isset($data['ttl']) ? (int) $data['ttl'] : null);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return response()->json(['message' => $e->getMessage()], 502);
+        }
+
+        return response()->json(['data' => $token + ['branch' => (string) ($found->edgeMeta()['source']['branch'] ?? 'main')]], 201);
+    }
+
     public function store(Request $request, string $site): JsonResponse
     {
         $found = $this->findEdgeSite($request, $site);

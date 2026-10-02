@@ -15,10 +15,31 @@
         @endif
     </span>
     @if ($workers['enabled'] ?? false)
-        <span class="mt-1.5 block text-sm font-bold text-brand-ink">{{ trans_choice(':count process|:count processes', $w['processes'], ['count' => $w['processes']]) }} · <span class="font-mono font-normal text-brand-moss">{{ $w['queues'] }}</span></span>
-        <span class="mt-1 block text-xs text-brand-moss">
-            {{ $w['autoscale'] ? __('Autoscales to :count instances', ['count' => $w['max_instances']]) : trans_choice(':count instance|:count instances', $w['instances'], ['count' => $w['instances']]) }}
+        @php
+            $queueNames = array_values(array_filter(array_map('trim', explode(',', $w['queues']))));
+            $instancesText = $w['autoscale'] && $w['instances'] !== $w['max_instances']
+                ? __(':min–:max instances', ['min' => $w['instances'], 'max' => $w['max_instances']])
+                : trans_choice(':count instance|:count instances', $w['max_instances']);
+        @endphp
+        <span class="mt-1.5 block text-sm font-bold text-brand-ink">
+            {{ trans_choice(':count process|:count processes', $w['processes']) }}
+            <span class="font-normal text-brand-moss">× {{ $instancesText }}</span>
+        </span>
+        {{-- Queues in priority order: workers drain the first before the next. --}}
+        <span class="mt-2 flex flex-wrap gap-1" title="{{ __('Queues, highest priority first') }}">
+            @foreach (array_slice($queueNames, 0, 4) as $queue)
+                <span class="max-w-full truncate rounded-md bg-brand-sand/40 px-1.5 py-0.5 font-mono text-2xs text-brand-ink dark:bg-zinc-800 dark:text-brand-cream">{{ $queue }}</span>
+            @endforeach
+            @if (count($queueNames) > 4)
+                <span class="rounded-md px-1 py-0.5 text-2xs font-semibold text-brand-mist" title="{{ implode(', ', array_slice($queueNames, 4)) }}">+{{ count($queueNames) - 4 }}</span>
+            @endif
+        </span>
+        <span class="mt-2 block text-2xs text-brand-moss">
+            {{ $w['autoscale'] ? __('Autoscaling') : __('Fixed size') }}
             · {{ $scheduler ? __('scheduler on') : __('scheduler off') }}
+            @if ($w['groups'] !== [])
+                · {{ trans_choice('+:count group|+:count groups', count($w['groups'])) }}
+            @endif
         </span>
     @else
         <span class="mt-1.5 block text-sm font-bold text-brand-ink">{{ __('schedule:run every minute') }}</span>

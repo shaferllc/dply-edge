@@ -7,9 +7,9 @@ namespace App\Modules\Edge\Http\Controllers;
 use App\Http\Controllers\Controller;
 use App\Models\Site;
 use App\Modules\Edge\Actions\CreateEdgePreviewSite;
-use App\Modules\Edge\Actions\RedeployEdgeSite;
-use App\Modules\Edge\Support\EdgeDeployProgress;
+use App\Modules\Edge\Actions\HandleEdgeGitPush;
 use App\Modules\Edge\Jobs\TeardownEdgeSiteJob;
+use App\Modules\Edge\Support\EdgeDeployProgress;
 use App\Modules\Edge\Support\EdgePreviewPolicy;
 use App\Modules\Edge\Support\EdgeRepoRoot;
 use App\Support\ProductLine\ProductLineKillSwitches;
@@ -127,58 +127,23 @@ class GithubEdgeWebhookController extends Controller
      */
     private function handlePush(Site $site, array $payload): JsonResponse
     {
-        $ref = is_string($payload['ref'] ?? null) ? (string) $payload['ref'] : '';
-        $branch = preg_replace('#^refs/heads/#', '', $ref) ?? '';
-        $sourceBranch = (string) ($site->edgeMeta()['source']['branch'] ?? 'main');
-
-        if ($branch === '' || $branch !== $sourceBranch) {
-            return response()->json([
-                'ok' => true,
-                'queued' => false,
-                'reason' => 'push_branch_does_not_match_source',
-                'pushed_branch' => $branch,
-                'source_branch' => $sourceBranch,
-            ]);
-        }
-
-        // Build → "Deploy on push" is the switch; legacy sites without the key deploy.
-        if (($site->edgeMeta()['source']['deploy_on_push'] ?? true) === false) {
+        $result = (new HandleEdgeGitPush)->handle(
+            $site,
+            is_string($payload['ref'] ?? null) ? (string) $payload['ref'] : '',
+            is_string($payload['after'] ?? null) ? (string) $payload['after'] : null,
+            EdgeRepoRoot::changedFilesFromPushPayload($payload),
+            onDeploy: function ($deployment) use ($payload): void {
+                // Whoever pushed gets the "is live" toast, when their GitHub is linked.
+                if (($pusher = EdgeDeployProgress::githubPusher($payload)) !== null) {
+                    EdgeDeployProgress::setMeta($deployment->id, 'triggered_by', $pusher);
+                }
+            },
+        );
+        if (in_array($result['reason'] ?? 'redeploy', ['redeploy', 'deploy_on_push_disabled'], true)) {
             $this->touchWebhookLastEvent($site);
-
-            return response()->json([
-                'ok' => true,
-                'queued' => false,
-                'reason' => 'deploy_on_push_disabled',
-                'branch' => $branch,
-            ]);
         }
 
-        $changedFiles = EdgeRepoRoot::changedFilesFromPushPayload($payload);
-        if (! EdgeRepoRoot::pushTouchesSite($site->edgeRepoRoot(), $changedFiles)) {
-            return response()->json([
-                'ok' => true,
-                'queued' => false,
-                'reason' => 'push_outside_repo_root',
-                'repo_root' => $site->edgeRepoRoot(),
-                'changed_files' => $changedFiles,
-            ]);
-        }
-
-        $commit = is_string($payload['after'] ?? null) ? (string) $payload['after'] : null;
-        $deployment = (new RedeployEdgeSite)->handle($site, $commit);
-        // Whoever pushed gets the "is live" toast, when their GitHub is linked.
-        if (($pusher = EdgeDeployProgress::githubPusher($payload)) !== null) {
-            EdgeDeployProgress::setMeta($deployment->id, 'triggered_by', $pusher);
-        }
-        $this->touchWebhookLastEvent($site);
-
-        return response()->json([
-            'ok' => true,
-            'queued' => 'redeploy',
-            'site' => $site->id,
-            'deployment_id' => $deployment->id,
-            'branch' => $branch,
-        ]);
+        return response()->json($result);
     }
 
     private function verifySignature(Request $request, Site $site, string $signatureHeader): bool

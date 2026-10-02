@@ -84,6 +84,7 @@ return [
         'edge.deployments.show' => 'edge.read',
         'edge.deployments.store' => 'edge.deploy',
         'edge.deployments.rollback' => 'edge.deploy',
+        'edge.git.token' => 'edge.deploy',
         'edge.previews.index' => 'edge.read',
         'edge.previews.store' => 'edge.deploy',
         'edge.previews.destroy' => 'edge.deploy',

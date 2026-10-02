@@ -315,7 +315,8 @@ class Container extends DurableObject {
       const snap = release ? await this.ctx.storage.get('dply:snapshot') : null;
       // A snapshot holds one release and one Worker version's env (config cache).
       let useSnap = Boolean(snap && snap.build === BUILD_ID && snap.release === release);
-      if (release) console.log('dply-start: ' + (useSnap ? 'from snapshot' : 'from image') + ' release=' + releaseLabel(release) + (snap ? ' saved=' + releaseLabel(snap.release ?? '?') + (snap.build === BUILD_ID ? '' : ' (other build)') : ' saved=none'));
+      // build= + object name: spots a Durable Object still on the previous Worker version starting the old image.
+      console.log('dply-start: ' + (useSnap ? 'from snapshot' : 'from image') + ' build=' + BUILD_ID + ' object=' + this.ctx.id.name + (release ? ' release=' + releaseLabel(release) + (snap ? ' saved=' + releaseLabel(snap.release ?? '?') + (snap.build === BUILD_ID ? '' : ' (other build)') : ' saved=none') : ''));
       const env = release ? { ...(options.envVars ?? this.envVars), DPLY_RELEASE: release } : (options.envVars ?? this.envVars);
       const labels = { 'dply-build': BUILD_ID, ...(release ? { 'dply-release': releaseLabel(release) } : {}) };
       // Just after a stop the runtime can refuse a start for a moment.

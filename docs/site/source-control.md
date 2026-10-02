@@ -71,6 +71,21 @@ dply sends the token to the Git host only while it clones. It never appears in t
 
 If the account loses access to the repository, or the token is revoked, the build fails at the clone step with **Reconnect it under Source control**. Link the account again (or replace the token), then choose **Retry build**.
 
+## dply Git (beta)
+
+dply Git keeps an app's repository on dply itself, so no GitHub, GitLab, or Bitbucket account is needed to deploy. It is in beta and has to be turned on for your organization.
+
+To move an app, open **Deploy triggers** and choose **Move this app's code to dply Git**. dply copies every branch and tag from the current repository, points the app at the new one, and disconnects the GitHub webhook. Your original repository is left as it is.
+
+After the move:
+
+- A push to the production branch deploys it, while **Deploy on push** is on under Build.
+- A push to any other branch builds a preview for that branch. Deleting the branch removes the preview. The `previews` settings in `dply.yaml` still apply: `enabled` and `exclude_branches`.
+- **Create a push token** on Deploy triggers shows a token once, with the commands to add a `dply` remote. Tokens last 30 days. Give each person or agent their own.
+- From the CLI, `dply git token` prints the remote and a new token (`--read` for clone-only, `--ttl <seconds>` to change how long it lasts). `dply git remote` adds a `dply` remote to the current checkout.
+
+Builds clone with a short-lived read-only token, which never appears in build logs.
+
 ## Unlink an account
 
 On **Source control**, choose **Unlink** next to the account, or **Remove** next to a token. Unlinking does not remove webhooks that dply already registered on your repositories. To stop push deploys for an app, open the app's **Deploy triggers** and choose **Disable** before you unlink. See [Deploy triggers & hooks](/docs/deploy-triggers).

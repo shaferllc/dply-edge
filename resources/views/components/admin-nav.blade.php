@@ -9,6 +9,7 @@
 
     $overviewActive = request()->routeIs('admin.overview', 'admin.dashboard');
     $operationsActive = request()->routeIs('admin.operations');
+    $clusterActive = request()->routeIs('admin.cluster');
     $auditActive = request()->routeIs('admin.audit');
     $organizationsActive = request()->routeIs('admin.organizations.*');
     $usersActive = request()->routeIs('admin.users.*');
@@ -32,6 +33,11 @@
     <a href="{{ route('admin.operations') }}" wire:navigate @class([$navBase, $operationsActive ? $navOn : $navOff])>
         <x-heroicon-o-cpu-chip class="{{ $navIcon }}" />
         {{ __('Operations') }}
+    </a>
+
+    <a href="{{ route('admin.cluster') }}" wire:navigate @class([$navBase, $clusterActive ? $navOn : $navOff])>
+        <x-heroicon-o-server-stack class="{{ $navIcon }}" />
+        {{ __('Cluster') }}
     </a>
 
     <a href="{{ route('admin.audit') }}" wire:navigate @class([$navBase, $auditActive ? $navOn : $navOff])>

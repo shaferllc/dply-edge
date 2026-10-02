@@ -10,7 +10,11 @@
     $openHook = $openHookId ? $hooks->firstWhere('id', $openHookId) : null;
     $githubAccounts = collect($linkedSourceControlAccounts ?? [])->filter(fn ($a) => ($a['provider'] ?? '') === 'github');
     $accountLabel = $githubAccounts->firstWhere('id', $buildForm->edge_webhook_account_id)['label'] ?? null;
-    $pushDeploys = $edgeGithubWebhookConnected && $edgeDeployOnPush;
+    $onDplyGit = \App\Modules\SourceControl\Services\DplyGit::siteUses($site);
+    $dplyGitRemote = $onDplyGit ? (string) ($site->edgeMeta()['source']['repo'] ?? '') : null;
+    $dplyGitMove = is_array($site->edgeMeta()['dply_git_move'] ?? null) ? $site->edgeMeta()['dply_git_move'] : null;
+    $canMoveToDplyGit = ! $onDplyGit && $canEdit && \App\Modules\Edge\Support\EdgeContainerConnections::flagOn('git', $site->organization);
+    $pushDeploys = ($edgeGithubWebhookConnected || $onDplyGit) && $edgeDeployOnPush;
     $buildUrl = route('sites.show', ['server' => $server, 'site' => $site, 'section' => 'build']);
     $row = 'flex min-h-12 w-full items-center gap-3 border-b border-brand-ink/10 py-3 text-left hover:bg-brand-sand/20';
     $close = fn (string $m) => '<button type="button" x-on:click="$dispatch(\'close-modal\', \''.$m.'\')" class="dply-icon-btn h-9 w-9 shrink-0" aria-label="'.e(__('Close')).'">'.svg('heroicon-o-x-mark', 'h-5 w-5', ['aria-hidden' => 'true'])->toHtml().'</button>';
@@ -23,6 +27,11 @@
         <p class="mt-3 max-w-3xl text-2xl font-medium leading-snug tracking-tight text-brand-ink sm:text-3xl">
             @if ($edgeIsPreviewChild)
                 {{ __('This is a preview. Pushes to its pull request update it.') }}
+            @elseif ($pushDeploys && $onDplyGit)
+                {{ __('Pushing to') }} <span class="font-mono text-brand-sage">{{ $edgeBranch }}</span> {{ __('on dply Git deploys to production.') }}
+                @if ($previews['enabled']) {{ __('Other branches get a preview.') }} @endif
+            @elseif ($onDplyGit)
+                <span class="text-amber-600 dark:text-amber-300">{{ __('Pushes to dply Git don’t deploy:') }}</span> {{ __('Deploy on push is off in Build.') }}
             @elseif ($pushDeploys)
                 {{ __('Pushing to') }} <span class="font-mono text-brand-sage">{{ $edgeBranch }}</span>@if ($edgeRepo) {{ __('on :repo', ['repo' => $edgeRepo]) }}@endif {{ __('deploys to production.') }}
                 @if ($previews['enabled']) {{ __('Pull requests get a preview.') }} @endif
@@ -40,7 +49,54 @@
         </p>
     </div>
 
-    @unless ($edgeIsPreviewChild)
+    @if (! $edgeIsPreviewChild && ($onDplyGit || $canMoveToDplyGit))
+        <div @if (($dplyGitMove['status'] ?? null) === 'moving') wire:poll.5s @endif>
+            <p class="border-b border-brand-ink/10 pb-2 text-sm font-semibold text-brand-ink">{{ __('dply Git') }}</p>
+            @if ($onDplyGit)
+                <div class="flex min-h-12 items-center gap-3 border-b border-brand-ink/10 py-3">
+                    <code class="min-w-0 flex-1 break-all font-mono text-xs text-brand-ink sm:text-sm">{{ $dplyGitRemote }}</code>
+                    {!! $copy($dplyGitRemote) !!}
+                </div>
+                @if ($canEdit)
+                    <button type="button" wire:click="createDplyGitToken" wire:loading.attr="disabled" wire:target="createDplyGitToken" class="{{ $row }} font-medium text-brand-sage">
+                        <x-heroicon-m-key class="h-4 w-4 shrink-0" aria-hidden="true" />
+                        <span class="flex-1 text-sm sm:text-base">{{ __('Create a push token') }}</span>
+                    </button>
+                    <button type="button" wire:click="openConfirmActionModal('revokeDplyGitTokens', [], @js(__('Revoke all push tokens')), @js(__('Revoke every push token for this app? Anyone pushing with one has to get a new token.')), @js(__('Revoke')), true)" class="{{ $row }} text-sm text-red-600 dark:text-red-400 sm:text-base">
+                        <x-heroicon-m-no-symbol class="h-4 w-4 shrink-0" aria-hidden="true" />
+                        <span class="flex-1">{{ __('Revoke all push tokens') }}</span>
+                    </button>
+                    @if ($movedFrom = $site->edgeMeta()['dply_git']['moved_from'] ?? null)
+                        <button type="button" wire:click="confirmMoveOffDplyGit" class="{{ $row }} text-sm text-brand-ink sm:text-base">
+                            <x-heroicon-m-arrow-uturn-left class="h-4 w-4 shrink-0 text-brand-moss" aria-hidden="true" />
+                            <span class="flex-1">{{ __('Move back to :repo', ['repo' => $movedFrom]) }}</span>
+                        </button>
+                    @endif
+                @endif
+                <p class="pt-3 text-xs text-brand-moss">{{ __('Your code lives on dply. Push to :branch to deploy; push any other branch for a preview. Each person or agent can have their own token.', ['branch' => $edgeBranch]) }}</p>
+                @if ($note = $site->edgeMeta()['dply_git']['history_note'] ?? null)
+                    <p class="pt-2 text-xs text-amber-700 dark:text-amber-300">{{ $note }}</p>
+                @endif
+            @elseif (($dplyGitMove['status'] ?? null) === 'moving')
+                <p class="flex items-center gap-2 border-b border-brand-ink/10 py-3 text-sm text-brand-moss">
+                    <x-heroicon-o-arrow-path class="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
+                    {{ __('Copying every branch and tag to dply Git…') }}
+                </p>
+            @else
+                @if (($dplyGitMove['status'] ?? null) === 'failed')
+                    <p class="border-b border-brand-ink/10 py-3 text-sm text-red-600 dark:text-red-400">{{ __('The last move failed: :error', ['error' => $dplyGitMove['error'] ?? '']) }}</p>
+                @endif
+                <button type="button" wire:click="openConfirmActionModal('moveToDplyGit', [], @js(__('Move to dply Git')), @js(__('Copy every branch and tag of :repo to dply Git and deploy from there? The GitHub webhook is disconnected; your GitHub repo is left as it is.', ['repo' => $edgeRepo ?: __('this repository')])), @js(__('Move')), false)" class="{{ $row }} font-medium text-brand-sage">
+                    <x-heroicon-m-arrow-right-circle class="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span class="flex-1 text-sm sm:text-base">{{ __('Move this app’s code to dply Git') }}</span>
+                    <span class="shrink-0 text-xs text-brand-moss">{{ __('Beta') }}</span>
+                </button>
+                <p class="pt-3 text-xs text-brand-moss">{{ __('Host the repository on dply instead of GitHub. git push deploys, branches get previews, and agents can push with their own tokens.') }}</p>
+            @endif
+        </div>
+    @endif
+
+    @if (! $edgeIsPreviewChild && ! $onDplyGit)
         <div>
             <p class="border-b border-brand-ink/10 pb-2 text-sm font-semibold text-brand-ink">{{ __('GitHub') }}</p>
             <button type="button" x-on:click="$dispatch('open-modal', 'github-trigger')" class="{{ $row }}">
@@ -67,7 +123,7 @@
                 <x-heroicon-m-chevron-right class="h-4 w-4 shrink-0 text-brand-mist" aria-hidden="true" />
             </a>
         </div>
-    @endunless
+    @endif
 
     @unless ($site->isEdgePreview())
         <div>
@@ -96,11 +152,13 @@
     @unless ($edgeIsPreviewChild)
         <div>
             <p class="border-b border-brand-ink/10 pb-2 text-sm font-semibold text-brand-ink">{{ __('More') }}</p>
-            <button type="button" x-on:click="$dispatch('open-modal', 'manual-webhook')" class="{{ $row }}">
-                <span class="flex-1 text-sm text-brand-ink sm:text-base">{{ __('Register the GitHub webhook yourself') }}</span>
-                <span class="shrink-0 text-xs text-brand-moss">{{ __('Manual') }}</span>
-                <x-heroicon-m-chevron-right class="h-4 w-4 shrink-0 text-brand-mist" aria-hidden="true" />
-            </button>
+            @unless ($onDplyGit)
+                <button type="button" x-on:click="$dispatch('open-modal', 'manual-webhook')" class="{{ $row }}">
+                    <span class="flex-1 text-sm text-brand-ink sm:text-base">{{ __('Register the GitHub webhook yourself') }}</span>
+                    <span class="shrink-0 text-xs text-brand-moss">{{ __('Manual') }}</span>
+                    <x-heroicon-m-chevron-right class="h-4 w-4 shrink-0 text-brand-mist" aria-hidden="true" />
+                </button>
+            @endunless
             @if ($site->organization)
                 <a href="{{ route('organizations.notification-channels', $site->organization) }}" wire:navigate class="{{ $row }}">
                     <span class="flex-1 text-sm text-brand-ink sm:text-base">{{ __('Get told when a deploy succeeds or fails') }}</span>
@@ -220,6 +278,37 @@
             </div>
         @endif
     </div>
+</x-modal>
+
+{{-- dply Git push token: shown once --}}
+<x-modal name="dply-git-token" maxWidth="xl" overlayClass="bg-brand-ink/40" focusable>
+    @if ($dplyGitToken && $dplyGitRemote)
+        <div class="space-y-5 p-6 sm:p-7">
+            <div>
+                <h2 class="text-lg font-semibold text-brand-ink">{{ __('Your push token') }}</h2>
+                <p class="mt-0.5 text-sm text-amber-700 dark:text-amber-300">{{ __('Copy it now. It won’t be shown again, and it expires in 30 days.') }}</p>
+            </div>
+            <div class="flex items-center gap-2 rounded-lg bg-brand-sand/30 px-3 py-2">
+                <code class="min-w-0 flex-1 break-all font-mono text-xs text-brand-ink">{{ $dplyGitToken }}</code>
+                {!! $copy($dplyGitToken) !!}
+            </div>
+            @php
+                $authedRemote = preg_replace('#^https://#', 'https://x:'.rawurlencode($dplyGitToken).'@', $dplyGitRemote);
+                $commands = "git remote add dply {$authedRemote}\ngit push dply {$edgeBranch}";
+            @endphp
+            <div>
+                <p class="text-sm font-semibold text-brand-ink">{{ __('Push from your machine') }}</p>
+                <div class="mt-2 flex items-start gap-2 rounded-lg bg-brand-sand/30 px-3 py-2">
+                    <code class="min-w-0 flex-1 whitespace-pre-wrap break-all font-mono text-xs text-brand-ink">{{ $commands }}</code>
+                    {!! $copy($commands) !!}
+                </div>
+                <p class="mt-2 text-xs text-brand-moss">{{ __('The token sits in the remote URL, so keep it out of shared machines. Or run dply git token in the CLI.') }}</p>
+            </div>
+            <div class="flex justify-end">
+                <x-sheet.button type="button" variant="primary" wire:click="dismissDplyGitToken" x-on:click="$dispatch('close-modal', 'dply-git-token')">{{ __('I’ve copied it') }}</x-sheet.button>
+            </div>
+        </div>
+    @endif
 </x-modal>
 
 {{-- Manual webhook --}}

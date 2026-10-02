@@ -9,6 +9,7 @@ use App\Modules\Edge\Services\EdgeDeliveryContextResolver;
 use App\Modules\Edge\Support\EdgeLocalDevDiagnostics;
 use App\Modules\Edge\Support\EdgePlatformCredentials;
 use App\Modules\Edge\Support\FakeEdgeProvision;
+use App\Modules\SourceControl\Services\DplyGit;
 
 /**
  * Shared Edge site dashboard variables for settings + show views.
@@ -84,7 +85,13 @@ final class EdgeSiteViewData
             Site::STATUS_EDGE_DELETING => __('Deleting'),
             default => str_replace('_', ' ', (string) $site->status),
         };
-        $edgeGithubRepoUrl = $edgeRepo !== '' ? 'https://github.com/'.$edgeRepo : null;
+        // A browsable link to the repo: GitHub owner/name, or a full https URL.
+        // A dply Git remote is a git endpoint, not a page — no link.
+        $edgeGithubRepoUrl = match (true) {
+            $edgeRepo === '' || DplyGit::isRemote($edgeRepo) => null,
+            str_contains($edgeRepo, '://') => preg_replace('#\.git$#', '', $edgeRepo),
+            default => 'https://github.com/'.$edgeRepo,
+        };
         $edgeFakeMode = FakeEdgeProvision::enabled();
         $edgeUsesManagedBackend = $site->edge_backend === 'dply_edge';
         $edgeUsesByoCloudflare = $site->usesOrgCloudflareEdge();

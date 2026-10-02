@@ -48,6 +48,18 @@ class GitCloneAuth
      */
     public function envForSite(Site $site, string $url): array
     {
+        if (DplyGit::isRemote($url)) {
+            // Callers expect [] on trouble (the clone then fails with the usual
+            // auth message), and some run inside a page request.
+            try {
+                return app(DplyGit::class)->cloneEnv($url);
+            } catch (Throwable $e) {
+                Log::warning('dply Git read token failed', ['site_id' => $site->id, 'error' => $e->getMessage()]);
+
+                return [];
+            }
+        }
+
         $provider = self::providerForUrl($url);
         $user = $site->user;
         if ($provider === null || $user === null) {

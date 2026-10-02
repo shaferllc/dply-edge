@@ -42,3 +42,9 @@ HORIZON_WORKER_MEMORY
 # --- Stale: Reverb retired in favour of the managed Cloudflare relay. Remove
 #     once confirmed unused; kept here so it doesn't show as drift meanwhile ---
 REVERB_PORT
+
+# --- Read-only DOKS access for /admin/cluster (a web page; no job reads it).
+#     deploy/k8s-readonly/rbac.yaml ---
+DPLY_K8S_API_URL
+DPLY_K8S_TOKEN
+DPLY_K8S_CA

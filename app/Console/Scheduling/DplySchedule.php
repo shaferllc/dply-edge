@@ -32,6 +32,7 @@ use App\Modules\Edge\Console\CollectEdgeRealtimeUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeUsageCommand;
 use App\Modules\Edge\Console\CollectEdgeValkeyUsageCommand;
 use App\Modules\Edge\Console\EvaluateEdgeGuardrailsCommand;
+use App\Modules\Edge\Console\PullDplyGitEventsCommand;
 use App\Modules\Edge\Console\ReapStuckEdgeBuildsCommand;
 use App\Modules\Edge\Console\ResizeEdgeDatabasesCommand;
 use App\Modules\Edge\Console\RollupEdgeAnalyticsEngineCommand;
@@ -129,6 +130,13 @@ final class DplySchedule
             ->withoutOverlapping()
             ->runInBackground() // a slow neighbour must not delay scaling
             ->name('edge-scale-queue-workers');
+        // dply Git pushes (Artifacts events queue) → deploys. Only once set up.
+        $schedule->command(PullDplyGitEventsCommand::class)
+            ->everyFiveSeconds()
+            ->when(static fn (): bool => filled(config('edge.git.queue_id')))
+            ->withoutOverlapping(1) // a killed run must not hold the lock for a day
+            ->runInBackground()
+            ->name('edge-dply-git-events');
         // Failing jobs and crash-looping workers, from the workers' logs.
         $schedule->command(CheckEdgeQueueWorkersCommand::class)
             ->everyFiveMinutes()

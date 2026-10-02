@@ -559,4 +559,18 @@ return [
         'queue_token' => env('DPLY_QUEUE_TOKEN'),
     ],
 
+    /*
+     * dply Git: app repos hosted on Cloudflare Artifacts (T-034). Uses the
+     * platform account + token above (needs Artifacts Edit and Queues Write).
+     * Pushes arrive as Artifacts events on DPLY_GIT_QUEUE_ID, pulled by
+     * dply:edge:git-events. One-time setup: php artisan dply:edge:git-setup.
+     */
+    'git' => [
+        'namespace' => env('DPLY_GIT_NAMESPACE', 'dply'),
+        'queue_id' => env('DPLY_GIT_QUEUE_ID'),
+        // Builds clone with this; must outlive the 900s mirror clone.
+        'read_token_ttl' => (int) env('DPLY_GIT_READ_TOKEN_TTL', 3600),
+        'push_token_ttl' => (int) env('DPLY_GIT_PUSH_TOKEN_TTL', 2592000),
+    ],
+
 ];
