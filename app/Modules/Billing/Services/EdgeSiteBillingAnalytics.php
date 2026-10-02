@@ -79,6 +79,9 @@ final class EdgeSiteBillingAnalytics
     /**
      * @return array<string, mixed>|null
      */
+    /** Site states whose usage is shown: live, mid-deploy, or after a failed deploy. */
+    public const BILLED_STATUSES = [Site::STATUS_EDGE_ACTIVE, Site::STATUS_EDGE_PROVISIONING, Site::STATUS_EDGE_FAILED];
+
     public function forSite(Site $site, int $dailyDays = 30): ?array
     {
         $memoKey = 'edge.billing.for_site.'.$site->id.'.'.$dailyDays;
@@ -87,8 +90,12 @@ final class EdgeSiteBillingAnalytics
             return request()->attributes->get($memoKey);
         }
 
+        // Not only active sites: a site is "provisioning" for the whole of
+        // every deploy (and stays failed after a bad one) while its app,
+        // databases and storage keep running and costing money. dply's own
+        // Billing tab went blank during each self-deploy.
         if (
-            $site->status !== Site::STATUS_EDGE_ACTIVE
+            ! in_array($site->status, self::BILLED_STATUSES, true)
             || $site->edge_backend !== 'dply_edge'
             || $site->isEdgePreview()
         ) {
@@ -227,7 +234,7 @@ final class EdgeSiteBillingAnalytics
     {
         return $organization->sites()
             ->with('server:id,name')
-            ->where('status', Site::STATUS_EDGE_ACTIVE)
+            ->whereIn('status', self::BILLED_STATUSES)
             ->where('edge_backend', 'dply_edge')
             ->orderBy('name')
             ->get()

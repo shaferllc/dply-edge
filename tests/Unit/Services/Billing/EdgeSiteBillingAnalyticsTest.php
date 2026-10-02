@@ -115,3 +115,14 @@ test('a container app bills its compute on the site, not just delivery', functio
     $html = view('livewire.billing.partials.edge-site-daily-compute', ['billing' => $row])->render();
     expect($html)->toContain('Daily compute')->toContain('24.0 vCPU-h');
 });
+
+test('a site mid-deploy or after a failed deploy still shows its usage; a preview does not', function () {
+    config(['dply.edge.usage_billing.enabled' => true]);
+    $org = Organization::factory()->create();
+    $server = Server::factory()->for($org)->create(['status' => Server::STATUS_READY]);
+
+    foreach ([Site::STATUS_EDGE_PROVISIONING, Site::STATUS_EDGE_FAILED] as $status) {
+        $site = Site::factory()->for($org)->for($server)->create(['status' => $status, 'edge_backend' => 'dply_edge']);
+        expect(app(EdgeSiteBillingAnalytics::class)->forSite($site->fresh()))->not->toBeNull($status);
+    }
+});
