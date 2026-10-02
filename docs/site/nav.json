@@ -53,6 +53,7 @@
         { "slug": "resources/queues", "title": "Queues" },
         { "slug": "resources/state", "title": "State (Durable Objects)" },
         { "slug": "resources/realtime", "title": "Realtime (WebSockets)" },
+        { "slug": "resources/messages", "title": "Messages" },
         { "slug": "resources/database-pools", "title": "Database pools" },
         { "slug": "resources/vector-search", "title": "Vector search" },
         { "slug": "resources/ai", "title": "Workers AI" },
