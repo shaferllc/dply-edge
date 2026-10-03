@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Support\Sites;
 
 use App\Models\Site;
+use App\Modules\Edge\Services\EdgeCustomDomainProvisioner;
 use App\Modules\Edge\Services\EdgeDeliveryContextResolver;
 use App\Modules\Edge\Support\EdgeLocalDevDiagnostics;
 use App\Modules\Edge\Support\EdgePlatformCredentials;
@@ -69,6 +70,13 @@ final class EdgeSiteViewData
         $edgeRuntimeMode = (string) ($edgeMeta['runtime_mode'] ?? 'static');
         $edgeOrigin = is_array($edgeMeta['origin'] ?? null) ? $edgeMeta['origin'] : null;
         $edgeAttachedDomains = is_array($edgeMeta['routing']['custom_domains'] ?? null) ? $edgeMeta['routing']['custom_domains'] : [];
+        // The stored target is a snapshot from attach time: show today's.
+        $edgeCnameTarget = app(EdgeCustomDomainProvisioner::class)->cnameTargetFor($site);
+        foreach ($edgeAttachedDomains as $host => $entry) {
+            if (is_array($entry) && ($entry['cname_target'] ?? '') !== '' && $edgeCnameTarget !== '') {
+                $edgeAttachedDomains[$host]['cname_target'] = $edgeCnameTarget;
+            }
+        }
         $edgeIsPreviewChild = ! empty($edgeMeta['preview_parent_site_id']);
         $edgeActiveDeploymentId = $edgeMeta['active_deployment_id'] ?? null;
         $edgeStatusBadgeClass = match ($site->status) {

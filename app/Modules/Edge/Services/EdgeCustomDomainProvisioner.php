@@ -747,7 +747,7 @@ final class EdgeCustomDomainProvisioner
         return (string) ($site->edge_backend ?? '') !== 'org_cloudflare';
     }
 
-    private function cnameTargetFor(Site $site): string
+    public function cnameTargetFor(Site $site): string
     {
         $origin = trim((string) config('edge.custom_hostnames.origin', ''));
         if ($origin !== '' && $this->shouldUseCustomHostnames($site)) {
