@@ -459,7 +459,7 @@
                         </div>
                     </form>
                     @if ($databaseConsoleError)
-                        <pre class="whitespace-pre-wrap rounded-xl border border-rose-500/30 bg-rose-500/10 px-3.5 py-3 font-mono text-xs text-rose-800 dark:text-rose-200">{{ $databaseConsoleError }}</pre>
+                        <pre class="whitespace-pre-wrap rounded-xl border border-rose-500/30 bg-rose-500/10 px-3.5 py-3 font-mono text-xs text-rose-800">{{ $databaseConsoleError }}</pre>
                     @endif
                     @if ($databaseConsoleResult)
                         <x-sheet.table class="max-h-[45vh] overflow-y-auto">
