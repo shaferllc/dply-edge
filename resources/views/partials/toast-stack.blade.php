@@ -74,9 +74,9 @@
                     x-transition:enter-start="opacity-0 translate-y-2"
                     x-transition:enter-end="opacity-100 translate-y-0"
                     :class="toast.type === 'error'
-                        ? 'bg-red-50 border-red-200 text-red-800'
+                        ? 'bg-[#2a1214] border-red-200 text-rose-900'
                         : toast.type === 'warning'
-                            ? 'bg-amber-50 border-amber-200 text-amber-950'
+                            ? 'bg-[#261d0a] border-amber-200 text-amber-950'
                             : 'bg-brand-ink text-brand-cream'"
                     class="relative min-w-[200px] max-w-xl rounded-lg border py-3 pl-4 pr-10 text-sm shadow-lg"
                 >

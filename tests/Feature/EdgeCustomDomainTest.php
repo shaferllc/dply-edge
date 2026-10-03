@@ -424,7 +424,9 @@ test('the domains pages show the verification txt record until the domain is rea
         ->test(Routing::class, ['server' => $site->server, 'site' => $site->fresh()])
         ->call('openDomainDetail', 'www.example.com')
         ->assertSee($proof['name'])
-        ->assertSee($proof['value']);
+        ->assertSee($proof['value'])
+        ->assertSeeHtml('>www</code>')
+        ->assertSeeHtml('>_dply-verify.www</code>');
 
     Livewire::actingAs($user)
         ->test(Domains::class, ['server' => $site->server, 'site' => $site->fresh()])

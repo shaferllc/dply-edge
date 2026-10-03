@@ -332,21 +332,33 @@ domains:
                 </p>
             @elseif (! $isReady)
                 <div class="space-y-3">
-                    <p class="text-sm text-brand-moss">{{ __('Add these at your DNS provider, then check. We also check every 15 minutes.') }}</p>
+                    @php
+                        // DNS providers want the name relative to the domain: @ for the root, www for www.example.com.
+                        $zoneName = \App\Modules\Edge\Services\EdgeDnsZones::zoneNameFor($openDomain);
+                        $relName = fn (string $n): string => $n === $zoneName ? '@' : (str_ends_with($n, '.'.$zoneName) ? substr($n, 0, -strlen('.'.$zoneName)) : $n);
+                        $isApex = $relName($openDomain) === '@';
+                    @endphp
+                    <p class="text-sm text-brand-moss">{{ __('Add these at your DNS provider for :zone, then check. We also check every 15 minutes.', ['zone' => $zoneName]) }}</p>
                     @foreach (array_filter([
                         $target !== '' ? ['CNAME', $openDomain, $target] : null,
                         $proof && ($proof['value'] ?? '') !== '' ? ['TXT', (string) $proof['name'], (string) $proof['value']] : null,
                         $ownership && ($ownership['value'] ?? '') !== '' && ($d['ssl_status'] ?? '') !== 'active' ? [strtoupper((string) ($ownership['type'] ?? 'TXT')), (string) $ownership['name'], (string) $ownership['value']] : null,
                     ]) as [$type, $name, $value])
                         <div class="rounded-lg border border-brand-ink/10 px-3 py-2">
-                            <p class="font-mono text-2xs text-brand-mist">{{ $type }} · {{ $name }}</p>
+                            <p class="text-2xs text-brand-mist">
+                                <span class="font-mono">{{ $type }}</span> ·
+                                {{ __('Name') }} <code class="rounded bg-brand-ink/10 px-1 font-mono text-brand-ink">{{ $relName($name) }}</code>
+                                <span class="font-mono">({{ $name }})</span>
+                            </p>
                             <div class="mt-1 flex items-center gap-2">
                                 <code class="min-w-0 flex-1 break-all font-mono text-xs text-brand-ink">{{ $value }}</code>
                                 {!! $copy($value) !!}
                             </div>
                         </div>
                     @endforeach
-                    <p class="text-xs text-brand-moss">{{ __('A root domain like example.com can’t hold a CNAME: use ALIAS, ANAME or CNAME flattening, or let dply run DNS.') }}</p>
+                    @if ($isApex)
+                        <p class="text-xs text-brand-moss">{{ __('If your provider won’t take a CNAME on @, use ALIAS, ANAME or CNAME flattening, or let dply run DNS. For www, add www.:zone as its own domain.', ['zone' => $zoneName]) }}</p>
+                    @endif
                 </div>
             @endif
 
