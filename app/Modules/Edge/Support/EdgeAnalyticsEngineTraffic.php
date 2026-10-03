@@ -75,7 +75,7 @@ final class EdgeAnalyticsEngineTraffic
 
         $row = $totals[0] ?? [];
         $paths = $this->rows(sprintf(
-            "SELECT blob4 AS path, count() AS requests FROM %s WHERE index1 = '%s' AND timestamp >= toDateTime('%s') AND ".self::VISITOR_PATHS." GROUP BY path ORDER BY requests DESC LIMIT 8",
+            "SELECT blob4 AS path, count() AS requests FROM %s WHERE index1 = '%s' AND timestamp >= toDateTime('%s') AND ".self::VISITOR_PATHS.' GROUP BY path ORDER BY requests DESC LIMIT 8',
             $dataset,
             $index,
             $start,
@@ -109,7 +109,7 @@ final class EdgeAnalyticsEngineTraffic
 
         $limit = min(200, max(1, $limit));
         $rows = $this->rows(sprintf(
-            "SELECT timestamp, blob2 AS hostname, blob3 AS method, blob4 AS path, double1 AS status, double2 AS duration_ms, double3 AS bytes_egress, blob5 AS cache_status, blob7 AS country FROM %s WHERE index1 = '%s' AND timestamp >= toDateTime('%s') AND double1 >= %d AND ".self::VISITOR_PATHS." ORDER BY timestamp DESC LIMIT %d",
+            "SELECT timestamp, blob2 AS hostname, blob3 AS method, blob4 AS path, double1 AS status, double2 AS duration_ms, double3 AS bytes_egress, blob5 AS cache_status, blob7 AS country FROM %s WHERE index1 = '%s' AND timestamp >= toDateTime('%s') AND double1 >= %d AND ".self::VISITOR_PATHS.' ORDER BY timestamp DESC LIMIT %d',
             $dataset,
             $index,
             $since->utc()->format('Y-m-d H:i:s'),
@@ -174,6 +174,44 @@ final class EdgeAnalyticsEngineTraffic
                 'requests' => (int) ($row['requests'] ?? 0),
             ], $countries)),
         ];
+    }
+
+    /**
+     * How each data centre answered the site's visitors (blob5 = how the
+     * worker served it, blob6 = colo): from a cached copy, from the deployed
+     * files, or by asking the app. Null when the dataset can't be queried.
+     *
+     * @return list<array{colo: string, city: ?string, requests: int, cached: int, files: int, app: int}>|null
+     */
+    public function cacheByLocation(Site $site, int $hours = 24): ?array
+    {
+        $dataset = $this->dataset();
+        $index = $this->index($site);
+        if ($dataset === null || $index === null) {
+            return null;
+        }
+
+        $since = now()->utc()->subHours(max(1, $hours))->format('Y-m-d H:i:s');
+        $rows = $this->rows(sprintf(
+            "SELECT blob6 AS colo, sum(_sample_interval) AS requests, sumIf(_sample_interval, blob5 = 'cache-hit' OR blob5 = 'cache-stale') AS cached, sumIf(_sample_interval, blob5 = 'hit') AS files, sumIf(_sample_interval, blob5 = 'cache-miss' OR blob5 = 'container' OR blob5 = 'rewrite-proxy') AS app FROM %s WHERE index1 = '%s' AND timestamp >= toDateTime('%s') AND blob6 != '' AND %s GROUP BY colo ORDER BY requests DESC LIMIT 60",
+            $dataset, $index, $since, self::VISITOR_PATHS,
+        ));
+        if ($rows === null) {
+            return null;
+        }
+
+        return array_values(array_map(static function (array $row): array {
+            $colo = strtoupper((string) ($row['colo'] ?? ''));
+
+            return [
+                'colo' => $colo,
+                'city' => EdgeColos::place($colo)['city'] ?? null,
+                'requests' => (int) ($row['requests'] ?? 0),
+                'cached' => (int) ($row['cached'] ?? 0),
+                'files' => (int) ($row['files'] ?? 0),
+                'app' => (int) ($row['app'] ?? 0),
+            ];
+        }, $rows));
     }
 
     /**

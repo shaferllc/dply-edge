@@ -11,6 +11,7 @@ use App\Livewire\Concerns\Edge\PublishesEdgeHostMap;
 use App\Models\Server;
 use App\Models\Site;
 use App\Modules\Edge\Services\EdgeCachePurger;
+use App\Modules\Edge\Support\EdgeAnalyticsEngineTraffic;
 use Illuminate\Contracts\View\View;
 use Livewire\Component;
 
@@ -43,6 +44,16 @@ class Cache extends Component
     public ?array $entries = null;
 
     public string $listMessage = '';
+
+    /**
+     * How each data centre answered visitors in the last 24 hours, loaded
+     * with the stored copies. null = not loaded yet or no analytics.
+     *
+     * @var list<array{colo: string, city: ?string, requests: int, cached: int, files: int, app: int}>|null
+     */
+    public ?array $locations = null;
+
+    public bool $locationsLoaded = false;
 
     /** False until options are saved once; SSR and container apps cache nothing before that. */
     public bool $configured = false;
@@ -191,6 +202,13 @@ class Cache extends Component
         }
 
         $this->toastError($result['message']);
+    }
+
+    public function loadPage(): void
+    {
+        $this->loadEntries();
+        $this->locations = app(EdgeAnalyticsEngineTraffic::class)->cacheByLocation($this->site);
+        $this->locationsLoaded = true;
     }
 
     public function loadEntries(): void

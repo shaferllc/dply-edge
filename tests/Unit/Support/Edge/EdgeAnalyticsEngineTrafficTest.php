@@ -67,3 +67,21 @@ test('same day traffic reads totals status paths and recent rows from one datase
         ->and($overview['recent'][0]['status'])->toBe(200)
         ->and($overview['recent'][0]['method'])->toBe('GET');
 });
+
+test('cache by location splits each data centre into cached, files and app', function () {
+    config(['edge.cloudflare.analytics_dataset' => 'dply_edge_requests']);
+    $site = new Site;
+    $site->id = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
+
+    $client = Mockery::mock(EdgeCloudflareClient::class);
+    $client->shouldReceive('canQueryAnalyticsEngine')->andReturn(true);
+    $client->shouldReceive('queryAnalyticsEngineSql')->once()->andReturnUsing(function (string $sql) {
+        expect($sql)->toContain('GROUP BY colo')->and($sql)->toContain('_sample_interval');
+
+        return [['colo' => 'iad', 'requests' => 10, 'cached' => 6, 'files' => 1, 'app' => 3]];
+    });
+
+    expect((new EdgeAnalyticsEngineTraffic($client))->cacheByLocation($site))->toBe([
+        ['colo' => 'IAD', 'city' => 'Ashburn', 'requests' => 10, 'cached' => 6, 'files' => 1, 'app' => 3],
+    ]);
+});

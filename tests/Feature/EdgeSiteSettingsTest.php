@@ -10,12 +10,16 @@ use App\Livewire\Sites\Edge\Workspace\Build;
 use App\Livewire\Sites\Edge\Workspace\Cache;
 use App\Livewire\Sites\Edge\Workspace\Delivery;
 use App\Livewire\Sites\Edge\Workspace\Deploys;
+use App\Livewire\Sites\Edge\Workspace\DeployTriggers;
+use App\Livewire\Sites\Edge\Workspace\Logs;
 use App\Livewire\Sites\Edge\Workspace\Overview;
 use App\Livewire\Sites\Edge\Workspace\OverviewObservability;
+use App\Livewire\Sites\Edge\Workspace\Resources;
 use App\Livewire\Sites\Edge\Workspace\Traffic;
 use App\Livewire\Sites\EdgeSettings;
 use App\Models\AuditLog;
 use App\Models\ConsoleAction;
+use App\Models\EdgeDeployHook;
 use App\Models\EdgeDeployment;
 use App\Models\EdgeUsageSnapshot;
 use App\Models\Organization;
@@ -25,6 +29,8 @@ use App\Models\User;
 use App\Modules\Billing\Services\EdgeSiteAccessAnalytics;
 use App\Modules\Edge\Livewire\BuildJourney;
 use App\Modules\Edge\Services\EdgeCachePurger;
+use App\Modules\Edge\Support\EdgeAnalyticsEngineTraffic;
+use App\Modules\Providers\Cloudflare\EdgeCloudflareClient;
 use App\Support\Sites\SiteWorkspaceBreadcrumbs;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -237,7 +243,7 @@ test('edge logs page sums up the latest deploys and opens a failed build in its 
     ]);
 
     $lw = Livewire::actingAs($user)
-        ->test(\App\Livewire\Sites\Edge\Workspace\Logs::class, ['server' => $server, 'site' => $site])
+        ->test(Logs::class, ['server' => $server, 'site' => $site])
         ->assertSee('8bd04e2 failed')
         ->assertSee('npm run build exited with code 1');
 
@@ -520,6 +526,32 @@ test('edge cache tab lists KV once on init, not on every render', function () {
         ->assertSee('/about');
 });
 
+test('edge cache tab shows every cache layer and how each location answered', function () {
+    [$user, $server, $site] = makeEdgeSiteForSettings();
+
+    $purger = \Mockery::mock(EdgeCachePurger::class);
+    $purger->shouldReceive('listEntries')->andReturn(['ok' => true, 'entries' => [], 'message' => '']);
+    app()->instance(EdgeCachePurger::class, $purger);
+    config(['edge.cloudflare.analytics_dataset' => 'dply_edge_requests']);
+    $client = \Mockery::mock(EdgeCloudflareClient::class);
+    $client->shouldReceive('canQueryAnalyticsEngine')->andReturn(true);
+    $client->shouldReceive('queryAnalyticsEngineSql')->once()->andReturn([
+        ['colo' => 'IAD', 'requests' => 80, 'cached' => 60, 'files' => 0, 'app' => 20],
+        ['colo' => 'FRA', 'requests' => 20, 'cached' => 15, 'files' => 0, 'app' => 5],
+    ]);
+    app()->instance(EdgeAnalyticsEngineTraffic::class, new EdgeAnalyticsEngineTraffic($client));
+
+    Livewire::actingAs($user)
+        ->test(Cache::class, ['server' => $server, 'site' => $site])
+        ->assertSee('Everything the edge keeps')
+        ->assertSee('Each location checks again every 60 seconds')
+        ->call('loadPage')
+        ->assertSee('75% of 100 requests were answered at the edge')
+        ->assertSee('from 2 locations.')
+        ->assertSee('Ashburn')
+        ->assertSee('Frankfurt');
+});
+
 test('edge traffic tab paints first, then loads access analytics once into the cache', function () {
     [$user, $server, $site] = makeEdgeSiteForSettings();
     $accessQueries = fn (): int => collect(DB::getQueryLog())
@@ -632,7 +664,7 @@ test('the map’s App box says Deploying while a deploy runs', function () {
     [$user, $server, $site] = makeEdgeSiteForSettings();
     $site->mergeEdgeMeta(['runtime_mode' => 'container']);
     $site->save();
-    $lw = Livewire::actingAs($user)->test(\App\Livewire\Sites\Edge\Workspace\Resources::class, ['server' => $server, 'site' => $site])
+    $lw = Livewire::actingAs($user)->test(Resources::class, ['server' => $server, 'site' => $site])
         ->assertDontSee('Deploying');
 
     EdgeDeployment::query()->forceCreate([
@@ -686,7 +718,7 @@ test('deploy triggers sum up in a sentence, and a new hook shows its URL once in
     [$user, $server, $site] = makeEdgeSiteForSettings();
 
     $lw = Livewire::actingAs($user)
-        ->test(\App\Livewire\Sites\Edge\Workspace\DeployTriggers::class, ['server' => $server, 'site' => $site])
+        ->test(DeployTriggers::class, ['server' => $server, 'site' => $site])
         ->assertSee('Pushes don’t deploy yet.', false)
         ->assertSee('Create a deploy hook')
         ->call('openNewHook')
@@ -698,11 +730,11 @@ test('deploy triggers sum up in a sentence, and a new hook shows its URL once in
         ->assertSee('1 deploy hook')
         ->assertSee('“Sanity publish” hasn’t fired yet', false);
 
-    $hook = \App\Models\EdgeDeployHook::query()->where('site_id', $site->id)->firstOrFail();
+    $hook = EdgeDeployHook::query()->where('site_id', $site->id)->firstOrFail();
     $lw->call('openHook', (string) $hook->id)
         ->call('revokeOpenHook')
         ->assertDontSee('“Sanity publish” hasn’t fired yet', false);
-    expect(\App\Models\EdgeDeployHook::query()->where('site_id', $site->id)->exists())->toBeFalse();
+    expect(EdgeDeployHook::query()->where('site_id', $site->id)->exists())->toBeFalse();
 });
 
 test('build page reads as a sentence, and a setting saves from its dialog', function () {

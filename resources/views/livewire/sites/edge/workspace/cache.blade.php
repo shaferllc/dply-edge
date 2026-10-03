@@ -17,6 +17,18 @@
         'standard' => __('what your app marks public'),
         default => __('every public page'),
     };
+    $isStatic = (string) ($site->edgeMeta()['runtime_mode'] ?? 'static') === 'static';
+    $layers = array_filter([
+        [__('Pages and responses, by the settings above'), __('Everywhere'), $mode !== 'off'],
+        [__('Built files with hashed names, like /build/assets/app-3f2a9c.js. Kept for a year: a deploy gives changed files new names.'), __('Each location'), ! $isStatic],
+        [__('Your deployed files, after the first visit in each location. A deploy switches to the new files at once.'), __('Each location'), $isStatic],
+        [__('Which deploy, domains and settings to use. Each location checks again every 60 seconds.'), __('Each location'), true],
+        [(int) $browserTtl === 0 ? __('Browsers ask for a fresh copy on every visit.') : __('Browsers keep their own copy for :t and can’t be purged.', ['t' => $browserLabel]), __('Each visitor'), true],
+    ], fn ($layer) => $layer[2]);
+    $located = collect($locations ?? []);
+    $locTotal = (int) $located->sum('requests');
+    $locEdge = (int) $located->sum(fn ($l) => $l['cached'] + $l['files']);
+    $pct = fn (int $part, int $whole) => $whole > 0 ? (int) round($part * 100 / $whole) : 0;
     $canEdit = auth()->user()?->can('update', $site) ?? false;
     $canPurge = auth()->user()?->can('deploy', $site) ?? false;
     $row = 'flex min-h-12 w-full items-center gap-3 border-b border-brand-ink/10 py-3 text-left hover:bg-brand-sand/20 disabled:cursor-default disabled:hover:bg-transparent';
@@ -24,7 +36,7 @@
     $close = fn (string $action) => '<button type="button" '.$action.' class="dply-icon-btn h-9 w-9" aria-label="'.e(__('Close')).'">'.svg('heroicon-o-x-mark', 'h-5 w-5', ['aria-hidden' => 'true'])->toHtml().'</button>';
 @endphp
 
-<div wire:init="loadEntries">
+<div wire:init="loadPage">
     <section class="border-b border-brand-ink/10 px-5 py-4 sm:px-6">
         @include('livewire.sites.edge.workspace.partials.feature-guide', [
             'what' => __('The edge cache stores public responses so the next visit does not wait on the app. Hashed files such as JavaScript, CSS, and images are kept. HTML that sets a session cookie is not.'),
@@ -114,6 +126,50 @@
                     <span class="flex-1 text-sm text-rose-600 sm:text-base dark:text-rose-300">{{ __('Clear everything the edge stored') }}</span>
                     <x-heroicon-m-chevron-right class="h-4 w-4 shrink-0 text-brand-mist" aria-hidden="true" />
                 </button>
+            @endif
+        </div>
+        <div>
+            <p class="border-b border-brand-ink/10 pb-2 text-sm font-semibold text-brand-ink">{{ __('Everything the edge keeps') }}</p>
+            @foreach ($layers as [$sentence, $scope])
+                <div class="flex min-h-12 items-center gap-3 border-b border-brand-ink/10 py-3">
+                    <span class="flex-1 text-sm text-brand-ink sm:text-base">{{ $sentence }}</span>
+                    <span class="{{ $state }}">{{ $scope }}</span>
+                </div>
+            @endforeach
+            <p class="pt-3 text-xs text-brand-moss">{{ __('Each Cloudflare location keeps its own copy, so the first visit in a city fetches it once.') }}</p>
+        </div>
+        <div>
+            <p class="border-b border-brand-ink/10 pb-2 text-sm font-semibold text-brand-ink">{{ __('Where visitors were answered, last 24 hours') }}</p>
+            @if (! $locationsLoaded)
+                <div class="border-b border-brand-ink/10 py-3"><span class="inline-block h-4 w-64 rounded bg-brand-ink/10 align-middle motion-safe:animate-pulse"></span></div>
+            @elseif ($locations === null)
+                <div class="border-b border-brand-ink/10 py-3"><x-sheet.note>{{ __('Traffic by location isn’t available right now.') }}</x-sheet.note></div>
+            @elseif ($locations === [])
+                <p class="border-b border-brand-ink/10 py-3 text-sm text-brand-moss">{{ __('No visits recorded in the last 24 hours.') }}</p>
+            @else
+                <p class="border-b border-brand-ink/10 py-3 text-sm text-brand-ink">
+                    {{ trans_choice(':pct% of :count request was answered at the edge|:pct% of :count requests were answered at the edge', $locTotal, ['pct' => $pct($locEdge, $locTotal), 'count' => number_format($locTotal)]) }},
+                    {{ trans_choice('from :n location.|from :n locations.', count($locations), ['n' => count($locations)]) }}
+                </p>
+                <ul class="divide-y divide-brand-ink/10 border-b border-brand-ink/10">
+                    @foreach ($locations as $loc)
+                        <li class="grid gap-1.5 py-3 sm:grid-cols-[12rem_1fr_7rem] sm:items-center sm:gap-4" wire:key="cache-loc-{{ $loc['colo'] }}">
+                            <span class="truncate text-sm text-brand-ink">{{ $loc['city'] ?? $loc['colo'] }} <span class="font-mono text-xs text-brand-mist">{{ $loc['colo'] }}</span></span>
+                            <span class="flex h-2 overflow-hidden rounded-full bg-brand-ink/10" title="{{ __('Cached copy :a% · Deployed files :b% · Your app :c%', ['a' => $pct($loc['cached'], $loc['requests']), 'b' => $pct($loc['files'], $loc['requests']), 'c' => $pct($loc['app'], $loc['requests'])]) }}">
+                                <span class="bg-brand-sage" style="width: {{ $pct($loc['cached'], $loc['requests']) }}%"></span>
+                                <span class="bg-sky-400" style="width: {{ $pct($loc['files'], $loc['requests']) }}%"></span>
+                                <span class="bg-amber-400" style="width: {{ $pct($loc['app'], $loc['requests']) }}%"></span>
+                            </span>
+                            <span class="font-mono text-xs text-brand-moss sm:text-right">{{ trans_choice(':n request|:n requests', $loc['requests'], ['n' => number_format($loc['requests'])]) }}</span>
+                        </li>
+                    @endforeach
+                </ul>
+                <p class="flex flex-wrap gap-x-4 gap-y-1 pt-3 text-xs text-brand-moss">
+                    <span><span class="mr-1 inline-block h-2 w-2 rounded-full bg-brand-sage"></span>{{ __('Cached copy') }}</span>
+                    <span><span class="mr-1 inline-block h-2 w-2 rounded-full bg-sky-400"></span>{{ __('Deployed files') }}</span>
+                    <span><span class="mr-1 inline-block h-2 w-2 rounded-full bg-amber-400"></span>{{ __('Your app') }}</span>
+                    <span><span class="mr-1 inline-block h-2 w-2 rounded-full bg-brand-ink/10"></span>{{ __('Redirects, 404s and other') }}</span>
+                </p>
             @endif
         </div>
     </section>
