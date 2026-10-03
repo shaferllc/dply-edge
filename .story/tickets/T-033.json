@@ -1,12 +1,16 @@
 {
   "blockedBy": [],
-  "completedDate": null,
+  "citesRulings": [
+    "r-t35hxw263sw2nm9j"
+  ],
+  "completedDate": "2026-10-02",
   "createdDate": "2026-09-30",
   "description": "Pending owner decision (asked 2026-09-29, deferred). What exists: Upstash-compatible Redis REST (valkey-gateway, T-027), dply Messages (QStash-compatible Worker, T-029, flag resource-messages), Vector REST (T-030, on app Workers). All are product-neutral: a separate product would add its own brand/site/sign-up/billing and org-level (not app-level) Valkey and vector indexes. Record the decision as a storybloq ruling; then T-032 (Messages launch) and pricing (REST $0.10/100K commands, Messages $0.50/100K) follow from it.",
+  "displayId": "T-033",
   "id": "T-033",
   "order": 120,
   "phase": null,
-  "status": "open",
+  "status": "complete",
   "title": "Owner decision: ship Redis REST / Messages / Vector as a separate product, or inside dply",
   "type": "task"
 }

@@ -3,14 +3,14 @@
   "citesRulings": [
     "r-5w7h5d0b902aeq0n"
   ],
-  "completedDate": null,
+  "completedDate": "2026-10-02",
   "createdDate": "2026-10-02",
   "description": "Small Go agent baked into every container image: entrypoint that runs the app's original entrypoint/cmd (signals forwarded, exits with it), private port, reached only via the Worker's /_dply/agent/* with the app token. Generated Dockerfiles add it directly; repo Dockerfiles get a thin wrapper layer built on their image (original Entrypoint/Cmd read from the image). Per-app opt-out. Runs a command and streams output; designed so a PTY terminal can be added later. Phase 3 of r-5w7h5d0b902aeq0n.\n\nDONE (26d6a9c54): agent + generated images (incl. release bundles), Worker route, DO activity, dply:edge:exec, flag resource-agent off by default, per-app opt-out via meta container_agent=false. NOT DONE: repo-Dockerfile wrapping (resolve ENTRYPOINT/CMD from the Dockerfile + base image config) — follow-up; opt-out UI comes with T-038. Rollout: builder image 26d6a9c54, flag on for a test app, real deploy + dply:edge:exec, then dply's own, then everyone.",
   "displayId": "T-037",
   "id": "T-037",
   "order": 160,
   "phase": null,
-  "status": "inprogress",
+  "status": "complete",
   "title": "dply container agent + one-off commands with streamed output",
   "type": "feature"
 }

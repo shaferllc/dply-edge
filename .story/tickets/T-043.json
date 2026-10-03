@@ -1,0 +1,12 @@
+{
+  "blockedBy": [],
+  "completedDate": null,
+  "createdDate": "2026-10-02",
+  "description": "Split out of T-020/T-021 on 2026-10-02. The code is region-aware (ValkeyRegions, DataRegion, per-region gateway config, sfo3 example in tests); production has only nyc3. Needs: a second cluster (terraform), gateway deploy there, DNS *.cache.sfo.dply.io / *.db.sfo.dply.io, R2 credentials, DPLY_VALKEY_REGIONS config, and a cost decision. Parked with dedicated compute (ruling r-t35hxw263sw2nm9j) until there's demand outside the US east.",
+  "id": "T-043",
+  "order": 220,
+  "phase": null,
+  "status": "open",
+  "title": "Multi-region dply databases and Valkey (second DOKS cluster)",
+  "type": "feature"
+}

@@ -1,12 +1,13 @@
 {
   "blockedBy": [],
-  "completedDate": null,
+  "completedDate": "2026-10-02",
   "createdDate": "2026-09-30",
   "description": "Flex tenants sleep, so a REST call after idle waits for a wake. For a cheap/free tier, pack many small tenants into one always-on Valkey: the gateway rewrites keys to a tenant prefix and each login gets an ACL limited to ~{prefix}*. Risks to design for: Lua scripts (KEYS[] only, refuse dynamic key access or run scripts on dedicated pods), KEYS/SCAN/FLUSHDB/FLUSHALL, pub/sub channel namespacing, DBSIZE/INFO leakage, memory fairness (per-tenant maxmemory is impossible in a shared process: enforce with usage sampling). Start with REST only; TCP stays pod-per-tenant.",
+  "displayId": "T-028",
   "id": "T-028",
   "order": 70,
   "phase": null,
-  "status": "open",
+  "status": "complete",
   "title": "Serverless data: shared always-on \"nano\" Valkey pool (no cold start) with per-tenant key prefix + ACL isolation",
   "type": "feature"
 }

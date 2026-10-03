@@ -1,0 +1,16 @@
+{
+  "attribution": "owner-direct",
+  "date": "2026-10-02",
+  "id": "r-t35hxw263sw2nm9j",
+  "recordedBy": {
+    "client": "claude",
+    "id": "9eda6455-53d1-494e-a93e-0efcf75bff92"
+  },
+  "scopeTags": [
+    "T-033",
+    "T-032",
+    "dedicated-compute"
+  ],
+  "supersedes": null,
+  "text": "T-033 decided 2026-10-02: Redis REST, Messages and Vector ship inside dply (resources in the Resources map and dply pricing, behind their flags until ready), not as a separate product. Dedicated compute (T-023–T-026, Knative + gVisor) is parked for later; finish every other open ticket now."
+}

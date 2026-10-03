@@ -3,13 +3,14 @@
   "citesRulings": [
     "r-5w7h5d0b902aeq0n"
   ],
-  "completedDate": null,
+  "completedDate": "2026-10-02",
   "createdDate": "2026-10-02",
   "description": "One org-wide page grouping containers, dply databases, Valkey, D1, KV, buckets, queues, vector indexes: apps using each, state, size/usage, backup status, cost this month; each row links to the existing management panel; container rows open the Console. Phase 5 of r-5w7h5d0b902aeq0n.",
+  "displayId": "T-039",
   "id": "T-039",
   "order": 180,
   "phase": null,
-  "status": "open",
+  "status": "complete",
   "title": "Customer Projects → Resources index",
   "type": "feature"
 }

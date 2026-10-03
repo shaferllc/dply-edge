@@ -1,13 +1,13 @@
 {
   "blockedBy": [],
-  "completedDate": null,
+  "completedDate": "2026-10-02",
   "createdDate": "2026-09-04",
   "description": "Root cause found 2026-09-11: the plan tier resolved from a BYO server count that is always 0, so every org was Free (3 Edge apps) forever, even paying ones. Fixed: quotaLimit() returns null for onAnyPaidPlan(); quota message + subscribe copy rewritten; tests/Feature/EdgeQuotaCapTest.php. Trial dropped (ruling). Remaining: server-count bill-preview stepper and tier UI on the billing page — tracked in T-014.",
   "displayId": "T-009",
   "id": "T-009",
   "order": 10,
   "phase": "edge-polish",
-  "status": "inprogress",
+  "status": "complete",
   "title": "Fix the quota and plan surface for Edge-only",
   "type": "task"
 }

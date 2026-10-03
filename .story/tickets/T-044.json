@@ -1,0 +1,12 @@
+{
+  "blockedBy": [],
+  "completedDate": null,
+  "createdDate": "2026-10-02",
+  "description": "Split from T-018 on 2026-10-02. The T-016 spike found Workflows aren't available in Workers for Platforms, so Worker-script sites can't bind one, and the container Worker exports no WorkflowEntrypoint, so the kind stays in HIDDEN_FROM_BUILDER. A container version would export a generic dply WorkflowEntrypoint from the container Worker whose steps call the app (e.g. POST /_dply/workflow/{name}/{step} through the agent or the app), with the workflow's class name stored on the connection. Needs an owner call on whether it's worth building.",
+  "id": "T-044",
+  "order": 230,
+  "phase": null,
+  "status": "open",
+  "title": "Workflows for container apps",
+  "type": "feature"
+}
