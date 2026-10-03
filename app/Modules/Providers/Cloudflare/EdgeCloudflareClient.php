@@ -1466,7 +1466,7 @@ class EdgeCloudflareClient
             ],
         ];
 
-        $customOrigin = trim((string) config('edge.custom_hostnames.fallback_origin', ''));
+        $customOrigin = trim((string) config('edge.custom_hostnames.origin', ''));
         if ($customOrigin !== '') {
             $payload['custom_origin_server'] = $customOrigin;
         }

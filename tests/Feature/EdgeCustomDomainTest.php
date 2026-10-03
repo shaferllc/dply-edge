@@ -309,14 +309,14 @@ test('a pending zone in the org cloudflare account does not auto-verify a hostna
     Http::assertNotSent(fn ($request) => str_contains($request->url(), '/dns_records'));
 });
 
-test('a cname to the shared fallback origin needs the site txt token to verify', function () {
+test('a cname to the shared origin needs the site txt token to verify', function () {
     config([
         'edge.fake.enabled' => true,
         'edge.custom_hostnames.enabled' => true,
-        'edge.custom_hostnames.fallback_origin' => 'fallback.on-dply.site',
+        'edge.custom_hostnames.origin' => 'origin.on-dply.site',
     ]);
     $site = makeLiveEdgeSite();
-    $cname = [DNS_CNAME | DNS_A | DNS_AAAA => [['type' => 'CNAME', 'target' => 'fallback.on-dply.site']]];
+    $cname = [DNS_CNAME | DNS_A | DNS_AAAA => [['type' => 'CNAME', 'target' => 'origin.on-dply.site']]];
 
     $entry = provisionerWithDns(['www.victim.com' => $cname])->provision($site->fresh(), 'www.victim.com');
     $proof = $entry['dply_verification'];
@@ -337,6 +337,27 @@ test('a cname to the shared fallback origin needs the site txt token to verify',
     $site->update(['meta' => array_merge($site->fresh()->meta, ['edge' => $meta])]);
     $entry = provisionerWithDns(['old.example.com' => $cname])->verify($site->fresh(), 'old.example.com');
     expect($entry['dns_status'])->toBe('ready');
+});
+
+test('a cname target override is shown, and the shared origin still verifies', function () {
+    config([
+        'edge.fake.enabled' => true,
+        'edge.custom_hostnames.enabled' => true,
+        'edge.custom_hostnames.origin' => 'origin.on-dply.site',
+        'edge.custom_hostnames.cname_target' => 'cname.on-dply.site',
+    ]);
+    $site = makeLiveEdgeSite();
+
+    $entry = provisionerWithDns([])->provision($site->fresh(), 'www.example.com');
+    expect($entry['cname_target'])->toBe('cname.on-dply.site');
+    $txt = ['_dply-verify.www.example.com' => [DNS_TXT => [['type' => 'TXT', 'txt' => $entry['dply_verification']['value']]]]];
+
+    foreach (['cname.on-dply.site', 'origin.on-dply.site'] as $target) {
+        $entry = provisionerWithDns($txt + [
+            'www.example.com' => [DNS_CNAME | DNS_A | DNS_AAAA => [['type' => 'CNAME', 'target' => $target]]],
+        ])->verify($site->fresh(), 'www.example.com');
+        expect($entry['dns_status'])->toBe('ready');
+    }
 });
 
 test('verify ignores a hostname the site never attached', function () {
@@ -414,12 +435,12 @@ test('a flattened apex verifies by address match plus the site txt token', funct
     config([
         'edge.fake.enabled' => true,
         'edge.custom_hostnames.enabled' => true,
-        'edge.custom_hostnames.fallback_origin' => 'fallback.on-dply.site',
+        'edge.custom_hostnames.origin' => 'origin.on-dply.site',
     ]);
     $site = makeLiveEdgeSite();
     $dns = [
         'victim.com' => [DNS_CNAME | DNS_A | DNS_AAAA => [['type' => 'A', 'ip' => '104.18.1.1']]],
-        'fallback.on-dply.site' => [DNS_A | DNS_AAAA => [['type' => 'A', 'ip' => '104.18.1.1'], ['type' => 'AAAA', 'ipv6' => '2606:4700::1']]],
+        'origin.on-dply.site' => [DNS_A | DNS_AAAA => [['type' => 'A', 'ip' => '104.18.1.1'], ['type' => 'AAAA', 'ipv6' => '2606:4700::1']]],
     ];
 
     $proof = provisionerWithDns($dns)->provision($site->fresh(), 'victim.com')['dply_verification'];
@@ -436,7 +457,7 @@ test('a flattened apex verifies by address match plus the site txt token', funct
     expect(provisionerWithDns($dns)->verify($site->fresh(), 'other.com')['dns_status'])->toBe('failed');
 });
 
-test('a flattened apex needs the txt token even without the shared fallback origin', function () {
+test('a flattened apex needs the txt token even without the shared origin', function () {
     config(['edge.fake.enabled' => true, 'edge.custom_hostnames.enabled' => false]);
     $site = makeLiveEdgeSite();
     $dns = [

@@ -391,7 +391,12 @@ return [
         'ssl_method' => env('DPLY_EDGE_CUSTOM_HOSTNAME_SSL_METHOD', 'http'),
         // Optional override for CF custom_origin_server / CNAME target shown
         // in the UI. When empty, sites keep CNAME → {slug}.{on-dply apex}.
-        'fallback_origin' => env('DPLY_EDGE_CUSTOM_HOSTNAME_FALLBACK_ORIGIN'),
+        'origin' => env('DPLY_EDGE_CUSTOM_HOSTNAME_ORIGIN'),
+        // The CNAME target customers are told to use, when it should read
+        // differently from the shared origin (e.g. cname.dply.io). It must
+        // resolve into the SaaS zone: a DNS-only CNAME to the origin. The
+        // origin keeps verifying, so domains already pointed at it stay valid.
+        'cname_target' => env('DPLY_EDGE_CUSTOM_HOSTNAME_CNAME_TARGET'),
     ],
 
     'default_backend' => 'dply_edge',

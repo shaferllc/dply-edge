@@ -225,7 +225,9 @@ final class EdgeCustomDomainProvisioner
         }
         $resolved = array_values(array_filter($resolved));
         $expected = strtolower(rtrim($edgeHost, '.'));
-        $matches = in_array($expected, $resolved, true);
+        $sharedOrigin = strtolower(rtrim(trim((string) config('edge.custom_hostnames.origin', '')), '.'));
+        $matches = in_array($expected, $resolved, true)
+            || ($this->usesSharedOrigin($site) && $sharedOrigin !== '' && in_array($sharedOrigin, $resolved, true));
 
         // An apex can't hold a CNAME: CNAME flattening / ALIAS / ANAME answer
         // with the target's addresses instead. Addresses are shared by every
@@ -240,7 +242,7 @@ final class EdgeCustomDomainProvisioner
             $matches = $flattened = array_intersect($resolved, array_filter($targetIps)) !== [];
         }
 
-        // Also accept CNAME → site edge hostname when UI shows a fallback origin override.
+        // Also accept CNAME → site edge hostname when UI shows a shared origin.
         $perSiteCname = false;
         if (! $matches) {
             $siteHost = strtolower(rtrim((string) $site->edgeHostname(), '.'));
@@ -254,12 +256,12 @@ final class EdgeCustomDomainProvisioner
             'expected' => $expected,
         ]);
 
-        // The shared fallback origin is the same CNAME for every org, so it
+        // The shared origin is the same CNAME for every org, so it
         // proves nothing about who owns the hostname: require the site's TXT
         // token. A CNAME to the site's own edge hostname is per-site already.
         // Domains that were ready before this check are grandfathered.
         $grandfathered = ($previous['dns_status'] ?? null) === 'ready' || ! empty($previous['ownership_verified_at']);
-        if ($matches && ! $perSiteCname && ($flattened || $this->usesSharedFallback($site)) && ! $grandfathered
+        if ($matches && ! $perSiteCname && ($flattened || $this->usesSharedOrigin($site)) && ! $grandfathered
             && ! in_array($proof['value'], $this->txtValues($proof['name']), true)) {
             $matches = false;
             $error = __('Add a TXT record :name with value :value to prove you own this hostname, then verify again.', $proof);
@@ -729,9 +731,9 @@ final class EdgeCustomDomainProvisioner
             });
     }
 
-    private function usesSharedFallback(Site $site): bool
+    private function usesSharedOrigin(Site $site): bool
     {
-        return trim((string) config('edge.custom_hostnames.fallback_origin', '')) !== ''
+        return trim((string) config('edge.custom_hostnames.origin', '')) !== ''
             && $this->shouldUseCustomHostnames($site);
     }
 
@@ -747,9 +749,11 @@ final class EdgeCustomDomainProvisioner
 
     private function cnameTargetFor(Site $site): string
     {
-        $fallback = trim((string) config('edge.custom_hostnames.fallback_origin', ''));
-        if ($fallback !== '' && $this->shouldUseCustomHostnames($site)) {
-            return strtolower(rtrim($fallback, '.'));
+        $origin = trim((string) config('edge.custom_hostnames.origin', ''));
+        if ($origin !== '' && $this->shouldUseCustomHostnames($site)) {
+            $target = trim((string) config('edge.custom_hostnames.cname_target', '')) ?: $origin;
+
+            return strtolower(rtrim($target, '.'));
         }
 
         return (string) $site->edgeHostname();
